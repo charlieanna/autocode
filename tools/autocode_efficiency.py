@@ -20,9 +20,11 @@ import warnings
 from copy import deepcopy
 
 try:
+    from . import autocode_cost as cost
     from . import autocode_design_manifest as design_manifest
     from . import autocode_usage as usage
 except ImportError:
+    import autocode_cost as cost
     import autocode_design_manifest as design_manifest
     import autocode_usage as usage
 
@@ -894,6 +896,18 @@ def summary(state: RunState, now=None, *, accounting=None, completion_current=No
         measured["cost"]["reported_usd"]["value"] if visual_usage_available else None,
         denominator,
         "Cost or accepted denominator is unknown",
+    )
+    # The status view's own spend: reported where the provider reported, else the dated-table estimate, so a
+    # coding-plan run that reports no cost gets a figure too; only when every stage is priced (#1925).
+    spent = cost.view(state)
+    units["spent_usd"] = _ratio(
+        spent["spent_usd"] if spent["complete"] and visual_usage_available else None,
+        denominator,
+        "Usage coverage is incomplete"
+        if not visual_usage_available
+        else "Cost coverage is incomplete: a stage is unpriced, partial or still running"
+        if not spent["complete"]
+        else reason,
     )
     units["wall_seconds"] = _ratio(
         timing["wall_union_seconds"] if visual_usage_available else None,

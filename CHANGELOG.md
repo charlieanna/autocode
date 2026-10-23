@@ -74,6 +74,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Cost per accepted task is no longer always unknown on coding-plan routes. `efficiency.unit_metrics.spent_usd`
+  divides the run's own spend (`cost.spent_usd`: reported where the provider reported, else the dated-table
+  estimate) by the accepted deliveries, and stays null with a reason while any stage is unpriced, partial or
+  running. `reported_usd` is unchanged (#1867 S1c).
 - The status-view schema now requires the eight fields the view always returns (`workspace`, `run_dir`,
   `planning_depth`, `pause`, `package`, `tool_containment_backend`, `changes_by_criterion`, `dev_server`), so
   removing one fails the JSON contract test, and a new always-present field must be added to the schema

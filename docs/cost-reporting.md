@@ -85,6 +85,9 @@ additive measurement projections, not new acceptance gates or model calls.
   not just a historical `TASK_COMPLETE`. A stale checkout contributes no current
   delivery; a state-only view without a fresh gate result keeps acceptance unknown.
   Unit metrics remain undefined without an accepted root outcome or complete usage.
+  `unit_metrics.reported_usd` divides only provider-reported cost; `unit_metrics.spent_usd`
+  divides the status view's `cost.spent_usd` (reported, else the dated-table estimate), so a
+  coding-plan run gets a figure too, and only while `cost.complete` is true.
   Experiment reports must additionally apply their external
   delivery oracle; the status projection cannot establish untested product quality.
 
