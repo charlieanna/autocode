@@ -85,9 +85,19 @@ class JsonActionCliTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
-        registry = patch.dict(os.environ, {"AUTOCODE_HOME": str(self.root / "registry-home")})
-        registry.start()
-        self.addCleanup(registry.stop)
+        # An empty config home, so a new run never takes the developer's default_provider (#1933).
+        config_home = tempfile.TemporaryDirectory()
+        self.addCleanup(config_home.cleanup)
+        environment = patch.dict(
+            os.environ,
+            {
+                "AUTOCODE_HOME": str(self.root / "registry-home"),
+                "XDG_CONFIG_HOME": config_home.name,
+                "AUTOCODE_PROVIDER": "",
+            },
+        )
+        environment.start()
+        self.addCleanup(environment.stop)
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         seed_greeting_workspace(self.root)
         subprocess.run(["git", "-C", str(self.root), "add", "greet.py", "test_greeting.py"], check=True)
