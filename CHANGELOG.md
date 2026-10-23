@@ -17,6 +17,11 @@ PR template asks for an entry here; a change without one is incomplete.
   latest draft, avoiding repeated full plans without requiring repair tools or file access.
   Stale-reference checks and final-review approval requirements stay enforced.
 
+- Attached terminal chats consume keyboard commands while an external worker runs,
+  and request only its named boundary pause (#1880). Current and previously opened
+  chats use bounded asynchronous status reads, including at questions (#1882 D1).
+  Status failures remain visible; unchanged idle screens no longer redraw on a timer.
+
 - Kilo launches verify explicitly selected reasoning variants against the selected
   model's native catalog before inference (#1940). Unsupported saved variants now
   require an explicit correction instead of silently using the provider default.

@@ -994,7 +994,8 @@ class StreamAndNoticeTests(unittest.TestCase):
         waiting = {
             "view": {"needs": {"kind": "approve_plan", "token": "t"}, "progress": {"needs_you": "plan approval needed"}}
         }
-        client.cli = lambda argv, env=None: subprocess.CompletedProcess(argv, 0, json.dumps(waiting), "")
+        key = (str(WORKSPACE), f"{WORKSPACE}/.autocode/runs/r0")
+        client._poller.tick = lambda targets: [(key, json.dumps(waiting), "")]
         client.check_others(every=0)
         client.check_others(every=0)
         self.assertEqual(1, client.text().count("Another chat needs you: plan approval needed (r0)"))
@@ -1076,7 +1077,8 @@ class InterruptTests(unittest.TestCase):
         seen = []
         client = chat.ChatClient(WORKSPACE, RUN, observe=seen.append)
         payload = json.dumps({"view": {"status": "RUNNING", "workspace": str(WORKSPACE), "run_dir": str(RUN)}})
-        with mock.patch.object(client, "cli", return_value=subprocess.CompletedProcess([], 0, payload, "")):
+        key = (str(WORKSPACE), str(RUN))
+        with mock.patch.object(client._poller, "tick", return_value=[(key, payload, "")]):
             view = client.status()
         self.assertEqual([view], seen)
 
