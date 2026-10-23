@@ -14,6 +14,7 @@ except ImportError:
 
 
 import copy
+import json
 
 try:
     from . import autocode_goals as goals
@@ -147,8 +148,30 @@ def criterion_retention(clarification: dict, stage: str) -> tuple[str, dict]:
     return retention.RULE, {"retained_criteria": copy.deepcopy(clarification["retained_criteria"])}
 
 
+def _original_overlay(original, latest) -> dict:
+    """Losslessly encode an older JSON value relative to the complete current value."""
+    delta: dict = {"remove": [], "replace": []}
+
+    def compare(old, new, path):
+        if isinstance(old, dict) and isinstance(new, dict):
+            delta["remove"].extend([*path, key] for key in new if key not in old)
+            for key, value in old.items():
+                if key in new:
+                    compare(value, new[key], [*path, key])
+                else:
+                    delta["replace"].append({"path": [*path, key], "value": copy.deepcopy(value)})
+        elif isinstance(old, list) and isinstance(new, list) and len(old) == len(new):
+            for index, (before, after) in enumerate(zip(old, new, strict=True)):
+                compare(before, after, [*path, index])
+        elif type(old) is not type(new) or old != new:
+            delta["replace"].append({"path": path, "value": copy.deepcopy(old)})
+
+    compare(original, latest, [])
+    return delta
+
+
 def historical_author_report(stage: str, original: dict, latest: dict | None) -> tuple[str, dict | None]:
-    """Keep superseded author JSON available by its pin, alongside the complete latest draft."""
+    """Keep every older author value inline without duplicating unchanged JSON subtrees."""
     if latest is None:
         return "", None
     if (
@@ -158,12 +181,17 @@ def historical_author_report(stage: str, original: dict, latest: dict | None) ->
     ):
         return "", original
     reference = {key: copy.deepcopy(value) for key, value in original.items() if key != "content"}
-    reference["reference_only"] = True
+    reference["content_base"] = "rejected_report.content"
+    reference["content_delta"] = _original_overlay(original["content"], latest["content"])
+    if len(json.dumps(reference, indent=2)) >= len(json.dumps(original, indent=2)):
+        return "", original
     return (
-        "HISTORICAL PLANNING DRAFT. original_report is a reference to the superseded draft at its hash-pinned path; "
-        "the complete latest rejected_report and protected_contract are supplied below. Repair that latest draft. "
-        "The historical artifact remains available if a specific unresolved detail requires it; "
-        "do not reauthor the plan from the superseded draft.\n",
+        "HISTORICAL PLANNING DRAFT. original_report encodes its complete older JSON inline relative to "
+        "rejected_report.content: copy that base, remove each content_delta.remove path, then replace each "
+        "content_delta.replace path with its exact supplied value. Path arrays name object keys or list indices; "
+        "an empty path replaces the root. No file access is needed. The original artifact path/hash stay pinned. "
+        "The complete latest rejected_report and protected_contract remain below; repair the latest draft, "
+        "not the superseded one.\n",
         reference,
     )
 

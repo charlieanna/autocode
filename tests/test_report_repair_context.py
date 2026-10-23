@@ -15,6 +15,47 @@ from . import test_report_repair as repair_fixtures
 
 
 class ClarificationContextTests(unittest.TestCase):
+    def test_historical_overlay_keeps_all_old_values_available_without_read_tools(self):
+        original = {
+            "shared": "retained text " * 500,
+            "flags": [False, 1.0, None],
+            "old_only": {"value": 0},
+            "nested": {"list": [1, 2], "a/b~key": "héllo"},
+        }
+        latest = {
+            "shared": original["shared"],
+            "flags": [0, 1, {}],
+            "new_only": True,
+            "nested": {"list": [1], "a/b~key": "changed"},
+        }
+        source = {"format": "json", "truncated": False, "content": original}
+        before = copy.deepcopy((source, latest))
+        instruction, compact = context.historical_author_report("glm_revise", source, {**source, "content": latest})
+        self.assertIn("No file access is needed", instruction)
+        self.assertEqual("rejected_report.content", compact["content_base"])
+        restored = copy.deepcopy(latest)
+        for path in compact["content_delta"]["remove"]:
+            parent = restored
+            for part in path[:-1]:
+                parent = parent[part]
+            del parent[path[-1]]
+        for change in compact["content_delta"]["replace"]:
+            path = change["path"]
+            if not path:
+                restored = copy.deepcopy(change["value"])
+                continue
+            parent = restored
+            for part in path[:-1]:
+                parent = parent[part]
+            parent[path[-1]] = copy.deepcopy(change["value"])
+        self.assertEqual(json.dumps(original, sort_keys=True), json.dumps(restored, sort_keys=True))
+        self.assertEqual(before, (source, latest))
+
+    def test_historical_compaction_is_skipped_when_distinct_content_would_grow(self):
+        original = {"format": "json", "truncated": False, "content": {"summary": "a" * 1000}}
+        latest = {**original, "content": {"summary": "b" * 1000}}
+        self.assertEqual(("", original), context.historical_author_report("glm_revise", original, latest))
+
     def test_historical_reference_compaction_preserves_other_repair_baselines(self):
         original = {"format": "json", "truncated": False, "content": {"summary": "original"}}
         latest = {"format": "json", "truncated": False, "content": {"summary": "latest"}}
@@ -285,8 +326,8 @@ class DecisionRepairContextTests(unittest.TestCase):
         approve_fixture(self.state, runner.goals)
         self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
         self.state["next_stage"] = "glm_revise"
-        original = {"summary": "original " + "x" * 120000}
-        latest = {"summary": "latest " + "y" * 120000}
+        original = {"summary": "retained " + "x" * 120000}
+        latest = {**original, "repair_fault": True}
         pending = repair_fixtures.RepairTests.queue(self, stage="glm_revise", role="glm", report=json.dumps(original))
         original_source = runner.repair_report_source(pending["original"])
         with self.assertRaises(runner.ReportRepairQueued):
@@ -297,7 +338,7 @@ class DecisionRepairContextTests(unittest.TestCase):
         data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertEqual(latest, data["rejected_report"]["content"])
         self.assertNotIn("content", list(data["original_report"]))
-        self.assertTrue(data["original_report"]["reference_only"])
+        self.assertEqual({"remove": [["repair_fault"]], "replace": []}, data["original_report"]["content_delta"])
         for key in ("path", "sha256", "bytes", "format", "truncated"):
             self.assertEqual(original_source[key], data["original_report"][key])
         self.assertEqual(original, json.loads(Path(data["original_report"]["path"]).read_text()))

@@ -13,8 +13,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Discovery and revision report repairs receive the current exact criterion-reference
   inventory, so unchanged criteria can be retained without copying whole rows again (#1946).
-  A superseded author draft stays available by its pinned artifact reference alongside
-  the complete latest draft, avoiding repeated full plans in bounded repair prompts.
+  A superseded author draft keeps every value inline as exact changes from the complete
+  latest draft, avoiding repeated full plans without requiring repair tools or file access.
   Stale-reference checks and final-review approval requirements stay enforced.
 
 - Kilo launches verify explicitly selected reasoning variants against the selected
