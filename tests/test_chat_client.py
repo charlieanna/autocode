@@ -838,6 +838,34 @@ class NewChatSetupTests(unittest.TestCase):
             self.assertNotIn("(current)", history.slash("/engine", ""))
             self.assertIn("  kilocode  Kilo: unavailable  (new chats use it)", history.slash("/connect", ""))
 
+    def test_a_choice_made_at_the_first_question_starts_that_first_chat_with_it(self):
+        """#2009: open_chat was handed the new-chat mode and options before its question, so /connect NAME use,
+        /mode and /engine typed there changed only the next chat; the first ran on the default connection."""
+        with tempfile.TemporaryDirectory() as folder:
+            history = self.history(folder)
+
+            def ask(prompt):
+                self.assertEqual("What do you want done? ", prompt)
+                self.assertIn("New chats use OpenCode.", history.slash("/connect", "opencode use"))
+                self.assertIn("New chats start in Other mode.", history.slash("/mode", "other"))
+                return "Add a --shout flag"
+
+            started = []
+            modes = lambda mode, **_: {
+                "id": mode,
+                "start_args": ["--mode-flag", mode],
+                "spend_confirmation": "planning",
+            }
+            with (
+                mock.patch.object(chat, "project_runs", return_value=[]),
+                mock.patch.object(chat, "mode_row", side_effect=modes),
+                mock.patch.object(
+                    chat, "start", side_effect=lambda ws, brief, args, options, **_: (brief, args, options)
+                ),
+            ):
+                started = chat.open_chat(Path(folder), None, [], ask=ask, say=lambda _: None, new=history.new)
+            self.assertEqual(("Add a --shout flag", ["--mode-flag", "other"], ["--provider", "opencode"]), started)
+
     def test_connect_checks_signs_in_through_the_terminal_and_uses_a_backend(self):
         with tempfile.TemporaryDirectory() as folder:
             history = self.history(folder)

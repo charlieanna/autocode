@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- In the terminal chat, `/connect NAME use`, `/mode` and `/engine` typed at the first
+  "What do you want done?" question now apply to the chat started there, as they already did
+  for `/new`; before, that first chat ran on the default connection and mode while the header
+  named the chosen ones (#2009).
 - A configured Kilo connection (a TOML whose command runs `kilo`, such as a copy of
   `kilocode.toml` with other roles) now launches as the bundled `kilocode` does: with the
   activity plugin, the output cap, the native variant check and the read-only checker policy.
