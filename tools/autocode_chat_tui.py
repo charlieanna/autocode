@@ -29,11 +29,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 try:
+    from . import autocode_chat_attention as attention
+    from . import autocode_chat_attention_panel as attention_panel
     from . import autocode_chat_context as contexts
     from . import autocode_chat_observation as observation
     from . import autocode_chat_panel as panel
     from . import autocode_chat_verification as verification
 except ImportError:
+    import autocode_chat_attention as attention
+    import autocode_chat_attention_panel as attention_panel
     import autocode_chat_context as contexts
     import autocode_chat_observation as observation
     import autocode_chat_panel as panel
@@ -519,6 +523,9 @@ class ChatTUI:
         self._restore_context: tuple | None = None
         self._restored_session = False
         self._observation = observation.Read()
+        self._attention_view: dict = {}
+        self._attention_menu: attention.Menu | None = None
+        self._attention_top = 0
         self._prompt = ""
         self._asking = False
         self.idle: Callable[[], None] | None = None
@@ -541,7 +548,7 @@ class ChatTUI:
         self._waiting = False
         self._launched = False  # a step is running since the last question; its first views may predate it
         # The client's own commands (/diff, /undo), and one of them waiting for the person's yes.
-        self._act: Callable[[str, str], str | panel.Confirm] | None = None
+        self._act: Callable[[str, str], str | panel.Confirm | attention.Menu] | None = None
         self._run_open = True  # whether a chat is open: the run-only commands wait for one
         self._tabs: list[dict] = []  # the session's chats from the client, drawn once there are two
         self._pending: panel.Confirm | None = None
@@ -744,11 +751,12 @@ class ChatTUI:
             # from another run must never transfer with a display snapshot.
             self._view, self._pending, self._queued, self._menu_index = None, None, [], 0
             self._launch_execution = None
+            self._attention_menu = None
             self._run_open = run_dir is not None
             self.set_context(workspace, run_dir)
             return saved is not None
 
-    def bind(self, act: Callable[[str, str], str | panel.Confirm], *, run: bool = True) -> None:
+    def bind(self, act: Callable[[str, str], str | panel.Confirm | attention.Menu], *, run: bool = True) -> None:
         """The client that carries out ``/diff`` and ``/undo``: act(name, argument) returns what to
         show, or a ``Confirm`` to ask first. It may raise to leave the question being asked.
         ``run`` false: no chat is open yet, so the menu offers only what works without one."""
@@ -788,6 +796,15 @@ class ChatTUI:
         """A failed read does not establish that the worker stopped."""
         with self._lock:
             self._observation.fail(error)
+            self._draw()
+
+    def attention(self, summary: dict) -> None:
+        with self._lock:
+            if summary == self._attention_view:
+                return
+            self._attention_view = summary
+            if self._attention_menu is not None and summary.get("notice"):
+                self._attention_menu.note = summary["notice"]
             self._draw()
 
     def worker_launch(self, receipt: dict) -> None:
@@ -942,6 +959,12 @@ class ChatTUI:
 
     def _handle(self, key, *, asking: bool) -> str | None:
         """One key: at a question, the answer once Enter sends one; while working, "pause" or None."""
+        if self._attention_menu is not None:
+            attention_panel.handle(self, key, asking=asking)
+            return None
+        if key == curses.KEY_F8 and self._act is not None:
+            self._run("/attention", asking)
+            return None
         composer = self._composer
         if key is None:  # a key curses could not read; redraw and wait
             return None
@@ -1065,6 +1088,9 @@ class ChatTUI:
             return "pause"
         if name in panel.CLIENT_COMMANDS and self._act is not None:
             result = self._act(name, argument)
+            if isinstance(result, attention.Menu):
+                attention_panel.show(self, result)
+                return None
             if isinstance(result, panel.Confirm):
                 self._transcript.info(name, result.text)
                 self._pending = result
@@ -1231,6 +1257,7 @@ class ChatTUI:
                 self._side_panel(layout)
                 self._question_or_status(layout)
                 self._command_menu(layout)
+                attention_panel.draw(self, layout, truncate)
                 self._composer_box(layout)
                 self._hints(layout)
                 screen.refresh()
@@ -1242,8 +1269,22 @@ class ChatTUI:
         self._put(0, 0, truncate(brand, layout.width), self._style("brand"))
         used = display_width(brand)
         context = f"  {self._context}" if self._context else ""
-        if context and used + display_width(context) < layout.width:
-            self._put(0, used, truncate(context, layout.width - used), self._style("dim"))
+        unread, unknown = self._attention_view.get("unread", 0), self._attention_view.get("unknown", 0)
+        badge = ""
+        if unread or unknown:
+            badge = f" F8: {unread} unread" + (f", {unknown} unknown" if unknown else "")
+        if self._attention_view.get("error"):
+            badge = " F8: attention unavailable"
+        remaining = max(0, layout.width - used - display_width(badge))
+        if context and remaining:
+            self._put(0, used, truncate(context, remaining), self._style("dim"))
+        if badge:
+            self._put(
+                0,
+                max(used, layout.width - display_width(badge)),
+                truncate(badge, layout.width - used),
+                self._style("dim"),
+            )
         unavailable = bool(self._observation.error) or any(
             row.get("current") and row.get("state") == "unavailable" for row in self._tabs
         )

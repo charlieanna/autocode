@@ -144,16 +144,15 @@ def view(
 ) -> dict:
     """Caller supplies fresh completion, evidence, repair, supervision and design-input inspections."""
     try:
+        from . import autocode_attention as attention
         from . import autocode_replay_view as replay_view
         from . import autocode_worker_view as worker_view
     except ImportError:
+        import autocode_attention as attention
         import autocode_replay_view as replay_view
         import autocode_worker_view as worker_view
-    settings = state.get("settings")
-    authority = settings.get("replay_recording") if isinstance(settings, dict) else None
-    replay_progress = replay_view.progress(state)
-    invalid_replay = isinstance(settings, dict) and "replay_recording" in settings and replay_progress is None
-    simulated = isinstance(authority, dict) and authority.get("checks") == "recorded"
+    replay = replay_view.completion_policy(state)
+    replay_progress, invalid_replay, simulated = replay["progress"], replay["invalid"], replay["simulated"]
     if simulated or invalid_replay:
         completion_current = False
     status = state.get("status", "")
@@ -291,6 +290,9 @@ def view(
         "pause": None,
     }
     result["chat"] = chat_view.project(state, result, run_dir=run_dir, workspace=workspace)
+    result["attention"] = attention.project(
+        state, result, workspace=workspace, run_dir=run_dir, context=result["chat"]["context"]
+    )
     if simulated or invalid_replay:
         result["completion_current"] = False
     result["efficiency"] = autocode_efficiency.summary(

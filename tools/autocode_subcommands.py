@@ -33,6 +33,7 @@ SUBCOMMANDS = {
     "conversation": "autocode_conversation_cli",
     "chat": "autocode_chat_client",
     "worker": "autocode_worker_cli",
+    "attention": "autocode_attention_cli",
     "verify": "autocode_verify_task",
     "issue": "autocode_issue",
     "arena": "autocode_arena",

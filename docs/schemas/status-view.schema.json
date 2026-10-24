@@ -27,7 +27,7 @@
         "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
         "provider", "route_assignments", "information_review", "tool_containment", "job_report_recovery",
         "efficiency", "conversation", "chat", "workspace", "run_dir", "planning_depth", "pause", "package",
-        "tool_containment_backend", "changes_by_criterion", "dev_server", "execution", "observation"
+        "tool_containment_backend", "changes_by_criterion", "dev_server", "execution", "observation", "attention"
       ],
       "properties": {
         "execution": {
@@ -52,6 +52,41 @@
             "run_dir": {"type": "string"},
             "checkpoint_token": {"type": "string"},
             "sampled_at": {"type": "string"}
+          }
+        },
+        "attention": {
+          "type": "object",
+          "description": "Versioned current human-boundary or completed-turn identity. Acknowledgement records only this local OS user's read state, never task approval or delivery verification. Missing fields in older cores mean unknown.",
+          "required": ["version", "item", "acknowledgement", "acknowledge"],
+          "properties": {
+            "version": {"type": "integer", "enum": [1]},
+            "item": {
+              "type": ["object", "null"],
+              "properties": {
+                "id": {"type": "string", "description": "Opaque core identity for this run incarnation and current decision context or completed same-chat turn; grants no task authority."},
+                "workspace": {"type": "string"},
+                "run_dir": {"type": "string"},
+                "kind": {"type": "string"},
+                "label": {"type": "string"},
+                "summary": {"type": "string", "description": "Bounded, redacted task snippet, never raw provider output."}
+              }
+            },
+            "acknowledgement": {
+              "type": "object",
+              "properties": {
+                "available": {"type": "boolean"},
+                "state": {"type": "string", "enum": ["unread", "acknowledged", "unknown"]},
+                "receipt": {"type": ["object", "null"]}
+              }
+            },
+            "acknowledge": {
+              "type": ["object", "null"],
+              "description": "Only this acknowledgement's exact named argument array may be dispatched; it answers no question and approves no plan.",
+              "properties": {
+                "label": {"type": "string"},
+                "next_command": {"type": "array", "items": {"type": "string"}}
+              }
+            }
           }
         },
         "schema": {"type": "integer", "enum": [2], "description": "The view's version; it changes only if a field's meaning changes."},

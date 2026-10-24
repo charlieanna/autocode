@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Terminal attention survives viewer restarts with shared local read receipts.
+  F8 or `/attention` inspects current decisions and distinct same-chat completions
+  without advancing tasks or losing drafts; empty JSON run inventories remain
+  readable and receipt failures stay unknown (#1993).
 - `autocode doctor` and `autocode models` no longer refuse a profile route a new run never
   takes. Automatic selection replaces a provider's default route when the plan serves it
   under another prefix, and the checks now weigh the routes the run would actually use,

@@ -39,6 +39,42 @@ class ClientGap(RuntimeError):
     """The view names no action this client can take: a gap in the CLI or the status view."""
 
 
+def attention_acknowledgement(value: dict, workspace: Path, run_dir: Path):
+    """Only the core's exact acknowledgement array, never a task answer or resume."""
+    if not isinstance(value, dict):
+        raise ClientGap("The core offers no valid attention metadata")
+    item = value.get("item") or {}
+    offer = value.get("acknowledge") or {}
+    receipt = value.get("acknowledgement") or {}
+    if not all(isinstance(part, dict) for part in (item, offer, receipt)):
+        raise ClientGap("The core offers no valid attention metadata")
+    identity = item.get("id")
+    offered = offer.get("next_command")
+    wanted = [
+        "autocode",
+        "attention",
+        "ack",
+        "--workspace",
+        str(workspace),
+        "--run-dir",
+        str(run_dir),
+        "--item-id",
+        identity,
+    ]
+    if (
+        type(value.get("version")) is not int
+        or value.get("version") != 1
+        or receipt.get("available") is not True
+        or not isinstance(identity, str)
+        or re.fullmatch(r"[0-9a-f]{64}", identity) is None
+        or item.get("workspace") != str(workspace)
+        or item.get("run_dir") != str(run_dir)
+        or offered != wanted
+    ):
+        raise ClientGap("The core offers no acknowledgement for that exact alert/run")
+    return NamedCommand(list(offered[1:]), {})
+
+
 @dataclass(frozen=True)
 class NamedCommand:
     """A named action as arguments after ``autocode``, with its issued tokens kept out of argv."""
