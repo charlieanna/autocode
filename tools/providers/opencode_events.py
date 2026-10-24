@@ -127,7 +127,9 @@ def normalized_events(rows):
         flags = compactions[0].get("compaction") if isinstance(compactions[0].get("compaction"), dict) else {}
         summary = {"signal": "compaction_part", **{k: flags[k] for k in ("auto", "overflow") if k in flags}}
     else:
-        summary = context_window.shrank(rows)
+        # A shrinking last request is a signature only when nothing else failed, or the window itself
+        # failed (Kilo refuses, summarizes and carries on); an unrelated failure proves nothing.
+        summary = None if errors and context_window.overflow(rows) is None else context_window.shrank(rows)
     if summary is not None:
         normalized.append(
             {

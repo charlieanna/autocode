@@ -214,6 +214,33 @@ class ClassificationTests(unittest.TestCase):
                     status, support.failure_status(self.log([{"type": "error", "error": {"message": message}}]))
                 )
 
+    def test_a_quota_error_naming_the_window_size_is_not_an_overflow(self):
+        """A refusal that quotes the model's window size while saying the account is spent stays an account stop."""
+        rows = [
+            {
+                "type": "error",
+                "error": {
+                    "code": "resource_exhausted",
+                    "message": "Your weekly limit is exhausted; this model's context window is 200000 tokens",
+                },
+            }
+        ]
+        self.assertIsNone(context_window.overflow(rows))
+        self.assertNotEqual("PAUSED_CONTEXT_WINDOW", support.failure_status(self.log(rows)))
+        # A provider that says the input exceeded the window still classifies with no typed code at all.
+        said = context_window.overflow([{"type": "error", "error": {"message": OVERFLOW}}])
+        self.assertEqual(OVERFLOW, said["message"])
+
+    def test_a_shrinking_request_is_a_compaction_only_when_nothing_else_failed(self):
+        rows = [*step("ses_k", 1, 120_000), *step("ses_k", 2, 400)]
+        self.assertEqual(
+            {"overflow": None, "compaction": {"signal": "request_shrank", "from": 120_000, "to": 400}},
+            context_window.found(rows),
+        )
+        explained = [*rows, {"type": "error", "error": {"code": "server_error", "message": "upstream 500"}}]
+        self.assertIsNone(context_window.found(explained))
+        self.assertNotEqual("PAUSED_CONTEXT_WINDOW", support.failure_status(self.log(explained)))
+
     def test_claude_compaction_fails_the_call_and_names_the_stop(self):
         boundary = {
             "type": "system",

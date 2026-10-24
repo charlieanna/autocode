@@ -14,8 +14,8 @@ What classifies, in the stage's event rows as ``autocode_support.events`` return
 - an ``error`` or ``turn.failed`` row typed as an overflow (``overflow``);
 - a ``turn.failed`` row with code ``context_compacted``, which ``providers.opencode_events``
   emits for an ``autocode_compaction`` row (the activity plugin saw a compaction part) or for a
-  request whose input shrank far below the previous request's in the same session: a
-  conversation only grows unless something summarized it (``compacted``);
+  request whose input shrank far below the previous request's in the same session, when nothing
+  else explains the stop: a conversation only grows unless something summarized it (``compacted``);
 - Claude Code's ``compact_boundary`` row, which its translator turns into the same code.
 
 The model's own words never classify. Pure functions over event rows; imports nothing from AutoCode.
@@ -34,7 +34,10 @@ PLUGIN_ROW = "autocode_compaction"  # written by providers/opencode_activity.mjs
 SHRINK_RATIO = 0.5
 SHRINK_FLOOR = 32_000
 _TYPED = ("contextoverflowerror", "context_length_exceeded", OVERFLOW_CODE, "prompt_too_long")
-_WORDS = ("context window", "context_length_exceeded", "prompt is too long", "input is too long")
+# Phrases that say this request did not fit. A quota error often quotes the model's window size in the
+# same sentence ("...limit exhausted; its context window is 200000 tokens"), so a bare mention of the
+# window is not evidence of an overflow: the wording has to say the input exceeded it.
+_WORDS = ("context_length_exceeded", "prompt is too long", "input is too long", "exceeds the context window")
 
 
 def _typed(value) -> bool:
@@ -92,9 +95,12 @@ def request_sizes(rows) -> list[int]:
         seen.add(identity)
         tokens = part.get("tokens")
         cache = tokens.get("cache") if isinstance(tokens, dict) else None
-        values = [tokens.get("input"), cache.get("read"), cache.get("write")] if isinstance(cache, dict) else []
-        if len(values) == 3 and all(type(value) is int and value >= 0 for value in values):
-            sizes.append(sum(values))
+        if not isinstance(tokens, dict) or not isinstance(cache, dict):
+            continue  # a request without an input and cache-report is not measured
+        reported = [tokens.get("input"), cache.get("read"), cache.get("write")]
+        counted = [value for value in reported if value is not None]
+        if len(counted) == len(reported) and all(type(value) is int and value >= 0 for value in counted):
+            sizes.append(sum(counted))
     return sizes
 
 
@@ -112,6 +118,9 @@ def compacted(rows) -> dict | None:
 
     A normalized ``turn.failed`` row with code ``context_compacted`` carries the detail its emitter
     found; raw rows are read for the plugin's ``autocode_compaction`` row and the shrink signature.
+    The signature counts only when nothing else failed, or the failure was the window itself (Kilo
+    refuses, then summarizes and carries on): a stage that failed for another reason can send a
+    smaller last request for any number of unrelated reasons.
     """
     for row in rows or ():
         error = _error(row)
@@ -120,8 +129,11 @@ def compacted(rows) -> dict | None:
             return dict(detail) if isinstance(detail, dict) else {"signal": "reported"}
     for row in rows or ():
         if isinstance(row, dict) and row.get("type") == PLUGIN_ROW:
-            detail = row.get("compaction") if isinstance(row.get("compaction"), dict) else {}
+            reported = row.get("compaction")
+            detail = reported if isinstance(reported, dict) else {}
             return {"signal": "compaction_part", **{k: detail[k] for k in ("auto", "overflow") if k in detail}}
+    if any(_error(row) is not None for row in rows or ()) and overflow(rows) is None:
+        return None
     return shrank(rows)
 
 

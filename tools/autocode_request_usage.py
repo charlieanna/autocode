@@ -291,7 +291,8 @@ def saved_metrics(state: RunState, key):
 def stage_peaks(state: RunState):
     """Each saved stage's largest single request, so a person can see how close stages run to the window (#1942)."""
     peaks = []
-    for record in state.get("stages") if isinstance(state.get("stages"), list) else []:
+    stages = state.get("stages")
+    for record in stages if isinstance(stages, list) else []:
         if not isinstance(record, dict):
             continue
         metrics = record.get("metrics")
