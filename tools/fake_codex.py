@@ -898,6 +898,14 @@ if stage == "astra_finalize" and "retain_contract" in schema.get("properties", {
     }
     if "initial_task" in schema["properties"]["contract"]["properties"]:
         retained["initial_task"] = draft.get("initial_task")
+    if "acceptance_criteria" in schema["properties"]["contract"]["properties"]:
+        # The reference's criteria delta (#1991); empty, it retains every row.
+        retained["acceptance_criteria"] = {
+            "retain_from": retained["retain_contract"],
+            "upsert": [],
+            "remove": [],
+            "proofs": [],
+        }
     result["contract"] = retained
     result["requirement_trace"] = []
 Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))

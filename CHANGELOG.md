@@ -11,6 +11,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The final Plan Reviewer can correct acceptance criteria inside its retained-plan
+  reference, with the same hash-bound criteria delta a Planner revision uses (changed
+  or new rows, removed IDs, corrected proofs), instead of turning a wrong criterion or
+  proof into a blocking question and another planning cycle. The correction takes every
+  ordinary change receipt and guard; milestones, the technical approach and permissions
+  stay with the Planner (#1991).
+
 - The terminal distinguishes viewer read age from the core snapshot sample time.
   Failed reads retain a last-known snapshot, and details show source/checkpoint
   identity without treating polling as work progress (#1990).

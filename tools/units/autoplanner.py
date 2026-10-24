@@ -1104,7 +1104,8 @@ def repair_rules(stage, schema):
     if "retain_contract" in fields["contract"].get("properties", {}):
         return (
             "Use clarification_context.retained_contract as the current reference and "
-            "clarification_context.retained_criteria for retained criterion identities.\n" + retention.FINAL_RULE
+            "clarification_context.retained_criteria for retained criterion identities.\n"
+            + retention.final_rule(schema)
         )
     return (
         REVISION_CONFLICT_RULE
@@ -1449,13 +1450,13 @@ def context(state: RunState, stage, state_path):
     if stage in retention.AUTHORS and retention.token(state):
         packet["retained_criteria"] = retention.inventory(state)
         packet["retained_contract"] = retention.token(state)
-        retain_rule = retention.RULE
-        if stage not in retention.FINAL:
-            retain_rule += retention.delta_rule()
         if stage in retention.FINAL:
+            # The reference form takes no per-row references; its criteria delta is in the final rule.
             packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
             retention.compact_final_packet(packet)
-            retain_rule += retention.FINAL_RULE
+            retain_rule = retention.final_rule()
+        else:
+            retain_rule = retention.RULE + retention.delta_rule()
     prompt = (
         (retention.FINAL_PROMPT if compact_final else PROMPTS[stage])
         + audit_instruction

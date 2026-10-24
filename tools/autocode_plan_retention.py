@@ -3,6 +3,9 @@
 Model reports may retain a criterion or final contract without copying its prose.
 References expand before the ordinary schema, provenance and approval guards;
 no semantic equivalence guess, new authority, or validation bypass is involved.
+A Planner stage may write its criteria as a delta on the retained contract, and
+the final reviewer may correct acceptance criteria, and nothing else, with the same
+delta inside its contract reference (#1991).
 """
 
 from __future__ import annotations
@@ -78,10 +81,30 @@ satisfies instructions to return the final contract without rewriting it.
 If a concern remains unresolved, put it in contract.open_blocking_questions; the
 runner retains existing obligations and makes the task non-executable. Never mark
 an unresolved concern resolved to use retention. The final reviewer does not
-rewrite criteria, permissions or milestone structure; the Planner owns revisions.
+rewrite permissions, milestones or the technical approach, and changes nothing the
+reference object does not offer; the Planner owns those revisions.
 Independent observations, source_trace and concern decisions are still yours to
 supply and are checked normally. Retention is not user approval.
 """
+FINAL_DELTA_RULE = """
+FINAL CRITERIA CORRECTION. Beside retain_contract, always include
+contract.acceptance_criteria={"retain_from":retained_contract,"upsert":[],"remove":[],
+"proofs":[]}, copying the same current token; empty, it retains every criterion.
+A concern that only an acceptance criterion settles (a wrong or missing criterion, a
+proof naming the wrong test) is yours to correct there: full changed or new rows in
+upsert, IDs to drop in remove. The runner keeps every other row exactly and in order.
+Each change passes the guards a Planner revision passes: a removed or reworded
+protected criterion needs its contract_changes receipt with a saved user answer or
+feedback, source coverage still applies, and a test:/guard: proof cannot become a
+plain command; this syntax grants no authority. requirement_trace=[] still inherits
+the validated Planner trace, which must still cover every requirement by criterion ID
+after your change; otherwise supply requirement_trace in full.
+"""
+
+
+def final_rule(schema=None):
+    """An older pinned final-review schema without the criteria delta is never told to emit one."""
+    return FINAL_RULE + (FINAL_DELTA_RULE + PROOF_RULE if schema is None or allows_delta(schema) else "")
 
 
 def token(state: RunState):
@@ -113,35 +136,33 @@ def model_schema(schema, state: RunState, stage):
         "additionalProperties": False,
     }
     criteria["items"] = {"anyOf": [reference, criteria["items"]]}
-    if stage not in FINAL:
-        body["properties"]["acceptance_criteria"] = {
-            "anyOf": [
-                criteria,
-                {
+    delta = {
+        "type": "object",
+        "properties": {
+            "retain_from": {"type": "string", "enum": [token(state)]},
+            "upsert": {"type": "array", "items": full_row},
+            "remove": {"type": "array", "items": {"type": "string"}},
+            "proofs": {
+                "type": "array",
+                "items": {
                     "type": "object",
-                    "properties": {
-                        "retain_from": {"type": "string", "enum": [token(state)]},
-                        "upsert": {"type": "array", "items": full_row},
-                        "remove": {"type": "array", "items": {"type": "string"}},
-                        "proofs": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {"id": {"type": "string"}, "verification_method": {"type": "string"}},
-                                "required": ["id", "verification_method"],
-                                "additionalProperties": False,
-                            },
-                        },
-                    },
-                    "required": ["retain_from", "upsert", "remove"],
+                    "properties": {"id": {"type": "string"}, "verification_method": {"type": "string"}},
+                    "required": ["id", "verification_method"],
                     "additionalProperties": False,
                 },
-            ]
-        }
+            },
+        },
+        "required": ["retain_from", "upsert", "remove"],
+        "additionalProperties": False,
+    }
+    if stage not in FINAL:
+        body["properties"]["acceptance_criteria"] = {"anyOf": [criteria, delta]}
     if stage in FINAL:
+        # The final reviewer corrects acceptance criteria only, and only as a delta on the
+        # retained contract (#1991); the rest of the plan stays the Planner's to revise.
         reference = {
             "type": "object",
-            "properties": {"retain_contract": {"type": "string"}},
+            "properties": {"retain_contract": {"type": "string"}, "acceptance_criteria": delta},
             "required": ["retain_contract"],
             "additionalProperties": False,
         }
@@ -156,27 +177,55 @@ def model_schema(schema, state: RunState, stage):
     return result
 
 
+def _delta_offers(schema):
+    """The criteria shapes a generation schema offers: the author's branches, or the final reference's delta."""
+    criteria = schema.get("properties", {}).get("contract", {}).get("properties", {}).get("acceptance_criteria", {})
+    return [branch.get("properties", {}) for branch in criteria.get("anyOf", [criteria])]
+
+
 def allows_delta(schema):
     """A repair must obey its pinned generation schema, including older array-only reports."""
-    criteria = schema.get("properties", {}).get("contract", {}).get("properties", {}).get("acceptance_criteria", {})
-    return any("retain_from" in branch.get("properties", {}) for branch in criteria.get("anyOf", []))
+    return any("retain_from" in offer for offer in _delta_offers(schema))
 
 
 def delta_rule(schema=None):
     """Old pinned repair schemas must never be told to emit a new protocol field."""
-    criteria = (
-        (schema or {}).get("properties", {}).get("contract", {}).get("properties", {}).get("acceptance_criteria", {})
-    )
-    offered = schema is None or any("proofs" in branch.get("properties", {}) for branch in criteria.get("anyOf", []))
+    offered = schema is None or any("proofs" in offer for offer in _delta_offers(schema))
     return DELTA_RULE + (PROOF_RULE if offered else "")
 
 
-def _expand_delta(state: RunState, stage, delta):
-    """Apply exact row operations to one hash-bound contract; never guess a copied identity."""
+def apply_delta(rows, delta):
+    """The row operations of a well-formed delta on one criteria list.
+
+    Rows named in upsert are replaced in place, new ones appended in upsert order, removed IDs
+    dropped and proofs copied onto their otherwise unchanged row. Applied to a list the delta
+    already produced, it changes nothing, which is how a saved reference is compared with the
+    contract the runner expanded from it."""
+    upsert, remove, proofs = delta.get("upsert") or [], delta.get("remove") or [], delta.get("proofs") or []
+    originals = {row["id"]: row for row in rows}
+    replacements = {row["id"]: row for row in upsert}
+    replacements.update(
+        {
+            row["id"]: {**originals[row["id"]], "verification_method": row["verification_method"]}
+            for row in proofs
+            if row["id"] in originals
+        }
+    )
+    return copy.deepcopy(
+        [replacements.get(row["id"], row) for row in rows if row["id"] not in remove]
+        + [row for row in upsert if row["id"] not in originals]
+    )
+
+
+def _expand_delta(state: RunState, stage, delta, *, reference=False):
+    """Apply exact row operations to one hash-bound contract; never guess a copied identity.
+
+    A Planner stage writes the delta as its contract's acceptance_criteria; the final
+    reviewer only inside its retained-contract reference (``reference``)."""
     old = ((state.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria", [])
     upsert, remove, proofs = delta.get("upsert"), delta.get("remove"), delta.get("proofs", [])
     if (
-        stage not in AUTHORS - FINAL
+        (stage not in FINAL if reference else stage not in AUTHORS - FINAL)
         or set(delta) - {"proofs"} != {"retain_from", "upsert", "remove"}
         or not token(state)
         or delta["retain_from"] != token(state)
@@ -208,15 +257,7 @@ def _expand_delta(state: RunState, stage, delta):
         or set(proof_ids) & (set(changed) | set(remove))
     ):
         raise ValueError("Retained criteria delta has duplicate, unknown or conflicting IDs")
-    replacements = {row["id"]: row for row in upsert}
-    originals = {row["id"]: row for row in old}
-    replacements.update(
-        {row["id"]: {**originals[row["id"]], "verification_method": row["verification_method"]} for row in proofs}
-    )
-    return copy.deepcopy(
-        [replacements.get(row["id"], row) for row in old if row["id"] not in remove]
-        + [row for row in upsert if row["id"] not in ids]
-    )
+    return apply_delta(old, delta)
 
 
 def validated_trace(state: RunState):
@@ -244,7 +285,7 @@ def expand(state: RunState, stage, value):
     body = result["contract"]
     if "retain_contract" in body:
         saved_contract = state.get("goal_contract") or {}
-        allowed = {"retain_contract", "open_blocking_questions"}
+        allowed = {"retain_contract", "open_blocking_questions", "acceptance_criteria"}
         if "initial_task" not in saved_contract.get("body", {}):
             allowed.add("initial_task")
         if (
@@ -254,9 +295,17 @@ def expand(state: RunState, stage, value):
             or body["retain_contract"] != token(state)
         ):
             raise ValueError("Retained contract reference is stale, malformed or not a final review")
-        if any(result.get(key) for key in ("contract_changes", "conflict_resolutions")):
+        delta = body.get("acceptance_criteria")
+        if delta is not None and not isinstance(delta, dict):
+            raise ValueError("Retained contract reference corrects criteria only through a criteria delta")
+        # The final reviewer's criteria delta (#1991) takes the change receipts a Planner revision
+        # would; a reference that changes no criterion declares none. Conflicts stay the Planner's.
+        corrected = isinstance(delta, dict) and any(delta.get(key) for key in ("upsert", "remove", "proofs"))
+        if result.get("conflict_resolutions") or (result.get("contract_changes") and not corrected):
             raise ValueError("Retained contract cannot also declare changes or replace its validated trace")
         result["contract"] = copy.deepcopy(saved_contract["body"])
+        if delta is not None:
+            result["contract"]["acceptance_criteria"] = _expand_delta(state, stage, delta, reference=True)
         if "initial_task" in body:
             result["contract"]["initial_task"] = copy.deepcopy(body["initial_task"])
         questions = body.get("open_blocking_questions", [])
@@ -281,8 +330,11 @@ def expand(state: RunState, stage, value):
         trace = validated_trace(state)
         if trace is not None and "requirement_trace" in result:
             if result["requirement_trace"] and result["requirement_trace"] != trace:
-                raise ValueError("Retained contract cannot replace its validated trace")
-            result["requirement_trace"] = trace
+                if not corrected:
+                    raise ValueError("Retained contract cannot replace its validated trace")
+                # A corrected criterion set may need its own trace; the ordinary coverage checks judge it.
+            else:
+                result["requirement_trace"] = trace
         return result
     old = {
         row["id"]: row for row in ((state.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria", [])
