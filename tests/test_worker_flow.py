@@ -111,6 +111,10 @@ class DurableCoreFlow(unittest.TestCase):
                 with patch.dict(os.environ, command.env):
                     response = self.public(argv)
                 self.assertTrue(response["ready"], response)
+                if view["needs"]["kind"] == "approve_plan":
+                    delivered = self.status()
+                    self.assertTrue(delivered["done"], "Accepted durable approval still depended on a viewer Continue")
+                    self.assertEqual(response["binding"]["controller_id"], delivered["execution"]["controller_epoch"])
                 # Same inspected action and private authority cannot produce another invocation.
                 count = self.starts
                 with patch.dict(os.environ, command.env):

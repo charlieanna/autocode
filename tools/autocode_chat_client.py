@@ -386,7 +386,10 @@ class ChatClient:
     def take(self, command: actions.NamedCommand) -> None:
         """Run a named action against this run; an advancing one is watched while it works."""
         argv = [*command.argv, "--workspace", str(self.workspace), "--run-dir", str(self.run_dir)]
-        if actions.advancing(command) or (self._status_view or {}).get("execution", {}).get("mode") == "durable_local":
+        if (
+            actions.advancing(command)
+            or ((self._status_view or {}).get("execution") or {}).get("mode") == "durable_local"
+        ):
             self.advance(argv, command.env)
             return
         proc = self.cli(argv, env=command.env)
@@ -401,8 +404,8 @@ class ChatClient:
         and a third stops it. The chat never exits while the child still runs.
         """
         if ("--new-run-dir" in argv and self._execution_offer.get("id") == "durable_local") or (
-            self._status_view or {}
-        ).get("execution", {}).get("mode") == "durable_local":
+            ((self._status_view or {}).get("execution") or {}).get("mode") == "durable_local"
+        ):
             return worker.advance(self, argv, env)
         with tempfile.TemporaryFile("w+") as log:
             child = subprocess.Popen(
@@ -579,10 +582,23 @@ class ChatClient:
         self._say(text)
 
     def ask(self, prompt: str) -> str:
-        try:
-            return self._ask(prompt).strip()
-        except (EOFError, KeyboardInterrupt):
-            raise Left from None
+        while True:
+            try:
+                return self._ask(prompt).strip()
+            except EOFError:
+                raise Left from None
+            except KeyboardInterrupt:
+                if ((self._status_view or {}).get("execution") or {}).get("mode") != "durable_local" or getattr(
+                    self, "_composing_new", False
+                ):
+                    raise Left from None
+                attached, self._attached = self._attached, True
+                try:
+                    self.request_pause(again="Use /quit or Ctrl-D to detach this viewer.")
+                except KeyboardInterrupt:
+                    self.say("This viewer can only request a boundary pause; no worker signal was sent.")
+                finally:
+                    self._attached = attached
 
     def show(self, view: dict) -> None:
         """New conversation messages, the notice and the progress line, each once."""
@@ -780,6 +796,19 @@ class ChatClient:
             if actions.working(view):
                 self.watch()
             else:
+                if (view.get("execution") or {}).get("mode") == "durable_local":
+                    self.say(
+                        "Saved boundary. Press Enter to continue; / commands inspect or leave. Reconnecting has started nothing."
+                    )
+                    if self.ask("Press Enter to continue, or use / commands to inspect or leave: "):
+                        self.say("Nothing sent; press Enter when you want to continue this run.")
+                        return None
+                    fresh = self.status()
+                    if (fresh.get("execution") or {}).get("next_command") != (view.get("execution") or {}).get(
+                        "next_command"
+                    ):
+                        self.say("The saved boundary changed; showing its current status before continuing.")
+                        return None
                 self.take(actions.named(view, self.workspace, self.run_dir))
                 self.require_progress(view)
             return None

@@ -38,6 +38,7 @@ try:
     from . import autocode_pause_offer as pause_offer
     from . import autocode_progress_view as progress_view
     from . import autocode_stop_explanations as stop_explanations
+    from . import autocode_util as util
     from . import autocode_verification_inspection as verification
     from . import autocode_verification_preparation as preparation
     from . import autocode_worker_binding as worker_binding
@@ -51,6 +52,7 @@ except ImportError:
     import autocode_pause_offer as pause_offer
     import autocode_progress_view as progress_view
     import autocode_stop_explanations as stop_explanations
+    import autocode_util as util
     import autocode_verification_inspection as verification
     import autocode_verification_preparation as preparation
     import autocode_worker_binding as worker_binding
@@ -61,8 +63,8 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         "version": 1,
         "workspace": str(workspace),
         "run_dir": str(run_dir),
-        "checkpoint_token": runner.util.digest(state),
-        "sampled_at": runner.now(),
+        "checkpoint_token": util.digest(state),
+        "sampled_at": util.now(),
     }
     execution = state.get("execution") or {}
     execution_inspection = None

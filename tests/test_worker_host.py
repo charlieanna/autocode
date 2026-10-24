@@ -178,7 +178,7 @@ class PersistentHost(unittest.TestCase):
             self.dispatch(view, command)
         self.fail("Offline fixture never reached plan approval")
 
-    def at_stage(self, stage):
+    def at_stage(self, stage, *, advance=False):
         return self.wait(
             lambda view: (
                 self.gates[stage][0].exists()
@@ -187,7 +187,7 @@ class PersistentHost(unittest.TestCase):
                     for row in view.get("usage", {}).get("accounting", {}).get("attempts", [])
                 )
             ),
-            advance=True,
+            advance=advance,
         )
 
     @staticmethod
@@ -197,7 +197,7 @@ class PersistentHost(unittest.TestCase):
             for row in view.get("usage", {}).get("accounting", {}).get("attempts", [])
         ]
 
-    def viewer(self, *, ssh=False, fresh=False):
+    def viewer(self, *, ssh=False, fresh=False, until=b"ctrl-d detaches"):
         remote_env = {
             key: self.env[key]
             for key in (
@@ -257,7 +257,7 @@ class PersistentHost(unittest.TestCase):
         screen, deadline = bytearray(), time.monotonic() + 30
         # Curses can draw "Re" and "quirements" in separate differential updates.
         # This newly rendered hint confirms the core's lifetime metadata reached UI.
-        while b"ctrl-d detaches" not in screen:
+        while until not in screen:
             self.assertIsNone(child.poll(), "TUI exited before displaying durable detach support")
             if time.monotonic() >= deadline:
                 destination = Path(os.environ["AUTOCODE_WORKER_EVIDENCE"])
@@ -311,6 +311,7 @@ class PersistentHost(unittest.TestCase):
         self.receipts.extend(accepted)
         self.bound(accepted[0])
         before = self.at_stage("terra")
+        self.assertEqual(accepted[0]["binding"]["controller_id"], before["execution"]["controller_epoch"])
         identity = self.attempts(before)
         epoch = before["execution"]["controller_epoch"]
         for kind in ("quit", "ctrl_d", "sighup", "sigkill", "pty_close", "ssh_disconnect"):
@@ -325,7 +326,7 @@ class PersistentHost(unittest.TestCase):
             lambda view: (
                 any(self.gates[stage][0].exists() for stage in ("sol", "astra_checkpoint")) and actions.working(view)
             ),
-            advance=True,
+            advance=False,
         )
         edited = {name: (self.workspace / name).read_bytes() for name in ("greet.py", "test_greet.py", "README.md")}
         self.leave("ctrl_d")
@@ -360,6 +361,28 @@ class PersistentHost(unittest.TestCase):
         for _ in range(3):
             self.assertEqual(self.attempts(before), self.attempts(self.run.status()))
         self.assertNotEqual("TASK_COMPLETE", after["status"])
+
+    def test_idle_unit_boundary_reattachment_inspects_without_dispatching(self):
+        self.start()
+        plan = self.plan()
+        offered = actions.named(plan, self.run.workspace, self.run.run_dir)
+        # Explicit operator unit stop, using the public CLI, creates a ready
+        # boundary rather than an active stage. No client infers this flag.
+        operator = actions.NamedCommand([*offered.argv, "--unit", "autoplanner"], offered.env)
+        self.dispatch(plan, operator)
+        before = self.wait(lambda value: (value.get("controller") or {}).get("kind") == "ready")
+        self.assertFalse((self.workspace / "greet.py").exists())
+        child, leader = self.viewer(until=b"Press Enter to continue")
+        try:
+            os.write(leader, b"/details\r/quit\r")
+            child.wait(timeout=5)
+            self.assertEqual(2, child.returncode)
+            after = self.run.status()
+            self.assertEqual(self.attempts(before), self.attempts(after))
+            self.assertEqual(before["execution"]["controller_epoch"], after["execution"]["controller_epoch"])
+            self.assertFalse((self.workspace / "greet.py").exists())
+        finally:
+            os.close(leader)
 
     def test_fresh_full_screen_launch_detaches_and_is_found_through_public_listings(self):
         self.hold("requirements_gather")
@@ -416,7 +439,7 @@ class PersistentHost(unittest.TestCase):
         self.dispatch(self.plan())
         before = self.wait(
             lambda view: any(self.gates[stage][0].exists() for stage in self.gates) and actions.working(view),
-            advance=True,
+            advance=False,
         )
         files = {name: (self.workspace / name).read_bytes() for name in ("greet.py", "test_greet.py", "README.md")}
         observed = services.UserServices(env=self.env).inspect(before["execution"]["launch_id"])

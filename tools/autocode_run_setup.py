@@ -842,7 +842,8 @@ def run_locked(
             code = runner.run_actions.handle(runner, args, parser, state, state_path, run_dir, workspace)
             if code is not None:
                 runner.json_output.action(runner, args, state, workspace, run_dir, code)
-                return owned_result(code, ready=code in (0, 2) and state.get("status") == "RUNNING")
+                if not worker_binding.continue_after_action(args, state, code):
+                    return owned_result(code, ready=code in (0, 2) and state.get("status") == "RUNNING")
             code = runner.build_loop.run(
                 runner,
                 args,

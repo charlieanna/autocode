@@ -15,6 +15,18 @@ import autocode_worker_service as service
 
 
 class WorkerActions(unittest.TestCase):
+    def test_only_accepted_durable_human_actions_continue_in_the_same_core_loop(self):
+        args = SimpleNamespace(_worker_context={"verified": True}, approve_goal="exact-plan-token", unit=None)
+        self.assertTrue(binding.continue_after_action(args, {"status": "RUNNING"}, 0))
+        self.assertFalse(binding.continue_after_action(args, {"status": "WAITING_FOR_USER"}, 0))
+        self.assertFalse(binding.continue_after_action(args, {"status": "RUNNING"}, 2))
+        self.assertFalse(binding.continue_after_action(SimpleNamespace(approve_goal="token"), {"status": "RUNNING"}, 0))
+        self.assertFalse(
+            binding.continue_after_action(SimpleNamespace(_worker_context={}, show_goal=True), {"status": "RUNNING"}, 0)
+        )
+        args.unit = "autoplanner"
+        self.assertFalse(binding.continue_after_action(args, {"status": "RUNNING"}, 0))
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
