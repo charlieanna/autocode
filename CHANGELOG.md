@@ -30,6 +30,10 @@ PR template asks for an entry here; a change without one is incomplete.
   and supplied timings; missing freshness and duration measurements stay unknown
   (#1883 E1).
 
+- The stock `glm-mimo-kilo` scenario profile selects GLM-5.3 High for Requirements
+  and Completion Reviewer, matching the bundled Kilo default. Its former explicit
+  Medium pins were unsupported and refused before inference (#1983).
+
 - Terminal chat shows existing cost coverage and accounting caps in its side panel;
   `/details` adds token subsets, billing/estimate bases, attempt routes, saved future
   routes and route-change receipts (#1884 F1). Missing usage stays unknown; displaying

@@ -339,6 +339,13 @@ through another provider (`kilocode`, or any tool set up as in
 `NAME-via-OTHER`, so `stats` keeps it apart from runs through the profile's own
 provider.
 
+The stock `glm-mimo-kilo` profile pins GLM-5.3 roles to High, matching the bundled
+Kilo GLM default; that route advertises Low/High/Max and rejects Medium before
+inference. This corrects the profile for new runs. Provider overrides preserve
+the selected profile's exact efforts, including historical profiles; they never
+silently translate an unsupported variant. Saved runs and custom selections keep
+their choices and must explicitly select a supported effort to resume.
+
 `run --profile NAME --hybrid` scripts the stages a scenario's `[hybrid]` route
 names and runs every other stage live; its mode is `NAME-hybrid`
 ([Hybrid runs](#hybrid-runs)).
