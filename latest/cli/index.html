@@ -2404,7 +2404,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/b657e2a4d7711f4d6d4fd3944910adbc442ad929/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/e67395fbff18092f87f050cd512a21c533861502/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2608,7 +2608,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/b657e2a4d7711f4d6d4fd3944910adbc442ad929/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/e67395fbff18092f87f050cd512a21c533861502/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3178,7 +3178,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/b657e2a4d7711f4d6d4fd3944910adbc442ad929/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/e67395fbff18092f87f050cd512a21c533861502/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3576,6 +3576,11 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 <td>Project (the current directory by default); pick up this saved run instead of the project's only run; the run mode a new run starts with; the brief, for one that starts with <code>-</code> (<code>--brief=-TEXT</code>); the line-by-line prompts instead of the full-screen interface. New-run options follow <code>--</code>. <code>--execution durable_local</code> opts new chats in this invocation into persistent Linux user services; the default is <code>owned</code>. Reattached runs use their saved status mode.</td>
 </tr>
 <tr>
+<td><code>autocode attention</code></td>
+<td><code>--workspace</code>, <code>--run-dir</code>, <code>--item-id</code></td>
+<td>Its <code>ack</code> command acknowledges the current saved alert using the status/inventory's named argument array. Records only this local OS user's read state; never answers, approves, resumes or launches a model. Repeating the same acknowledged ID reconciles its original receipt. See <a href="../task-run/#observation-decision-and-attention-requirements">attention semantics</a>.</td>
+</tr>
+<tr>
 <td><code>autocode conversation</code></td>
 <td><code>--workspace</code>, <code>--run-dir</code>, <code>--text</code>, <code>--title</code>, <code>--request-id</code>, <code>--expected-revision</code>, <code>--supersedes-request-id</code>, <code>--question-id</code>, <code>--resolver-token</code>, <code>--expected-plan-token</code>, <code>--timeout</code></td>
 <td>Select a conversation/run, queue a human message, explicitly refresh a revision or hand off its reviewed draft; creation provider/model/effort/budget options follow <code>--</code>. On <code>send</code>, <code>--supersedes-request-id</code> queues a correction only for a definitively rejected, unapplied human request, retaining its history; it cannot replace acknowledged input or active delivery. Sending does not advance the run. All commands print JSON.</td>
@@ -3948,6 +3953,10 @@ highlighted one:</p>
 <td>Show or hide the live agent log. With a word it keeps only one agent (any part of its name, such as <code>M2</code> or <code>reviewer</code>) or one kind of entry; <code>all</code> shows everything again and <code>off</code> hides it. Where the terminal is too short for it, the newest entries are printed in the conversation</td>
 </tr>
 <tr>
+<td><code>/attention</code> or F8</td>
+<td>Inspect current saved questions, decisions and completed turns across registered projects, even before selecting a chat. <code>a</code> acknowledges the selected alert, Enter opens its chat, <code>r</code> requests a refreshed snapshot and Esc returns to the original draft and cursor. Acknowledgement leaves the task's answer or plan approval pending. Unavailable inventory and unknown read state remain visible.</td>
+</tr>
+<tr>
 <td><code>/pause</code></td>
 <td>While AutoCode works: ask it to pause after the current step, as the first <code>Ctrl-C</code> does</td>
 </tr>
@@ -4034,7 +4043,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/b657e2a4d7711f4d6d4fd3944910adbc442ad929/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/e67395fbff18092f87f050cd512a21c533861502/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,

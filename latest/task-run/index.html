@@ -2216,7 +2216,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/b657e2a4d7711f4d6d4fd3944910adbc442ad929/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/e67395fbff18092f87f050cd512a21c533861502/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2836,15 +2836,52 @@ needs its own conflict/lost-receipt contract:</p>
 </tr>
 </tbody>
 </table>
-<p>Persistent attention in #1885 should identify a pending decision by run plus its
-current request/approval token; completion needs a durable outcome ID scoped to
-the same-chat turn, so a second completed follow-up is a new outcome. Mere text
-equality or a reused source hash is insufficient. Read/unread acknowledgement is
-shared by the authorized local identity across its viewers and remains separate
-from answering, approval and evidence acceptance. Restarting a viewer retrieves
-current unresolved items; a superseded item cannot carry an executable old
-action. The core must supply these IDs and acknowledgement actions before a
-client implements persistence.</p>
+<p>Persistent attention (#1885) is exposed in <code>view.attention</code> and each <code>runs --json</code>
+row. Version 1 identifies a pending human boundary using the saved run incarnation
+and existing decision context. A completed outcome uses the existing same-chat
+turn receipt, so an identical follow-up's completion has a different ID. Missing
+saved identity means unknown; it is never invented from text or source equality.
+The item contains its workspace/run, kind, fixed label and bounded, redacted task
+snippet. It carries no answer or approval authority.</p>
+<p><code>attention.acknowledge.next_command</code> is an exact argument array for
+<code>autocode attention ack --workspace W --run-dir R --item-id ID</code>.
+<code>TaskRun.acknowledge_attention(view)</code> submits that offer without advancing the run.
+An acknowledgement never changes the task checkpoint, current question, plan
+token, delivery acceptance, provider attempts or budgets. New acknowledgements
+require the item still be current. Repeating an acknowledged ID returns its
+original receipt even after the task resolves; a different run cannot inherit it.
+A lost reply is uncertain until that same ID is inspected or explicitly retried.
+This reconciliation applies to acknowledgement only, not other action families.</p>
+<p>The authorized local OS identity shares receipts across viewers. Storage defaults
+to <code>$XDG_STATE_HOME/autocode/attention</code> (otherwise
+<code>~/.local/state/autocode/attention</code>); <code>AUTOCODE_ATTENTION_HOME</code> selects an isolated
+profile. It must be a private owned directory outside the editable task workspace;
+receipts are private atomic files bound to the local UID and run paths. Reads
+create nothing. Unavailable, corrupt, unowned, symlinked or unsupported storage
+projects unknown and offers no acknowledgement action. There is no remote
+identity service, notification service or workspace-owned acknowledgement file.</p>
+<p>The TUI's F8 or <code>/attention</code> drawer restores current saved alerts, including after
+a viewer restart. Cold-start inventory is silent; a newly observed unread ID is
+announced once in that viewer's current bounded cohort. An acknowledged item
+stays inspectable while current but does not announce again. The selected run
+uses its own prompt and the global unread badge. Background runs and the prior
+run while composing a local new-chat draft receive the notice. Independently
+running viewers may each announce a newly observed item; delivery is not a
+universal exactly-once alarm guarantee.
+Resolved/superseded items disappear from current inventory; this is not an alert
+history journal. Unread storage is durable, while delivery of a notice is an
+observation. Completion says to inspect evidence, not that current delivery passed.</p>
+<p>Inventory uses <code>runs --all --json</code> in the existing two-child bounded read pool,
+normally every ten seconds. Per-run status reads take precedence over an inventory
+started before them. The UI retains at most 256 rows and reports overflow;
+an empty <code>runs --json</code> inventory returns success with <code>runs: []</code> rather than prose.
+<code>/runs</code> remains available for the full public list. Failed discovery retains a
+labelled last snapshot and shows unavailability. Drawer rows stay frozen until
+explicit refresh so incoming items cannot change which ID a queued key targets.
+Acknowledgements are asynchronous with a five-second viewer timeout; a slow
+receipt cannot block draft editing. Closing the drawer restores the draft/cursor
+and viewport without switching runs. Opening an item reads current status;
+submitting an answer or approval still uses the exact token the person inspected.</p>
 <h4 id="acceptance-and-rollout-before-implementation-is-enabled">Acceptance and rollout before implementation is enabled<a class="headerlink" href="#acceptance-and-rollout-before-implementation-is-enabled" title="Permanent link">&para;</a></h4>
 <table>
 <thead>
@@ -2945,7 +2982,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/b657e2a4d7711f4d6d4fd3944910adbc442ad929/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/e67395fbff18092f87f050cd512a21c533861502/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3471,7 +3508,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/b657e2a4d7711f4d6d4fd3944910adbc442ad929/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/e67395fbff18092f87f050cd512a21c533861502/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
