@@ -187,6 +187,23 @@ class QuotaRouteTests(unittest.TestCase):
             self.validate(state, "gpt-6-luna")
         self.validate(state, "local-model", configured_tool=True)
 
+    def test_assign_fits_the_roles_effort_to_the_named_models_recorded_variants(self):
+        """#2006: the Analyst moved to GLM 5.3 at its profile effort medium, which GLM does not declare, and the
+        retry refused before any request; the Analyst has no effort flag to pin."""
+        state = self.state()
+        state["settings"]["roles"]["sol"]["reasoning_effort"] = "medium"
+        state["settings"]["route_selection"] = {
+            "candidates": {"completion": [{"model": "zai-coding-plan/glm-5.3", "levels": ["low", "high", "max"]}]}
+        }
+        record = quota_route.assign(state, "sol", "zai-coding-plan/glm-5.3", at="t", via="answer")
+        self.assertEqual("high", state["settings"]["roles"]["sol"]["reasoning_effort"])
+        self.assertEqual({"from": "medium", "to": "high"}, record["effort"])
+        unknown = self.state()
+        unknown["settings"]["roles"]["sol"]["reasoning_effort"] = "medium"
+        record = quota_route.assign(unknown, "sol", "gpt-6-luna", at="t", via="answer")
+        self.assertEqual("medium", unknown["settings"]["roles"]["sol"]["reasoning_effort"], "no listing: unchanged")
+        self.assertNotIn("effort", record)
+
     def test_assign_applies_the_model_drops_the_session_and_records_the_change(self):
         state = self.state()
         attempt = self.stopped(state)

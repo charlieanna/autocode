@@ -36,6 +36,11 @@ PR template asks for an entry here; a change without one is incomplete.
   from the summary, and asks `route-ROLE` for a model with a larger window — instead of pausing as an
   uncertain provider failure. An ordinary Kilo launch sets `compaction.auto` to `false`, so a stage is
   never silently summarized (#1942).
+- `--single-model` and a route answer at a model stop fit each role's effort to the variants the
+  named model declares: a runner-chosen effort the model cannot serve moves to the nearest declared
+  one (said and recorded), an effort a person named refuses with the flag to change, and Kilo's
+  variant refusal names that flag; before, the run stopped at the first launch and roles such as the
+  Analyst had no flag at all (#2006).
 - Terminal attention survives viewer restarts with shared local read receipts.
   F8 or `/attention` inspects current decisions and distinct same-chat completions
   without advancing tasks or losing drafts; empty JSON run inventories remain

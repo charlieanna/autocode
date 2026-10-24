@@ -597,6 +597,19 @@ class RerouteTests(unittest.TestCase):
         with mock.patch.object(job_failure.source, "matches_original", return_value=matches):
             return job_failure.reroute(runtime, state, "/run", "/workspace", assignment)
 
+    def test_an_effort_the_answer_fitted_to_the_new_model_is_bound_with_it(self):
+        """#2006: quota_route.assign moves the role's effort to a variant the named model declares and records
+        it on the assignment; the exact retry must bind that too, not call the run's configuration stale."""
+        state = bound_state()
+        state["settings"]["roles"]["sol"]["reasoning_effort"] = "high"  # as assign fitted it (was medium)
+        with self.assertRaisesRegex(ValueError, "retry is stale"):
+            self.reroute(bound_state() | {"settings": state["settings"]})  # without the fit on the assignment
+        state = bound_state()
+        state["settings"]["roles"]["sol"]["reasoning_effort"] = "high"
+        token = self.reroute(state, effort={"from": "medium", "to": "high"})
+        self.assertTrue(token.startswith("jr:"))
+        self.assertEqual("high", state["job_failure"]["configuration"]["roles"]["sol"]["reasoning_effort"])
+
     def test_the_route_never_lists_the_model_the_job_now_runs_on(self):
         # With the runtime's launch rules the question is asked again against the new configuration.
         runtime = argparse.Namespace(dispatch=argparse.Namespace(enforce_cross_model_verification=lambda state: None))

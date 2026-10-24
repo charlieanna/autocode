@@ -959,6 +959,7 @@ class PlanningTests(unittest.TestCase):
         with (
             patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}),
             patch.object(runner.opencode, "local_settings", return_value={"engine": "opencode"}),
+            patch.object(autocode_configure, "_declared_levels", return_value=None),
         ):
             settings = autocode_configure.configure(
                 args, state, planning=planning, milestones=milestones, autopilot=autopilot
@@ -972,9 +973,50 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual("high", settings["roles"]["sol"]["reasoning_effort"])
         self.assertEqual("xhigh", settings["roles"]["plan_reviewer"]["reasoning_effort"])
 
+    def test_single_model_fits_runner_chosen_efforts_to_the_models_variants_and_refuses_a_named_one(self):
+        """#2006: GLM 5.3 declares low, high and max; the Completion Reviewer's profile medium stopped the run at
+        its first launch, with no flag the help named. Runner-chosen efforts now move; a named one refuses."""
+        state = {"workspace": "/tmp/fixture", "iteration": 0}
+        printed = []
+        with (
+            patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}),
+            patch.object(runner.opencode, "local_settings", return_value={"engine": "opencode"}),
+            patch.object(autocode_configure, "_declared_levels", return_value=["low", "high", "max"]),
+            patch("builtins.print", side_effect=lambda *a, **k: printed.append(" ".join(map(str, a)))),
+        ):
+            settings = autocode_configure.configure(
+                self.configure_args(single_model="zai-coding-plan/glm-5.3", terra_reasoning_effort="low"),
+                state,
+                planning=planning,
+                milestones=milestones,
+                autopilot=autopilot,
+            )
+        efforts = {role: route["reasoning_effort"] for role, route in settings["roles"].items()}
+        self.assertEqual("low", efforts["terra"], "a named effort the model declares stays")
+        self.assertTrue(set(efforts.values()) <= {"low", "high", "max"}, efforts)
+        self.assertIn("completion", settings["effort_fits"])
+        self.assertEqual({"from": "medium", "to": "high"}, settings["effort_fits"]["completion"])
+        self.assertTrue(any("--single-model zai-coding-plan/glm-5.3 declares" in line for line in printed), printed)
+        with (
+            patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}),
+            patch.object(runner.opencode, "local_settings", return_value={"engine": "opencode"}),
+            patch.object(autocode_configure, "_declared_levels", return_value=["low", "high", "max"]),
+            self.assertRaisesRegex(ValueError, "--completion-reasoning-effort"),
+        ):
+            autocode_configure.configure(
+                self.configure_args(single_model="zai-coding-plan/glm-5.3", completion_reasoning_effort="medium"),
+                {"workspace": "/tmp/fixture", "iteration": 0},
+                planning=planning,
+                milestones=milestones,
+                autopilot=autopilot,
+            )
+
     def test_single_model_mode_implies_codex_joint_planning(self):
         state = {"workspace": "/tmp/fixture", "iteration": 0}
-        with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT", "model": "local"}):
+        with (
+            patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT", "model": "local"}),
+            patch.object(autocode_configure, "_declared_levels", return_value=None),
+        ):
             settings = autocode_configure.configure(
                 self.configure_args(engine="codex", single_model="gpt-5.6-sol"),
                 state,
