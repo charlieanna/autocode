@@ -2094,7 +2094,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/6bff8252f4195390db7378961f78fafbf69a7799/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/3f1a3a12ae2729f973c2571a8e1426ce2f35f666/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2533,7 +2533,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/6bff8252f4195390db7378961f78fafbf69a7799/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/3f1a3a12ae2729f973c2571a8e1426ce2f35f666/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -2792,6 +2792,14 @@ the status JSON on stdout and the returned TaskRun view keep their existing shap
 <code>TaskRun.accept_transport_change()</code> uses the explicit transport-change command
 after a person inspects the new route and the saved run reports
 <code>PAUSED_TRANSPORT_CHANGED</code>.
+At an eligible OpenCode/Kilo pause with no retained attempt or report repair,
+<code>needs.action</code> and <code>next_command</code> name <code>--resume-paused --accept-transport-change</code>;
+<code>needs.recovery_hint</code> explains that confirming accepts the changed connection
+settings after model/billing checks. It requires a person's confirmation and does
+not approve a plan or replace selected role models. Separately selected per-role
+tools retain their immutable identities and receive no acceptance offer. Other
+engines, uncertain attempts and unrelated pauses keep their existing recovery;
+clients must use the current named action rather than add this flag themselves.
 <code>TaskRun.accept_source_edit()</code> uses <code>--resume-paused --accept-source-edit</code> when
 a repair is paused at <code>PAUSED_STALE_HANDOFF</code> because a person edited the source.
 The approved contract, task, budget, proof and evidence pins stay.</p>
@@ -3051,7 +3059,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/6bff8252f4195390db7378961f78fafbf69a7799/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/3f1a3a12ae2729f973c2571a8e1426ce2f35f666/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
