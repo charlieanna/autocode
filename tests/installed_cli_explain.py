@@ -163,6 +163,13 @@ class InstalledExplainTests(unittest.TestCase):
         with self.assertRaises(json.JSONDecodeError):
             json.loads(completed.stdout)
         self.assertNotIn("Traceback", completed.stderr)
+        if status in ("TASK_COMPLETE", "COMPLETE"):
+            self.assertIn("recorded", paragraphs[0])
+            self.assertIn("saved", paragraphs[1].lower())
+            self.assertIn("current", paragraphs[1].lower())
+            self.assertIn("--status", paragraphs[2])
+            for misleading in ("stopped", "environment", "resume", "wrong deliverable"):
+                self.assertNotIn(misleading, completed.stdout.lower())
 
     def test_explicit_saved_run_explanation_is_read_only_without_provider(self):
         reason = "retained-budget-stop"

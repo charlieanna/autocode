@@ -33,6 +33,9 @@ class CompletionStatusCLITests(unittest.TestCase):
         self.assertTrue(view["done"])
         self.assertIsNone(view["needs"])
         self.assertIsNone(view["stop_reason"])
+        self.assertIn("recorded TASK_COMPLETE", view["explanation"]["what_happened"])
+        self.assertNotIn("resume", view["explanation"]["explanation"].lower())
+        self.assertNotIn("environment", view["explanation"]["explanation"].lower())
         reports = [
             json.loads(p.read_text())
             for p in run.glob("iterations/*/completion-review-*.json")

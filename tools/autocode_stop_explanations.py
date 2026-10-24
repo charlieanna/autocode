@@ -20,7 +20,14 @@ except ImportError:
 # state -> (what it means, what the offered command does). Short enough to read
 # aloud. "Yours" = a person's decision; "the environment's" = provider/host;
 # "the model's" = a stage's report; "AutoCode's" = a runner gate.
+COMPLETION = (
+    "The saved run records completion; this status alone does not establish that the current checkout still "
+    "matches its verification evidence.",
+    "Use --status to inspect current evidence, or send a follow-up for another request; completion needs no recovery.",
+)
 TABLE: dict[str, tuple[str, str]] = {
+    "TASK_COMPLETE": COMPLETION,
+    "COMPLETE": COMPLETION,
     "RUNNING": (
         "Work is in progress; no new decision is needed while the controller is active.",
         "Use --status to follow progress and inspect controller liveness.",
@@ -539,15 +546,16 @@ def explain(status: str, *, stop_reason: str = "", needs=None) -> dict:
         if status.startswith("PAUSED_")
         else "the environment"
     )
-    happened = (
-        "The run is RUNNING."
-        if status == "RUNNING"
-        else (
+    if status in ("TASK_COMPLETE", "COMPLETE"):
+        happened = f"The run recorded {status}." + (f" Completion note: {stop_reason}." if stop_reason else "")
+    elif status == "RUNNING":
+        happened = "The run is RUNNING."
+    else:
+        happened = (
             f"The run stopped at {status}. "
             + (f"The stop reason is: {stop_reason}. " if stop_reason else "")
             + f"This is {owner}'s decision, not a wrong deliverable."
         )
-    )
     return {
         "what_happened": happened.strip(),
         "what_it_means": means,
