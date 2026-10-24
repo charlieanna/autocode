@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- In the terminal chat, `/connect NAME use`, `/mode` and `/engine` typed at the first
+  "What do you want done?" question now apply to the chat started there, as they already did
+  for `/new`; before, that first chat ran on the default connection and mode while the header
+  named the chosen ones (#2009).
 - Terminal attention survives viewer restarts with shared local read receipts.
   F8 or `/attention` inspects current decisions and distinct same-chat completions
   without advancing tasks or losing drafts; empty JSON run inventories remain

@@ -1401,6 +1401,7 @@ def open_chat(
     say: Callable[[str], None] = print,
     hint: bool = False,
     intro: str | None = None,
+    new: setup.NewChat | None = None,
     **kwargs,
 ):
     """`autocode chat` with nothing named: pick up the run left open here, or ask what to do.
@@ -1408,7 +1409,9 @@ def open_chat(
     One unfinished run is picked up; with several the person chooses one or a new
     task. With none, the chat asks for a request and starts a run with the core's
     mode and options from the command line, if any. None: the person left without choosing.
-    In the full-screen chat ``/runs`` and ``/open N`` work at that question too (``Opened``).
+    In the full-screen chat ``/runs`` and ``/open N`` work at that question too (``Opened``),
+    as do ``/mode``, ``/engine`` and ``/connect NAME use``: they change ``new``, the chat's
+    ``NewChat``, so it is read once the request is in, not before the question (#2009).
     """
     command, env = kwargs.get("command", AUTOCODE), kwargs.get("env")
     listed = project_runs(workspace, command=command, env=env)
@@ -1445,6 +1448,8 @@ def open_chat(
     if not brief:
         say("Nothing started.")
         return None
+    if new is not None:
+        mode, options = new.mode, new.options  # what the person chose at the question, not before it
     chosen = mode_row(mode, command=command, env=env)
     if not confirm_launch(ask, say, chosen):
         say("Nothing started.")
@@ -1582,6 +1587,7 @@ def cli(argv: list[str] | None = None) -> int:
                 say=say,
                 hint=ui is not None,
                 intro=history.summary() if ui is not None else None,
+                new=new,  # /mode, /engine and /connect at the first question change it (#2009)
                 **seen,
             )
             if client is None:
