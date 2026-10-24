@@ -79,6 +79,18 @@ steps aside. A choice for new chats is kept in the project's
 only from the status view's `chat.log`, which, unlike `chat.activity`, carries the running agents'
 reasoning and messages as bounded, redacted display text.
 
+**Asynchronous TUI lifecycle direction approved 2026-10-23 (#1879, PR #1985).**
+The owner approved opt-in durable execution on supported persistent Linux under
+the [task-run lifecycle direction](docs/task-run.md#asynchronous-viewer-direction-1879-implementation-pending).
+The core owns launch, ownership and reconciliation; viewers consume its public
+capabilities, observations, attention and named actions. In the opt-in mode,
+viewer/SSH exit leaves the worker running and Ctrl-C requests only a boundary
+pause. This authorizes the dependent implementation within that recorded scope,
+including active switching and durable attention, without repeating the same
+policy approval. Existing defaults and saved routes, efforts, usage, limits and
+approvals remain unchanged. This records direction, not completed runtime/SSH
+qualification or authority to administer a host or replay an uncertain call.
+
 A further new client, or growth beyond that contract, needs the owner's decision again.
 
 Historical audit records (`audits/`), `learn/` and two top-level result reports
