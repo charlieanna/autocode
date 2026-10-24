@@ -19,6 +19,14 @@ class DynamicDependenciesTests(unittest.TestCase):
             kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
             self.assertEqual(consumers, set(kept))
 
+    def test_lifecycle_metadata_keeps_schema_and_read_only_worktree_consumers(self):
+        consumers = {"tests.test_json_contract", "tests.test_worktrees"}
+        for path in ("tools/autocode_run_view.py", "tools/autocode_status_command.py", "tools/autocode_worker_view.py"):
+            selected = run_suite.select_tests([path], {module: "" for module in consumers})
+            kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+            self.assertEqual(consumers, set(kept))
+        self.assertIn("tests.test_json_contract", dependencies.dependencies("docs/schemas/status-view.schema.json"))
+
     def test_kilo_profile_keeps_its_native_effort_consumer(self):
         consumer = "tests.test_kilocode_effort"
         selected = run_suite.select_tests(["scenarios/harness/profiles.py"], {consumer: "", "tests.test_unrelated": ""})

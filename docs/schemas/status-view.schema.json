@@ -27,9 +27,33 @@
         "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
         "provider", "route_assignments", "information_review", "tool_containment", "job_report_recovery",
         "efficiency", "conversation", "chat", "workspace", "run_dir", "planning_depth", "pause", "package",
-        "tool_containment_backend", "changes_by_criterion", "dev_server", "attention"
+        "tool_containment_backend", "changes_by_criterion", "dev_server", "execution", "observation", "attention"
       ],
       "properties": {
+        "execution": {
+          "type": "object",
+          "description": "Core lifetime capability. Older clients ignore this additive field; clients reading older cores treat its absence as unknown.",
+          "required": ["version", "mode", "detach_supported"],
+          "properties": {
+            "version": {"type": "integer", "enum": [1]},
+            "mode": {"type": "string", "enum": ["owned", "durable_local", "unknown"]},
+            "detach_supported": {"type": "boolean"},
+            "launch_id": {"type": "string"},
+            "controller_epoch": {"type": "string"},
+            "next_command": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "observation": {
+          "type": ["object", "null"],
+          "description": "Read-only sample metadata supplied by the status command. sampled_at identifies this read and may differ between equivalent status requests; checkpoint_token identifies saved state and grants no action authority. Null in an uninspected pure projection.",
+          "properties": {
+            "version": {"type": "integer", "enum": [1]},
+            "workspace": {"type": "string"},
+            "run_dir": {"type": "string"},
+            "checkpoint_token": {"type": "string"},
+            "sampled_at": {"type": "string"}
+          }
+        },
         "attention": {
           "type": "object",
           "description": "Versioned current human-boundary or completed-turn identity. Acknowledgement records only this local OS user's read state, never task approval or delivery verification. Missing fields in older cores mean unknown.",
