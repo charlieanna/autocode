@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- In the terminal chat, the tab Ctrl-T opens can be left with Ctrl-←/→ or `/tab` before its
+  request is sent; before, it answered "Tabs switch once a chat is open" and only `ctrl-d`
+  led out of it. Tabs with an open chat keep the rule that a working step is never left
+  unwatched (#1997).
 - The terminal chat no longer ends with `[Errno 1] Operation not permitted` when it stops a status
   read whose process group the kernel will not signal (macOS, once the group's leader has exited):
   the read's own child is killed instead and the chat carries on (#2011).

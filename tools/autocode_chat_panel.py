@@ -119,14 +119,17 @@ SWITCHING_COMMANDS = ("/open", "/new", "/tab")
 RUN_COMMANDS = ("/plan", "/tasks", "/log", "/details", "/live", "/diff", "/undo", "/tab", "/panel", "/pause")
 
 
-def commands(*, asking: bool, client: bool = True, run: bool = True, detachable: bool = False) -> list[Command]:
+def commands(
+    *, asking: bool, client: bool = True, run: bool = True, detachable: bool = False, draft: bool = False
+) -> list[Command]:
     """The commands that do something now. ``/pause`` only while AutoCode works: the client then
     takes the pause its fresh status view offers, or says there is none. ``/quit`` and ``/undo``
     only at a question: leaving while AutoCode works would leave it running unseen, and the view
     offers going back only at a pause; ``/open`` and ``/new`` too, as they leave this run. Without a
     client the client's commands are not offered, and before a chat is open (``run`` false) only those
     that work without one: opening a chat, /new (which says this already is one), choosing what a new
-    one starts with, help and leaving."""
+    one starts with, help and leaving. ``draft``: the client's tab that Ctrl-T opened, whose request is not
+    sent yet; it has no run, but /tab still works there, as nothing is left running by leaving it (#1997)."""
     hidden = {"/pause"} if asking else {"/quit", "/undo", *SWITCHING_COMMANDS}
     if detachable:
         hidden.discard("/quit")
@@ -135,6 +138,8 @@ def commands(*, asking: bool, client: bool = True, run: bool = True, detachable:
         hidden.update(CLIENT_COMMANDS)
     if not run:
         hidden.update(RUN_COMMANDS)
+        if draft:
+            hidden.discard("/tab")
     return [command for command in COMMANDS if command.name not in hidden]
 
 

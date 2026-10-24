@@ -800,6 +800,13 @@ class ChatClient:
             )
         row = rows[number - 1]
         if row["current"]:
+            if self._composing_new:
+                # Back from the request composer (/new, Ctrl-T) to this chat: the draft is dropped and the
+                # chat's display returns; a tab with no run is left, nothing running with it (#1997).
+                self.say("Nothing started; this chat carries on.")
+                if self.switched is not None:
+                    self.switched(self.workspace, self.run_dir)
+                raise Switched
             return "That is this chat."
         self.talk_to(self.others[row["run"]][0], Path(row["run"]))
         raise Switched

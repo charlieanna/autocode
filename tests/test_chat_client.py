@@ -892,6 +892,21 @@ class TabTests(unittest.TestCase):
             client.slash("/tab", "previous")
         self.assertEqual(RUN, client.run_dir)
 
+    def test_tab_leaves_the_request_composer_for_this_chat(self):
+        """#1997: on the tab Ctrl-T opened, /tab to this chat said "That is this chat." and the draft stayed."""
+        client, other = self.client()
+        restored = []
+        client.switched = lambda workspace, run: restored.append((workspace, run))
+        client._composing_new = True
+        with self.assertRaises(chat.Switched):
+            client.slash("/tab", "2")
+        self.assertEqual([(WORKSPACE, RUN)], restored, "the chat's own display comes back")
+        self.assertEqual(RUN, client.run_dir)
+        self.assertIn("Nothing started; this chat carries on.", client.text())
+        with self.assertRaises(chat.Switched):
+            client.slash("/tab", "next")  # another tab: switched to as always
+        self.assertEqual(Path(other), client.run_dir)
+
     def test_a_chat_switched_to_keeps_its_last_state_until_it_is_read_again(self):
         """#1757: the tabs drawn on /tab showed a chat that waits for the person as working."""
         client, other = self.client()
