@@ -556,6 +556,11 @@ glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "high" }
 plan_reviewer = { model = "openai/gpt-6-sol", effort = "high", light_effort = "medium" }
 ```
 
+A connection whose `command` runs `kilo` under another name (a copy of this file in
+`~/.config/autocode/providers/NAME.toml` with your own roles and routes) is a Kilo connection:
+it gets the same launch as `kilocode`, with the activity plugin, the output cap, the native
+variant check and the read-only checker policy, rather than the plain command launch (#2010).
+
 For clear, small tasks the Plan Reviewer may use `light_effort` (or one lower
 standard effort tier) only when a new run used an automatic/default effort.
 An explicit reviewer effort, including a project effort setting, wins. Saved

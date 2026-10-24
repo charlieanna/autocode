@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A configured Kilo connection (a TOML whose command runs `kilo`, such as a copy of
+  `kilocode.toml` with other roles) now launches as the bundled `kilocode` does: with the
+  activity plugin, the output cap, the native variant check and the read-only checker policy.
+  Before, it ran as a plain command provider and got none of them (#2010).
 - In the terminal chat, the tab Ctrl-T opens can be left with Ctrl-←/→ or `/tab` before its
   request is sent; before, it answered "Tabs switch once a chat is open" and only `ctrl-d`
   led out of it. Tabs with an open chat keep the rule that a working step is never left

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -54,6 +55,39 @@ class ProviderRegistryTests(unittest.TestCase):
         self.assertIsInstance(provider, command.CommandProvider)
         self.assertEqual("openai/gpt-5.6-sol", provider.DEFAULT_MODELS["plan_reviewer"])
         self.assertTrue(provider.SUPPORTS_SESSIONS)
+
+    def test_a_user_config_whose_command_runs_kilo_is_a_kilo_connection(self):
+        """#2010: such a TOML loaded as a plain command provider, so its stages ran without the activity
+        plugin, the output cap, the variant check, the read-only policy or the compaction opt-out."""
+        from providers import kilocode
+
+        bundled = autocode_providers.resolve("kilocode")._path.read_text()
+        user = Path(os.environ["XDG_CONFIG_HOME"]) / "autocode" / "providers"
+        user.mkdir(parents=True)
+        (user / "kilo_mine.toml").write_text(bundled.replace('name = "kilocode"', 'name = "kilo_mine"', 1))
+        (user / "other_tool.toml").write_text(
+            bundled.replace('name = "kilocode"', 'name = "other_tool"', 1).replace(
+                '["kilo", "run"', '["mytool", "run"', 1
+            )
+        )
+        mine = autocode_providers.resolve("kilo_mine")
+        self.assertIsInstance(mine, kilocode.KiloProvider)
+        self.assertEqual("kilo_mine", mine.NAME)
+        self.assertNotIsInstance(autocode_providers.resolve("other_tool"), kilocode.KiloProvider)
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(mine, "validate_effort"):
+            _, child, _ = mine.launch(
+                "terra",
+                Path(temp),
+                Path(temp) / "run",
+                None,
+                "zai-coding-plan/glm-5.3",
+                "high",
+                True,
+                env={"PATH": "/usr/bin"},
+            )
+        config = json.loads(child["KILO_CONFIG_CONTENT"])
+        self.assertTrue(any(plugin.endswith("/opencode_activity.mjs") for plugin in config["plugin"]), config)
+        self.assertIn("KILO_EXPERIMENTAL_OUTPUT_TOKEN_MAX", child)
 
     def test_bundled_alibaba_route_verifies_the_token_plan_login(self):
         # `kilo auth list` draws a box and colourises the mode even when its stdout is a pipe, so the
