@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The terminal distinguishes viewer read age from the core snapshot sample time.
+  Failed reads retain a last-known snapshot, and details show source/checkpoint
+  identity without treating polling as work progress (#1990).
+
 - Durable TUI chats can switch tabs during work and keep separate session
   drafts, cursors, history position and log/panel choices. Reopening a tab reads
   fresh status before a decision; unavailable targets remain navigable (#1989).
