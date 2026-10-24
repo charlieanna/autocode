@@ -1,6 +1,8 @@
 """Route discovery (#1426 steps 4-5): the tool's own listings become the selector's candidates."""
 
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -160,6 +162,32 @@ class OpenCodeDiscoveryTests(unittest.TestCase):
 
 
 class VariantOmissionTests(unittest.TestCase):
+    def test_a_configured_kilo_connection_lists_its_variants_like_the_bundled_one(self):
+        """#2006: --single-model fits efforts to the model's declared variants, but discovery read variants only
+        for the name "kilocode", so a copy of kilocode.toml under another name declared nothing."""
+        with tempfile.TemporaryDirectory() as folder:
+            user = Path(folder) / "autocode" / "providers"
+            user.mkdir(parents=True)
+            text = command.load("kilocode")._path.read_text().replace('name = "kilocode"', 'name = "kilo_mine"', 1)
+            (user / "kilo_mine.toml").write_text(text)
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": folder}):
+                mine = command.load("kilo_mine")
+            verbose = 'zai-coding-plan/glm-5.3\n{"variants": {"low": {}, "high": {}, "max": {}}}\n'
+
+            def listing(command, *a, **kw):
+                if "auth" in command:
+                    return response(KILO_AUTH_LISTING)
+                return response(verbose if "--verbose" in command else KILO_MODELS)
+
+            with mock.patch.object(discovery.env_prep, "preflight_run", side_effect=listing):
+                found = discovery.discover(mine, Path("/tmp/w"))
+                bundled_found = discovery.discover(command.load("kilocode"), Path("/tmp/w"))
+        levels = {row["model"]: row.get("levels") for row in found["candidates"]}
+        self.assertEqual({"low", "high", "max"}, set(levels.get("zai-coding-plan/glm-5.3") or ()), levels)
+        self.assertEqual(
+            levels, {row["model"]: row.get("levels") for row in bundled_found["candidates"]}, "as the bundled name"
+        )
+
     def test_a_route_with_no_level_omits_the_variant_arguments(self):
         provider = command.load("kilocode")
         argv, _env, _meta = provider.launch("terra", "/tmp/w", "/tmp/r", None, "kilo/z-ai/glm-5.3", None, True)
@@ -373,5 +401,7 @@ class AutoSelectConfigureTests(unittest.TestCase):
     def test_single_model_skips_selection_without_error(self):
         with mock.patch.object(discovery, "discover") as probe:
             settings = self.configure(self.args(single_model="openai/gpt-6-sol"))
-        probe.assert_not_called()
+        # Discovery may be read for the one model's declared variants (#2006); nothing is selected.
+        self.assertLessEqual(probe.call_count, 1)
+        self.assertNotIn("route_selection", settings)
         self.assertTrue(settings["single_model_mode"])

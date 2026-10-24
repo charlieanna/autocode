@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+from pathlib import Path
 
 try:
     from . import autocode_route_levels as route_levels
@@ -163,7 +164,11 @@ def _levels(provider, workspace, env):
     # arbitrary models command must never be rewritten or treated as a model call.
     name = getattr(provider, "NAME", "opencode" if provider is opencode else None)
     config = getattr(provider, "_config", {})
-    command = config.get("models_command") if name == "kilocode" else None
+    # A connection whose command runs kilo (a copy of kilocode.toml with other roles) lists its
+    # variants the same way as the bundled one (#2006, #2010); only the documented listing is run.
+    words = config.get("command") if isinstance(config, dict) else None
+    runs_kilo = isinstance(words, list) and bool(words) and isinstance(words[0], str) and Path(words[0]).name == "kilo"
+    command = config.get("models_command") if name == "kilocode" or runs_kilo else None
     if provider is opencode:
         command = ["opencode", "models"]
     if command not in (["opencode", "models"], ["kilo", "models"]):

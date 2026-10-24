@@ -13,9 +13,11 @@ from pathlib import Path
 from . import command, kilocode_policy
 
 try:
+    from .. import autocode_effort_variants as effort_variants
     from .. import autocode_output_cap as output_cap
     from .. import autocode_route_levels as route_levels
 except ImportError:
+    import autocode_effort_variants as effort_variants
     import autocode_output_cap as output_cap
     import autocode_route_levels as route_levels
 
@@ -90,7 +92,7 @@ class KiloProvider(command.CommandProvider):
                 sandbox=sandbox,
                 env=env,
             )
-            self.validate_effort(model, effort, workspace, env=child)
+            self.validate_effort(model, effort, workspace, env=child, role=role)
             output_cap.apply(child, output_cap.KILO_VARIABLE)
             # Kilo's JSON CLI withholds text/reasoning until a block completes.
             # Forward real native deltas through the same bounded activity hook
@@ -145,10 +147,10 @@ class KiloProvider(command.CommandProvider):
             containment=containment,
             image_preparation=image_preparation,
         )
-        self.validate_effort(model, effort, workspace, env=result[1])
+        self.validate_effort(model, effort, workspace, env=result[1], role=role)
         return result
 
-    def validate_effort(self, model, effort, workspace=None, *, env=None):
+    def validate_effort(self, model, effort, workspace=None, *, env=None, role=None):
         """Validate the exact native variant; an unknown name otherwise silently becomes the model default."""
         if not effort:
             return
@@ -171,9 +173,15 @@ class KiloProvider(command.CommandProvider):
             raise KiloEffortError(f"Cannot verify Kilo reasoning variants for {model}; no model request was launched")
         if effort not in levels[model]:
             supported = ", ".join(levels[model]) or "none (omit the explicit effort)"
+            fit = effort_variants.nearest(effort, levels[model])
+            advice = (
+                f"Name one of them with {effort_variants.flag(role)} {fit}"
+                if role and fit
+                else "Choose a supported variant explicitly"
+            )
             raise KiloEffortError(
                 f"Kilo model {model} does not support reasoning variant {effort!r}; supported variants: {supported}. "
-                "Choose a supported variant explicitly; no model request was launched"
+                f"{advice}; no model request was launched"
             )
 
     def local_settings(self, workspace=None, *, env=None):

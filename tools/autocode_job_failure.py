@@ -412,6 +412,9 @@ def reroute(runtime, state: RunState, run_dir, workspace, assignment):
     if not isinstance(bound, dict):
         raise ValueError("Provider configuration or limits changed; retry is stale")
     bound["model"] = assignment.get("to")
+    if isinstance(assignment.get("effort"), dict):
+        # The answer moved the role's effort to a variant the named model declares (#2006): bound too.
+        bound["reasoning_effort"] = assignment["effort"].get("to")
     if current != expected:
         raise ValueError("Provider configuration or limits changed; retry is stale")
     previous = failure["job_retry_token"]

@@ -31,6 +31,7 @@ try:
     from . import autocode_base_patch as operator_patch
     from . import autocode_budget_recovery as budget_recovery
     from . import autocode_design_manifest as design_manifest
+    from . import autocode_effort_variants as effort_variants
     from . import autocode_figma as figma
     from . import autocode_goals as goals
     from . import autocode_opencode, autocode_providers
@@ -57,6 +58,7 @@ except ImportError:
     import autocode_base_patch as operator_patch
     import autocode_budget_recovery as budget_recovery
     import autocode_design_manifest as design_manifest
+    import autocode_effort_variants as effort_variants
     import autocode_figma as figma
     import autocode_goals as goals
     import autocode_opencode
@@ -148,6 +150,23 @@ def check_subscription(identity):
             "Joint planning requires Codex signed in with ChatGPT, "
             "the default OpenAI endpoint and no API-key environment overrides; no billing fallback",
         )
+
+
+def _declared_levels(provider_mod, workspace, model):
+    """The reasoning variants the tool declares for ``model``, from its own listing; None when it has no
+    readable listing (the launch check decides then). Never a model request."""
+    try:
+        from . import autocode_route_discovery as discovery
+    except ImportError:
+        import autocode_route_discovery as discovery
+    try:
+        found = discovery.discover(provider_mod, Path(workspace))
+        for row in found.get("candidates") or []:
+            if row.get("model") == model and isinstance(row.get("levels"), list):
+                return list(row["levels"])
+    except Exception:  # noqa: BLE001 - an unreadable optional listing never blocks a launch
+        return None
+    return None
 
 
 def _auto_select(args, roles, provider_mod, single_model, history_models, history_providers, engine, workspace):
@@ -787,6 +806,18 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         )
         if problem:
             raise ValueError(problem)
+    if single_model:
+        # One model for every role: each role keeps its profile effort, which the model may not declare
+        # (#2006). After every role exists, a runner-chosen effort moves to the nearest declared variant
+        # and the move is recorded; an effort a person named refuses here, naming its flag.
+        declared = _declared_levels(provider_mod, state["workspace"], single_model)
+        explicit = {r for r in settings["roles"] if getattr(args, f"{r}_reasoning_effort", None)}
+        if getattr(args, "reasoning_effort", None):
+            explicit = set(settings["roles"])
+        if fits := effort_variants.reconcile(settings["roles"], single_model, declared, explicit=explicit):
+            settings["effort_fits"] = fits
+        if note := effort_variants.notice(fits, single_model, declared):
+            print(note, flush=True)
     # Why each role of this new run has the route it does (autocode_role_route). Recorded here,
     # after every role exists; a saved run re-records only the routes it re-chooses (role_route.moved).
     settings["route_origins"] = role_route.origins(args, settings["roles"], models, single_model)

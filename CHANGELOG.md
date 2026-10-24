@@ -36,6 +36,11 @@ PR template asks for an entry here; a change without one is incomplete.
   from the summary, and asks `route-ROLE` for a model with a larger window — instead of pausing as an
   uncertain provider failure. An ordinary Kilo launch sets `compaction.auto` to `false`, so a stage is
   never silently summarized (#1942).
+- `--single-model` and a route answer at a model stop fit each role's effort to the variants the
+  named model declares: a runner-chosen effort the model cannot serve moves to the nearest declared
+  one (said and recorded), an effort a person named refuses with the flag to change, and Kilo's
+  variant refusal names that flag; before, the run stopped at the first launch and roles such as the
+  Analyst had no flag at all (#2006).
 - A workflow job stopped on quota, a refusal, an output limit or a timeout names its model question as
   a command on the status view (`needs.route.command`, beside the retry in `next_command`), and the
   terminal chat takes a model typed at its `Continue? [y/N]` through it; before, the pause asked for a
