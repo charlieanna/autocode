@@ -33,6 +33,7 @@ import re
 from pathlib import Path
 
 try:
+    from . import autocode_context_window as context_window
     from . import autocode_output_cap as output_cap
     from . import autocode_provider_refusal as provider_refusal
     from . import autocode_role_route as role_route
@@ -40,6 +41,7 @@ try:
     from . import autocode_roles as roles
     from . import autocode_verifier_independence as verifier_independence
 except ImportError:
+    import autocode_context_window as context_window
     import autocode_output_cap as output_cap
     import autocode_provider_refusal as provider_refusal
     import autocode_role_route as role_route
@@ -52,7 +54,10 @@ CATEGORY = "quota"  # a non-inferable question category (autocode_goals); all mo
 QUOTA_STATUS = "PAUSED_BUDGET"
 REFUSAL_STATUS = provider_refusal.STATUS
 OUTPUT_STATUS = output_cap.STATUS
-STATUSES = (QUOTA_STATUS, REFUSAL_STATUS, OUTPUT_STATUS)
+# The request no longer fit the model's context window, or the provider compacted the conversation (#1942):
+# a person names a model with a larger window, or gives the job a smaller task.
+CONTEXT_STATUS = context_window.STATUS
+STATUSES = (QUOTA_STATUS, REFUSAL_STATUS, OUTPUT_STATUS, CONTEXT_STATUS)
 AUTH_STATUS = "PAUSED_AUTH"
 # Authentication rerouting is limited to retained workflow jobs with exact tokens.
 TIMEOUT_STATUS = "PAUSED_PROVIDER_TIMEOUT"
@@ -68,6 +73,7 @@ _STOPPED = {
     QUOTA_STATUS: "stopped on quota",
     REFUSAL_STATUS: "its provider's content filter refused",
     OUTPUT_STATUS: "exhausted its response output limit",
+    CONTEXT_STATUS: "ran out of its model's context window",
     AUTH_STATUS: "failed provider authentication",
     TIMEOUT_STATUS: "exceeded its execution time limit",
 }
@@ -387,6 +393,21 @@ def question(
             ),
         )
         return asked
+    if attempt.get("pause_status") == CONTEXT_STATUS:
+        asked.update(
+            cause="context_window",
+            question=f"{job}'s request no longer fit its model's context window; name a model with a larger window",
+            why=(
+                f"The {job} stopped on {stopped_on}: its request exceeded the model's context window, or the provider "
+                "compacted (summarized) the conversation to make it fit, so the response was not produced from the "
+                "whole handoff and is not accepted. An unchanged retry would send the same request. AutoCode never "
+                f"changes the model on its own. Name a model with a larger context window for the same engine "
+                f"({engine(settings, role)}) that passes the producer/checker independence rules, or set the attempt "
+                "aside and give the job a smaller task (a narrower --package, or a split milestone). The attempt and "
+                "its usage remain retained."
+            ),
+        )
+        return asked
     if attempt.get("pause_status") == OUTPUT_STATUS:
         asked.update(
             cause="output_limit",
@@ -622,7 +643,7 @@ def parse_answer(answers, questions, origin: dict) -> tuple[dict, str]:
     """(question, model) from ``--answer route-<role>=MODEL`` at a model stop; ValueError otherwise."""
     if (origin or {}).get("pause_status") not in MODEL_STOPS:
         raise ValueError(
-            "Only a quota, content-filter, output-limit, failed-job authentication, stopped-job timeout or cross-model stop is answered with a model; "
+            "Only a quota, content-filter, output-limit, context-window, failed-job authentication, stopped-job timeout or cross-model stop is answered with a model; "
             "use --resolver-response for this request"
         )
     if len(answers) != 1:
@@ -826,6 +847,8 @@ def resume_refusal(
         "route_role": role,
         "cause": "output_limit"
         if attempt.get("pause_status") == OUTPUT_STATUS
+        else "context_window"
+        if attempt.get("pause_status") == CONTEXT_STATUS
         else "content_filter"
         if attempt.get("pause_status") == REFUSAL_STATUS
         else "quota",

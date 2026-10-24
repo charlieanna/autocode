@@ -42,9 +42,16 @@ class StatusPoller:
 
     @staticmethod
     def stop(read: Read) -> None:
-        # Status commands own separate groups, never the task controller's group.
-        with contextlib.suppress(ProcessLookupError):
+        # Status commands own separate groups, never the task controller's group. macOS answers EPERM
+        # for a group whose leader already exited (#2011): the read is ours either way, so the direct
+        # child is killed instead and the chat carries on.
+        try:
             os.killpg(read.child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            with contextlib.suppress(ProcessLookupError):
+                read.child.kill()
         read.child.wait()
         read.output.close()
 

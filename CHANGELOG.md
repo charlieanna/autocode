@@ -15,6 +15,23 @@ PR template asks for an entry here; a change without one is incomplete.
   `kilocode.toml` with other roles) now launches as the bundled `kilocode` does: with the
   activity plugin, the output cap, the native variant check and the read-only checker policy.
   Before, it ran as a plain command provider and got none of them (#2010).
+- In the terminal chat, the tab Ctrl-T opens can be left with Ctrl-←/→ or `/tab` before its
+  request is sent; before, it answered "Tabs switch once a chat is open" and only `ctrl-d`
+  led out of it. Tabs with an open chat keep the rule that a working step is never left
+  unwatched (#1997).
+- The terminal chat no longer ends with `[Errno 1] Operation not permitted` when it stops a status
+  read whose process group the kernel will not signal (macOS, once the group's leader has exited):
+  the read's own child is killed instead and the chat carries on (#2011).
+- The terminal chat no longer ends when the core refuses an action it took (another autocode
+  runner holds the run lock, a stale token): it says what was refused, reads the run again and
+  asks again, keeping the plan on screen; before, the pane, the plan and the draft were gone with
+  no retry (#2000).
+- A stage whose request no longer fits its model's context window, or whose conversation the provider
+  compacted, stops as `PAUSED_CONTEXT_WINDOW` and says which: it names the provider's error or how the
+  compaction was seen, reports the size of the stage's last completed request, refuses the report written
+  from the summary, and asks `route-ROLE` for a model with a larger window — instead of pausing as an
+  uncertain provider failure. An ordinary Kilo launch sets `compaction.auto` to `false`, so a stage is
+  never silently summarized (#1942).
 - Terminal attention survives viewer restarts with shared local read receipts.
   F8 or `/attention` inspects current decisions and distinct same-chat completions
   without advancing tasks or losing drafts; empty JSON run inventories remain
