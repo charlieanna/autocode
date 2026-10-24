@@ -14,6 +14,16 @@ PR template asks for an entry here; a change without one is incomplete.
 - The terminal chat no longer ends with `[Errno 1] Operation not permitted` when it stops a status
   read whose process group the kernel will not signal (macOS, once the group's leader has exited):
   the read's own child is killed instead and the chat carries on (#2011).
+- The terminal chat no longer ends when the core refuses an action it took (another autocode
+  runner holds the run lock, a stale token): it says what was refused, reads the run again and
+  asks again, keeping the plan on screen; before, the pane, the plan and the draft were gone with
+  no retry (#2000).
+- A stage whose request no longer fits its model's context window, or whose conversation the provider
+  compacted, stops as `PAUSED_CONTEXT_WINDOW` and says which: it names the provider's error or how the
+  compaction was seen, reports the size of the stage's last completed request, refuses the report written
+  from the summary, and asks `route-ROLE` for a model with a larger window — instead of pausing as an
+  uncertain provider failure. An ordinary Kilo launch sets `compaction.auto` to `false`, so a stage is
+  never silently summarized (#1942).
 - Terminal attention survives viewer restarts with shared local read receipts.
   F8 or `/attention` inspects current decisions and distinct same-chat completions
   without advancing tasks or losing drafts; empty JSON run inventories remain

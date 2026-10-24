@@ -136,6 +136,7 @@ except ImportError:
 
 try:
     from . import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_auth as provider_auth, autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
+    from . import autocode_stage_stops as stage_stops
     from . import autocode_workspaces as task_workspaces, autocode_figma as figma  # noqa: F401 - compatibility API
     from . import autopilot  # noqa: F401 - compatibility API
     from . import autocode_workflow as workflow  # noqa: F401 - compatibility API
@@ -175,6 +176,7 @@ except ImportError:
     import autocode_job_failure as job_failure
     import autocode_provider_auth as provider_auth  # noqa: F401 - compatibility API
     import autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
+    import autocode_stage_stops as stage_stops
     import autocode_workspaces as task_workspaces  # noqa: F401 - compatibility API
     import autocode_figma as figma  # noqa: F401 - compatibility API
     import autopilot  # noqa: F401 - compatibility API
@@ -1017,7 +1019,7 @@ def run_role(
             "PAUSED_PROVIDER_TIMEOUT", f"{role}: {record['timeout_reason']}; partial work and logs retained at {events}"
         )
     if exit_code != 0:
-        refused = refusal_reason(state, record)
+        refused = stage_stops.refusal_reason(state, record) or stage_stops.context_window_reason(state, record)
         hint = (
             provider_env.authentication_hint(adapter.raw_events(events), record["withheld_env"])
             if engine == "opencode" and configured_tool
@@ -1035,7 +1037,8 @@ def run_role(
             state["sessions"][route_role] = thread
             record["thread_id"] = thread
         if not any(e.get("type") == "turn.completed" for e in support.events(events)):
-            refused_at_clean_exit(state, record, role, events)
+            stage_stops.refused_at_clean_exit(state, record, role, events)
+            stage_stops.stopped_at_context_window(state, record, role, events)
             raise support.Paused(
                 output_cap.STATUS
                 if support.failure_status(events, record=record) == output_cap.STATUS
@@ -1044,7 +1047,8 @@ def run_role(
                 or "Process exited without turn.completed",
             )
     elif not output.is_file():
-        refused_at_clean_exit(state, record, role, events)
+        stage_stops.refused_at_clean_exit(state, record, role, events)
+        stage_stops.stopped_at_context_window(state, record, role, events)
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file")
     after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     save(base.with_suffix(".after.json"), after)
@@ -1432,25 +1436,6 @@ def repeated_failure_resume_guard(state: RunState, workspace, *, authorization=N
     )
 
 
-def refusal_reason(state: RunState, record):
-    """Whose response the provider's content filter refused, and on which model; None for any other stop."""
-    if not record.get("events"):
-        return None
-    return provider_refusal.explain(
-        support.events(record["events"]),
-        job=autocode_status.role_name(record.get("original_stage") or record.get("stage"), state),
-        model=(record.get("launch_route") or {}).get("model"),
-    )
-
-
-def refused_at_clean_exit(state: RunState, record, role, events):
-    """A content-filter refusal names the stop even when the provider exited 0 (#464); any other stop stays uncertain."""
-    if refused := refusal_reason(state, record):
-        raise support.Paused(
-            provider_refusal.STATUS, f"{refused}. {role} exited 0; reconcile {events}, no automatic replay"
-        )
-
-
 def reconcile_active(state: RunState, run_dir, workspace):
     regression.before_review(state, None, workspace, run_dir)
     record = state.get("active_stage")
@@ -1501,7 +1486,7 @@ def reconcile_active(state: RunState, run_dir, workspace):
     )
     unexpected_session = support.Paused("PAUSED_UNCERTAIN_STAGE", "Recovered response belongs to an unexpected session")
     if not stage_completed(state, record) or (supports_sessions and record.get("exit_code") not in (None, 0)):
-        reason = refusal_reason(state, record)
+        reason = stage_stops.refusal_reason(state, record)
         # As in run_role, a timeout names the stop before the response is read (and recovers on its own),
         # whatever session it came from. A refusal in a response from a session the run did not expect, or
         # naming none, is typed only for a provider that exited with an error; after a clean, unsaved or
@@ -1515,8 +1500,10 @@ def reconcile_active(state: RunState, run_dir, workspace):
         exit_code = record.get("exit_code")
         if reason and unexpected and not (type(exit_code) is int and exit_code > 0):
             raise unexpected_session
-        reason = reason or output_cap.explain(
-            support.terminal_failure_reason(record["events"]), record.get("output_token_cap")
+        reason = (
+            reason
+            or stage_stops.context_window_reason(state, record)
+            or output_cap.explain(support.terminal_failure_reason(record["events"]), record.get("output_token_cap"))
         )
         raise support.Paused(
             support.failure_status(record["events"], record=record),

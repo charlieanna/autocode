@@ -106,6 +106,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/prompts/plan-chat.md", ("tests.test_plan_chat_cli",)),
     ("tools/autocode_kilo_image_delivery.mjs", ("tests.test_kilo_image_delivery", "tests.test_native_image")),
     ("tools/fixtures/multicomponent_fake.py", ("tests.test_multicomponent", "tests.test_local_compose_scenario")),
+    (
+        "tools/fixtures/kilo-context-overflow-run.jsonl",
+        ("tests.test_context_window", "tests.test_job_failure_recovery"),
+    ),
     ("tools/prompts/fragments/milestones/", ("tests.test_milestone_policy",)),
     ("tools/prompts/fragments/milestone-replan/", ("tests.test_milestone_policy", "tests.test_milestone_replan")),
     ("tools/prompts/fragments/autoplanner/", ("tests.test_autoplanner_review", "tests.test_planning_stages")),

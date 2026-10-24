@@ -34,6 +34,7 @@ try:
                                 model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)  # noqa: F401 - compatibility API
     from . import autocode_receipts as receipts, autocode_receipt_repair_context as receipt_repair, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines  # noqa: F401 - compatibility API
     from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal, autocode_output_cap as output_cap, autocode_provider_auth as provider_auth  # noqa: F401 - compatibility API
+    from . import autocode_context_window as context_window  # noqa: F401 - compatibility API
     from .autocode_event_matching import same_command  # noqa: F401 - compatibility API
 except ImportError:
     from autocode_baseline import BASELINE_POLICY  # noqa: F401 - compatibility API
@@ -53,6 +54,7 @@ except ImportError:
     import autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
     import autocode_output_cap as output_cap
     import autocode_provider_auth as provider_auth
+    import autocode_context_window as context_window
     from autocode_event_matching import same_command  # noqa: F401 - compatibility API
 # fmt: on
 # isort: on
@@ -125,6 +127,10 @@ def failure_status(path, *, record=None):
         ):
             return output_cap.STATUS
         return "PAUSED_PROVIDER_UNCERTAIN"
+    # The request no longer fit the model's context window, or the provider compacted the conversation: the
+    # response was never whole, and a person may name a model with a larger window (#1942).
+    if context_window.found(rows):
+        return context_window.STATUS
     # A content-filter refusal is about this model, not the work: the same model is likely to refuse again.
     if provider_refusal.refusal(failures):
         return provider_refusal.STATUS

@@ -1,5 +1,7 @@
 // Forward bounded native progress that `opencode run --format json` omits.
 // Hashes describe liveness only: never emit report text, tool proof or completion.
+// A compaction part (the provider summarized the conversation) is forwarded as its own
+// row, so the runner can refuse the response that follows it (autocode_context_window).
 import { createHash } from "node:crypto";
 
 const WINDOW = 8192;
@@ -11,6 +13,7 @@ export default async () => {
   let sessionID;
   const parts = new Map();
   const seen = new Set();
+  const compactions = new Set();
   function flush(id, part) {
     if (!part.pending.trim()) return;
     process.stdout.write(JSON.stringify({
@@ -27,13 +30,24 @@ export default async () => {
         sessionID = input.sessionID;
         parts.clear();
         seen.clear();
+        compactions.clear();
       }
     },
     event: async ({event}) => {
       const data = event.properties || {};
       if (event.type === "message.part.updated") {
         const part = data.part;
-        if (!part || part.sessionID !== sessionID || !["text", "reasoning"].includes(part.type)) return;
+        if (!part || part.sessionID !== sessionID) return;
+        if (part.type === "compaction") {
+          if (typeof part.id !== "string" || compactions.has(part.id) || compactions.size >= MAX_PARTS) return;
+          compactions.add(part.id);
+          process.stdout.write(JSON.stringify({
+            type: "autocode_compaction", version: 1, timestamp: Date.now(), sessionID,
+            compaction: {auto: part.auto === true, overflow: part.overflow === true}
+          }) + "\n");
+          return;
+        }
+        if (!["text", "reasoning"].includes(part.type)) return;
         if (!parts.has(part.id) && parts.size < MAX_PARTS) {
           parts.set(part.id, {kind: part.type, position: 0, window: "", pending: "", emitted: -Infinity});
         }

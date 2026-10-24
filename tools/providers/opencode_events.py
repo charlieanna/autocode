@@ -8,8 +8,10 @@ if TYPE_CHECKING:
     from ..autocode_run_state import RunState
 
 try:
+    from .. import autocode_context_window as context_window
     from .. import autocode_output_cap as output_cap
 except ImportError:
+    import autocode_context_window as context_window
     import autocode_output_cap as output_cap
 
 
@@ -47,6 +49,10 @@ def normalized_events(rows):
     # Some versions repeat completed part updates; a part is still one operation.
     parts = _session_parts(rows, session)
     errors = [{"type": "error", "error": row.get("error")} for row in rows if row.get("type") == "error"]
+    # The activity plugin saw Kilo compact (summarize) the conversation (autocode_context_window, #1942).
+    compactions = [
+        row for row in rows if row.get("type") == context_window.PLUGIN_ROW and row.get("sessionID") == session
+    ]
     steps = []
     for row in parts.values():
         part = row["part"]
@@ -114,6 +120,29 @@ def normalized_events(rows):
         "reasoning_output_tokens": total("reasoning"),
     }
     usage = {k: v for k, v in usage.items() if v is not None}
+    # A compacted conversation fails the turn however its last step finished: the response that
+    # follows was produced from a summary, never from the whole handoff. The plugin's row is the
+    # provider's own word; a request shrinking far below the previous one is the same signature.
+    if compactions:
+        flags = compactions[0].get("compaction") if isinstance(compactions[0].get("compaction"), dict) else {}
+        summary = {"signal": "compaction_part", **{k: flags[k] for k in ("auto", "overflow") if k in flags}}
+    else:
+        # A shrinking last request is a signature only when nothing else failed, or the window itself
+        # failed (Kilo refuses, summarizes and carries on); an unrelated failure proves nothing.
+        summary = None if errors and context_window.overflow(rows) is None else context_window.shrank(rows)
+    if summary is not None:
+        normalized.append(
+            {
+                "type": "turn.failed",
+                "usage": usage,
+                "error": {
+                    "code": context_window.COMPACTED_CODE,
+                    "message": context_window.compaction_message(summary) + "; the response is not accepted",
+                },
+                "compaction": summary,
+            }
+        )
+        return normalized
     if not terminal:
         # Completed-step consumption survives interruption, but is not terminal proof.
         normalized.append({"type": "usage.partial", "usage": usage})
