@@ -617,8 +617,26 @@ and existing linger policy; it never configures them. Normal quit, Ctrl-D,
 terminal closure and SSH disconnect leave that worker running. Reopen with
 `autocode chat --run-dir RUN`. Repeated Ctrl-C requests only the current boundary
 pause, without escalating to worker termination. This does not change ordinary
-owned-worker behavior or migrate saved runs. Active tab switching remains a
-separate delivery; detaching is available through `/quit` and Ctrl-D.
+owned-worker behavior or migrate saved runs. While the current view advertises
+durable detach support, `/open`, `/new`, `/tab` and the tab keys are available
+during work. The worker being left continues independently. Returning to an
+idle boundary reads status and waits for explicit Continue.
+
+Within this terminal session, each of the most recent 32 run identities keeps
+its transcript, unsent draft and cursor, scroll, log filter and panel choices.
+Titles are display text; workspace and run paths select the context. Switching
+always reads fresh core status before a decision. A changed question or plan
+keeps its earlier draft in input history for explicit recovery with Up, rather
+than filling the new question automatically. Pending restore confirmations and
+queued keys never transfer between runs. If a target disappears or cannot be
+read, Enter retries its status and `/runs`, `/open` or `/tab` selects another;
+typed text cannot submit a task decision while status is unavailable.
+
+`/new` opens a local request composer; no core run or tab is created until a
+brief is submitted. An empty request returns to the original context. Unsent
+drafts and view choices live only in this TUI process. After restart, saved
+core conversations, registered runs and existing project input history remain;
+session drafts, scroll and filters do not.
 
 `autocode chat` is the terminal client of the [task-run interface](task-run.md),
 beside the VS Code extension and the browser dashboard. It reads only
@@ -702,9 +720,9 @@ highlighted one:
 | `/diff` | List the saved code steps with the files each changed; `/diff N` shows the files and the diff changed since step N |
 | `/undo N` | At a question: go back to saved step N. It shows what differs and asks first; yes makes a new run on a new branch, your branch and its later work stay as they are, and the chat carries on with the new run, which checks every requirement again |
 | `/runs` | Your chats in every project, open and finished, grouped by project: this project first, then the others by their latest activity, newest chat first in each. Each shows its request, its state and when it last moved; a chat whose run was removed is left out and counted. Also at the first "What do you want done?" |
-| `/open N` | At a question: open chat N from `/runs`. Its whole conversation is shown and you carry on there: a follow-up on a finished chat, or the decision it waits for. The chat you leave stays as it is |
-| `/new` | At a question: start a new chat in a new tab (also `Ctrl-T`); an empty request keeps the current one |
-| `/tab N` | At a question: switch to tab N (also `Ctrl-←`/`Ctrl-→` for the previous and next tab). Once a session has two chats, a tab bar under the header lists them with a mark for each: `●` working, `!` needs you, `✓` done |
+| `/open N` | At a question, or during detachable durable work: open chat N from `/runs`, restore its session context and read current status before carrying on. The chat left keeps its worker lifetime |
+| `/new` | At a question, or during detachable durable work: compose a new request (also `Ctrl-T`); an empty request returns to the original chat |
+| `/tab N` | At a question, or during detachable durable work: switch to tab N (also `Ctrl-←`/`Ctrl-→`). Once a session has two chats, a tab bar under the header lists them with a mark for each: `●` working, `!` needs you, `✓` done |
 | `/mode [ID]` | The modes the core lists (`autocode modes list`; only `full` since 2026-10-22), and which one new chats start in; `/mode ID` changes it for new chats only, and a saved mode the core no longer lists gives way to its default |
 | `/engine [NAME]` | The engine new chats run on: `opencode`, `codex` or `claude`, set as the VS Code extension's engine picker sets it |
 | `/connect [NAME check\|login\|setup\|use]` | The backends `autocode connections list` reports, with their state. `check` runs the connection's own check; `login` and `setup` hand the terminal to the backend's sign-in or AutoCode's setup and bring the chat back afterwards; `use` makes new chats use it. Only an action the connection offers is run |
