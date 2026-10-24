@@ -27,6 +27,10 @@ class Child:
         self.reaped = True
         return self.code
 
+    def kill(self):
+        self.killed = True
+        self.code = -9
+
 
 class Reads(unittest.TestCase):
     def setUp(self):
@@ -43,6 +47,21 @@ class Reads(unittest.TestCase):
         self.addCleanup(mock.patch.stopall)
         self.addCleanup(self.poller.close)
         self.keys = {(f"/p/{n}", f"/p/{n}/run"): 0 for n in range(25)}
+
+    def test_a_group_kill_the_kernel_refuses_falls_back_to_the_child_and_the_chat_carries_on(self):
+        """#2011: macOS answers EPERM for a group whose leader already exited; the chat ended with
+        "[Errno 1] Operation not permitted" at the end of a completed run."""
+        key = next(iter(self.keys))
+        self.poller.tick({key: 0})
+        read = self.poller.active[key]
+        self.kill.side_effect = PermissionError(1, "Operation not permitted")
+        self.poller.refresh(key)  # a tab refresh or close stops the read
+        self.assertTrue(read.child.killed, "the direct child is ours: killed instead")
+        self.assertTrue(read.child.reaped)
+        self.assertNotIn(key, self.poller.active)
+        self.kill.side_effect = ProcessLookupError()
+        self.poller.tick({key: 0})
+        self.poller.close()  # an already gone group is still no error
 
     def test_no_queue_and_fairness_even_when_every_read_hangs(self):
         admitted = set()
