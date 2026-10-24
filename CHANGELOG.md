@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Terminal attention survives viewer restarts with shared local read receipts.
+  F8 or `/attention` inspects current decisions and distinct same-chat completions
+  without advancing tasks or losing drafts; empty JSON run inventories remain
+  readable and receipt failures stay unknown (#1993).
+
 - The terminal distinguishes viewer read age from the core snapshot sample time.
   Failed reads retain a last-known snapshot, and details show source/checkpoint
   identity without treating polling as work progress (#1990).
