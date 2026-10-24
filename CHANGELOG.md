@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Lifecycle status metadata is covered by the public JSON schema and the
+  completed-worktree consumer. Read samples may differ while every task and
+  checkpoint field remains identical; focused CI keeps both regressions (#1994).
+
 - The terminal distinguishes viewer read age from the core snapshot sample time.
   Failed reads retain a last-known snapshot, and details show source/checkpoint
   identity without treating polling as work progress (#1990).
