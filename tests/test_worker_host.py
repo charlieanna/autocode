@@ -309,9 +309,9 @@ class PersistentHost(unittest.TestCase):
         self.assertTrue(accepted)
         self.assertEqual(1, len({receipt["launch_id"] for receipt in accepted}))
         self.receipts.extend(accepted)
-        self.bound(accepted[0])
+        bound = self.bound(accepted[0])
         before = self.at_stage("terra")
-        self.assertEqual(accepted[0]["binding"]["controller_id"], before["execution"]["controller_epoch"])
+        self.assertEqual(bound["binding"]["controller_id"], before["execution"]["controller_epoch"])
         identity = self.attempts(before)
         epoch = before["execution"]["controller_epoch"]
         for kind in ("quit", "ctrl_d", "sighup", "sigkill", "pty_close", "ssh_disconnect"):
@@ -372,10 +372,18 @@ class PersistentHost(unittest.TestCase):
         self.dispatch(plan, operator)
         before = self.wait(lambda value: (value.get("controller") or {}).get("kind") == "ready")
         self.assertFalse((self.workspace / "greet.py").exists())
-        child, leader = self.viewer(until=b"Press Enter to continue")
+        child, leader = self.viewer(until=b"? Press Enter to continue")
         try:
             os.write(leader, b"/details\r/quit\r")
-            child.wait(timeout=5)
+            screen, deadline = bytearray(), time.monotonic() + 5
+            while child.poll() is None:
+                self.assertLess(time.monotonic(), deadline, "Idle viewer did not detach after /quit")
+                if select.select([leader], [], [], 0.05)[0]:
+                    try:
+                        screen.extend(os.read(leader, 65536))
+                    except OSError:  # the child closed its controlling terminal
+                        break
+            child.wait(timeout=1)
             self.assertEqual(2, child.returncode)
             after = self.run.status()
             self.assertEqual(self.attempts(before), self.attempts(after))
