@@ -1,6 +1,7 @@
 """Both clients consume worker actions from public JSON, without worker ownership."""
 
 import json
+import signal
 import subprocess
 import unittest
 from pathlib import Path
@@ -25,6 +26,79 @@ EXECUTION = worker_view.execution(
 
 
 class NamedWorkerTransport(unittest.TestCase):
+    def test_ctrl_c_at_a_durable_question_does_not_exit_or_signal_the_worker(self):
+        client = chat.ChatClient(WORKSPACE, RUN, say=Mock(), ask=Mock(side_effect=[KeyboardInterrupt, "kept reply"]))
+        self.addCleanup(client.close)
+        client._status_view = {"execution": EXECUTION}
+        with patch.object(client, "request_pause", return_value=True) as pause:
+            self.assertEqual("kept reply", client.ask("Your answer?"))
+            pause.assert_called_once()
+        legacy = chat.ChatClient(WORKSPACE, RUN, say=Mock(), ask=Mock(side_effect=KeyboardInterrupt))
+        self.addCleanup(legacy.close)
+        with self.assertRaises(chat.Left):
+            legacy.ask("Your answer?")
+
+    def test_idle_durable_reattachment_does_not_launch_until_the_user_continues(self):
+        client = chat.ChatClient(WORKSPACE, RUN, say=Mock(), ask=Mock(side_effect=EOFError))
+        self.addCleanup(client.close)
+        view = {
+            "status": "RUNNING",
+            "needs": {"kind": "continue"},
+            "execution": EXECUTION,
+            "controller": {"kind": "ready", "checked": True, "alive": False},
+            "next_command": "autocode --no-chat",
+        }
+        with patch.object(client, "status", return_value=view), patch.object(client, "take") as take:
+            self.assertEqual(2, client.converse())
+            take.assert_not_called()
+
+    def test_manual_continue_does_not_apply_to_a_boundary_changed_while_it_was_displayed(self):
+        client = chat.ChatClient(WORKSPACE, RUN, say=Mock(), ask=Mock(return_value=""))
+        self.addCleanup(client.close)
+        view = {
+            "status": "RUNNING",
+            "needs": {"kind": "continue"},
+            "execution": EXECUTION,
+            "controller": {"kind": "ready", "checked": True, "alive": False},
+            "next_command": "autocode --no-chat",
+        }
+        changed = {**view, "execution": {**EXECUTION, "next_command": [*EXECUTION["next_command"][:8], "d" * 64, "--"]}}
+        with patch.object(client, "status", side_effect=[view, changed]), patch.object(client, "take") as take:
+            self.assertIsNone(client.step())
+            take.assert_not_called()
+
+    def test_sigint_after_first_live_view_before_watch_requests_boundary_pause(self):
+        client = chat.ChatClient(WORKSPACE, RUN, say=Mock())
+        self.addCleanup(client.close)
+        view = {
+            "status": "RUNNING",
+            "needs": {"kind": "continue"},
+            "controller": {"kind": "running", "checked": True, "alive": True},
+            "execution": EXECUTION,
+        }
+
+        def status():
+            client._status_view = view
+            signal.raise_signal(signal.SIGINT)  # a live view is already visible, before watch() handles keys
+
+        def paused():
+            self.assertTrue(client._attached)
+            return True
+
+        previous = signal.signal(signal.SIGINT, signal.default_int_handler)
+        try:
+            calls = iter((status, lambda: 2))
+            with (
+                patch.object(client, "step", side_effect=lambda: next(calls)()),
+                patch.object(client, "request_pause", side_effect=paused) as pause,
+                patch.object(client, "advance") as launch,
+            ):
+                self.assertEqual(2, client.converse())
+                pause.assert_called_once()
+                launch.assert_not_called()
+        finally:
+            signal.signal(signal.SIGINT, previous)
+
     def test_exact_current_envelope_preserves_the_task_action_and_refuses_another_run(self):
         words = ["--follow-up", "Keep $HOME %n literal 你好"]
         wrapped = actions.worker_transport(EXECUTION, words, WORKSPACE, RUN)

@@ -11,6 +11,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -56,7 +57,19 @@ class PersistentHost(unittest.TestCase):
         self.addCleanup(self.cleanup_workers)
 
     def cleanup_workers(self):
-        for receipt in self.receipts:
+        # A viewer can leave before the first run listing exists. Reconcile its
+        # exact fixture launch namespace before cleaning any known unit.
+        listing = subprocess.run(
+            [*CORE, "worker", "launches", "--workspace", str(self.workspace)],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if listing.returncode == 0:
+            self.receipts.extend(json.loads(listing.stdout)["launches"])
+        unique = {receipt["launch_id"]: receipt for receipt in self.receipts}
+        for receipt in unique.values():
             subprocess.run(
                 ["systemctl", "--user", "kill", "--signal=KILL", services.unit_name(receipt["launch_id"])],
                 env=self.env,
@@ -165,7 +178,7 @@ class PersistentHost(unittest.TestCase):
             self.dispatch(view, command)
         self.fail("Offline fixture never reached plan approval")
 
-    def at_stage(self, stage):
+    def at_stage(self, stage, *, advance=False):
         return self.wait(
             lambda view: (
                 self.gates[stage][0].exists()
@@ -174,7 +187,7 @@ class PersistentHost(unittest.TestCase):
                     for row in view.get("usage", {}).get("accounting", {}).get("attempts", [])
                 )
             ),
-            advance=True,
+            advance=advance,
         )
 
     @staticmethod
@@ -184,7 +197,7 @@ class PersistentHost(unittest.TestCase):
             for row in view.get("usage", {}).get("accounting", {}).get("attempts", [])
         ]
 
-    def viewer(self, *, ssh=False, fresh=False):
+    def viewer(self, *, ssh=False, fresh=False, until=b"ctrl-d detaches"):
         remote_env = {
             key: self.env[key]
             for key in (
@@ -244,7 +257,7 @@ class PersistentHost(unittest.TestCase):
         screen, deadline = bytearray(), time.monotonic() + 30
         # Curses can draw "Re" and "quirements" in separate differential updates.
         # This newly rendered hint confirms the core's lifetime metadata reached UI.
-        while b"ctrl-d detaches" not in screen:
+        while until not in screen:
             self.assertIsNone(child.poll(), "TUI exited before displaying durable detach support")
             if time.monotonic() >= deadline:
                 destination = Path(os.environ["AUTOCODE_WORKER_EVIDENCE"])
@@ -296,8 +309,9 @@ class PersistentHost(unittest.TestCase):
         self.assertTrue(accepted)
         self.assertEqual(1, len({receipt["launch_id"] for receipt in accepted}))
         self.receipts.extend(accepted)
-        self.bound(accepted[0])
+        bound = self.bound(accepted[0])
         before = self.at_stage("terra")
+        self.assertEqual(bound["binding"]["controller_id"], before["execution"]["controller_epoch"])
         identity = self.attempts(before)
         epoch = before["execution"]["controller_epoch"]
         for kind in ("quit", "ctrl_d", "sighup", "sigkill", "pty_close", "ssh_disconnect"):
@@ -312,7 +326,7 @@ class PersistentHost(unittest.TestCase):
             lambda view: (
                 any(self.gates[stage][0].exists() for stage in ("sol", "astra_checkpoint")) and actions.working(view)
             ),
-            advance=True,
+            advance=False,
         )
         edited = {name: (self.workspace / name).read_bytes() for name in ("greet.py", "test_greet.py", "README.md")}
         self.leave("ctrl_d")
@@ -348,12 +362,62 @@ class PersistentHost(unittest.TestCase):
             self.assertEqual(self.attempts(before), self.attempts(self.run.status()))
         self.assertNotEqual("TASK_COMPLETE", after["status"])
 
+    def test_idle_unit_boundary_reattachment_inspects_without_dispatching(self):
+        self.start()
+        plan = self.plan()
+        offered = actions.named(plan, self.run.workspace, self.run.run_dir)
+        # Explicit operator unit stop, using the public CLI, creates a ready
+        # boundary rather than an active stage. No client infers this flag.
+        operator = actions.NamedCommand([*offered.argv, "--unit", "autoplanner"], offered.env)
+        self.dispatch(plan, operator)
+        before = self.wait(lambda value: (value.get("controller") or {}).get("kind") == "ready")
+        self.assertFalse((self.workspace / "greet.py").exists())
+        child, leader = self.viewer(until=b"? Press Enter to continue")
+        try:
+            os.write(leader, b"/details\r/quit\r")
+            screen, deadline = bytearray(), time.monotonic() + 5
+            while child.poll() is None:
+                self.assertLess(time.monotonic(), deadline, "Idle viewer did not detach after /quit")
+                if select.select([leader], [], [], 0.05)[0]:
+                    try:
+                        screen.extend(os.read(leader, 65536))
+                    except OSError:  # the child closed its controlling terminal
+                        break
+            child.wait(timeout=1)
+            self.assertEqual(2, child.returncode)
+            after = self.run.status()
+            self.assertEqual(self.attempts(before), self.attempts(after))
+            self.assertEqual(before["execution"]["controller_epoch"], after["execution"]["controller_epoch"])
+            self.assertFalse((self.workspace / "greet.py").exists())
+        finally:
+            os.close(leader)
+
     def test_fresh_full_screen_launch_detaches_and_is_found_through_public_listings(self):
         self.hold("requirements_gather")
         child, leader = self.viewer(fresh=True)
         try:
+            deadline = time.monotonic() + 30
+            while True:
+                listed = subprocess.run(
+                    [*CORE, "worker", "launches", "--workspace", str(self.workspace)],
+                    env=self.env,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=10,
+                )
+                receipts = json.loads(listed.stdout)["launches"]
+                if receipts and receipts[0].get("ready"):
+                    break
+                self.assertLess(time.monotonic(), deadline, "Fresh launch binding did not become observable")
+                time.sleep(0.05)
+            self.receipts.extend(receipts)
+            binding = receipts[0]["binding"]
+            self.run = taskrun.TaskRun(
+                Path(binding["workspace"]), Path(binding["run_dir"]), command=tuple(CORE), env=self.env, timeout=10
+            )
             reply = subprocess.run(
-                [*CORE, "runs", "--workspace", str(self.workspace), "--json"],
+                [*CORE, "runs", "--workspace", str(self.run.workspace), "--json"],
                 env=self.env,
                 capture_output=True,
                 text=True,
@@ -362,18 +426,7 @@ class PersistentHost(unittest.TestCase):
             )
             rows = json.loads(reply.stdout)["runs"]
             self.assertEqual(1, len(rows))
-            self.run = taskrun.TaskRun(
-                self.workspace, Path(rows[0]["run_dir"]), command=tuple(CORE), env=self.env, timeout=10
-            )
-            listed = subprocess.run(
-                [*CORE, "worker", "launches", "--workspace", str(self.workspace)],
-                env=self.env,
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=10,
-            )
-            self.receipts.extend(json.loads(listed.stdout)["launches"])
+            self.assertEqual(str(self.run.run_dir), rows[0]["run_dir"])
             before = self.at_stage("requirements_gather")
             os.write(leader, b"/quit\r")
             child.wait(timeout=5)
@@ -394,7 +447,7 @@ class PersistentHost(unittest.TestCase):
         self.dispatch(self.plan())
         before = self.wait(
             lambda view: any(self.gates[stage][0].exists() for stage in self.gates) and actions.working(view),
-            advance=True,
+            advance=False,
         )
         files = {name: (self.workspace / name).read_bytes() for name in ("greet.py", "test_greet.py", "README.md")}
         observed = services.UserServices(env=self.env).inspect(before["execution"]["launch_id"])
@@ -413,9 +466,47 @@ class PersistentHost(unittest.TestCase):
         self.start()
         before = self.at_stage("requirements_gather")
         child, leader = self.viewer()
+        captured, stopped = bytearray(), threading.Event()
+
+        def drain():
+            while not stopped.is_set():
+                if select.select([leader], [], [], 0.1)[0]:
+                    try:
+                        chunk = os.read(leader, 65536)
+                    except OSError:
+                        return
+                    if not chunk:
+                        return
+                    captured.extend(chunk)
+
+        reader = threading.Thread(target=drain, daemon=True)
+        reader.start()
         try:
+            attributes = termios.tcgetattr(leader)
+            signal_lines = [
+                line
+                for line in Path(f"/proc/{child.pid}/status").read_text().splitlines()
+                if line.startswith(("SigIgn:", "SigBlk:", "SigCgt:"))
+            ]
+            self.evidence.append(
+                {
+                    "viewer_pid": child.pid,
+                    "foreground_pgid": os.tcgetpgrp(leader),
+                    "isig": bool(attributes[3] & termios.ISIG),
+                    "vintr": bytes(attributes[6][termios.VINTR]).hex(),
+                    "signals": signal_lines,
+                }
+            )
+            self.assertEqual(child.pid, os.tcgetpgrp(leader))
+            self.assertTrue(attributes[3] & termios.ISIG)
+            self.assertEqual(b"\x03", attributes[6][termios.VINTR])
             os.write(leader, b"\x03")
-            self.wait(lambda view: (view.get("pause") or {}).get("requested") is True)
+
+            def queued(view):
+                self.assertIsNone(child.poll(), "TUI exited during the pause request; see captured terminal")
+                return (view.get("pause") or {}).get("requested") is True
+
+            self.wait(queued)
             os.write(leader, b"\x03\x03")
             after = self.run.status()
             self.assertIsNone(child.poll())
@@ -428,4 +519,9 @@ class PersistentHost(unittest.TestCase):
             os.write(leader, b"\x04")
             child.wait(timeout=5)
         finally:
+            stopped.set()
+            reader.join(timeout=1)
+            folder = Path(os.environ["AUTOCODE_WORKER_EVIDENCE"])
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / (self._testMethodName + "-terminal.raw")).write_bytes(captured[-20000:])
             os.close(leader)

@@ -463,6 +463,12 @@ and its exact human tokens. No shell is involved. The wrapper owns workspace,
 run-directory and noninteractive flags; do not repeat those inside the action.
 The core checks the checkpoint again under the existing run lock before
 configuration, reconciliation, a new controller epoch or provider dispatch.
+An admitted human answer, feedback, approval or resume keeps that same controller
+in the ordinary loop until the next human boundary; it does not depend on a
+viewer taking another Continue action. Explicit unit stops and inspection
+actions retain their boundaries. Attaching to an idle saved durable run reads
+only: the TUI offers Enter to take its current named Continue action, after
+rechecking that exact boundary. It does not silently dispatch on reconnect.
 
 `worker launch` seals a private launch-intent receipt before calling the service
 manager. The default request ID fingerprints the exact action, checkpoint and

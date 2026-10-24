@@ -118,6 +118,33 @@ def guard(args, state: RunState, run_dir, workspace):
         raise ValueError("Durable new-run destination differs from its reserved destination")
 
 
+def continue_after_action(args, state: RunState, code):
+    """An admitted human action keeps the same core loop, independent of a viewer.
+
+    Read/inspection actions and explicit unit stops keep their original boundary.
+    This grants no retry, approval or budget: the ordinary loop checks all gates.
+    """
+    return (
+        type(code) is int
+        and code == 0
+        and getattr(args, "_worker_context", None) is not None
+        and state.get("status") == "RUNNING"
+        and not getattr(args, "unit", None)
+        and any(
+            getattr(args, field, None)
+            for field in (
+                "answer",
+                "feedback",
+                "follow_up",
+                "approve_goal",
+                "resume_paused",
+                "resolver_request",
+                "delegate",
+            )
+        )
+    )
+
+
 def bind(args, state: RunState, run_dir, workspace, owner, write):
     """The single writer records its effective bootstrap paths and owner epoch."""
     record = getattr(args, "_worker_context", None)

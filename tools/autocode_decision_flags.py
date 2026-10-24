@@ -121,6 +121,7 @@ START_FLAGS = (
     "--max-tool-seconds",
     "--milestone-checkpoints",
     "--new-run-dir",
+    "--worker-receipt",
     "--no-adaptive-planning",
     "--no-auto-select",
     "--no-blind-tests",
