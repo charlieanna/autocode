@@ -47,6 +47,7 @@ SUITE_CONSUMERS = (
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("docs/schemas/status-view.schema.json", ("tests.test_json_contract",)),
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture", "tests.test_review_attribution_cli")),
     ("scenarios/harness/profiles.py", ("tests.test_kilocode_effort",)),
     ("tools/prompts/acceptance-tests.md", ("tests.test_acceptance_tests",)),
@@ -138,6 +139,24 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("tools/autocode_run_view.py", "tools/autocode_status_command.py", "tools/autocode_worker_view.py"),
+        ("tests.test_json_contract", "tests.test_worktrees"),
+    ),
+    (
+        (
+            "tools/autocode_attention",
+            "tools/autocode_chat_attention",
+            "tools/autocode_runs_command.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_chat_view.py",
+            "tools/autocode_replay_view.py",
+            "tools/autocode_status_command.py",
+            "tools/autocode_subcommands.py",
+            "tools/autocode_taskrun.py",
+        ),
+        ("tests.test_attention_flow", "tests.test_chat_attention", "tests.test_chat_attention_screen"),
+    ),
     (
         (
             "tools/autocode_worker_",

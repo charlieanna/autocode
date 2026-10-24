@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'tools/autocode_worker_*.py'
+      - 'tools/autocode_attention*.py'
       - 'tools/autocode_taskrun*.py'
       - 'tools/autocode_chat_*.py'
       - 'tools/autocode_client_actions.py'
@@ -25,6 +26,7 @@ on:
     branches: [master]
     paths:
       - 'tools/autocode_worker_*.py'
+      - 'tools/autocode_attention*.py'
       - 'tools/autocode_taskrun*.py'
       - 'tools/autocode_chat_*.py'
       - 'tools/autocode_client_actions.py'

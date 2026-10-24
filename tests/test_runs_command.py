@@ -184,6 +184,26 @@ class CommandLineTests(unittest.TestCase):
             capture(["--all", "--workspace", "/tmp"])
         self.assertEqual(2, stopped.exception.code)
 
+    def test_empty_json_inventory_is_a_successful_read_not_a_prose_error(self):
+        with tempfile.TemporaryDirectory() as empty:
+            code, out, err = capture(["--workspace", empty, "--json"])
+        self.assertEqual(0, code)
+        self.assertEqual([], json.loads(out)["runs"])
+        self.assertEqual(0, json.loads(out)["counts"]["total"])
+        self.assertEqual("", err)
+
+        with (
+            tempfile.TemporaryDirectory() as registry_home,
+            mock.patch.dict(os.environ, {"AUTOCODE_HOME": registry_home}),
+        ):
+            code, out, err = capture(["--all", "--json"])
+            self.assertEqual(0, code)
+            self.assertEqual([], json.loads(out)["runs"])
+            self.assertEqual("", err)
+            self.assertEqual(
+                [], list(Path(registry_home).iterdir()), "inventory does not create a run or registry entry"
+            )
+
     def test_the_root_command_dispatches_runs(self):
         """`autocode runs` reaches the command through the CLI's own dispatch table."""
         import autocode

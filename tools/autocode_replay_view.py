@@ -16,6 +16,21 @@ except ImportError:
     import autocode_util as util
 
 
+def completion_policy(state: RunState):
+    """The same replay completion boundary for full status and saved-run inventory."""
+    settings = state.get("settings")
+    authority = settings.get("replay_recording") if isinstance(settings, dict) else None
+    observed = progress(state)
+    invalid = isinstance(settings, dict) and "replay_recording" in settings and observed is None
+    simulated = isinstance(authority, dict) and authority.get("checks") == "recorded"
+    return {
+        "progress": observed,
+        "invalid": invalid,
+        "simulated": simulated,
+        "completion_allowed": not invalid and not simulated,
+    }
+
+
 RECORD_FIELDS = (
     "prompts_hash",
     "role",

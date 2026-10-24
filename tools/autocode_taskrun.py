@@ -384,6 +384,39 @@ class TaskRun:
         except (ValueError, KeyError) as error:
             raise TaskRunError(f"--status did not return a status view: {error}", proc) from None
 
+    def acknowledge_attention(self, view: dict) -> dict:
+        """Acknowledge the displayed alert; never answer, approve or advance a task."""
+        try:
+            from . import autocode_client_actions as actions
+        except ImportError:
+            import autocode_client_actions as actions
+        try:
+            action = actions.attention_acknowledgement(view.get("attention") or {}, self.workspace, self.run_dir)
+            proc = run_process(
+                [*self.command, *action.argv],
+                env={**os.environ, **(self.env or {})},
+                cwd=self.cwd,
+                timeout=self.timeout or 5,
+                advancing=False,
+            )
+            result = json.loads(proc.stdout)
+            receipt = result.get("receipt") if isinstance(result, dict) else None
+            item = view["attention"]["item"]
+            if (
+                proc.returncode
+                or not isinstance(result, dict)
+                or result.get("acknowledged") is not True
+                or not isinstance(receipt, dict)
+                or any(
+                    receipt.get(field) != item.get("id" if field == "item_id" else field)
+                    for field in ("item_id", "workspace", "run_dir")
+                )
+            ):
+                raise TaskRunError("Attention acknowledgement was refused or its receipt is unconfirmed", proc)
+            return result
+        except (actions.ClientGap, OSError, ValueError, subprocess.TimeoutExpired) as error:
+            raise TaskRunError(f"Attention acknowledgement outcome needs inspection: {error}") from error
+
     def evidence_report(self, *, require_current=True) -> dict:
         """Read the authenticated canonical pair through the public CLI only.
 

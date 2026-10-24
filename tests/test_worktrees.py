@@ -7,6 +7,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 import autocode_workspaces as w
@@ -210,7 +211,13 @@ class CliTests(unittest.TestCase):
             [*flow.entry, "--status"], cwd=flow.project, env=env, text=True, capture_output=True, timeout=60
         )
         self.assertEqual(0, bare.returncode, bare.stderr)
-        self.assertEqual(status, json.loads(bare.stdout))
+        bare_status = json.loads(bare.stdout)
+        for payload in (status, bare_status):
+            observation = payload["view"]["observation"]
+            self.assertEqual(1, observation["version"])
+            # Each read has its own sample, while all saved-state identity and task data must match.
+            datetime.fromisoformat(observation.pop("sampled_at"))
+        self.assertEqual(status, bare_status)
         self.assertIn(f"Using the saved run {run_dir.resolve()} (TASK_COMPLETE, the latest finished run)", bare.stderr)
         self.assertTrue(status["completion_current"])
         branch = status["task_branch"]

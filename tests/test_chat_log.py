@@ -100,6 +100,53 @@ class ReadTests(unittest.TestCase):
         self.assertNotIn("a" * 64, json.dumps(entries))
         self.assertNotIn("b" * 64, json.dumps(entries))
 
+    def test_a_run_of_identical_receipts_becomes_one_line_that_counts_the_parts(self):
+        """#1999: opaque receipts must not bury the tool calls the live log exists to show."""
+        write(
+            self.events,
+            [
+                progress("reasoning", "p1"),
+                progress("reasoning", "p2", position=40),
+                progress("reasoning", "p3", position=60),
+                progress("text", "p4"),
+                {
+                    "type": "tool_use",
+                    "part": {
+                        "id": "p5",
+                        "tool": "bash",
+                        "state": {"status": "completed", "input": {"command": "pytest -q"}},
+                    },
+                },
+            ],
+        )
+        self.assertEqual(
+            [
+                ("thinking", "Reasoning stream activity received; text unavailable. (3 parts streamed)"),
+                ("message", "Response stream activity received; text unavailable."),
+                ("command", "pytest -q"),
+            ],
+            self.entries(),
+        )
+
+    def test_one_receipt_keeps_its_wording_and_real_prose_is_never_counted(self):
+        write(
+            self.events,
+            [
+                progress("reasoning", "p1"),
+                {"type": "reasoning", "part": {"id": "p2", "type": "reasoning", "text": "Reading greet.py"}},
+                {"type": "reasoning", "part": {"id": "p3", "type": "reasoning", "text": "Now editing it"}},
+            ],
+        )
+        self.assertEqual(
+            [
+                ("thinking", "Reasoning stream activity received; text unavailable."),
+                ("thinking", "Reading greet.py"),
+                ("thinking", "Now editing it"),
+            ],
+            self.entries(),
+            "text the provider really sent is shown part by part, unchanged",
+        )
+
     def test_actual_prose_replaces_progress_and_late_progress_cannot_hide_it(self):
         write(
             self.events,

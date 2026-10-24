@@ -497,3 +497,116 @@ class SelectionViewTest(unittest.TestCase):
         payload = jsonlib.loads(out.getvalue())
         self.assertEqual("kilocode", payload["tool"])
         self.assertEqual("kilo/openai/gpt-6-sol", payload["routes"]["terra"]["model"])
+
+
+SEED_ONLY = "zhipuai-coding-plan/glm-5.3"
+SELECTED = ["zai-coding-plan/glm-5.3", "openai/gpt-6-luna", "openai/gpt-6-sol", "openai/gpt-6-astra"]
+KILO_PROFILE = {
+    "requirements": SEED_ONLY,
+    "glm": SEED_ONLY,
+    "terra": "openai/gpt-6-luna",
+    "plan_reviewer": "openai/gpt-6-sol",
+    "sol": SEED_ONLY,
+    "completion": SEED_ONLY,
+    "astra": "openai/gpt-6-astra",
+}
+
+
+def kilo_provider(lists_routes=True, listed=SELECTED):
+    """A Kilo login whose Z.AI plan is served under `zai-coding-plan/`, not the profile's prefix."""
+    provider = SimpleNamespace(
+        NAME="Kilo", DEFAULT_MODELS=dict(KILO_PROFILE), available_models=lambda workspace=None: listed
+    )
+    if lists_routes:
+        provider.auth_table = lambda: {"command": ["kilo"], "routes": []}
+    return provider
+
+
+def kilo_found(models):
+    return {
+        "tool": "kilocode",
+        "accounts": [],
+        "candidates": [
+            {"model": model, "tool": "kilocode", "account": "Z.AI Coding Plan", "billing": "subscription"}
+            for model in models
+        ],
+    }
+
+
+class RouteAdviceTest(unittest.TestCase):
+    """#1995: the check weighs the routes a new run takes, not a profile route it would never use."""
+
+    def advice(self, provider, listed=SELECTED, discover=None):
+        import autocode_route_discovery as discovery
+
+        stub = patch.object(
+            discovery, "discover", **({"return_value": kilo_found(listed)} if discover is None else discover)
+        )
+        with stub:
+            return mc.route_advice(provider, listed, None)
+
+    def test_selection_covers_a_seed_route_the_provider_does_not_offer(self):
+        result = self.advice(kilo_provider())
+        self.assertEqual("selection", result["source"])
+        self.assertEqual({}, result["missing"])
+        self.assertEqual((SEED_ONLY, "zai-coding-plan/glm-5.3"), result["replaced"]["requirements"])
+
+    def test_a_fully_offered_profile_is_weighed_without_listing_again(self):
+        offered = list(KILO_PROFILE.values())
+        result = self.advice(kilo_provider(), listed=offered, discover={"side_effect": AssertionError("listed twice")})
+        self.assertEqual("profile", result["source"])
+        self.assertEqual({}, result["missing"])
+
+    def test_a_provider_that_declares_no_listings_is_never_listed(self):
+        result = self.advice(
+            kilo_provider(lists_routes=False), discover={"side_effect": AssertionError("listed anyway")}
+        )
+        self.assertEqual("profile", result["source"])
+        self.assertIn("requirements", result["missing"])
+
+    def test_listings_that_cannot_be_read_keep_the_gap_and_say_why(self):
+        result = self.advice(
+            kilo_provider(), discover={"side_effect": RuntimeError("Cannot read the tool's model listing")}
+        )
+        self.assertEqual("profile", result["source"])
+        self.assertIn("requirements", result["missing"])
+        self.assertIn("Cannot read the tool's model listing", result["reason"])
+
+
+class ModelsCliTest(unittest.TestCase):
+    """`autocode models` says what a new run can use, in the words a person acts on (#1995)."""
+
+    def models(self, *argv, provider=None, discover=None):
+        provider = provider or kilo_provider()
+        out = io.StringIO()
+        import autocode_route_discovery as discovery
+
+        stub = patch.object(
+            discovery, "discover", **({"return_value": kilo_found(SELECTED)} if discover is None else discover)
+        )
+        with (
+            stub,
+            patch("autocode_providers.default_name", return_value="kilocode"),
+            patch("autocode_providers.resolve", return_value=provider),
+            redirect_stdout(out),
+        ):
+            code = mc.cli(list(argv))
+        return code, out.getvalue()
+
+    def test_a_replaced_seed_route_is_not_reported_as_unusable(self):
+        code, text = self.models()
+        self.assertEqual(0, code)
+        self.assertNotIn("Cannot use with Kilo", text)
+        self.assertIn("Every route a new run takes can be used:", text)
+        self.assertIn(f"Requirements {SEED_ONLY} -> zai-coding-plan/glm-5.3", text)
+
+    def test_a_gap_selection_cannot_cover_still_fails_with_a_suggestion(self):
+        code, text = self.models(discover={"side_effect": RuntimeError("no listings here")})
+        self.assertEqual(1, code)
+        self.assertIn("Cannot use with Kilo", text)
+
+    def test_the_profile_case_keeps_its_own_wording(self):
+        offered = list(KILO_PROFILE.values())
+        code, text = self.models(provider=kilo_provider(lists_routes=False, listed=offered))
+        self.assertEqual(0, code)
+        self.assertIn("Every default route can be used:", text)

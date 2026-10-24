@@ -11,6 +11,20 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Terminal attention survives viewer restarts with shared local read receipts.
+  F8 or `/attention` inspects current decisions and distinct same-chat completions
+  without advancing tasks or losing drafts; empty JSON run inventories remain
+  readable and receipt failures stay unknown (#1993).
+- `autocode doctor` and `autocode models` no longer refuse a profile route a new run never
+  takes. Automatic selection replaces a provider's default route when the plan serves it
+  under another prefix, and the checks now weigh the routes the run would actually use,
+  naming each replacement; a real gap still fails, with the reason selection could not
+  cover it (#1995, #1996).
+
+- Lifecycle status metadata is covered by the public JSON schema and the
+  completed-worktree consumer. Read samples may differ while every task and
+  checkpoint field remains identical; focused CI keeps both regressions (#1994).
+
 - The final Plan Reviewer can correct acceptance criteria inside its retained-plan
   reference, with the same hash-bound criteria delta a Planner revision uses (changed
   or new rows, removed IDs, corrected proofs), instead of turning a wrong criterion or
@@ -198,6 +212,13 @@ PR template asks for an entry here; a change without one is incomplete.
   routes keep high; `--sol-reasoning-effort` still sets either.
 
 ### Fixed
+
+- The live agent log shows one line per kind of opaque streaming receipt, with the parts it stands
+  for, instead of a row per part. A backend that sends no reasoning text filled the pane with identical
+  "text unavailable" lines and buried the tool calls `/live` exists to show (#1999, #2002).
+- Ctrl-← and Ctrl-→ switch chat tabs on terminals whose terminfo names no extended key, such as tmux's
+  `xterm-256color`. They were recognised only by terminfo name, so the raw Escape tail fell through and
+  the composer filled with `[1;5C` instead of moving tabs (#1997, #2001).
 
 - A number typed at a pause's yes/no that only *prose* tells the person to raise no longer vanishes. The
   time-limit pause reached through an AutoResolver hold names a plain `--resume-paused` and advertises no
