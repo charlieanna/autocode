@@ -159,12 +159,55 @@ ASCII_TAB_MARKS = {"working": "*", "needs you": "!", "done": "+", "unavailable":
 CTRL_T = "\x14"
 # Ctrl-← and Ctrl-→ as terminfo names them (xterm-style terminals); other terminals use /tab.
 TAB_KEYS = {b"kLFT5": "previous", b"kRIT5": "next", b"kLFT3": "previous", b"kRIT3": "next"}
+# The same two keys as the bytes terminals send when their terminfo defines no extended key: the
+# Escape tail, after the leading Escape is gone. rxvt-unicode orders the modifier differently and
+# xterm has the application-cursor form, so all three spellings arrive here (#1997).
+CSI_TABS = {
+    "[1;5C": "next",
+    "[1;5D": "previous",
+    "[5;5C": "next",
+    "[5;5D": "previous",
+    "[[C": "next",
+    "[[D": "previous",
+}
+
+
+@dataclass(frozen=True)
+class CsiTab:
+    """Ctrl-←/→ read from the bytes the terminal sent, because curses named no key for them."""
+
+    direction: str
+
+
+def csi_tab(read, tail: list) -> CsiTab | None:
+    """The tab step the characters after an Escape name, reading on while one still could.
+
+    ``tail`` holds what an earlier probe already read after the Escape; it keeps every character this
+    does not turn into a tab step, so a key sequence that is not one of these is still queued for the
+    handler as it was before (#1997: without this the bytes land as text in the composer).
+    """
+    keys: list = []
+    text = "".join(key for key in tail if isinstance(key, str))
+    while any(name.startswith(text) for name in CSI_TABS):
+        if text in CSI_TABS:
+            return CsiTab(CSI_TABS[text])
+        key = read()
+        if key is None:
+            break
+        keys.append(key)
+        if not isinstance(key, str):
+            break
+        text += key
+    tail.extend(keys)
+    return None
 
 
 def tab_step(key) -> str | None:
     """What a key does to the tabs: "new", "next", "previous", or None for any other key."""
     if key == CTRL_T:
         return "new"
+    if isinstance(key, CsiTab):
+        return key.direction
     if isinstance(key, int) and key > 255:
         with contextlib.suppress(curses.error, ValueError):
             return TAB_KEYS.get(curses.keyname(key))
@@ -899,6 +942,12 @@ class ChatTUI:
             self._screen.timeout(100 if self._asking or self._waiting else -1)
         if pasted is not None:
             return Pasted(pasted)
+        # A paste probe that read characters and rejected them can still be a Ctrl-arrow: those
+        # terminals send the pair as bytes curses never names a key for (#1997).
+        if consumed:
+            tab = csi_tab(self._read_next, consumed)
+            if tab is not None:
+                return tab
         self._queued.extend(consumed)  # an escape key on its own, then whatever followed it
         return ESCAPE
 
