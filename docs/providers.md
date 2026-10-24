@@ -551,7 +551,7 @@ astra = { model = "openai/gpt-5.6-sol", effort = "high" }
 terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
 sol = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
-glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "medium" }
+glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "high" }
 plan_reviewer = { model = "openai/gpt-6-sol", effort = "high", light_effort = "medium" }
 ```
 
@@ -855,7 +855,7 @@ astra = { model = "openai/gpt-5.6-sol", effort = "high" }
 terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
 sol = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
-glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "medium" }
+glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "high" }
 plan_reviewer = { model = "openai/gpt-5.6-sol", effort = "high" }
 
 [auth]
