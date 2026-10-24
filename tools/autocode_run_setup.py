@@ -76,6 +76,7 @@ try:
     from . import autocode_task_preflight as task_preflight
     from . import autocode_test_root as test_roots
     from . import autocode_verify as verify
+    from . import autocode_worker_binding as worker_binding
     from . import autocode_worker_quota as worker_quota
     from . import autocode_workflows as workflows
     from . import autocode_workspaces as task_workspaces
@@ -121,6 +122,7 @@ except ImportError:
     import autocode_task_preflight as task_preflight
     import autocode_test_root as test_roots
     import autocode_verify as verify
+    import autocode_worker_binding as worker_binding
     import autocode_worker_quota as worker_quota
     import autocode_workflows as workflows
     import autocode_workspaces as task_workspaces
@@ -836,6 +838,7 @@ def run_locked(
             if native is not None:
                 native.require_supported_action(args, state)
             owner = ownership.enter_context(controller_owner.Owner(state, run_dir, runner.write_json))
+            worker_binding.bind(args, state, run_dir, workspace, owner, runner.write_json)
             code = runner.run_actions.handle(runner, args, parser, state, state_path, run_dir, workspace)
             if code is not None:
                 runner.json_output.action(runner, args, state, workspace, run_dir, code)

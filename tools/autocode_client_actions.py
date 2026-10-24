@@ -62,6 +62,49 @@ def own(view: dict, workspace: Path, run_dir: Path) -> tuple[Path, Path]:
     return Path(view.get("workspace") or workspace), Path(view.get("run_dir") or run_dir)
 
 
+def worker_transport(execution: dict, argv: list[str], workspace: Path, run_dir: Path, *, fresh=False) -> list[str]:
+    """Take only the core's exact worker envelope, keeping the named task action literal."""
+    prefix = execution.get("next_command")
+    if fresh:
+        if execution.get("id") != "durable_local" or execution.get("available") is not True:
+            raise ClientGap("Durable execution is unavailable on this host")
+        wanted = [
+            "autocode",
+            "worker",
+            "launch",
+            "--workspace",
+            "WORKSPACE",
+            "--run-dir",
+            "RUN_DIR",
+            "--checkpoint",
+            "CHECKPOINT",
+            "--",
+        ]
+        values = {"WORKSPACE": str(workspace), "RUN_DIR": str(run_dir), "CHECKPOINT": "-"}
+    else:
+        if execution.get("mode") != "durable_local" or execution.get("detach_supported") is not True:
+            raise ClientGap("This run does not advertise durable worker execution")
+        token = prefix[8] if isinstance(prefix, list) and len(prefix) == 10 else None
+        if not isinstance(token, str) or not re.fullmatch(r"[0-9a-f]{64}", token):
+            raise ClientGap("The worker action has no current checkpoint token")
+        wanted = [
+            "autocode",
+            "worker",
+            "launch",
+            "--workspace",
+            str(workspace),
+            "--run-dir",
+            str(run_dir),
+            "--checkpoint",
+            token,
+            "--",
+        ]
+        values = {}
+    if prefix != wanted:
+        raise ClientGap("Unsupported or cross-run durable worker action")
+    return [values.get(word, word) for word in prefix[1:]] + list(argv)
+
+
 def parse(text: str, workspace: Path, run_dir: Path) -> NamedCommand:
     """A command the view formatted for a person, as words to run without a shell.
 

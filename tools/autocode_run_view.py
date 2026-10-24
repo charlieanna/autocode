@@ -139,12 +139,16 @@ def view(
     run_dir=None,
     workspace=None,
     dev_server=None,
+    observation=None,
+    execution_inspection=None,
 ) -> dict:
     """Caller supplies fresh completion, evidence, repair, supervision and design-input inspections."""
     try:
         from . import autocode_replay_view as replay_view
+        from . import autocode_worker_view as worker_view
     except ImportError:
         import autocode_replay_view as replay_view
+        import autocode_worker_view as worker_view
     settings = state.get("settings")
     authority = settings.get("replay_recording") if isinstance(settings, dict) else None
     replay_progress = replay_view.progress(state)
@@ -186,6 +190,10 @@ def view(
         "workspace": str(workspace) if workspace is not None else state.get("workspace"),
         "run_dir": str(run_dir) if run_dir is not None else None,
         "controller": deepcopy(controller),
+        "observation": deepcopy(observation),
+        "execution": worker_view.execution(
+            state.get("execution"), observation=observation, inspection=execution_inspection
+        ),
         # Saved launch identity, never inferred from current installed resources.
         "prompts_hash": state.get("prompts_hash"),
         "task": state.get("task"),

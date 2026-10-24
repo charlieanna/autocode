@@ -479,6 +479,7 @@ class ChatTUI:
         self._stopping = threading.Event()
         self._ticker: threading.Thread | None = None
         self._view: dict | None = None
+        self._launch_execution: dict | None = None
         self._log = panel.StageLog()
         self._live = panel.LiveLog()  # what each agent thinks and does, from the view's chat.log
         self._live_on: bool | None = None  # None: shown when the terminal is tall enough and an agent works
@@ -648,6 +649,7 @@ class ChatTUI:
             self._log = panel.StageLog()
             self._live = panel.LiveLog()
             self._view, self._pending, self._scroll, self._launched = None, None, 0, False
+            self._launch_execution = None
             self.set_context(workspace, run_dir)
 
     def bind(self, act: Callable[[str, str], str | panel.Confirm], *, run: bool = True) -> None:
@@ -675,12 +677,23 @@ class ChatTUI:
                 return
             anchor = self._history_anchor()
             self._view = view
+            self._launch_execution = None
             self._log.observe(view)
             self._live.observe(view)
             if view.get("workspace") and view.get("run_dir"):  # the run the chat talks to, after going back too
                 self._context = f"{Path(view['workspace']).name} · {Path(view['run_dir']).name}"
             self._keep_history_anchor(anchor)
             self._draw()
+
+    def worker_launch(self, receipt: dict) -> None:
+        """Only the core launch receipt can permit detach before the first status view."""
+        with self._lock:
+            self._launch_execution = receipt.get("execution")
+            self._draw()
+
+    def _can_detach(self) -> bool:
+        execution = self._launch_execution or (self._view or {}).get("execution") or {}
+        return execution.get("mode") == "durable_local" and execution.get("detach_supported") is True
 
     def wait(self, seconds: float) -> str | None:
         """The client's pause between polls while AutoCode works: the composer takes ``/`` commands.
@@ -843,7 +856,7 @@ class ChatTUI:
         elif key == "\x04":  # Ctrl-D: end of input on an empty line, otherwise delete forward
             if composer.text:
                 composer.delete()
-            elif asking:  # never while AutoCode works: leaving then would leave it running unseen
+            elif asking or self._can_detach():
                 raise EOFError
         elif key == "\x03":  # Ctrl-C keeps the client's pause/interrupt handling
             raise KeyboardInterrupt
@@ -871,7 +884,9 @@ class ChatTUI:
         text = self._composer.text
         word, _, argument = text.strip().partition(" ") if text.startswith("/") else ("", "", "")
         word = word.lower()
-        available = panel.commands(asking=asking, client=self._act is not None, run=self._run_open)
+        available = panel.commands(
+            asking=asking, client=self._act is not None, run=self._run_open, detachable=self._can_detach()
+        )
         menu = self._menu(asking)
         if word and not text.startswith("//"):
             names = [command.name for command in available]
@@ -963,7 +978,12 @@ class ChatTUI:
             return []
         if any(char.isspace() for char in text):
             return []
-        return panel.matching(text, panel.commands(asking=asking, client=self._act is not None, run=self._run_open))
+        return panel.matching(
+            text,
+            panel.commands(
+                asking=asking, client=self._act is not None, run=self._run_open, detachable=self._can_detach()
+            ),
+        )
 
     def _submit(self) -> str:
         text = self._composer.submit()
@@ -1316,6 +1336,8 @@ class ChatTUI:
             hints = "enter send · / commands · ↑↓ history · pgup/pgdn scroll · ctrl-d quit"
             if not self._glyphs.unicode:
                 hints = "enter send | / commands | up/down history | pgup/pgdn scroll | ctrl-d quit"
+        elif self._can_detach():
+            hints = "/ commands · ctrl-d detaches · ctrl-c asks for a boundary pause"
         elif self._view is None:
             hints = "/ commands · reading run status"
         else:

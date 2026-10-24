@@ -562,7 +562,8 @@ also accepts `-h` / `--help`.
 | --- | --- | --- |
 | `autocode connections` | `--json`, `--provider` | List installed/registered backends, check local credentials without inference, delegate sign-in, or configure AutoCode’s direct connection with `setup`. See [Connections for clients](task-run.md#connections-for-clients). |
 | `autocode modes` | `--json` | List the run modes a client may offer for a new run: each mode's id, label, description and the start flags to pass. Launches nothing. See [Run modes for clients](task-run.md#run-modes-for-clients). |
-| `autocode chat` | `--workspace`, `--run-dir`, `--mode`, `--brief`, `--line` | Project (the current directory by default); pick up this saved run instead of the project's only run; the run mode a new run starts with; the brief, for one that starts with `-` (`--brief=-TEXT`); the line-by-line prompts instead of the full-screen interface. New-run options follow `--`. |
+| `autocode worker` | `--workspace`, `--run-dir`, `--checkpoint`, `--request-id` | `capabilities` reads host admission. `launch` takes literal core arguments after `--`, using the selected workspace and exact run destination, a current checkpoint token (or `-` for a fresh run), and an optional stable request ID. It returns a launch receipt, not completion. `inspect ID` reads that receipt; `launches --workspace PATH [--run-dir PATH]` finds retained launches after a lost reply. These reads never replay a dispatch. See [Durable local workers](task-run.md#durable-local-workers). |
+| `autocode chat` | `--workspace`, `--run-dir`, `--mode`, `--brief`, `--line`, `--execution` | Project (the current directory by default); pick up this saved run instead of the project's only run; the run mode a new run starts with; the brief, for one that starts with `-` (`--brief=-TEXT`); the line-by-line prompts instead of the full-screen interface. New-run options follow `--`. `--execution durable_local` opts new chats in this invocation into persistent Linux user services; the default is `owned`. Reattached runs use their saved status mode. |
 | `autocode conversation` | `--workspace`, `--run-dir`, `--text`, `--title`, `--request-id`, `--expected-revision`, `--supersedes-request-id`, `--question-id`, `--resolver-token`, `--expected-plan-token`, `--timeout` | Select a conversation/run, queue a human message, explicitly refresh a revision or hand off its reviewed draft; creation provider/model/effort/budget options follow `--`. On `send`, `--supersedes-request-id` queues a correction only for a definitively rejected, unapplied human request, retaining its history; it cannot replace acknowledged input or active delivery. Sending does not advance the run. All commands print JSON. |
 | `autocode verify` | `--workspace`, `--base`, `--branch`, `--patch`, `--criteria`, `--criteria-file`, `--out`, `--record`, `--engine`, `--provider`, `--model`, `--reasoning-effort`, `--evidence-provenance`, `--suite-command`, `--check-timeout`, `--max-seconds`, `--max-stage-seconds`, `--json` | Verify an existing change against caller criteria, or read a retained verification and recheck freshness. See [Standalone verification](verify.md). |
 | `autocode doctor` | `--workspace`, `--engine`, `--json` | Project and engine to inspect; optionally print checks as JSON. |
@@ -608,6 +609,16 @@ also accepts `-h` / `--help`.
 | `autocode dashboard` | `--workspace`, `--watch-root`, `--watch-depth`, `--runner`, `--port`, `--provider` | Repeated projects and discovery roots, discovery depth (3), CLI runner, local port (8765) and provider for new runs. |
 
 ## Terminal chat
+
+`autocode chat --execution durable_local "YOUR TASK"` opts a new run into the
+[durable local worker](task-run.md#durable-local-workers) mode on a supported
+persistent Linux host. The core checks an existing systemd user manager (254+)
+and existing linger policy; it never configures them. Normal quit, Ctrl-D,
+terminal closure and SSH disconnect leave that worker running. Reopen with
+`autocode chat --run-dir RUN`. Repeated Ctrl-C requests only the current boundary
+pause, without escalating to worker termination. This does not change ordinary
+owned-worker behavior or migrate saved runs. Active tab switching remains a
+separate delivery; detaching is available through `/quit` and Ctrl-D.
 
 `autocode chat` is the terminal client of the [task-run interface](task-run.md),
 beside the VS Code extension and the browser dashboard. It reads only

@@ -114,6 +114,7 @@ KEYS: frozenset[str] = frozenset(
         "evidence_export",
         "evidence_locations",
         "execution_checkpoints",
+        "execution",
         "failure_history",
         "failure_retry_authorizations",
         "figma_file",
@@ -458,6 +459,7 @@ class RunState(TypedDict, total=False):
     events: Any
     evidence_locations: Any
     execution_checkpoints: Any
+    execution: dict  # worker_binding alone writes service launch/owner identity; status/view read it
     # Retry writers retain audit records; Resolver retries may include exact resolver_route_change
     # before/after provenance, read only by recovery binding normalization (never spending credit).
     failure_retry_authorizations: Any

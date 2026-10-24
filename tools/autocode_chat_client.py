@@ -55,12 +55,14 @@ try:
     from . import autocode_chat_panel as panel
     from . import autocode_chat_polling as polling
     from . import autocode_chat_setup as setup
+    from . import autocode_chat_worker as worker
     from . import autocode_client_actions as actions
     from . import autocode_events_command as events
 except ImportError:
     import autocode_chat_panel as panel
     import autocode_chat_polling as polling
     import autocode_chat_setup as setup
+    import autocode_chat_worker as worker
     import autocode_client_actions as actions
     import autocode_events_command as events
 
@@ -252,6 +254,8 @@ class ChatClient:
         observe: Callable[[dict], None] | None = None,
         wait: Callable[[float], str | None] | None = None,
         stream: Callable[[str | None], None] | None = None,
+        execution: dict | None = None,
+        launched: Callable[[dict], None] | None = None,
     ):
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
         self.command = tuple(command)
@@ -293,6 +297,8 @@ class ChatClient:
         self._read_errors: dict[str, str] = {}
         self._pause_pending = False
         self._attached = False
+        self._execution_offer = execution or {}
+        self._launched_worker = launched
 
     # ---- the CLI ---------------------------------------------------------------------------
 
@@ -380,7 +386,7 @@ class ChatClient:
     def take(self, command: actions.NamedCommand) -> None:
         """Run a named action against this run; an advancing one is watched while it works."""
         argv = [*command.argv, "--workspace", str(self.workspace), "--run-dir", str(self.run_dir)]
-        if actions.advancing(command):
+        if actions.advancing(command) or (self._status_view or {}).get("execution", {}).get("mode") == "durable_local":
             self.advance(argv, command.env)
             return
         proc = self.cli(argv, env=command.env)
@@ -394,6 +400,10 @@ class ChatClient:
         the first asks for the view's boundary pause, the second interrupts the child
         and a third stops it. The chat never exits while the child still runs.
         """
+        if ("--new-run-dir" in argv and self._execution_offer.get("id") == "durable_local") or (
+            self._status_view or {}
+        ).get("execution", {}).get("mode") == "durable_local":
+            return worker.advance(self, argv, env)
         with tempfile.TemporaryFile("w+") as log:
             child = subprocess.Popen(
                 [*self.command, *argv],
@@ -734,7 +744,7 @@ class ChatClient:
                     continue  # going back to a saved step, or /open: carry on with that run
                 except NewChat:
                     self.new_chat()
-        except Left:
+        except (Left, EOFError):
             self.say(f"\nLeft the chat; the run is unchanged. Pick it up with: autocode chat --run-dir {self.run_dir}")
             return 2
         except actions.ClientGap as error:
@@ -1290,6 +1300,12 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--run-dir", type=Path, help="pick up this run instead of the project's open one")
     result.add_argument("--mode", help="run mode for a new run, from `autocode modes list` (default: the core's)")
     result.add_argument("--line", action="store_true", help="the line-by-line chat, even in a terminal")
+    result.add_argument(
+        "--execution",
+        choices=("owned", "durable_local"),
+        default="owned",
+        help="New run lifetime; durable_local requires existing persistent Linux user services",
+    )
     return result
 
 
@@ -1331,6 +1347,8 @@ def cli(argv: list[str] | None = None) -> int:
         arguments.error("a brief starts a new run; --run-dir picks up an existing one, not both")
     if args.run_dir is not None and (options or args.mode):
         arguments.error("run options and --mode apply to a new run, not to --run-dir")
+    if args.run_dir is not None and args.execution != "owned":
+        arguments.error("--execution selects new runs; an existing run's status controls its lifetime mode")
     ui = None
     client = None
     try:
@@ -1338,7 +1356,11 @@ def cli(argv: list[str] | None = None) -> int:
             arguments.error("the brief is empty")
         ui = terminal_ui(force_line=args.line)
         ask, say = (ui.ask, ui.say) if ui is not None else (input, print)
-        seen = {"observe": ui.observe, "wait": ui.wait, "stream": ui.stream} if ui is not None else {}
+        seen = (
+            {"observe": ui.observe, "wait": ui.wait, "stream": ui.stream, "launched": ui.worker_launch}
+            if ui is not None
+            else {}
+        )
         workspace = (args.workspace or Path.cwd()).expanduser()
         # A new chat starts with the mode and options given here, else the project's saved choice.
         saved = setup.NewChat.load(workspace)
@@ -1352,6 +1374,15 @@ def cli(argv: list[str] | None = None) -> int:
             ui.set_context(workspace)
             ui.bind(history.slash, run=False)  # /runs, /open, /mode, /engine and /connect, before a chat
         mode, options = new.mode, new.options
+        if args.execution == "durable_local":
+            listing = history.read(["modes", "list", "--json"])
+            offer = next(
+                (row for row in (listing.get("execution") or {}).get("modes", []) if row.get("id") == args.execution),
+                {},
+            )
+            if offer.get("available") is not True:
+                raise actions.ClientGap(offer.get("reason") or "Durable execution is unavailable on this host")
+            seen["execution"] = offer
         if args.brief is not None:
             chosen = mode_row(mode)
             if not confirm_launch(ask, say, chosen):
@@ -1390,6 +1421,9 @@ def cli(argv: list[str] | None = None) -> int:
             ui.close()  # first, so the message lands on the terminal and not on the closing screen
         print(f"autocode chat: {error}", file=sys.stderr)
         return 1
+    except EOFError:
+        print("\nLeft the viewer; the durable worker is unchanged.")
+        return 2
     except KeyboardInterrupt:
         if ui is not None:
             ui.close()

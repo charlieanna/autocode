@@ -18,6 +18,7 @@ try:
     from . import autocode_native_stage_recovery as stage_recovery
     from . import autocode_source_host as source_host
     from . import autocode_visual_profile as native_profile
+    from . import autocode_worker_binding as worker_binding
 except ImportError:
     import autocode_controller_owner as controller_owner
     import autocode_native_calls as native_calls
@@ -25,6 +26,7 @@ except ImportError:
     import autocode_native_stage_recovery as stage_recovery
     import autocode_source_host as source_host
     import autocode_visual_profile as native_profile
+    import autocode_worker_binding as worker_binding
 
 
 def main(base, unit=None):
@@ -66,6 +68,10 @@ def main_body(base, unit=None, *, launched_at=None):
         return base.interventions.cli(sys.argv[2:])
     args, parser = base.cli_args.parse(unit, sys.argv[1:], base.opencode.DEFAULT_MODELS)
     args._native_action_argv = tuple(sys.argv[1:])
+    if args.worker_receipt:
+        if sys.argv[-2:] != ["--worker-receipt", str(args.worker_receipt)]:
+            parser.error("The service receipt must be the final internal argument")
+        args._worker_context = worker_binding.load_entry(args.worker_receipt, sys.argv[1:-2])
     base.json_output.begin(args)
     args._interaction_launched_at = launched_at or base.now()
     if any(text is not None and not text.strip() for text in (args.feedback, args.follow_up)):
@@ -123,6 +129,10 @@ def run(base, args, parser, resolved, *, failure_routing=True):
             ):
                 raise base.support.Paused("PAUSED_VISUAL_EVIDENCE", "Native input changed before locked invocation")
             state = locked
+        try:
+            worker_binding.guard(args, state, run_dir, workspace)
+        except ValueError as error:
+            parser.error(str(error))
         if intent is None:
             if args.run_dir:
                 controller_owner.reconcile(state, run_dir, workspace, base.write_json)

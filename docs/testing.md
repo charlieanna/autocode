@@ -13,6 +13,16 @@ toggles unset, and report its skipped and excluded cases separately from passes.
 
 ## Tests and evidence
 
+The opt-in durable worker has a dedicated `durable-worker` CI job on Ubuntu
+24.04. `bash tests/worker_host_setup.sh` prepares only that disposable GitHub
+host: existing-user linger, a user manager, bubblewrap and an ephemeral loopback
+SSH server with fixture-only keys. It then runs `tests.test_worker_host` with
+`AUTOCODE_REQUIRE_WORKER_HOST=1`, which fails rather than skips if admission is
+missing. Local unit runs skip that host module; a Linux label or mocked manager
+does not qualify PTY/SSH survival. The job uploads public-view and input-latency
+evidence under `.scenario-runs/worker-host`. Production admission changes no host
+service or login setting. No model account or paid provider is used by this job.
+
 AutoReview generation pins contract/task identity and reviewer-owned finding IDs
 in each attempt's schema. Report-only repairs receive the original executed
 commands and exit codes; normal evidence validation still applies. Repairs cannot

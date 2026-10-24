@@ -151,6 +151,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--run-dir", type=Path, help="Existing run directory to resume")
     # Internal inputs used by the public replay driver and task-run interface.
     parser.add_argument("--new-run-dir", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--worker-receipt", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--replay-recording", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--replay-checks", choices=("fresh", "recorded"), default="fresh", help=argparse.SUPPRESS)
     conversation_args.add_arguments(parser)

@@ -1,0 +1,74 @@
+name: durable-worker
+
+on:
+  pull_request:
+    paths:
+      - 'tools/autocode_worker_*.py'
+      - 'tools/autocode_taskrun*.py'
+      - 'tools/autocode_chat_*.py'
+      - 'tools/autocode_client_actions.py'
+      - 'tools/autocode_native_invocation.py'
+      - 'tools/autocode_run_setup.py'
+      - 'tools/autocode_run_view.py'
+      - 'tools/autocode_status_command.py'
+      - 'tools/autocode_controller_owner.py'
+      - 'tools/autocode_process*.py'
+      - 'tools/autocode_supervision*.py'
+      - 'tools/autocode_args.py'
+      - 'tools/autocode_run_state.py'
+      - 'tools/autocode_run_destination.py'
+      - 'tools/autocode_control_tokens.py'
+      - 'tests/test_worker_*.py'
+      - 'tests/worker_host_setup.sh'
+      - '.github/workflows/durable-worker.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'tools/autocode_worker_*.py'
+      - 'tools/autocode_taskrun*.py'
+      - 'tools/autocode_chat_*.py'
+      - 'tools/autocode_client_actions.py'
+      - 'tools/autocode_native_invocation.py'
+      - 'tools/autocode_run_setup.py'
+      - 'tools/autocode_run_view.py'
+      - 'tools/autocode_status_command.py'
+      - 'tools/autocode_controller_owner.py'
+      - 'tools/autocode_process*.py'
+      - 'tools/autocode_supervision*.py'
+      - 'tools/autocode_args.py'
+      - 'tools/autocode_run_state.py'
+      - 'tools/autocode_run_destination.py'
+      - 'tools/autocode_control_tokens.py'
+      - 'tests/test_worker_*.py'
+      - 'tests/worker_host_setup.sh'
+      - '.github/workflows/durable-worker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: durable-worker-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  linux-user-service-ssh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install runtime
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -e .
+      - name: Qualify real user services, PTY loss and SSH disconnect with offline providers
+        run: bash tests/worker_host_setup.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: worker-host-evidence
+          path: .scenario-runs/worker-host
+          if-no-files-found: warn

@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Opt-in durable local TUI runs use an existing persistent Linux user service.
+  Viewers can detach and reconnect while the ordinary core worker continues;
+  repeated Ctrl-C requests only a boundary pause. Launch receipts reconcile lost
+  replies without replay, and status exposes additive execution/observation
+  metadata. Default owned runs and saved legacy runs retain their behavior.
+
 - When the Plan Reviewer still blocks a revised plan at its second challenge, the Planner's
   next revision runs once on a stronger model (Claude Opus 5.5 High, or GPT-6 Sol High under a
   Claude reviewer), when the provider serves it, the saved accounts permit it and it stays

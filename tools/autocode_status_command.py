@@ -40,6 +40,7 @@ try:
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_verification_inspection as verification
     from . import autocode_verification_preparation as preparation
+    from . import autocode_worker_binding as worker_binding
 except ImportError:
     import autocode_controller_owner as controller_owner
     import autocode_conversation as conversation_protocol
@@ -52,9 +53,21 @@ except ImportError:
     import autocode_stop_explanations as stop_explanations
     import autocode_verification_inspection as verification
     import autocode_verification_preparation as preparation
+    import autocode_worker_binding as worker_binding
 
 
 def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_preview=None):
+    observation = {
+        "version": 1,
+        "workspace": str(workspace),
+        "run_dir": str(run_dir),
+        "checkpoint_token": runner.util.digest(state),
+        "sampled_at": runner.now(),
+    }
+    execution = state.get("execution") or {}
+    execution_inspection = None
+    if execution.get("mode") == "durable_local" and execution.get("launch_id"):
+        execution_inspection = worker_binding.observation(execution)
     owner = controller_owner.inspect(state, run_dir, workspace) if (Path(run_dir) / "state.json").is_file() else None
     state = controller_owner.project(state, owner)
     if getattr(args, "explain", False):
@@ -165,6 +178,8 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         run_dir=run_dir,
         workspace=workspace,
         dev_server=dev_server.inspect(run_dir, state.get("settings")),
+        observation=observation,
+        execution_inspection=execution_inspection,
     )
     public_view["job_report_recovery"] = job_report_recovery.offer(runner, state, run_dir, workspace)
     try:

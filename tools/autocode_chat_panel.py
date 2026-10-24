@@ -118,7 +118,7 @@ SWITCHING_COMMANDS = ("/open", "/new", "/tab")
 RUN_COMMANDS = ("/plan", "/tasks", "/log", "/details", "/live", "/diff", "/undo", "/tab", "/panel", "/pause")
 
 
-def commands(*, asking: bool, client: bool = True, run: bool = True) -> list[Command]:
+def commands(*, asking: bool, client: bool = True, run: bool = True, detachable: bool = False) -> list[Command]:
     """The commands that do something now. ``/pause`` only while AutoCode works: the client then
     takes the pause its fresh status view offers, or says there is none. ``/quit`` and ``/undo``
     only at a question: leaving while AutoCode works would leave it running unseen, and the view
@@ -127,6 +127,8 @@ def commands(*, asking: bool, client: bool = True, run: bool = True) -> list[Com
     that work without one: opening a chat, /new (which says this already is one), choosing what a new
     one starts with, help and leaving."""
     hidden = {"/pause"} if asking else {"/quit", "/undo", *SWITCHING_COMMANDS}
+    if detachable:
+        hidden.discard("/quit")
     if not client:
         hidden.update(CLIENT_COMMANDS)
     if not run:
