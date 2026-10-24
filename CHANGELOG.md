@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The terminal chat no longer ends when the core refuses an action it took (another autocode
+  runner holds the run lock, a stale token): it says what was refused, reads the run again and
+  asks again, keeping the plan on screen; before, the pane, the plan and the draft were gone with
+  no retry (#2000).
 - Terminal attention survives viewer restarts with shared local read receipts.
   F8 or `/attention` inspects current decisions and distinct same-chat completions
   without advancing tasks or losing drafts; empty JSON run inventories remain
