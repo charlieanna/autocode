@@ -8,6 +8,62 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_kilo_profile_keeps_its_native_effort_consumer(self):
+        consumer = "tests.test_kilocode_effort"
+        selected = run_suite.select_tests(["scenarios/harness/profiles.py"], {consumer: "", "tests.test_unrelated": ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+        self.assertEqual([consumer], list(kept))
+
+    def test_clean_review_fixture_keeps_its_oracle_and_public_cli_consumers(self):
+        consumers = {"tests.test_review_clean_fixture", "tests.test_review_attribution_cli"}
+        for path in (
+            "scenarios/catalog/review-clean-pr/oracle.py",
+            "scenarios/catalog/review-clean-pr/seed/pr-191.patch",
+        ):
+            selected = run_suite.select_tests([path], {module: "" for module in consumers})
+            kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+            self.assertEqual(consumers, set(kept))
+
+    def test_chat_projections_keep_their_public_terminal_and_view_consumers(self):
+        consumers = {
+            "tests.test_chat_cost",
+            "tests.test_chat_verification",
+            "tests.test_chat_panel",
+            "tests.test_chat_tui",
+            "tests.test_chat_client",
+            "tests.test_chat_polling_cli",
+        }
+        for path in (
+            "tools/autocode_chat_cost.py",
+            "tools/autocode_chat_verification.py",
+            "tools/autocode_chat_panel.py",
+            "tools/autocode_chat_tui.py",
+        ):
+            selected = run_suite.select_tests([path], {module: "" for module in consumers})
+            kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+            self.assertEqual(consumers, set(kept))
+
+    def test_python_entrypoints_keep_the_real_toolchain_consumer_even_when_slow(self):
+        consumer = "tests.test_toolchain"
+        for path in ("tools/autocode_python_entrypoints.py", "tools/autocode_toolchain.py"):
+            selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+            kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+            self.assertEqual([consumer], list(kept))
+
+    def test_shared_test_binding_resources_keep_the_acceptance_consumer_even_when_slow(self):
+        consumer = "tests.test_acceptance_tests"
+        for path in (
+            "tools/autocode_acceptance_tests.py",
+            "tools/autocode_acceptance_tests_job.py",
+            "tools/autocode_test_cases.py",
+            "tools/prompts/acceptance-tests.md",
+            "tools/prompts/fragments/test-cases/diagnosis-builder-note.md",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
     def test_python_collection_keeps_the_public_acceptance_consumer_even_when_slow(self):
         consumer = "tests.test_acceptance_tests"
         for path in ("tools/autocode_python_tests.py", "tools/autocode_verify.py"):

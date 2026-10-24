@@ -165,6 +165,34 @@ def diagnosis_cases(state: RunState) -> list[dict]:
     return list(found.get("test_cases") or []) if found.get("outcome") == "reproduced" else []
 
 
+def diagnosis_test_names(state: RunState) -> dict[str, str]:
+    """Unique approved names already identifying a diagnosis case, without merging obligations.
+
+    Bind by the existing identifier matcher, never by similarity of English examples.
+    Conflicting kinds, combined identifiers and multiple names retain the legacy rule.
+    """
+    if (state.get("goal_contract") or {}).get("approval_status") != "approved" or not bugfix(state):
+        return {}
+    cases = diagnosis_cases(state)
+    candidates: dict[str, set[str]] = {case["id"]: set() for case in cases}
+    ambiguous: set[str] = set()
+    for criterion in contract_cases(state, all_due=True):
+        name = criterion.get("test_name")
+        if not name:
+            continue
+        matched = match_cases(cases, [name])
+        owners = [case for case in cases if matched[case["id"]]]
+        if len(owners) != 1:
+            ambiguous.update(case["id"] for case in owners)
+            continue
+        case = owners[0]
+        if (case.get("kind") == "preserve") != (criterion.get("kind") == "preserve"):
+            ambiguous.add(case["id"])
+        else:
+            candidates[case["id"]].add(name)
+    return {cid: next(iter(names)) for cid, names in candidates.items() if len(names) == 1 and cid not in ambiguous}
+
+
 def proof_cases(state: RunState, *, all_due: bool = False) -> list[dict]:
     """The cases the runner's regression proof (autocode_regression) requires a test for: a reproduced bug's
     diagnosis, else the plan's ``contract_cases``. The plan approval summary (autocode_approval_view) states
@@ -388,6 +416,7 @@ def builder_note(state: RunState) -> str:
     fix_note = BUGFIX_TEST_NOTE if bugfix(state) else ""
     diagnosis = diagnosis_cases(state)
     if diagnosis:
+        names = diagnosis_test_names(state)
         rows = []
         for case in diagnosis:
             before = (
@@ -395,7 +424,9 @@ def builder_note(state: RunState) -> str:
                 if case.get("kind") == "preserve"
                 else prompts.get("fragments/test-cases/builder-note-03.md")
             )
-            rows.append(f"- {case_text(case)}; test name: {case_test_name(case['id'])}; {before}.")
+            rows.append(
+                f"- {case_text(case)}; test name: {case_test_name(case['id'], names.get(case['id']))}; {before}."
+            )
         return DIAGNOSIS_BUILDER_NOTE + "\n".join(rows) + "\n" + NAMED_PROOF_NOTE + fix_note
     if contract_cases(state):
         return BUILDER_NOTE + fix_note

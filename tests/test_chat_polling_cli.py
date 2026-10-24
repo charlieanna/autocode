@@ -129,6 +129,9 @@ class AttachedTerminal(unittest.TestCase):
         workspace, config = fixture_workspace(self)
         current, other = workspace / "current", workspace / "healthy"
         ready, complete = workspace / "hung-ready", workspace / "complete"
+        healthy_ready, healthy_gate = workspace / "healthy-ready", workspace / "healthy-gate"
+        expire = workspace / "expire-status"
+        os.mkfifo(healthy_gate)
         backend = workspace / "status.py"
         backend.write_text("""import json, os, pathlib, signal, sys
 root = pathlib.Path(sys.argv[1])
@@ -142,11 +145,16 @@ if run.endswith('current'):
         signal.pause()
     view = {'done': (root / 'complete').exists(), 'liveness': {'kind': None if (root / 'complete').exists() else 'supervised'}, 'needs': {'kind': 'continue'}}
 else:
+    if not (root / 'healthy-released').exists():
+        (root / 'healthy-ready').touch()
+        with open(root / 'healthy-gate') as gate:
+            gate.read()
+        (root / 'healthy-released').touch()
     view = {'done': True, 'chat': {'title': 'Healthy'}}
 print(json.dumps({'view': view}))
 """)
         viewer_script = workspace / "viewer.py"
-        viewer_script.write_text(f"""import sys
+        viewer_script.write_text(f"""import sys, time
 sys.path.insert(0, {str(ROOT / "tools")!r})
 from pathlib import Path
 from autocode_chat_client import ChatClient
@@ -155,6 +163,12 @@ ui = ChatTUI()
 client = ChatClient(Path({str(workspace)!r}), Path({str(current)!r}),
  command=(sys.executable, {str(backend)!r}, {str(workspace)!r}),
  say=ui.say, observe=ui.observe, wait=ui.wait, poll_seconds=0.1)
+# Neither scheduling nor host load decides when this fault expires. Advance only
+# after help and the healthy notification have been observed, then for recovery.
+started = time.monotonic()
+def clock():
+ return started + 100 * Path({str(expire)!r}).exists() + 100 * Path({str(complete)!r}).exists()
+client._poller.clock = clock
 client.others[{str(other)!r}] = (Path({str(workspace)!r}), None)
 client.tab_order.append({str(other)!r})
 client.tabs_changed = ui.tabs
@@ -179,16 +193,26 @@ print('VIEWER-CLOSED')
         os.close(follower)
         self.addCleanup(self.stop, viewer)
         deadline = time.monotonic() + 15
-        while not ready.exists():
+        while not ready.exists() or not healthy_ready.exists():
             if viewer.poll() is not None or time.monotonic() > deadline:
                 self.fail("fault-injected status read never started")
             time.sleep(0.01)
         hung_pid = int(ready.read_text())
         started = time.monotonic()
         os.write(leader, b"/help\r")
-        shown = read_terminal(leader, until=b"List these commands", seconds=3)
+        # Wait for the full help response, not its typeahead menu. The healthy
+        # response is deliberately still gated: help cannot depend on its order.
+        shown = read_terminal(leader, until=b"Leave the chat", seconds=3)
         help_seconds = time.monotonic() - started
+        self.assertIn(b"List these commands", shown)
+        self.assertNotIn(b"Another chat finished", shown)
+        os.kill(hung_pid, 0)
+        with healthy_gate.open("w") as release:
+            release.write("continue")
+        shown = read_terminal(leader, until=b"Another chat finished", seconds=10)
         self.assertIn(b"Another chat finished", shown, "healthy read was observed while the current read hung")
+        os.kill(hung_pid, 0)
+        expire.touch()
         read_terminal(leader, until=b"status read timed out", seconds=10)
         with self.assertRaises(ProcessLookupError):
             os.kill(hung_pid, 0)

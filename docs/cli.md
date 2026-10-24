@@ -687,7 +687,7 @@ highlighted one:
 | Command | What it does |
 | --- | --- |
 | `/plan`, `/tasks`, `/log` | Show the requirements, the task list or the run's log in the conversation |
-| `/details` | Why the run is where it is (the view's explanation) |
+| `/details` | Why the run is where it is, verification and recovery evidence, recorded timings, cost coverage, token usage, actual attempt routes and saved routes for future attempts |
 | `/diff` | List the saved code steps with the files each changed; `/diff N` shows the files and the diff changed since step N |
 | `/undo N` | At a question: go back to saved step N. It shows what differs and asks first; yes makes a new run on a new branch, your branch and its later work stay as they are, and the chat carries on with the new run, which checks every requirement again |
 | `/runs` | Your chats in every project, open and finished, grouped by project: this project first, then the others by their latest activity, newest chat first in each. Each shows its request, its state and when it last moved; a chat whose run was removed is left out and counted. Also at the first "What do you want done?" |
@@ -702,6 +702,31 @@ highlighted one:
 | `/pause` | While AutoCode works: ask it to pause after the current step, as the first `Ctrl-C` does |
 | `/help` | List the commands |
 | `/quit` | At a question: leave the chat; the run stays as it is |
+
+The side panel's Usage section shows the accounted subtotal, missing prices or usage,
+active/pending attempts and any configured accounting cap. `/details` separates
+provider-reported figures, dated-table estimates and historical comparison estimates;
+subscription/API-equivalent estimates are not the subscription invoice. Cache and
+reasoning counts are shown as subsets of input and output, never added twice.
+Historical attempt models and efforts come from their launch records, while saved
+routes describe future attempts. Missing fields in older cores remain unknown.
+Displaying this information calls no model and changes no route, cap or workflow.
+
+The header keeps a last-read status visible while you read history; new background
+messages do not move the history viewport. If the current tab's read fails, the
+header says the previous read is being shown. This is not a worker-liveness check
+or a measurement of meaningful progress. No ETA or completion percentage is inferred.
+
+The Verification section and `/details` distinguish the core's current delivery
+gate from report inspection. A recorded PASS can be unchecked or stale, and a
+verified delivery can still have a report not explicitly inspected by that status
+request. Criteria show their recorded results, supplied coverage state, pending
+human acceptance and evidence references. Retained edits and successful commands
+alone do not establish accepted evidence. Recovery details show the core's reason,
+retained work and offered actions; `/diff` remains the way to inspect saved changes.
+Recorded execution, observed interval wall time, current-attempt duration and
+answered-request waiting are shown only where the core supplies those measurements;
+missing durations stay unknown, and overlapping categories are not added together.
 
 A command never answers the question that is waiting. To send a reply that starts
 with `/`, type `//`. `/diff` and `/undo` take only the `compare` and `restore`

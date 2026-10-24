@@ -32,6 +32,26 @@ def named_pause_states(root: Path = TOOLS) -> set[str]:
 
 
 class StopExplanationTests(unittest.TestCase):
+    def test_completed_views_explain_the_saved_outcome_without_recovery_or_freshness_claims(self):
+        for status in ("TASK_COMPLETE", "COMPLETE"):
+            for current in (None, False, True):
+                for note in ("", "retained completion note"):
+                    with self.subTest(status=status, completion_current=current, note=note):
+                        view = run_view.view({"status": status, "stop_reason": note}, completion_current=current)
+                        text = view["explanation"]
+                        self.assertEqual(status, view["status"])
+                        self.assertIsNone(view["needs"])
+                        self.assertIsNone(view["next_command"])
+                        self.assertIn(status, text["what_happened"])
+                        if note:
+                            self.assertIn(note, text["what_happened"])
+                        self.assertIn("saved", text["what_it_means"].lower())
+                        self.assertIn("current", text["what_it_means"].lower())
+                        self.assertIn("--status", text["what_the_command_does"])
+                        self.assertIn("follow-up", text["what_the_command_does"])
+                        for misleading in ("stopped", "environment", "resume", "wrong deliverable"):
+                            self.assertNotIn(misleading, text["explanation"].lower())
+
     def test_preparation_timeout_names_the_prelaunch_copy_and_preserves_budgets(self):
         text = stop_explanations.explain("PAUSED_VERIFICATION_PREPARATION", stop_reason="source pack timed out")
         self.assertIn("before the model started", text["what_it_means"])

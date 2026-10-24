@@ -17,6 +17,42 @@ PR template asks for an entry here; a change without one is incomplete.
   outside the reviewer's family. It shows as a `plan_sent_back` escalation. Under the default
   two-call review allowance it never fires.
 
+- A reconciled OpenCode/Kilo connection-change pause offers its existing explicit
+  acceptance action through the public view, with confirmation guidance, so thin
+  clients can recover without inventing CLI flags. Uncertain attempts and immutable
+  per-role tools retain their existing refusals (#1978).
+
+- Completed runs' core explanation describes their saved outcome and evidence
+  inspection instead of calling completion an environment stop or suggesting
+  recovery. Legacy `COMPLETE` runs keep the same guidance (#1976).
+
+- The clean-review scenario's source patch applies to its current seed again.
+  Its oracle checks trusted input validity and candidate tests before judging a
+  report, classifying broken fixtures as harness errors (#1980).
+
+- Terminal chat keeps its last-read status visible while browsing history and
+  preserves the viewport when background messages arrive. Verification and
+  `/details` separate recorded checks, current delivery, retained work, recovery
+  and supplied timings; missing freshness and duration measurements stay unknown
+  (#1883 E1).
+
+- The stock `glm-mimo-kilo` scenario profile selects GLM-5.3 High for Requirements
+  and Completion Reviewer, matching the bundled Kilo default. Its former explicit
+  Medium pins were unsupported and refused before inference (#1983).
+
+- Terminal chat shows existing cost coverage and accounting caps in its side panel;
+  `/details` adds token subsets, billing/estimate bases, attempt routes, saved future
+  routes and route-change receipts (#1884 F1). Missing usage stays unknown; displaying
+  these fields adds no model calls or stage-policy changes.
+
+- Installed pytest console commands qualify their paired Python runtime inside
+  the tool boundary instead of blocking Tester before launch (#1971). Modified
+  or unknown wrappers still refuse; filesystem and network limits are unchanged.
+
+- Spec-first bug fixes reuse an unambiguous approved test name for its diagnosis
+  case instead of requesting a duplicate function (#1969). Both case IDs still
+  need proof; guards, legacy jobs and protected test files retain their checks.
+
 - Draft proof corrections can update only the verification method through a bound
   criterion delta, retaining the saved wording and sources exactly (#1966). A
   literal Python suite mistakenly labeled as a test name can lose only that prefix

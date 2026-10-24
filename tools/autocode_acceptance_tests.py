@@ -12,7 +12,8 @@ an attempt that changes or deletes one is rejected and the file restored from th
 A bug fix's cases are its Investigator's (autocode_test_cases.proof_cases): reproduction tests must
 really fail and preserve tests pass, before the fix exists.
 
-State key ``acceptance_tests``: {"receipts": {batch key: receipt}, "redirected_from": stage}. The job
+State key ``acceptance_tests``: receipts, redirected_from, pending_case_ids and optional
+pending_test_bindings (contract hash + approved shared names, pinned when routing a new job). The job
 writes receipts; ``route`` writes redirected_from. Read here and by the status view. Imports only the
 shared helpers and the test-case policy, so the build loop, Autopilot and the job can all use it.
 """
@@ -119,10 +120,28 @@ def due(state: RunState, wave=None) -> list[dict]:
     return [case for case in cases if case["id"] not in done]
 
 
+def shared_test_names(state: RunState) -> dict[str, str]:
+    """Names pinned for this generation job; legacy or different-contract jobs keep their old rule."""
+    record = state.get(KEY) or {}
+    binding = record.get("pending_test_bindings") or {}
+    # Older in-flight jobs retain their original naming contract. A changed contract
+    # cannot inherit another draft's bindings; normal routing pins its own next job.
+    return (
+        dict(binding.get("names") or {})
+        if binding.get("contract_hash") == (state.get("goal_contract") or {}).get("hash")
+        else {}
+    )
+
+
 def job_cases(state: RunState) -> list[dict]:
     """The cases ``route`` sent the Tester to write (route saved their ids), in plan order."""
     pending = set((state.get(KEY) or {}).get("pending_case_ids") or [])
-    return [case for case in _cases(state, all_due=True) if case["id"] in pending]
+    names = shared_test_names(state)
+    return [
+        {**case, **({"test_name": names[case["id"]]} if case["id"] in names else {})}
+        for case in _cases(state, all_due=True)
+        if case["id"] in pending
+    ]
 
 
 def batch_key(state: RunState, cases: list[dict]) -> str:
@@ -146,7 +165,15 @@ def route(state: RunState, wave=None) -> None:
     if not cases:
         return
     record = state.setdefault(KEY, {"receipts": {}})
-    record.update(redirected_from=state["next_stage"], pending_case_ids=[case["id"] for case in cases])
+    shared = test_cases.diagnosis_test_names(state)
+    record.update(
+        redirected_from=state["next_stage"],
+        pending_case_ids=[case["id"] for case in cases],
+        pending_test_bindings={
+            "contract_hash": (state.get("goal_contract") or {}).get("hash"),
+            "names": {case["id"]: shared[case["id"]] for case in cases if case["id"] in shared},
+        },
+    )
     state["next_stage"] = STAGE
 
 

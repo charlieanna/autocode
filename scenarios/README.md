@@ -339,6 +339,13 @@ through another provider (`kilocode`, or any tool set up as in
 `NAME-via-OTHER`, so `stats` keeps it apart from runs through the profile's own
 provider.
 
+The stock `glm-mimo-kilo` profile pins GLM-5.3 roles to High, matching the bundled
+Kilo GLM default; that route advertises Low/High/Max and rejects Medium before
+inference. This corrects the profile for new runs. Provider overrides preserve
+the selected profile's exact efforts, including historical profiles; they never
+silently translate an unsupported variant. Saved runs and custom selections keep
+their choices and must explicitly select a supported effort to resume.
+
 `run --profile NAME --hybrid` scripts the stages a scenario's `[hybrid]` route
 names and runs every other stage live; its mode is `NAME-hybrid`
 ([Hybrid runs](#hybrid-runs)).
@@ -882,7 +889,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `parallel-diamond` | parallel | Four milestones where two can be built in parallel. The scripted run plans the same diamond and each Builder applies only its own milestone, so the orchestrator really schedules B and C as one parallel batch. |
 | `architecture-two-services` | architecture | A two-component design with contracts, acyclic build/runtime dependency graphs, per-component runtime blocks and cross-service `smoke.json`; no application code or Docker startup. |
 | `review-planted-defects` | review | A PR with green tests, two planted regressions (timeout reconciliation dropped, `.de` never-retry policy lost) and one nit. Both regressions blocking, nothing else blocking, tree untouched. |
-| `review-clean-pr` | review | The same refactor done right. Must approve; a blocking finding is invented. |
+| `review-clean-pr` | review | The same refactor done right. The oracle first applies the trusted input patch in scratch and runs its candidate tests; invalid input is a harness `ERROR`. For valid input, the report must approve; a blocking finding is invented. |
 | `review-vacuous-tests` | review | The PR's tests pass without exercising the change. The reviewer must deliver a targeted test that fails on the patched code and passes once fixed; the oracle runs both. |
 | `design-review-planted` | design | A queue-migration design with three gaps (ordering vs. partition key, no idempotency boundary, no rollback). All three blocking, nothing invented, ordering put to the user as a question. |
 | `design-review-sound` | design | The same design with the gaps closed. No blocking concerns. |

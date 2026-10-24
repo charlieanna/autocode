@@ -63,10 +63,12 @@ try:
     from . import autocode_request_usage as request_usage
     from . import autocode_resolver_recommendation as recommendation
     from . import autocode_risk_disclosure as risk_disclosure
+    from . import autocode_role_transport as role_transport
     from . import autocode_route_ladder as route_ladder
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_task_input as task_input
     from . import autocode_tool_containment as tool_containment
+    from . import autocode_transport_recovery as transport_recovery
     from . import autocode_verification_view as verification_view
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
@@ -106,10 +108,12 @@ except ImportError:
     import autocode_request_usage as request_usage
     import autocode_resolver_recommendation as recommendation
     import autocode_risk_disclosure as risk_disclosure
+    import autocode_role_transport as role_transport
     import autocode_route_ladder as route_ladder
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
     import autocode_tool_containment as tool_containment
+    import autocode_transport_recovery as transport_recovery
     import autocode_usage
     import autocode_verification_view as verification_view
 
@@ -1097,6 +1101,13 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                 "--feedback MESSAGE revises the plan; --resume-paused reruns the Tester unchanged, "
                 "which helps only after you changed the code."
             )
+        if "action" not in need and status == "PAUSED_TRANSPORT_CHANGED":
+            try:
+                immutable = role_transport.enabled(deepcopy(state.get("settings")))
+            except (ValueError, TypeError, AttributeError):
+                immutable = True  # A malformed binding cannot grant acceptance.
+            if transport_offer := transport_recovery.offer(state, immutable_role_transports=immutable):
+                need.update(transport_offer)
         if "action" not in need:
             # A source-only stale repair names the command that accepts the edit.
             # Other stale pauses do not.

@@ -444,6 +444,157 @@ boundary, `requested` is true and `next_command` is null. The field is null when
 nothing is working, when the recorded runner cannot consume interventions, and
 for a stopped run. It never interrupts a step in progress or stops the run.
 
+### Asynchronous viewer direction (#1879; implementation pending)
+
+**Owner-approved direction, implementation pending (2026-10-23).** The owner
+approved [PR #1985](https://github.com/charlieanna/autocode/pull/1985)'s lifecycle
+direction in the Codex chat: "Approve the proposed lifecycle." The source
+inventory below was checked against master `348670930`. Current runtime behavior
+remains in force until the dependent implementation qualifies. The field examples
+describe the agreed semantics; clients cannot assume they are exported yet.
+This decision and read-only attachment do not approve an individual task plan or
+authorize an additional model call.
+
+Existing guarantees should be extended rather than replaced:
+
+| Foundation | Existing evidence and limit |
+| --- | --- |
+| Single controller/writer and surviving provider exclusion | `autocode_controller_owner`, the run lock and `autocode_checkout_lock`; `tests/test_controller_owner.py` and `tests/test_checkout_lock.py`. A second viewer is not a second owner. These checks alone do not prove SSH survival. |
+| Checked liveness and unknown inspection | `autocode_liveness` separates owner, keeper and provider; `autocode_wait_command` observes controller loss. Access failure is not proof of a dead worker. |
+| Boundary pause | The current `pause.next_command` uses a client request ID; intervention tests cover identical retry and conflicting payload, including after application. This is not a blanket guarantee for other actions. |
+| Core Requirements conversation | `send_conversation` and `refresh_conversation` bind message IDs/revisions, reconcile saved acknowledgements and hold uncertain advances; `tests/test_conversation_session_cli.py` and `tests/test_conversation_policy.py`. Ordinary/legacy runs need not have this journal. |
+| Approval, recovery and restore | Current plan/review/request tokens, recovery token and exact comparison control their own actions; see Commands, Exact stopped-run recovery and Saved code checkpoints. There is no universal retry receipt across all families. |
+| Responsive observation | Bounded polling and its cancellation tests already exist. TUI history/verification display is E1; no whole-view freshness or durable detach guarantee follows from it. |
+
+#### Agreed lifetime and authority
+
+The agreed first delivery is **opt-in durable local execution on persistent
+Linux**, with a core-owned launcher and the ordinary task controller. The TUI
+observes it through this interface. The launcher must establish independent
+terminal/session lifetime, persistent output and a reconciliable launch identity
+before returning a durable-ready receipt; a separate process group alone is
+insufficient. A local user-service arrangement is the preferred first host
+adapter, provided its existing configuration survives SSH/session loss. A host
+without that demonstrated capability retains the current owned-worker mode.
+Enabling a service or changing host login/linger policy is a separate operator
+action, never a silent prerequisite installed by the TUI.
+
+The launcher is part of the core runtime, not another task controller. It starts
+the existing loop under the existing locks and birth-bound ownership. A service
+name is not proof of ownership, and a lost launch receipt is reconciled by the
+core before any retry. At a human gate the controller can finish with its ready
+receipt; continuing later is another serialized invocation of the same run.
+The exact launch action/capability schema and host adapter must be reviewed with
+their deterministic qualification before this opt-in mode is exposed.
+
+| Event in the agreed durable mode | Required outcome |
+| --- | --- |
+| Normal viewer quit, Ctrl-D, SIGHUP, viewer SIGKILL or SSH disconnect | Only the viewer leaves. It neither pauses nor signals the worker. Reattach is read-only and launches no provider. |
+| First or repeated Ctrl-C | Request the currently named boundary pause; repeated keys do not escalate to an implicit worker kill. An unavailable pause offer is reported as such. |
+| Explicit pause | Submit the existing request-ID-bound pause offer. Save the active step, then wait at the core's boundary. |
+| Explicit stop or interrupt | Use a core-named action with its own confirmation and scope. No new immediate-kill control is included in the first delivery; missing controls remain unavailable. Stop, when offered, remains terminal for the conversation. |
+| Worker/controller loss while a viewer survives | Show the current controller/liveness inspection and retained attempt. Use the existing reconciliation action only when offered; never infer a paid replay from a quiet log. |
+| Host reboot | Work is interrupted, not transparently resumed. After reconnect, inspect ownership and attempts and expose the ordinary recovery boundary. Unknown provider outcomes stay uncertain. |
+| Two viewers act on one gate | Both may inspect. The first current action admitted under the core's locks changes the run; a competing stale token is refused and refreshed. No client leader or second controller is introduced. |
+
+The current owned-worker Ctrl-C sequence remains documented for legacy mode
+until an explicit migration decision. It must not silently acquire durable-mode
+semantics. Multiple viewers initially share the same authorized local OS
+identity; this proposal adds no remote authentication service or Jira/RPC API.
+Jira/Fargate orchestration remains a separate layer using `TaskRun`.
+
+#### Observation, decision and attention requirements
+
+Keep `controller`, `liveness`, `status`, `needs`, `delivery`, `verification` and
+the named actions authoritative for their existing meanings. Add only the
+missing capability and observation metadata, for example:
+
+```json
+{
+  "execution": {
+    "version": 1,
+    "mode": "durable_local",
+    "detach_supported": true,
+    "launch_id": "opaque-core-launch-id",
+    "controller_epoch": "opaque-owner-receipt-id"
+  },
+  "observation": {
+    "version": 1,
+    "workspace": "/project",
+    "run_dir": "/project/.autocode/runs/run-a",
+    "checkpoint_token": "opaque-committed-checkpoint-token",
+    "sampled_at": "2026-10-24T00:00:00Z"
+  }
+}
+```
+
+`checkpoint_token` identifies committed checkpoint bytes; it is not a sequence
+number or a token granting an action. `controller_epoch` distinguishes owner
+incarnations, not task completion. `sampled_at` describes the read, not meaningful
+progress or an atomic snapshot of every external evidence/log file. Existing
+attempt/log identities keep their narrower scopes. Clients bind each local read
+to its requested identity and request generation, discard cancelled/older local
+results and never order checkpoints by a wall clock or a hash. A failed read
+retains the last view as unavailable; it does not rewrite worker state.
+
+Before applying a decision, obtain a current view and retain the exact plan,
+question, review, recovery or comparison token the person inspected. A newer
+view cannot silently answer or approve on their behalf. Each action family
+needs its own conflict/lost-receipt contract:
+
+| Action family | Required reconciliation rule |
+| --- | --- |
+| Read, attach and detach | No run writes, provider dispatch or approval. Detach is local viewer exit, not a new core task-state transition. |
+| Pause/intervention | Reuse the existing request ID and exact payload; return its original receipt. A changed payload is a conflict. |
+| Core conversation send/refresh | Reuse its existing request-ID/revision and acknowledgement rules. An unresolved advancing outcome holds rather than dispatching again. |
+| Plan/review approval and answers | Validate the displayed token under the lock. Preserve existing per-family replay behavior; a missing command receipt requires fresh inspection, not a synthesized success. |
+| Feedback, follow-up and plan messages | Verify their existing context/revision/request-ID coverage separately. Add missing conditional receipts in the core before claiming automatic reconnect retry for that family. Unsupported cases remain explicit handoffs. |
+| Retry, recovery and restore | Keep the exact attempt/source/recovery/comparison binding and current cleanup evidence. A transport failure or reconnect grants no extra retry, model substitution or limit change. |
+
+Persistent attention in #1885 should identify a pending decision by run plus its
+current request/approval token; completion needs a durable outcome ID scoped to
+the same-chat turn, so a second completed follow-up is a new outcome. Mere text
+equality or a reused source hash is insufficient. Read/unread acknowledgement is
+shared by the authorized local identity across its viewers and remains separate
+from answering, approval and evidence acceptance. Restarting a viewer retrieves
+current unresolved items; a superseded item cannot carry an executable old
+action. The core must supply these IDs and acknowledgement actions before a
+client implements persistence.
+
+#### Acceptance and rollout before implementation is enabled
+
+| Design case | Required deterministic and supported-host proof |
+| --- | --- |
+| A1: one worker, two viewers | Both observe; competing starts/continues and token decisions admit one writer. Receipts reconcile the exact launch/action without a second provider call. |
+| A2: viewer, worker and host loss | Kill each separately with an in-flight fake provider. Real PTY/SSH loss preserves a healthy durable worker; worker loss projects recovery; reboot never claims continued execution. Uninspectable ownership remains unknown. |
+| A3: stale/out-of-order data | Hold an old read across a newer decision, refresh, run switch and controller epoch. Release it; it cannot replace the current view or authorize an action. Stale human tokens are rejected by the core. |
+| A4: old/new pairs | Omit every proposed field independently. Legacy clients ignore additive fields; new clients show unknown and retain legacy lifetime semantics without advertising detach. A source/controller version change cannot rewrite a held provider attempt. |
+| A5: accepted request, lost response | Lose launch, action and provider receipts at each persistence boundary. Inspect the same launch/request/attempt; no blind provider replay. Identical supported retries return their existing receipt, conflicts refuse, unsupported uncertainty holds. |
+
+Use fake providers and controlled clocks for authority/race cases, then actual
+terminal and SSH/service tests for host lifetime. No paid model is needed.
+Measure keyboard-command response and healthy-read completion while another read
+hangs; propose a controlled-host input target of 250 ms, report actual samples
+and load, and derive fairness from the configured subscription/read bounds rather
+than promising a fixed 25-run freshness number. No spinner, poll or notification
+acknowledgement counts as work progress.
+
+Implementation order after owner agreement: #1881 owns durable launch/reattach
+and host capability; #1882 D2 owns active switching and per-run draft/cursor/view
+context; #1883 E2 consumes observation/identity metadata; #1885 owns durable
+attention and conditional decisions; #1884 F2 consumes separately approved stage
+policy; #1886 owns the integrated fault/terminal/SSH matrix. Existing E1/F1 and
+D1 results remain regression evidence, not proof of these new outcomes.
+
+The consolidated owner decision above covers these lifetime/authority, metadata,
+first-host and response-target choices. Dependent issues should not ask the same
+policy questions again. Exact additive
+schema/actions, compatibility fixtures, host adapter and measured A1–A5 results
+are readiness evidence before enabling the opt-in capability, not a second owner
+approval gate unless the agreed semantics change. Keep current defaults and all
+saved routes, efforts, usage, limits, histories and approvals unchanged. Cross-host
+delivery, host administration and stage-selection policy remain separate decisions.
+
 ## First interaction timing
 
 `status()["interaction_timing"]` reports the saved first useful interactions:
@@ -663,6 +814,14 @@ the status JSON on stdout and the returned TaskRun view keep their existing shap
 `TaskRun.accept_transport_change()` uses the explicit transport-change command
 after a person inspects the new route and the saved run reports
 `PAUSED_TRANSPORT_CHANGED`.
+At an eligible OpenCode/Kilo pause with no retained attempt or report repair,
+`needs.action` and `next_command` name `--resume-paused --accept-transport-change`;
+`needs.recovery_hint` explains that confirming accepts the changed connection
+settings after model/billing checks. It requires a person's confirmation and does
+not approve a plan or replace selected role models. Separately selected per-role
+tools retain their immutable identities and receive no acceptance offer. Other
+engines, uncertain attempts and unrelated pauses keep their existing recovery;
+clients must use the current named action rather than add this flag themselves.
 `TaskRun.accept_source_edit()` uses `--resume-paused --accept-source-edit` when
 a repair is paused at `PAUSED_STALE_HANDOFF` because a person edited the source.
 The approved contract, task, budget, proof and evidence pins stay.

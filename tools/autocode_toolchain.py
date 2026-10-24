@@ -16,9 +16,11 @@ from pathlib import Path
 try:
     from . import autocode_elf_dependencies as elf
     from . import autocode_macho_dependencies as macho
+    from . import autocode_python_entrypoints as python_entrypoints
 except ImportError:
     import autocode_elf_dependencies as elf
     import autocode_macho_dependencies as macho
+    import autocode_python_entrypoints as python_entrypoints
 
 
 def _binary_dependencies(tool):
@@ -111,6 +113,12 @@ def discover(workspace, commands, environment):
         original, tool = Path(located).absolute(), Path(located).resolve()
         links.extend(hop for hop in _symlink_hops(original) if hop not in links)
         family = original.name
+        if family == "pytest":
+            interpreter = python_entrypoints.pytest_interpreter(original)
+            paths.add(tool)
+            pending.append(str(interpreter))
+            probes.append(shlex.join([str(original), "--version"]))
+            continue
         if family in ("npm", "npx"):
             package = next((p for p in tool.parents if (p / "package.json").is_file()), None)
             if package is None or json.loads((package / "package.json").read_text()).get("name") != "npm":
