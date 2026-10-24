@@ -1481,7 +1481,7 @@ class ChatTUI:
         marker = spinner[self._frame % len(spinner)] if spinner else "*"
         reading = self._view is None
         text = (
-            "Status unavailable; last snapshot retained"
+            f"Status unavailable; {self._observation.outage()}"
             if self._observation.error
             else "Reading run status…"
             if reading

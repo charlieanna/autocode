@@ -41,6 +41,10 @@ class Read:
     def age(self, now):
         return "never" if self.received is None else f"{max(0, int(now - self.received))}s ago"
 
+    def outage(self) -> str:
+        """A failed read has a snapshot to retain only once a read has shown one (#1998)."""
+        return "last snapshot retained" if self.received is not None else "no previous read"
+
     def compact(self, now):
         core = self.snapshot["time"].strftime("%H:%M:%S%z") if self.snapshot else "unknown"
         return f"viewer read {self.age(now)}; core sample {core}"
@@ -49,7 +53,14 @@ class Read:
         sample = self.snapshot
         rows = [
             f"Viewer successful read: {self.age(now)}",
-            f"Read availability: {'unavailable — last snapshot retained' if self.error else 'available' if self.received is not None else 'unknown'}",
+            "Read availability: "
+            + (
+                f"unavailable — {self.outage()}"
+                if self.error
+                else "available"
+                if self.received is not None
+                else "unknown"
+            ),
             f"Core snapshot sampled at: {sample['time'].isoformat() if sample else 'unknown'}",
             f"Core checkpoint identity: {sample['token'] if sample else 'unknown'}",
         ]

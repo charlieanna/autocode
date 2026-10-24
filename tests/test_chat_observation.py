@@ -160,3 +160,25 @@ class ReadMetadata(unittest.TestCase):
             next(text for row, text in drawn if row == layout.status_start),
         )
         self.assertTrue(all(len(text) <= 79 for _, text in drawn))
+
+    def test_a_failed_read_before_the_first_view_clips_nothing_to_retain(self):
+        """#1998: a cold start has no snapshot, so the pane must not say it retained one."""
+        ui = screen_ui()
+        ui.set_context(WORKSPACE, A)
+        ui.status_unavailable("status read exited 2")
+        drawn = []
+        ui._put = lambda row, col, text, attr=0: drawn.append((row, text))
+        layout = ui._layout(24, 80)
+        ui._question_or_status(layout)
+        line = next(text for row, text in drawn if row == layout.status_start)
+        self.assertIn("no previous read", line)
+        self.assertNotIn("retained", line)
+
+    def test_availability_names_a_retained_snapshot_only_after_a_read_showed_one(self):
+        receipt = observation.Read()
+        receipt.fail("status read exited 2")
+        self.assertIn("unavailable — no previous read", receipt.details(10))
+        self.assertNotIn("retained", receipt.details(10))
+        receipt.accept(sampled(), 20)
+        receipt.fail("status read timed out")
+        self.assertIn("unavailable — last snapshot retained", receipt.details(30))
