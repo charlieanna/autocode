@@ -75,4 +75,5 @@ await delta('text',' would you like?","constraints":["private constraint"]}');
                 )
             expected = json.loads(inherited["KILO_CONFIG_CONTENT"])
             expected["plugin"].append(Path(kilocode.__file__).with_name("opencode_activity.mjs").resolve().as_uri())
+            expected["compaction"] = {"auto": False}  # every ordinary launch turns Kilo's own compaction off (#1942)
             self.assertEqual(expected, json.loads(env["KILO_CONFIG_CONTENT"]))

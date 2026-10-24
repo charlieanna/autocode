@@ -418,6 +418,29 @@ class TabBarTests(unittest.TestCase):
         ui._tab_key("next", asking=True)
         self.assertIn("Tabs switch once a chat is open", ui._transcript.blocks[-1][1])
 
+    def test_a_tab_ctrl_t_opened_can_be_left_before_its_request_is_sent(self):
+        """#1997: the tab Ctrl-T made has no run, so the tab keys and /tab answered "Tabs switch once a chat
+        is open" and the only way out was ctrl-d; nothing runs there, and the client serves /tab."""
+        ui = screen_ui()
+        acted = []
+        ui.bind(lambda name, argument: acted.append((name, argument)) or "ok")  # a chat client's slash
+        ui.switch(Path("/p"), None)  # /new or Ctrl-T: the local draft, no run yet
+        self.assertFalse(ui._run_open)
+        self.assertIsNone(ui._tab_key("next", asking=True))
+        self.assertEqual([("/tab", "next")], acted)
+        ui._composer.text = "/ta"
+        self.assertEqual(["/tab"], [command.name for command in ui._menu(asking=True)], "the menu offers it")
+        ui._composer.text = "/pl"
+        self.assertEqual([], ui._menu(asking=True), "the other run-only commands still wait for a run")
+        ui._composer.text = "/tab 1"
+        self.assertIsNone(ui._enter(asking=True))
+        self.assertEqual([("/tab", "next"), ("/tab", "1")], acted, "typed /tab works there too")
+        # Before any chat (History bound, run=False) there is no other tab: the refusal stands.
+        before = screen_ui()
+        before.bind(lambda name, argument: "ok", run=False)
+        before._tab_key("next", asking=True)
+        self.assertIn("Tabs switch once a chat is open", before._transcript.blocks[-1][1])
+
 
 class AskTests(unittest.TestCase):
     """The composer against a stand-in screen, without a terminal."""

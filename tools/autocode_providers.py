@@ -2,7 +2,8 @@
 
 The workflow engine calls one provider facade. OpenCode, Claude Code and AutoCode's direct runtime are
 built in. Every other name loads a TOML config; there is no Python plug-in path.
-A user config named after a built-in is never read.
+A user config named after a built-in is never read. A TOML whose command runs ``kilo`` is a
+Kilo connection, whatever its name, and gets the Kilo launch (#2010).
 """
 
 from __future__ import annotations
@@ -39,17 +40,19 @@ def resolve(name: str):
         except ImportError:  # Script-style execution from tools/.
             from providers import claude
         return claude
-    if name == "kilocode":
-        try:
-            from .providers import kilocode
-        except ImportError:
-            from providers import kilocode
-        return kilocode.load(name)
     try:
-        from .providers import command
+        from .providers import command, kilocode
     except ImportError:
-        from providers import command
-    return command.load(name)
+        from providers import command, kilocode
+    if name == "kilocode":
+        return kilocode.load(name)
+    provider = command.load(name)
+    # A connection whose command runs kilo (a copy of kilocode.toml with its own roles) needs the same
+    # launch as the bundled one: the activity plugin, the output cap, the variant check, the read-only
+    # policy and the compaction opt-out live in KiloProvider.launch, not in the plain command launch (#2010).
+    if kilocode.runs_kilo(provider._config):
+        return kilocode.KiloProvider(provider._config, provider._path)
+    return provider
 
 
 def ignored_user_config(name: str) -> Path | None:

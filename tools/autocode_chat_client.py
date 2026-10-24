@@ -97,6 +97,11 @@ class Switched(Exception):
     """The person opened another chat with /open: the chat now talks to that run."""
 
 
+class Refused(actions.ClientGap):
+    """The core refused a named action (another runner holds the run, a stale token): the chat stays
+    open, says so and reads the run again, instead of leaving with the plan and the draft (#2000)."""
+
+
 class NewChat(Exception):
     """The person asked for a new chat with /new: ask for a request and start a run."""
 
@@ -441,7 +446,7 @@ class ChatClient:
             return
         proc = self.cli(argv, env=command.env)
         if proc.returncode != 0:
-            raise actions.ClientGap(f"AutoCode refused that: {tail(proc)}")
+            raise Refused(f"AutoCode refused that: {tail(proc)}")
 
     def advance(self, argv, env=None) -> None:
         """One call that works until the run stops; meanwhile show what the view says.
@@ -562,7 +567,7 @@ class ChatClient:
             payload = {}
         if proc.returncode != 0 or not isinstance(payload, dict) or "error" in payload:
             message = ((payload.get("error") or {}).get("message") if isinstance(payload, dict) else None) or tail(proc)
-            raise actions.ClientGap(f"AutoCode refused that: {message}")
+            raise Refused(f"AutoCode refused that: {message}")
         return payload
 
     def working_diff(self, view: dict, rows: list[dict]) -> str:
@@ -795,6 +800,13 @@ class ChatClient:
             )
         row = rows[number - 1]
         if row["current"]:
+            if self._composing_new:
+                # Back from the request composer (/new, Ctrl-T) to this chat: the draft is dropped and the
+                # chat's display returns; a tab with no run is left, nothing running with it (#1997).
+                self.say("Nothing started; this chat carries on.")
+                if self.switched is not None:
+                    self.switched(self.workspace, self.run_dir)
+                raise Switched
             return "That is this chat."
         self.talk_to(self.others[row["run"]][0], Path(row["run"]))
         raise Switched
@@ -867,6 +879,16 @@ class ChatClient:
                         return stop
                 except (Restored, Switched):
                     continue  # going back to a saved step, or /open: carry on with that run
+                except Refused as error:
+                    # Nothing was stopped: another driver may hold the run, or what was shown went stale. The
+                    # person is told, then asked before the run is read and asked again, so a refusal that
+                    # repeats (a held lock) waits for them instead of retrying on its own (#2000).
+                    self.say(
+                        f"\n{error}\nThe run is unchanged. If another autocode runner holds it, wait for that one "
+                        "to stop or decide there."
+                    )
+                    if self.ask("Press Enter to read the run again, or Ctrl-D to leave: "):
+                        self.say("Nothing sent; the run is read again.")
                 except NewChat:
                     self.new_chat()
                 except KeyboardInterrupt:

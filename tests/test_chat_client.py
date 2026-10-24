@@ -435,6 +435,42 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("made no progress at RUNNING", client.text())
         self.assertEqual([["--no-chat"]], client.taken)
 
+    def test_a_refused_approval_keeps_the_chat_open_and_asks_again(self):
+        """#2000: another runner held the run lock, the core refused the approval, and the chat left with
+        the plan and the draft gone. A refusal is said, the run is read again and the plan asked again."""
+        plan = {
+            "token": "r2:h",
+            "acceptance_criteria": [
+                {"id": "C1", "criterion": "The logo is centred", "verification_method": "m", "human_review": False}
+            ],
+            "constraints": [],
+            "permission_boundaries": ["only here"],
+        }
+        view = {
+            "status": "WAITING_FOR_USER",
+            "needs": {"kind": "approve_plan", "token": "r2:h"},
+            "displayed_plan": plan,
+            "next_command": f"AUTOCODE_PLAN_TOKEN=r2:h autocode {PLACE} --approve-plan --plan-token -",
+        }
+        client = ScriptedChat(view, replies=["y", "", ""])
+        refusals = [chat.Refused("AutoCode refused that: autocode: Another autocode runner holds this run lock")]
+        taken = client.take
+
+        def take(command):
+            taken(command)
+            if refusals:
+                raise refusals.pop()
+
+        client.take = take
+        self.assertEqual(2, client.converse(), "the person left at the second asking; the refusal did not end the chat")
+        out = client.text()
+        self.assertIn("Another autocode runner holds this run lock", out)
+        self.assertIn("The run is unchanged. If another autocode runner holds it, wait for that one", out)
+        self.assertIn("Press Enter to read the run again, or Ctrl-D to leave: ", out)
+        self.assertEqual(2, out.count("Approve this plan? [y/N]"), "the plan is shown and asked again")
+        self.assertIn("Plan not approved", out)
+        self.assertEqual([["--approve-plan", "--plan-token", "-"]], client.taken)
+
     def test_a_refused_pause_leaves_the_interrupt_to_a_second_ctrl_c(self):
         command = ["intervention", "submit", "--workspace", str(WORKSPACE), "--run-dir", str(RUN)]
         command += ["--request-id", "REQUEST_ID", "--kind", "pause", "--json"]
@@ -883,6 +919,21 @@ class TabTests(unittest.TestCase):
         with self.assertRaises(chat.Switched):
             client.slash("/tab", "previous")
         self.assertEqual(RUN, client.run_dir)
+
+    def test_tab_leaves_the_request_composer_for_this_chat(self):
+        """#1997: on the tab Ctrl-T opened, /tab to this chat said "That is this chat." and the draft stayed."""
+        client, other = self.client()
+        restored = []
+        client.switched = lambda workspace, run: restored.append((workspace, run))
+        client._composing_new = True
+        with self.assertRaises(chat.Switched):
+            client.slash("/tab", "2")
+        self.assertEqual([(WORKSPACE, RUN)], restored, "the chat's own display comes back")
+        self.assertEqual(RUN, client.run_dir)
+        self.assertIn("Nothing started; this chat carries on.", client.text())
+        with self.assertRaises(chat.Switched):
+            client.slash("/tab", "next")  # another tab: switched to as always
+        self.assertEqual(Path(other), client.run_dir)
 
     def test_a_chat_switched_to_keeps_its_last_state_until_it_is_read_again(self):
         """#1757: the tabs drawn on /tab showed a chat that waits for the person as working."""
