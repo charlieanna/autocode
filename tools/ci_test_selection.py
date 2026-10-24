@@ -136,6 +136,16 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("tools/autocode_chat_cost.py", "tools/autocode_chat_panel.py"),
+        (
+            "tests.test_chat_cost",
+            "tests.test_chat_panel",
+            "tests.test_chat_tui",
+            "tests.test_chat_client",
+            "tests.test_chat_polling_cli",
+        ),
+    ),
     (("tools/autocode_python_entrypoints.py", "tools/autocode_toolchain.py"), ("tests.test_toolchain",)),
     (
         (

@@ -8,6 +8,19 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_chat_accounting_keeps_its_public_terminal_and_view_consumers(self):
+        consumers = {
+            "tests.test_chat_cost",
+            "tests.test_chat_panel",
+            "tests.test_chat_tui",
+            "tests.test_chat_client",
+            "tests.test_chat_polling_cli",
+        }
+        for path in ("tools/autocode_chat_cost.py", "tools/autocode_chat_panel.py"):
+            selected = run_suite.select_tests([path], {module: "" for module in consumers})
+            kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+            self.assertEqual(consumers, set(kept))
+
     def test_python_entrypoints_keep_the_real_toolchain_consumer_even_when_slow(self):
         consumer = "tests.test_toolchain"
         for path in ("tools/autocode_python_entrypoints.py", "tools/autocode_toolchain.py"):
