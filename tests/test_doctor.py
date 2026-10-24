@@ -251,6 +251,55 @@ class EngineTests(unittest.TestCase):
         self.assertNotIn("routes", codex)  # Codex's own transport has no OpenCode routes
         self.assertEqual(doctor.OK, codex["engine"].status)
 
+    def test_a_route_the_run_would_never_take_is_not_reported_missing(self):
+        """#1995: a Kilo login that serves its Z.AI plan under another prefix still passes doctor."""
+        import autocode_route_discovery as discovery
+
+        listed = ["zai-coding-plan/glm-5.3", "openai/gpt-6-luna", "openai/gpt-6-sol", "openai/gpt-6-astra"]
+        kilo = SimpleNamespace(
+            NAME="kilocode",
+            DEFAULT_MODELS={
+                "requirements": "zhipuai-coding-plan/glm-5.3",
+                "glm": "zhipuai-coding-plan/glm-5.3",
+                "terra": "openai/gpt-6-luna",
+                "plan_reviewer": "openai/gpt-6-sol",
+                "sol": "zhipuai-coding-plan/glm-5.3",
+                "completion": "zhipuai-coding-plan/glm-5.3",
+                "astra": "openai/gpt-6-astra",
+            },
+            auth_table=lambda: {"command": ["kilo"], "routes": []},
+            available_models=lambda workspace=None: listed,
+        )
+        found = {
+            "tool": "kilocode",
+            "accounts": [],
+            "candidates": [
+                {"model": model, "tool": "kilocode", "account": "Z.AI Coding Plan", "billing": "subscription"}
+                for model in listed
+            ],
+        }
+        with patch.object(discovery, "discover", return_value=found):
+            check = doctor.route_check("kilocode", None, lambda name: kilo)
+        self.assertEqual(doctor.OK, check.status)
+        self.assertIn("automatic selection replaces", check.detail)
+        self.assertIn("zhipuai-coding-plan/glm-5.3 -> zai-coding-plan/glm-5.3", check.detail)
+
+    def test_a_selection_that_cannot_field_a_set_keeps_the_gap_and_says_why(self):
+        """The profile gap stays a gap when the tool's listings cannot be read (#1995)."""
+        import autocode_route_discovery as discovery
+
+        kilo = SimpleNamespace(
+            NAME="kilocode",
+            DEFAULT_MODELS={"requirements": "zhipuai-coding-plan/glm-5.3"},
+            auth_table=lambda: {"command": ["kilo"], "routes": []},
+            available_models=lambda workspace=None: ["zai-coding-plan/glm-5.3"],
+        )
+        with patch.object(discovery, "discover", side_effect=RuntimeError("Cannot read the tool's model listing")):
+            check = doctor.route_check("kilocode", None, lambda name: kilo)
+        self.assertEqual(doctor.MISSING, check.status)
+        self.assertIn("zhipuai-coding-plan/glm-5.3 (Requirements)", check.detail)
+        self.assertIn("automatic selection cannot cover it", check.detail)
+
     def test_old_python_is_missing(self):
         self.assertEqual(doctor.MISSING, doctor.python_check((3, 10, 9)).status)
         self.assertEqual(doctor.OK, doctor.python_check((3, 11, 0)).status)

@@ -8,6 +8,17 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_attention_dynamic_cli_keeps_public_flow_and_real_terminal_consumers(self):
+        consumers = {"tests.test_attention_flow", "tests.test_chat_attention", "tests.test_chat_attention_screen"}
+        for path in (
+            "tools/autocode_attention_cli.py",
+            "tools/autocode_chat_attention.py",
+            "tools/autocode_runs_command.py",
+        ):
+            selected = run_suite.select_tests([path], {module: "" for module in consumers})
+            kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+            self.assertEqual(consumers, set(kept))
+
     def test_lifecycle_metadata_keeps_schema_and_read_only_worktree_consumers(self):
         consumers = {"tests.test_json_contract", "tests.test_worktrees"}
         for path in ("tools/autocode_run_view.py", "tools/autocode_status_command.py", "tools/autocode_worker_view.py"):

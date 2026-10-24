@@ -29,6 +29,7 @@ import sys
 from pathlib import Path
 
 try:
+    from . import autocode_attention_status as attention_status
     from . import autocode_controller_owner as controller_owner
     from . import autocode_conversation as conversation_protocol
     from . import autocode_dev_server as dev_server
@@ -43,6 +44,7 @@ try:
     from . import autocode_verification_preparation as preparation
     from . import autocode_worker_binding as worker_binding
 except ImportError:
+    import autocode_attention_status as attention_status
     import autocode_controller_owner as controller_owner
     import autocode_conversation as conversation_protocol
     import autocode_dev_server as dev_server
@@ -183,6 +185,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         observation=observation,
         execution_inspection=execution_inspection,
     )
+    public_view["attention"] = attention_status.observed(public_view.get("attention"))
     public_view["job_report_recovery"] = job_report_recovery.offer(runner, state, run_dir, workspace)
     try:
         pending = interventions.inspect(workspace, run_dir)["requests"]

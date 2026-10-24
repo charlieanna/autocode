@@ -25,10 +25,18 @@ import time
 from pathlib import Path
 
 try:
+    from . import autocode_attention as attention
+    from . import autocode_attention_status as attention_status
+    from . import autocode_chat_view as chat_view
     from . import autocode_registry as registry
+    from . import autocode_replay_view as replay_view
     from . import autocode_run_view as run_view
 except ImportError:
+    import autocode_attention as attention
+    import autocode_attention_status as attention_status
+    import autocode_chat_view as chat_view
     import autocode_registry as registry
+    import autocode_replay_view as replay_view
     import autocode_run_view as run_view
 
 SCHEMA = 1
@@ -113,6 +121,14 @@ def row(workspace: Path, run_dir: Path, now: float) -> dict:
             "updated_at": updated_at,
         }
     need = shown["needs"] or {}
+    public = {
+        **shown,
+        "status": state.get("status"),
+        "done": state.get("status") in run_view.COMPLETE and replay_view.completion_policy(state)["completion_allowed"],
+    }
+    projected = attention.project(
+        state, public, workspace=workspace, run_dir=run_dir, context=chat_view.context(state, public)
+    )
     command = shown["next_command"]
     reason = None
     if need.get("abandon_stage"):
@@ -130,6 +146,7 @@ def row(workspace: Path, run_dir: Path, now: float) -> dict:
         "availability": availability,
         "status": state.get("status"),
         "needs": need.get("kind"),
+        "attention": attention_status.observed(projected),
         "needs_reason": need.get("reason"),
         "pause_category": shown["pause_category"],
         "pause_category_label": shown["pause_category_label"],
@@ -238,7 +255,7 @@ def cli(argv: list[str] | None = None) -> int:
         arguments.error("--all already covers every registered project; drop --workspace")
     entries = rows(workspace, all_workspaces=args.all)
     scope = "all registered projects" if args.all else str(workspace)
-    if not entries:
+    if not entries and not args.json:
         print(f"No runs found for {scope}.", file=sys.stderr)
         return 2
     selected = [item for item in entries if item["bucket"] == NEEDS] if args.needs else entries
