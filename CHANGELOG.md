@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A configured Kilo connection (a TOML whose command runs `kilo`, such as a copy of
+  `kilocode.toml` with other roles) now launches as the bundled `kilocode` does: with the
+  activity plugin, the output cap, the native variant check and the read-only checker policy.
+  Before, it ran as a plain command provider and got none of them (#2010).
 - Terminal attention survives viewer restarts with shared local read receipts.
   F8 or `/attention` inspects current decisions and distinct same-chat completions
   without advancing tasks or losing drafts; empty JSON run inventories remain

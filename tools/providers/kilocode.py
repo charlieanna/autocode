@@ -177,6 +177,12 @@ class KiloProvider(command.CommandProvider):
         return settings
 
 
+def runs_kilo(config) -> bool:
+    """Whether a command provider config launches kilo: such a connection is a Kilo connection (#2010)."""
+    words = config.get("command") if isinstance(config, dict) else None
+    return isinstance(words, list) and bool(words) and isinstance(words[0], str) and Path(words[0]).name == "kilo"
+
+
 def load(name):
     ordinary = command.load(name)
     return KiloProvider(ordinary._config, ordinary._path)
