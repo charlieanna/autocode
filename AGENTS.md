@@ -87,7 +87,10 @@ capabilities, observations, attention and named actions. In the opt-in mode,
 viewer/SSH exit leaves the worker running and Ctrl-C requests only a boundary
 pause. This authorizes the dependent implementation within that recorded scope,
 including active switching and durable attention, without repeating the same
-policy approval. Existing defaults and saved routes, efforts, usage, limits and
+policy approval. The terminal's F8 or `/attention` consumes only public
+status/run-inventory attention and its exact `acknowledge.next_command` array;
+acknowledgement records local read state and grants no task authority.
+Existing defaults and saved routes, efforts, usage, limits and
 approvals remain unchanged. This records direction, not completed runtime/SSH
 qualification or authority to administer a host or replay an uncertain call.
 

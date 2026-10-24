@@ -90,6 +90,7 @@ COMMANDS = (
     Command("/mode", "The mode new chats start in: /mode ID"),
     Command("/engine", "The engine new chats run on: /engine NAME"),
     Command("/connect", "Backends: check one, sign in, or use it for new chats"),
+    Command("/attention", "Saved alerts: inspect, acknowledge or open (also F8)"),
     Command("/panel", "Show or hide the side panel"),
     Command("/pause", "Ask AutoCode to pause after the current step"),
     Command("/help", "List these commands"),
@@ -108,7 +109,7 @@ def _rows(value) -> list[dict]:
 # The commands the chat client carries out: /diff and /undo through actions its fresh status view
 # names, /runs, /open and /new through the run lists (`autocode runs --json`), /mode, /engine and
 # /connect through `modes list --json` and `connections list --json` (autocode_chat_setup).
-CLIENT_COMMANDS = ("/diff", "/undo", "/runs", "/open", "/new", "/tab", "/mode", "/engine", "/connect")
+CLIENT_COMMANDS = ("/diff", "/undo", "/runs", "/open", "/new", "/tab", "/mode", "/engine", "/connect", "/attention")
 # Leaving a working run requires its current durable-detach capability.
 SWITCHING_COMMANDS = ("/open", "/new", "/tab")
 

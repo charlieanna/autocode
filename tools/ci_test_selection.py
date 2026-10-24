@@ -140,6 +140,20 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         (
+            "tools/autocode_attention",
+            "tools/autocode_chat_attention",
+            "tools/autocode_runs_command.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_chat_view.py",
+            "tools/autocode_replay_view.py",
+            "tools/autocode_status_command.py",
+            "tools/autocode_subcommands.py",
+            "tools/autocode_taskrun.py",
+        ),
+        ("tests.test_attention_flow", "tests.test_chat_attention", "tests.test_chat_attention_screen"),
+    ),
+    (
+        (
             "tools/autocode_worker_",
             "tools/autocode_chat_worker.py",
             "tools/autocode_native_invocation.py",

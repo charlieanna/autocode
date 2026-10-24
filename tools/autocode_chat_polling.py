@@ -1,4 +1,4 @@
-"""Bounded, nonblocking public status reads for the terminal client.
+"""Bounded, nonblocking public status and run-inventory reads for the terminal client.
 
 Two children at most, no submitted-job queue. Round-robin admission across due
 identities keeps a failed read from starving another chat. A result belongs to
@@ -19,6 +19,8 @@ from typing import BinaryIO
 
 READ_TIMEOUT = 5.0
 MAX_READS = 2
+INVENTORY_SECONDS = 10.0
+Key = tuple[str, str | None]  # None is the public runs inventory, never a fabricated run ID.
 
 
 @dataclass
@@ -32,9 +34,10 @@ class StatusPoller:
     def __init__(self, command, env=None, *, clock=time.monotonic, launch=subprocess.Popen):
         self.command, self.env = tuple(command), env
         self.clock, self.launch = clock, launch
-        self.active: dict[tuple[str, str], Read] = {}
-        self.due: dict[tuple[str, str], float] = {}
-        self.last: tuple[str, str] | None = None
+        self.active: dict[Key, Read] = {}
+        self.due: dict[Key, float] = {}
+        self.completed: dict[Key, float] = {}  # request start, for cross-read-family stale rejection
+        self.last: Key | None = None
         self.closed = False
 
     @staticmethod
@@ -50,7 +53,7 @@ class StatusPoller:
             self.stop(read)
         self.due[key] = 0
 
-    def tick(self, targets: dict[tuple[str, str], float]) -> list[tuple[tuple[str, str], str, str]]:
+    def tick(self, targets: dict[Key, float]) -> list[tuple[Key, str, str]]:
         """Return (requested identity, JSON text, error); never wait for a running read."""
         if self.closed:
             return []
@@ -60,11 +63,13 @@ class StatusPoller:
                 if read := self.active.pop(key, None):
                     self.stop(read)
                 self.due.pop(key, None)
+                self.completed.pop(key, None)
         for key, read in list(self.active.items()):
             code = read.child.poll()
             if code is None and now - read.started < READ_TIMEOUT:
                 continue
             self.active.pop(key)
+            self.completed[key] = read.started
             self.due[key] = now + targets[key]
             if code is None:
                 self.stop(read)
@@ -88,8 +93,13 @@ class StatusPoller:
             self.last = key
             output = tempfile.TemporaryFile()  # noqa: SIM115 - owned until this asynchronous read is reaped
             try:
+                arguments = (
+                    ["--status", "--workspace", key[0], "--run-dir", key[1]]
+                    if key[1] is not None
+                    else ["runs", "--all", "--json"]
+                )
                 child = self.launch(
-                    [*self.command, "--status", "--workspace", key[0], "--run-dir", key[1]],
+                    [*self.command, *arguments],
                     stdout=output,
                     stderr=subprocess.DEVNULL,
                     cwd=key[0],
@@ -110,3 +120,4 @@ class StatusPoller:
             self.stop(read)
         self.active.clear()
         self.due.clear()
+        self.completed.clear()

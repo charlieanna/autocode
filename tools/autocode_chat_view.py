@@ -87,9 +87,24 @@ def notice(public):
     return None
 
 
+def context(state: RunState, public):
+    """The same opaque decision context for status and cold-start run inventory."""
+    return hashlib.sha256(
+        json.dumps(
+            [
+                public.get("status"),
+                len(state.get("turns") or []),
+                public.get("needs") or {},
+                state.get("displayed_goal"),
+                len(state.get("user_events") or []),
+            ],
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+
+
 def project(state: RunState, public, *, run_dir=None, workspace=None):
     """Expose only actions admitted at this checkpoint; the CLI rechecks on write."""
-    turns = state.get("turns") or []
     messages = history.messages(state, completed=public.get("done", False))
 
     need = public.get("needs") or {}
@@ -141,12 +156,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
     elif status == acceptance_tests_job.PAUSE and not pause_authority.feedback_refusal(state):
         # The Tester's pause says --feedback revises the plan; offer it so a client can take it (#1869).
         action = ("feedback", "Send plan feedback", "--feedback")
-    context = hashlib.sha256(
-        json.dumps(
-            [status, len(turns), need, state.get("displayed_goal"), len(state.get("user_events") or [])],
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()
+    context_token = context(state, public)
     message_input = None
     if action and run_dir is not None and workspace is not None:
         kind, label, flag = action
@@ -220,7 +230,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         }
     return {
         "messages": messages,
-        "context": context,
+        "context": context_token,
         "input": message_input,
         "review": review,
         "notice": notice(public),

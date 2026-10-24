@@ -617,15 +617,53 @@ needs its own conflict/lost-receipt contract:
 | Feedback, follow-up and plan messages | Verify their existing context/revision/request-ID coverage separately. Add missing conditional receipts in the core before claiming automatic reconnect retry for that family. Unsupported cases remain explicit handoffs. |
 | Retry, recovery and restore | Keep the exact attempt/source/recovery/comparison binding and current cleanup evidence. A transport failure or reconnect grants no extra retry, model substitution or limit change. |
 
-Persistent attention in #1885 should identify a pending decision by run plus its
-current request/approval token; completion needs a durable outcome ID scoped to
-the same-chat turn, so a second completed follow-up is a new outcome. Mere text
-equality or a reused source hash is insufficient. Read/unread acknowledgement is
-shared by the authorized local identity across its viewers and remains separate
-from answering, approval and evidence acceptance. Restarting a viewer retrieves
-current unresolved items; a superseded item cannot carry an executable old
-action. The core must supply these IDs and acknowledgement actions before a
-client implements persistence.
+Persistent attention (#1885) is exposed in `view.attention` and each `runs --json`
+row. Version 1 identifies a pending human boundary using the saved run incarnation
+and existing decision context. A completed outcome uses the existing same-chat
+turn receipt, so an identical follow-up's completion has a different ID. Missing
+saved identity means unknown; it is never invented from text or source equality.
+The item contains its workspace/run, kind, fixed label and bounded, redacted task
+snippet. It carries no answer or approval authority.
+
+`attention.acknowledge.next_command` is an exact argument array for
+`autocode attention ack --workspace W --run-dir R --item-id ID`.
+`TaskRun.acknowledge_attention(view)` submits that offer without advancing the run.
+An acknowledgement never changes the task checkpoint, current question, plan
+token, delivery acceptance, provider attempts or budgets. New acknowledgements
+require the item still be current. Repeating an acknowledged ID returns its
+original receipt even after the task resolves; a different run cannot inherit it.
+A lost reply is uncertain until that same ID is inspected or explicitly retried.
+This reconciliation applies to acknowledgement only, not other action families.
+
+The authorized local OS identity shares receipts across viewers. Storage defaults
+to `$XDG_STATE_HOME/autocode/attention` (otherwise
+`~/.local/state/autocode/attention`); `AUTOCODE_ATTENTION_HOME` selects an isolated
+profile. It must be a private owned directory outside the editable task workspace;
+receipts are private atomic files bound to the local UID and run paths. Reads
+create nothing. Unavailable, corrupt, unowned, symlinked or unsupported storage
+projects unknown and offers no acknowledgement action. There is no remote
+identity service, notification service or workspace-owned acknowledgement file.
+
+The TUI's F8 or `/attention` drawer restores current saved alerts, including after
+a viewer restart. Cold-start inventory is silent; a newly observed unread ID is
+announced once in that viewer's current bounded cohort. An acknowledged item
+stays inspectable while current but does not announce again. This is not a
+universal exactly-once alarm guarantee across independently running viewers.
+Resolved/superseded items disappear from current inventory; this is not an alert
+history journal. Unread storage is durable, while delivery of a notice is an
+observation. Completion says to inspect evidence, not that current delivery passed.
+
+Inventory uses `runs --all --json` in the existing two-child bounded read pool,
+normally every ten seconds. Per-run status reads take precedence over an inventory
+started before them. The UI retains at most 256 rows and reports overflow;
+an empty `runs --json` inventory returns success with `runs: []` rather than prose.
+`/runs` remains available for the full public list. Failed discovery retains a
+labelled last snapshot and shows unavailability. Drawer rows stay frozen until
+explicit refresh so incoming items cannot change which ID a queued key targets.
+Acknowledgements are asynchronous with a five-second viewer timeout; a slow
+receipt cannot block draft editing. Closing the drawer restores the draft/cursor
+and viewport without switching runs. Opening an item reads current status;
+submitting an answer or approval still uses the exact token the person inspected.
 
 #### Acceptance and rollout before implementation is enabled
 

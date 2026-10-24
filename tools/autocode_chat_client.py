@@ -52,6 +52,8 @@ from datetime import datetime
 from pathlib import Path
 
 try:
+    from . import autocode_chat_attention as attention
+    from . import autocode_chat_attention_discovery as attention_discovery
     from . import autocode_chat_context as contexts
     from . import autocode_chat_panel as panel
     from . import autocode_chat_polling as polling
@@ -60,6 +62,8 @@ try:
     from . import autocode_client_actions as actions
     from . import autocode_events_command as events
 except ImportError:
+    import autocode_chat_attention as attention
+    import autocode_chat_attention_discovery as attention_discovery
     import autocode_chat_context as contexts
     import autocode_chat_panel as panel
     import autocode_chat_polling as polling
@@ -115,6 +119,7 @@ class History:
     def __init__(self, workspace: Path, *, command=AUTOCODE, env=None, new: setup.NewChat | None = None):
         self.workspace, self.command, self.env = Path(workspace), tuple(command), env
         self.rows: list[dict] = []
+        self.attention: attention_discovery.Discovery | None = None
         self.left_out = 0
         self.new = new or setup.NewChat()  # what /new and the first question start: /mode, /engine, /connect
         # Runs a backend's interactive sign-in or setup on the terminal itself (the full-screen chat steps aside).
@@ -212,6 +217,12 @@ class History:
 
     def slash(self, name: str, argument: str, current=None):
         """/runs, /open N and /new; the other client commands need a run to act on."""
+        if name == "/attention":
+            return (
+                self.attention.menu()
+                if self.attention is not None
+                else "Open a terminal chat to inspect saved attention."
+            )
         if name == "/runs":
             try:
                 rows = self.list()
@@ -297,6 +308,9 @@ class ChatClient:
             None  # true if renderer restored its transcript
         )
         self._display_contexts = contexts.Contexts()
+        self._attention = attention.Inbox()
+        self._attention_action = None
+        self.attention_changed: Callable[[dict], None] | None = None
         self._composing_new = False
         self._poller = polling.StatusPoller(self.command, env=self.env)
         self._status_view: dict | None = None
@@ -324,6 +338,8 @@ class ChatClient:
             raise actions.ClientGap("The command receipt timed out; check status before trying it again.") from None
 
     def close(self) -> None:
+        if self._attention_action is not None:
+            self._attention_action.close()
         self._poller.close()
 
     def own(self, view: dict) -> tuple[Path, Path]:
@@ -332,10 +348,16 @@ class ChatClient:
 
     def poll(self) -> None:
         """Pump bounded reads; also called between keys while a question is open."""
+        attention.poll_acknowledgement(self)
         current = (str(self.workspace), str(self.run_dir))
-        targets = {current: self.pace(self.poll_seconds)}
+        targets: dict[polling.Key, float] = {current: self.pace(self.poll_seconds)}
         targets.update({(str(workspace), run): OTHERS_SECONDS for run, (workspace, _) in self.others.items()})
+        if self.history is not None:
+            targets[(current[0], None)] = polling.INVENTORY_SECONDS
         for key, raw, error in self._poller.tick(targets):
+            if key[1] is None:
+                self._attention.listing(raw, error, started=self._poller.completed.get(key, 0))
+                continue
             try:
                 view = json.loads(raw)["view"] if not error else None
                 if not error and not isinstance(view, dict):
@@ -351,6 +373,7 @@ class ChatClient:
             except (ValueError, KeyError, TypeError, actions.ClientGap):
                 view, error = None, "status response has no valid view for this chat"
             if error:
+                self._attention.unavailable(key)
                 if self._read_errors.get(key[1]) != error:
                     self.say(f"Status unavailable ({Path(key[1]).name}): {error}. Last view is stale.")
                 self._read_errors[key[1]] = error
@@ -363,12 +386,18 @@ class ChatClient:
                 if error and self._observe is not None and self._unavailable is not None:
                     self._unavailable(error)
                 if view is not None:
+                    self._attention.observe(view, received=time.monotonic())
                     self._status_view = view
                     self.accept_status(view)
             elif key[1] in self.others:
                 if view is not None:
+                    self._attention.observe(view, received=time.monotonic())
                     self.other_status(key[1], Path(key[0]), view)
             self.show_tabs()
+        if self.attention_changed is not None:
+            self.attention_changed(self._attention.summary())
+        for row in self._attention.notifications():
+            self.say("New attention: " + attention.label(row) + ". F8 or /attention opens the inbox.")
 
     def status(self) -> dict:
         # An approval/message check always starts a new read, after the person's input.
@@ -542,6 +571,8 @@ class ChatClient:
     def slash(self, name: str, argument: str):
         """``/diff`` and ``/undo`` from the full-screen chat: what to show, or a question to confirm first.
         ``/runs``, ``/open`` and ``/new`` go to the project's chats; opening one leaves this run as it is."""
+        if name == "/attention":
+            return self.attention_menu()
         if name == "/new" and self._composing_new:
             return "You are already writing a new request. Enter it to start, or leave it empty to return."
         if name == "/tab":
@@ -706,6 +737,25 @@ class ChatClient:
             self.say(f"\n--- {self.run_dir.name} ---")
         self.show_tabs()
 
+    def attention_menu(self):
+        def open_row(row):
+            self.talk_to(Path(row["workspace"]), Path(row["run_dir"]))
+            raise Switched
+
+        def refresh():
+            self._poller.refresh((str(self.workspace), None))
+            menu = self.attention_menu()
+            menu.note = "Refresh requested. Press r after the read to replace this snapshot; Esc keeps your draft."
+            return menu
+
+        return attention.Menu(
+            self._attention.entries(),
+            self._attention.summary(),
+            open_row,
+            lambda row: attention.acknowledge(self, row),
+            refresh,
+        )
+
     def tabs(self) -> list[dict]:
         """This session's chats, numbered as tabs: each one's title, state and whether it is shown."""
         rows: list[dict] = []
@@ -714,7 +764,7 @@ class ChatClient:
             if not current and run not in self.others:
                 continue
             identity = self.identity if current else self.others[run][1]
-            state = "done" if identity == ("done",) else ("working" if identity is None else "needs you")
+            state = "done" if identity and identity[0] == "done" else ("working" if identity is None else "needs you")
             if run in self._read_errors:
                 state = "unavailable"
             title = self.titles.get(run) or Path(run).name
@@ -794,7 +844,9 @@ class ChatClient:
         self.titles[run] = title_of(view) or self.titles.get(run, "")
         if now is None or now == before:
             return
-        what = "finished" if now == ("done",) else f"needs you: {panel.needs_you(view) or now[0]}"
+        if ((view.get("attention") or {}).get("item") or {}).get("id"):
+            return  # the persistent inbox reports this exact event once
+        what = "finished" if now[0] == "done" else f"needs you: {panel.needs_you(view) or now[0]}"
         tab = next((row["number"] for row in self.tabs() if row["run"] == run), None)
         hint = f"Ctrl-←/→ or /tab {tab} switches to it" if tab else "Type /runs, then /open it"
         self.say(f"\nAnother chat {what} ({self.titles.get(run) or Path(run).name}). {hint}.")
@@ -1185,6 +1237,9 @@ def progress_identity(progress: dict) -> tuple:
 def wait_identity(view: dict) -> tuple | None:
     """What a run waits on a person for, as the extension's notifications tell one wait from the next:
     ("done",) once finished, the need and its tokens while it waits, None while it works on its own."""
+    current = (view.get("attention") or {}).get("item") or {}
+    if current.get("id"):
+        return ("done" if current.get("kind") == "completion" else current.get("kind"), current["id"])
     if view.get("done"):
         return ("done",)
     need = view.get("needs") or {}
@@ -1449,6 +1504,7 @@ def cli(argv: list[str] | None = None) -> int:
     if args.run_dir is not None and args.execution != "owned":
         arguments.error("--execution selects new runs; an existing run's status controls its lifetime mode")
     ui = None
+    discovery = None
     client = None
     try:
         if args.brief is not None and not args.brief.strip():
@@ -1471,6 +1527,16 @@ def cli(argv: list[str] | None = None) -> int:
         saved = setup.NewChat.load(workspace)
         new = setup.NewChat(args.mode or saved.mode, list(options) if options else saved.options)
         history = History(workspace.resolve(), new=new)
+        if ui is not None:
+
+            def open_attention(row):
+                raise Opened(row)
+
+            discovery = attention_discovery.Discovery(
+                workspace, command=AUTOCODE, env=None, say=say, changed=ui.attention, open_run=open_attention
+            )
+            history.attention = discovery
+            ui.idle = discovery.poll
         if args.mode is None and saved.mode is not None:
             history.forget_unlisted_mode()
         if ui is not None:
@@ -1513,11 +1579,14 @@ def cli(argv: list[str] | None = None) -> int:
             if client is None:
                 return 2
         client.history = history
+        if discovery is not None:
+            discovery.transfer(client)
         if ui is not None:
             ui.set_context(client.workspace, client.run_dir)
             ui.bind(client.slash)
             client.switched = ui.switch
             client.tabs_changed = ui.tabs
+            client.attention_changed = ui.attention
             ui.idle = client.poll
             client.show_tabs()
         return client.converse()
@@ -1535,6 +1604,8 @@ def cli(argv: list[str] | None = None) -> int:
         print("\nautocode chat: interrupted.", file=sys.stderr)
         return 130
     finally:
+        if discovery is not None:
+            discovery.close()
         if client is not None:
             client.close()
         if ui is not None:
