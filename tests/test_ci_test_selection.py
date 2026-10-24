@@ -8,6 +8,12 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_kilo_profile_keeps_its_native_effort_consumer(self):
+        consumer = "tests.test_kilocode_effort"
+        selected = run_suite.select_tests(["scenarios/harness/profiles.py"], {consumer: "", "tests.test_unrelated": ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+        self.assertEqual([consumer], list(kept))
+
     def test_clean_review_fixture_keeps_its_oracle_and_public_cli_consumers(self):
         consumers = {"tests.test_review_clean_fixture", "tests.test_review_attribution_cli"}
         for path in (

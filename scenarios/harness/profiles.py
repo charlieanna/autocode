@@ -186,13 +186,14 @@ PROFILES = {
             "completion": "zai-coding-plan/glm-5.3",
             "resolver": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
         },
+        # Match the bundled Kilo GLM default: its native variants exclude medium.
         "effort": {
-            "requirements": "medium",
+            "requirements": "high",
             "planner": "high",
             "reviewer": "high",
             "builder": "medium",
             "validator": "high",
-            "completion": "medium",
+            "completion": "high",
             "resolver": "high",
         },
         "extra": [

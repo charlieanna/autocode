@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from providers import kilocode
 
+from scenarios.harness import profiles
 from tests import test_kilocode_policy as native_policy
 
 
@@ -56,6 +57,26 @@ class KiloEffortTests(unittest.TestCase):
                 argv, _, _ = self.launch(effort)
                 self.assertEqual(effort, argv[argv.index("--variant") + 1])
                 self.assertEqual("fixture/model", argv[argv.index("--model") + 1])
+
+    def test_stock_kilo_profile_glm_flags_pass_launch_admission_unchanged(self):
+        flags = profiles.flags(profiles.resolve("glm-mimo-kilo"))
+        self.assertEqual("kilocode", flags[flags.index("--provider") + 1])
+        for role in ("requirements", "planner", "validator", "completion"):
+            model = flags[flags.index(profiles.MODEL_FLAGS[role]) + 1]
+            effort = flags[flags.index(profiles.EFFORT_FLAGS[role]) + 1]
+            listing = model + "\n" + json.dumps({"variants": {name: {} for name in ("low", "high", "max")}})
+            with (
+                self.subTest(role=role),
+                patch.object(
+                    kilocode.command.env_prep,
+                    "preflight_run",
+                    return_value=subprocess.CompletedProcess([], 0, listing, ""),
+                ),
+            ):
+                argv, _, _ = self.provider.launch("glm", self.root, self.root, None, model, effort, True, env=self.env)
+                self.assertEqual(model, argv[argv.index("--model") + 1])
+                self.assertEqual(effort, argv[argv.index("--variant") + 1])
+                self.assertEqual(self.provider.DEFAULT_REASONING_EFFORTS["glm"], effort)
 
     def test_unspecified_effort_keeps_the_deliberate_provider_default_without_listing(self):
         with patch.object(kilocode.command.env_prep, "preflight_run") as listing:
