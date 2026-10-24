@@ -15,6 +15,10 @@ PR template asks for an entry here; a change without one is incomplete.
   inspection instead of calling completion an environment stop or suggesting
   recovery. Legacy `COMPLETE` runs keep the same guidance (#1976).
 
+- The clean-review scenario's source patch applies to its current seed again.
+  Its oracle checks trusted input validity and candidate tests before judging a
+  report, classifying broken fixtures as harness errors (#1980).
+
 - Terminal chat shows existing cost coverage and accounting caps in its side panel;
   `/details` adds token subsets, billing/estimate bases, attempt routes, saved future
   routes and route-change receipts (#1884 F1). Missing usage stays unknown; displaying
