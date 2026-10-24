@@ -430,7 +430,7 @@ class PersistentHost(unittest.TestCase):
         screen.wait_for("What do you want done?")
         self.assertEqual("", composer_text(screen.text()))
         screen.keys("Enter")  # cancel the local new-request composer
-        screen.wait_for(lambda shown: composer_text(shown) == "A unsent draft")
+        screen.wait_for(lambda shown: "ctrl-d detaches" in shown and composer_text(shown) == "A unsent draft")
         screen.keys("C-Right")
         screen.wait_for(lambda shown: "Approve this plan" in shown and composer_text(shown) == "B draft 你好")
         screen.type("X")
