@@ -196,6 +196,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A new chat no longer reports its own start as a status outage. `--status` exits 2 only while the run
+  being created has no state file yet, and the client called that "Status unavailable … Last view is
+  stale", followed a second later by "Status available again". A failed read is announced only for a run
+  that has answered one before, which is what `viewed` already tracks (#1998).
+
 - A number typed at a pause's yes/no that only *prose* tells the person to raise no longer vanishes. The
   time-limit pause reached through an AutoResolver hold names a plain `--resume-paused` and advertises no
   `--max-seconds` entry, so typing the total it asked for was consumed as a decline and the run stayed
