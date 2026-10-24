@@ -58,7 +58,10 @@ if stage == "astra_resolve":
 # Subsequent independent planning preserves the person's accepted criterion.
 prior = (data.get("goal_contract") or {}).get("body") or {}
 if any(row.get("criterion") == corrected for row in prior.get("acceptance_criteria", [])):
-    for row in (report.get("contract") or {}).get("acceptance_criteria", []):
+    rows = (report.get("contract") or {}).get("acceptance_criteria", [])
+    # Compact finalization returns a criteria delta (#1991), not rows; the
+    # retained body it references already holds the accepted wording.
+    for row in rows if isinstance(rows, list) else []:
         if row["id"] == "C1":
             row["criterion"] = corrected
             # Cite the wording the person actually accepted, as a real
