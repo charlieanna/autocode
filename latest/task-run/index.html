@@ -1504,6 +1504,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#durable-local-workers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Durable local workers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#asynchronous-viewer-direction-1879-implementation-pending" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2042,6 +2053,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#durable-local-workers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Durable local workers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#asynchronous-viewer-direction-1879-implementation-pending" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2194,7 +2216,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/47bf734398741279680d71da7fbe358d274f6b42/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/7d29bb6ceff061c05207574e84314b5808b2b606/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2585,6 +2607,63 @@ then the run pauses with its next stage selected; the ordinary
 boundary, <code>requested</code> is true and <code>next_command</code> is null. The field is null when
 nothing is working, when the recorded runner cannot consume interventions, and
 for a stopped run. It never interrupts a step in progress or stops the run.</p>
+<h3 id="durable-local-workers">Durable local workers<a class="headerlink" href="#durable-local-workers" title="Permanent link">&para;</a></h3>
+<p>Durable execution is an explicit new-run choice. <code>modes list --json</code> adds an
+<code>execution</code> object with default <code>owned</code> and a <code>durable_local</code> availability row.
+The latter carries the exact <code>next_command</code> argument-array envelope:</p>
+<pre><code class="language-json">[&quot;autocode&quot;, &quot;worker&quot;, &quot;launch&quot;, &quot;--workspace&quot;, &quot;WORKSPACE&quot;, &quot;--run-dir&quot;, &quot;RUN_DIR&quot;,
+ &quot;--checkpoint&quot;, &quot;CHECKPOINT&quot;, &quot;--&quot;]
+</code></pre>
+<p>For a fresh run, fill its absolute selected workspace, fresh immediate run
+destination, and <code>CHECKPOINT</code> with <code>-</code>; append the ordinary literal new-task
+arguments. Continuing a durable run uses <code>view.execution.next_command</code>, whose
+paths and checkpoint are already bound, followed by the existing named action
+and its exact human tokens. No shell is involved. The wrapper owns workspace,
+run-directory and noninteractive flags; do not repeat those inside the action.
+The core checks the checkpoint again under the existing run lock before
+configuration, reconciliation, a new controller epoch or provider dispatch.
+An admitted human answer, feedback, approval or resume keeps that same controller
+in the ordinary loop until the next human boundary; it does not depend on a
+viewer taking another Continue action. Explicit unit stops and inspection
+actions retain their boundaries. Attaching to an idle saved durable run reads
+only: the TUI offers Enter to take its current named Continue action, after
+rechecking that exact boundary. It does not silently dispatch on reconnect.</p>
+<p><code>worker launch</code> seals a private launch-intent receipt before calling the service
+manager. The default request ID fingerprints the exact action, checkpoint and
+private authorization-token fingerprints; an explicit <code>--request-id</code> may instead
+identify the caller's request. Identical repeats reconcile that one receipt;
+changed content conflicts. A dispatching receipt can never re-arm itself, even
+if the service was collected or its response was lost. <code>worker inspect ID</code>
+and <code>worker launches --workspace PATH [--run-dir PATH]</code> are read-only. The launch
+reply's <code>inspect_command</code> names the inspection action. <code>ready</code> acknowledges a
+matching committed run/controller binding; it does not assert worker liveness,
+successful provider execution or task completion. Those remain in normal status.</p>
+<p>The first adapter uses an already configured Linux systemd user service, <code>Type=exec</code>,
+without a PTY or inherited input/output pipes, persistent private output, no
+automatic restart and existing linger. Admission refuses an unavailable manager,
+systemd before 254, missing linger or editable controller/launch storage inside
+the task workspace. Only the manager's matching MainPID and InvocationID can
+enter the exact receipt on the pinned runtime and host boot. The existing core
+controller, task lock, checkout lock and provider supervision retain ownership.
+Runtime changes, missing run folders and uncertain persistence refuse adoption;
+reboot is interruption, not automatic replay. The launcher never enables a
+service or changes host login policy.</p>
+<p><code>TaskRun.start_durable(workspace, run_dir, brief, ...)</code> returns <code>(run, receipt)</code>
+without waiting for model completion. <code>run.inspect_launch(receipt)</code> reconciles
+its named read and adopts effective bootstrap paths only after binding. Read
+the normal status, retain the action and exact human decision tokens, and call
+<code>run.dispatch_durable(named_command, view=inspected_view)</code> to launch one action.
+It returns another receipt. The synchronous <code>start</code>/<code>advance</code> APIs retain their
+ordinary owned-worker semantics; using them to write a durable run is refused.
+The client driver reads no private task or launch file. Other clients may observe
+a durable run; they need the named worker transport before writing it. An ordinary
+root CLI write is refused rather than silently changing worker lifetime.</p>
+<p><code>view.observation</code> contains the selected effective paths, a token for canonical
+committed checkpoint contents and the read's <code>sampled_at</code>; it is neither an
+atomic snapshot of every artifact nor action authority. <code>view.execution</code> records
+the saved mode, launch ID and controller epoch and, for durable mode, the named
+transport. Service inspection is separate from the existing controller/liveness
+and completion evidence. Legacy absence never implies detach support.</p>
 <h3 id="asynchronous-viewer-direction-1879-implementation-pending">Asynchronous viewer direction (#1879; implementation pending)<a class="headerlink" href="#asynchronous-viewer-direction-1879-implementation-pending" title="Permanent link">&para;</a></h3>
 <p><strong>Owner-approved direction, implementation pending (2026-10-23).</strong> The owner
 approved <a href="https://github.com/charlieanna/autocode/pull/1985">PR #1985</a>'s lifecycle
@@ -2866,7 +2945,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/47bf734398741279680d71da7fbe358d274f6b42/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/7d29bb6ceff061c05207574e84314b5808b2b606/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3392,7 +3471,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/47bf734398741279680d71da7fbe358d274f6b42/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/7d29bb6ceff061c05207574e84314b5808b2b606/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
