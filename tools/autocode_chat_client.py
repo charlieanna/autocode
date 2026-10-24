@@ -1376,7 +1376,7 @@ def cli(argv: list[str] | None = None) -> int:
         mode, options = new.mode, new.options
         if args.execution == "durable_local":
             listing = history.read(["modes", "list", "--json"])
-            offer = next(
+            offer: dict = next(
                 (row for row in (listing.get("execution") or {}).get("modes", []) if row.get("id") == args.execution),
                 {},
             )

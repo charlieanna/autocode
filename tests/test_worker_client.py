@@ -4,9 +4,11 @@ import json
 import subprocess
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import autocode_chat_client as chat
+import autocode_chat_worker as chat_worker
 import autocode_client_actions as actions
 import autocode_taskrun as taskrun
 import autocode_worker_view as worker_view
@@ -95,3 +97,48 @@ class NamedWorkerTransport(unittest.TestCase):
         self.assertNotIn("private-token", argv)
         self.assertEqual("private-token", process.call_args.kwargs["env"]["AUTOCODE_APPROVE_GOAL_TOKEN"])
         self.assertFalse(process.call_args.kwargs["advancing"])
+
+    def test_ctrl_c_while_launch_receipt_is_pending_never_signals_or_replays_the_launcher(self):
+        child = Mock(returncode=0)
+        child.poll.side_effect = [None, None, 0]
+        client = SimpleNamespace(
+            command=("/runtime/python", "/runtime/autocode.py"),
+            workspace=WORKSPACE,
+            env={},
+            _pause_pending=False,
+            say=Mock(),
+            _wait=Mock(side_effect=[KeyboardInterrupt, None]),
+        )
+
+        def started(*args, **kwargs):
+            kwargs["stdout"].write('{"launch_id":"retained"}')
+            return child
+
+        with patch.object(chat_worker.subprocess, "Popen", side_effect=started) as popen:
+            receipt = chat_worker.launch_command(client, ["worker", "launch"])
+        self.assertEqual(0, receipt.returncode)
+        self.assertTrue(client._pause_pending)
+        self.assertEqual(1, popen.call_count)
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
+        self.assertEqual(subprocess.DEVNULL, popen.call_args.kwargs["stdin"])
+        child.send_signal.assert_not_called()
+        child.kill.assert_not_called()
+        child.terminate.assert_not_called()
+
+    def test_leaving_during_launch_receipt_wait_never_kills_or_replays_it(self):
+        child = Mock()
+        child.poll.return_value = None
+        client = SimpleNamespace(
+            command=("/runtime/core",),
+            workspace=WORKSPACE,
+            env={},
+            _wait=Mock(side_effect=EOFError),
+            _pause_pending=False,
+            say=Mock(),
+        )
+        with patch.object(chat_worker.subprocess, "Popen", return_value=child) as popen:
+            with self.assertRaises(EOFError):
+                chat_worker.launch_command(client, ["worker", "launch"])
+        popen.assert_called_once()
+        child.kill.assert_not_called()
+        child.terminate.assert_not_called()

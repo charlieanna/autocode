@@ -123,14 +123,22 @@ class PersistentHost(unittest.TestCase):
             self.assertLess(time.monotonic(), deadline, observed)
             time.sleep(0.05)
 
-    def wait(self, predicate, *, seconds=120):
+    def wait(self, predicate, *, seconds=120, advance=False):
         deadline = time.monotonic() + seconds
         while True:
             view = self.run.status()
             if predicate(view):
                 self.evidence.append({"sampled": time.monotonic(), "view": view})
                 return view
-            self.assertLess(time.monotonic(), deadline, view)
+            if time.monotonic() >= deadline:
+                self.evidence.append({"timed_out": True, "view": view})
+                self.fail(
+                    f"Timed out at {view.get('status')}, next={view.get('next_stage')}, "
+                    f"controller={(view.get('controller') or {}).get('kind')}, needs={view.get('needs')}"
+                )
+            if advance and not actions.working(view) and (view.get("needs") or {}).get("kind") == "continue":
+                self.dispatch(view)
+                continue
             time.sleep(0.05)
 
     def dispatch(self, view, command=None):
@@ -165,7 +173,8 @@ class PersistentHost(unittest.TestCase):
                     row.get("active") and row.get("stage") == stage
                     for row in view.get("usage", {}).get("accounting", {}).get("attempts", [])
                 )
-            )
+            ),
+            advance=True,
         )
 
     @staticmethod
@@ -233,9 +242,15 @@ class PersistentHost(unittest.TestCase):
         os.close(follower)
         self.addCleanup(lambda: child.poll() is None and child.kill())
         screen, deadline = bytearray(), time.monotonic() + 30
-        while b"Builder" not in screen and b"Tester" not in screen and b"Requirements" not in screen:
-            self.assertIsNone(child.poll(), bytes(screen))
-            self.assertLess(time.monotonic(), deadline, bytes(screen))
+        # Curses can draw "Re" and "quirements" in separate differential updates.
+        # This newly rendered hint confirms the core's lifetime metadata reached UI.
+        while b"ctrl-d detaches" not in screen:
+            self.assertIsNone(child.poll(), "TUI exited before displaying durable detach support")
+            if time.monotonic() >= deadline:
+                destination = Path(os.environ["AUTOCODE_WORKER_EVIDENCE"])
+                destination.mkdir(parents=True, exist_ok=True)
+                (destination / (self._testMethodName + "-terminal.raw")).write_bytes(screen)
+                self.fail("TUI did not display its core-provided durable detach hint")
             if select.select([leader], [], [], 0.1)[0]:
                 screen.extend(os.read(leader, 65536))
         return child, leader
@@ -296,7 +311,8 @@ class PersistentHost(unittest.TestCase):
         tested = self.wait(
             lambda view: (
                 any(self.gates[stage][0].exists() for stage in ("sol", "astra_checkpoint")) and actions.working(view)
-            )
+            ),
+            advance=True,
         )
         edited = {name: (self.workspace / name).read_bytes() for name in ("greet.py", "test_greet.py", "README.md")}
         self.leave("ctrl_d")
@@ -377,7 +393,8 @@ class PersistentHost(unittest.TestCase):
         self.start()
         self.dispatch(self.plan())
         before = self.wait(
-            lambda view: any(self.gates[stage][0].exists() for stage in self.gates) and actions.working(view)
+            lambda view: any(self.gates[stage][0].exists() for stage in self.gates) and actions.working(view),
+            advance=True,
         )
         files = {name: (self.workspace / name).read_bytes() for name in ("greet.py", "test_greet.py", "README.md")}
         observed = services.UserServices(env=self.env).inspect(before["execution"]["launch_id"])

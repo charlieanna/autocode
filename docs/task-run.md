@@ -493,7 +493,9 @@ the normal status, retain the action and exact human decision tokens, and call
 `run.dispatch_durable(named_command, view=inspected_view)` to launch one action.
 It returns another receipt. The synchronous `start`/`advance` APIs retain their
 ordinary owned-worker semantics; using them to write a durable run is refused.
-The client driver reads no private task or launch file.
+The client driver reads no private task or launch file. Other clients may observe
+a durable run; they need the named worker transport before writing it. An ordinary
+root CLI write is refused rather than silently changing worker lifetime.
 
 `view.observation` contains the selected effective paths, a token for canonical
 committed checkpoint contents and the read's `sampled_at`; it is neither an

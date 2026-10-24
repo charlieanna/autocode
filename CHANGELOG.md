@@ -15,7 +15,7 @@ PR template asks for an entry here; a change without one is incomplete.
   Viewers can detach and reconnect while the ordinary core worker continues;
   repeated Ctrl-C requests only a boundary pause. Launch receipts reconcile lost
   replies without replay, and status exposes additive execution/observation
-  metadata. Default owned runs and saved legacy runs retain their behavior.
+  metadata. Default owned runs and saved legacy runs retain their behavior (#1988).
 
 - When the Plan Reviewer still blocks a revised plan at its second challenge, the Planner's
   next revision runs once on a stronger model (Claude Opus 5.5 High, or GPT-6 Sol High under a
