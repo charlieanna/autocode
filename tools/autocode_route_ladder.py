@@ -34,9 +34,11 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_planner_escalation as planner_escalation
     from . import autocode_route_permission as permission
     from . import autocode_verifier_independence as independence
 except ImportError:
+    import autocode_planner_escalation as planner_escalation
     import autocode_route_permission as permission
     import autocode_verifier_independence as independence
 
@@ -140,7 +142,11 @@ def configure_ladders(listed_models=None):
     state.json keeps, so a saved run re-reads what it persisted. The Builder's
     strong rung is not part of this table; its retry policy already persists it."""
     served = served_ladders(EFFORT_LADDERS, listed_models)
-    return {"effort": {role: [list(rung) for rung in ladder] for role, ladder in served.items()}}
+    return {
+        "effort": {role: [list(rung) for rung in ladder] for role, ladder in served.items()},
+        # The Planner's one stronger attempt after a plan is sent back twice (autocode_planner_escalation).
+        "planner": planner_escalation.configure(listed_models),
+    }
 
 
 # Ladder keys a saved run may persist under a route role that no longer
@@ -262,6 +268,8 @@ def serve(settings, available, *, roles=None, named_strong=None):
             else [list(rung) for rung in ladder]
             for role, ladder in effort.items()
         }
+    if target_roles is None or "glm" in target_roles:
+        planner_escalation.serve(settings, available)
     retry = settings.get("builder_retry")
     missing = (
         _unoffered_climb(settings, retry, available)

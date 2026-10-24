@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- When the Plan Reviewer still blocks a revised plan at its second challenge, the Planner's
+  next revision runs once on a stronger model (Claude Opus 5.5 High, or GPT-6 Sol High under a
+  Claude reviewer), when the provider serves it, the saved accounts permit it and it stays
+  outside the reviewer's family. It shows as a `plan_sent_back` escalation. Under the default
+  two-call review allowance it never fires.
+
 - A reconciled OpenCode/Kilo connection-change pause offers its existing explicit
   acceptance action through the public view, with confirmation guidance, so thin
   clients can recover without inventing CLI flags. Uncertain attempts and immutable
