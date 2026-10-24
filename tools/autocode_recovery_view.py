@@ -121,6 +121,7 @@ def _explanation(status, role):
         "PAUSED_STAGE_ABANDONED": "The interrupted attempt has been reconciled. Continuing is a separate action.",
         "PAUSED_PROVIDER_UNCERTAIN": "The provider ended without a confirmed result. Its partial work needs inspection.",
         "PAUSED_OUTPUT_CAP": "The response exhausted its output limit without a complete report. Name another model before retrying.",
+        "PAUSED_CONTEXT_WINDOW": "The request no longer fit the model's context window, or the provider compacted the conversation, so the response is not accepted. Name a model with a larger window, or give the job a smaller task.",
         "PAUSED_UNCERTAIN_STAGE": "The step ended without a confirmed result. Its partial work needs inspection.",
         "PAUSED_PLANNING_BUDGET": "Planning used its configured review allowance.",
         "PAUSED_COMPONENT_PLAN": "The saved component plan conflicts with its caller-owned scope or executable child flow. "
@@ -174,6 +175,7 @@ _JOB_STOP_CAUSE = {
     "content_filter": "PAUSED_CONTENT_FILTER",
     "quota": "PAUSED_BUDGET",
     "output_limit": "PAUSED_OUTPUT_CAP",
+    "context_window": "PAUSED_CONTEXT_WINDOW",
 }
 
 
@@ -219,6 +221,18 @@ def _job_model_stop(state: RunState, role):
             return f"{stopped} {now}"
         return stopped + (
             " Name another model for this job, then retry it with the new token."
+            if route
+            else " This stop keeps only its exact retry."
+        )
+    if cause == "PAUSED_CONTEXT_WINDOW":
+        stopped = (
+            f"The {job}'s request no longer fit the model's context window{on}, or the provider compacted the "
+            "conversation; the response is not accepted."
+        )
+        if now:
+            return f"{stopped} {now}"
+        return stopped + (
+            " Name a model with a larger context window for this job, then retry it with the new token."
             if route
             else " This stop keeps only its exact retry."
         )

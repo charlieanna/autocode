@@ -177,6 +177,12 @@ TABLE: dict[str, tuple[str, str]] = {
         "A stage exceeded its output-token cap.",
         "Answer the stopped role's model question with --answer route-ROLE=MODEL, then --resume-paused.",
     ),
+    "PAUSED_CONTEXT_WINDOW": (
+        "A stage's request no longer fit its model's context window, or the provider compacted the conversation; "
+        "the response is not accepted.",
+        "Answer the stopped role's model question with --answer route-ROLE=MODEL naming a larger-window model, "
+        "then --resume-paused; or set the attempt aside and give the job a smaller task.",
+    ),
     "PAUSED_TOOL_CONTAINMENT": (
         "The tool sandbox is not available on this host; a setup limit, not a product defect.",
         "Use a supported host or provider, then --resume-paused.",

@@ -502,7 +502,8 @@ left out) are kept beside the log as `<stage>.claude.jsonl`.
 | Claude Code says | The run |
 | --- | --- |
 | Output token limit (`max_output_tokens`) | `PAUSED_OUTPUT_CAP`; a truncated Tester or Completion report is repaired automatically. Raise `CLAUDE_CODE_MAX_OUTPUT_TOKENS` or name another model. |
-| Context window limit | `PAUSED_PROVIDER_UNCERTAIN` (never an output cap) |
+| Context window limit (`prompt_too_long`) | `PAUSED_CONTEXT_WINDOW` (never an output cap): name a model with a larger window, or give the job a smaller task |
+| Conversation compacted (`compact_boundary`) | `PAUSED_CONTEXT_WINDOW`; the report that followed the summary is not accepted |
 | Subscription usage limit, spend limit, billing | `PAUSED_BUDGET` (with the reset time when Claude gave one) |
 | Rate limit (429) | `PAUSED_RATE_LIMIT` |
 | Overloaded (529) | `PAUSED_PROVIDER_CAPACITY` |
@@ -935,6 +936,21 @@ auto-rejected-permission error. If you copied an older provider config to
 `~/.config/autocode/providers/kilocode.toml`, add `--auto` to its command too;
 the bundled update does not replace your custom file. AutoCode's plan approvals,
 human reviews and recovery choices still require their own user input.
+
+**Context compaction is off.** Kilo summarizes a conversation on its own once it
+nears the model's window (its `compaction.auto`, at the window minus the larger of
+the output cap and a 20k buffer). A stage must see its handoff whole, so every
+ordinary launch sets `compaction.auto` to `false` in `KILO_CONFIG_CONTENT`. A request
+that still exceeds the window is rejected by the API (`ContextOverflowError`,
+`context_length_exceeded`); Kilo then compacts anyway and carries on, so the runner
+refuses that response: the stage pauses `PAUSED_CONTEXT_WINDOW`, naming the request
+size, and asks `route-ROLE` for a model with a larger window (or set the attempt aside
+and give the job a smaller task, for example a narrower `--package`). The activity
+plugin forwards any compaction part Kilo writes as an `autocode_compaction` row, and
+a request whose input is less than half of the previous one's (which held at least
+32k) is treated as the same signature, so a compaction the stream did not announce
+is still refused. The native-isolation launches keep disabling Kilo's compaction
+agent as before. The rules are in `tools/autocode_context_window.py`.
 
 This command does not establish an OS sandbox or native read-only planning
 policy. A read-only stage that edits source is caught afterwards by AutoCode's

@@ -186,7 +186,8 @@ class LiveSampleTests(TempMixin, unittest.TestCase):
         out, code = translate(rows, exit_code=1)
         self.assertEqual("context_window_exceeded", out[-1]["error"]["code"])
         self.assertEqual(1, code)
-        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.write(out)))
+        # A context-window stop is typed (#1942): a person names a model with a larger window.
+        self.assertEqual("PAUSED_CONTEXT_WINDOW", support.failure_status(self.write(out)))
 
     def test_thinking_notes_earn_liveness(self):
         rows, _ = translate(sample(RUN))
@@ -474,10 +475,12 @@ class FailClosedTests(TempMixin, unittest.TestCase):
                 self.assertEqual("turn.failed", last["type"])
                 self.assertIn("429", json.dumps([last["usage"], last["cost_usd"]]))
                 path = self.write(rows)
-                status = "PAUSED_AUTH" if name == "authentication" else "PAUSED_PROVIDER_UNCERTAIN"
+                status = {"authentication": "PAUSED_AUTH"}.get(
+                    name, "PAUSED_CONTEXT_WINDOW" if name.startswith("context window") else "PAUSED_PROVIDER_UNCERTAIN"
+                )
                 self.assertEqual(status, support.failure_status(path), last)
                 self.assertEqual(
-                    "PAUSED_PROVIDER_UNCERTAIN",
+                    "PAUSED_CONTEXT_WINDOW" if name.startswith("context window") else "PAUSED_PROVIDER_UNCERTAIN",
                     support.failure_status(path, record={"stage": "requirements_gather"}),
                     last,
                 )

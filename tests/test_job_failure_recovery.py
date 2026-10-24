@@ -390,6 +390,20 @@ class JobFailureTaskRunTests(JobHarness):
         )
         self.assertIn("--answer route-sol=MODEL", need["reason"])
 
+    def test_a_compacted_context_at_a_clean_exit_names_the_stop_and_refuses_the_report(self):
+        """The Kilo overflow log (#1942): the provider compacted and wrote a report, then exited 0."""
+        self.env["JOB_REPLAY"] = str(HERE / "tools" / "fixtures" / "kilo-context-overflow-run.jsonl")
+        need = self.paused(self.start("filtered"))
+        self.assertTrue(
+            need["reason"].startswith(
+                "Code Reviewer: the request exceeded the model's context window on gpt-6-sol (ContextOverflowError"
+            ),
+            need["reason"],
+        )
+        self.assertIn("a request held 2422 tokens after the previous one held 533595", need["reason"])
+        self.assertIn("--answer route-sol=MODEL", need["reason"])
+        self.assertFalse((self.workspace / "review/findings.json").exists())
+
     def test_t7_successful_read_only_review_completion_preserved(self):
         run = self.start("success")
         view = run.status()
