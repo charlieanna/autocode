@@ -30,8 +30,10 @@ from pathlib import Path
 
 try:
     from . import autocode_chat_panel as panel
+    from . import autocode_chat_verification as verification
 except ImportError:
     import autocode_chat_panel as panel
+    import autocode_chat_verification as verification
 
 PROGRESS_PREFIX = "· "
 HISTORY_LIMIT = 100
@@ -569,8 +571,24 @@ class ChatTUI:
         with self._lock:
             if self._closed:
                 return
+            anchor = self._history_anchor()
             self._transcript.add(text)
+            self._keep_history_anchor(anchor)
             self._draw()
+
+    def _history_anchor(self) -> tuple[int, int] | None:
+        if not self._scroll:
+            return None
+        layout = self._layout(*self._size())
+        count = len(self._transcript.lines(layout.body_width or layout.width))
+        return count, max(0, layout.body_end - layout.body_start)
+
+    def _keep_history_anchor(self, before: tuple[int, int] | None) -> None:
+        if before is None:
+            return
+        after = self._history_anchor()
+        if after is not None:
+            self._scroll = max(1, self._scroll + after[0] - before[0] + before[1] - after[1])
 
     def _save_history(self, *texts: str) -> None:
         self._unsaved.extend(texts)
@@ -645,7 +663,9 @@ class ChatTUI:
         with self._lock:
             if self._closed or self._transcript.live == (text or ""):
                 return
+            anchor = self._history_anchor()
             self._transcript.live = text or ""
+            self._keep_history_anchor(anchor)
             self._draw()
 
     def observe(self, view: dict) -> None:
@@ -653,11 +673,13 @@ class ChatTUI:
         with self._lock:
             if self._view == view:
                 return
+            anchor = self._history_anchor()
             self._view = view
             self._log.observe(view)
             self._live.observe(view)
             if view.get("workspace") and view.get("run_dir"):  # the run the chat talks to, after going back too
                 self._context = f"{Path(view['workspace']).name} · {Path(view['run_dir']).name}"
+            self._keep_history_anchor(anchor)
             self._draw()
 
     def wait(self, seconds: float) -> str | None:
@@ -970,6 +992,7 @@ class ChatTUI:
         return (rows or 24), (cols or 80)
 
     def _layout(self, rows: int, cols: int) -> Layout:
+        header_rows = 3
         width = max(1, cols - 1)
         hints_row = rows - 1
         box_bottom = rows - 2
@@ -986,17 +1009,17 @@ class ChatTUI:
                 question[-1] = truncate(question[-1], max(1, width - 4))
         status_start = status_row - len(question) + 1 if question else status_row
         panel_width = min(44, max(28, cols // 3)) if self._panel_visible(rows, cols) else 0
-        panel_end = max(2, status_start - 1)
+        panel_end = max(header_rows, status_start - 1)
         live_start = None
-        if self._live_visible(rows, cols) and panel_end - 2 >= 10:
-            live_start = panel_end - max(4, int((panel_end - 2) * LIVE_SHARE))
+        if self._live_visible(rows, cols) and panel_end - header_rows >= 10:
+            live_start = panel_end - max(4, int((panel_end - header_rows) * LIVE_SHARE))
         return Layout(
             body_width=width - panel_width - (2 if panel_width else 0),
             panel_col=width - panel_width if panel_width else None,
             live_start=live_start,
             panel_end=panel_end,
             width=width,
-            body_start=2,
+            body_start=header_rows,
             body_end=live_start if live_start is not None else panel_end,
             status_start=status_start,
             box_top=box_top,
@@ -1053,6 +1076,11 @@ class ChatTUI:
         context = f"  {self._context}" if self._context else ""
         if context and used + display_width(context) < layout.width:
             self._put(0, used, truncate(context, layout.width - used), self._style("dim"))
+        unavailable = any(row.get("current") and row.get("state") == "unavailable" for row in self._tabs)
+        cue = verification.cue(self._view, unavailable=unavailable)
+        label = "History · last read: " if self._scroll else "Last read: "
+        style = self._style("panel-warn" if unavailable else "panel-now")
+        self._put(2, 0, truncate(label + cue, layout.width), style)
         if len(self._tabs) < 2:
             self._put(1, 0, self._glyphs.rule * layout.width, self._style("dim"))
             return

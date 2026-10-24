@@ -140,9 +140,15 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("tools/autocode_transport_recovery.py",), ("tests.test_transport_recovery", "tests.test_pause_status_cli")),
     (("tools/autocode_stop_explanations.py",), ("tests.test_completion_status",)),
     (
-        ("tools/autocode_chat_cost.py", "tools/autocode_chat_panel.py"),
+        (
+            "tools/autocode_chat_cost.py",
+            "tools/autocode_chat_verification.py",
+            "tools/autocode_chat_panel.py",
+            "tools/autocode_chat_tui.py",
+        ),
         (
             "tests.test_chat_cost",
+            "tests.test_chat_verification",
             "tests.test_chat_panel",
             "tests.test_chat_tui",
             "tests.test_chat_client",

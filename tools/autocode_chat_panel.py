@@ -20,8 +20,10 @@ from pathlib import Path
 
 try:
     from . import autocode_chat_cost as cost
+    from . import autocode_chat_verification as verification
 except ImportError:
     import autocode_chat_cost as cost
+    import autocode_chat_verification as verification
 
 LOG_LIMIT = 200
 NOTHING_NEEDED = "nothing needed from you"  # the progress view's needs_you when no one is waited on
@@ -185,7 +187,12 @@ def sections(view: dict | None, *, launched: bool = False) -> list[Section]:
             now, rows = "Starting the next step…", []
         else:
             rows.insert(0, Row("!", needs, "warn"))
+    if view.get("status") in ("TASK_COMPLETE", "COMPLETE"):
+        now = verification.cue(view)
     result = [Section("Now", now, tuple(rows))]
+    if proof := verification.compact(view):
+        summary, entries = proof
+        result.append(Section("Verification", summary, tuple(Row("·", line, "dim") for line in entries)))
     if usage := cost.compact(view):
         summary, entries = usage
         result.append(Section("Usage", summary, tuple(Row("·", line, "dim") for line in entries)))
@@ -343,7 +350,7 @@ def text(name: str, view: dict | None, log: StageLog) -> str:
     if name == "/details":
         explanation = _mapping(view.get("explanation")).get("explanation")
         said = str(explanation or (view.get("progress") or {}).get("line") or "AutoCode has said nothing more yet.")
-        more = cost.details(view)
+        more = "\n\n".join(filter(None, (verification.details(view), cost.details(view))))
         return said + ("\n\n" + more if more else "")
     wanted = {"/plan": "Requirements", "/tasks": "Tasks"}[name]
     for section in sections(view):
