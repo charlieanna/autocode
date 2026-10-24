@@ -200,7 +200,8 @@ with ChatTUI() as ui:
   if text==seen:return
   seen=text
   data=json.loads(text)
-  ui.observe(data['view'])
+  if data.get('unavailable'):ui.status_unavailable('fixture status read failed')
+  else:ui.observe(data['view'])
   ui.tabs([{'number':1,'title':'Fixture','current':True,'state':'unavailable' if data.get('unavailable') else 'working'}])
   if data.get('message'):ui.say('AutoCode: '+data['message'])
  ui.idle=idle
@@ -212,6 +213,18 @@ with ChatTUI() as ui:
             control = Path(directory) / "control.json"
 
             def update(view, **extra):
+                view = {
+                    **view,
+                    "workspace": "/fixture/project",
+                    "run_dir": "/fixture/project/.autocode/runs/verification",
+                    "observation": {
+                        "version": 1,
+                        "workspace": "/fixture/project",
+                        "run_dir": "/fixture/project/.autocode/runs/verification",
+                        "checkpoint_token": "c" * 64,
+                        "sampled_at": "2026-10-24T05:00:00+00:00",
+                    },
+                }
                 pending = control.with_suffix(".pending")
                 pending.write_text(json.dumps({"view": view, **extra}))
                 pending.replace(control)
@@ -246,6 +259,10 @@ with ChatTUI() as ui:
                 update(current_view(delivered=True))
                 shown = screen.wait_for("Complete; current delivery verified")
                 self.assertIn("Fixture ready", shown)
+                self.assertIn("viewer read", shown)
+                screen.type("/details ")
+                screen.keys("Enter")
+                screen.wait_for("Core snapshot sampled at: 2026-10-24T05:00:00+00:00")
                 from autocode_chat_tui import display_width
 
                 self.assertTrue(all(display_width(line) <= 120 for line in shown.splitlines()))

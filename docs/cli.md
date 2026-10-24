@@ -743,8 +743,14 @@ Displaying this information calls no model and changes no route, cap or workflow
 
 The header keeps a last-read status visible while you read history; new background
 messages do not move the history viewport. If the current tab's read fails, the
-header says the previous read is being shown. This is not a worker-liveness check
-or a measurement of meaningful progress. No ETA or completion percentage is inferred.
+header says the previous read is being shown. It separates the viewer's successful
+read age (local monotonic time) from the core snapshot's sample time. `/details`
+shows the full sample timestamp and opaque checkpoint/workspace/run identity.
+Missing or mismatched optional metadata stays unknown. A new poll can refresh
+the local receipt while the core checkpoint stays identical; neither timestamp
+is a worker-liveness check, evidence acceptance or meaningful work progress.
+Failed reads retain the last snapshot under a last-known label; a fresh read
+clears that read error. No ETA or completion percentage is inferred.
 
 The Verification section and `/details` distinguish the core's current delivery
 gate from report inspection. A recorded PASS can be unchecked or stale, and a

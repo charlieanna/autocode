@@ -38,6 +38,14 @@ changed questions, invalidated confirmations, bounded session retention and
 unavailable-run navigation. Pending decisions always require a fresh view;
 session context is display data rather than cached authority.
 
+Freshness display uses deterministic receipt times in `tests.test_chat_observation`:
+an identical core checkpoint can arrive in multiple successful reads, failed
+reads keep its old metadata, and a later read clears only the read error. Missing,
+malformed or mismatched core metadata stays unknown. The real tmux verification
+fixture in `tests.test_chat_verification.VerificationTerminalTests` covers status
+changes while reading history, resize, read failure/recovery and snapshot details.
+It does not launch providers or infer work progress from polling.
+
 AutoReview generation pins contract/task identity and reviewer-owned finding IDs
 in each attempt's schema. Report-only repairs receive the original executed
 commands and exit codes; normal evidence validation still applies. Repairs cannot

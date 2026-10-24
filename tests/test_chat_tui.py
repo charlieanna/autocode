@@ -447,7 +447,9 @@ class AskTests(unittest.TestCase):
         ui = screen_ui(*"/de", tui.curses.KEY_DOWN, tui.curses.KEY_UP, "\n", *"n\n")
         ui.observe({"explanation": {"explanation": "Waiting for your approval."}})
         self.assertEqual("n", ui.ask("Approve this plan? [y/N]"))
-        self.assertEqual(["/details\nWaiting for your approval."], self.info(ui))
+        self.assertEqual(1, len(self.info(ui)))
+        self.assertTrue(self.info(ui)[0].startswith("/details\nWaiting for your approval."))
+        self.assertIn("Core snapshot sampled at: unknown", self.info(ui)[0])
 
     def test_tab_completes_the_highlighted_command(self):
         ui = screen_ui()
