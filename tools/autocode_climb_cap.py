@@ -1,9 +1,15 @@
-"""A climbed attempt is checked against the person's cost cap and time budgets before it launches (#611).
+"""An attempt the run can price is checked against the person's cost cap before it launches, and a climbed
+attempt against the time budgets too (#611, #2019).
+
+The serial build loop calls guard() before every model launch. Any attempt of a job that already ran in this
+run is projected from the job's last attempt, its recorded tokens at the saved route's dated price
+(autocode_cost.crossing); past the cap, the run pauses PAUSED_COST_LIMIT before the attempt instead of after
+it, so a run never launches a stage it can price past its cap (#2019). A job's first attempt has no projection.
 
 autocode_escalation climbs a struggling role one rung on its effort ladder and records the climb in
-`reasoning_escalations`; the role's next request is the first attempt on the climbed rung. The serial build
-loop calls guard() before every model launch. While that first attempt has not launched, guard() projects it
-from the role's last attempt and checks it against the run's budgets (within_budgets):
+`reasoning_escalations`; the role's next request is the first attempt on the climbed rung. While that first
+attempt has not launched, guard() projects it from the role's last attempt and checks it against the run's
+budgets (within_budgets):
 
 - the cost cap (`--max-cost-usd`): the last attempt's recorded tokens at the climbed model's dated price
   (autocode_cost.crossing). Past the cap, the run pauses PAUSED_COST_LIMIT.
@@ -262,19 +268,11 @@ def pending(state: RunState, role):
         for event in state.get("reasoning_escalations") or ()
         if isinstance(event, dict) and event.get("role") == role
     ]
-    route = _route(((state.get("settings") or {}).get("roles") or {}).get(role))
+    route = _saved_route(state, role)
     if not climbs or route != _route(climbs[-1].get("selected")):
         return None
     climbed_at = _when(climbs[-1].get("at"))
-    attempts = [
-        row
-        for row in state.get("stages") or ()
-        if isinstance(row, dict)
-        and (row.get("route_role") or row.get("role")) == role
-        and isinstance(row.get("launch_route"), dict)
-        and not row.get("report_only")
-        and not row.get("dry_run")
-    ]
+    attempts = attempts_of(state, role)
     if climbed_at is None or not attempts:
         return None
     for row in attempts:
@@ -284,24 +282,77 @@ def pending(state: RunState, role):
     return climbs[-1], attempts[-1]
 
 
+def _attempts(state: RunState):
+    """The finished attempts of this run, oldest first: the stage rows that recorded a launch route. Report repairs
+    and dry runs are not attempts."""
+    return [
+        row
+        for row in state.get("stages") or ()
+        if isinstance(row, dict)
+        and isinstance(row.get("launch_route"), dict)
+        and not row.get("report_only")
+        and not row.get("dry_run")
+    ]
+
+
+def attempts_of(state: RunState, role):
+    """`role`'s finished attempts in this run, oldest first: the attempts on its route."""
+    return [row for row in _attempts(state) if (row.get("route_role") or row.get("role")) == role]
+
+
+def job_attempts(state: RunState, stage):
+    """The finished attempts of `stage`'s job in this run, oldest first: the attempts of every stage that does the
+    same job on screen (autocode_roles.screen_name), whatever route each ran on. Requirements, for one, runs
+    `requirements_gather` on one route and `astra_discovery` on another; the second is the job's next attempt."""
+    job = roles.screen_name(stage, state)
+    return [row for row in _attempts(state) if roles.screen_name(row.get("stage"), state) == job]
+
+
+def _saved_route(state: RunState, role):
+    """(model, reasoning effort) of `role`'s saved route."""
+    return _route(((state.get("settings") or {}).get("roles") or {}).get(role))
+
+
 def guard(state: RunState, stage, role) -> None:
-    """Pause before `stage` launches on `role`'s climbed rung when the attempt is projected past the cost cap, the
-    active-time budget or, for the Builder, the milestone budget (within_budgets), naming the job, the rung and the
-    arithmetic."""
+    """Pause before `stage` launches on `role`'s route when the attempt is projected past the cost cap, naming the
+    job, the route and the arithmetic.
+
+    A climbed attempt (pending) is checked against the cost cap, the active-time budget and, for the Builder, the
+    milestone budget (within_budgets). Any other attempt of a job that already ran in this run is priced against
+    the cost cap alone (#2019): the job's last attempt's tokens (job_attempts: the same job on screen, on whatever
+    route it ran) at the saved route's rate, through the same arithmetic and stop as a climb, so a run never
+    launches a stage it can price past its cap. A job's first attempt has no projection and launches; the
+    stage-boundary check governs it."""
     if state.get("parent_run"):
         return
     climb = pending(state, role)
-    if climb is None:
+    if climb is not None:
+        event, last = climb
+        model, effort = _saved_route(state, role)
+        rung = (event.get("selected") or {}).get("profile") or "its next rung"
+        within_budgets(
+            state,
+            last,
+            attempt=f"The {roles.screen_name(stage, state)}'s climb to {rung}",
+            basis=f"the last {roles.screen_name(last.get('stage'), state)} attempt",
+            model=model,
+            effort=effort,
+            writer=stage == "terra",
+        )
         return
-    event, last = climb
-    model, effort = _route(state["settings"]["roles"][role])
-    rung = (event.get("selected") or {}).get("profile") or "its next rung"
-    within_budgets(
-        state,
-        last,
-        attempt=f"The {roles.screen_name(stage, state)}'s climb to {rung}",
-        basis=f"the last {roles.screen_name(last.get('stage'), state)} attempt",
-        model=model,
-        effort=effort,
-        writer=stage == "terra",
-    )
+    attempts = job_attempts(state, stage)
+    if not attempts:
+        return
+    model, effort = _saved_route(state, role)
+    over = cost.crossing(state, model, attempts[-1])
+    if over:
+        raise util.Paused(
+            "PAUSED_COST_LIMIT",
+            cost.climb_stop(
+                over,
+                attempt=f"The next {roles.screen_name(stage, state)} attempt",
+                basis=f"the last {roles.screen_name(attempts[-1].get('stage'), state)} attempt",
+                model=model,
+                effort=effort,
+            ),
+        )
