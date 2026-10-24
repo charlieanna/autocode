@@ -2404,7 +2404,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/3f1a3a12ae2729f973c2571a8e1426ce2f35f666/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/3486709301e33c02abaf85cf66912803109ca221/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2608,7 +2608,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/3f1a3a12ae2729f973c2571a8e1426ce2f35f666/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/3486709301e33c02abaf85cf66912803109ca221/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3178,7 +3178,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/3f1a3a12ae2729f973c2571a8e1426ce2f35f666/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/3486709301e33c02abaf85cf66912803109ca221/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3871,7 +3871,7 @@ highlighted one:</p>
 </tr>
 <tr>
 <td><code>/details</code></td>
-<td>Why the run is where it is, plus cost coverage, token usage, actual attempt routes and saved routes for future attempts</td>
+<td>Why the run is where it is, verification and recovery evidence, recorded timings, cost coverage, token usage, actual attempt routes and saved routes for future attempts</td>
 </tr>
 <tr>
 <td><code>/diff</code></td>
@@ -3939,6 +3939,20 @@ reasoning counts are shown as subsets of input and output, never added twice.
 Historical attempt models and efforts come from their launch records, while saved
 routes describe future attempts. Missing fields in older cores remain unknown.
 Displaying this information calls no model and changes no route, cap or workflow.</p>
+<p>The header keeps a last-read status visible while you read history; new background
+messages do not move the history viewport. If the current tab's read fails, the
+header says the previous read is being shown. This is not a worker-liveness check
+or a measurement of meaningful progress. No ETA or completion percentage is inferred.</p>
+<p>The Verification section and <code>/details</code> distinguish the core's current delivery
+gate from report inspection. A recorded PASS can be unchecked or stale, and a
+verified delivery can still have a report not explicitly inspected by that status
+request. Criteria show their recorded results, supplied coverage state, pending
+human acceptance and evidence references. Retained edits and successful commands
+alone do not establish accepted evidence. Recovery details show the core's reason,
+retained work and offered actions; <code>/diff</code> remains the way to inspect saved changes.
+Recorded execution, observed interval wall time, current-attempt duration and
+answered-request waiting are shown only where the core supplies those measurements;
+missing durations stay unknown, and overlapping categories are not added together.</p>
 <p>A command never answers the question that is waiting. To send a reply that starts
 with <code>/</code>, type <code>//</code>. <code>/diff</code> and <code>/undo</code> take only the <code>compare</code> and <code>restore</code>
 actions the status view names for a saved step (<a href="../task-run/#saved-code-checkpoints">Saved code
@@ -3984,7 +3998,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/3f1a3a12ae2729f973c2571a8e1426ce2f35f666/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/3486709301e33c02abaf85cf66912803109ca221/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
