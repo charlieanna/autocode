@@ -901,6 +901,9 @@ question open. At a stopped workflow job (`retry_job` with `route`, see
 [Failed workflow jobs](#failed-workflow-jobs)) the same call answers with the job's
 `job_retry_token` instead of a resolver token and leaves the run paused for
 `retry_job()` with the new token.
+That stopped job's view also names the answer as a command, `needs.route.command`, in the same
+shell-quoted form as `next_command` and carrying the job's token, beside the retry `next_command`
+names; a client that shows the retry as a yes/no takes a typed model through it (#2005).
 Each answer consumes the Resolver request whose token it carries, and the
 questions still open come back under a new `resolver_token`, so a token read
 before an earlier answer is rejected. Without `resolver_token`,

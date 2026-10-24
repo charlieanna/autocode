@@ -588,8 +588,11 @@ class QuotaRouteTests(unittest.TestCase):
                 "cause": "content_filter",
                 "stopped_model": "gpt-5.6-sol",
             },
-            view["needs"]["route"],
+            {key: value for key, value in view["needs"]["route"].items() if key != "command"},
         )
+        # The answer is named as a command too (#2005): here it is the next step itself.
+        self.assertEqual(view["next_command"], view["needs"]["route"]["command"])
+        self.assertIn("--answer route-sol=MODEL --job-retry-token", view["needs"]["route"]["command"])
         self.assertIn(
             "content filter refused the Code Reviewer's response on gpt-5.6-sol", view["recovery"]["what_happened"]
         )

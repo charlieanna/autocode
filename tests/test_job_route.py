@@ -172,9 +172,11 @@ class JobModelRouteTests(JobHarness):
                 "cause": "content_filter",
                 "stopped_model": "gpt-6-sol",
             },
-            {key: value for key, value in route.items() if key != "candidates"},
+            {key: value for key, value in route.items() if key not in ("candidates", "command")},
         )
         self.assertIn("candidates", route)
+        # After a refusal the answer is the next step itself; it is still named on the route too (#2005).
+        self.assertEqual(need["route"]["command"], run.status()["next_command"])
         self.assertIn("Code Reviewer: the provider's content filter refused the response on gpt-6-sol", need["reason"])
         self.assertIn("the same model is likely to refuse it again", need["reason"])
         self.assertIn("--answer route-sol=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["reason"])
@@ -305,6 +307,13 @@ class JobModelRouteTests(JobHarness):
         self.assertEqual(
             "--resume-paused --retry-failed-stage --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)", need["action"]
         )
+        # The answer is named as a command too, so a chat can take a typed model instead of reading it as
+        # a decline (#2005): the same shell-quoted form as next_command, with the issued token.
+        import autocode_client_actions as client_actions
+
+        command = client_actions.parse(need["route"]["command"], run.workspace, run.run_dir)
+        self.assertEqual(["--answer", "route-sol=MODEL", "--job-retry-token", "-"], command.argv)
+        self.assertEqual(need["job_retry_token"], command.env.get("AUTOCODE_JOB_RETRY_TOKEN"))
         recovery = run.status()["recovery"]
         self.assertIn("quota", recovery["what_happened"])
         self.assertEqual(["inspect", "retry_job", "feedback"], [action["kind"] for action in recovery["actions"]])

@@ -41,6 +41,10 @@ PR template asks for an entry here; a change without one is incomplete.
   one (said and recorded), an effort a person named refuses with the flag to change, and Kilo's
   variant refusal names that flag; before, the run stopped at the first launch and roles such as the
   Analyst had no flag at all (#2006).
+- A workflow job stopped on quota, a refusal, an output limit or a timeout names its model question as
+  a command on the status view (`needs.route.command`, beside the retry in `next_command`), and the
+  terminal chat takes a model typed at its `Continue? [y/N]` through it; before, the pause asked for a
+  model in prose that the chat read as a decline (#2005).
 - Terminal attention survives viewer restarts with shared local read receipts.
   F8 or `/attention` inspects current decisions and distinct same-chat completions
   without advancing tasks or losing drafts; empty JSON run inventories remain
