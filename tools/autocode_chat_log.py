@@ -88,6 +88,31 @@ def progress_event(row: dict) -> tuple[str, dict] | None:
     }
 
 
+def _receipts(entries: dict[str, dict]) -> dict[str, dict]:
+    """One line per kind of opaque streaming receipt, saying how many parts it stands for.
+
+    A provider that streams no reasoning or reply text sends one receipt per part, and a run's worth of
+    identical "text unavailable" lines buries the tool calls a person opens the live log to see (#1999).
+    A lone receipt keeps the wording it has today, and the key of the first keeps its place in the list.
+    """
+    kept: dict[str, dict] = {}
+    first: dict[str, str] = {}
+    counts: dict[str, int] = {}
+    for key, entry in entries.items():
+        kind = str(entry["kind"]) if entry.get("status") == "streaming" else None
+        if kind is None:
+            kept[key] = entry
+            continue
+        counts[kind] = counts.get(kind, 0) + 1
+        if kind not in first:
+            first[kind] = key
+            kept[key] = dict(entry)
+    for kind, key in first.items():
+        if counts[kind] > 1:
+            kept[key]["text"] = f"{kept[key]['text']} ({counts[kind]} parts streamed)"
+    return kept
+
+
 def read(path: Path, workspace=None) -> list[tuple[str, dict]]:
     """The newest entries in an attempt's event file, oldest first, each with its key in that file."""
     entries: dict[str, dict] = {}
@@ -110,7 +135,7 @@ def read(path: Path, workspace=None) -> list[tuple[str, dict]]:
                     found = (f"{found[1]['kind']}:{found[0]}", found[1])
         if found is not None:
             entries[found[0]] = found[1]  # a later row for the same item replaces it in place
-    return list(entries.items())[-LIMIT:]
+    return list(_receipts(entries).items())[-LIMIT:]
 
 
 def _attempt(active, root: Path, workspace, agent: str) -> list[dict]:
