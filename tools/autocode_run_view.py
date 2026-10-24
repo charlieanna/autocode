@@ -797,6 +797,24 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         and state.get("active_stage") is None
         and state.get("active_runner_check") is None
     )
+    if (
+        need is not None
+        and need.get("kind") == "retry_job"
+        and isinstance(need.get("route"), dict)
+        and need.get("job_retry_token")
+    ):
+        # The model question a stopped job keeps (#463) is named as a command too, not only in the reason's
+        # prose: a client takes a typed model through `route.command`, the core issues a new retry token
+        # for that model, and the retry on it is then `next_command` as usual (#2005).
+        answer = f"--answer {need['route']['question_id']}=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
+        named = pause_command.command(
+            {**need, "action": answer},
+            run_dir=run_dir or state.get("run_dir"),
+            workspace=workspace or state.get("workspace"),
+            resume_flags=resume_flags,
+            terminal=terminal,
+        )
+        need = {**need, "route": {**need["route"], "command": named}}
     return {
         "needs": need,
         "pause_category": category,

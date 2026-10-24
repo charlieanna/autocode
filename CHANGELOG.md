@@ -36,6 +36,10 @@ PR template asks for an entry here; a change without one is incomplete.
   from the summary, and asks `route-ROLE` for a model with a larger window — instead of pausing as an
   uncertain provider failure. An ordinary Kilo launch sets `compaction.auto` to `false`, so a stage is
   never silently summarized (#1942).
+- A workflow job stopped on quota, a refusal, an output limit or a timeout names its model question as
+  a command on the status view (`needs.route.command`, beside the retry in `next_command`), and the
+  terminal chat takes a model typed at its `Continue? [y/N]` through it; before, the pause asked for a
+  model in prose that the chat read as a decline (#2005).
 - Terminal attention survives viewer restarts with shared local read receipts.
   F8 or `/attention` inspects current decisions and distinct same-chat completions
   without advancing tasks or losing drafts; empty JSON run inventories remain
