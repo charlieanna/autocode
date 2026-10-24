@@ -47,10 +47,19 @@ class PlanningTests(unittest.TestCase):
                 support.validate_schema(delta, criteria["anyOf"][1])
                 with self.assertRaises(ValueError):
                     support.validate_schema({**delta, "upsert": [{"id": "C1"}]}, criteria["anyOf"][1])
-        # Final review remains a verdict against the exact plan, not a delta author.
+        # The final review stays a verdict against the exact plan; its reference offers the criteria
+        # delta and nothing else of the contract (#1991).
         request = planning.prepare(state, "astra_finalize", Path("/fixture/state.json"), None)
-        self.assertFalse(planning.retention.allows_delta(request.schema))
+        data = json.loads(request.prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertTrue(planning.retention.allows_delta(request.schema))
         self.assertNotIn(planning.retention.DELTA_RULE, request.prompt)
+        self.assertIn(planning.retention.FINAL_DELTA_RULE, request.prompt)
+        reference = request.schema["properties"]["contract"]
+        self.assertNotIn("milestones", reference["properties"])
+        empty = {"retain_from": data["retained_contract"], "upsert": [], "remove": [], "proofs": []}
+        support.validate_schema(empty, reference["properties"]["acceptance_criteria"])
+        with self.assertRaises(ValueError):
+            support.validate_schema({**empty, "upsert": [{"id": "C1"}]}, reference["properties"]["acceptance_criteria"])
 
     def test_progressive_prompts_distinguish_the_product_milestone_from_slices(self):
         state = self.state()

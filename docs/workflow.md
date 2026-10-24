@@ -321,6 +321,14 @@ approach, milestones, and **first bounded implementation task**, all covered by 
 revision/hash. Approval dispatches that task directly, without a third Plan Reviewer
 call. The separate Completion Reviewer's later decisions use the normal execution budget.
 
+The final review returns a reference to the revised plan rather than a copy of it. Inside
+that reference it may correct **acceptance criteria only**, as a delta on the retained rows
+(changed or new rows, removed IDs, corrected proofs); every other row is kept byte for byte.
+Each correction passes the same change-receipt, source-coverage and proof guards as a
+Planner revision, so a removed or reworded approved criterion still needs your saved answer
+or feedback. Milestones, the technical approach and permissions stay the Planner's: a
+problem there comes back to you as a blocking question.
+
 Planning defaults to **two Plan Reviewer reviews per cycle**. A review counts once it
 returns a report, whether or not the runner then accepts that report. An attempt that
 times out or whose provider fails returns no review, so it is given back before the next

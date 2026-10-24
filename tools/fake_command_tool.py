@@ -107,6 +107,14 @@ def deliver(value):
         }
         if "initial_task" in schema["properties"]["contract"]["properties"]:
             retained["initial_task"] = draft.get("initial_task")
+        if "acceptance_criteria" in schema["properties"]["contract"]["properties"]:
+            # The reference's criteria delta (#1991); empty, it retains every row.
+            retained["acceptance_criteria"] = {
+                "retain_from": retained["retain_contract"],
+                "upsert": [],
+                "remove": [],
+                "proofs": [],
+            }
         value["contract"] = retained
         value["requirement_trace"] = []
     properties = schema.get("properties", {})

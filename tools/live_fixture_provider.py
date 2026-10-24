@@ -672,6 +672,14 @@ def main() -> int:
         }
         if "initial_task" in schema["properties"]["contract"]["properties"]:
             report["contract"]["initial_task"] = draft.get("initial_task")
+        if "acceptance_criteria" in schema["properties"]["contract"]["properties"]:
+            # The reference's criteria delta (#1991); empty, it retains every row.
+            report["contract"]["acceptance_criteria"] = {
+                "retain_from": report["contract"]["retain_contract"],
+                "upsert": [],
+                "remove": [],
+                "proofs": [],
+            }
         report["requirement_trace"] = []
     output = Path(sys.argv[sys.argv.index("-o") + 1])
     output.write_text(json.dumps(report))

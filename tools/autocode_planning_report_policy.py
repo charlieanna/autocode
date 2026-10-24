@@ -21,7 +21,8 @@ def scope_contract_rules(schema: dict, rules: dict[str, str]) -> tuple[dict[str,
             {"contract_author_rules": dict(rules)},
             "Audit every rule in contract_author_rules against the retained plan. "
             "These are author obligations to audit, not instructions to rewrite the plan. "
-            "Return the current contract reference and your independent decisions; "
+            "Return the current contract reference and your independent decisions; correct an acceptance "
+            "criterion only where the reference offers a criteria delta, under the author rules you audit; "
             "express remaining blockers as open_blocking_questions.\n",
         )
     if "concerns" not in fields or "contract" in fields:

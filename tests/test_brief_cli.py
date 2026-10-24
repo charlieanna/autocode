@@ -62,8 +62,30 @@ class BriefCliTests(unittest.TestCase):
         self.assertFalse(any(row.get("report_only") for row in attempts))
         final = next(row for row in attempts if row["stage"] == "astra_finalize")
         report = json.loads(Path(final["output"]).read_text())
-        self.assertEqual({"retain_contract", "initial_task", "open_blocking_questions"}, set(report["contract"]))
+        self.assertEqual(
+            {"retain_contract", "initial_task", "open_blocking_questions", "acceptance_criteria"},
+            set(report["contract"]),
+        )
         self.assertTrue(view["approvals"])
+
+    def test_final_review_corrects_one_proof_through_the_criteria_delta_without_another_planning_cycle(self):
+        # The revision binds C1 to a wrong command; the final review's reference corrects that one proof (#1991).
+        run, view = self.start(
+            planning=("--joint-planning", "--no-adaptive-planning"), env={"SCENARIO_FAKE_FINAL_PROOF_FIX": "1"}
+        )
+        self.assertEqual("TASK_COMPLETE", view["status"], self.details(view))
+        self.assert_reference(run, view)
+        attempts = view["usage"]["accounting"]["attempts"]
+        self.assertFalse(any(row.get("report_only") for row in attempts))
+        planning = [row for row in attempts if row["stage"] in ("glm_revise", "astra_finalize")]
+        self.assertEqual(["glm_revise", "astra_finalize"], [row["stage"] for row in planning])
+        self.assertEqual(1, len(view["approvals"]))
+        revised = json.loads(Path(planning[0]["output"]).read_text())["contract"]["acceptance_criteria"]
+        self.assertTrue(revised[0]["verification_method"].endswith("--planted-by-the-revision"), revised[0])
+        delta = json.loads(Path(planning[1]["output"]).read_text())["contract"]["acceptance_criteria"]
+        self.assertEqual(([], [], ["C1"]), (delta["upsert"], delta["remove"], [row["id"] for row in delta["proofs"]]))
+        approved = {row["id"]: row for row in view["approved_contract"]["body"]["acceptance_criteria"]}
+        self.assertEqual(self.scenario.fake_check, approved["C1"]["verification_method"])
 
     def test_retained_final_verdict_can_be_repaired_without_reauthoring_the_plan(self):
         run, view = self.start(

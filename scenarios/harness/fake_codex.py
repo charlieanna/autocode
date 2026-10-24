@@ -2863,9 +2863,31 @@ def _main() -> int:
         }
         if "initial_task" in OUTPUT_SCHEMA["properties"]["contract"]["properties"]:
             report["contract"]["initial_task"] = draft.get("initial_task")
+        if "acceptance_criteria" in OUTPUT_SCHEMA["properties"]["contract"]["properties"]:
+            # The reference's criteria delta (#1991); empty, it retains every row.
+            report["contract"]["acceptance_criteria"] = {
+                "retain_from": report["contract"]["retain_contract"],
+                "upsert": [],
+                "remove": [],
+                "proofs": [],
+            }
         report["requirement_trace"] = []
         report["contract_changes"] = []
         report["conflict_resolutions"] = []
+    if os.environ.get("SCENARIO_FAKE_FINAL_PROOF_FIX") == "1" and not data.get("report_repair"):
+        # The revision binds C1 to a wrong command; the final review corrects that one proof through
+        # the criteria delta inside its reference (#1991), as a Plan Reviewer that read the plan would.
+        if stage == "glm_revise" and report.get("contract"):
+            for row in report["contract"]["acceptance_criteria"]:
+                if row["id"] == "C1":
+                    row["verification_method"] = CHECK + " --planted-by-the-revision"
+        if stage == "astra_finalize" and "retain_contract" in report.get("contract", {}):
+            report["contract"]["acceptance_criteria"] = {
+                "retain_from": report["contract"]["retain_contract"],
+                "upsert": [],
+                "remove": [],
+                "proofs": [{"id": "C1", "verification_method": CHECK}],
+            }
     if stage == "astra_finalize" and os.environ.get("SCENARIO_FAKE_RETAIN_REPAIR") == "1":
         if data.get("report_repair"):
             rejected = data["rejected_report"]["content"]

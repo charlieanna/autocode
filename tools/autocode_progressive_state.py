@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_contract_identity as goals
+    from . import autocode_plan_retention as retention
     from . import autocode_progressive_activation as activation
     from . import autocode_progressive_artifacts as artifacts
     from . import autocode_progressive_budget as budget
@@ -49,6 +50,7 @@ try:
     from . import autocode_verification_plan as verification
 except ImportError:
     import autocode_contract_identity as goals
+    import autocode_plan_retention as retention
     import autocode_progressive_activation as activation
     import autocode_progressive_artifacts as artifacts
     import autocode_progressive_budget as budget
@@ -247,14 +249,29 @@ def _expand_retained(saved, reviewed):
 
     The runner expanded it from the contract it named when the review was
     applied, so the retained text is the reviewed contract's own. What the
-    reviewer authored in the reference stays compared: its first task and any
-    blocking questions it raised.
+    reviewer authored in the reference stays compared: its first task, any
+    blocking questions it raised and its criteria delta (#1991), which changes
+    nothing when applied again to the criteria the runner expanded from it.
     """
     if "retain_contract" not in saved:
         return saved
     expanded = copy.deepcopy(reviewed)
     if "initial_task" in saved:
         expanded["initial_task"] = copy.deepcopy(saved["initial_task"])
+    if "acceptance_criteria" in saved:
+        delta, rows = saved["acceptance_criteria"], reviewed.get("acceptance_criteria") or []
+        well_formed = (
+            isinstance(delta, dict)
+            and all(isinstance(delta.get(key), list) for key in ("upsert", "remove"))
+            and isinstance(delta.get("proofs", []), list)
+            and all(
+                isinstance(row, dict) and isinstance(row.get("id"), str)
+                for row in [*rows, *delta["upsert"], *delta.get("proofs", [])]
+            )
+            and all("verification_method" in row for row in delta.get("proofs", []))
+        )
+        # A malformed delta is kept as written, so the comparison names the difference.
+        expanded["acceptance_criteria"] = retention.apply_delta(rows, delta) if well_formed else delta
     held = {row.get("id") for row in reviewed.get("open_blocking_questions") or [] if isinstance(row, dict)}
     for row in saved.get("open_blocking_questions") or []:
         if not isinstance(row, dict) or row.get("id") not in held:

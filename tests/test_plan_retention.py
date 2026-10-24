@@ -252,22 +252,155 @@ class PlanRetentionTests(unittest.TestCase):
         report["requirement_trace"] = []
         self.assertEqual([], retention.expand(state, "astra_finalize", report)["requirement_trace"])
 
-    def test_final_generation_is_a_verdict_not_another_contract_author(self):
+    def test_final_generation_is_a_verdict_with_a_criteria_delta_not_another_contract_author(self):
         state = self.state()
         body = {
             "type": "object",
             "properties": {
-                "acceptance_criteria": {"type": "array", "items": {}},
+                "acceptance_criteria": {"type": "array", "items": {"type": "object"}},
                 "initial_task": {"type": "object"},
                 "open_blocking_questions": {"type": "array", "items": {}},
+                "milestones": {"type": "array", "items": {}},
             },
         }
         schema = retention.model_schema({"properties": {"contract": body}}, state, "astra_finalize")
+        reference = schema["properties"]["contract"]
         self.assertEqual(
-            {"retain_contract", "initial_task", "open_blocking_questions"},
-            set(schema["properties"]["contract"]["properties"]),
+            {"retain_contract", "initial_task", "open_blocking_questions", "acceptance_criteria"},
+            set(reference["properties"]),
         )
-        self.assertNotIn("acceptance_criteria", schema["properties"]["contract"]["properties"])
+        # Criteria only, and only as a delta on the retained rows (#1991): never a full array again.
+        delta = reference["properties"]["acceptance_criteria"]
+        self.assertEqual("object", delta["type"])
+        self.assertEqual([retention.token(state)], delta["properties"]["retain_from"]["enum"])
+        self.assertEqual({"type": "object"}, delta["properties"]["upsert"]["items"])
+        self.assertTrue(retention.allows_delta(schema))
+        self.assertIn(retention.FINAL_DELTA_RULE, retention.final_rule(schema))
+        self.assertIn(retention.PROOF_RULE, retention.final_rule(schema))
+        # An older pinned reference schema without the delta is never told to emit one.
+        del reference["properties"]["acceptance_criteria"]
+        self.assertFalse(retention.allows_delta(schema))
+        self.assertEqual(retention.FINAL_RULE, retention.final_rule(schema))
+
+    def final_delta(self, state, **operations):
+        return {"retain_from": retention.token(state), "upsert": [], "remove": [], **operations}
+
+    def test_final_reference_corrects_criteria_in_place_and_keeps_every_other_byte(self):
+        state = self.state()
+        old = state["goal_contract"]["body"]["acceptance_criteria"]
+        old.extend({**copy.deepcopy(old[0]), "id": f"AC{n}"} for n in range(9, 14))
+        before = copy.deepcopy(state)
+        reworded = {**old[1], "criterion": "Given todos.json containing ID 1, bad usage leaves every byte unchanged."}
+        added = {**copy.deepcopy(old[0]), "id": "AC14"}
+        proof = {"id": "AC8", "verification_method": "guard: test_all_bad_usage"}
+        report = {
+            "contract": {
+                "retain_contract": retention.token(state),
+                "open_blocking_questions": [],
+                "acceptance_criteria": self.final_delta(
+                    state, upsert=[reworded, added], remove=["AC10"], proofs=[proof]
+                ),
+            },
+            "requirement_trace": [],
+            "contract_changes": [],
+            "conflict_resolutions": [],
+        }
+        result = retention.expand(state, "astra_finalize", report)
+        expected = copy.deepcopy(state["goal_contract"]["body"])
+        expected["acceptance_criteria"] = [
+            {**old[0], "verification_method": proof["verification_method"]},
+            reworded,
+            *old[3:],
+            added,
+        ]
+        self.assertEqual(expected, result["contract"])
+        self.assertEqual(
+            state["planning"]["reports"]["glm_revise"]["report"]["requirement_trace"], result["requirement_trace"]
+        )
+        self.assertEqual(before, state)
+
+    def test_final_correction_passes_the_same_guards_as_a_planner_revision(self):
+        # A draft's proof correction needs no receipt; dropping a criterion needs the person's saved answer,
+        # and an approved contract protects its proofs from the final reviewer as from the Planner.
+        state = self.state()
+        state["goal_contract"]["approval_status"] = "draft"
+        ref = {"retain_contract": retention.token(state)}
+        proof = {"id": "AC8", "verification_method": "guard: test_all_bad_usage"}
+        corrected = retention.expand(
+            state,
+            "astra_finalize",
+            {
+                "contract": {**ref, "acceptance_criteria": self.final_delta(state, proofs=[proof])},
+                "contract_changes": [],
+            },
+        )
+        revision.revision_guard(state, corrected["contract"], [], "astra_finalize")
+        dropped = retention.expand(
+            state,
+            "astra_finalize",
+            {"contract": {**ref, "acceptance_criteria": self.final_delta(state, remove=["AC8"])}},
+        )
+        self.assertEqual([], dropped["contract"]["acceptance_criteria"])
+        with self.assertRaises(ValueError):
+            revision.revision_guard(state, dropped["contract"], [], "astra_finalize")
+        receipt = [{"item": "AC8", "change": "removed", "basis": "user_answer", "answer_id": "Q1"}]
+        state["answers"] = {"Q1": {"text": "Drop AC8"}}
+        backed = retention.expand(
+            state,
+            "astra_finalize",
+            {
+                "contract": {**ref, "acceptance_criteria": self.final_delta(state, remove=["AC8"])},
+                "contract_changes": receipt,
+            },
+        )
+        self.assertEqual(
+            receipt, revision.revision_guard(state, backed["contract"], backed["contract_changes"], "astra_finalize")
+        )
+        state["goal_contract"]["approval_status"] = "approved"
+        with self.assertRaises(ValueError):
+            revision.revision_guard(state, corrected["contract"], [], "astra_finalize")
+
+    def test_final_reference_refuses_a_full_array_a_stale_delta_and_receipts_for_no_change(self):
+        state = self.state()
+        ref = {"retain_contract": retention.token(state)}
+        row = copy.deepcopy(state["goal_contract"]["body"]["acceptance_criteria"][0])
+        empty = self.final_delta(state)
+        for report, message in (
+            ({"contract": {**ref, "acceptance_criteria": [row]}}, "criteria delta"),
+            ({"contract": {**ref, "acceptance_criteria": {**empty, "retain_from": "r3:old"}}}, "criteria delta"),
+            ({"contract": {**ref, "acceptance_criteria": {**empty, "remove": ["AC999"]}}}, "criteria delta"),
+            ({"contract": {**ref, "acceptance_criteria": empty}, "contract_changes": [{"item": "AC8"}]}, "declare"),
+            (
+                {
+                    "contract": {**ref, "acceptance_criteria": self.final_delta(state, remove=["AC8"])},
+                    "conflict_resolutions": [{"requirement_ids": ["R1"]}],
+                },
+                "declare",
+            ),
+            ({"contract": {**ref, "acceptance_criteria": empty, "milestones": []}}, "final review"),
+        ):
+            with self.subTest(report=report), self.assertRaisesRegex(ValueError, message):
+                retention.expand(state, "astra_finalize", report)
+        # The empty delta is the reference's ordinary form: it retains every row and the validated trace.
+        result = retention.expand(state, "astra_finalize", {"contract": {**ref, "acceptance_criteria": empty}})
+        self.assertEqual(state["goal_contract"]["body"], result["contract"])
+
+    def test_a_corrected_criterion_set_may_bring_its_own_trace_but_an_unchanged_one_may_not(self):
+        state = self.state()
+        ref = {"retain_contract": retention.token(state)}
+        validated = state["planning"]["reports"]["glm_revise"]["report"]["requirement_trace"]
+        own = [{"requirement_id": "R1", "disposition": "covered", "evidence": "AC9"}]
+        added = {**copy.deepcopy(state["goal_contract"]["body"]["acceptance_criteria"][0]), "id": "AC9"}
+        corrected = {
+            "contract": {**ref, "acceptance_criteria": self.final_delta(state, upsert=[added])},
+            "requirement_trace": own,
+        }
+        self.assertEqual(own, retention.expand(state, "astra_finalize", corrected)["requirement_trace"])
+        corrected["requirement_trace"] = []
+        self.assertEqual(validated, retention.expand(state, "astra_finalize", corrected)["requirement_trace"])
+        unchanged = {"contract": {**ref, "acceptance_criteria": self.final_delta(state)}, "requirement_trace": own}
+        with self.assertRaisesRegex(ValueError, "validated trace"):
+            retention.expand(state, "astra_finalize", unchanged)
 
     def test_v2_generation_keeps_its_separate_artifact_protocol(self):
         schema = {"properties": {"contract": {"properties": {"acceptance_criteria": {"items": {}}}}}}

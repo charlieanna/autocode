@@ -47,3 +47,21 @@ results, not a paid-model speed comparison or proof of reliable completion.
 Tester and Completion Reviewer remain separate. This correction removes a source
 of avoidable report transcription; substantive review concerns still require
 planning work. Broader stage selection and evidence reuse remain under #1867.
+
+## The final review's criteria delta (#1991)
+
+#1858 left the final reviewer no way to change anything: a wrong criterion or a
+proof naming the wrong test could only become a blocking question, a stop for the
+person and a full Planner revision. In 36 saved runs with both a revision and a
+final review, the final review had changed the plan in 15; seven of those touched
+criteria, milestones or constraints. The owner chose criteria only (2026-10-24).
+
+The final reference now always carries the same delta, `acceptance_criteria:
+{"retain_from", "upsert", "remove", "proofs"}` beside `retain_contract`; empty, it
+retains every row. The runner expands it onto the retained contract and runs the
+ordinary change-receipt, source-coverage and proof guards as for a Planner
+revision. A reference may declare `contract_changes` only when its delta changes a
+row, never `conflict_resolutions`, and a corrected criterion set may supply its own
+`requirement_trace` where the validated one no longer covers every requirement.
+Milestones, the technical approach and permissions remain outside the reference. A
+report repair offers the delta only when its pinned reference schema holds it.
