@@ -206,6 +206,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The live agent log shows one line per kind of opaque streaming receipt, with the parts it stands
+  for, instead of a row per part. A backend that sends no reasoning text filled the pane with identical
+  "text unavailable" lines and buried the tool calls `/live` exists to show (#1999, #2002).
 - Ctrl-← and Ctrl-→ switch chat tabs on terminals whose terminfo names no extended key, such as tmux's
   `xterm-256color`. They were recognised only by terminfo name, so the raw Escape tail fell through and
   the composer filled with `[1;5C` instead of moving tabs (#1997, #2001).
