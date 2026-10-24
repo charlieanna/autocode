@@ -663,6 +663,14 @@ the status JSON on stdout and the returned TaskRun view keep their existing shap
 `TaskRun.accept_transport_change()` uses the explicit transport-change command
 after a person inspects the new route and the saved run reports
 `PAUSED_TRANSPORT_CHANGED`.
+At an eligible OpenCode/Kilo pause with no retained attempt or report repair,
+`needs.action` and `next_command` name `--resume-paused --accept-transport-change`;
+`needs.recovery_hint` explains that confirming accepts the changed connection
+settings after model/billing checks. It requires a person's confirmation and does
+not approve a plan or replace selected role models. Separately selected per-role
+tools retain their immutable identities and receive no acceptance offer. Other
+engines, uncertain attempts and unrelated pauses keep their existing recovery;
+clients must use the current named action rather than add this flag themselves.
 `TaskRun.accept_source_edit()` uses `--resume-paused --accept-source-edit` when
 a repair is paused at `PAUSED_STALE_HANDOFF` because a person edited the source.
 The approved contract, task, budget, proof and evidence pins stay.

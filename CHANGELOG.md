@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A reconciled OpenCode/Kilo connection-change pause offers its existing explicit
+  acceptance action through the public view, with confirmation guidance, so thin
+  clients can recover without inventing CLI flags. Uncertain attempts and immutable
+  per-role tools retain their existing refusals (#1978).
+
 - Completed runs' core explanation describes their saved outcome and evidence
   inspection instead of calling completion an environment stop or suggesting
   recovery. Legacy `COMPLETE` runs keep the same guidance (#1976).

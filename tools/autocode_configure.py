@@ -48,6 +48,7 @@ try:
     from . import autocode_skip_requirements as skip_requirements
     from . import autocode_support as support
     from . import autocode_task_preflight as task_preflight
+    from . import autocode_transport_recovery as transport_recovery
     from . import autocode_utility_route as utility_route
     from . import autocode_verification_config as verification_config
 except ImportError:
@@ -74,6 +75,7 @@ except ImportError:
     import autocode_skip_requirements as skip_requirements
     import autocode_support as support
     import autocode_task_preflight as task_preflight
+    import autocode_transport_recovery as transport_recovery
     import autocode_utility_route as utility_route
     import autocode_verification_config as verification_config
 
@@ -556,7 +558,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
                 None if args.max_milestone_stalled_reviews == 0 else args.max_milestone_stalled_reviews
             )
         if getattr(args, "accept_transport_change", False):
-            if engine != "opencode" or state.get("status") != "PAUSED_TRANSPORT_CHANGED":
+            if not transport_recovery.scope_matches(state, engine):
                 # #909: name the accepted command for this state instead of letting
                 # the operator guess; the plain resume is the recovery for every
                 # other pause family.
@@ -567,7 +569,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
                         or f" -- from {state.get('status')}, run the plain resume (no recovery flags)"
                     )
                 )
-            if any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts")):
+            if transport_recovery.unresolved_attempt(state):
                 raise ValueError("Resolve the saved provider attempt before accepting a transport change")
             workspace = Path(state["workspace"])
             current = opencode.local_settings(workspace)
