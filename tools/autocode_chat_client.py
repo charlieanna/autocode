@@ -744,6 +744,19 @@ class ChatClient:
                     continue  # going back to a saved step, or /open: carry on with that run
                 except NewChat:
                     self.new_chat()
+                except KeyboardInterrupt:
+                    # A live view can be rendered before step() enters watch().
+                    # Ctrl-C in that transition has the same boundary-only scope
+                    # as an attached watcher, never an implicit viewer exit/kill.
+                    if not actions.working(self._status_view or {}):
+                        raise
+                    attached, self._attached = self._attached, True
+                    try:
+                        self.request_pause()
+                    except KeyboardInterrupt:
+                        self.say("This viewer can only request a boundary pause; no worker signal was sent.")
+                    finally:
+                        self._attached = attached
         except (Left, EOFError):
             self.say(f"\nLeft the chat; the run is unchanged. Pick it up with: autocode chat --run-dir {self.run_dir}")
             return 2

@@ -1,6 +1,7 @@
 """Both clients consume worker actions from public JSON, without worker ownership."""
 
 import json
+import signal
 import subprocess
 import unittest
 from pathlib import Path
@@ -25,6 +26,38 @@ EXECUTION = worker_view.execution(
 
 
 class NamedWorkerTransport(unittest.TestCase):
+    def test_sigint_after_first_live_view_before_watch_requests_boundary_pause(self):
+        client = chat.ChatClient(WORKSPACE, RUN, say=Mock())
+        self.addCleanup(client.close)
+        view = {
+            "status": "RUNNING",
+            "needs": {"kind": "continue"},
+            "controller": {"kind": "running", "checked": True, "alive": True},
+            "execution": EXECUTION,
+        }
+
+        def status():
+            client._status_view = view
+            signal.raise_signal(signal.SIGINT)  # a live view is already visible, before watch() handles keys
+
+        def paused():
+            self.assertTrue(client._attached)
+            return True
+
+        previous = signal.signal(signal.SIGINT, signal.default_int_handler)
+        try:
+            calls = iter((status, lambda: 2))
+            with (
+                patch.object(client, "step", side_effect=lambda: next(calls)()),
+                patch.object(client, "request_pause", side_effect=paused) as pause,
+                patch.object(client, "advance") as launch,
+            ):
+                self.assertEqual(2, client.converse())
+                pause.assert_called_once()
+                launch.assert_not_called()
+        finally:
+            signal.signal(signal.SIGINT, previous)
+
     def test_exact_current_envelope_preserves_the_task_action_and_refuses_another_run(self):
         words = ["--follow-up", "Keep $HOME %n literal 你好"]
         wrapped = actions.worker_transport(EXECUTION, words, WORKSPACE, RUN)

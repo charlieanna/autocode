@@ -11,6 +11,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -56,7 +57,19 @@ class PersistentHost(unittest.TestCase):
         self.addCleanup(self.cleanup_workers)
 
     def cleanup_workers(self):
-        for receipt in self.receipts:
+        # A viewer can leave before the first run listing exists. Reconcile its
+        # exact fixture launch namespace before cleaning any known unit.
+        listing = subprocess.run(
+            [*CORE, "worker", "launches", "--workspace", str(self.workspace)],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if listing.returncode == 0:
+            self.receipts.extend(json.loads(listing.stdout)["launches"])
+        unique = {receipt["launch_id"]: receipt for receipt in self.receipts}
+        for receipt in unique.values():
             subprocess.run(
                 ["systemctl", "--user", "kill", "--signal=KILL", services.unit_name(receipt["launch_id"])],
                 env=self.env,
@@ -352,8 +365,28 @@ class PersistentHost(unittest.TestCase):
         self.hold("requirements_gather")
         child, leader = self.viewer(fresh=True)
         try:
+            deadline = time.monotonic() + 30
+            while True:
+                listed = subprocess.run(
+                    [*CORE, "worker", "launches", "--workspace", str(self.workspace)],
+                    env=self.env,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=10,
+                )
+                receipts = json.loads(listed.stdout)["launches"]
+                if receipts and receipts[0].get("ready"):
+                    break
+                self.assertLess(time.monotonic(), deadline, "Fresh launch binding did not become observable")
+                time.sleep(0.05)
+            self.receipts.extend(receipts)
+            binding = receipts[0]["binding"]
+            self.run = taskrun.TaskRun(
+                Path(binding["workspace"]), Path(binding["run_dir"]), command=tuple(CORE), env=self.env, timeout=10
+            )
             reply = subprocess.run(
-                [*CORE, "runs", "--workspace", str(self.workspace), "--json"],
+                [*CORE, "runs", "--workspace", str(self.run.workspace), "--json"],
                 env=self.env,
                 capture_output=True,
                 text=True,
@@ -362,18 +395,7 @@ class PersistentHost(unittest.TestCase):
             )
             rows = json.loads(reply.stdout)["runs"]
             self.assertEqual(1, len(rows))
-            self.run = taskrun.TaskRun(
-                self.workspace, Path(rows[0]["run_dir"]), command=tuple(CORE), env=self.env, timeout=10
-            )
-            listed = subprocess.run(
-                [*CORE, "worker", "launches", "--workspace", str(self.workspace)],
-                env=self.env,
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=10,
-            )
-            self.receipts.extend(json.loads(listed.stdout)["launches"])
+            self.assertEqual(str(self.run.run_dir), rows[0]["run_dir"])
             before = self.at_stage("requirements_gather")
             os.write(leader, b"/quit\r")
             child.wait(timeout=5)
@@ -413,9 +435,47 @@ class PersistentHost(unittest.TestCase):
         self.start()
         before = self.at_stage("requirements_gather")
         child, leader = self.viewer()
+        captured, stopped = bytearray(), threading.Event()
+
+        def drain():
+            while not stopped.is_set():
+                if select.select([leader], [], [], 0.1)[0]:
+                    try:
+                        chunk = os.read(leader, 65536)
+                    except OSError:
+                        return
+                    if not chunk:
+                        return
+                    captured.extend(chunk)
+
+        reader = threading.Thread(target=drain, daemon=True)
+        reader.start()
         try:
+            attributes = termios.tcgetattr(leader)
+            signal_lines = [
+                line
+                for line in Path(f"/proc/{child.pid}/status").read_text().splitlines()
+                if line.startswith(("SigIgn:", "SigBlk:", "SigCgt:"))
+            ]
+            self.evidence.append(
+                {
+                    "viewer_pid": child.pid,
+                    "foreground_pgid": os.tcgetpgrp(leader),
+                    "isig": bool(attributes[3] & termios.ISIG),
+                    "vintr": bytes(attributes[6][termios.VINTR]).hex(),
+                    "signals": signal_lines,
+                }
+            )
+            self.assertEqual(child.pid, os.tcgetpgrp(leader))
+            self.assertTrue(attributes[3] & termios.ISIG)
+            self.assertEqual(b"\x03", attributes[6][termios.VINTR])
             os.write(leader, b"\x03")
-            self.wait(lambda view: (view.get("pause") or {}).get("requested") is True)
+
+            def queued(view):
+                self.assertIsNone(child.poll(), "TUI exited during the pause request; see captured terminal")
+                return (view.get("pause") or {}).get("requested") is True
+
+            self.wait(queued)
             os.write(leader, b"\x03\x03")
             after = self.run.status()
             self.assertIsNone(child.poll())
@@ -428,4 +488,9 @@ class PersistentHost(unittest.TestCase):
             os.write(leader, b"\x04")
             child.wait(timeout=5)
         finally:
+            stopped.set()
+            reader.join(timeout=1)
+            folder = Path(os.environ["AUTOCODE_WORKER_EVIDENCE"])
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / (self._testMethodName + "-terminal.raw")).write_bytes(captured[-20000:])
             os.close(leader)
