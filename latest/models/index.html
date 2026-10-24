@@ -2094,7 +2094,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/1f364e973fa70db9348d048226cf3427b7905eec/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/305aee9d8342f47ee0c3c50cfa16aec4fa8f0413/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2249,8 +2249,22 @@ struggling pauses the run instead. The Builder instead gets its
 <a href="#builder-retry-policy">retry policy</a>'s one stronger attempt. If you configure the
 Builder on <code>openai/gpt-6-sol</code> (with GLM checkers), it climbs Sol Medium → High → XHigh
 → Max. No role other than the Resolver escalates onto GPT-6 Astra.</p>
+<p>The Planner has one stronger attempt of its own (<code>autocode_planner_escalation</code>, owner
+decision 2026-10-23). In an adaptive run, when the Plan Reviewer's second challenge in a
+planning cycle still has a blocking concern about the revised plan, the next revision runs
+on Claude Opus 5.5 High, or on GPT-6 Sol High when the Plan Reviewer is a Claude model. Only
+a blocking concern counts: schema errors, silences and output caps go through report repair
+and recovery as before. A target is used only when the run's provider serves it, the saved
+accounts permit it, it is a different model from the Planner's and it is outside the Plan
+Reviewer's family; otherwise the Planner stays. The climb is a <code>reasoning_escalations</code> row
+with trigger <code>plan_sent_back</code>, the Planner's session is rotated, and the route stays climbed
+for the rest of the run, so a run climbs at most once. A second challenge runs only when the
+review allowance leaves room for it (a large plan, <code>plan_review_call_limit</code> of 3 or more, or
+<code>0</code>, in <code>~/.config/autocode/config.toml</code>): under the default allowance of two calls the first revision goes straight to the
+final review and the Planner never climbs. If the stronger revision is still blocked, the
+final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/1f364e973fa70db9348d048226cf3427b7905eec/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/305aee9d8342f47ee0c3c50cfa16aec4fa8f0413/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
