@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The terminal chat no longer ends with `[Errno 1] Operation not permitted` when it stops a status
+  read whose process group the kernel will not signal (macOS, once the group's leader has exited):
+  the read's own child is killed instead and the chat carries on (#2011).
 - Terminal attention survives viewer restarts with shared local read receipts.
   F8 or `/attention` inspects current decisions and distinct same-chat completions
   without advancing tasks or losing drafts; empty JSON run inventories remain
