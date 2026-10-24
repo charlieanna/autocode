@@ -202,6 +202,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Ctrl-← and Ctrl-→ switch chat tabs on terminals whose terminfo names no extended key, such as tmux's
+  `xterm-256color`. They were recognised only by terminfo name, so the raw Escape tail fell through and
+  the composer filled with `[1;5C` instead of moving tabs (#1997, #2001).
+
 - A number typed at a pause's yes/no that only *prose* tells the person to raise no longer vanishes. The
   time-limit pause reached through an AutoResolver hold names a plain `--resume-paused` and advertises no
   `--max-seconds` entry, so typing the total it asked for was consumed as a decline and the run stayed

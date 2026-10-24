@@ -232,6 +232,46 @@ class PasteTests(unittest.TestCase):
         self.assertEqual(["[", 260], consumed)
 
 
+class CsiTabTests(unittest.TestCase):
+    """#1997: Ctrl-←/→ as the bytes the terminal really sends, so they never become composer text."""
+
+    def keys(self, *keys):
+        source = iter(keys)
+        return lambda: next(source, None)
+
+    def test_the_xterm_spelling_is_one_tab_step(self):
+        tail = list("[1;5")  # what the paste probe leaves behind after ESC [ 1 ; 5
+        tab = tui.csi_tab(self.keys("C"), tail)
+        self.assertEqual("next", tab.direction)
+        self.assertEqual(list("[1;5"), tail)  # the seed is part of the key, not of the reply
+
+    def test_the_other_terminal_spellings_switch_too(self):
+        for seed, final, direction in (("[5;5", "C", "next"), ("[[", "C", "next"), ("[1;5", "D", "previous")):
+            with self.subTest(seed=seed, final=final):
+                self.assertEqual(direction, tui.csi_tab(self.keys(final), list(seed)).direction)
+
+    def test_a_tail_that_cannot_be_a_tab_key_is_handed_back_untouched(self):
+        tail = ["[", "A"]
+        self.assertIsNone(tui.csi_tab(self.keys(), tail))
+        self.assertEqual(["[", "A"], tail)
+
+    def test_a_key_that_arrives_only_halfway_keeps_every_character_it_got(self):
+        tail = ["[", "1"]
+        self.assertIsNone(tui.csi_tab(self.keys(";"), tail))
+        self.assertEqual(["[", "1", ";"], tail)
+
+    def test_the_reader_names_the_key_and_queues_nothing_for_the_composer(self):
+        ui = screen_ui("\x1b", "[", "1", ";", "5", "C")
+        key = ui._read_key()
+        self.assertEqual("next", tui.tab_step(key))
+        self.assertEqual([], ui._queued)
+
+    def test_a_lone_escape_stays_just_escape(self):
+        ui = screen_ui("\x1b")
+        self.assertEqual(tui.ESCAPE, ui._read_key())
+        self.assertEqual([], ui._queued)
+
+
 def screen_ui(*keys):
     """A ChatTUI over a stand-in screen that delivers ``keys``, then times out like an idle terminal."""
     screen = mock.MagicMock()
@@ -326,6 +366,8 @@ class TabBarTests(unittest.TestCase):
     def test_ctrl_t_and_ctrl_arrows_are_the_tab_keys(self):
         self.assertEqual("new", tui.tab_step("\x14"))
         self.assertIsNone(tui.tab_step("t"))
+        self.assertEqual("previous", tui.tab_step(tui.CsiTab("previous")))
+        self.assertIsNone(tui.tab_step("["))
         with mock.patch.object(
             tui.curses, "keyname", create=True, side_effect=lambda key: {560: b"kRIT5", 545: b"kLFT5"}.get(key, b"KEY")
         ):
