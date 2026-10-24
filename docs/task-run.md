@@ -444,13 +444,16 @@ boundary, `requested` is true and `next_command` is null. The field is null when
 nothing is working, when the recorded runner cannot consume interventions, and
 for a stopped run. It never interrupts a step in progress or stops the run.
 
-### Pending decision: asynchronous viewers (#1879)
+### Asynchronous viewer direction (#1879; implementation pending)
 
-**Proposal, not implemented or approved.** This section records the design choice
-for [#1879](https://github.com/charlieanna/autocode/issues/1879), checked against
-master `348670930`. The contract above and current TUI behavior remain in force.
-The proposed fields below are examples for review, not fields clients may assume
-are exported. Neither this draft nor attaching to a run authorizes a model call.
+**Owner-approved direction, implementation pending (2026-10-23).** The owner
+approved [PR #1985](https://github.com/charlieanna/autocode/pull/1985)'s lifecycle
+direction in the Codex chat: "Approve the proposed lifecycle." The source
+inventory below was checked against master `348670930`. Current runtime behavior
+remains in force until the dependent implementation qualifies. The field examples
+describe the agreed semantics; clients cannot assume they are exported yet.
+This decision and read-only attachment do not approve an individual task plan or
+authorize an additional model call.
 
 Existing guarantees should be extended rather than replaced:
 
@@ -463,9 +466,9 @@ Existing guarantees should be extended rather than replaced:
 | Approval, recovery and restore | Current plan/review/request tokens, recovery token and exact comparison control their own actions; see Commands, Exact stopped-run recovery and Saved code checkpoints. There is no universal retry receipt across all families. |
 | Responsive observation | Bounded polling and its cancellation tests already exist. TUI history/verification display is E1; no whole-view freshness or durable detach guarantee follows from it. |
 
-#### Proposed lifetime and authority decisions
+#### Agreed lifetime and authority
 
-The recommended first delivery is **opt-in durable local execution on persistent
+The agreed first delivery is **opt-in durable local execution on persistent
 Linux**, with a core-owned launcher and the ordinary task controller. The TUI
 observes it through this interface. The launcher must establish independent
 terminal/session lifetime, persistent output and a reconciliable launch identity
@@ -484,7 +487,7 @@ receipt; continuing later is another serialized invocation of the same run.
 The exact launch action/capability schema and host adapter must be reviewed with
 their deterministic qualification before this opt-in mode is exposed.
 
-| Event in the proposed durable mode | Required outcome |
+| Event in the agreed durable mode | Required outcome |
 | --- | --- |
 | Normal viewer quit, Ctrl-D, SIGHUP, viewer SIGKILL or SSH disconnect | Only the viewer leaves. It neither pauses nor signals the worker. Reattach is read-only and launches no provider. |
 | First or repeated Ctrl-C | Request the currently named boundary pause; repeated keys do not escalate to an implicit worker kill. An unavailable pause offer is reported as such. |
@@ -500,7 +503,7 @@ semantics. Multiple viewers initially share the same authorized local OS
 identity; this proposal adds no remote authentication service or Jira/RPC API.
 Jira/Fargate orchestration remains a separate layer using `TaskRun`.
 
-#### Proposed observations, decisions and attention
+#### Observation, decision and attention requirements
 
 Keep `controller`, `liveness`, `status`, `needs`, `delivery`, `verification` and
 the named actions authoritative for their existing meanings. Add only the
@@ -583,9 +586,9 @@ attention and conditional decisions; #1884 F2 consumes separately approved stage
 policy; #1886 owns the integrated fault/terminal/SSH matrix. Existing E1/F1 and
 D1 results remain regression evidence, not proof of these new outcomes.
 
-One consolidated owner decision on these lifetime/authority, metadata, first-host
-and response-target choices gates dependent implementation. Record it here once;
-dependent issues should not ask the same policy questions again. Exact additive
+The consolidated owner decision above covers these lifetime/authority, metadata,
+first-host and response-target choices. Dependent issues should not ask the same
+policy questions again. Exact additive
 schema/actions, compatibility fixtures, host adapter and measured A1–A5 results
 are readiness evidence before enabling the opt-in capability, not a second owner
 approval gate unless the agreed semantics change. Keep current defaults and all
