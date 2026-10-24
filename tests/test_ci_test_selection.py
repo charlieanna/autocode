@@ -8,6 +8,13 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_python_entrypoints_keep_the_real_toolchain_consumer_even_when_slow(self):
+        consumer = "tests.test_toolchain"
+        for path in ("tools/autocode_python_entrypoints.py", "tools/autocode_toolchain.py"):
+            selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+            kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+            self.assertEqual([consumer], list(kept))
+
     def test_shared_test_binding_resources_keep_the_acceptance_consumer_even_when_slow(self):
         consumer = "tests.test_acceptance_tests"
         for path in (

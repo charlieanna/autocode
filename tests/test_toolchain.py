@@ -4,6 +4,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,10 +23,12 @@ DENIED = (
 
 
 @unittest.skipUnless(NATIVE_PROBLEM is None, f"requires a real kernel sandbox: {NATIVE_PROBLEM}")
-class SelectedToolchainTests(unittest.TestCase):
+class PytestToolchainTests(unittest.TestCase):
+    # The required Ubuntu suite installs .[test] and the real kernel boundary.
+    # The minimal native-only job selects SelectedToolchainTests without pytest.
     def test_pytest_console_runs_real_assertions_and_keeps_file_denials(self):
-        if not shutil.which("pytest"):
-            self.skipTest("requires the installed pytest console entry point")
+        console = Path(sys.executable).parent / "pytest"
+        self.assertTrue(console.is_file(), "install .[test] on the test interpreter")
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory).resolve()
             root = home / "project"
@@ -44,7 +47,7 @@ class SelectedToolchainTests(unittest.TestCase):
             source.write_text(contents)
             (root / "test_bad.py").write_text("def test_failure():\n    assert 1 == 2\n")
             subprocess.run(["/usr/bin/git", "init", "--quiet", str(root)], check=True)
-            selected = toolchain.discover(root, ["pytest -q test_good.py"], os.environ)
+            selected = toolchain.discover(root, [shlex.join([str(console), "-q", "test_good.py"])], os.environ)
             boundary = containment.prepare(
                 root, read_roots=selected["read_roots"], links=selected["links"], environment=os.environ
             )
@@ -54,9 +57,8 @@ class SelectedToolchainTests(unittest.TestCase):
                 )
                 self.assertEqual(0, result.returncode, (command, result.stderr))
             for name, code, message in (("good", 0, "3 passed"), ("bad", 1, "1 failed")):
-                command = (
-                    "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 "
-                    f"pytest -q -p no:cacheprovider test_{name}.py"
+                command = "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 " + shlex.join(
+                    [str(console), "-q", "-p", "no:cacheprovider", f"test_{name}.py"]
                 )
                 result = subprocess.run(
                     [boundary["shell"], "-c", command], cwd=root, capture_output=True, text=True, timeout=30
@@ -66,6 +68,9 @@ class SelectedToolchainTests(unittest.TestCase):
             self.assertEqual(contents, source.read_text())
             self.assertEqual("private fixture", outside.read_text())
 
+
+@unittest.skipUnless(NATIVE_PROBLEM is None, f"requires a real kernel sandbox: {NATIVE_PROBLEM}")
+class SelectedToolchainTests(unittest.TestCase):
     def test_selected_git_node_and_go_run_without_outside_read_or_source_write(self):
         if not all(shutil.which(name) for name in ("git", "node", "npm", "go")):
             self.skipTest("requires installed Git, Node/npm and Go")
