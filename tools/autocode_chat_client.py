@@ -350,17 +350,22 @@ class ChatClient:
                     raise ValueError("response belongs to another run")
             except (ValueError, KeyError, TypeError, actions.ClientGap):
                 view, error = None, "status response has no valid view for this chat"
+            # A run that has not answered a status read yet has no view to lose. At cold start the
+            # controller is still writing the run this client just created, and calling that an outage
+            # tells the person their own chat is broken (#1998).
+            stale = key[1] in self.viewed
             if error:
-                if self._read_errors.get(key[1]) != error:
+                if stale and self._read_errors.get(key[1]) != error:
                     self.say(f"Status unavailable ({Path(key[1]).name}): {error}. Last view is stale.")
-                self._read_errors[key[1]] = error
+                if stale:
+                    self._read_errors[key[1]] = error
             else:
                 if self._read_errors.pop(key[1], None):
                     self.say(f"Status available again ({Path(key[1]).name}).")
             if key == current:
                 self._status_serial += 1
                 self._status_error = error
-                if error and self._observe is not None and self._unavailable is not None:
+                if error and stale and self._observe is not None and self._unavailable is not None:
                     self._unavailable(error)
                 if view is not None:
                     self._status_view = view
