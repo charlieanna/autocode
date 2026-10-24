@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Completed runs' core explanation describes their saved outcome and evidence
+  inspection instead of calling completion an environment stop or suggesting
+  recovery. Legacy `COMPLETE` runs keep the same guidance (#1976).
+
 - Terminal chat shows existing cost coverage and accounting caps in its side panel;
   `/details` adds token subsets, billing/estimate bases, attempt routes, saved future
   routes and route-change receipts (#1884 F1). Missing usage stays unknown; displaying
