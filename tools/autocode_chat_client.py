@@ -372,23 +372,24 @@ class ChatClient:
                     raise ValueError("response belongs to another run")
             except (ValueError, KeyError, TypeError, actions.ClientGap):
                 view, error = None, "status response has no valid view for this chat"
-            # A run that has not answered a status read yet has no view to lose. At cold start the
-            # controller is still writing the run this client just created, and calling that an outage
-            # tells the person their own chat is broken (#1998).
+            # A run that has not answered a status read yet has no view to lose, so a failed read
+            # before its first view is not an outage to tell the person about: at cold start the
+            # controller is still writing the run this client just created (#1998). The tab state
+            # and the observation still record the failed read.
             stale = key[1] in self.viewed
             if error:
                 self._attention.unavailable(key)
                 if stale and self._read_errors.get(key[1]) != error:
                     self.say(f"Status unavailable ({Path(key[1]).name}): {error}. Last view is stale.")
-                if stale:
-                    self._read_errors[key[1]] = error
+                self._read_errors[key[1]] = error
             else:
-                if self._read_errors.pop(key[1], None):
+                recovered = self._read_errors.pop(key[1], None)
+                if stale and recovered:
                     self.say(f"Status available again ({Path(key[1]).name}).")
             if key == current:
                 self._status_serial += 1
                 self._status_error = error
-                if error and stale and self._observe is not None and self._unavailable is not None:
+                if error and self._observe is not None and self._unavailable is not None:
                     self._unavailable(error)
                 if view is not None:
                     self._attention.observe(view, received=time.monotonic())
@@ -396,6 +397,7 @@ class ChatClient:
                     self.accept_status(view)
             elif key[1] in self.others:
                 if view is not None:
+                    self.viewed.add(key[1])  # a background tab has answered a read too, so it can lose a view
                     self._attention.observe(view, received=time.monotonic())
                     self.other_status(key[1], Path(key[0]), view)
             self.show_tabs()

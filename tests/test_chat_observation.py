@@ -136,11 +136,13 @@ class ReadMetadata(unittest.TestCase):
         ):
             client.poll()
             self.assertEqual([], [text for text in said if "Status" in text])
-            self.assertFalse(unavailable.called)
-            client.poll()
+            self.assertTrue(unavailable.called)  # the failed read is still recorded, just not announced
+            self.assertEqual("unavailable", client.tabs()[0]["state"])
+            client.poll()  # the run answers: no recovery from an outage that was never announced
+            self.assertEqual([], [text for text in said if "Status" in text])
+            self.assertNotEqual("unavailable", client.tabs()[0]["state"])
             client.poll()
         self.assertTrue(any("Status unavailable" in text for text in said))
-        self.assertTrue(unavailable.called)
 
     def test_unavailable_header_and_working_line_are_honest_at_80_columns(self):
         ui = screen_ui()
