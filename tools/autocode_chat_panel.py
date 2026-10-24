@@ -18,6 +18,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+try:
+    from . import autocode_chat_cost as cost
+except ImportError:
+    import autocode_chat_cost as cost
+
 LOG_LIMIT = 200
 NOTHING_NEEDED = "nothing needed from you"  # the progress view's needs_you when no one is waited on
 TASK_MARKS = {"done": "✓", "working": "▸", "waiting": "·", "unknown": "·"}
@@ -181,6 +186,9 @@ def sections(view: dict | None, *, launched: bool = False) -> list[Section]:
         else:
             rows.insert(0, Row("!", needs, "warn"))
     result = [Section("Now", now, tuple(rows))]
+    if usage := cost.compact(view):
+        summary, entries = usage
+        result.append(Section("Usage", summary, tuple(Row("·", line, "dim") for line in entries)))
     if recent := events(view):
         result.append(Section("Activity", "", tuple(event_row(event) for event in recent[-EVENT_ROWS:])))
     requirements = _mapping(progress.get("requirements"))
@@ -334,7 +342,9 @@ def text(name: str, view: dict | None, log: StageLog) -> str:
         return "\n".join(log.lines) or "Nothing has happened yet."
     if name == "/details":
         explanation = _mapping(view.get("explanation")).get("explanation")
-        return str(explanation or (view.get("progress") or {}).get("line") or "AutoCode has said nothing more yet.")
+        said = str(explanation or (view.get("progress") or {}).get("line") or "AutoCode has said nothing more yet.")
+        more = cost.details(view)
+        return said + ("\n\n" + more if more else "")
     wanted = {"/plan": "Requirements", "/tasks": "Tasks"}[name]
     for section in sections(view):
         if section.title == wanted:

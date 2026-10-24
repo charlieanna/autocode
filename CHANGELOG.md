@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Terminal chat shows existing cost coverage and accounting caps in its side panel;
+  `/details` adds token subsets, billing/estimate bases, attempt routes, saved future
+  routes and route-change receipts (#1884 F1). Missing usage stays unknown; displaying
+  these fields adds no model calls or stage-policy changes.
+
 - Installed pytest console commands qualify their paired Python runtime inside
   the tool boundary instead of blocking Tester before launch (#1971). Modified
   or unknown wrappers still refuse; filesystem and network limits are unchanged.
