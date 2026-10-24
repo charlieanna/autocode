@@ -206,6 +206,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A new chat no longer reports its own start as a status outage. `--status` exits 2 only while the run
+  being created has no state file yet, and the client called that "Status unavailable … Last view is
+  stale", followed a second later by "Status available again". Only those two lines wait for a run that
+  has answered a read before; the tab state and the observation still record every failed read (#1998).
+
 - The live agent log shows one line per kind of opaque streaming receipt, with the parts it stands
   for, instead of a row per part. A backend that sends no reasoning text filled the pane with identical
   "text unavailable" lines and buried the tool calls `/live` exists to show (#1999, #2002).

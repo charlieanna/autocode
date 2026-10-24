@@ -115,6 +115,35 @@ class ReadMetadata(unittest.TestCase):
             self.assertIsNone(ui._observation.error)
             take.assert_not_called()
 
+    def test_a_run_that_has_never_answered_is_not_announced_as_an_outage(self):
+        """#1998: the first read of a run this client is still creating has no last view to lose."""
+
+        unavailable, said = Mock(), []
+        client = chat.ChatClient(WORKSPACE, A, observe=Mock(), unavailable=unavailable, say=said.append)
+        self.addCleanup(client.close)
+        key = (str(WORKSPACE), str(A))
+        with (
+            patch.object(
+                client._poller,
+                "tick",
+                side_effect=[
+                    [(key, "", "status read exited 2")],  # --status: the state file is not written yet
+                    [(key, json.dumps({"view": sampled()}), "")],
+                    [(key, "", "status read exited 1")],  # the same failure once a view *was* shown
+                ],
+            ),
+            patch.object(client, "take"),
+        ):
+            client.poll()
+            self.assertEqual([], [text for text in said if "Status" in text])
+            self.assertTrue(unavailable.called)  # the failed read is still recorded, just not announced
+            self.assertEqual("unavailable", client.tabs()[0]["state"])
+            client.poll()  # the run answers: no recovery from an outage that was never announced
+            self.assertEqual([], [text for text in said if "Status" in text])
+            self.assertNotEqual("unavailable", client.tabs()[0]["state"])
+            client.poll()
+        self.assertTrue(any("Status unavailable" in text for text in said))
+
     def test_unavailable_header_and_working_line_are_honest_at_80_columns(self):
         ui = screen_ui()
         ui.set_context(WORKSPACE, A)
