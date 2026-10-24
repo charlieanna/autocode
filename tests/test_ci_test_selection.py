@@ -18,15 +18,21 @@ class DynamicDependenciesTests(unittest.TestCase):
             kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
             self.assertEqual(consumers, set(kept))
 
-    def test_chat_accounting_keeps_its_public_terminal_and_view_consumers(self):
+    def test_chat_projections_keep_their_public_terminal_and_view_consumers(self):
         consumers = {
             "tests.test_chat_cost",
+            "tests.test_chat_verification",
             "tests.test_chat_panel",
             "tests.test_chat_tui",
             "tests.test_chat_client",
             "tests.test_chat_polling_cli",
         }
-        for path in ("tools/autocode_chat_cost.py", "tools/autocode_chat_panel.py"):
+        for path in (
+            "tools/autocode_chat_cost.py",
+            "tools/autocode_chat_verification.py",
+            "tools/autocode_chat_panel.py",
+            "tools/autocode_chat_tui.py",
+        ):
             selected = run_suite.select_tests([path], {module: "" for module in consumers})
             kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
             self.assertEqual(consumers, set(kept))
