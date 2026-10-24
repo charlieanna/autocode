@@ -8,6 +8,16 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_clean_review_fixture_keeps_its_oracle_and_public_cli_consumers(self):
+        consumers = {"tests.test_review_clean_fixture", "tests.test_review_attribution_cli"}
+        for path in (
+            "scenarios/catalog/review-clean-pr/oracle.py",
+            "scenarios/catalog/review-clean-pr/seed/pr-191.patch",
+        ):
+            selected = run_suite.select_tests([path], {module: "" for module in consumers})
+            kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+            self.assertEqual(consumers, set(kept))
+
     def test_chat_accounting_keeps_its_public_terminal_and_view_consumers(self):
         consumers = {
             "tests.test_chat_cost",
