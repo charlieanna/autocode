@@ -140,7 +140,7 @@ class ChatScreenTests(unittest.TestCase):
         screen.keys("Enter")
         opened = screen.wait_for("Anything else?", RUN_SECONDS)
         self.assertIn("The requested task is complete.", opened, "the finished chat's conversation")
-        first = opened.splitlines()[0]
+        first = chat_heading(opened)
 
         screen.type("/new ")
         screen.keys("Enter")
@@ -149,7 +149,9 @@ class ChatScreenTests(unittest.TestCase):
         screen.keys("Enter")
         fresh = screen.wait_for("Approve understanding", RUN_SECONDS)
         self.assertNotIn("The requested task is complete.", fresh, "a new chat starts on a clean screen")
-        self.assertNotEqual(first, fresh.splitlines()[0], "the header names the new run")
+        self.assertNotEqual(
+            first, chat_heading(fresh), "the header names the new run independently of the global unread count"
+        )
         self.assertEqual(2, len(list((self.workspace / ".autocode" / "runs").iterdir())))
         tabs = fresh.splitlines()[1]
         self.assertIn(" 1 Build a deterministic greeting CLI", tabs, "the finished chat is tab 1")
@@ -157,7 +159,12 @@ class ChatScreenTests(unittest.TestCase):
         screen.type("/tab 1 ")
         screen.keys("Enter")
         back = screen.wait_for("Anything else?", RUN_SECONDS)
-        self.assertEqual(first, back.splitlines()[0], "back on the first chat")
+        self.assertEqual(first, chat_heading(back), "back on the first chat independently of the global unread count")
+
+
+def chat_heading(screen: str) -> str:
+    """The selected chat's identity, excluding the independently changing global attention badge."""
+    return screen.splitlines()[0].split("F8:", 1)[0].rstrip()
 
 
 def composer_text(screen: str) -> str:
