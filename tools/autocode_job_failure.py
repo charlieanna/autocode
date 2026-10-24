@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_context_window as context_window
     from . import autocode_job_source as source
     from . import autocode_jobs as jobs
     from . import autocode_provider_auth as provider_auth
@@ -37,6 +38,7 @@ try:
     from . import autocode_source_scope as scope
     from . import autocode_util as util
 except ImportError:
+    import autocode_context_window as context_window
     import autocode_job_source as source
     import autocode_jobs as jobs
     import autocode_provider_auth as provider_auth
@@ -54,6 +56,7 @@ _ROUTE_STOPS = {
     "content_filter": quota_route.REFUSAL_STATUS,
     "quota": quota_route.QUOTA_STATUS,
     "output_limit": quota_route.OUTPUT_STATUS,
+    "context_window": quota_route.CONTEXT_STATUS,
     "provider_auth": quota_route.AUTH_STATUS,
     "timeout": quota_route.TIMEOUT_STATUS,
 }
@@ -146,6 +149,11 @@ def _reason(runtime, record, error):
             "output_limit",
             f"{role}: response output limit exhausted on {model}; reasoning and report text share the cap",
         )
+    if status == quota_route.CONTEXT_STATUS:
+        return "context_window", (
+            context_window.explain(runtime.support.events(path), job=role, model=model)
+            or f"{role}: the request no longer fit the model's context window on {model}"
+        )
     if status == quota_route.QUOTA_STATUS:
         message = next(
             (
@@ -174,6 +182,8 @@ def _route_reason(failure):
         if failure.get("pause_status") == quota_route.REFUSAL_STATUS
         else f"the response output limit was exhausted on {route.get('stopped_model')}"
         if failure.get("pause_status") == quota_route.OUTPUT_STATUS
+        else f"the request no longer fit the context window on {route.get('stopped_model')}"
+        if failure.get("pause_status") == quota_route.CONTEXT_STATUS
         else f"provider authentication failed on {route.get('stopped_model')}"
         if quota_route.job_stop_status(failure) == quota_route.AUTH_STATUS
         else f"the execution time limit was exceeded on {route.get('stopped_model')}"

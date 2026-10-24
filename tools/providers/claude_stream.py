@@ -21,6 +21,9 @@ watchdog) then apply unchanged.
   share through a small ledger of session totals in ``--ledger``.
 - An init row naming an API key source (``apiKeySource`` other than ``none``) stops Claude Code at
   once and ends the stage ``turn.failed{code: "billing_route"}`` (``PAUSED_BILLING_ROUTE``).
+- A ``compact_boundary`` system row (Claude Code summarized the conversation) ends the stage
+  ``turn.failed{code: "context_compacted"}`` (``PAUSED_CONTEXT_WINDOW``), whatever followed it: the
+  response was not produced from the whole handoff, so no report is accepted from that call.
 - Nothing is ever written to standard error: the runner merges it into the stage's event log,
   where one non-JSON line would defeat the output-cap check.
 
@@ -49,6 +52,7 @@ from typing import Any
 
 REPORT_ITEM = "structured_output"
 BILLING_ROUTE = "billing_route"  # the terminal code autocode_support.failure_status reads as PAUSED_BILLING_ROUTE
+COMPACTED = "context_compacted"  # autocode_context_window.COMPACTED_CODE, read as PAUSED_CONTEXT_WINDOW
 PARTIAL_ITEM = "structured_output_partial"
 REJECTED_ITEM = "structured_output_rejected"
 RESULT_TEXT_ITEM = "result_text"
@@ -274,6 +278,7 @@ class Translator:
         self._rejected: Any = None
         self._partial: str | None = None
         self._thinking: int | None = None
+        self._compacted: dict | None = None
 
     # -- input ---------------------------------------------------------------------------------
 
@@ -336,6 +341,14 @@ class Translator:
             if tokens is not None and tokens != self._thinking:
                 self._thinking = tokens
                 return self._note(self._message, f"thinking ~{tokens} tokens; ")
+        if subtype == "compact_boundary":
+            # Claude Code summarized the conversation; finish() fails the stage (#1942).
+            meta = row.get("compact_metadata")
+            self._compacted = {
+                key: meta[key]
+                for key in ("trigger", "pre_tokens", "post_tokens")
+                if isinstance(meta, dict) and isinstance(meta.get(key), (str, int)) and not isinstance(meta[key], bool)
+            }
         return []
 
     def _on_rate_limit(self, row: dict) -> None:
@@ -677,6 +690,17 @@ class Translator:
             said = tail[-500:] or "no output"
             message = f"Claude Code exited {exit_code} before starting a session: {said}"
             return [self._terminal(exit_code, {"code": "provider_start_failed", "message": message})], failing
+        if self._compacted is not None:
+            # The conversation was summarized mid-call: whatever Claude Code produced afterwards, report
+            # included, came from a summary rather than the whole handoff, so the stage is not whole (#1942).
+            meta = self._compacted
+            seen = ", ".join(f"{key} {meta[key]}" for key in ("trigger", "pre_tokens", "post_tokens") if key in meta)
+            message = (
+                "Claude Code compacted the conversation"
+                + (f" ({seen})" if seen else "")
+                + "; the response was produced from a summary, not the whole handoff, and is not accepted"
+            )
+            return self._flush() + [self._terminal(exit_code, {"code": COMPACTED, "message": message})], failing
         # Claude Code withdraws an accepted StructuredOutput when a model fallback tombstones its attempt
         # (stream-json never shows the tombstone); this result then says no report survived (T7).
         retracted = (result or {}).get("subtype") == "error_max_structured_output_retries" or (

@@ -541,7 +541,7 @@ class JobModelRouteTests(JobHarness):
             "route-sol=gpt-6-luna",
             "--job-retry-token",
             need["job_retry_token"],
-            message="did not stop on quota, a content-filter refusal, output limit, provider authentication or a stopped-job timeout",
+            message="did not stop on quota, a content-filter refusal, output limit, context window, provider authentication or a stopped-job timeout",
         )
 
 
@@ -795,14 +795,14 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
         message = self.answer(state)
         self.assertIn(
             "The stopped Code Reviewer takes no other model: only a job stopped on quota, a "
-            "content-filter refusal, output limit, provider authentication or a stopped-job timeout does",
+            "content-filter refusal, output limit, context window, provider authentication or a stopped-job timeout does",
             message,
         )
         self.assertNotIn("did not stop on quota", message)
         # An archived error that is not about the model still says so.
         other = self.legacy_exit({"message": "connection reset by peer"})
         self.assertIn(
-            "did not stop on quota, a content-filter refusal, output limit, provider authentication or a stopped-job timeout",
+            "did not stop on quota, a content-filter refusal, output limit, context window, provider authentication or a stopped-job timeout",
             self.answer(other, runner),
         )
 
