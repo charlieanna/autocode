@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 
-def scope_matches(state, engine):
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
+
+def scope_matches(state: RunState, engine):
     return engine == "opencode" and state.get("status") == "PAUSED_TRANSPORT_CHANGED"
 
 
-def unresolved_attempt(state):
+def unresolved_attempt(state: RunState):
     """The configuration action's existing retained-attempt refusal."""
     return any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts"))
 
 
-def offer(state, *, immutable_role_transports):
+def offer(state: RunState, *, immutable_role_transports):
     settings = state.get("settings")
     if not isinstance(settings, dict) or not scope_matches(state, settings.get("engine")):
         return None
