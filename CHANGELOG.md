@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- `autocode doctor` and `autocode models` no longer refuse a profile route a new run never
+  takes. Automatic selection replaces a provider's default route when the plan serves it
+  under another prefix, and the checks now weigh the routes the run would actually use,
+  naming each replacement; a real gap still fails, with the reason selection could not
+  cover it (#1995, #1996).
+
 - Lifecycle status metadata is covered by the public JSON schema and the
   completed-worktree consumer. Read samples may differ while every task and
   checkpoint field remains identical; focused CI keeps both regressions (#1994).
