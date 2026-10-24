@@ -27,7 +27,7 @@
         "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
         "provider", "route_assignments", "information_review", "tool_containment", "job_report_recovery",
         "efficiency", "conversation", "chat", "workspace", "run_dir", "planning_depth", "pause", "package",
-        "tool_containment_backend", "changes_by_criterion", "dev_server"
+        "tool_containment_backend", "changes_by_criterion", "dev_server", "attention"
       ],
       "properties": {
         "attention": {
