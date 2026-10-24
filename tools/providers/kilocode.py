@@ -100,6 +100,11 @@ class KiloProvider(command.CommandProvider):
                 raise ValueError("Kilo activity configuration must contain a plugin array")
             activity = Path(__file__).with_name("opencode_activity.mjs").resolve().as_uri()
             config["plugin"] = [p for p in config.get("plugin", []) if p != activity] + [activity]
+            # Kilo summarizes a conversation on its own once it nears the window (compaction.auto); a
+            # stage must see its handoff whole (#214), so that is off and a context that still runs
+            # out is a named stop (autocode_context_window, #1942), never a silent summary.
+            compaction = config.get("compaction") if isinstance(config.get("compaction"), dict) else {}
+            config["compaction"] = {**compaction, "auto": False}
             report_schema = json.loads(Path(schema).read_text()) if schema and role == "requirements" else {}
             if "assistant_reply" in report_schema.get("properties", {}):
                 hook = Path(__file__).with_name("requirements_stream.mjs").resolve().as_uri()
