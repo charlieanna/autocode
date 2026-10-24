@@ -30,10 +30,12 @@ from pathlib import Path
 
 try:
     from . import autocode_chat_context as contexts
+    from . import autocode_chat_observation as observation
     from . import autocode_chat_panel as panel
     from . import autocode_chat_verification as verification
 except ImportError:
     import autocode_chat_context as contexts
+    import autocode_chat_observation as observation
     import autocode_chat_panel as panel
     import autocode_chat_verification as verification
 
@@ -473,6 +475,7 @@ class ChatTUI:
         self._draft_context: tuple | None = None
         self._restore_context: tuple | None = None
         self._restored_session = False
+        self._observation = observation.Read()
         self._prompt = ""
         self._asking = False
         self.idle: Callable[[], None] | None = None
@@ -667,6 +670,7 @@ class ChatTUI:
                 "_draft_context",
                 "_history_file",
                 "_unsaved",
+                "_observation",
             )
             if self._context_key is not None:
                 self._contexts.keep(
@@ -687,6 +691,7 @@ class ChatTUI:
                 self._live_on, self._panel_on = None, None
                 self._prompt, self._draft_context = "", None
                 self._history_file, self._unsaved = None, []
+                self._observation = observation.Read()
             self._restore_context = saved["context"] if saved else None
             self._restored_session = saved is not None
             # Refresh before offering decisions. Confirm closures and queued keys
@@ -718,7 +723,9 @@ class ChatTUI:
     def observe(self, view: dict) -> None:
         """The status view the client just read: the panel and the log draw from it alone."""
         with self._lock:
+            self._observation.accept(view, time.monotonic())
             if self._view == view:
+                self._draw()
                 return
             anchor = self._history_anchor()
             self._view = view
@@ -729,6 +736,12 @@ class ChatTUI:
                 self._context_key = contexts.identity(view["workspace"], view["run_dir"])
                 self._context = f"{Path(view['workspace']).name} · {Path(view['run_dir']).name}"
             self._keep_history_anchor(anchor)
+            self._draw()
+
+    def status_unavailable(self, error: str) -> None:
+        """A failed read does not establish that the worker stopped."""
+        with self._lock:
+            self._observation.fail(error)
             self._draw()
 
     def worker_launch(self, receipt: dict) -> None:
@@ -1019,7 +1032,10 @@ class ChatTUI:
                     "/panel", "The terminal is too narrow for the panel; /plan and /tasks show it here."
                 )
             return None
-        self._transcript.info(name, panel.text(name, self._view, self._log))
+        text = panel.text(name, self._view, self._log)
+        if name == "/details":
+            text += "\n\n" + self._observation.details(time.monotonic())
+        self._transcript.info(name, text)
         self._scroll = 0
         return None
 
@@ -1176,11 +1192,15 @@ class ChatTUI:
         context = f"  {self._context}" if self._context else ""
         if context and used + display_width(context) < layout.width:
             self._put(0, used, truncate(context, layout.width - used), self._style("dim"))
-        unavailable = any(row.get("current") and row.get("state") == "unavailable" for row in self._tabs)
+        unavailable = bool(self._observation.error) or any(
+            row.get("current") and row.get("state") == "unavailable" for row in self._tabs
+        )
         cue = verification.cue(self._view, unavailable=unavailable)
         label = "History · last read: " if self._scroll else "Last read: "
         style = self._style("panel-warn" if unavailable else "panel-now")
-        self._put(2, 0, truncate(label + cue, layout.width), style)
+        self._put(
+            2, 0, truncate(label + cue + " | " + self._observation.compact(time.monotonic()), layout.width), style
+        )
         if len(self._tabs) < 2:
             self._put(1, 0, self._glyphs.rule * layout.width, self._style("dim"))
             return
@@ -1234,7 +1254,11 @@ class ChatTUI:
             rows.append(
                 (
                     "panel-title",
-                    f"{section.title.upper()}  {section.summary}".rstrip() if section.title != "Now" else "NOW",
+                    f"{section.title.upper()}  {section.summary}".rstrip()
+                    if section.title != "Now"
+                    else "LAST KNOWN"
+                    if self._observation.error
+                    else "NOW",
                 )
             )
             if section.title == "Now":
@@ -1364,7 +1388,9 @@ class ChatTUI:
         marker = spinner[self._frame % len(spinner)] if spinner else "*"
         reading = self._view is None
         text = (
-            "Reading run status…"
+            "Status unavailable; last snapshot retained"
+            if self._observation.error
+            else "Reading run status…"
             if reading
             else panel.doing(self._view) or self._transcript.activity or "AutoCode is working…"
         )

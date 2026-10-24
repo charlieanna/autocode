@@ -254,6 +254,7 @@ class ChatClient:
         say: Callable[[str], None] = print,
         poll_seconds: float = POLL_SECONDS,
         observe: Callable[[dict], None] | None = None,
+        unavailable: Callable[[str], None] | None = None,
         wait: Callable[[float], str | None] | None = None,
         stream: Callable[[str | None], None] | None = None,
         execution: dict | None = None,
@@ -266,6 +267,7 @@ class ChatClient:
         self.poll_seconds = poll_seconds
         # A renderer's view of the run, and its wait between polls; "pause" asks for the view's pause.
         self._observe = observe
+        self._unavailable = unavailable
         self._wait = wait or (lambda seconds: time.sleep(seconds))
         self._stream = stream  # the reply AutoCode is writing, as the view streams it; the line chat skips it
         # Chats opened earlier this session, by run: (workspace, what each last waited on), so that one
@@ -358,6 +360,8 @@ class ChatClient:
             if key == current:
                 self._status_serial += 1
                 self._status_error = error
+                if error and self._observe is not None and self._unavailable is not None:
+                    self._unavailable(error)
                 if view is not None:
                     self._status_view = view
                     self.accept_status(view)
@@ -1452,7 +1456,13 @@ def cli(argv: list[str] | None = None) -> int:
         ui = terminal_ui(force_line=args.line)
         ask, say = (ui.ask, ui.say) if ui is not None else (input, print)
         seen = (
-            {"observe": ui.observe, "wait": ui.wait, "stream": ui.stream, "launched": ui.worker_launch}
+            {
+                "observe": ui.observe,
+                "unavailable": ui.status_unavailable,
+                "wait": ui.wait,
+                "stream": ui.stream,
+                "launched": ui.worker_launch,
+            }
             if ui is not None
             else {}
         )
