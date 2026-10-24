@@ -550,6 +550,9 @@ class ChatTUI:
         # The client's own commands (/diff, /undo), and one of them waiting for the person's yes.
         self._act: Callable[[str, str], str | panel.Confirm | attention.Menu] | None = None
         self._run_open = True  # whether a chat is open: the run-only commands wait for one
+        # Whether the bound act is a chat client's (bind run=True): a tab that Ctrl-T opened has no run
+        # yet, but that client still serves /tab, so leaving it is allowed (#1997).
+        self._client_bound = False
         self._tabs: list[dict] = []  # the session's chats from the client, drawn once there are two
         self._pending: panel.Confirm | None = None
         self._queued: list = []  # keys read while telling an escape key from a paste
@@ -694,11 +697,13 @@ class ChatTUI:
 
     def _tab_key(self, step: str, asking: bool) -> str | None:
         """Ctrl-T opens a new chat, Ctrl-←/→ the next or previous tab; at a question only, as /new and
-        /tab, so a step is never left running unwatched. Before a chat Ctrl-T answers as /new does there."""
+        /tab, so a step is never left running unwatched. Before a chat Ctrl-T answers as /new does there.
+        A tab Ctrl-T opened, whose request is not sent yet, leaves nothing running: it can be left (#1997)."""
         name, argument = ("/new", "") if step == "new" else ("/tab", step)
         if name == "/new" and asking and self._act is not None and not self._run_open:
             return self._run(name, asking)
-        if (not asking and not self._can_detach()) or self._act is None or not self._run_open:
+        draft = self._draft_tab(asking)
+        if not draft and ((not asking and not self._can_detach()) or self._act is None or not self._run_open):
             if self._restored_session and self._view is None:
                 self._transcript.info(name, "Reading this tab's current status; try switching again once it arrives.")
                 return None
@@ -763,6 +768,7 @@ class ChatTUI:
         with self._lock:
             self._act = act
             self._run_open = run
+            self._client_bound = run
 
     def stream(self, text: str | None) -> None:
         """The reply AutoCode is writing now, from the view's streaming message; None once it is done."""
@@ -812,6 +818,11 @@ class ChatTUI:
         with self._lock:
             self._launch_execution = receipt.get("execution")
             self._draw()
+
+    def _draft_tab(self, asking: bool) -> bool:
+        """The client's tab that Ctrl-T opened, its request not sent yet: no run, nothing running, so
+        /tab (and the tab keys) may leave it; before any chat there is no client and no other tab (#1997)."""
+        return asking and self._client_bound and not self._run_open
 
     def _can_detach(self) -> bool:
         execution = self._launch_execution or (self._view or {}).get("execution") or {}
@@ -1053,7 +1064,11 @@ class ChatTUI:
         word, _, argument = text.strip().partition(" ") if text.startswith("/") else ("", "", "")
         word = word.lower()
         available = panel.commands(
-            asking=asking, client=self._act is not None, run=self._run_open, detachable=self._can_detach()
+            asking=asking,
+            client=self._act is not None,
+            run=self._run_open,
+            detachable=self._can_detach(),
+            draft=self._draft_tab(asking),
         )
         menu = self._menu(asking)
         if word and not text.startswith("//"):
@@ -1155,7 +1170,11 @@ class ChatTUI:
         return panel.matching(
             text,
             panel.commands(
-                asking=asking, client=self._act is not None, run=self._run_open, detachable=self._can_detach()
+                asking=asking,
+                client=self._act is not None,
+                run=self._run_open,
+                detachable=self._can_detach(),
+                draft=self._draft_tab(asking),
             ),
         )
 

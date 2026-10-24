@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- In the terminal chat, the tab Ctrl-T opens can be left with Ctrl-←/→ or `/tab` before its
+  request is sent; before, it answered "Tabs switch once a chat is open" and only `ctrl-d`
+  led out of it. Tabs with an open chat keep the rule that a working step is never left
+  unwatched (#1997).
 - Terminal attention survives viewer restarts with shared local read receipts.
   F8 or `/attention` inspects current decisions and distinct same-chat completions
   without advancing tasks or losing drafts; empty JSON run inventories remain
