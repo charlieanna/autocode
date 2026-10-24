@@ -29,6 +29,21 @@ def view(run, context, *, durable=True):
 
 
 class PerRunContext(unittest.TestCase):
+    def test_restored_draft_does_not_claim_switch_capability_before_fresh_status(self):
+        ui = screen_ui()
+        ui.set_context(WORKSPACE, A)
+        ui.observe(view(A, "a1"))
+        ui.switch(WORKSPACE, B)
+        ui.switch(WORKSPACE, A)
+        act = Mock(return_value="Selected")
+        ui.bind(act)
+        ui._tab_key("next", asking=False)
+        act.assert_not_called()
+        self.assertIn("current status", ui._transcript.blocks[-1][1])
+        ui.observe(view(A, "a1"))
+        ui._tab_key("next", asking=False)
+        act.assert_called_once()
+
     def test_unavailable_selected_run_keeps_navigation_without_reusing_action_authority(self):
         client = chat.ChatClient(WORKSPACE, B, say=Mock(), ask=Mock(return_value="yes"))
         self.addCleanup(client.close)

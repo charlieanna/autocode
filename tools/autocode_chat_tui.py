@@ -646,6 +646,9 @@ class ChatTUI:
         if name == "/new" and asking and self._act is not None and not self._run_open:
             return self._run(name, asking)
         if (not asking and not self._can_detach()) or self._act is None or not self._run_open:
+            if self._restored_session and self._view is None:
+                self._transcript.info(name, "Reading this tab's current status; try switching again once it arrives.")
+                return None
             why = "a chat is open" if not self._run_open else "AutoCode asks you something (or after /pause)"
             self._transcript.info(name, f"Tabs switch once {why}.")
             return None
