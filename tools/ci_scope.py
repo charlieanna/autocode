@@ -39,6 +39,7 @@ PLATFORM = (
     "tools/provider_conformance",
     "tools/autocode_tool_containment",
     "tools/autocode_toolchain",
+    "tools/autocode_python_entrypoints",
     "tools/autocode_elf_dependencies",
     "tools/autocode_util.py",
     "tools/providers/",

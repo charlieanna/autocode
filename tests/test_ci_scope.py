@@ -62,6 +62,7 @@ class ScopeTests(unittest.TestCase):
             "tools/autocode_session_boundary.py",
             "tools/autocode_supervision_keeper.py",
             "tools/autocode_provider_launch.py",
+            "tools/autocode_python_entrypoints.py",
             "tools/providers/command.py",
         ):
             with self.subTest(path=path):

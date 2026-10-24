@@ -23,6 +23,49 @@ DENIED = (
 
 @unittest.skipUnless(NATIVE_PROBLEM is None, f"requires a real kernel sandbox: {NATIVE_PROBLEM}")
 class SelectedToolchainTests(unittest.TestCase):
+    def test_pytest_console_runs_real_assertions_and_keeps_file_denials(self):
+        if not shutil.which("pytest"):
+            self.skipTest("requires the installed pytest console entry point")
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory).resolve()
+            root = home / "project"
+            root.mkdir()
+            outside = home / "outside"
+            outside.write_text("private fixture")
+            source = root / "test_good.py"
+            contents = (
+                "from pathlib import Path\nimport pytest\n"
+                "def test_assertion():\n    assert 2 + 3 == 5\n"
+                "def test_outside_read_is_denied():\n"
+                f"    with pytest.raises(OSError): Path({str(outside)!r}).read_text()\n"
+                "def test_source_write_is_denied():\n"
+                "    with pytest.raises(OSError): Path(__file__).write_text('changed')\n"
+            )
+            source.write_text(contents)
+            (root / "test_bad.py").write_text("def test_failure():\n    assert 1 == 2\n")
+            subprocess.run(["/usr/bin/git", "init", "--quiet", str(root)], check=True)
+            selected = toolchain.discover(root, ["pytest -q test_good.py"], os.environ)
+            boundary = containment.prepare(
+                root, read_roots=selected["read_roots"], links=selected["links"], environment=os.environ
+            )
+            for command in selected["probes"]:
+                result = subprocess.run(
+                    [boundary["shell"], "-c", command], cwd=root, capture_output=True, text=True, timeout=30
+                )
+                self.assertEqual(0, result.returncode, (command, result.stderr))
+            for name, code, message in (("good", 0, "3 passed"), ("bad", 1, "1 failed")):
+                command = (
+                    "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 "
+                    f"pytest -q -p no:cacheprovider test_{name}.py"
+                )
+                result = subprocess.run(
+                    [boundary["shell"], "-c", command], cwd=root, capture_output=True, text=True, timeout=30
+                )
+                self.assertEqual(code, result.returncode, (result.stdout, result.stderr))
+                self.assertIn(message, result.stdout)
+            self.assertEqual(contents, source.read_text())
+            self.assertEqual("private fixture", outside.read_text())
+
     def test_selected_git_node_and_go_run_without_outside_read_or_source_write(self):
         if not all(shutil.which(name) for name in ("git", "node", "npm", "go")):
             self.skipTest("requires installed Git, Node/npm and Go")
