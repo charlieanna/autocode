@@ -109,7 +109,7 @@ def _rows(value) -> list[dict]:
 # names, /runs, /open and /new through the run lists (`autocode runs --json`), /mode, /engine and
 # /connect through `modes list --json` and `connections list --json` (autocode_chat_setup).
 CLIENT_COMMANDS = ("/diff", "/undo", "/runs", "/open", "/new", "/tab", "/mode", "/engine", "/connect")
-# Those that leave the run being talked to, so only at a question: never with AutoCode working unseen.
+# Leaving a working run requires its current durable-detach capability.
 SWITCHING_COMMANDS = ("/open", "/new", "/tab")
 
 
@@ -129,6 +129,7 @@ def commands(*, asking: bool, client: bool = True, run: bool = True, detachable:
     hidden = {"/pause"} if asking else {"/quit", "/undo", *SWITCHING_COMMANDS}
     if detachable:
         hidden.discard("/quit")
+        hidden.difference_update(SWITCHING_COMMANDS)
     if not client:
         hidden.update(CLIENT_COMMANDS)
     if not run:

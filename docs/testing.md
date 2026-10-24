@@ -23,6 +23,21 @@ does not qualify PTY/SSH survival. The job uploads public-view and input-latency
 evidence under `.scenario-runs/worker-host`. Production admission changes no host
 service or login setting. No model account or paid provider is used by this job.
 
+The active-switch case uses the same real terminal helper with two public task
+runs: A holds an accepted Builder while B waits for exact plan approval. It
+opens B during work, keeps a Unicode draft and cursor across tab switches,
+cancels a local new-request composer back to A, and lets A finish while B's
+draft stays focused. Public status verifies A's original controller, B's
+unchanged approval context and attempts, and the final completion. Screen
+captures and the measured active-tab switch sample are fixture evidence, not
+model-completion timings or a 25-run responsiveness claim.
+
+`tests.test_chat_context` supplies fast deterministic coverage for per-run
+scroll/filter choices, resize, identical titles and cross-project history,
+changed questions, invalidated confirmations, bounded session retention and
+unavailable-run navigation. Pending decisions always require a fresh view;
+session context is display data rather than cached authority.
+
 AutoReview generation pins contract/task identity and reviewer-owned finding IDs
 in each attempt's schema. Report-only repairs receive the original executed
 commands and exit codes; normal evidence validation still applies. Repairs cannot

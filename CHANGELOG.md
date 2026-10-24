@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Durable TUI chats can switch tabs during work and keep separate session
+  drafts, cursors, history position and log/panel choices. Reopening a tab reads
+  fresh status before a decision; unavailable targets remain navigable (#1989).
+
 - Opt-in durable local TUI runs use an existing persistent Linux user service.
   Viewers can detach and reconnect while the ordinary core worker continues;
   repeated Ctrl-C requests only a boundary pause. Launch receipts reconcile lost

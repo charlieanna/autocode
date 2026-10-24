@@ -52,6 +52,7 @@ from datetime import datetime
 from pathlib import Path
 
 try:
+    from . import autocode_chat_context as contexts
     from . import autocode_chat_panel as panel
     from . import autocode_chat_polling as polling
     from . import autocode_chat_setup as setup
@@ -59,6 +60,7 @@ try:
     from . import autocode_client_actions as actions
     from . import autocode_events_command as events
 except ImportError:
+    import autocode_chat_context as contexts
     import autocode_chat_panel as panel
     import autocode_chat_polling as polling
     import autocode_chat_setup as setup
@@ -289,7 +291,11 @@ class ChatClient:
         self.restore_requests: dict[str, str] = {}  # one stable id per step, so a retried restore reconciles
         # /runs, /open and /new: the project's chats, and how a new one starts (start flags, run options).
         self.history: History | None = None
-        self.switched: Callable[[Path, Path], None] | None = None  # the renderer starts the new chat's screen
+        self.switched: Callable[[Path, Path | None], bool | None] | None = (
+            None  # true if renderer restored its transcript
+        )
+        self._display_contexts = contexts.Contexts()
+        self._composing_new = False
         self._poller = polling.StatusPoller(self.command, env=self.env)
         self._status_view: dict | None = None
         self._status_serial = 0
@@ -532,13 +538,15 @@ class ChatClient:
     def slash(self, name: str, argument: str):
         """``/diff`` and ``/undo`` from the full-screen chat: what to show, or a question to confirm first.
         ``/runs``, ``/open`` and ``/new`` go to the project's chats; opening one leaves this run as it is."""
+        if name == "/new" and self._composing_new:
+            return "You are already writing a new request. Enter it to start, or leave it empty to return."
         if name == "/tab":
             return self.tab(argument)
         if name in ("/runs", "/open", "/new", "/mode", "/engine", "/connect"):
             if self.history is None:
                 return "This chat has no project list."
             try:
-                return self.history.slash(name, argument, current=self.run_dir)
+                return self.history.slash(name, argument, current=None if self._composing_new else self.run_dir)
             except Opened as opened:
                 self.talk_to(Path(opened.row.get("workspace") or self.workspace), Path(opened.row["run_dir"]))
                 raise Switched from None
@@ -652,20 +660,44 @@ class ChatClient:
     # ---- the conversation ------------------------------------------------------------------
 
     def talk_to(self, workspace: Path, run_dir: Path) -> None:
-        """Carry on with another run: its whole conversation is shown afresh. The chat left is watched."""
+        """Restore another run's session display, then refresh its authority. Watch the run left."""
+        self._display_contexts.keep(
+            contexts.identity(self.workspace, self.run_dir),
+            {
+                "seen": set(self.seen),
+                "said": set(self.said),
+                "started": self.started,
+                "last_line": self.last_line,
+                "last_notice": self.last_notice,
+                "last_progress": self.last_progress,
+                "replied_context": self._replied_context,
+            },
+        )
         self.others[str(self.run_dir)] = (self.workspace, self.identity)
         known = self.others.pop(str(run_dir), None)
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
         self.seen, self.said, self.started, self.last_line, self.last_notice = set(), set(), False, (), None
         self.last_progress = None
         self._status_view, self._status_error = None, ""
+        self._replied_context = None
+        self._pause_pending = False  # an unsubmitted keyboard request cannot transfer to another run
+        self._live_text, self._live_quiet = None, 0
         # A tab keeps the state last read for it until status() reads it again, so the tabs drawn below never
         # show a chat that waits for the person as working (#1757); a chat not seen before has none yet.
         self.identity = known[1] if known else None
         if str(self.run_dir) not in self.tab_order:
             self.tab_order.append(str(self.run_dir))
         if self.switched is not None:
-            self.switched(self.workspace, self.run_dir)
+            restored = self.switched(self.workspace, self.run_dir)
+            saved = self._display_contexts.get(contexts.identity(self.workspace, self.run_dir)) if restored else None
+            if saved:
+                self.seen, self.said, self.started = saved["seen"], saved["said"], saved["started"]
+                self.last_line, self.last_notice, self.last_progress = (
+                    saved["last_line"],
+                    saved["last_notice"],
+                    saved["last_progress"],
+                )
+                self._replied_context = saved["replied_context"]
         else:
             self.say(f"\n--- {self.run_dir.name} ---")
         self.show_tabs()
@@ -720,9 +752,22 @@ class ChatClient:
     def new_chat(self) -> None:
         """/new: ask for a request and start a run; nothing typed keeps the current chat."""
         new = self.history.new if self.history is not None else setup.NewChat()
-        if self.history is not None:
-            self.say(self.history.summary())
-        brief = self.ask("What do you want done? ")
+        observer, old_workspace, old_run = self._observe, self.workspace, self.run_dir
+        switched = False
+        self._observe, self._composing_new = None, True
+        if self.switched is not None:
+            self.switched(self.workspace, None)  # a local draft, no fabricated core run identity
+        try:
+            if self.history is not None:
+                self.say(self.history.summary())
+            brief = self.ask("What do you want done? ")
+        except Switched:
+            switched = True  # /open during drafting selected a real run
+            return
+        finally:
+            self._observe, self._composing_new = observer, False
+            if not switched and self.switched is not None:
+                self.switched(old_workspace, old_run)
         if not brief:
             self.say("Nothing started; this chat carries on.")
             return
@@ -784,7 +829,15 @@ class ChatClient:
 
     def step(self) -> int | None:
         """Act on one status view; an exit code once the chat ends here."""
-        view = self.status()
+        try:
+            view = self.status()
+        except actions.ClientGap as error:
+            # A removed/unreadable target must remain navigable. This prompt
+            # cannot submit a task action or use an earlier view's authority.
+            self.say(f"Status unavailable for {self.run_dir.name}: {error}")
+            if self.ask("Enter retries status; /runs, /open or /tab selects another chat: "):
+                self.say("Nothing sent; current status is required before a task decision.")
+            return None
         self.show(view)
         if view.get("done"):
             if not self.follow_up(view):

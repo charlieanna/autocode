@@ -8,7 +8,7 @@ if [[ "${GITHUB_ACTIONS:-}" != "true" || "${RUNNER_OS:-}" != "Linux" ]]; then
 fi
 
 sudo apt-get update -q
-sudo apt-get install -y -q bubblewrap libseccomp2 openssh-server
+sudo apt-get install -y -q bubblewrap libseccomp2 openssh-server tmux
 if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
   sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 fi

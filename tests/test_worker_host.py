@@ -22,11 +22,14 @@ if sys.platform == "linux":
     import pty
     import termios
 
+import autocode_chat_client as chat
 import autocode_client_actions as actions
 import autocode_taskrun as taskrun
 import autocode_worker_service as services
 
+from tests.terminal_screen import TerminalScreen, require_tmux
 from tests.test_agent_step import fixture_workspace
+from tests.test_chat_screens import composer_text
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -114,8 +117,8 @@ class PersistentHost(unittest.TestCase):
         finally:
             os.close(descriptor)
 
-    def start(self):
-        destination = self.workspace / ".autocode" / "runs" / "durable-host"
+    def start(self, name="durable-host"):
+        destination = self.workspace / ".autocode" / "runs" / name
         self.run, receipt = taskrun.TaskRun.start_durable(
             self.workspace,
             destination,
@@ -391,6 +394,61 @@ class PersistentHost(unittest.TestCase):
             self.assertFalse((self.workspace / "greet.py").exists())
         finally:
             os.close(leader)
+
+    def test_active_tabs_keep_drafts_and_the_original_builder_running(self):
+        self.start("waiting-plan")
+        waiting, plan = self.run, self.plan()
+        waiting_attempts = self.attempts(plan)
+        self.hold("terra")
+        self.start()
+        self.dispatch(self.plan())
+        building = self.at_stage("terra")
+        rows = chat.History(self.workspace, command=CORE, env=self.env).list()
+        number = next(index for index, row in enumerate(rows, 1) if row["run_dir"] == str(waiting.run_dir))
+        screen = TerminalScreen(
+            [*CORE, "chat", "--workspace", str(self.workspace), "--run-dir", str(self.run.run_dir)],
+            cwd=self.workspace,
+            env=self.env,
+            cols=120,
+            rows=34,
+            tmux=require_tmux(self),
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for("ctrl-d detaches")
+        screen.type(f"/open {number}")
+        screen.keys("Enter")
+        screen.wait_for("Approve this plan")
+        screen.type("B draft 你好")
+        screen.keys("Left")
+        switched_at = time.monotonic()
+        screen.keys("C-Left")
+        screen.wait_for(lambda shown: "ctrl-d detaches" in shown and composer_text(shown) == "")
+        self.evidence.append({"active_tab_switch_ms": (time.monotonic() - switched_at) * 1000})
+        self.assertEqual(building["execution"]["controller_epoch"], self.run.status()["execution"]["controller_epoch"])
+        screen.type("A unsent draft")
+        screen.keys("C-t")
+        screen.wait_for("What do you want done?")
+        self.assertEqual("", composer_text(screen.text()))
+        screen.keys("Enter")  # cancel the local new-request composer
+        screen.wait_for(lambda shown: "ctrl-d detaches" in shown and composer_text(shown) == "A unsent draft")
+        screen.keys("C-Right")
+        screen.wait_for(lambda shown: "Approve this plan" in shown and composer_text(shown) == "B draft 你好")
+        screen.type("X")
+        shown = screen.wait_for(lambda shown: composer_text(shown) == "B draft 你X好")
+        self.evidence.append({"terminal_active_switch": shown})
+        self.release("terra")
+        self.wait(lambda value: value.get("done"))
+        shown = screen.wait_for("Another chat finished")
+        self.assertEqual("B draft 你X好", composer_text(shown), "completion must not steal the other run's draft")
+        current = waiting.status()
+        self.assertEqual(self.attempts(current), waiting_attempts)
+        self.assertEqual(plan["chat"]["context"], current["chat"]["context"])
+        self.assertEqual(building["execution"]["controller_epoch"], self.run.status()["execution"]["controller_epoch"])
+        screen.keys("C-u")
+        screen.type("/quit")
+        screen.keys("Enter")
+        self.assertEqual(2, screen.exit_status())
+        self.assertTrue(self.run.status()["done"])
 
     def test_fresh_full_screen_launch_detaches_and_is_found_through_public_listings(self):
         self.hold("requirements_gather")
