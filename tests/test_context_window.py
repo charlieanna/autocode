@@ -302,6 +302,8 @@ class LaunchTests(unittest.TestCase):
     def test_an_ordinary_kilo_launch_turns_automatic_compaction_off(self):
         config = Path(__file__).resolve().parents[1] / "tools/providers/configs/kilocode.toml"
         provider = KiloProvider(tomllib.loads(config.read_text()), config)
+        # The native variant preflight asks the installed Kilo; it is not what this test is about.
+        self.enterContext(patch.object(provider, "validate_effort"))
         for given, expected in (
             (None, {"auto": False}),
             ({"compaction": {"auto": True, "buffer": 1000}, "plugin": []}, {"auto": False, "buffer": 1000}),
