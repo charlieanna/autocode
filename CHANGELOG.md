@@ -196,6 +196,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The live agent log shows one line per kind of opaque streaming receipt, with the parts it stands
+  for, instead of a row per part. A backend that sends no reasoning text filled the pane with identical
+  "text unavailable" lines and buried the tool calls `/live` exists to show (#1999, #2002).
+
 - A number typed at a pause's yes/no that only *prose* tells the person to raise no longer vanishes. The
   time-limit pause reached through an AutoResolver hold names a plain `--resume-paused` and advertises no
   `--max-seconds` entry, so typing the total it asked for was consumed as a decline and the run stayed
