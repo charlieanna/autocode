@@ -33,6 +33,24 @@ def listing(inbox, *rows, started=0):
 
 
 class InboxTests(unittest.TestCase):
+    def test_current_prompt_is_not_duplicated_but_background_and_new_draft_notices_remain(self):
+        said = Mock()
+        client = chat.ChatClient(WORKSPACE, RUN, say=said)
+        self.addCleanup(client.close)
+        client._poller.tick = Mock(return_value=[])
+        client._attention.notifications = Mock(return_value=[row()])
+        client.poll()
+        said.assert_not_called()
+        self.assertIsNone(client._status_view, "notification filtering cannot synthesize a task view")
+        client._composing_new = True
+        client.poll()
+        self.assertIn("New attention:", said.call_args.args[0])
+        said.reset_mock()
+        client._composing_new = False
+        client._attention.notifications.return_value = [row(run_dir=str(RUN.with_name("another")))]
+        client.poll()
+        self.assertIn("New attention:", said.call_args.args[0])
+
     def test_restart_restores_unread_silently_then_a_new_decision_notifies_once(self):
         inbox = attention.Inbox()
         listing(inbox, row())

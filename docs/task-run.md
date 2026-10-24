@@ -647,8 +647,11 @@ identity service, notification service or workspace-owned acknowledgement file.
 The TUI's F8 or `/attention` drawer restores current saved alerts, including after
 a viewer restart. Cold-start inventory is silent; a newly observed unread ID is
 announced once in that viewer's current bounded cohort. An acknowledged item
-stays inspectable while current but does not announce again. This is not a
-universal exactly-once alarm guarantee across independently running viewers.
+stays inspectable while current but does not announce again. The selected run
+uses its own prompt and the global unread badge. Background runs and the prior
+run while composing a local new-chat draft receive the notice. Independently
+running viewers may each announce a newly observed item; delivery is not a
+universal exactly-once alarm guarantee.
 Resolved/superseded items disappear from current inventory; this is not an alert
 history journal. Unread storage is durable, while delivery of a notice is an
 observation. Completion says to inspect evidence, not that current delivery passed.

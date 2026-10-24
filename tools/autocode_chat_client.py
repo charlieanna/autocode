@@ -397,7 +397,8 @@ class ChatClient:
         if self.attention_changed is not None:
             self.attention_changed(self._attention.summary())
         for row in self._attention.notifications():
-            self.say("New attention: " + attention.label(row) + ". F8 or /attention opens the inbox.")
+            if attention.key(row) != current or self._composing_new:
+                self.say("New attention: " + attention.label(row) + ". F8 or /attention opens the inbox.")
 
     def status(self) -> dict:
         # An approval/message check always starts a new read, after the person's input.
