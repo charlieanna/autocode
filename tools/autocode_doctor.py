@@ -249,9 +249,9 @@ LOGINS = {
 
 
 def route_check(name: str, workspace: Path | None, resolve=autocode_providers.resolve) -> Check:
-    """Every role's default model must be in the provider's model list: the check a new run makes
-    before its first model call (model_catalogue.choose). A list that cannot be read only warns,
-    since a run then starts anyway."""
+    """Every route a new run takes must be in the provider's model list: the profile's own defaults,
+    or the routes automatic selection replaces them with (model_catalogue.route_advice). A list that
+    cannot be read only warns, since a run then starts anyway."""
     try:
         provider = resolve(name)
         available = provider.available_models(workspace)
@@ -264,9 +264,24 @@ def route_check(name: str, workspace: Path | None, resolve=autocode_providers.re
         )
     if available is None:
         return Check("routes", OK, f"provider {name} does not list its models; its routes are not checked")
-    missing = model_catalogue.advise(model_catalogue.default_roles(provider), available)["missing"]
+    routes = model_catalogue.route_advice(provider, available, workspace)
+    missing = routes["missing"]
     if not missing:
-        return Check("routes", OK, f"{name} offers every role's default model")
+        if routes["source"] != "selection":
+            return Check("routes", OK, f"{name} offers every role's default model")
+        moved = "; ".join(
+            f"{model_catalogue.ROLES[role][0]}: {seed} -> {taken}" for role, (seed, taken) in routes["replaced"].items()
+        )
+        return Check(
+            "routes",
+            OK,
+            f"{name} offers every route a new run takes"
+            + (
+                f"; automatic selection replaces the profile's fallback for {moved}"
+                if moved
+                else "; the profile's own routes are only that fallback"
+            ),
+        )
     by_model: dict[str, list[str]] = {}
     for role, model in missing.items():
         by_model.setdefault(model, []).append(model_catalogue.ROLES[role][0])
@@ -275,10 +290,13 @@ def route_check(name: str, workspace: Path | None, resolve=autocode_providers.re
         for prefix, login in LOGINS.items()
         if name == "opencode" and any(model.startswith(prefix) for model in by_model)
     ]
+    gap = f"{name} does not offer: " + "; ".join(f"{model} ({', '.join(labels)})" for model, labels in by_model.items())
+    if routes["reason"]:
+        gap += f", and automatic selection cannot cover it ({routes['reason']})"
     return Check(
         "routes",
         MISSING,
-        f"{name} does not offer: " + "; ".join(f"{model} ({', '.join(labels)})" for model, labels in by_model.items()),
+        gap,
         "; ".join([*fixes, "`autocode models` lists what your plans offer and suggests replacements"]),
     )
 
