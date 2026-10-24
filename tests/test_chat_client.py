@@ -471,6 +471,41 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("Plan not approved", out)
         self.assertEqual([["--approve-plan", "--plan-token", "-"]], client.taken)
 
+    def test_a_model_typed_at_a_stopped_job_names_the_route_instead_of_declining(self):
+        """#2005: a quota stop asked for a model in prose, offered only Continue? [y/N], and read the typed
+        model as a decline. The view names the route answer as a command; the chat takes the model through it."""
+        place = f"--workspace {WORKSPACE} --run-dir {RUN}"
+        view = {
+            "status": "PAUSED_JOB_FAILURE",
+            "pause_category_label": "Model or provider",
+            "needs": {
+                "kind": "retry_job",
+                "reason": "Analyst: the provider reported its quota used up on openai/gpt-6-sol.",
+                "job_retry_token": "jt1",
+                "route": {
+                    "question_id": "route-analyst",
+                    "role": "analyst",
+                    "job": "Analyst",
+                    "cause": "quota",
+                    "stopped_model": "openai/gpt-6-sol",
+                    "command": f"AUTOCODE_JOB_RETRY_TOKEN=jt1 autocode {place} --answer route-analyst=MODEL --job-retry-token -",
+                },
+            },
+            "next_command": f"AUTOCODE_JOB_RETRY_TOKEN=jt1 autocode {place} --resume-paused --retry-failed-stage --job-retry-token -",
+        }
+        client = ScriptedChat(view, DONE, replies=["zai-coding-plan/glm-5.3"])
+        self.assertEqual(0, client.converse())
+        out = client.text()
+        self.assertIn("Continue? [y/N], or type the model to continue on: ", out)
+        self.assertEqual(
+            [["--answer", "route-analyst=zai-coding-plan/glm-5.3", "--job-retry-token", "-"]], client.taken
+        )
+        self.assertIn("Analyst continues on zai-coding-plan/glm-5.3; the retry on it is next.", out)
+        self.assertNotIn("Left as it is", out)
+        plain = ScriptedChat(view, DONE, replies=["y"])
+        self.assertEqual(0, plain.converse())
+        self.assertEqual([["--resume-paused", "--retry-failed-stage", "--job-retry-token", "-"]], plain.taken)
+
     def test_a_refused_pause_leaves_the_interrupt_to_a_second_ctrl_c(self):
         command = ["intervention", "submit", "--workspace", str(WORKSPACE), "--run-dir", str(RUN)]
         command += ["--request-id", "REQUEST_ID", "--kind", "pause", "--json"]

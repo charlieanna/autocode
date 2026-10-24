@@ -1190,7 +1190,12 @@ class ChatClient:
         prompt = "Accept these criteria" if need.get("kind") == "review" else "Continue"
         # On this run, so its paths are left out; an issued token stays out of the terminal too.
         self.say(f"Next it runs: autocode {shlex.join(actions.fill(view, command, answers).argv)}")
-        answer = self.ask(f"{prompt}? [y/N]: ")
+        route = need.get("route") or {}
+        # A stopped job's model question, named by the view as a command (#2005): a typed model takes it.
+        model_command = route.get("command") if need.get("kind") == "retry_job" and route.get("question_id") else None
+        answer = self.ask(f"{prompt}? [y/N]{', or type the model to continue on' if model_command else ''}: ")
+        if model_command and answer.strip() and answer.strip().lower() not in (*YES, "n", "no"):
+            return self.route_model(view, model_command, route, answer.strip())
         if unapplied := actions.unapplied_bound(answer, why, decided):
             self.say(
                 f"'{answer.strip()}' sets nothing: this pause advertises no {unapplied} entry, so a "
@@ -1205,6 +1210,22 @@ class ChatClient:
             self.say("The run changed meanwhile; here is where it stands now.")
             return True
         self.take(actions.fill(fresh, command, answers))
+        return True
+
+    def route_model(self, view: dict, text: str, route: dict, model: str) -> bool:
+        """A model typed at a stopped job's retry: the view's route answer, filled with it (#2005).
+
+        The core issues a new retry token for that model; the retry on it is offered next, as usual.
+        Before this, the typed model was read as a decline and the chat left with the run paused."""
+        command = actions.parse(text, *actions.own(view, self.workspace, self.run_dir))
+        filled = actions.fill(view, command, {route["question_id"]: model})
+        self.say(f"Next it runs: autocode {shlex.join(filled.argv)}")
+        fresh = self.status()
+        if fresh.get("needs") != view.get("needs"):
+            self.say("The run changed meanwhile; here is where it stands now.")
+            return True
+        self.take(filled)
+        self.say(f"\nAutoCode: {route.get('job') or route.get('role')} continues on {model}; the retry on it is next.")
         return True
 
     def follow_up(self, view: dict) -> bool:
