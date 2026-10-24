@@ -25,12 +25,14 @@ from typing import Any
 try:
     from . import autocode_conversation_session as conversation_session
     from . import autocode_operational_change as operational_change
+    from . import autocode_taskrun_worker as worker_driver
     from .autocode_captured_process import ProcessError
     from .autocode_captured_process import run as run_captured
     from .autocode_control_tokens import private_command
 except ImportError:
     import autocode_conversation_session as conversation_session
     import autocode_operational_change as operational_change
+    import autocode_taskrun_worker as worker_driver
     from autocode_captured_process import ProcessError
     from autocode_captured_process import run as run_captured
     from autocode_control_tokens import private_command
@@ -92,6 +94,81 @@ class TaskRun:
     # The CompletedProcess of the latest call that starts or advances the run (also when it was
     # rejected), for a caller that keeps the run's output or exit code. Status reads never replace it.
     last_advance: subprocess.CompletedProcess | None = field(default=None, compare=False, repr=False)
+
+    @classmethod
+    def start_durable(cls, workspace, run_dir, brief, *, options=(), command=AUTOCODE, env=None):
+        """Return (handle, launch receipt) without waiting for the first human gate.
+
+        Only an available core-named persistent Linux mode may be selected. Inspect
+        the receipt until it binds (including effective bootstrap paths), then use
+        ordinary status reads and dispatch_durable for the exact displayed action.
+        Existing start()/advance() keep their synchronous owned-worker semantics.
+        """
+        workspace, run_dir = Path(workspace).resolve(), Path(run_dir).absolute()
+        environment = {**os.environ, **(env or {})}
+        reply = run_process([*command, "modes", "list", "--json"], env=environment)
+        try:
+            modes = json.loads(reply.stdout)["execution"]["modes"]
+            execution = next(row for row in modes if row["id"] == "durable_local")
+            receipt = worker_driver.dispatch(
+                workspace,
+                run_dir,
+                ["--brief", brief, "--in-place", *options],
+                execution=execution,
+                fresh=True,
+                command=command,
+                env=environment,
+                process=run_process,
+            )
+        except (ValueError, KeyError, TypeError, StopIteration, RuntimeError) as error:
+            raise TaskRunError(str(error)) from error
+        run = cls(workspace, run_dir, tuple(command), tuple(options), env)
+        return run, receipt
+
+    def dispatch_durable(self, command, *, view):
+        """Dispatch the exact caller-inspected NamedCommand through this view's transport.
+
+        Returns a launch receipt immediately; it does not claim completion or wait
+        for a model. The core independently fences the checkpoint under its lock.
+        A lost reply grants no repeat, recovery, approval or model substitution.
+        """
+        try:
+            from . import autocode_client_actions as actions
+        except ImportError:
+            import autocode_client_actions as actions
+        if not isinstance(command, actions.NamedCommand):
+            raise TaskRunError("dispatch_durable requires a public NamedCommand")
+        if actions.own(view, self.workspace, self.run_dir) != (self.workspace, self.run_dir):
+            raise TaskRunError("Durable view belongs to another task handle")
+        try:
+            return worker_driver.dispatch(
+                self.workspace,
+                self.run_dir,
+                command.argv,
+                execution=view.get("execution") or {},
+                command=self.command,
+                env={**os.environ, **(self.env or {}), **command.env},
+                process=run_process,
+            )
+        except (ValueError, RuntimeError) as error:
+            raise TaskRunError(str(error)) from error
+
+    def inspect_launch(self, receipt):
+        """Read the receipt's named inspection action; adopts only its bound paths."""
+        expected = ["autocode", "worker", "inspect", receipt.get("launch_id")]
+        if receipt.get("inspect_command") != expected or not isinstance(expected[-1], str):
+            raise TaskRunError("Unsupported worker inspection action")
+        reply = run_process([*self.command, *expected[1:]], env={**os.environ, **(self.env or {})})
+        try:
+            observed = json.loads(reply.stdout)
+            if reply.returncode or observed["launch_id"] != receipt["launch_id"]:
+                raise ValueError("unknown launch")
+            bound = observed.get("binding")
+            if observed.get("ready") and bound:
+                self.workspace, self.run_dir = Path(bound["workspace"]), Path(bound["run_dir"])
+            return observed
+        except (ValueError, KeyError, TypeError):
+            raise TaskRunError("Worker inspection unavailable; no replay is authorized", reply) from None
 
     @classmethod
     def start(

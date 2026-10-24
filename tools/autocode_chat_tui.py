@@ -29,9 +29,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 try:
+    from . import autocode_chat_context as contexts
     from . import autocode_chat_panel as panel
     from . import autocode_chat_verification as verification
 except ImportError:
+    import autocode_chat_context as contexts
     import autocode_chat_panel as panel
     import autocode_chat_verification as verification
 
@@ -466,6 +468,11 @@ class ChatTUI:
         self._screen = None
         self._transcript = Transcript()
         self._composer = Composer()
+        self._contexts = contexts.Contexts()
+        self._context_key: tuple | None = None
+        self._draft_context: tuple | None = None
+        self._restore_context: tuple | None = None
+        self._restored_session = False
         self._prompt = ""
         self._asking = False
         self.idle: Callable[[], None] | None = None
@@ -479,6 +486,7 @@ class ChatTUI:
         self._stopping = threading.Event()
         self._ticker: threading.Thread | None = None
         self._view: dict | None = None
+        self._launch_execution: dict | None = None
         self._log = panel.StageLog()
         self._live = panel.LiveLog()  # what each agent thinks and does, from the view's chat.log
         self._live_on: bool | None = None  # None: shown when the terminal is tall enough and an agent works
@@ -522,8 +530,10 @@ class ChatTUI:
         self._ticker.start()
 
     def set_context(self, workspace: Path, run_dir: Path | None = None) -> None:
-        if self._history_file is None:
-            self._history_file = Path(workspace) / ".autocode" / HISTORY_FILE
+        self._context_key = contexts.identity(workspace, run_dir)
+        history_file = Path(workspace) / ".autocode" / HISTORY_FILE
+        if self._history_file != history_file:
+            self._history_file = history_file
             self._composer.history = read_history(self._history_file)
         self._context = Path(workspace).name
         if run_dir is not None:
@@ -635,20 +645,60 @@ class ChatTUI:
         name, argument = ("/new", "") if step == "new" else ("/tab", step)
         if name == "/new" and asking and self._act is not None and not self._run_open:
             return self._run(name, asking)
-        if not asking or self._act is None or not self._run_open:
+        if (not asking and not self._can_detach()) or self._act is None or not self._run_open:
+            if self._restored_session and self._view is None:
+                self._transcript.info(name, "Reading this tab's current status; try switching again once it arrives.")
+                return None
             why = "a chat is open" if not self._run_open else "AutoCode asks you something (or after /pause)"
             self._transcript.info(name, f"Tabs switch once {why}.")
             return None
         return self._run(name, asking, argument)
 
-    def switch(self, workspace: Path, run_dir: Path) -> None:
-        """The client opened another chat (/open, /new): start its screen afresh, like a new tab."""
+    def switch(self, workspace: Path, run_dir: Path | None) -> bool:
+        """Restore this session's display context, never an old executable view/action."""
         with self._lock:
-            self._transcript = Transcript()
-            self._log = panel.StageLog()
-            self._live = panel.LiveLog()
-            self._view, self._pending, self._scroll, self._launched = None, None, 0, False
+            fields = (
+                "_transcript",
+                "_composer",
+                "_log",
+                "_live",
+                "_scroll",
+                "_launched",
+                "_live_on",
+                "_panel_on",
+                "_prompt",
+                "_draft_context",
+                "_history_file",
+                "_unsaved",
+            )
+            if self._context_key is not None:
+                self._contexts.keep(
+                    self._context_key,
+                    {
+                        **{name: getattr(self, name) for name in fields},
+                        "context": self._draft_identity() or self._restore_context,
+                    },
+                )
+            saved = self._contexts.get(contexts.identity(workspace, run_dir))
+            if saved:
+                for name in fields:
+                    setattr(self, name, saved[name])
+            else:
+                self._transcript, self._composer = Transcript(), Composer()
+                self._log, self._live = panel.StageLog(), panel.LiveLog()
+                self._scroll, self._launched = 0, False
+                self._live_on, self._panel_on = None, None
+                self._prompt, self._draft_context = "", None
+                self._history_file, self._unsaved = None, []
+            self._restore_context = saved["context"] if saved else None
+            self._restored_session = saved is not None
+            # Refresh before offering decisions. Confirm closures and queued keys
+            # from another run must never transfer with a display snapshot.
+            self._view, self._pending, self._queued, self._menu_index = None, None, [], 0
+            self._launch_execution = None
+            self._run_open = run_dir is not None
             self.set_context(workspace, run_dir)
+            return saved is not None
 
     def bind(self, act: Callable[[str, str], str | panel.Confirm], *, run: bool = True) -> None:
         """The client that carries out ``/diff`` and ``/undo``: act(name, argument) returns what to
@@ -675,12 +725,32 @@ class ChatTUI:
                 return
             anchor = self._history_anchor()
             self._view = view
+            self._launch_execution = None
             self._log.observe(view)
             self._live.observe(view)
             if view.get("workspace") and view.get("run_dir"):  # the run the chat talks to, after going back too
+                self._context_key = contexts.identity(view["workspace"], view["run_dir"])
                 self._context = f"{Path(view['workspace']).name} · {Path(view['run_dir']).name}"
             self._keep_history_anchor(anchor)
             self._draw()
+
+    def worker_launch(self, receipt: dict) -> None:
+        """Only the core launch receipt can permit detach before the first status view."""
+        with self._lock:
+            self._launch_execution = receipt.get("execution")
+            self._draw()
+
+    def _can_detach(self) -> bool:
+        execution = self._launch_execution or (self._view or {}).get("execution") or {}
+        return execution.get("mode") == "durable_local" and execution.get("detach_supported") is True
+
+    def _draft_identity(self):
+        current = contexts.draft_identity(self._view)
+        if current is not None:
+            return current
+        if self._context_key is not None and self._context_key[1] is None and not self._run_open:
+            return (*self._context_key, "local-new-request")  # UI data, never a core run/action token
+        return None
 
     def wait(self, seconds: float) -> str | None:
         """The client's pause between polls while AutoCode works: the composer takes ``/`` commands.
@@ -727,12 +797,36 @@ class ChatTUI:
                     curses.beep()  # AutoCode worked and now needs you: the terminal's own alert
             self._transcript.live = ""
             self._transcript.asked = len(self._transcript.blocks)
-            self._prompt = " ".join(prompt.split())
+            prompt = " ".join(prompt.split())
+            current_context = self._draft_identity()
+            keep_context = (
+                self._restored_session
+                and self._restore_context is not None
+                and self._restore_context == current_context
+                and prompt == self._prompt
+            )
+            keep_draft = (
+                bool(self._composer.text)
+                and self._draft_context is not None
+                and self._draft_context == current_context
+                and prompt == self._prompt
+            )
+            if self._composer.text and not keep_draft:
+                self._composer.history = [*self._composer.history, self._composer.text][-HISTORY_LIMIT:]
+                self._transcript.info(
+                    "Earlier draft kept",
+                    "The prompt changed. After checking this question, press Up to recover your earlier draft.",
+                )
+            self._prompt = prompt
             self._asking = True
             self._launched = False
             self._pending = None
-            self._composer.reset()
-            self._scroll = 0
+            if not keep_draft:
+                self._composer.reset()
+            if not keep_context:
+                self._scroll = 0
+            self._restored_session = False
+            self._draft_context = current_context
             self._frame = 0
             self._cursor(1)
         try:
@@ -789,6 +883,8 @@ class ChatTUI:
         composer = self._composer
         if key is None:  # a key curses could not read; redraw and wait
             return None
+        if not composer.text:
+            self._draft_context = self._draft_identity()
         menu = self._menu(asking)
         if not (menu and key in (curses.KEY_UP, curses.KEY_DOWN, "\t")):
             self._menu_index = 0
@@ -843,7 +939,7 @@ class ChatTUI:
         elif key == "\x04":  # Ctrl-D: end of input on an empty line, otherwise delete forward
             if composer.text:
                 composer.delete()
-            elif asking:  # never while AutoCode works: leaving then would leave it running unseen
+            elif asking or self._can_detach():
                 raise EOFError
         elif key == "\x03":  # Ctrl-C keeps the client's pause/interrupt handling
             raise KeyboardInterrupt
@@ -871,7 +967,9 @@ class ChatTUI:
         text = self._composer.text
         word, _, argument = text.strip().partition(" ") if text.startswith("/") else ("", "", "")
         word = word.lower()
-        available = panel.commands(asking=asking, client=self._act is not None, run=self._run_open)
+        available = panel.commands(
+            asking=asking, client=self._act is not None, run=self._run_open, detachable=self._can_detach()
+        )
         menu = self._menu(asking)
         if word and not text.startswith("//"):
             names = [command.name for command in available]
@@ -963,7 +1061,12 @@ class ChatTUI:
             return []
         if any(char.isspace() for char in text):
             return []
-        return panel.matching(text, panel.commands(asking=asking, client=self._act is not None, run=self._run_open))
+        return panel.matching(
+            text,
+            panel.commands(
+                asking=asking, client=self._act is not None, run=self._run_open, detachable=self._can_detach()
+            ),
+        )
 
     def _submit(self) -> str:
         text = self._composer.submit()
@@ -1316,6 +1419,8 @@ class ChatTUI:
             hints = "enter send · / commands · ↑↓ history · pgup/pgdn scroll · ctrl-d quit"
             if not self._glyphs.unicode:
                 hints = "enter send | / commands | up/down history | pgup/pgdn scroll | ctrl-d quit"
+        elif self._can_detach():
+            hints = "/ commands · ctrl-d detaches · ctrl-c asks for a boundary pause"
         elif self._view is None:
             hints = "/ commands · reading run status"
         else:

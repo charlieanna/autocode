@@ -163,6 +163,8 @@ class RunViewTests(unittest.TestCase):
                 "interaction_timing",
                 "conversation",
                 "controller",
+                "execution",
+                "observation",
                 "planning_depth",
                 "changes_by_criterion",
                 "dev_server",

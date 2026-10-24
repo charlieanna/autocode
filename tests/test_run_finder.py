@@ -999,16 +999,18 @@ class InProcessCli(Fixture):
     def test_status_from_the_project_root_shows_the_worktree_run_without_changing_it(self):
         tree, run = self.worktree_run()
         before = (run / "state.json").read_bytes()
-        code, out, err = self.main("--status")
+        with patch("autocode_status_command.util.now", return_value="2026-10-24T00:00:00+00:00"):
+            code, out, err = self.main("--status")
         self.assertEqual(0, code, err)
         view = json.loads(out)
         self.assertEqual((str(run), str(tree)), (view["run_dir"], view["workspace"]))
         self.assertIn(f"Using the saved run {run}", err)
         self.assertNotIn("Using the saved run", out)
         self.assertEqual(before, (run / "state.json").read_bytes())
-        code, explicit, _ = self.main(
-            "--workspace", str(self.project), "--run-dir", str(run), "--status", cwd=self.root
-        )
+        with patch("autocode_status_command.util.now", return_value="2026-10-24T00:00:00+00:00"):
+            code, explicit, _ = self.main(
+                "--workspace", str(self.project), "--run-dir", str(run), "--status", cwd=self.root
+            )
         self.assertEqual(0, code)
         self.assertEqual(view, json.loads(explicit), "the same view as naming the run")
         self.assertEqual(before, (run / "state.json").read_bytes())

@@ -136,8 +136,11 @@ class CliSurfaceTests(unittest.TestCase):
         self.assertIn(("unattended", "--analyze"), paths)
         self.assertEqual(
             {
-                (): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks"}),
-                ("unattended",): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks"}),
+                (): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks", "--worker-receipt"}),
+                ("unattended",): frozenset(
+                    {"--new-run-dir", "--replay-recording", "--replay-checks", "--worker-receipt"}
+                ),
+                ("worker",): frozenset({"--receipt"}),
             },
             commands.INTERNAL_FLAGS,
         )

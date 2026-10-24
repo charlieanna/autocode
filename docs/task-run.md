@@ -444,6 +444,72 @@ boundary, `requested` is true and `next_command` is null. The field is null when
 nothing is working, when the recorded runner cannot consume interventions, and
 for a stopped run. It never interrupts a step in progress or stops the run.
 
+### Durable local workers
+
+Durable execution is an explicit new-run choice. `modes list --json` adds an
+`execution` object with default `owned` and a `durable_local` availability row.
+The latter carries the exact `next_command` argument-array envelope:
+
+```json
+["autocode", "worker", "launch", "--workspace", "WORKSPACE", "--run-dir", "RUN_DIR",
+ "--checkpoint", "CHECKPOINT", "--"]
+```
+
+For a fresh run, fill its absolute selected workspace, fresh immediate run
+destination, and `CHECKPOINT` with `-`; append the ordinary literal new-task
+arguments. Continuing a durable run uses `view.execution.next_command`, whose
+paths and checkpoint are already bound, followed by the existing named action
+and its exact human tokens. No shell is involved. The wrapper owns workspace,
+run-directory and noninteractive flags; do not repeat those inside the action.
+The core checks the checkpoint again under the existing run lock before
+configuration, reconciliation, a new controller epoch or provider dispatch.
+An admitted human answer, feedback, approval or resume keeps that same controller
+in the ordinary loop until the next human boundary; it does not depend on a
+viewer taking another Continue action. Explicit unit stops and inspection
+actions retain their boundaries. Attaching to an idle saved durable run reads
+only: the TUI offers Enter to take its current named Continue action, after
+rechecking that exact boundary. It does not silently dispatch on reconnect.
+
+`worker launch` seals a private launch-intent receipt before calling the service
+manager. The default request ID fingerprints the exact action, checkpoint and
+private authorization-token fingerprints; an explicit `--request-id` may instead
+identify the caller's request. Identical repeats reconcile that one receipt;
+changed content conflicts. A dispatching receipt can never re-arm itself, even
+if the service was collected or its response was lost. `worker inspect ID`
+and `worker launches --workspace PATH [--run-dir PATH]` are read-only. The launch
+reply's `inspect_command` names the inspection action. `ready` acknowledges a
+matching committed run/controller binding; it does not assert worker liveness,
+successful provider execution or task completion. Those remain in normal status.
+
+The first adapter uses an already configured Linux systemd user service, `Type=exec`,
+without a PTY or inherited input/output pipes, persistent private output, no
+automatic restart and existing linger. Admission refuses an unavailable manager,
+systemd before 254, missing linger or editable controller/launch storage inside
+the task workspace. Only the manager's matching MainPID and InvocationID can
+enter the exact receipt on the pinned runtime and host boot. The existing core
+controller, task lock, checkout lock and provider supervision retain ownership.
+Runtime changes, missing run folders and uncertain persistence refuse adoption;
+reboot is interruption, not automatic replay. The launcher never enables a
+service or changes host login policy.
+
+`TaskRun.start_durable(workspace, run_dir, brief, ...)` returns `(run, receipt)`
+without waiting for model completion. `run.inspect_launch(receipt)` reconciles
+its named read and adopts effective bootstrap paths only after binding. Read
+the normal status, retain the action and exact human decision tokens, and call
+`run.dispatch_durable(named_command, view=inspected_view)` to launch one action.
+It returns another receipt. The synchronous `start`/`advance` APIs retain their
+ordinary owned-worker semantics; using them to write a durable run is refused.
+The client driver reads no private task or launch file. Other clients may observe
+a durable run; they need the named worker transport before writing it. An ordinary
+root CLI write is refused rather than silently changing worker lifetime.
+
+`view.observation` contains the selected effective paths, a token for canonical
+committed checkpoint contents and the read's `sampled_at`; it is neither an
+atomic snapshot of every artifact nor action authority. `view.execution` records
+the saved mode, launch ID and controller epoch and, for durable mode, the named
+transport. Service inspection is separate from the existing controller/liveness
+and completion evidence. Legacy absence never implies detach support.
+
 ### Asynchronous viewer direction (#1879; implementation pending)
 
 **Owner-approved direction, implementation pending (2026-10-23).** The owner

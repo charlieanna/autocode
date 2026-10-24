@@ -21,8 +21,9 @@ BUILTIN_COMMANDS = ("capture", "registry", "intervention")
 # Hidden replay plumbing is supplied by TaskRun and the replay driver.
 # Unattended passes ordinary run arguments through the same root parser.
 INTERNAL_FLAGS: dict[tuple[str, ...], frozenset[str]] = {
-    (): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks"}),
-    ("unattended",): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks"}),
+    (): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks", "--worker-receipt"}),
+    ("unattended",): frozenset({"--new-run-dir", "--replay-recording", "--replay-checks", "--worker-receipt"}),
+    ("worker",): frozenset({"--receipt"}),
 }
 
 SUBCOMMANDS = {
@@ -31,6 +32,7 @@ SUBCOMMANDS = {
     "demo": "autocode_demo",
     "conversation": "autocode_conversation_cli",
     "chat": "autocode_chat_client",
+    "worker": "autocode_worker_cli",
     "verify": "autocode_verify_task",
     "issue": "autocode_issue",
     "arena": "autocode_arena",

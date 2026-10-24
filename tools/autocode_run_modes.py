@@ -40,10 +40,15 @@ MODES = (
 
 def view() -> dict:
     """The version-1 run-mode list (docs/task-run.md#run-modes-for-clients)."""
+    try:
+        from . import autocode_worker_cli as worker
+    except ImportError:
+        import autocode_worker_cli as worker
     return {
         "schema_version": SCHEMA_VERSION,
         "default": DEFAULT,
         "modes": [{**mode, "start_args": list(mode["start_args"])} for mode in MODES],
+        "execution": worker.capabilities(),
     }
 
 
