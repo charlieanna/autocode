@@ -1053,9 +1053,10 @@ class ChatClient:
             (view.get("chat") or {}).get("phase") == "requirements"
             and need.get("kind") == "answer"
             and not need.get("route")
+            and not need.get("effort")
         ):
             return self.requirements(view, command)
-        if any(row.kind in ("answer", "model") for row in decided):
+        if any(row.kind in ("answer", "model", "effort") for row in decided):
             return self.answer(view, command, decided)
         return self.confirm(view, command, decided)
 
@@ -1189,6 +1190,22 @@ class ChatClient:
             while not (text := self.ask(f"\nWhich model should {row.key.removeprefix('route-')} continue on? ")):
                 pass
             return text
+        if row.kind == "effort":
+            # A level you named that the model does not offer (#2057): choose one it declares.
+            levels = actions.effort_levels({"needs": need}, row.key)
+            if asked := (row.question or {}).get("question"):
+                self.say(f"\nAutoCode: {asked}")
+            for number, level in enumerate(levels, 1):
+                self.say(f"  {number}. {level}")
+            job = (need.get("effort") or {}).get("job") or row.key.removeprefix("effort-")
+            while True:
+                text = self.ask(f"Which effort should the {job} run at? (1-{len(levels)} or a level) ")
+                if text.isdigit() and 1 <= int(text) <= len(levels):
+                    return levels[int(text) - 1]
+                try:
+                    return actions.effort_value({"needs": need}, row.key, text)
+                except actions.ClientGap as error:
+                    self.say(str(error))
         question = row.question or {}
         asked = (question.get("question") or "").strip()
         if asked not in self.said:

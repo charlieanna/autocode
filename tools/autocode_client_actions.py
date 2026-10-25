@@ -5,8 +5,9 @@ dashboard) takes only the action the status view names: ``view["next_command"]``
 the optional ``view["chat"]["input"]`` message offer and the optional
 ``view["pause"]["next_command"]`` (docs/task-run.md), and a saved code step's
 ``compare`` and ``restore`` actions (``view["code_checkpoints"]``). It fills only the decisions
-the view leaves to a person: a ``QUESTION=ANSWER`` or ``QUESTION=MODEL`` slot, or
-the one typed number a recovery offers. A command the client cannot take from the
+the view leaves to a person: a ``QUESTION=ANSWER`` or ``QUESTION=MODEL`` slot, a
+``QUESTION=EFFORT`` slot limited to the levels ``needs.effort`` declares, or the one
+typed number a recovery offers. A command the client cannot take from the
 view alone is a ``ClientGap``, to fix in the CLI or the view, never to work around
 in the client. These are the rules ``vscode-extension/src/core/next-command.ts``
 and the headless conformance client (``scenarios/harness/conformance.py``) follow;
@@ -29,6 +30,8 @@ UNSUPPLIED = ("GOAL_FILE", "N", "WHAT CHANGED", "TOKEN", "RUN_DIR", "--explain")
 ADVANCING = ("--no-chat", "--resume-paused")
 # Needs that are an honest stop: a person decides, a client may not answer for them.
 PERSON_ONLY_KINDS = ("resume", "retry_job", "recover_source")
+# A person's words for ``QUESTION=PLACEHOLDER`` in a named command, and the decision each is.
+PLACEHOLDERS = {"ANSWER": "answer", "MODEL": "model", "EFFORT": "effort"}
 # Resolver scopes that stop the run because it could not continue safely.
 PERSON_ONLY_SCOPES = ("blocker", "operational_exhaustion")
 MAX_SAFE_INTEGER = 9007199254740991
@@ -88,7 +91,7 @@ class Decision:
     """A slot the named command leaves for a person to fill."""
 
     key: str  # the question id, or the typed input's id
-    kind: str  # "answer", "model" or "integer"
+    kind: str  # "answer", "model", "effort" or "integer"
     question: dict | None = None  # the needs.questions row an answer slot names
     integer: dict | None = None  # the needs.command_inputs row an integer slot names
 
@@ -301,9 +304,32 @@ def decisions(view: dict, command: NamedCommand) -> list[Decision]:
     found = [Decision(row["id"], "integer", integer=row) for row in integer_inputs(view, command)]
     for word in command.argv:
         key, separator, placeholder = word.partition("=")
-        if separator and placeholder in ("ANSWER", "MODEL"):
-            found.append(Decision(key, "model" if placeholder == "MODEL" else "answer", question=questions.get(key)))
+        if separator and placeholder in PLACEHOLDERS:
+            found.append(Decision(key, PLACEHOLDERS[placeholder], question=questions.get(key)))
     return found
+
+
+def effort_levels(view: dict, key: str) -> list[str]:
+    """The levels an ``effort-ROLE=EFFORT`` slot may take: the ones its model declares (#2057)."""
+    effort = (view.get("needs") or {}).get("effort") or {}
+    declared = effort.get("declared")
+    if (
+        effort.get("question_id") != key
+        or not isinstance(declared, list)
+        or not declared
+        or not all(isinstance(level, str) and level for level in declared)
+    ):
+        raise ClientGap(f"{key} asks for an effort the status view does not describe")
+    return list(declared)
+
+
+def effort_value(view: dict, key: str, text: str) -> str:
+    """A level a person chose for ``key``, one its model declares."""
+    levels = effort_levels(view, key)
+    chosen = text.strip().lower()
+    if chosen not in levels:
+        raise ClientGap(f"Choose one of {', '.join(levels)}")
+    return chosen
 
 
 def unsupplied(view: dict, command: NamedCommand) -> str | None:
@@ -337,10 +363,11 @@ def fill(view: dict, command: NamedCommand, answers: dict[str, str]) -> NamedCom
         if word in UNSUPPLIED:
             raise ClientGap(f"the command leaves {word} open, which the status view does not supply")
         key, separator, placeholder = word.partition("=")
-        if separator and placeholder in ("ANSWER", "MODEL"):
+        if separator and placeholder in PLACEHOLDERS:
             if key not in answers:
                 raise ClientGap(f"{key} is a decision for a person; none was given")
-            word = f"{key}={answers[key]}"
+            value = effort_value(view, key, answers[key]) if placeholder == "EFFORT" else answers[key]
+            word = f"{key}={value}"
         filled.append(word)
     return NamedCommand(filled, dict(command.env))
 

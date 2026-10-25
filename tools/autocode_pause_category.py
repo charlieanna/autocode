@@ -39,6 +39,7 @@ STATUS_GROUPS = MappingProxyType(
                 "PAUSED_DESIGN_INPUT",
                 "PAUSED_DESIGN_INPUT_CHANGED",
                 "PAUSED_DESIGN_REFERENCE",
+                "PAUSED_EFFORT_UNSUPPORTED",
                 "PAUSED_GOAL_UNAPPROVED",
                 "PAUSED_INTERFACE_CHANGE",
                 "PAUSED_INTERVENTION",

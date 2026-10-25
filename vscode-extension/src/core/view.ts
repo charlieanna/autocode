@@ -24,6 +24,8 @@ export interface Needs {
   resolver_request_id?: string;
   request_id?: string;
   route?: Route;
+  /** A level a person named that the model does not declare (#2057): the levels it does. */
+  effort?: EffortNeed;
   retry_action?: string;
   job_retry_token?: string;
   new_run_required?: boolean;
@@ -70,6 +72,16 @@ export interface Route {
   cause?: string;
   stopped_model?: string;
   candidates?: string[];
+}
+
+export interface EffortNeed {
+  question_id: string;
+  role: string;
+  job?: string;
+  model?: string;
+  requested?: string;
+  declared: string[];
+  nearest?: string | null;
 }
 
 export interface Progress {

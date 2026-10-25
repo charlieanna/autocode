@@ -704,6 +704,25 @@ class TaskRun:
             self.options = tuple(options)
         return view
 
+    def assign_effort(self, role: str, effort: str) -> dict:
+        """Choose a level the model declares for a role whose named effort it does not (``needs.effort``, #2057).
+
+        The same answer as ``--answer effort-ROLE=EFFORT``: AutoCode refuses a level the model does not
+        declare and leaves the run paused. It saves without launching; continue with resume_paused().
+        A ``--<role>-reasoning-effort`` in ``options`` is updated, so advancing never passes the old level back.
+        """
+        view = self._act("assign effort", "--answer", f"effort-{role}={effort}")
+        flag = "--" + role.replace("_", "-") + "-reasoning-effort"
+        self.options = tuple(
+            effort
+            if index and self.options[index - 1] == flag
+            else f"{flag}={effort}"
+            if option.startswith(flag + "=")
+            else option
+            for index, option in enumerate(self.options)
+        )
+        return view
+
     def respond_operational(self, request_id: str, request_token: str, text: str) -> dict:
         """Send corrective information to the published AutoResolver request."""
         return self._act(

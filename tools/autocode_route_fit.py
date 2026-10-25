@@ -33,6 +33,8 @@ DECLARED = "declared_variants"  # settings key: {model: [levels]} a run read fro
 # so a launch-time fit does not look like a person changing what a held recovery acts on (#2057).
 DERIVED = ("effort_fits", DECLARED)
 USER_EXPLICIT = "user_explicit"  # settings.effort_origins value: a person named the effort
+# A person-named effort the model does not declare: a pause with a named answer (autocode_effort_question).
+STATUS = "PAUSED_EFFORT_UNSUPPORTED"
 
 # reason: declared (the model serves it), fitted (moved to the nearest declared variant),
 # unverified (no listing; the launch check decides).
@@ -45,7 +47,7 @@ class EffortUnsupported(util.Paused, ValueError):
     def __init__(self, model, effort, declared, role):
         self.model, self.effort, self.declared, self.role = model, effort, list(declared), role
         super().__init__(
-            "PAUSED_TRANSPORT_UNVERIFIED",
+            STATUS,
             f"{model} does not declare reasoning variant {effort!r} for {flag(role)}; it declares "
             f"{', '.join(declared)}. Name one of those with {flag(role)} (or --reasoning-effort for every role)",
         )
@@ -142,8 +144,33 @@ def record_unverified(settings: dict, role: str, result: Fit, *, stage=None) -> 
     return row
 
 
+def unsupported(settings: dict) -> list[EffortUnsupported]:
+    """Every saved role whose person-named effort its model does not declare, in role order."""
+    found = []
+    for role in sorted((settings or {}).get("roles") or {}):
+        try:
+            fit(settings, role)
+        except EffortUnsupported as error:
+            found.append(error)
+    return found
+
+
+def guard(settings: dict) -> None:
+    """Pause while any role's person-named effort is one its model does not declare (#2057).
+
+    Checked for every role at every launch, so a level the Builder cannot run pauses the run
+    before the Planner spends anything, not after planning is paid for.
+    """
+    if rows := unsupported(settings):
+        raise rows[0]
+
+
 def launch(settings: dict, role: str, effort, stage=None, *, model=None):
-    """The effort this launch passes: fit it once at the boundary, record the decision, return it."""
+    """The effort this launch passes: fit it once at the boundary, record the decision, return it.
+
+    Every role's named level is checked first (``guard``), so the run pauses before any launch.
+    """
+    guard(settings)
     result = fit(settings, role, effort=effort, model=model)
     record(settings, role, result)
     record_unverified(settings, role, result, stage=stage)

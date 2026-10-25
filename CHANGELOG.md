@@ -11,6 +11,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- A reasoning effort you named that the role's model does not declare is now a pause you can answer
+  (#2057). The run stops as `PAUSED_EFFORT_UNSUPPORTED` before any stage launches, and the status view
+  names `--answer effort-ROLE=EFFORT` with the model's declared levels (`needs.effort.declared`) as the
+  only options. The terminal chat, the VS Code client and the headless conformance client offer those
+  levels and refuse any other; the answer saves the level as your choice and the run resumes. Before, the
+  refusal was prose, and the chat could offer only `Continue? [y/N]`, which stopped at the same launch
+  again (#2020, #2039). `TaskRun.assign_effort(role, effort)` gives the same answer.
+
 - The bug Investigator now has a reproduction-first budget (#1902). After 30 completed source-reading or
   searching calls with no attempt to reproduce (`limits.investigation_exploration_budget`; `0` disables;
   no flag yet), the runner stops the stage early instead of letting it read until the stage deadline. It

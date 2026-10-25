@@ -55,7 +55,7 @@ class FitTests(unittest.TestCase):
             route_fit.fit(settings, "completion")
         self.assertIsInstance(raised.exception, util.Paused)
         self.assertIsInstance(raised.exception, ValueError)
-        self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", raised.exception.status)
+        self.assertEqual("PAUSED_EFFORT_UNSUPPORTED", raised.exception.status)
         self.assertRegex(str(raised.exception), "--completion-reasoning-effort.*declares low, high, max")
         self.assertEqual("medium", settings["roles"]["completion"]["reasoning_effort"], "nothing moved")
 
