@@ -22,6 +22,10 @@ _PERSON_INT = (
     "--max-seconds",
     "--max-idle-seconds",
     "--max-cost-usd",
+    "--max-iterations",
+    "--max-milestone-seconds",
+    "--max-milestone-replans",
+    "--grant-recovery",
 )
 
 _CHECK = r"""

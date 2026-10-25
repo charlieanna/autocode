@@ -11,6 +11,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Every number a bound pause leaves to a person is now described in `needs.command_inputs`, not only the
+  active-time total, the plan-review allowance and the recovery grant. The cost cap, iteration ceiling,
+  milestone time, milestone replans and unchanged-batch limit each get a row with its current value, what
+  was used and the minimum that releases the run. Once AutoResolver holds such a pause, `next_command` is a
+  plain resume, and the row now carries the raise as its own `command`. The terminal chat, the VS Code
+  client and the headless conformance client validate any such row the same way and take only that
+  command, so a number typed at the pause raises the bound. Before, those pauses named an `N` no client
+  could fill, and #1950's fix could only say the typed number set nothing (#2044).
+
 - `--compact-bugfix-planning` (new runs, off by default): for a bug the Investigator reproduces with a
   runner-run probe, sizes small and localizes to at most four files none of which the project's
   `sensitive-paths` name, the runner writes the plan draft from the diagnosis and the Requirements record

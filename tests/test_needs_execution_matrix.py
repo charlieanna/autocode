@@ -7,7 +7,6 @@ import copy
 import io
 import json
 import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -18,6 +17,7 @@ from unittest.mock import patch
 
 import autocode as runner
 import autocode_args as cli_args
+import autocode_client_actions as client_actions
 import autocode_controller_owner as controller_owner
 import autocode_dependency as dependency
 import autocode_goal_lifecycle as lifecycle
@@ -134,6 +134,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         )
         self.state["settings"] = runner.configure(arguments, self.state)
         self.run = taskrun.TaskRun(self.workspace, self.directory, env=self.env, cwd=self.root)
+        self.place = ["--workspace", str(self.workspace), "--run-dir", str(self.directory)]
 
     def cli(self, argv, *, env=None, cwd=None, timeout=None, advancing=False):
         """Replace process startup only; run the actual parser, actions, persistence and status command."""
@@ -483,12 +484,17 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.assertEqual("--resume-paused --no-progress-limit N", need["action"])
         self.assertEqual(3, need["no_progress_batches"])
         self.assertIn(need["action"], before["progress"]["needs_you"])
-        command = shlex.split(before["next_command"])
-        self.assertEqual("autocode", command[0])
-        command = [str(need["no_progress_batches"] + 1) if word == "N" else word for word in command]
+        # The core describes the number (#2044), so the shared client fills it; nothing reads prose.
+        row = need["command_inputs"][0]
+        self.assertEqual(("no_progress_limit", 3, 4), (row["id"], row["used"], row["minimum"]))
+        named = client_actions.named(before, self.workspace, self.directory)
+        self.assertIsNone(client_actions.unsupplied(before, named))
+        command = client_actions.fill(before, named, {"no_progress_limit": str(row["minimum"])})
         source = (self.workspace / "greet.py").read_bytes()
         self.provider.side_effect = self.provider_question
-        result = self.cli([*self.run.command, *command[1:]], env=self.env, advancing=True)
+        result = self.cli(
+            [*self.run.command, *self.place, *command.argv], env={**self.env, **command.env}, advancing=True
+        )
         self.assertEqual(2, result.returncode, result.stdout + result.stderr)
         self.assertNotIn("Input rejected:", result.stdout + result.stderr)
         after = self.run.status()
@@ -499,6 +505,49 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.assertIsNone(after.get("approved_contract"))
         self.assertEqual(source, (self.workspace / "greet.py").read_bytes())
         self.assertEqual(1, self.provider.call_count)
+
+    def test_a_bound_held_behind_its_operational_request_is_raised_by_the_named_offer(self):
+        # #2044: once AutoResolver holds a bound pause, next_command is a plain resume and the raise was only
+        # prose (#1950). The view now names the raise as its own command; a person's number there releases.
+        self.state["settings"]["limits"]["iteration_ceiling"] = 5
+        self.state.update(
+            status="PAUSED_ITERATION_LIMIT",
+            stop_reason="Saved iteration ceiling reached",
+            iteration=6,
+            next_stage="astra_discovery",
+            phase="DISCOVERING",
+        )
+        error = support.Paused(self.state["status"], self.state["stop_reason"])
+        self.assertTrue(
+            runner.resolver_runtime.record_operational_exhaustion(runner, self.state, self.directory, error)
+        )
+        self.save()
+        before = self.run.status()
+        self.assertNotIn(" N", before["next_command"])
+        offer = client_actions.bound_offer(before, self.workspace, self.directory)
+        self.assertIsNotNone(offer)
+        row, named = offer
+        self.assertEqual(("max_iterations", 5, 6, 7), (row["id"], row["current"], row["used"], row["minimum"]))
+        with self.assertRaises(client_actions.ClientGap):
+            client_actions.fill_offer(before, row, named, "6")  # below the minimum: grants nothing
+        command = client_actions.fill_offer(before, row, named, "7")
+        self.assertEqual(["--resume-paused", "--max-iterations", "7", "--expected-recovery-token", "-"], command.argv)
+        stale = {**command.env, "AUTOCODE_EXPECTED_RECOVERY_TOKEN": "recovery-v1:" + "0" * 64}
+        refused = self.cli([*self.run.command, *self.place, *command.argv], env={**self.env, **stale}, advancing=True)
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("saved pause changed", refused.stdout + refused.stderr)
+        self.provider.assert_not_called()
+        self.provider.side_effect = self.provider_question
+        result = self.cli(
+            [*self.run.command, *self.place, *command.argv], env={**self.env, **command.env}, advancing=True
+        )
+        self.assertNotIn("Input rejected:", result.stdout + result.stderr)
+        after = self.run.status()
+        self.assertEqual(1, self.provider.call_count, result.stdout + result.stderr)
+        saved = support.read(self.directory / "state.json")
+        self.assertEqual(7, saved["settings"]["limits"]["iteration_ceiling"])
+        self.assertEqual("WAITING_FOR_USER", after["status"])
+        self.assertEqual("clarification", after["needs"]["resolver_scope"])
 
     def test_recover_source_names_the_required_inspection(self):
         self.state.update(status="PAUSED_JOB_FAILURE", stop_reason="The original source capture is unavailable")

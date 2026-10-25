@@ -194,17 +194,6 @@ class NamedActionTests(unittest.TestCase):
         with self.assertRaisesRegex(actions.ClientGap, "stale numeric"):
             actions.decisions(stale, actions.named(stale, WORKSPACE, RUN))
 
-    def test_a_number_typed_at_a_yes_no_names_the_bound_it_did_not_set(self):
-        # Live #1950: a time-limit pause that advertised no entry consumed the typed 3600 as a decline.
-        why = "To acknowledge this active-time pause, use autocode resume --max-seconds N with a total above 2400."
-        self.assertEqual("--max-seconds", actions.unapplied_bound("3600", why, []))
-        self.assertEqual("--max-cost-usd", actions.unapplied_bound("9", "use autocode resume --max-cost-usd N ...", []))
-        # An advertised entry is the normal path, and a yes/no answer is not a bound.
-        self.assertIsNone(actions.unapplied_bound("3600", why, [{"key": "max_seconds"}]))
-        for reply in ("y", "YES", "n", "no", "  "):
-            self.assertIsNone(actions.unapplied_bound(reply, why, []), reply)
-        self.assertIsNone(actions.unapplied_bound("3600", "a pause naming no bound at all", []))
-
     def test_a_message_goes_through_the_offered_input_and_only_for_the_conversation_read(self):
         view = answer_view()
         self.assertEqual(["--feedback", "Use B"], actions.message(view, "Use B", "c1", WORKSPACE, RUN).argv)
@@ -505,6 +494,58 @@ class ConversationTests(unittest.TestCase):
         plain = ScriptedChat(view, DONE, replies=["y"])
         self.assertEqual(0, plain.converse())
         self.assertEqual([["--resume-paused", "--retry-failed-stage", "--job-retry-token", "-"]], plain.taken)
+
+    def held_time_pause(self):
+        """#1950's shape: AutoResolver holds a time pause, so next_command is a plain resume (#2044)."""
+        raise_command = (
+            f"AUTOCODE_EXPECTED_RECOVERY_TOKEN=rt autocode {PLACE} --resume-paused --max-seconds N "
+            "--expected-recovery-token -"
+        )
+        row = {
+            "id": "max_seconds",
+            "kind": "integer",
+            "flag": "--max-seconds",
+            "placeholder": "N",
+            "arg_index": 2,
+            "label": "Total active time (seconds)",
+            "current": 2400,
+            "elapsed": 2410.5,
+            "minimum": 2411,
+            "maximum": actions.MAX_SAFE_INTEGER,
+            "command": raise_command,
+        }
+        return {
+            "status": "RESOLVER_PENDING",
+            "pause_category_label": "Limit reached",
+            "needs": {"kind": "resume", "reason": "Saved active-time limit reached.", "command_inputs": [row]},
+            "recovery": {"token": "rt"},
+            "next_command": f"autocode {PLACE} --resume-paused",
+        }
+
+    def test_a_number_typed_at_a_held_bound_takes_the_raise_the_view_names(self):
+        """#1950 read the stop reason's prose and could only say a typed 3600 set nothing. The core now names
+        the raise (#2044): the chat offers it, fills the person's number and takes that command."""
+        client = ScriptedChat(self.held_time_pause(), DONE, replies=["3600"])
+        self.assertEqual(0, client.converse())
+        out = client.text()
+        self.assertIn("or type a new total active time (seconds) (2411 or more): ", out)
+        self.assertEqual([["--resume-paused", "--max-seconds", "3600", "--expected-recovery-token", "-"]], client.taken)
+        self.assertNotIn("Left as it is", out)
+        plain = ScriptedChat(self.held_time_pause(), DONE, replies=["y"])
+        self.assertEqual(0, plain.converse())
+        self.assertEqual([["--resume-paused"]], plain.taken)
+
+    def test_a_number_below_the_bound_or_for_a_stale_offer_takes_nothing(self):
+        low = ScriptedChat(self.held_time_pause(), DONE, replies=["2400"])
+        low.converse()
+        self.assertEqual([], low.taken)
+        self.assertIn("Enter a whole number from 2411", low.text())
+        stale = self.held_time_pause()
+        stale["recovery"] = {"token": "other"}
+        client = ScriptedChat(stale, DONE, replies=["3600"])
+        client.converse()
+        self.assertEqual([], client.taken)
+        self.assertNotIn("or type a new", client.text())
 
     def test_a_refused_pause_leaves_the_interrupt_to_a_second_ctrl_c(self):
         command = ["intervention", "submit", "--workspace", str(WORKSPACE), "--run-dir", str(RUN)]
