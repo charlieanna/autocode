@@ -40,6 +40,29 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The terminal's `/runs` and an uncached `/open` now read project and global
+  listings asynchronously in the existing bounded read pool. Keyboard input
+  stays available during slow discovery, and numbered `/open` choices stay
+  fixed until the person inspects `/runs` again (#1882).
+- Switching between questions preserves the restored chat's prompt and draft;
+  cleanup from the question being left no longer erases that saved context
+  (#1882).
+
+- Attention rows keep read state and event type visible before long task titles
+  at narrow terminal widths. Integrated qualification also covers three projects
+  and two viewers sharing acknowledgement and refusing stale approval (#2070,
+  #1886).
+
+- A quota switch that moves a role onto another way of paying now says so (#2061). When an automatically
+  selected run's stopped model is replaced by one the permitted set says bills differently (a subscription
+  route replaced by a pay-per-token one), its `route_assignment` record carries `billing: {from, to}`,
+  shown in the status view's `route_assignments`, and the printed switch line ends
+  `; it bills pay per token where MODEL was subscription`. Before, the line named only the new account.
+- Automatic model selection now runs only on an OpenCode version the provider conformance matrix
+  qualifies (`tools/provider-matrix.json`: `known-good` or `accepted-for-ordinary-runs`, #2060). On a
+  version with no such row, a new run prints why and keeps the fixed default routes, and an explicit
+  `--auto-select` refuses before any model call. Before, selection chose routes on any installed version,
+  including one the conformance suite had never run against. `autocode doctor` already showed the row.
 - Requirements, Planner and Plan Reviewer launches on the default idle limit (300 s) run under a
   600-second floor, as MiMo routes already run under 900: those stages return one report and emit
   nothing before it, and on the 2026-10-20 vague-brief trial every Planner call for a large plan
@@ -306,7 +329,39 @@ PR template asks for an entry here; a change without one is incomplete.
   in the day's earlier runs, and the task passed 8/8 with no send-back. A GPT-6 Sol Tester and the fixed default
   routes keep high; `--sol-reasoning-effort` still sets either.
 
+### Added
+
+- A manual-only disposable Linux guest qualification harness for literal reboot and public
+  no-replay evidence. Preparation and pure oracle checks do not claim that #1881 C4 or #1886 S05
+  has passed; actual guest execution remains unverified.
+
 ### Fixed
+
+- At a single option question, the terminal chat sends a typed correction through the core's offered
+  feedback action with its existing fresh-context checks. Exact/default/numeric choices remain answers;
+  no feedback action is invented when the view offers none. Corrections no longer require leaving the
+  TUI for `--feedback` (#2078).
+
+- An approval from an earlier turn no longer makes new criterion IDs in the current draft count as
+  approved. The Planner can correct its new examples while retaining their source quotes; criteria
+  actually approved or edited by the person, proof selectors and incomplete legacy history stay
+  protected. The final revised plan still requires approval (#2076).
+
+- Planning, independent plan review and report repair now name the saved repository regression reference.
+  A same-chat follow-up does not reset that commit: an existing regression may pass in today's fixed
+  workspace and still fail on the original reference. The guidance retains fresh runner proof and
+  exact-plan approval instead of requesting duplicate tests or historical-proof reuse from that fact alone (#2074).
+
+- Requirements scans an identical follow-up source once when it is both the current task and saved
+  feedback. Planning and repair checklists and missing-coverage diagnostics no longer repeat those
+  obligations; the source journal and all distinct requirement checks remain intact (#2072).
+
+- The channel bridge daemon takes its single-instance lock through `autocode_util.lock_file`, so the bridge
+  loads and runs on native Windows. Before, a module-level `fcntl` import failed at load there (#2035).
+- A base whose prose is a non-Markdown document in the design workflow's directory
+  (`docs/design/feature.rst` or `.adoc`) is no longer admitted as a document-only base, so it needs the
+  ordinary passing-test evidence again. The wider data-file list added for #2036 admitted `.rst` and `.adoc`
+  anywhere; the design workflow writes Markdown, so a document in another format there is not its output.
 
 - A Requirements report that copies a coverage-checklist sentence exactly, as its prompt says, is no longer
   refused as citing text the brief does not hold. The checklist adds a period to a Markdown heading and

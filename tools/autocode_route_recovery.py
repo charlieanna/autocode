@@ -27,17 +27,29 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_model_identity as model_identity
     from . import autocode_quota_route as quota_route
     from . import autocode_route_selector as route_selector
     from . import autocode_run_status as run_status
     from . import autocode_support as support
     from . import autocode_verifier_independence as independence
 except ImportError:
+    import autocode_model_identity as model_identity
     import autocode_quota_route as quota_route
     import autocode_route_selector as route_selector
     import autocode_run_status as run_status
     import autocode_support as support
     import autocode_verifier_independence as independence
+
+
+def billing(selection, model):
+    """How the saved permitted set says ``model`` bills, or None when it does not say."""
+    wanted = model_identity.identity(model)
+    for candidates in ((selection or {}).get("candidates") or {}).values():
+        for candidate in candidates:
+            if model_identity.identity(candidate.get("model")) == wanted and candidate.get("billing"):
+                return candidate["billing"]
+    return None
 
 
 def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
@@ -90,6 +102,11 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
     quota_route.assign(
         candidate, role, switched["model"], at=runtime.now(), via="runner", attempt=stopped, actor="runner"
     )
+    # A switch may move the role onto another way of paying (#2061): say so in the record and the line.
+    was, now = billing(selection, dead), billing(selection, switched["model"])
+    changed = bool(was and now and was != now)
+    if changed:
+        candidate["user_events"][-1]["billing"] = {"from": was, "to": now}
     candidate["settings"]["roles"][role]["reasoning_effort"] = switched.get("reasoning_effort")
     candidate["settings"]["route_selection"]["routes"][role] = {**switched, "origin": "quota_assigned"}
     if independence.violations(candidate["settings"]):
@@ -102,8 +119,9 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
     state.update(candidate)
     job = quota_route.roles.screen_name(stopped.get("stage") or role, state)
     account = switched.get("account") or "the run's tool"
+    change = f"; it bills {now} where {dead} was {was}" if changed else ""
     print(
-        f"{job}: {dead} stopped ({error.status}); switched to {switched['model']} on {account} without asking",
+        f"{job}: {dead} stopped ({error.status}); switched to {switched['model']} on {account} without asking{change}",
         flush=True,
     )
     return True

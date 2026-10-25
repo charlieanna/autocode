@@ -59,7 +59,9 @@ print(json.dumps({'acknowledged':True,'receipt':{'item_id':option('--item-id'),'
             gate = executable.with_suffix(".gate")
             os.mkfifo(gate)
             executable.write_text(provider)
-            control.write_text(json.dumps({"runs": [row()]}))
+            current = row()
+            current["attention"]["item"]["summary"] = "Long task 你好 " * 8
+            control.write_text(json.dumps({"runs": [current]}))
             with TerminalScreen(
                 [sys.executable, "-c", program, str(ROOT / "tools"), str(control), str(result), str(executable)],
                 cwd=root,
@@ -74,6 +76,7 @@ print(json.dumps({'acknowledged':True,'receipt':{'item_id':option('--item-id'),'
                 screen.keys("Left", "F8")
                 shown = screen.wait_for("ATTENTION")
                 self.assertIn("1 unread", shown)
+                self.assertIn("[unread]", shown)
                 self.assertIn("Plan approval needed", shown)
                 screen.keys("a")
                 screen.wait_for(

@@ -178,7 +178,7 @@ def label(row):
     if row.get("availability") != "available":
         state = "unavailable; last saved alert"
     name = current.get("summary") or Path(row["run_dir"]).name
-    return f"{Path(row['workspace']).name}: {name} | {current.get('label') or 'Inspect current status'} [{state}]"
+    return f"[{state}] {current.get('label') or 'Inspect current status'} | {Path(row['workspace']).name}: {name}"
 
 
 def acknowledge(client, row):

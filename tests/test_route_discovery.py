@@ -388,6 +388,30 @@ class AutoSelectConfigureTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "no qualified model"):  # insisted: refuses
                 self.configure(self.args(auto_select=True))
 
+    def test_selection_needs_an_opencode_version_the_conformance_matrix_qualifies(self):
+        # #2060: on an OpenCode version with no conformant matrix row, nothing is selected.
+        def configure(args, version):
+            state = {"workspace": "/tmp/fixture", "iteration": 0}
+            with (
+                mock.patch.object(self.support, "local_settings", return_value={"auth_mode": "ChatGPT"}),
+                mock.patch.object(
+                    self.runner.opencode, "local_settings", return_value={"engine": "opencode", "version": version}
+                ),
+                mock.patch.object(discovery, "discover", return_value=self.gateway_found()),
+            ):
+                settings = self.configure_module.configure(
+                    args, state, planning=self.planning, milestones=self.milestones, autopilot=self.autopilot
+                )
+            return settings
+
+        settings = configure(self.args(auto_select=None), "9.9.9")  # soft default: fixed routes
+        self.assertNotIn("route_selection", settings)
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
+        with self.assertRaisesRegex(ValueError, "opencode 9.9.9 has not passed the offline conformance suite"):
+            configure(self.args(auto_select=True), "9.9.9")  # insisted: refuses
+        settings = configure(self.args(auto_select=True), "1.18.33")  # a known-good version selects
+        self.assertEqual("kilo/openai/gpt-6-sol", settings["roles"]["terra"]["model"])
+
     def test_a_soft_default_falls_back_to_fixed_routes_when_listings_cannot_be_read(self):
         broken = mock.Mock(side_effect=RuntimeError("cannot verify kilocode login"))
         with mock.patch.object(discovery, "discover", broken):

@@ -37,6 +37,9 @@ PLANNING = [
     "astra_finalize",
 ]
 EXECUTION = ["orchestrator", "terra", "regression_proof", "sol", "astra_review"]
+# A failing proof of this source is replayed once before the Completion Owner reviews
+# (#2065: a single flake must not drive REWORK). The replay is runner-owned.
+FAILED_PROOF_EXECUTION = ["orchestrator", "terra", "regression_proof", "sol", "regression_proof", "astra_review"]
 
 
 class BugfixWorkflow(unittest.TestCase):
@@ -120,10 +123,11 @@ class BugfixWorkflow(unittest.TestCase):
         self.assertEqual("FAIL", proof["verdict"])
         self.assertTrue(any("No regression test" in reason for reason in proof["failures"]))
         stages = [row["stage"] for row in final["stages"]]
-        # Every stage still ran and the gate refused. A runner-owned proof
-        # refusal is not a failed model attempt and must not spend an extra
-        # Investigator call merely to explain that the proof is missing.
-        self.assertEqual(PLANNING + EXECUTION, stages)
+        # Every stage still ran and the gate refused, including the once-only replay of a
+        # failing proof of this source. A runner-owned proof refusal is not a failed model
+        # attempt and must not spend an extra Investigator call merely to explain that the
+        # proof is missing.
+        self.assertEqual(PLANNING + FAILED_PROOF_EXECUTION, stages)
         self.assertIn("no passing regression proof", final["stop_reason"])
         self.assertFalse(final.get("stuck_investigations"))
 

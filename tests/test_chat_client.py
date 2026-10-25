@@ -365,6 +365,62 @@ class ScriptedChat(chat.ChatClient):
 class ConversationTests(unittest.TestCase):
     """What the chat shows and takes at each kind of stop, without a run."""
 
+    def test_a_correction_at_one_option_question_uses_its_offered_feedback_action(self):
+        correction = "These examples were added in the current unapproved draft."
+        client = ScriptedChat(answer_view(), DONE, replies=[correction])
+        self.assertEqual(0, client.converse())
+        self.assertEqual([["--feedback", correction]], client.taken)
+
+    def test_option_labels_defaults_and_numbers_stay_answers(self):
+        for text, expected in (("A", "A"), ("B", "B"), ("1", "A"), ("", "A"), ("3", "3"), ("-1", "-1")):
+            with self.subTest(text=text):
+                client = ScriptedChat(answer_view(), DONE, replies=[text])
+                self.assertEqual(0, client.converse())
+                self.assertEqual([["--answer", "Q1=" + expected, "--resolver-token", "-"]], client.taken)
+
+    def test_a_correction_does_not_invent_a_feedback_offer(self):
+        view = answer_view()
+        view["chat"].pop("input")
+        client = ScriptedChat(view, DONE, replies=["Different scope"])
+        self.assertEqual(0, client.converse())
+        self.assertEqual([["--answer", "Q1=Different scope", "--resolver-token", "-"]], client.taken)
+
+    def test_an_off_list_default_and_space_padded_label_still_answer_the_question(self):
+        for text, expected in (
+            ("", "Other valid default"),
+            ("Other valid default", "Other valid default"),
+            (" A ", "A"),
+        ):
+            view = answer_view()
+            view["needs"]["questions"][0]["proposed_default"] = "Other valid default"
+            view["needs"]["questions"][0]["options"] = [" A ", "B"]
+            client = ScriptedChat(view, DONE, replies=[text])
+            with self.subTest(text=text):
+                self.assertEqual(0, client.converse())
+                self.assertEqual([["--answer", "Q1=" + expected, "--resolver-token", "-"]], client.taken)
+
+    def test_a_correction_never_discards_partial_answers_to_multiple_questions(self):
+        view = answer_view()
+        view["needs"]["questions"].append({"id": "Q2", "question": "Second?", "options": ["C", "D"]})
+        view["next_command"] += " --answer Q2=ANSWER"
+        client = ScriptedChat(view, DONE, replies=["Correction", "D"])
+        self.assertEqual(0, client.converse())
+        self.assertEqual([["--answer", "Q1=Correction", "--resolver-token", "-", "--answer", "Q2=D"]], client.taken)
+
+    def test_a_correction_does_not_use_a_stale_conversation_context(self):
+        view = answer_view()
+        client = ScriptedChat(view)
+        command = actions.named(view, WORKSPACE, RUN)
+
+        def reply(prompt):
+            client.views[0] = {**view, "chat": {**view["chat"], "context": "changed"}}
+            return "A factual correction"
+
+        client.ask = reply
+        with self.assertRaisesRegex(actions.ClientGap, "conversation changed"):
+            client.answer(view, command, actions.decisions(view, command))
+        self.assertEqual([], client.taken)
+
     def test_a_dependency_shows_the_wait_command_and_takes_nothing(self):
         view = {
             "status": "WAITING_FOR_DEPENDENCY",
@@ -788,6 +844,9 @@ class HistoryTests(unittest.TestCase):
             patcher = mock.patch.object(chat, name, return_value=rows)
             patcher.start()
             self.addCleanup(patcher.stop)
+        client._overview.accept(chat.polling.ProjectRuns(str(WORKSPACE)), json.dumps({"runs": self.ROWS}), "")
+        client._overview.accept((str(WORKSPACE), None), json.dumps({"runs": []}), "")
+        client.slash("/runs", "")
         return client
 
     def test_runs_also_lists_other_projects_chats_under_their_project(self):
@@ -800,6 +859,7 @@ class HistoryTests(unittest.TestCase):
             "updated_at": "2026-10-19T15:00:00",
         }
         with mock.patch.object(chat, "every_project_runs", return_value=[other, self.ROWS[0]]):
+            client._overview.accept((str(WORKSPACE), None), json.dumps({"runs": [other, self.ROWS[0]]}), "")
             text = client.slash("/runs", "")
         self.assertLess(text.index("The other one"), text.index("Elsewhere"), "this project first")
         self.assertIn("elsewhere  /elsewhere\n  3. Elsewhere", text)
@@ -1321,6 +1381,24 @@ class TerminalChatTests(unittest.TestCase):
         self.assertEqual(1, proc.stdout.count("Should the README target beginners"), "the question is asked once")
         self.assertIn("  2. Experienced Python users", proc.stdout)
         self.assertEqual("Experienced Python users", self.answers()["readme-audience"])
+
+    def test_a_correction_at_an_option_question_is_saved_as_feedback_without_approval(self):
+        ask_one_question_once(self, self.env)
+        correction = "The question needs to reflect the current draft."
+        proc = self.chat(BRIEF, replies="y\ny\n" + correction + "\n")
+        self.assertEqual(2, proc.returncode, proc.stdout + proc.stderr)
+        self.assertNotIn("Input rejected", proc.stdout)
+        events = subprocess.run(
+            [sys.executable, str(AUTOCODE), "events", "--workspace", str(self.workspace)],
+            capture_output=True,
+            text=True,
+            env=self.env,
+            check=True,
+        )
+        rows = [json.loads(line) for line in events.stdout.splitlines()]
+        self.assertEqual([correction], [row["text"] for row in rows if row.get("kind") == "brief_feedback"])
+        self.assertFalse(any(row.get("kind") == "goal_approval" for row in rows))
+        self.assertNotIn("readme-audience", self.answers())
 
     def test_a_saved_mode_the_core_no_longer_lists_starts_the_default_instead_of_failing(self):
         (self.workspace / ".autocode").mkdir(exist_ok=True)

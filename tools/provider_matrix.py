@@ -92,6 +92,23 @@ def status_for(engine: str, version: str, rows=None) -> dict | None:
     return None
 
 
+# Results under which a version may run ordinary tasks, so automatic selection may choose its routes.
+CONFORMANT = ("known-good", "accepted-for-ordinary-runs")
+
+
+def unqualified(engine: str, version: str, rows=None) -> str | None:
+    """Why ``engine`` ``version`` has no conformant matrix row (#2060), or None when it has one."""
+    row = status_for(engine, version, rows)
+    if row is None:
+        return (
+            f"{engine} {version} has not passed the offline conformance suite "
+            "(no row in tools/provider-matrix.json; run tools/provider_conformance.py --fake)"
+        )
+    if row["result"] not in CONFORMANT:
+        return f"{engine} {version} is {row['result']} in tools/provider-matrix.json: {row['note']}"
+    return None
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write", action="store_true", help="rewrite the table in docs/providers.md")

@@ -8,6 +8,19 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_proof_reference_prompt_keeps_planning_repair_and_public_follow_up_consumers(self):
+        consumers = {
+            "tests.test_planning_proof_reference",
+            "tests.test_report_repair_context",
+            "tests.test_requirements_job_cli",
+        }
+        selected = run_suite.select_tests(
+            ["tools/prompts/fragments/autoplanner/proof-reference-rule.md"],
+            {module: "" for module in consumers},
+        )
+        kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+        self.assertEqual(consumers, set(kept))
+
     def test_attention_dynamic_cli_keeps_public_flow_and_real_terminal_consumers(self):
         consumers = {"tests.test_attention_flow", "tests.test_chat_attention", "tests.test_chat_attention_screen"}
         for path in (
@@ -51,6 +64,7 @@ class DynamicDependenciesTests(unittest.TestCase):
             "tests.test_chat_tui",
             "tests.test_chat_client",
             "tests.test_chat_polling_cli",
+            "tests.test_chat_inventory_cli",
         }
         for path in (
             "tools/autocode_chat_cost.py",

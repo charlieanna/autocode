@@ -9,6 +9,7 @@ discuss workflow never produced. The status view, the stage artifacts and the wo
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -85,6 +86,23 @@ class RequirementsNamesTheJobCliTests(unittest.TestCase):
         self.assertEqual(0, self.ran(run, "discovery"))
         self.assertIsNone(view.get("displayed_plan"))
         self.assertTrue((project / "docs/decisions/metadata-cache.json").is_file())
+
+    def test_same_chat_follow_up_has_one_checklist_row_per_distinct_source_obligation(self):
+        run, _ = self.start("discuss-cache-choice")
+        initial, _ = self.drive(run)
+        self.assertTrue(initial["done"], self.details(initial))
+        requirement = "The answer must compare the two existing cache alternatives."
+        run.follow_up("Why keep the existing cache choice? " + requirement)
+        view, offers = self.drive(run)
+        self.assertTrue(view["done"], self.details(view))
+        self.assertEqual(2, view["turn"])
+        self.assertEqual([], offers)
+        self.assertEqual(0, self.ran(run, "requirements-gather-report-repair"))
+        prompts = sorted(Path(run.run_dir).glob("iterations/*/requirements-gather-[0-9][0-9].prompt.md"))
+        packet = json.loads(prompts[-1].read_text().split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual([requirement], packet["requirement_coverage_checklist"])
+        self.assertEqual(view["evidence"]["base_commit"], packet["regression_reference"]["repository_base_commit"])
+        self.assertEqual("saved_run_start", packet["regression_reference"]["scope"])
 
     def test_a_review_is_confirmed_as_a_review_and_starts_without_the_recognizer(self):
         run, _ = self.start("review-clean-pr")

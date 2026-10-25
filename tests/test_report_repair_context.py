@@ -500,7 +500,10 @@ class DecisionRepairContextTests(unittest.TestCase):
                     self.assertIn("requirements_correction_sources", instruction)
                     self.assertIn("ignored_requirements", instruction)
                 else:
-                    self.assertEqual(expected, instruction)
+                    self.assertTrue(instruction.startswith(expected))
+                    self.assertIn("regression_reference names the saved repository comparison commit", instruction)
+                    self.assertIn("does not reset this reference", instruction)
+                    self.assertNotIn("immutable execution-history baseline", instruction)
 
     def test_other_roles_keep_the_execution_history_baseline(self):
         expected = (

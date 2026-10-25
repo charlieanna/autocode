@@ -1,0 +1,58 @@
+name: worker-reboot-c4
+
+# Deliberately manual-only. PR checks run tests.test_worker_reboot with pure fakes.
+# Review docs/bugs/2026-10-25-worker-reboot-proposal.md before any first dispatch.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worker-reboot-c4-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  disposable-guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check disposable runner and KVM admission before setup
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(uname -m)" = x86_64
+          test -r /dev/kvm
+          test -w /dev/kvm
+      - name: Prepare the disposable coordinator
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q qemu-system-x86 qemu-utils cloud-image-utils
+          python -m venv .venv
+          .venv/bin/python -m pip install psutil==7.1.0
+          .venv/bin/python -m pip install --no-deps -e .
+      - name: Stage the pinned Ubuntu guest image
+        run: |
+          curl --fail --location --proto '=https' --tlsv1.2 --max-time 180 \
+            --output "$RUNNER_TEMP/autocode-c4-noble-amd64.img" \
+            https://cloud-images.ubuntu.com/releases/noble/release-20261017/ubuntu-24.04-server-cloudimg-amd64.img
+          printf '%s  %s\n' \
+            04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94 \
+            "$RUNNER_TEMP/autocode-c4-noble-amd64.img" | sha256sum --check -
+      - name: Qualify one literal guest reboot with offline providers
+        run: |
+          timeout --signal=TERM --kill-after=15s 22m \
+            .venv/bin/python -m tests.worker_reboot_vm \
+            --image "$RUNNER_TEMP/autocode-c4-noble-amd64.img"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: worker-reboot-c4-evidence
+          path: .scenario-runs/worker-reboot
+          if-no-files-found: warn
+          retention-days: 7
