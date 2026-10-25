@@ -54,6 +54,7 @@ class OverviewReads(unittest.TestCase):
             self.client.poll()
             self.finish()
         self.client.poll()
+        self.assertEqual(25, len(self.client.history.rows), "the initial requested list appears when read")
         shown = self.client.slash("/runs", "")
         self.assertIn("Public entry 24", shown)
         self.assertEqual(25, len(self.client.history.rows))

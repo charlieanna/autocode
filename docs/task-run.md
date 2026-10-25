@@ -674,6 +674,7 @@ submitting an answer or approval still uses the exact token the person inspected
 The terminal's `/runs` also uses that bounded pool for its project and global
 listings. The command returns immediately while a refresh is outstanding; its
 completion notice invites `/runs` to inspect the new snapshot. Displayed numbers
+appear automatically for the first requested list, then
 stay fixed until that explicit inspection, so a later read cannot retarget an
 `/open N` being typed. Listing a chat does not open a tab or subscribe to its
 individual status; only chats explicitly opened in this viewer join that set.

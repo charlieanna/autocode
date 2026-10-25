@@ -24,11 +24,12 @@ class Overview:
         self.snapshots: dict[polling.Key, list[dict]] = {}
         self.errors: dict[polling.Key, str] = {}
         self.pending: set[polling.Key] = set()
+        self.first = None
 
     def targets(self):
         return {key: polling.INVENTORY_SECONDS for key in self.pending}
 
-    def request(self, history, current=None):
+    def snapshot(self, history, current=None):
         workspace = str(history.workspace)
         keys: tuple[polling.Key, ...] = (polling.ProjectRuns(workspace), (workspace, None))
         ready = all(key in self.snapshots for key in keys)
@@ -44,6 +45,14 @@ class Overview:
             text += "\nRun list unavailable: " + "; ".join(errors)
             if ready:
                 text += ". Displaying the last snapshot."
+        return text
+
+    def request(self, history, current=None):
+        workspace = str(history.workspace)
+        keys: tuple[polling.Key, ...] = (polling.ProjectRuns(workspace), (workspace, None))
+        text = self.snapshot(history, current)
+        if not history.rows:
+            self.first = history, current
         for key in keys:
             if key not in self.pending and key not in self.poller.active:
                 self.poller.refresh(key)
@@ -65,6 +74,10 @@ class Overview:
         if key in self.pending:
             self.pending.remove(key)
             if not self.pending:
+                if self.first is not None:
+                    history, current = self.first
+                    self.first = None
+                    self.say(self.snapshot(history, current))
                 self.say(
                     "Run list read finished. Type /runs to inspect its snapshot; /open keeps the displayed numbers."
                 )

@@ -10,7 +10,8 @@ through the shared pool: at most two children, five-second read deadlines,
 round-robin admission and cancellation/reaping on close. The command returns
 immediately. A completion notice invites an explicit `/runs` inspection, which
 freezes the numbered snapshot used by `/open N`. Subsequent arrivals only update
-the cache, preserving the choice being typed. Failed refreshes label the retained
+the cache, preserving the choice being typed. The first requested list appears
+automatically once its reads finish. Failed refreshes label the retained
 snapshot unavailable. Listing does not subscribe to individual run statuses.
 
 ## Focused evidence
@@ -18,16 +19,16 @@ snapshot unavailable. Listing does not subscribe to individual run statuses.
 The new pure public-command regression fails against original client
 `229a85d2d91f1f42974f482ca9fc204b109cf7ad` at the synchronous `subprocess.run`.
 The corrected reader passes. The focused client/context/polling/attention,
-architecture and CI-selection batch passed 122 checks in 13.966 seconds on
+architecture and CI-selection batch passed 122 checks in 14.977 seconds on
 macOS. No supervised provider was launched locally.
 
 `tests.test_chat_inventory_cli` drives real curses input and public CLI argument
 arrays against a model-free command fixture. It renders 25 inventory entries,
 explicitly opens two stable identities, switches a Unicode draft and cursor,
 then holds both project and global listing children. In the local 120-column
-terminal, the inserted key rendered in 14.1 ms and `/help` in 21.6 ms, while both
+terminal, the inserted key rendered in 14.1 ms and `/help` in 21.8 ms, while both
 children remained held. `/quit` reaped every recorded read process. The whole
-case passed in 1.160 seconds. These are individual input samples, below the
+case passed in 1.155 seconds. These are individual input samples, below the
 proposed 250 ms controlled-host target, not a latency percentile or delivery
 benchmark. The CI result must identify its own exact head and Linux host.
 
