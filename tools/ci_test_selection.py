@@ -309,7 +309,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_requirements_handoff.py",
             "tools/autopilot.py",
         ),
-        ("tests.test_technical_questions_cli",),
+        ("tests.test_technical_questions_cli", "tests.test_revision_guard_cli"),
     ),
     (
         ("tools/autocode_direct_", "tools/providers/direct.py", "tools/autocode_connections.py"),

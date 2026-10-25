@@ -1,5 +1,6 @@
 """Internal defaults reach a reviewed plan through the real, offline CLI."""
 
+import json
 import os
 import textwrap
 import unittest
@@ -35,14 +36,14 @@ class TechnicalQuestionsCliTests(unittest.TestCase):
         self.assertEqual(1, source.count(marker))
         provider.write_text(source.replace(marker, textwrap.indent(amendment, "    ") + "\n" + marker))
         env.update(QUESTION_ASKED=str(provider.parent / "asked"), QUESTION_STAGE=stage, QUESTION_CATEGORY=category)
-        run = taskrun.TaskRun.start(
+        self.run = taskrun.TaskRun.start(
             workspace,
             BRIEF,
             options=(*FIXTURE_OPTIONS, "--joint-planning", "--no-adaptive-planning"),
             env=env,
             timeout=180,
         )
-        return run.advance_until_input()
+        return self.run.advance_until_input()
 
     def test_internal_discovery_and_revision_questions_need_no_human_answer(self):
         for stage in ("astra_discovery", "glm_revise"):
@@ -52,6 +53,20 @@ class TechnicalQuestionsCliTests(unittest.TestCase):
                 self.assertEqual("AWAITING_GOAL_APPROVAL", view["status"])
                 self.assertTrue(view.get("displayed_plan"))
                 self.assertFalse(any("AC4" in row["text"] for row in view["chat"]["messages"]))
+                state = json.loads((self.run.run_dir / "state.json").read_text())
+                reviews = [
+                    row["stage"] for row in state["stages"] if row.get("stage") in ("astra_challenge", "astra_finalize")
+                ]
+                if stage == "glm_revise":
+                    # The revision's question was AutoCode's to answer, so the redraft continues the reviewed
+                    # cycle: the saved first review and one final review, not a second review from scratch.
+                    self.assertEqual(1, len(state["planning_history"]))
+                    self.assertEqual(["astra_challenge", "astra_finalize"], reviews)
+                    self.assertEqual(2, state["planning"]["astra_calls"])
+                    self.assertEqual("astra_finalize", state["planning"]["inherited_review"]["next_stage"])
+                else:
+                    self.assertEqual([], state.get("planning_history", []))
+                    self.assertEqual(["astra_challenge", "astra_finalize"], reviews)
 
     def test_a_behavior_choice_still_requires_the_human_even_with_a_default(self):
         view = self.run_question("astra_discovery", "behavior")
