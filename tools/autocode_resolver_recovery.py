@@ -42,6 +42,7 @@ try:
     from . import autocode_resolver_retry_route as retry_route
     from . import autocode_retained_work as retained
     from . import autocode_rework_policy as rework
+    from . import autocode_route_fit as route_fit
     from . import autocode_support as support
     from . import autocode_time_left as time_left
     from . import autocode_tool_containment as containment
@@ -61,6 +62,7 @@ except ImportError:
     import autocode_resolver_retry_route as retry_route
     import autocode_retained_work as retained
     import autocode_rework_policy as rework
+    import autocode_route_fit as route_fit
     import autocode_support as support
     import autocode_time_left as time_left
     import autocode_tool_containment as containment
@@ -152,10 +154,15 @@ _CEILINGS = {
 }
 
 
-def _bound_settings(state: RunState, ceilings):
+def _bound_settings(state: RunState, ceilings, *, derived=False):
     # A model a person named at a quota stop (#184) is bound as the route it replaced,
     # and the Resolver's own climb (#1345) as the rung it left.
     settings = retry_route.unassigned(state, state.get("settings", {}))
+    # The launch-boundary fit and its probe evidence describe how an effort was derived, not the
+    # source, task or scope a held recovery acts on: another role's first launch must not stale it.
+    if not derived:  # a binding saved before #2057 hashed these with the other settings
+        for key in route_fit.DERIVED:
+            settings.pop(key, None)
     for section, keys in ceilings.items():
         for key in keys:
             if section in settings:
@@ -190,12 +197,12 @@ def _holds(saved, state: RunState, revision):
     they are unchanged when hashed that way, so a run upgraded with a recovery packet keeps it; for
     that binding a changed milestone budget remains a changed setting. A binding recorded after the
     upgrade, such as the repair admission ``finish_resolution_packet`` writes for that packet, leaves
-    the budget out.
+    the budget out. A binding saved before #2057 also hashed the fit's derived evidence (#2057).
     """
     current = _binding(state, revision)
     return saved == current or saved == {
         **current,
-        "settings_hash": util.digest(_bound_settings(state, _EARLIER_CEILINGS)),
+        "settings_hash": util.digest(_bound_settings(state, _EARLIER_CEILINGS, derived=True)),
     }
 
 

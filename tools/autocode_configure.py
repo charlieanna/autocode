@@ -32,7 +32,6 @@ try:
     from . import autocode_budget_recovery as budget_recovery
     from . import autocode_compact_planning as compact_planning
     from . import autocode_design_manifest as design_manifest
-    from . import autocode_effort_variants as effort_variants
     from . import autocode_figma as figma
     from . import autocode_goals as goals
     from . import autocode_opencode, autocode_providers
@@ -46,6 +45,7 @@ try:
     from . import autocode_role_route as role_route
     from . import autocode_role_transport as role_transport
     from . import autocode_roles as role_names
+    from . import autocode_route_fit as route_fit
     from . import autocode_route_ladder as route_ladder
     from . import autocode_skip_requirements as skip_requirements
     from . import autocode_support as support
@@ -60,7 +60,6 @@ except ImportError:
     import autocode_budget_recovery as budget_recovery
     import autocode_compact_planning as compact_planning
     import autocode_design_manifest as design_manifest
-    import autocode_effort_variants as effort_variants
     import autocode_figma as figma
     import autocode_goals as goals
     import autocode_opencode
@@ -75,6 +74,7 @@ except ImportError:
     import autocode_role_route as role_route
     import autocode_role_transport as role_transport
     import autocode_roles as role_names
+    import autocode_route_fit as route_fit
     import autocode_route_ladder as route_ladder
     import autocode_skip_requirements as skip_requirements
     import autocode_support as support
@@ -565,8 +565,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
             configure_joint(settings, args, fresh=False, planning=planning, opencode=opencode)
         # A saved run re-records only the routes a flag just moved, as `budget_origins` does below.
         role_route.moved(args, settings)
-        role_route.record_reviewer_effort(args, settings, fresh=False)
-        role_route.record_builder_effort(args, settings, fresh=False)
+        role_route.record_efforts(args, settings, fresh=False)
         if getattr(args, "planning_v2", False):
             settings["planning_flow"] = "v2"
         if getattr(args, "unlimited_iterations", False):
@@ -848,13 +847,13 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         declared = _declared_levels(provider_mod, state["workspace"], single_model)
         if declared is not None:
             # Kept for the efforts derived later in the run (the Plan Reviewer's reduced tier, #2020).
-            settings[effort_variants.DECLARED] = {single_model: list(declared)}
+            settings[route_fit.DECLARED] = {single_model: list(declared)}
         explicit = {r for r in settings["roles"] if getattr(args, f"{r}_reasoning_effort", None)}
         if getattr(args, "reasoning_effort", None):
             explicit = set(settings["roles"])
-        if fits := effort_variants.reconcile(settings["roles"], single_model, declared, explicit=explicit):
+        if fits := route_fit.reconcile(settings["roles"], single_model, declared, explicit=explicit):
             settings["effort_fits"] = fits
-        if note := effort_variants.notice(fits, single_model, declared):
+        if note := route_fit.notice(fits, single_model, declared):
             print(note, flush=True)
     # Why each role of this new run has the route it does (autocode_role_route). Recorded here,
     # after every role exists; a saved run re-records only the routes it re-chooses (role_route.moved).
@@ -865,8 +864,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         for role, route in auto_selection["routes"].items():
             if route.get("origin") == role_route.AUTO_SELECTED:
                 settings["route_origins"][role] = role_route.AUTO_SELECTED
-    role_route.record_reviewer_effort(args, settings, fresh=True)
-    role_route.record_builder_effort(args, settings, fresh=True)
+    role_route.record_efforts(args, settings, fresh=True)
     verification_config.validate(settings["regression"])
     return task_preflight.configure(
         state, output_policy.configure(state, autopilot.stuck.configure(settings, args), args), args

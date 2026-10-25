@@ -34,21 +34,21 @@ from pathlib import Path
 
 try:
     from . import autocode_context_window as context_window
-    from . import autocode_effort_variants as effort_variants
     from . import autocode_output_cap as output_cap
     from . import autocode_provider_refusal as provider_refusal
     from . import autocode_role_route as role_route
     from . import autocode_role_transport as role_transport
     from . import autocode_roles as roles
+    from . import autocode_route_fit as route_fit
     from . import autocode_verifier_independence as verifier_independence
 except ImportError:
     import autocode_context_window as context_window
-    import autocode_effort_variants as effort_variants
     import autocode_output_cap as output_cap
     import autocode_provider_refusal as provider_refusal
     import autocode_role_route as role_route
     import autocode_role_transport as role_transport
     import autocode_roles as roles
+    import autocode_route_fit as route_fit
     import autocode_verifier_independence as verifier_independence
 
 PREFIX = "route-"
@@ -789,11 +789,14 @@ def assign(
         record["request_id"] = request_id
     _carry(state, role, route.get("model"), model)
     route["model"] = model
-    # The role keeps its effort; the named model may not declare it (#2006). When the run recorded the
-    # model's variants while choosing its routes, a runner-chosen effort moves to the nearest declared one.
-    fitted = effort_variants.reconcile({role: route}, model, effort_variants.declared_for(settings, model))
-    if fitted:
-        record["effort"] = fitted[role]
+    # The role keeps its effort; the named model may not declare it (#2006). One fit rule (#2057):
+    # a runner-chosen effort moves to the nearest declared variant and is recorded; a person-named
+    # one the model does not declare refuses with its flag.
+    fitted = route_fit.fit(settings, role)
+    if fitted.reason == "fitted":
+        route["reasoning_effort"] = fitted.effort
+        record["effort"] = {"from": fitted.from_effort, "to": fitted.effort}
+        route_fit.record(settings, role, fitted, cause="route_answer")
     if role == "stuck_investigator":
         record["investigator_settings_present"] = "stuck_investigation" in settings
         investigation = settings.setdefault("stuck_investigation", {})

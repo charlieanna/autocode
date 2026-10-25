@@ -334,6 +334,15 @@ PR template asks for an entry here; a change without one is incomplete.
   no feedback action is invented when the view offers none. Corrections no longer require leaving the
   TUI for `--feedback` (#2078).
 
+- Every role's stage launch fits its reasoning effort to the variants its model declares through one rule
+  (`autocode_route_fit`), so a derived tier — the Plan Reviewer's reduced depth, the Builder's light first
+  attempt, an escalation rung, a route answer or `--single-model` — no longer reaches a variant the model
+  does not serve (GLM 5.3 declares low, high and max, not medium). A runner-chosen level moves to the
+  nearest declared variant and the move is recorded in `effort_fits`; a level a person named is refused at
+  the launch with the flag that changes it; a model with no listing is recorded as `unverified` instead of
+  guessed. The access preflight now probes every billing-routed saved role at its own level, not only
+  automatic routes, and a passing probe certifies that level for later fits (#2057).
+
 - An approval from an earlier turn no longer makes new criterion IDs in the current draft count as
   approved. The Planner can correct its new examples while retaining their source quotes; criteria
   actually approved or edited by the person, proof selectors and incomplete legacy history stay

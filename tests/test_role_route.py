@@ -301,7 +301,7 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
                 settings = {"roles": {"plan_reviewer": {"reasoning_effort": "medium"}}}
                 if selected:
                     settings["route_selection"] = {"routes": {"plan_reviewer": {"origin": "auto_selected"}}}
-                role_route.record_reviewer_effort(SimpleNamespace(reasoning_effort=global_effort), settings, fresh=True)
+                role_route.record_efforts(SimpleNamespace(reasoning_effort=global_effort), settings, fresh=True)
                 self.assertEqual(expected, settings["effort_origins"]["plan_reviewer"])
                 planning.apply_reviewer_effort_tier({"settings": settings})
                 self.assertEqual(
@@ -325,7 +325,7 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
             with self.subTest(named=named, global_effort=global_effort, fresh=fresh):
                 settings = {"roles": {"terra": {"reasoning_effort": "medium"}}}
                 args = SimpleNamespace(terra_reasoning_effort=named, reasoning_effort=global_effort)
-                role_route.record_builder_effort(args, settings, fresh=fresh)
+                role_route.record_efforts(args, settings, fresh=fresh)
                 self.assertEqual(expected, (settings.get("effort_origins") or {}).get("terra"))
                 self.assertEqual(
                     expected in ("runner_default", "auto_selected"), role_route.effort_can_reduce(settings, "terra")
