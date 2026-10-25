@@ -2243,3 +2243,168 @@ class BriefSizeTests(unittest.TestCase):
         self.assertEqual(workflows.brief_size("Fix the failing test: median returns 3 for even lists."), "small")
         self.assertEqual(workflows.brief_size("1) a\n2) b\n3) c\n4) d\n5) e\n6) f\n7) g\n8) h\n9) i"), "medium")
         self.assertEqual(workflows.brief_size("Redesign routing. " + " ".join(["w"] * 200)), "medium")
+
+
+class InternalAnswerInheritanceTests(unittest.TestCase):
+    """AutoCode's own technical answer carries the review into the next cycle instead of renewing it.
+
+    Live 2026-10-20 (vague brief): the restart after a technical_decision opened a cycle with a fresh allowance
+    and no memory of the first review; the reviewer reviewed the redraft cold and the run hit its time cap."""
+
+    QUESTION = {"id": "BQ1", "question": "Should M1 own the tests?", "proposed_default": "Yes", "category": "technical"}
+
+    def reviewed(self, *, calls=1, limit=None, blocking=True, **extra):
+        state = {
+            "status": "RUNNING",
+            "next_stage": "glm_revise",
+            "workflow": {"kind": "build", "clarity": "vague"},
+            "settings": {"planning_review_call_limit": 2, "joint_planning": True},
+            "planning": {
+                "astra_calls": calls,
+                "final_token": None,
+                "review_charges": ["charge-1"],
+                "reports": {
+                    "astra_challenge": {
+                        "report": {"concerns": [{"id": "C1", "concern": "M1 owns no tests", "blocking": blocking}]},
+                        "output": "/run/plan-challenge-01.json",
+                    },
+                    "glm_revise": {
+                        "report": {
+                            "responses": [{"concern_id": "C1"}],
+                            "contract": {"open_blocking_questions": [self.QUESTION]},
+                        },
+                        "output": "/run/requirements-revise-01.json",
+                    },
+                },
+                "adaptive": {"size": "large", "challenges": 1, "approved_at": None, "review_limit": 3},
+            },
+        }
+        if limit is not None:
+            state["planning"]["review_call_limit"] = limit
+        state.update(extra)
+        return state
+
+    def test_an_internal_answer_restart_inherits_the_review_and_its_charges(self):
+        state = self.reviewed()
+        cycle.internal_answer_restart(state)
+        cycle.start(state)
+        record = state["planning"]
+        self.assertEqual(1, len(state["planning_history"]))
+        self.assertEqual(1, record["astra_calls"], "the redraft answers the review the cycle already paid for")
+        self.assertEqual(["charge-1"], record["review_charges"])
+        self.assertEqual({"astra_challenge", "glm_revise"}, set(record["reports"]))
+        self.assertEqual(state["planning_history"][0]["adaptive"], record["adaptive"])
+        self.assertIsNone(record["final_token"])
+        self.assertEqual(
+            {
+                "cycle": 0,
+                "astra_calls": 1,
+                "reports": ["astra_challenge", "glm_revise"],
+                "next_stage": "astra_finalize",
+            },
+            record["inherited_review"],
+        )
+        self.assertEqual(
+            ("RUNNING", "PLANNING", "astra_finalize"), (state["status"], state["phase"], state["next_stage"])
+        )
+        planning.charge(state, "astra_finalize")
+        self.assertEqual(2, record["astra_calls"])
+
+    def test_with_two_calls_left_the_redraft_is_reviewed_again_with_its_earlier_review(self):
+        state = self.reviewed(limit=3)
+        cycle.internal_answer_restart(state)
+        cycle.start(state)
+        self.assertEqual("astra_challenge", state["next_stage"])
+        self.assertEqual(3, state["planning"]["review_call_limit"])
+        state["user_events"] = [
+            {
+                "kind": "technical_decision",
+                "actor": "autocode",
+                "question_id": "BQ1",
+                "text": "Yes",
+                "question": self.QUESTION,
+            }
+        ]
+        earlier = planning.previous_review(state)
+        self.assertEqual(
+            [{"id": "BQ1", "question": "Should M1 own the tests?", "answer": "Yes", "answered_by": "autocode"}],
+            earlier["answered_questions"],
+        )
+        self.assertEqual([{"id": "C1", "concern": "M1 owns no tests", "blocking": True}], earlier["concerns"])
+
+    def test_a_spent_allowance_is_renewed_once_for_the_redrafts_final_review(self):
+        state = self.reviewed(calls=2)
+        cycle.internal_answer_restart(state)
+        cycle.start(state)
+        record = state["planning"]
+        self.assertEqual(
+            (2, 3, 1), (record["astra_calls"], record["review_call_limit"], record["internal_answer_renewals"])
+        )
+        self.assertEqual({"from": 2, "to": 3}, record["inherited_review"]["renewed"])
+        self.assertEqual("astra_finalize", state["next_stage"])
+        planning.charge(state, "astra_finalize")
+        self.assertEqual(3, record["astra_calls"])
+        # A second internal restart with nothing left still stops: one renewal per run.
+        cycle.internal_answer_restart(state)
+        cycle.start(state)
+        self.assertEqual(
+            (3, 3, 1),
+            (
+                state["planning"]["astra_calls"],
+                state["planning"]["review_call_limit"],
+                state["planning"]["internal_answer_renewals"],
+            ),
+        )
+        self.assertEqual("astra_finalize", state["next_stage"])
+        with self.assertRaises(support.Paused) as raised:
+            planning.charge(state, "astra_finalize")
+        self.assertEqual("PAUSED_PLANNING_BUDGET", raised.exception.status)
+
+    def test_a_limit_the_person_chose_is_never_raised(self):
+        explicit = self.reviewed(calls=2, limit=2)
+        explicit["planning"]["review_call_limit_origin"] = "user_explicit"
+        configured = self.reviewed(calls=2)
+        configured["settings"]["planning_review_call_limit_origin"] = "config"
+        for name, state in (("flag", explicit), ("config.toml", configured)):
+            with self.subTest(name):
+                cycle.internal_answer_restart(state)
+                cycle.start(state)
+                self.assertEqual(2, state["planning"]["astra_calls"])
+                self.assertNotIn("renewed", state["planning"]["inherited_review"])
+                self.assertEqual("astra_finalize", state["next_stage"])
+                with self.assertRaises(support.Paused):
+                    planning.charge(state, "astra_finalize")
+
+    def test_an_unlimited_allowance_reviews_the_redraft_again(self):
+        state = self.reviewed(calls=5, limit=0)
+        cycle.internal_answer_restart(state)
+        cycle.start(state)
+        self.assertEqual("astra_challenge", state["next_stage"])
+        self.assertNotIn("renewed", state["planning"]["inherited_review"])
+
+    def test_other_restarts_begin_a_fresh_cycle_as_before(self):
+        plain = self.reviewed()
+        unreviewed = self.reviewed()
+        del unreviewed["planning"]["reports"]["astra_challenge"]
+        cycle.internal_answer_restart(unreviewed)
+        for name, state in (("no internal answer", plain), ("no first review yet", unreviewed)):
+            with self.subTest(name):
+                cycle.start(state)
+                self.assertEqual((0, {}), (state["planning"]["astra_calls"], state["planning"]["reports"]))
+                self.assertNotIn("inherited_review", state["planning"])
+                self.assertEqual("astra_challenge", state["next_stage"])
+
+    def test_the_small_brief_total_keeps_its_own_one_time_renewal(self):
+        state = self.reviewed(calls=2)
+        state["planning"]["review_depth_reduced"] = True
+        self.assertFalse(cycle.inherits_review(state["planning"]))
+        cycle.internal_answer_restart(state)
+        cycle.new_cycle(state)
+        self.assertEqual(
+            (0, 1, {}),
+            (
+                state["planning"]["astra_calls"],
+                state["planning"]["internal_answer_renewals"],
+                state["planning"]["reports"],
+            ),
+        )

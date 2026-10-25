@@ -313,8 +313,13 @@ UNCITED_REVISE_RULE = prompts.get("fragments/autoplanner/uncited-sentences-revis
 
 
 def previous_review(state: RunState):
-    """The last planning cycle's review when it ended in questions the user has since answered, so the next
-    review checks the answers instead of reviewing the plan from scratch; None otherwise."""
+    """The last planning cycle's review when it ended in questions that have since been answered, so the next
+    review checks the answers instead of reviewing the plan from scratch; None otherwise.
+
+    An answer is the person's (``answers``) or AutoCode's own technical default (a ``technical_decision`` event,
+    autocode_technical_questions.settle): after an internal-answer restart the redraft applies that default, and a
+    review given nothing of its first review judged a live redraft cold (2026-10-20). Each answered question
+    names who answered it, so the reviewer weighs a default as the Planner's choice, not the person's."""
     history = state.get("planning_history") or []
     reports = ((history[-1] if history else None) or {}).get("reports") or {}
     last: dict = next(
@@ -326,7 +331,14 @@ def previous_review(state: RunState):
         {},
     )
     questions = (last.get("contract") or {}).get("open_blocking_questions") or []
-    answers = state.get("answers") or {}
+    answers = {
+        qid: {"text": row.get("text", ""), "answered_by": "user"}
+        for qid, row in (state.get("answers") or {}).items()
+        if isinstance(row, dict)
+    }
+    for event in state.get("user_events") or []:
+        if event.get("kind") == "technical_decision" and event.get("actor") == "autocode" and event.get("question_id"):
+            answers.setdefault(event["question_id"], {"text": event.get("text", ""), "answered_by": "autocode"})
     if not questions or any(question.get("id") not in answers for question in questions):
         return None
     concerns = ((reports.get("astra_challenge") or {}).get("report") or {}).get("concerns") or []
@@ -339,7 +351,8 @@ def previous_review(state: RunState):
             {
                 "id": question["id"],
                 "question": question.get("question", ""),
-                "answer": answers[question["id"]].get("text", ""),
+                "answer": answers[question["id"]]["text"],
+                "answered_by": answers[question["id"]]["answered_by"],
             }
             for question in questions
         ],

@@ -641,7 +641,14 @@ class ReReviewAfterAnswers(unittest.TestCase):
         state["answers"] = {"Q1": {"kind": "answer", "text": "Yes, reword AC2."}}
         earlier = autoplanner.previous_review(state)
         self.assertEqual(
-            [{"id": "Q1", "question": "May AC2 be reworded to match the request?", "answer": "Yes, reword AC2."}],
+            [
+                {
+                    "id": "Q1",
+                    "question": "May AC2 be reworded to match the request?",
+                    "answer": "Yes, reword AC2.",
+                    "answered_by": "user",
+                }
+            ],
             earlier["answered_questions"],
         )
         self.assertEqual(
@@ -663,6 +670,44 @@ class ReReviewAfterAnswers(unittest.TestCase):
         self.assertEqual(earlier, json.loads(review.split("CURRENT HANDOFF DATA\n", 1)[1])["previous_review"])
         revise, _ = autoplanner.context(state, "glm_revise", path)
         self.assertNotIn(autoplanner.REREVIEW_RULE, revise)
+
+    def test_an_internal_default_counts_as_an_answer_and_says_who_gave_it(self):
+        # After an internal-answer restart the redraft applies AutoCode's default; the re-review must know it.
+        state = {
+            **awaiting(status="RUNNING"),
+            "planning_history": [self.cycle()],
+            "planning": {"astra_calls": 1, "reports": {}, "final_token": None},
+            "user_events": [
+                {
+                    "kind": "technical_decision",
+                    "actor": "autocode",
+                    "question_id": "Q1",
+                    "text": "Reword AC2 to the request's wording.",
+                    "contract_token": "r2:abc",
+                }
+            ],
+        }
+        earlier = autoplanner.previous_review(state)
+        self.assertEqual(
+            [
+                {
+                    "id": "Q1",
+                    "question": "May AC2 be reworded to match the request?",
+                    "answer": "Reword AC2 to the request's wording.",
+                    "answered_by": "autocode",
+                }
+            ],
+            earlier["answered_questions"],
+        )
+        state["answers"] = {"Q1": {"kind": "answer", "text": "No, keep AC2."}}
+        self.assertEqual(
+            ("No, keep AC2.", "user"),
+            tuple(
+                autoplanner.previous_review(state)["answered_questions"][0][key] for key in ("answer", "answered_by")
+            ),
+            "the person's answer to the same question wins",
+        )
+        self.assertIn('answered_by "autocode"', autoplanner.REREVIEW_RULE)
 
     def test_a_cycle_that_ended_without_questions_gives_nothing(self):
         self.assertIsNone(autoplanner.previous_review({**awaiting(), "planning_history": [self.cycle(questions=())]}))
