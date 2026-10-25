@@ -2122,7 +2122,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/7db6514613fe199239da61b13e44a1412bd977ff/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/c7bf4e82588ddef6757ae5e636f12cb328d05d19/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2292,7 +2292,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/7db6514613fe199239da61b13e44a1412bd977ff/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/c7bf4e82588ddef6757ae5e636f12cb328d05d19/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2388,6 +2388,12 @@ field independent checkers, the default launch prints the reason and tries the f
 routes under the normal catalogue, billing and independence guards. Explicit
 <code>--auto-select</code> instead refuses before spending. Preview the choices and exclusions
 with <code>autocode models --selection --provider NAME</code>; this reads local listings only.</p>
+<p>Selection also needs the installed OpenCode version to have a row in the
+<a href="../providers/#conformance-matrix">conformance matrix</a> whose result allows ordinary runs
+(<code>known-good</code> or <code>accepted-for-ordinary-runs</code>, #2060). On any other version the default
+launch prints why and uses the fixed routes, and <code>--auto-select</code> refuses. <code>autocode doctor</code>
+shows the installed version's row; a new version qualifies once
+<code>tools/provider_conformance.py</code> has passed on it and its row is added.</p>
 <p>OpenCode and Kilo reasoning variants come from their local verbose model listings.
 An unsupported qualified level is omitted so the model uses its default. When older
 tools cannot report variants, the recorded qualification level is used. Preflight
