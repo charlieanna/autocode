@@ -192,6 +192,13 @@ routes under the normal catalogue, billing and independence guards. Explicit
 `--auto-select` instead refuses before spending. Preview the choices and exclusions
 with `autocode models --selection --provider NAME`; this reads local listings only.
 
+Selection also needs the installed OpenCode version to have a row in the
+[conformance matrix](providers.md#conformance-matrix) whose result allows ordinary runs
+(`known-good` or `accepted-for-ordinary-runs`, #2060). On any other version the default
+launch prints why and uses the fixed routes, and `--auto-select` refuses. `autocode doctor`
+shows the installed version's row; a new version qualifies once
+`tools/provider_conformance.py` has passed on it and its row is added.
+
 OpenCode and Kilo reasoning variants come from their local verbose model listings.
 An unsupported qualified level is omitted so the model uses its default. When older
 tools cannot report variants, the recorded qualification level is used. Preflight

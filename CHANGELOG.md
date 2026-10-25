@@ -40,6 +40,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Automatic model selection now runs only on an OpenCode version the provider conformance matrix
+  qualifies (`tools/provider-matrix.json`: `known-good` or `accepted-for-ordinary-runs`, #2060). On a
+  version with no such row, a new run prints why and keeps the fixed default routes, and an explicit
+  `--auto-select` refuses before any model call. Before, selection chose routes on any installed version,
+  including one the conformance suite had never run against. `autocode doctor` already showed the row.
 - Under a money cap (`--max-cost-usd`), every attempt of a job that already ran in the run is priced before
   it launches, from that job's last attempt's tokens at the saved route's rate, and the run stops as
   `PAUSED_COST_LIMIT` before an attempt projected past the cap, naming the job, the route, the projection and
