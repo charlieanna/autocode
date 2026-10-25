@@ -213,7 +213,7 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
         and review_usage.reconcile(state, at=runner.now())
     ):
         resolver_human.supersede_operational(state, "Inherited review accounting was corrected under the saved limit")
-        state.update(status="RUNNING", phase="PLANNING")
+        state.update({"status": "RUNNING", "phase": "PLANNING"})
         state.pop("stop_reason", None)
         runner.write_json(state_path, state)
         specific_recovery = True

@@ -71,7 +71,7 @@ def feedback_interpretations(state: RunState, *, model_origins, saved_user_basis
     rows = body.get("accepted_assumptions")
     if not isinstance(rows, list):
         return []
-    protected = set()
+    protected: set[str] = set()
     for prior in history:
         if not (
             prior.get("approval_status") == "approved"
