@@ -2244,7 +2244,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/0dc54dede4f1539b9d64376cd8dccb06b5422862/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/9808b41a4fd8267f6b58071cb13c94a18d486334/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2546,7 +2546,10 @@ Stale revisions, conflicting request IDs and stale question tokens are refused.<
 <p>During joint planning, technical decisions with a proposed default are resolved internally and
 sent through drafting and review again. They are retained as <code>user_events</code> receipts with
 <code>actor=autocode</code> and <code>kind=technical_decision</code>, outside the human <code>answers</code> ledger and chat history.
-They cannot authorize a protected contract change or approve a plan. Genuine questions about the
+They cannot authorize a protected contract change or approve a plan, and they never renew the
+plan-review allowance: the redraft continues the planning cycle that asked, carrying its spent
+review calls, its first review and its revision (<code>planning.inherited_review</code> in the saved state),
+and with one review call left the final review decides on the redraft. Genuine questions about the
 requested outcome, behavior, cost, permissions or side effects still require a human answer, as do
 unresolved facts and rejected assumptions. A repeated identical technical question goes to report
 repair instead of another planning loop. Non-joint runs keep their existing question path.</p>
@@ -3010,7 +3013,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/0dc54dede4f1539b9d64376cd8dccb06b5422862/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/9808b41a4fd8267f6b58071cb13c94a18d486334/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3614,7 +3617,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/0dc54dede4f1539b9d64376cd8dccb06b5422862/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/9808b41a4fd8267f6b58071cb13c94a18d486334/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.

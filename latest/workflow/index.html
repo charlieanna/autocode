@@ -2378,7 +2378,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/0dc54dede4f1539b9d64376cd8dccb06b5422862/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/9808b41a4fd8267f6b58071cb13c94a18d486334/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -2725,6 +2725,14 @@ Each correction passes the same change-receipt, source-coverage and proof guards
 Planner revision, so a removed or reworded approved criterion still needs your saved answer
 or feedback. Milestones, the technical approach and permissions stay the Planner's: a
 problem there comes back to you as a blocking question.</p>
+<p>A Planner revision that answers the Plan Reviewer's blocking concern may change one of its
+own lines without you while nobody has approved or edited the plan: a constraint it may
+reword or drop, a permission boundary it may replace. The line must be the Planner's (it
+repeats no sentence of your brief, your feedback or your answers), the change is declared
+as the Planner's own with its replacement, and the approval screen lists it under "Declared
+contract changes" with the concern that asked for it; the final review judges it. Required
+behaviors, scope exclusions, failure cases and any line that repeats your words still need
+your saved answer or feedback, and so does every line once a plan was approved or edited.</p>
 <p>Planning defaults to <strong>two Plan Reviewer reviews per cycle</strong>. A review counts once it
 returns a report, whether or not the runner then accepts that report. An attempt that
 times out or whose provider fails returns no review, so it is given back before the next
@@ -2732,7 +2740,15 @@ attempt; the repeated-failure limit, not this allowance, stops a review that kee
 Bounded recovery does not otherwise extend the allowance. Unresolved final decisions return
 to you as blocking questions. Once you answer them, planning starts a new cycle, and its first
 review receives the previous review's concerns, its decisions and your answers
-(<code>previous_review</code>), so it checks your answers instead of reviewing the plan from scratch. If the
+(<code>previous_review</code>), so it checks your answers instead of reviewing the plan from scratch. A
+technical question that AutoCode settles with the Planner's proposed default (a
+<code>technical_decision</code>, not an answer of yours) does not start a new cycle: the redraft that
+follows continues the cycle that asked, with its spent calls, its first review and its
+revision carried over (<code>planning.inherited_review</code>). The reviewer is told which answers were
+AutoCode's, and with one call left the final review decides on the redraft; what it cannot
+settle comes back to you as blocking questions. Only when the final review itself asked that
+question with no call left does the allowance grow by one call, once per run and never past a
+limit you set. Model output never renews the allowance; your answers and feedback do. If the
 budget is exhausted, the run pauses at <code>PAUSED_PLANNING_BUDGET</code>. After inspecting a
 reconciled checkpoint, an operator can permit one more attempt without discarding the
 accepted challenge and revision (for example, increase a total allowance of 2 to 3):</p>
@@ -3007,7 +3023,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/0dc54dede4f1539b9d64376cd8dccb06b5422862/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/9808b41a4fd8267f6b58071cb13c94a18d486334/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3085,7 +3101,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   also leaves a change outside the package <code>UNVERIFIED</code>, because the package
   suite never ran it.</p>
 <p>The <code>feature-monorepo-package</code> scenario
-(<a href="https://github.com/charlieanna/autocode/blob/0dc54dede4f1539b9d64376cd8dccb06b5422862/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
+(<a href="https://github.com/charlieanna/autocode/blob/9808b41a4fd8267f6b58071cb13c94a18d486334/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
 one package of a two-package repository with <code>--package</code> and the scripted
 model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open <code>runner</code> finding.
@@ -3317,7 +3333,7 @@ it is generated from the front matter so reviewers can read the plan.</p>
 holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
 (<code>scenarios/run.py</code>) checks this at every plan approval its catalog runs reach: it exports the plan
 and reads the file back with <code>--check</code> before it approves the plan
-(<a href="https://github.com/charlieanna/autocode/blob/0dc54dede4f1539b9d64376cd8dccb06b5422862/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
+(<a href="https://github.com/charlieanna/autocode/blob/9808b41a4fd8267f6b58071cb13c94a18d486334/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
 committing it approves nothing. Text that looks like a credential is masked before the file is
 written, with the same policy as <code>autocode bundle</code>; the export then says that the file's goal hash
 differs from the run's.</p>
