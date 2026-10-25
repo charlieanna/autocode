@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import ExitStack, redirect_stdout
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from copy import deepcopy
 from pathlib import Path
 from unittest import mock
@@ -220,6 +220,214 @@ class RebootOracleTests(unittest.TestCase):
         guest.check_reboot(before, after)
 
 
+class PreparationBudgetTests(unittest.TestCase):
+    def test_actual_remaining_time_reserves_every_later_phase(self):
+        assigned = vm.preparation_allowance(1320, 485)
+        self.assertEqual(
+            {"reboot_request": 45, "reboot": 300, "inspection": 135, "diagnostics": 45, "cleanup": 15},
+            assigned["reserves"],
+        )
+        self.assertEqual(295, assigned["ssh_seconds"])
+        self.assertEqual(280, assigned["guest_seconds"])
+        self.assertEqual(835, assigned["ssh_seconds"] + sum(assigned["reserves"].values()))
+        self.assertLess(vm.preparation_allowance(1320, 600)["guest_seconds"], assigned["guest_seconds"])
+
+    def test_exhausted_budget_grants_no_preparation_call(self):
+        for now in (820, 825, 1320, 1500):
+            with self.subTest(now=now):
+                assigned = vm.preparation_allowance(1320, now)
+                self.assertEqual(0, assigned["guest_seconds"])
+                self.assertEqual(0, assigned["ssh_seconds"])
+
+    def test_diagnostic_window_is_bounded_and_strips_nested_authority(self):
+        machine = mock.Mock()
+        machine.phase.return_value = ["fixture", "diagnose"]
+        machine.ssh.return_value = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout=json.dumps(
+                {
+                    "status": {"status": "RUNNING", "token": "secret-token"},
+                    "launch": {"ready": False, "private_env": "secret-env"},
+                    "secret": "secret-top",
+                }
+            ),
+            stderr='C4_PROGRESS {"phase":"diagnose","token":"secret-trace"}\n',
+        )
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(vm.time, "monotonic", return_value=100):
+            evidence = Path(directory)
+            vm.public_diagnostics(machine, 200, evidence)
+            report = (evidence / "prepare-diagnostics.json").read_text()
+        self.assertNotIn("secret-", report)
+        self.assertEqual(45, machine.ssh.call_args.kwargs["timeout"])
+        machine.phase.assert_called_once_with("diagnose", budget_seconds=30)
+        self.assertTrue(machine.ssh.call_args.args[0][-1].startswith("cd /opt/autocode && exec "))
+
+    def test_diagnostics_never_uses_reserved_cleanup_or_retries_a_timeout(self):
+        for deadline, attempted in ((130, False), (200, True)):
+            with self.subTest(deadline=deadline):
+                machine = mock.Mock()
+                machine.phase.return_value = ["fixture", "diagnose"]
+                machine.ssh.side_effect = subprocess.TimeoutExpired(
+                    "fixture diagnose", 45, stderr=b'C4_PROGRESS {"phase":"diagnose","result":"timeout"}\n'
+                )
+                with (
+                    tempfile.TemporaryDirectory() as directory,
+                    mock.patch.object(vm.time, "monotonic", return_value=100),
+                ):
+                    vm.public_diagnostics(machine, deadline, Path(directory))
+                    report = json.loads((Path(directory) / "prepare-diagnostics.json").read_text())
+                self.assertEqual(int(attempted), machine.ssh.call_count)
+                self.assertIn("unavailable", report["result"])
+
+    def test_trace_retains_only_bounded_progress_not_prose_or_tokens(self):
+        stream = "raw secret-prose\n" + "\n".join(
+            "C4_PROGRESS " + json.dumps({"phase": str(n), "token": "secret-token", "operation": "x" * 300})
+            for n in range(100)
+        )
+        rows = vm.trace_records(stream.encode())
+        self.assertEqual(64, len(rows))
+        self.assertEqual("99", rows[-1]["phase"])
+        self.assertEqual(256, len(rows[-1]["operation"]))
+        self.assertNotIn("secret-", json.dumps(rows))
+
+    def test_vm_wait_caps_each_read_at_remaining_time(self):
+        clock = {"now": 0.0}
+        machine = vm.VM(Path("/fixture"), 22222, "instance", "outer")
+        machine.child = mock.Mock(poll=mock.Mock(return_value=None))
+
+        def read(args, **kwargs):
+            self.assertLessEqual(kwargs["timeout"], 2 - clock["now"])
+            clock["now"] += kwargs["timeout"]
+            return subprocess.CompletedProcess(args, 255, stdout="", stderr="")
+
+        with (
+            mock.patch.object(vm.time, "monotonic", side_effect=lambda: clock["now"]),
+            mock.patch.object(vm.time, "sleep", side_effect=lambda seconds: clock.update(now=clock["now"] + seconds)),
+            mock.patch.object(machine, "ssh", side_effect=read) as ssh,
+        ):
+            with self.assertRaises(RuntimeError):
+                machine.wait(["true"], seconds=2)
+        self.assertEqual(1, ssh.call_count)
+
+
+class GuestPreparationTests(unittest.TestCase):
+    def test_one_guest_deadline_covers_every_command_without_resetting(self):
+        clock = {"now": 100.0}
+        budget = guest.Budget(20, clock=lambda: clock["now"])
+
+        def command(args, **kwargs):
+            clock["now"] += 8
+            return subprocess.CompletedProcess(args, 0, stdout="{}", stderr="")
+
+        with mock.patch.object(guest.subprocess, "run", side_effect=command) as run:
+            guest.run_bounded(["fixture", "one"], budget, env={}, operation="one")
+            guest.run_bounded(["fixture", "two"], budget, env={}, operation="two")
+            clock["now"] = 120
+            with self.assertRaises(guest.PublicFailure):
+                guest.run_bounded(["fixture", "three"], budget, env={}, operation="three")
+        self.assertEqual([15, 12], [row.kwargs["timeout"] for row in run.call_args_list])
+        self.assertEqual(2, run.call_count)
+
+    def test_invalid_guest_budgets_cannot_authorize_commands(self):
+        for seconds in (0, -1, float("inf"), float("nan")):
+            with self.subTest(seconds=seconds), self.assertRaises(ValueError):
+                guest.Budget(seconds)
+
+    def test_progress_is_bounded_stderr_and_omits_task_authority_and_prose(self):
+        budget = guest.Budget(30, clock=lambda: 0)
+        view = {
+            "status": "RUNNING",
+            "next_stage": "terra",
+            "needs": {"kind": "continue", "token": "secret-token"},
+            "chat": {"messages": [{"text": "secret-prose"}]},
+        }
+        output, error = io.StringIO(), io.StringIO()
+        progress = guest.Progress(budget)
+        with redirect_stdout(output), redirect_stderr(error):
+            progress.emit("status", view=view)
+            progress.emit("status", view=view)
+            for index in range(100):
+                progress.emit("stage_" + str(index), view=view)
+            progress.emit("failed", operation="prepare", result="TimeoutError", terminal=True)
+        rows = error.getvalue().splitlines()
+        self.assertEqual("", output.getvalue())
+        self.assertEqual(64, len(rows))
+        self.assertNotIn("secret-", error.getvalue())
+        self.assertEqual(64, len(vm.trace_records(error.getvalue())))
+
+    def test_lost_launch_reply_does_not_redispatch(self):
+        from autocode_worker_view import PREFIX
+
+        budget = guest.Budget(30, clock=lambda: 0)
+        driver = guest.PublicDriver(budget, env={}, progress=mock.Mock())
+        execution = {"id": "durable_local", "available": True, "next_command": list(PREFIX)}
+        replies = [
+            subprocess.CompletedProcess([], 0, stdout=json.dumps({"execution": {"modes": [execution]}}), stderr=""),
+            subprocess.TimeoutExpired("worker launch", 15),
+        ]
+        with mock.patch.object(guest.subprocess, "run", side_effect=replies) as run:
+            with self.assertRaises(guest.PublicFailure):
+                driver.launch("fixed fixture brief", ())
+        self.assertEqual(2, run.call_count)
+        self.assertEqual(1, sum("launch" in call.args[0] for call in run.call_args_list))
+
+    def test_failed_prepare_emits_exception_class_without_raw_message(self):
+        output, error = io.StringIO(), io.StringIO()
+        argv = ["guest", "prepare", "--instance", "fixture", "--outer-boot", "outer", "--budget-seconds", "30"]
+        with (
+            mock.patch.object(guest.sys, "argv", argv),
+            mock.patch.object(guest, "require_guest"),
+            mock.patch.object(guest, "prepare", side_effect=RuntimeError("secret-error-body")),
+            redirect_stdout(output),
+            redirect_stderr(error),
+        ):
+            with self.assertRaises(RuntimeError):
+                guest.main()
+        rows = vm.trace_records(error.getvalue())
+        self.assertEqual("failed", rows[-1]["phase"])
+        self.assertEqual("RuntimeError", rows[-1]["result"])
+        self.assertNotIn("secret-error-body", error.getvalue())
+        self.assertEqual("", output.getvalue())
+
+    def test_dispatch_rejects_a_view_from_another_run_before_any_call(self):
+        driver = guest.PublicDriver(guest.Budget(30, clock=lambda: 0), env={}, progress=mock.Mock())
+        with mock.patch.object(driver, "call") as call:
+            with self.assertRaises(guest.PublicFailure):
+                driver.dispatch({"workspace": "/another/project", "run_dir": "/another/run"})
+        call.assert_not_called()
+
+    def test_diagnosis_uses_public_current_launch_without_a_saved_handle(self):
+        launch_id = "a" * 32
+        driver = mock.Mock()
+        driver.status.return_value = {
+            "status": "RUNNING",
+            "execution": {"launch_id": launch_id},
+            "needs": {"token": "secret-token"},
+        }
+        driver.call.return_value = {"launch_id": launch_id, "ready": False, "private_env": "secret-env"}
+        with (
+            mock.patch.object(guest, "PublicDriver", return_value=driver),
+            mock.patch.object(guest, "handle", side_effect=AssertionError("private handle must not be required")),
+        ):
+            result = guest.diagnose(guest.Budget(30, clock=lambda: 0), progress=mock.Mock())
+        driver.call.assert_called_once_with(["worker", "inspect", launch_id], "diagnose_inspect")
+        self.assertNotIn("secret-", json.dumps(result))
+
+    def test_unavailable_status_discovers_only_public_launches(self):
+        driver = mock.Mock(
+            workspace=Path("/fixture/project"), run_dir=Path("/fixture/project/.autocode/runs/literal-reboot")
+        )
+        driver.status.side_effect = guest.PublicFailure("status", "unavailable")
+        driver.call.return_value = {"launches": [{"launch_id": "a" * 32, "ready": False, "token": "secret"}] * 7}
+        with mock.patch.object(guest, "PublicDriver", return_value=driver):
+            result = guest.diagnose(guest.Budget(30, clock=lambda: 0), progress=mock.Mock())
+        self.assertEqual(4, len(result["launches"]))
+        self.assertEqual("diagnose_launches", driver.call.call_args.args[1])
+        self.assertEqual(["worker", "launches"], driver.call.call_args.args[0][:2])
+        self.assertNotIn("secret", json.dumps(result))
+
+
 class GuestAdmissionTests(unittest.TestCase):
     def admit(self, *, marker=None, product="guest-instance", boot="guest-boot", uid=1000, platform="linux"):
         if marker is None:
@@ -335,6 +543,12 @@ class CoordinatorSafetyTests(unittest.TestCase):
             early.mkdir(parents=True)
             (early / "admission.json").write_text("retained early report")
             env = {"GITHUB_WORKSPACE": str(root), "RUNNER_TEMP": str(root)}
+            clock = {"now": 0.0}
+
+            def fail_command(*args, **kwargs):
+                clock["now"] = 1.0
+                raise OSError("stop before guest setup")
+
             with (
                 mock.patch.dict(vm.os.environ, env, clear=True),
                 mock.patch.object(vm.sys, "argv", ["coordinator", "--image", str(image)]),
@@ -343,11 +557,12 @@ class CoordinatorSafetyTests(unittest.TestCase):
                 mock.patch.object(vm.signal, "signal"),
                 mock.patch.object(vm, "BOOT", mock.Mock(read_text=lambda: "outer-boot")),
                 mock.patch.object(vm.socket, "socket") as socket,
-                mock.patch.object(vm.subprocess, "run", side_effect=OSError("stop before guest setup")),
+                mock.patch.object(vm.subprocess, "run", side_effect=fail_command),
+                mock.patch.object(vm.VM, "stop", side_effect=lambda: clock.update(now=2.0)),
                 mock.patch.object(vm.subprocess, "Popen") as start,
             ):
                 socket.return_value.__enter__.return_value.getsockname.return_value = ("127.0.0.1", 22222)
-                with mock.patch.object(vm.time, "monotonic", side_effect=[0.0, 1.0, 2.0]):
+                with mock.patch.object(vm.time, "monotonic", side_effect=lambda: clock["now"]):
                     with self.assertRaisesRegex(OSError, "stop before guest setup"):
                         vm.main()
                 evidence = root / ".scenario-runs/worker-reboot"
@@ -363,7 +578,9 @@ class CoordinatorSafetyTests(unittest.TestCase):
                 self.assertEqual("retained early report", (early / "admission.json").read_text())
                 start.assert_not_called()
 
-    def completed_fixture_with_cleanup(self, *, fails):
+    def completed_fixture_with_cleanup(
+        self, *, fails, prepare_error=False, elapsed_before_prepare=None, no_budget=False, invalid_baseline=False
+    ):
         before, after = snapshots()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -376,22 +593,48 @@ class CoordinatorSafetyTests(unittest.TestCase):
             evidence = root / ".scenario-runs/worker-reboot"
             machine = mock.Mock()
             machine.ssh_options = []
-            machine.phase.side_effect = lambda phase: ["fixture", phase]
+            machine.phase.side_effect = lambda phase, **kwargs: ["fixture", phase]
+            machine.child = None
+            events = []
+            clock = {"now": 0.0}
 
             def ssh(args, **kwargs):
-                text = ""
+                text, error = "", ""
                 if args == ["cat", "/etc/autocode-reboot-product-uuid"]:
                     text = "guest-instance"
                 elif args[0] == "cat":
                     text = "boot-before"
                 elif args[-1].endswith("fixture prepare"):
-                    text = json.dumps(before)
+                    events.append("prepare")
+                    if prepare_error:
+                        raise subprocess.TimeoutExpired(
+                            "fixture prepare",
+                            kwargs["timeout"],
+                            stderr=b'C4_PROGRESS {"phase":"planning","token":"do-not-save"}\n',
+                        )
+                    text = "invalid JSON" if invalid_baseline else json.dumps(before)
+                    error = 'C4_PROGRESS {"phase":"baseline","result":"ready"}\n'
+                elif args[-1].endswith("fixture diagnose"):
+                    events.append("diagnose")
+                    text = json.dumps({"status": {"status": "RUNNING", "token": "do-not-save"}, "errors": []})
+                elif args[-1].endswith("fixture reboot"):
+                    events.append("reboot_request")
+                    self.assertEqual(45.0, kwargs["timeout"])
+                    clock["now"] += kwargs["timeout"]
                 elif args[-1].endswith("fixture inspect"):
                     text = json.dumps(after)
-                return subprocess.CompletedProcess(args, 0, stdout=text, stderr="")
+                if elapsed_before_prepare is not None and args[0].endswith("/pip") and "--no-deps" in args:
+                    clock["now"] = elapsed_before_prepare
+                return subprocess.CompletedProcess(args, 0, stdout=text, stderr=error)
 
             def cleanup():
-                self.assertTrue((evidence / "after-2.json").is_file(), "The control must reach all proof observations")
+                events.append("cleanup")
+                if prepare_error or no_budget or invalid_baseline:
+                    self.assertTrue((evidence / "prepare-diagnostics.json").is_file())
+                else:
+                    self.assertTrue(
+                        (evidence / "after-2.json").is_file(), "The control must reach all proof observations"
+                    )
                 self.assertFalse((evidence / "result.json").exists(), "PASS must wait for cleanup")
                 if fails:
                     raise OSError("fixture cleanup failed")
@@ -415,23 +658,69 @@ class CoordinatorSafetyTests(unittest.TestCase):
                     "run",
                     return_value=subprocess.CompletedProcess([], 0, stdout="source-pin", stderr=""),
                 ),
-                mock.patch.object(vm.subprocess, "Popen", return_value=mock.Mock(pid=1234)),
+                mock.patch.object(
+                    vm.subprocess, "Popen", return_value=mock.Mock(pid=1234, poll=mock.Mock(return_value=None))
+                ),
+                mock.patch.object(
+                    vm.time,
+                    "monotonic",
+                    side_effect=lambda: clock["now"],
+                ),
             ):
                 socket.return_value.__enter__.return_value.getsockname.return_value = ("127.0.0.1", 22222)
-                if fails:
+                if prepare_error:
+                    with self.assertRaises(subprocess.TimeoutExpired):
+                        vm.main()
+                elif invalid_baseline:
+                    with self.assertRaises(json.JSONDecodeError):
+                        vm.main()
+                elif no_budget:
+                    with self.assertRaisesRegex(TimeoutError, "No preparation budget"):
+                        vm.main()
+                elif fails:
                     with self.assertRaisesRegex(OSError, "fixture cleanup failed"):
                         vm.main()
                 else:
                     vm.main()
             machine.stop.assert_called_once()
+            if not prepare_error and not no_budget and not invalid_baseline:
+                reconnect = machine.wait.call_args_list[-1]
+                self.assertEqual(300, reconnect.kwargs["seconds"])
+                self.assertEqual("boot-before", reconnect.kwargs["changed_boot"])
             phases = json.loads((evidence / "phase-durations.json").read_text())
-            if fails:
+            if prepare_error or no_budget or invalid_baseline:
+                self.assertEqual((["prepare"] if prepare_error or invalid_baseline else []) + ["diagnose", "cleanup"], events)
+                self.assertFalse((evidence / "result.json").exists())
+                self.assertEqual("fixture_prepare", json.loads((evidence / "failure.json").read_text())["phase"])
+                progress = json.loads((evidence / "prepare-progress.json").read_text())
+                expected_progress = [{"phase": "planning"}] if prepare_error else []
+                if invalid_baseline:
+                    expected_progress = [{"phase": "baseline", "result": "ready"}]
+                self.assertEqual(expected_progress, progress)
+                self.assertNotIn("do-not-save", (evidence / "prepare-diagnostics.json").read_text())
+            elif fails:
                 self.assertFalse((evidence / "result.json").exists())
                 self.assertEqual("cleanup", json.loads((evidence / "failure.json").read_text())["phase"])
                 self.assertEqual("failed", phases["outcome"])
             else:
                 self.assertEqual("PASS", json.loads((evidence / "result.json").read_text())["result"])
                 self.assertEqual("passed", phases["outcome"])
+            if elapsed_before_prepare is not None:
+                assigned = json.loads((evidence / "preparation-budget.json").read_text())
+                self.assertEqual(0.0 if no_budget else 295.0, assigned["ssh_seconds"])
+                self.assertEqual(0.0 if no_budget else 280.0, assigned["guest_seconds"])
+
+    def test_invalid_baseline_preserves_captured_preparation_progress(self):
+        self.completed_fixture_with_cleanup(fails=False, invalid_baseline=True)
+
+    def test_exhausted_preparation_budget_never_starts_prepare(self):
+        self.completed_fixture_with_cleanup(fails=False, elapsed_before_prepare=900.0, no_budget=True)
+
+    def test_preparation_uses_actual_remaining_budget(self):
+        self.completed_fixture_with_cleanup(fails=False, elapsed_before_prepare=485.0)
+
+    def test_preparation_timeout_retains_trace_and_reads_diagnostics_before_cleanup(self):
+        self.completed_fixture_with_cleanup(fails=False, prepare_error=True)
 
     def test_failed_guest_cleanup_never_leaves_a_pass_result(self):
         self.completed_fixture_with_cleanup(fails=True)

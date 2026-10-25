@@ -337,6 +337,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Manual C4 qualification composes preparation and reboot request deadlines within the existing
+  global cap, retains bounded fixture progress, and collects read-only diagnostics before cleanup.
+  Both failed qualification attempts remain failed; literal reboot proof is still pending (#1881).
+
 - The manual C4 qualification reports named admission errors before setup and explicitly uses TCG
   for its disposable Linux guest. It retains accelerator/phase timing and never publishes PASS
   before guest cleanup succeeds; literal reboot proof remains pending (#1881, #1886).
