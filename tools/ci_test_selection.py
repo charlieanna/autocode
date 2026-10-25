@@ -112,6 +112,14 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     ("tools/prompts/fragments/milestones/", ("tests.test_milestone_policy",)),
     ("tools/prompts/fragments/milestone-replan/", ("tests.test_milestone_policy", "tests.test_milestone_replan")),
+    (
+        "tools/prompts/fragments/autoplanner/proof-reference-rule.md",
+        (
+            "tests.test_planning_proof_reference",
+            "tests.test_report_repair_context",
+            "tests.test_requirements_job_cli",
+        ),
+    ),
     ("tools/prompts/fragments/autoplanner/", ("tests.test_autoplanner_review", "tests.test_planning_stages")),
     (
         "tools/prompts/fragments/autoplanner/concern-only-contract-audit.md",

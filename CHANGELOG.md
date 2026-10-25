@@ -323,6 +323,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Planning, independent plan review and report repair now name the saved repository regression reference.
+  A same-chat follow-up does not reset that commit: an existing regression may pass in today's fixed
+  workspace and still fail on the original reference. The guidance retains fresh runner proof and
+  exact-plan approval instead of requesting duplicate tests or historical-proof reuse from that fact alone (#2074).
+
 - Requirements scans an identical follow-up source once when it is both the current task and saved
   feedback. Planning and repair checklists and missing-coverage diagnostics no longer repeat those
   obligations; the source journal and all distinct requirement checks remain intact (#2072).
