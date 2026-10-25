@@ -1,5 +1,5 @@
 {
-  "as_of": "2026-10-17",
+  "as_of": "2026-10-25",
   "currency": "USD",
   "basis": "Standard list price per million text tokens for metered API use, read from each provider's own pricing pages. Not an invoice: a subscription or coding-plan route is billed by its plan, so its row is the metered API price of the same model. Updated by pull request.",
   "models": {
@@ -83,6 +83,14 @@
       "retrieved": "2026-10-14",
       "note": "The Token Plan route is a subscription metered in credits; this is Xiaomi's pay-as-you-go price (CNY 3 / 0.025 / 6). No Singapore-specific price was found."
     },
+    "xiaomi-token-plan-sgp/mimo-v2.6-flash": {
+      "input": 0.14,
+      "cached_input": 0.0028,
+      "output": 0.28,
+      "source": "https://mimo.mi.com/models/en-US/mimo-v2.6-flash",
+      "retrieved": "2026-10-25",
+      "note": "The Token Plan route is a subscription metered in credits; this is Xiaomi's pay-as-you-go price (CNY 1 / 0.02 / 2). No Singapore-specific price was found."
+    },
     "kilo/z-ai/glm-5.3": {
       "input": 1.4,
       "cached_input": 0.26,
@@ -154,6 +162,22 @@
       "source": "https://platform.claude.com/docs/en/about-claude/pricing",
       "retrieved": "2026-10-14",
       "note": "Route alias of claude-opus-5-5. 5-minute cache writes 5.00, 1-hour 8.00. The built-in claude provider reports its own cost, which is used before this estimate."
+    },
+    "anthropic/claude-sonnet-5-5": {
+      "input": 2.0,
+      "cached_input": 0.1,
+      "output": 10.0,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved": "2026-10-14",
+      "note": "Route alias of claude-sonnet-5-5. Cache reads 0.10 from 2026-10-07 (0.20 before, per the Platform release notes). 5-minute cache writes 2.50."
+    },
+    "anthropic/claude-haiku-4-5": {
+      "input": 1.0,
+      "cached_input": 0.1,
+      "output": 5.0,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved": "2026-10-14",
+      "note": "Route alias of claude-haiku-4-5-20251001. The cached rate is Anthropic's published 0.1x cache-read multiplier for this model. 5-minute cache writes 1.25."
     },
     "kilo/anthropic/claude-opus-5-5": {
       "input": 4.0,

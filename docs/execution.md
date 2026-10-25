@@ -793,6 +793,18 @@ tool execution and total stage runtime:
 | `--max-stage-seconds` | `3600` | Hard cap for the entire stage, enforced even while activity continues. |
 | `--max-seconds` | `43200` | Total active provider time for the run (its model attempts' durations added together), checked at stage boundaries and, when you set it, before an attempt on a stronger route (below). |
 
+The bug Investigator has one more stop, a reproduction-first budget (#1902). The runner reads
+the stage's own event stream, with no model, and counts completed source-reading and searching
+calls (file reads, `grep`, `find`, `cat`, `git log` and similar) until the first reproduction
+attempt: a command that runs code or tests, or a write in the scratch copy. When
+`limits.investigation_exploration_budget` such calls (default `30`; `0` disables; saved settings
+only, there is no flag yet) pass with no attempt, the stage stops early with the reason
+`Stopped after N source-exploration calls without attempting a reproduction`. It is a stage
+timeout (`PAUSED_PROVIDER_TIMEOUT`, then the usual `PAUSED_JOB_FAILURE` retry question), and the
+exact retry's handoff lists what the stopped attempt read (`explored_paths`,
+`reproduction_attempts`, `stop_kind`) as unverified leads. A command the classifier does not
+recognize counts as neither kind, so a miss delays this stop and never causes one.
+
 Each flag accepts `0` to disable that limit. The iteration ceiling has no new-run
 default; the two time limits above bound a run's spend instead, and Resolver may
 double each once (see [Budget ownership](#budget-ownership-and-human-escalation)).

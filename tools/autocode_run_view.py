@@ -794,7 +794,21 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         if status == "PAUSED_NO_PROGRESS" and not recovery_limits.no_progress_bound_holds(state)
         else operational_information.resume_flags(state, (need or {}).get("pause_origin") or status)
     )
-    inputs = None if terminal or not category else command_inputs.project(state, need, resume_flags)
+    inputs: list | None = None if terminal or not category else command_inputs.project(state, need, resume_flags)
+    # A bound row whose raise is not next_command names its own command (#2044). Pending information is
+    # reviewed first, as for the attached offers, so it is offered once that review has held.
+    separate = bool(inputs and "command" in inputs[0])
+    if separate and (operational_information.projection(state) or {}).get("status") == "pending":
+        inputs, separate = None, False
+    token = recovery_view.token(state) if inputs else None
+    if separate and inputs:
+        named_raise = pause_command.command(
+            {"kind": "resume", "action": command_inputs.raise_action(inputs[0])},
+            run_dir=run_dir or state.get("run_dir"),
+            workspace=workspace or state.get("workspace"),
+            recovery_token=token,
+        )
+        inputs = [{**inputs[0], "command": named_raise}] if named_raise and token else None
     if inputs and need is not None:
         need = {**need, "command_inputs": inputs}
     ready_boundary = (
@@ -831,7 +845,7 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
             run_dir=run_dir or state.get("run_dir"),
             workspace=workspace or state.get("workspace"),
             resume_flags=resume_flags,
-            recovery_token=recovery_view.token(state) if inputs else None,
+            recovery_token=token if inputs and not separate else None,
             terminal=terminal,
         ),
     }

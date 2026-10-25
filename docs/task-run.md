@@ -1100,8 +1100,40 @@ missing original source or immutable caller binding offers inspection. A termina
 stop or dependency wait offers no recovery command. CLI gates still validate
 freshness and authority when a person executes any displayed command.
 
-For the exact finite total-time recovery, `needs.command_inputs` describes the
-person's numeric decision additively:
+`needs.command_inputs` describes the one number a pause leaves to a person, so a
+client can ask for it instead of handing the command off (#2044). Every bound a
+budget pause names is described, with the same row shape:
+
+| Pause holding the run | `id` | `flag` | `label` | `used` reports |
+| --- | --- | --- | --- | --- |
+| `PAUSED_TIME_LIMIT` | `max_seconds` | `--max-seconds` | Total active time (seconds) | `elapsed`: active seconds |
+| `PAUSED_COST_LIMIT` | `max_cost_usd` | `--max-cost-usd` | Cost cap (whole USD) | known spend in USD |
+| `PAUSED_ITERATION_LIMIT` | `max_iterations` | `--max-iterations` | Total iterations | the current iteration |
+| `PAUSED_MILESTONE_TIME_LIMIT`, `PAUSED_MILESTONE_BUDGET` | `max_milestone_seconds` | `--max-milestone-seconds` | Milestone active time (seconds) | the milestone's counted seconds |
+| `PAUSED_MILESTONE_STALLED` | `max_milestone_replans` | `--max-milestone-replans` | Milestone replans | replans used |
+| `PAUSED_NO_PROGRESS` (its unchanged-batch bound only) | `no_progress_limit` | `--no-progress-limit` | Unchanged implementation batches allowed | unchanged batches counted |
+
+For each, `minimum` is one more than the larger of `current` (the saved bound;
+the cost cap may be fractional) and the count, `maximum` is the largest safe
+integer, and the command is `--resume-paused FLAG N --expected-recovery-token -`
+with the current `recovery.token` in `AUTOCODE_EXPECTED_RECOVERY_TOKEN`. The row
+is offered wherever that bound holds the run: at its own pause, after
+AutoResolver published its operational request for it, and once corrective
+information has been reviewed and held (not while that review is pending). It is
+not offered while the run is active, while an attempt or report repair is
+unreconciled, or where the need names another control (a retry, an edit, a
+model question, a new run).
+
+Where `next_command` is that raise, the row binds to it. Where it is not, because
+the need is a plain `--resume-paused` or AutoResolver's operational response, the
+row also carries `command`: the raise itself, a complete command with the run's
+paths and the private token channel. A client fills the row's `arg_index` in
+that command and takes it, never in `next_command` or in a reply. The terminal
+chat offers it at the pause's yes/no and at the operational reply; the headless
+conformance client and the VS Code client validate it the same way
+(`tools/autocode_client_actions.check_input`).
+
+For the finite total-time recovery, for example:
 
 ```json
 {"id":"max_seconds","kind":"integer","flag":"--max-seconds","placeholder":"N",
@@ -1119,7 +1151,7 @@ descriptor and token binding before substituting that one argument. A person
 must enter a whole number between `minimum` and `maximum`; there is no default
 and no extraction of numbers from chat. The minimum exceeds both the saved cap
 and consumed active time. An empty, zero, fractional, unsafe or out-of-range
-value grants nothing. Other unresolved `N` placeholders remain client gaps.
+value grants nothing. An `N` with no row is a client gap.
 
 This choice changes only the total active-time cap. It neither changes other
 limits or model routes nor approves a plan. Recovery freshness is rechecked
@@ -1153,7 +1185,7 @@ The person confirms the exact total number of calls. This uses the existing
 allowance setter and preserves charged calls, recovery history, other limits,
 routes and plan approval. It does not reset a cycle, change allowance policy or
 approve the plan. Ordinary CLI callers retain their existing explicit zero
-semantics. Other numeric placeholders remain unsupported.
+semantics.
 
 An exhausted `PAUSED_TIMEOUT_RECOVERY` can name one additional finite choice:
 

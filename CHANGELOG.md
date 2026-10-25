@@ -11,6 +11,20 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The bug Investigator now has a reproduction-first budget (#1902). After 30 completed source-reading or
+  searching calls with no attempt to reproduce (`limits.investigation_exploration_budget`; `0` disables;
+  no flag yet), the runner stops the stage early instead of letting it read until the stage deadline. It
+  pauses as a stage timeout with the usual retry question, and the exact retry's handoff lists what the
+  stopped attempt already read. See `docs/execution.md`.
+- Every number a bound pause leaves to a person is now described in `needs.command_inputs`, not only the
+  active-time total, the plan-review allowance and the recovery grant. The cost cap, iteration ceiling,
+  milestone time, milestone replans and unchanged-batch limit each get a row with its current value, what
+  was used and the minimum that releases the run. Once AutoResolver holds such a pause, `next_command` is a
+  plain resume, and the row now carries the raise as its own `command`. The terminal chat, the VS Code
+  client and the headless conformance client validate any such row the same way and take only that
+  command, so a number typed at the pause raises the bound. Before, those pauses named an `N` no client
+  could fill, and #1950's fix could only say the typed number set nothing (#2044).
+
 - The terminal chat shows which planning path a bug-fix run took: a Plan path section in the side
   panel (`compact: Planner draft omitted` with what covers it, or `full: every planning stage runs` with
   the first reason, and any fallback) and a Planning path block in `/details` with every reason, the
@@ -287,6 +301,11 @@ PR template asks for an entry here; a change without one is incomplete.
   routes keep high; `--sol-reasoning-effort` still sets either.
 
 ### Fixed
+
+- Stages on `anthropic/claude-sonnet-5-5`, `anthropic/claude-haiku-4-5` and `xiaomi-token-plan-sgp/mimo-v2.6-flash`
+  are now priced (`tools/autocode_prices.json`, as of 2026-10-25). Live runs recorded their tokens with no rate, so
+  the run's spend left them out and a `--max-cost-usd` cap could not count them. The two Claude ids take the rates
+  of the rows they alias; MiMo 2.6 Flash takes Xiaomi's pay-as-you-go price.
 
 - A permission question now says so before the person answers when none of its choices can do anything.
   A greenfield run's completion gate offered "complete base-side collection evidence runner-side" as an

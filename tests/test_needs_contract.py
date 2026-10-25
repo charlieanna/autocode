@@ -148,6 +148,10 @@ _PERSON_INT = frozenset(
         "--max-seconds",
         "--max-idle-seconds",
         "--max-cost-usd",
+        "--max-iterations",
+        "--max-milestone-seconds",
+        "--max-milestone-replans",
+        "--grant-recovery",
     }
 )
 
@@ -234,7 +238,11 @@ class CostPauseCommandTests(unittest.TestCase):
         }
         view = run_view.view(state)
         self.assertEqual("resume", view["needs"]["kind"])
-        self.assertTrue(view["next_command"].endswith("--resume-paused --max-cost-usd N"), view["next_command"])
+        self.assertTrue(
+            view["next_command"].endswith("--resume-paused --max-cost-usd N --expected-recovery-token -"),
+            view["next_command"],
+        )
+        self.assertEqual("max_cost_usd", view["needs"]["command_inputs"][0]["id"])  # #2044: a client can fill it
         args, words = parse_next_command(view["next_command"])
         self.assertEqual("10", words[words.index("--max-cost-usd") + 1])
         self.assertTrue(args.resume_paused)

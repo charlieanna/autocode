@@ -27,6 +27,14 @@ and check its real result. Preserve the archived artifacts and old scratch files
 depend on them in the submitted self-contained probe, assume earlier output passed, or repeat
 the same broad exploration before inspecting the retained work. If a lead is missing or stale,
 say so and investigate that gap; never manufacture evidence from the failed attempt.
+prior_failed_attempt.explored_paths lists what the failed attempt already read and
+reproduction_attempts how many probes it ran. When reproduction_attempts is 0 and stop_kind is
+"progress", it was stopped for exploring without reproducing: do not read those paths again for
+orientation, and run a first probe within your first few tool calls.
+
+When exploration_budget is positive, the runner stops this stage after that many completed
+source-reading or searching calls with no reproduction attempt (a command that runs code or tests,
+or a write in the scratch copy). Reading is not wasted if it comes after a probe has run.
 
 What to do:
 1. Restate what the reporter observed (observed).
