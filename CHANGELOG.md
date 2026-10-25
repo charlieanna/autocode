@@ -40,6 +40,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The terminal's `/runs` and an uncached `/open` now read project and global
+  listings asynchronously in the existing bounded read pool. Keyboard input
+  stays available during slow discovery, and numbered `/open` choices stay
+  fixed until the person inspects `/runs` again (#1882).
+
 - Attention rows keep read state and event type visible before long task titles
   at narrow terminal widths. Integrated qualification also covers three projects
   and two viewers sharing acknowledgement and refusing stale approval (#2070,

@@ -20,7 +20,14 @@ from typing import BinaryIO
 READ_TIMEOUT = 5.0
 MAX_READS = 2
 INVENTORY_SECONDS = 10.0
-Key = tuple[str, str | None]  # None is the public runs inventory, never a fabricated run ID.
+
+
+@dataclass(frozen=True)
+class ProjectRuns:
+    workspace: str
+
+
+Key = tuple[str, str | None] | ProjectRuns  # None is the global inventory, never a fabricated run ID.
 
 
 @dataclass
@@ -101,15 +108,19 @@ class StatusPoller:
             output = tempfile.TemporaryFile()  # noqa: SIM115 - owned until this asynchronous read is reaped
             try:
                 arguments = (
-                    ["--status", "--workspace", key[0], "--run-dir", key[1]]
-                    if key[1] is not None
-                    else ["runs", "--all", "--json"]
+                    ["runs", "--workspace", key.workspace, "--json"]
+                    if isinstance(key, ProjectRuns)
+                    else (
+                        ["--status", "--workspace", key[0], "--run-dir", key[1]]
+                        if key[1] is not None
+                        else ["runs", "--all", "--json"]
+                    )
                 )
                 child = self.launch(
                     [*self.command, *arguments],
                     stdout=output,
                     stderr=subprocess.DEVNULL,
-                    cwd=key[0],
+                    cwd=key.workspace if isinstance(key, ProjectRuns) else key[0],
                     env=self.env,
                     process_group=0,
                 )
