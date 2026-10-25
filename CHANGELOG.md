@@ -9,6 +9,17 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- `--compact-bugfix-planning` (new runs, off by default): for a bug the Investigator reproduces with a
+  runner-run probe, sizes small and localizes to at most four files none of which the project's
+  `sensitive-paths` name, the runner writes the plan draft from the diagnosis and the Requirements record
+  instead of launching the Planner's draft call; the Plan Reviewer reviews that draft, a clean review goes
+  to the person's exact-token approval and a blocking concern returns the run to the Planner. The new
+  project setting `sensitive-paths` (no flag) lists the path patterns such a path may never touch; a
+  project without it keeps the full path. The status view's new `stage_policy` field records the decision
+  and its reasons (#2021, the first #1867 checkpoint).
+
 ### Changed
 
 - In the terminal chat, `/connect NAME use`, `/mode` and `/engine` typed at the first

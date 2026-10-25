@@ -1623,6 +1623,22 @@ one-sentence reason. Both are `null` whenever `workflow` is.
 The Plan Reviewer still reviews every build plan and you still approve it; these
 fields only report the decisions.
 
+`stage_policy` records which planning path a bug-fix run took and why
+([compact planning](adaptive-planning.md#compact-planning-for-bug-fixes)). It is `null` until a
+bug-fix run's Investigator has reported (and for every other job); then:
+
+| Field | Meaning |
+| --- | --- |
+| `version` | `1` |
+| `path` | `"compact"` (the runner wrote the draft; the Plan Reviewer reviews it) or `"full"` (the Planner's draft runs) |
+| `reasons` | Every trusted signal that kept the full path, in words (`the run did not opt in (--compact-bugfix-planning)`, `the project declares no sensitive-paths, so every path counts as sensitive`, `the fix touches sensitive paths: ...`, `the compact draft was refused: ...`); `[]` on the compact path |
+| `basis` | The records the decision rests on: `diagnosis_output_hash`, `diagnosis_source_revision` and `requirements_output` |
+| `decisions` | One row for `astra_discovery` (the Planner's draft): `decision` is `"omitted"` or `"included"`, with its `reason`, and `covered_by` names what covers an omission (`runner:compact_draft`, `astra_challenge`, `person:approve_goal`, `runner:regression_proof`) |
+| `fallback` | `null`, or `{"from": "astra_challenge", "reason": ..., "review_call_refunded": true/false}` once a review could not approve the compact draft and the run returned to the full path (the compact review's call is given back to the full path's allowance) |
+
+The record reports a decision the core made from trusted inputs; it grants nothing, and a
+client renders it without acting on it.
+
 `needs` is `null` when the run is complete. Otherwise its `kind` says what the
 run is waiting for:
 

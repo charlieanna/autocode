@@ -25,6 +25,7 @@ from pathlib import Path
 try:
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_cli_surface as cli_surface
+    from . import autocode_compact_planning as compact_planning
     from . import autocode_conversation_args as conversation_args
     from . import autocode_design_args as design_args
     from . import autocode_package_scope as package_scope
@@ -46,6 +47,7 @@ try:
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_cli_surface as cli_surface
+    import autocode_compact_planning as compact_planning
     import autocode_conversation_args as conversation_args
     import autocode_design_args as design_args
     import autocode_package_scope as package_scope
@@ -252,6 +254,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "review call, and feedback on a shown plan goes to the Planner; Requirements always runs "
         "first (docs/adaptive-planning.md); --no-adaptive-planning opts out",
     )
+    compact_planning.add_argument(parser)
     resolver_human.requirements_review.add_argument(parser)
     acceptance_tests.add_argument(parser)
     parser.add_argument(
