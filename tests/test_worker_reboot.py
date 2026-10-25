@@ -1,9 +1,15 @@
 """Pure C4 evidence-oracle and disposable-guest admission checks; no VM or provider."""
 
+import hashlib
+import io
 import json
+import subprocess
+import sys
+import tempfile
 import unittest
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout
 from copy import deepcopy
+from pathlib import Path
 from unittest import mock
 
 from tests import worker_reboot_guest as guest
@@ -245,6 +251,194 @@ class GuestAdmissionTests(unittest.TestCase):
 
 
 class CoordinatorSafetyTests(unittest.TestCase):
+    def test_explicit_tcg_admission_does_not_require_kvm(self):
+        expected = {
+            "GITHUB_ACTIONS": "true",
+            "RUNNER_OS": "Linux",
+            "RUNNER_ENVIRONMENT": "github-hosted",
+            "RUNNER_TEMP": "/ci/temp",
+            "GITHUB_WORKSPACE": "/ci/source",
+        }
+        with (
+            mock.patch.dict(vm.os.environ, expected, clear=True),
+            mock.patch.object(vm.sys, "platform", "linux"),
+            mock.patch.object(vm.platform, "machine", return_value="x86_64"),
+            mock.patch.object(vm.os, "getuid", return_value=1000),
+            mock.patch.object(vm.os, "access", return_value=False),
+        ):
+            vm.require_ci()
+
+    def test_admission_names_every_failed_predicate_and_does_not_dump_secrets(self):
+        with (
+            mock.patch.dict(vm.os.environ, {"UNRELATED_SECRET": "do-not-log-this"}, clear=True),
+            mock.patch.object(vm.sys, "platform", "darwin"),
+            mock.patch.object(vm.platform, "machine", return_value="arm64"),
+            mock.patch.object(vm.os, "getuid", return_value=0),
+        ):
+            report = vm.admission_metadata()
+        self.assertEqual(8, len(report["errors"]))
+        self.assertIn("RUNNER_ENVIRONMENT must be github-hosted", report["errors"])
+        self.assertIn("machine must be x86_64", report["errors"])
+        self.assertIn("uid must be a nonroot Linux user", report["errors"])
+        self.assertNotIn("do-not-log-this", json.dumps(report))
+        self.assertEqual("tcg", report["accelerator"])
+        self.assertIn("readable", report["kvm"])
+        with self.assertRaisesRegex(RuntimeError, "RUNNER_ENVIRONMENT must be github-hosted"):
+            vm.require_ci(report)
+
+    def test_admission_only_refusal_cannot_start_commands_or_create_evidence(self):
+        output = io.StringIO()
+        with (
+            mock.patch.dict(vm.os.environ, {}, clear=True),
+            mock.patch.object(vm.sys, "argv", ["worker_reboot_vm.py", "--admission-only"]),
+            mock.patch.object(vm.subprocess, "run") as run,
+            mock.patch.object(vm.subprocess, "Popen") as start,
+            mock.patch.object(vm.Path, "mkdir") as mkdir,
+            redirect_stdout(output),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "GITHUB_ACTIONS must be true"):
+                vm.main()
+        self.assertIn("GITHUB_ACTIONS must be true", json.loads(output.getvalue())["errors"])
+        run.assert_not_called()
+        start.assert_not_called()
+        mkdir.assert_not_called()
+
+    def test_standalone_admission_runs_without_site_packages_before_setup(self):
+        source = Path(vm.__file__).resolve()
+        reply = subprocess.run(
+            [sys.executable, "-I", "-S", str(source), "--admission-only"],
+            env={"GITHUB_ACTIONS": "false"},
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        self.assertEqual(1, reply.returncode)
+        self.assertIn("GITHUB_ACTIONS must be true", json.loads(reply.stdout)["errors"])
+        self.assertNotIn("ModuleNotFoundError", reply.stderr)
+
+    def test_tcg_command_keeps_the_same_owned_guest_and_resource_bounds(self):
+        argv = vm.qemu_command("qemu", "disk", "seed", "serial", 22222, "guest-instance")
+        self.assertEqual("tcg,thread=multi", argv[argv.index("-accel") + 1])
+        self.assertEqual("max", argv[argv.index("-cpu") + 1])
+        self.assertEqual("2", argv[argv.index("-smp") + 1])
+        self.assertEqual("2048", argv[argv.index("-m") + 1])
+        self.assertIn("type=1,uuid=guest-instance", argv)
+        self.assertIn("user,id=c4,hostfwd=tcp:127.0.0.1:22222-:22", argv)
+        self.assertNotIn("-no-reboot", argv)
+
+    def test_admission_artifact_does_not_collide_or_overwrite_a_prior_coordinator_attempt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = root / "image.qcow2"
+            image.write_bytes(b"reviewed-test-image")
+            early = root / ".scenario-runs/worker-reboot-admission"
+            early.mkdir(parents=True)
+            (early / "admission.json").write_text("retained early report")
+            env = {"GITHUB_WORKSPACE": str(root), "RUNNER_TEMP": str(root)}
+            with (
+                mock.patch.dict(vm.os.environ, env, clear=True),
+                mock.patch.object(vm.sys, "argv", ["coordinator", "--image", str(image)]),
+                mock.patch.object(vm, "admission_metadata", return_value={"accelerator": "tcg", "errors": []}),
+                mock.patch.object(vm, "IMAGE_SHA256", hashlib.sha256(image.read_bytes()).hexdigest()),
+                mock.patch.object(vm.signal, "signal"),
+                mock.patch.object(vm, "BOOT", mock.Mock(read_text=lambda: "outer-boot")),
+                mock.patch.object(vm.socket, "socket") as socket,
+                mock.patch.object(vm.subprocess, "run", side_effect=OSError("stop before guest setup")),
+                mock.patch.object(vm.subprocess, "Popen") as start,
+            ):
+                socket.return_value.__enter__.return_value.getsockname.return_value = ("127.0.0.1", 22222)
+                with mock.patch.object(vm.time, "monotonic", side_effect=[0.0, 1.0, 2.0]):
+                    with self.assertRaisesRegex(OSError, "stop before guest setup"):
+                        vm.main()
+                evidence = root / ".scenario-runs/worker-reboot"
+                recorded = (evidence / "failure.json").read_bytes()
+                phases = json.loads((evidence / "phase-durations.json").read_text())
+                self.assertEqual({"coordinator_setup": 1.0, "cleanup": 1.0}, phases["phase_seconds"])
+                self.assertEqual("failed", phases["outcome"])
+                self.assertEqual("tcg", phases["accelerator"])
+                self.assertEqual(2.0, phases["total_seconds"])
+                with self.assertRaises(FileExistsError):
+                    vm.main()
+                self.assertEqual(recorded, (evidence / "failure.json").read_bytes())
+                self.assertEqual("retained early report", (early / "admission.json").read_text())
+                start.assert_not_called()
+
+    def completed_fixture_with_cleanup(self, *, fails):
+        before, after = snapshots()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            private = root / "private"
+            private.mkdir()
+            for name in ("host", "host.pub", "client", "client.pub"):
+                (private / name).write_text("fixture SSH material")
+            image = root / "image"
+            image.write_bytes(b"reviewed fixture image")
+            evidence = root / ".scenario-runs/worker-reboot"
+            machine = mock.Mock()
+            machine.ssh_options = []
+            machine.phase.side_effect = lambda phase: ["fixture", phase]
+
+            def ssh(args, **kwargs):
+                text = ""
+                if args == ["cat", "/etc/autocode-reboot-product-uuid"]:
+                    text = "guest-instance"
+                elif args[0] == "cat":
+                    text = "boot-before"
+                elif args[-1].endswith("fixture prepare"):
+                    text = json.dumps(before)
+                elif args[-1].endswith("fixture inspect"):
+                    text = json.dumps(after)
+                return subprocess.CompletedProcess(args, 0, stdout=text, stderr="")
+
+            def cleanup():
+                self.assertTrue((evidence / "after-2.json").is_file(), "The control must reach all proof observations")
+                self.assertFalse((evidence / "result.json").exists(), "PASS must wait for cleanup")
+                if fails:
+                    raise OSError("fixture cleanup failed")
+
+            machine.ssh.side_effect = ssh
+            machine.stop.side_effect = cleanup
+            with (
+                mock.patch.dict(vm.os.environ, {"GITHUB_WORKSPACE": str(root), "RUNNER_TEMP": str(root)}, clear=True),
+                mock.patch.object(vm.sys, "argv", ["coordinator", "--image", str(image)]),
+                mock.patch.object(vm, "admission_metadata", return_value={"accelerator": "tcg", "errors": []}),
+                mock.patch.object(vm, "IMAGE_SHA256", hashlib.sha256(image.read_bytes()).hexdigest()),
+                mock.patch.object(vm.signal, "signal"),
+                mock.patch.object(vm, "BOOT", mock.Mock(read_text=lambda: "outer-boot")),
+                mock.patch.object(vm.uuid, "uuid4", return_value="guest-instance"),
+                mock.patch.object(vm.tempfile, "mkdtemp", return_value=str(private)),
+                mock.patch.object(vm, "VM", return_value=machine),
+                mock.patch.object(vm.socket, "socket") as socket,
+                mock.patch.object(vm, "source_archive", side_effect=lambda source, path: path.write_bytes(b"source")),
+                mock.patch.object(
+                    vm.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess([], 0, stdout="source-pin", stderr=""),
+                ),
+                mock.patch.object(vm.subprocess, "Popen", return_value=mock.Mock(pid=1234)),
+            ):
+                socket.return_value.__enter__.return_value.getsockname.return_value = ("127.0.0.1", 22222)
+                if fails:
+                    with self.assertRaisesRegex(OSError, "fixture cleanup failed"):
+                        vm.main()
+                else:
+                    vm.main()
+            machine.stop.assert_called_once()
+            phases = json.loads((evidence / "phase-durations.json").read_text())
+            if fails:
+                self.assertFalse((evidence / "result.json").exists())
+                self.assertEqual("cleanup", json.loads((evidence / "failure.json").read_text())["phase"])
+                self.assertEqual("failed", phases["outcome"])
+            else:
+                self.assertEqual("PASS", json.loads((evidence / "result.json").read_text())["result"])
+                self.assertEqual("passed", phases["outcome"])
+
+    def test_failed_guest_cleanup_never_leaves_a_pass_result(self):
+        self.completed_fixture_with_cleanup(fails=True)
+
+    def test_pass_result_is_published_after_successful_guest_cleanup(self):
+        self.completed_fixture_with_cleanup(fails=False)
+
     def test_ci_admission_refuses_local_or_unprepared_hosts(self):
         expected = {
             "GITHUB_ACTIONS": "true",
