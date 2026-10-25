@@ -171,7 +171,9 @@ def _declared_levels(provider_mod, workspace, model):
     return None
 
 
-def _auto_select(args, roles, provider_mod, single_model, history_models, history_providers, engine, workspace):
+def _auto_select(
+    args, roles, provider_mod, single_model, history_models, history_providers, engine, workspace, version=None
+):
     """Choose routes from the tool's connected accounts (#1426) — the default for new runs.
 
     Explicit choices win: a role whose model a flag or this conversation named, or
@@ -188,6 +190,10 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
     an offline tool — the run prints why and falls back to the fixed default routes
     rather than refusing, because a defaulted attempt must never block a launch; the
     usual catalogue and launch checks still guard those routes.
+
+    ``version`` is the installed OpenCode version when the run uses OpenCode itself.
+    Selection chooses only on a version with a conformant row in the provider
+    matrix (#2060); any other version keeps the fixed routes, or refuses when insisted.
     """
     # The CLI parser supplies None for default selection. Older programmatic callers
     # without this field retain their existing fixed-route behavior.
@@ -214,6 +220,16 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
         print(f"Automatic model selection is off for this run: {story} Using the fixed default routes.", flush=True)
         return None
 
+    try:
+        from . import provider_matrix
+    except ImportError:
+        import provider_matrix
+    try:
+        untested = version and provider_matrix.unqualified("opencode", version)
+    except (OSError, ValueError) as error:
+        untested = f"the conformance matrix cannot be read ({error})"
+    if untested:
+        return soft(f"{untested}.")
     try:
         found = discovery.discover(provider_mod, Path(workspace), inventory=getattr(args, "_model_inventory", None))
     except Exception as error:  # noqa: BLE001 - any failure of a defaulted listing is a fallback
@@ -651,7 +667,15 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
     for role in getattr(args, "pin_model_role", []):
         roles[role]["model_pinned"] = True
     auto_selection = _auto_select(
-        args, roles, provider_mod, single_model, models, providers, engine, state["workspace"]
+        args,
+        roles,
+        provider_mod,
+        single_model,
+        models,
+        providers,
+        engine,
+        state["workspace"],
+        version=local.get("version") if provider_name in (None, "opencode") else None,
     )
     builder_retry = autopilot.builder_policy.configured(
         getattr(args, "builder_strong_model", None), provider_mod, single_model=single_model
