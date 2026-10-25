@@ -207,6 +207,10 @@ TABLE: dict[str, tuple[str, str]] = {
         "The billing or model route needs a decision.",
         "--answer route-ROLE=MODEL names the route.",
     ),
+    "PAUSED_EFFORT_UNSUPPORTED": (
+        "The reasoning effort you chose for a role is one its model does not offer.",
+        "--answer effort-ROLE=EFFORT with one of the levels the model declares, then --resume-paused.",
+    ),
     "PAUSED_CROSS_MODEL": (
         "The cross-model rule rejected a route.",
         "--answer route-ROLE=MODEL with a model that satisfies the rule.",

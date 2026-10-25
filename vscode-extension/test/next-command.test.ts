@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   ClientGap,
   applyDecisions,
+  effortLevels,
   boundOffer,
   commandInputs,
   findUnsupplied,
@@ -198,6 +199,17 @@ test("openDecisions names the placeholders a person has to fill", () => {
   assert.deepEqual(openDecisions(["--answer", "route-GLM=MODEL"]), [
     { questionId: "route-GLM", placeholder: "MODEL", kind: "model" },
   ]);
+});
+
+test("an unsupported named effort is a choice among the levels the model declares (#2057)", () => {
+  const effort = { question_id: "effort-plan_reviewer", role: "plan_reviewer", declared: ["low", "high", "max"], requested: "medium" };
+  const argv = ["--answer", "effort-plan_reviewer=EFFORT"];
+  assert.deepEqual(openDecisions(argv), [{ questionId: "effort-plan_reviewer", placeholder: "EFFORT", kind: "effort" }]);
+  assert.deepEqual(effortLevels(effort, "effort-plan_reviewer"), ["low", "high", "max"]);
+  assert.deepEqual(applyDecisions(argv, { "effort-plan_reviewer": " High " }, [], effort), ["--answer", "effort-plan_reviewer=high"]);
+  assert.throws(() => applyDecisions(argv, { "effort-plan_reviewer": "medium" }, [], effort), /Choose one of low, high, max/);
+  assert.throws(() => applyDecisions(argv, { "effort-plan_reviewer": "high" }), /does not describe/);
+  assert.throws(() => applyDecisions(argv, {}, [], effort), /decision for a person/);
 });
 
 test("applyDecisions substitutes the person's words and keeps everything else", () => {

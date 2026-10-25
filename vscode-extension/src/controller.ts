@@ -193,7 +193,7 @@ export class RunController {
   /** The named action with a person's decisions filled in, ready to run. */
   prepare(view: StatusView, run: RunRef, answers: Record<string, string>): PreparedAction {
     const { argv, env } = this.named(view, run);
-    const filled = applyDecisions(argv, answers, commandInputs(view, { argv, env }));
+    const filled = applyDecisions(argv, answers, commandInputs(view, { argv, env }), view.needs?.effort);
     const advancing = isAdvancing(filled);
     // Existing runs own their saved backend, models and limits. Changing the
     // Connections selection for a new chat must not reroute a paused run.

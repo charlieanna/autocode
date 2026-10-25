@@ -276,7 +276,7 @@ class ConformanceDriver(Driver):
             if word in UNSUPPLIED:
                 raise ConformanceGap(f"needs {need['kind']!r} leaves {word!r} open, which the view does not supply")
             question, _, placeholder = word.partition("=")
-            if placeholder in ("ANSWER", "MODEL"):
+            if placeholder in ("ANSWER", "MODEL", "EFFORT"):
                 word = f"{question}={self.answer_for(need, question, placeholder)}"
             filled.append(word)
         return filled
@@ -351,8 +351,15 @@ class ConformanceDriver(Driver):
     def answer_for(self, need: dict, question_id: str, placeholder: str) -> str:
         if question_id in self.explicit_answers:
             answer = self.explicit_answers[question_id]
+            effort = need.get("effort") or {}
+            if placeholder == "EFFORT" and (
+                effort.get("question_id") != question_id or answer not in (effort.get("declared") or ())
+            ):
+                raise ConformanceGap(f"{question_id} takes only a level needs.effort declares, not {answer!r}")
         elif placeholder == "MODEL":
             raise ConformanceGap(f"{question_id} asks a person to name a model; the scenario names none")
+        elif placeholder == "EFFORT":
+            raise ConformanceGap(f"{question_id} asks a person to choose an effort; the scenario names none")
         else:
             question = next((row for row in need.get("questions") or [] if row["id"] == question_id), None)
             if question is None:

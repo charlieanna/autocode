@@ -17,7 +17,7 @@ import { telemetry, type Telemetry } from "./core/telemetry";
 
 export interface Decision {
   questionId: string;
-  kind: "answer" | "model" | "integer";
+  kind: "answer" | "model" | "effort" | "integer";
   input?: IntegerCommandInput;
   text: string;
   options: string[];
@@ -414,6 +414,12 @@ function describe(
     text: open.input.label, options: [], suggested: null,
   };
   const question: Question | undefined = need?.questions?.find((row) => row.id === open.questionId);
+  if (open.kind === "effort") return {
+    questionId: open.questionId, kind: "effort",
+    text: question?.question ?? `Choose an effort for ${need?.effort?.job ?? open.questionId}`,
+    options: [...(need?.effort?.question_id === open.questionId ? need.effort.declared ?? [] : [])],
+    suggested: null,
+  };
   const route = need?.route;
   const asksModel = open.kind === "model";
   return {

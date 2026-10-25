@@ -872,6 +872,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT`; the next resume re-evaluates it once ([below](#operational-information)) | 0 saved, 2 rejected |
 | Name the model a role stopped on quota, a content-filter refusal or an authenticated output limit continues on | `autocode --answer route-ROLE=MODEL --resolver-token TOKEN`, then resume the pause | 0 saved, 2 rejected |
 | Name the model a stopped workflow job continues on (`retry_job` with `route`) | `autocode --answer route-ROLE=MODEL --job-retry-token TOKEN`, then retry the job with the new token | 0 saved, 2 rejected |
+| Choose an effort the model declares for a role whose named effort it does not (`PAUSED_EFFORT_UNSUPPORTED`, `TaskRun.assign_effort(role, effort)`) | `autocode --answer effort-ROLE=EFFORT`, then resume the pause | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
 | Reject a review (`TaskRun.reject_review(criterion, token, note)`) | `autocode --reject-review CRITERION --review-token TOKEN --review-note TEXT` | 0 saved as feedback for revision, 2 rejected |
@@ -1718,6 +1719,18 @@ question has no default and is never delegable; only a model a person names
 answers it (`--answer route-ROLE=MODEL`), and the run then needs a resume. A
 stopped workflow job carries the same `route`, with the same fields, on its
 `retry_job` need ([Failed workflow jobs](#failed-workflow-jobs)).
+
+When a person named a role's reasoning effort and the role's model does not declare
+that level (GLM 5.3 declares `low`, `high` and `max`, not `medium`), the run pauses as
+`PAUSED_EFFORT_UNSUPPORTED` before any stage launches (#2057). Its `answer` need carries
+`effort`: `question_id` (`effort-ROLE`), `role`, `job`, `model`, `requested`, `declared`
+(the levels the model offers) and `nearest` (the declared level nearest the requested
+one; advice, never a default). Its one question lists `declared` as its `options`, has no
+`proposed_default` and is never delegable. `next_command` is `--answer effort-ROLE=EFFORT`
+with no token: a client fills `EFFORT` with one of `declared` a person chose, and refuses
+anything else. The answer saves that level as the person's own choice and launches
+nothing; the run then needs a resume. An effort the runner chose is never asked about:
+the launch moves it to the nearest declared level and records the move.
 
 Approving a plan or a review is a real user decision. Automated callers should
 do it only when a person has delegated that decision to them, as the scenario

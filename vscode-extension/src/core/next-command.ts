@@ -10,7 +10,7 @@
  * No VS Code API and no Node built-ins, so it is unit-testable in-process.
  */
 
-import type { IntegerCommandInput, StatusView } from "./view";
+import type { EffortNeed, IntegerCommandInput, StatusView } from "./view";
 
 export class ClientGap extends Error {
   constructor(message: string) {
@@ -129,9 +129,12 @@ export function parseNamedCommand(
 export interface OpenDecision {
   questionId: string;
   placeholder: string;
-  kind: "answer" | "model" | "integer";
+  kind: "answer" | "model" | "effort" | "integer";
   input?: IntegerCommandInput;
 }
+
+/** A person's words for `QUESTION=PLACEHOLDER`, and the decision each is (autocode_client_actions.PLACEHOLDERS). */
+const PLACEHOLDERS = new Map<string, "answer" | "model" | "effort">([["ANSWER", "answer"], ["MODEL", "model"], ["EFFORT", "effort"]]);
 
 /**
  * The numbers a person may type into a core-named command (autocode_command_inputs, #2044): the flag,
@@ -228,8 +231,9 @@ export function openDecisions(argv: string[], inputs: IntegerCommandInput[] = []
   const found: OpenDecision[] = inputs.map((input) => ({ questionId: input.id, placeholder: input.placeholder, kind: "integer", input }));
   for (const word of argv) {
     const [question, separator, placeholder] = splitOnce(word, "=");
-    if (!separator || (placeholder !== "ANSWER" && placeholder !== "MODEL")) continue;
-    found.push({ questionId: question, placeholder, kind: placeholder === "MODEL" ? "model" : "answer" });
+    const kind = separator ? PLACEHOLDERS.get(placeholder) : undefined;
+    if (!kind) continue;
+    found.push({ questionId: question, placeholder, kind });
   }
   return found;
 }
@@ -245,12 +249,18 @@ export function findUnsupplied(argv: string[], inputs: IntegerCommandInput[] = [
 }
 
 /**
- * Replace the `QUESTION=ANSWER` / `QUESTION=MODEL` placeholders with a person's words.
+ * Replace the `QUESTION=ANSWER` / `QUESTION=MODEL` / `QUESTION=EFFORT` placeholders with a person's words.
  *
  * A placeholder the view cannot supply is a gap: `answers` only ever carries
  * what a person chose, so a client never invents a decision to get past it.
+ * An effort is one of the levels `effort` (the view's `needs.effort`) declares.
  */
-export function applyDecisions(argv: string[], answers: Record<string, string>, inputs: IntegerCommandInput[] = []): string[] {
+export function applyDecisions(
+  argv: string[],
+  answers: Record<string, string>,
+  inputs: IntegerCommandInput[] = [],
+  effort?: EffortNeed,
+): string[] {
   return argv.map((word, index) => {
     const input = inputs.find((row) => row.arg_index === index && row.placeholder === word);
     if (input) return integerValue(answers[input.id], input);
@@ -258,13 +268,31 @@ export function applyDecisions(argv: string[], answers: Record<string, string>, 
       throw new ClientGap(`the command leaves ${word} open, which the status view does not supply`);
     }
     const [question, separator, placeholder] = splitOnce(word, "=");
-    if (!separator || (placeholder !== "ANSWER" && placeholder !== "MODEL")) return word;
+    if (!separator || !PLACEHOLDERS.has(placeholder)) return word;
     const value = answers[question];
     if (value === undefined) {
       throw new ClientGap(`${question} is a decision for a person; none was given`);
     }
+    if (placeholder === "EFFORT") return `${question}=${effortValue(effort, question, value)}`;
     return `${question}=${value}`;
   });
+}
+
+/** The levels an `effort-ROLE=EFFORT` slot may take: the ones its model declares (#2057). */
+export function effortLevels(effort: EffortNeed | undefined, question: string): string[] {
+  const declared = effort?.declared;
+  if (effort?.question_id !== question || !Array.isArray(declared) || !declared.length || !declared.every((level) => typeof level === "string" && level)) {
+    throw new ClientGap(`${question} asks for an effort the status view does not describe`);
+  }
+  return [...declared];
+}
+
+/** A level a person chose, one its model declares. */
+export function effortValue(effort: EffortNeed | undefined, question: string, value: string): string {
+  const levels = effortLevels(effort, question);
+  const chosen = value.trim().toLowerCase();
+  if (!levels.includes(chosen)) throw new ClientGap(`Choose one of ${levels.join(", ")}`);
+  return chosen;
 }
 
 /** Whether the command continues the run, so it carries the client's options. */

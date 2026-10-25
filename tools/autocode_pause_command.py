@@ -2,7 +2,7 @@
 
 This formats existing controls; it grants no permission and never changes state.
 Controller tokens use the CLI's private environment channel, so copying a shown
-command does not put them in the launched process's argv. ANSWER, MODEL and N
+command does not put them in the launched process's argv. ANSWER, MODEL, EFFORT and N
 remain values a person must supply rather than decisions made by presentation.
 """
 
@@ -55,6 +55,7 @@ def command(need, *, run_dir=None, workspace=None, resume_flags=None, terminal=F
     elif kind == "answer":
         token = need.get("resolver_token")
         route = need.get("route") or {}
+        effort = need.get("effort") or {}
         operational = need.get("resolver_scope") in ("blocker", "operational_exhaustion") and not route
         if operational and token and need.get("resolver_request_id"):
             flags = [
@@ -75,6 +76,9 @@ def command(need, *, run_dir=None, workspace=None, resume_flags=None, terminal=F
             # A cross-model stop derives its question from the saved routes; no issued
             # token binds it. The answer is its own action; --resume-paused comes next.
             flags = ["--answer", f"{route['question_id']}=MODEL"]
+        elif effort.get("question_id"):
+            # An unsupported named effort (#2057), likewise derived from the saved routes.
+            flags = ["--answer", f"{effort['question_id']}=EFFORT"]
         if not flags:
             flags = ["--no-chat"]  # No issued token: relaunch to publish the current request.
     elif kind == "retry_job" and not need.get("job_retry_token"):
