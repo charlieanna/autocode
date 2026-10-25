@@ -238,7 +238,10 @@ the pipeline.
   run and names the job, in place of the recognizer's call.
 - **Fewer planning restarts:** 3 today, 1 adaptive. Most began when a revision
   renamed a protected contract item; the guard then asks the user, and
-  planning starts over.
+  planning starts over. Since 2026-10-25 a revision may apply the reviewer's
+  blocking request to the Planner's own constraint or permission line in a plan
+  nobody approved, and a redraft after AutoCode's own technical answer continues
+  the reviewed cycle instead of starting over ([workflow](workflow.md)).
 
 The live recognizer judged every request correctly: 8 clear, 3 vague.
 

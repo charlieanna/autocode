@@ -329,6 +329,15 @@ Planner revision, so a removed or reworded approved criterion still needs your s
 or feedback. Milestones, the technical approach and permissions stay the Planner's: a
 problem there comes back to you as a blocking question.
 
+A Planner revision that answers the Plan Reviewer's blocking concern may change one of its
+own lines without you while nobody has approved or edited the plan: a constraint it may
+reword or drop, a permission boundary it may replace. The line must be the Planner's (it
+repeats no sentence of your brief, your feedback or your answers), the change is declared
+as the Planner's own with its replacement, and the approval screen lists it under "Declared
+contract changes" with the concern that asked for it; the final review judges it. Required
+behaviors, scope exclusions, failure cases and any line that repeats your words still need
+your saved answer or feedback, and so does every line once a plan was approved or edited.
+
 Planning defaults to **two Plan Reviewer reviews per cycle**. A review counts once it
 returns a report, whether or not the runner then accepts that report. An attempt that
 times out or whose provider fails returns no review, so it is given back before the next
@@ -336,7 +345,15 @@ attempt; the repeated-failure limit, not this allowance, stops a review that kee
 Bounded recovery does not otherwise extend the allowance. Unresolved final decisions return
 to you as blocking questions. Once you answer them, planning starts a new cycle, and its first
 review receives the previous review's concerns, its decisions and your answers
-(`previous_review`), so it checks your answers instead of reviewing the plan from scratch. If the
+(`previous_review`), so it checks your answers instead of reviewing the plan from scratch. A
+technical question that AutoCode settles with the Planner's proposed default (a
+`technical_decision`, not an answer of yours) does not start a new cycle: the redraft that
+follows continues the cycle that asked, with its spent calls, its first review and its
+revision carried over (`planning.inherited_review`). The reviewer is told which answers were
+AutoCode's, and with one call left the final review decides on the redraft; what it cannot
+settle comes back to you as blocking questions. Only when the final review itself asked that
+question with no call left does the allowance grow by one call, once per run and never past a
+limit you set. Model output never renews the allowance; your answers and feedback do. If the
 budget is exhausted, the run pauses at `PAUSED_PLANNING_BUDGET`. After inspecting a
 reconciled checkpoint, an operator can permit one more attempt without discarding the
 accepted challenge and revision (for example, increase a total allowance of 2 to 3):

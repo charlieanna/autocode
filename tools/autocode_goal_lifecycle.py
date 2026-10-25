@@ -768,17 +768,43 @@ def render(state: RunState, run_dir=None):
     )
     lines += examples.review_notes(state)
     lines += base_examples.notes(state)
-    declared = contract.get("declared_changes") or []
+    declared = list(contract.get("declared_changes") or [])
+    # A line of the Planner's own changed as the Plan Reviewer's blocking concern asked (revision guard) stays on
+    # the approval screen when the final review keeps it without declaring it again: the person approving this
+    # plan is the first to see it. Only this cycle's drafts count, back to the draft the cycle began with.
+    for revision in reversed(state.get("contract_history") or []):
+        if (
+            not isinstance(revision, dict)
+            or revision.get("approval_status") != "draft"
+            or revision.get("approval_event")
+            or revision.get("origin") == "user_cli_edit"
+        ):
+            break
+        declared += [
+            dict(row, revision=revision.get("revision"))
+            for row in revision.get("declared_changes") or []
+            if isinstance(row, dict) and row.get("review_concerns")
+        ]
+        if revision.get("origin") in ("glm_draft", "astra_discovery", "plan"):
+            break
     if declared:
         lines += ["", "Declared contract changes:"]
         ordered = sorted(declared, key=lambda row: row.get("change") != "permission_changed")
         for row in ordered:
             replaced = (
                 f" -> {row['replacement']}"
-                if row.get("change") == "permission_changed" and row.get("replacement")
+                if row.get("change") in ("permission_changed", "reworded") and row.get("replacement")
                 else ""
             )
-            lines.append(f"  - {row.get('change')}: {row.get('item')}{replaced} (basis: {row.get('basis')})")
+            asked = (
+                "; Plan Reviewer concern " + ", ".join(str(cid) for cid in row["review_concerns"])
+                if row.get("review_concerns")
+                else ""
+            )
+            earlier = f"; revision {row['revision']}" if row.get("revision") else ""
+            lines.append(
+                f"  - {row.get('change')}: {row.get('item')}{replaced} (basis: {row.get('basis')}{asked}{earlier})"
+            )
     history = state.get("contract_history", [])
     if history:
         lines += ["", "Contract delta:"] + list(

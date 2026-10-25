@@ -38,19 +38,95 @@ def internal_answer_restart(state: RunState):
     """Planning restarts because AutoCode settled a reviewer's technical question itself, not the person.
 
     Under the small-brief total (#1564) the next cycle would carry a spent allowance into a plan that still
-    needs its review; ``new_cycle`` renews it once per run for this cause."""
+    needs its review; ``new_cycle`` renews it once per run for this cause. Any other cycle that already holds
+    the Plan Reviewer's first review carries that review and its charges into the next one (inherits_review)."""
     planning = state.get("planning")
     if isinstance(planning, dict):
         planning["internal_answer_restart"] = True
 
 
+# What an internal-answer restart carries from the archived cycle: the reviewer's first review and the Planner's
+# answer to it, the allowance they were charged against and the depth decisions made for this plan.
+INHERITED_REPORTS = ("astra_challenge", "glm_revise")
+INHERITED_KEYS = (
+    "review_call_limit",
+    "review_call_limit_origin",
+    "adaptive",
+    "internal_answer_renewals",
+    "revision_review_renewals",
+    "revision_review_renewal",
+)
+
+
+def inherits_review(archived) -> bool:
+    """Whether the cycle after ``archived`` continues its review instead of starting one.
+
+    AutoCode settled a technical question with the Planner's proposed default (autocode_technical_questions.settle)
+    after the Plan Reviewer had reviewed the draft. A live vague-brief run (2026-10-20) then redrafted under a
+    fresh allowance and the reviewer, given nothing of its first review, reviewed the new draft cold and raised
+    four new blocking concerns; the run reached its time cap with no plan. Model output never renews the
+    allowance: the redraft is the Planner's answer to the saved review. The small-brief total (#1564) keeps its
+    own one-time renewal, and the v2 flow has no legacy first review to carry."""
+    return bool(
+        archived
+        and archived.get("internal_answer_restart")
+        and not archived.get("review_depth_reduced")
+        and ((archived.get("reports") or {}).get("astra_challenge") or {}).get("report")
+    )
+
+
+def review_limit(state: RunState, planning) -> int:
+    """This cycle's review allowance, 0 for unlimited (units.autoplanner.review_call_limit validates it)."""
+    limit = planning.get("review_call_limit", (state.get("settings") or {}).get("planning_review_call_limit", 2))
+    return limit if type(limit) is int and limit >= 0 else 2
+
+
+def remaining_reviews(state: RunState, planning):
+    """Review calls left in this cycle; None when the allowance is unlimited."""
+    limit = review_limit(state, planning)
+    return None if limit == 0 else max(0, limit - planning.get("astra_calls", 0))
+
+
+def _inherit_review(state: RunState, archived):
+    planning = state["planning"]
+    planning["reports"] = {
+        stage: copy.deepcopy(archived["reports"][stage]) for stage in INHERITED_REPORTS if stage in archived["reports"]
+    }
+    planning["astra_calls"] = archived.get("astra_calls", 0)
+    if archived.get("review_charges"):
+        planning["review_charges"] = list(archived["review_charges"])
+    for key in INHERITED_KEYS:
+        if key in archived:
+            planning[key] = copy.deepcopy(archived[key])
+    planning["inherited_review"] = {
+        "cycle": len(state.get("planning_history") or []) - 1,
+        "astra_calls": planning["astra_calls"],
+        "reports": sorted(planning["reports"]),
+    }
+    explicit = planning.get("review_call_limit_origin") == "user_explicit" or bool(
+        (state.get("settings") or {}).get("planning_review_call_limit_origin")
+    )
+    if remaining_reviews(state, planning) == 0 and not planning.get("internal_answer_renewals") and not explicit:
+        # The final review asked the question, so the allowance is spent: one more call, once per run, so the
+        # redraft gets its final review instead of a budget pause nobody can answer. A limit the person chose
+        # (a flag or config.toml) is never raised here.
+        limit = review_limit(state, planning)
+        planning.update(
+            review_call_limit=limit + 1, review_call_limit_origin="runner_default", internal_answer_renewals=1
+        )
+        planning["inherited_review"]["renewed"] = {"from": limit, "to": limit + 1}
+
+
 def new_cycle(state: RunState, *, new_turn=False):
     """Archive the planning record, with its reports and review charges, and begin a cycle under the configured
-    review allowance. A v2 cycle records the inputs it began after (planning_inputs, read by admit_requirements)."""
+    review allowance. A v2 cycle records the inputs it began after (planning_inputs, read by admit_requirements).
+    After an internal-answer restart the cycle inherits the archived review instead (inherits_review)."""
     archived = state.get("planning")
     if archived:
         state.setdefault("planning_history", []).append(copy.deepcopy(archived))
     state["planning"] = {"astra_calls": 0, "reports": {}, "final_token": None}
+    if inherits_review(archived):
+        _inherit_review(state, archived)
     # Scope default depth-policy history to this human turn, not the whole chat.
     # Internal replans keep the same event; model output cannot create one.
     turn = (state.get("turns") or [{}])[-1]
@@ -124,9 +200,17 @@ def start(state: RunState):
         from . import autocode_resolver_human as human
     except ImportError:
         import autocode_resolver_human as human
-    new_cycle(state)
+    planning = new_cycle(state)
     state.pop(human.PRIVATE, None)
     state.pop(human.PUBLIC, None)
     state.pop("user_request", None)
     next_stage = "plan_review" if role_names.planning_flow(state) == "v2" else "astra_challenge"
+    if next_stage == "astra_challenge" and planning.get("inherited_review"):
+        remaining = remaining_reviews(state, planning)
+        if remaining is not None and remaining <= 1:
+            # The redraft answers the inherited review as a revision would: with one call left, the final review
+            # decides on it (what it cannot settle returns as blocking questions, as after any revision). With
+            # more, the Plan Reviewer re-reviews it with its earlier concerns in the packet (previous_review).
+            next_stage = "astra_finalize"
+        planning["inherited_review"]["next_stage"] = next_stage
     state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": next_stage, "pending_questions": []})

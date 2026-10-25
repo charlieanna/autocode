@@ -1101,3 +1101,160 @@ class PersonTracedAssumptionTests(unittest.TestCase):
                 )
                 changes = [self.row(change, basis="user_answer", answer_id="A1")]
                 self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+
+
+class ReviewerRequestedOwnTextTests(unittest.TestCase):
+    """A revision may apply the Plan Reviewer's blocking request to the Planner's own constraint or permission line
+    while nobody has approved or edited the plan (live vague-brief run, 2026-10-20: the refusal cost a repair, a
+    question AutoCode answered itself and a planning restart from scratch)."""
+
+    SPLIT = "Each milestone owns a disjoint set of affected_paths: M2 adds only new files (practice.py)"
+    REBALANCED = "M1 delivers the minimal end-to-end student journey; M2 adds practice.py and its tests"
+    BOUNDARY = "M2 edits only adaptive_learning/commands/practice.py and tests/test_practice.py"
+    NEW_BOUNDARY = "Edit only adaptive_learning/ and tests/; no network"
+    BRIEF_LINE = "Python standard library only"
+    CONCERN = {
+        "id": "C1",
+        "concern": "The milestones do not deliver a student journey",
+        "requested_change": "Rebalance the milestones around a minimal end-to-end student journey",
+        "blocking": True,
+    }
+
+    def inputs(self, *, blocking=True, **state_fields):
+        body = {
+            "acceptance_criteria": [],
+            "required_behaviors": ["Students can start a practice session"],
+            "scope_exclusions": [],
+            "constraints": [self.BRIEF_LINE, self.SPLIT],
+            "important_failure_cases": [],
+            "permission_boundaries": [self.BOUNDARY],
+            "accepted_assumptions": [],
+            "delegated_decisions": [],
+        }
+        state = {
+            "task": "Build an adaptive learning CLI for students; I haven't decided the details. "
+            "Python standard library only.",
+            "goal_contract": {"body": body, "approval_status": "draft", "approval_event": None, "revision": 2},
+            "planning": {
+                "reports": {"astra_challenge": {"report": {"concerns": [{**self.CONCERN, "blocking": blocking}]}}}
+            },
+            "answers": {},
+            "user_events": [],
+            "brief_feedback": [],
+        }
+        state.update(state_fields)
+        after = copy.deepcopy(body)
+        after["constraints"] = [self.BRIEF_LINE, self.REBALANCED]
+        after["permission_boundaries"] = [self.NEW_BOUNDARY]
+        return state, after
+
+    def row(self, item, change, replacement="", basis="agent_proposed", answer_id=""):
+        return {"item": item, "change": change, "basis": basis, "answer_id": answer_id, "replacement": replacement}
+
+    def changes(self):
+        return [
+            self.row(self.SPLIT, "reworded", self.REBALANCED),
+            self.row(self.BOUNDARY, "permission_changed", self.NEW_BOUNDARY),
+        ]
+
+    def test_a_revision_applies_the_reviewers_request_to_the_planners_own_lines(self):
+        state, after = self.inputs()
+        before = copy.deepcopy(state)
+        declared = revision_guard(state, after, self.changes(), "glm_revise")
+        self.assertEqual(before, state)
+        self.assertEqual([self.SPLIT, self.BOUNDARY], [row["item"] for row in declared])
+        self.assertEqual([["C1"], ["C1"]], [row["review_concerns"] for row in declared], "shown at approval")
+
+    def test_the_planners_own_constraint_may_also_be_dropped(self):
+        state, after = self.inputs()
+        after["constraints"] = [self.BRIEF_LINE]
+        changes = [self.row(self.SPLIT, "removed"), self.row(self.BOUNDARY, "permission_changed", self.NEW_BOUNDARY)]
+        self.assertEqual(["C1"], revision_guard(state, after, changes, "glm_revise")[0]["review_concerns"])
+
+    def test_a_line_that_repeats_the_persons_words_stays_theirs(self):
+        state, after = self.inputs()
+        after["constraints"] = [self.BRIEF_LINE + " (Python 3.12)", self.REBALANCED]
+        changes = [self.row(self.BRIEF_LINE, "reworded", self.BRIEF_LINE + " (Python 3.12)"), *self.changes()]
+        with self.assertRaisesRegex(ValueError, "repeats the person's own words"):
+            revision_guard(state, after, changes, "glm_revise")
+        # Their feedback and their answers are their words too, whichever sentence of theirs the line repeats.
+        for source in ("brief_feedback", "answers"):
+            with self.subTest(source=source):
+                event = {
+                    "kind": "brief_feedback",
+                    "id": "f1",
+                    "text": "Fine. M2 adds only new files (practice.py). Go on.",
+                }
+                state, after = self.inputs(
+                    **(
+                        {"brief_feedback": [event], "user_events": [event]}
+                        if source == "brief_feedback"
+                        else {"answers": {"Q1": {"id": "Q1", "text": event["text"]}}}
+                    )
+                )
+                with self.assertRaisesRegex(ValueError, "needs a saved user answer"):
+                    revision_guard(state, after, self.changes(), "glm_revise")
+
+    def test_without_the_reviewers_blocking_concern_or_a_declaration_the_rule_is_unchanged(self):
+        cases = {
+            "non-blocking concern": (self.inputs(blocking=False), self.changes(), "glm_revise", "needs a saved user"),
+            "no review yet": (
+                self.inputs(planning={"reports": {}}),
+                self.changes(),
+                "glm_revise",
+                "needs a saved user",
+            ),
+            "undeclared": (self.inputs(), [], "glm_revise", "drops or changes"),
+            "the final review": (self.inputs(), self.changes(), "astra_finalize", "needs a saved user"),
+            "a forged answer": (
+                self.inputs(),
+                [self.row(self.SPLIT, "reworded", self.REBALANCED, "user_answer", "Q9"), self.changes()[1]],
+                "glm_revise",
+                "needs a saved user",
+            ),
+            "a dropped boundary": (
+                self.inputs(),
+                [self.changes()[0], self.row(self.BOUNDARY, "permission_changed")],
+                "glm_revise",
+                "needs a saved user",
+            ),
+        }
+        for name, ((state, after), changes, origin, refusal) in cases.items():
+            with self.subTest(name), self.assertRaisesRegex(ValueError, refusal):
+                revision_guard(state, after, changes, origin)
+
+    def test_an_approved_or_edited_contract_keeps_every_line_protected(self):
+        for name, fields in {
+            "approved": {"approval_status": "approved"},
+            "approval event": {"approval_event": {"id": "e1"}},
+        }.items():
+            with self.subTest(name), self.assertRaises(ValueError):
+                state, after = self.inputs()
+                state["goal_contract"].update(fields)
+                revision_guard(state, after, self.changes(), "glm_revise")
+        with self.subTest("edited earlier"), self.assertRaises(ValueError):
+            state, after = self.inputs(contract_history=[{"origin": "user_cli_edit", "approval_status": "draft"}])
+            revision_guard(state, after, self.changes(), "glm_revise")
+
+    def test_behaviors_exclusions_and_failure_cases_are_never_the_planners_own(self):
+        state, after = self.inputs()
+        after["required_behaviors"] = []
+        changes = [*self.changes(), self.row("Students can start a practice session", "removed")]
+        with self.assertRaisesRegex(ValueError, "'Students can start a practice session'"):
+            revision_guard(state, after, changes, "glm_revise")
+        # A constraint that is also a required behavior is the person's whichever list the Planner changes it in.
+        state, after = self.inputs()
+        state["goal_contract"]["body"]["required_behaviors"].append(self.SPLIT)
+        after["required_behaviors"].append(self.SPLIT)
+        with self.assertRaisesRegex(ValueError, "needs a saved user"):
+            revision_guard(state, after, self.changes(), "glm_revise")
+
+    def test_quoting_is_judged_on_the_persons_text_alone(self):
+        state, _ = self.inputs()
+        self.assertTrue(revision.quotes_person_text(state, "python standard library only."))
+        self.assertTrue(revision.quotes_person_text(state, "standard library"), "part of the person's sentence")
+        self.assertFalse(revision.quotes_person_text(state, self.SPLIT))
+        self.assertTrue(revision.quotes_person_text(state, ""), "an empty line is nobody's to change")
+        # A delegated answer stores the model's default: not the person's words.
+        state["answers"] = {"Q1": {"kind": "delegated", "text": self.SPLIT}}
+        self.assertFalse(revision.quotes_person_text(state, self.SPLIT))

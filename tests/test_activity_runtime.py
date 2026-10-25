@@ -357,6 +357,21 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertIn("idle=300s/300", stalled)
         self.assertEqual(300, active["activity"]["idle_seconds"])
 
+    def test_the_launch_names_its_stage_to_the_idle_policy(self):
+        # The report-only planning stages get their own floor from the stage name (autocode_idle_policy); the
+        # Builder here keeps the runner default, so the stage must reach the policy with the limit.
+        seen = []
+        real = runner.idle_policy.effective
+
+        def spy(limit, origin, model, stage=None):
+            seen.append((limit, origin, stage))
+            return real(limit, origin, model, stage=stage)
+
+        with patch.object(runner.idle_policy, "effective", spy):
+            stalled, _ = self.idle_stop(supervisor_first=False)
+        self.assertEqual([(300, "runner_default", "terra")], seen)
+        self.assertIn("idle=300s/300", stalled)
+
     def interrupted_builder(self, launch):
         """Run an admitted Builder whose stage's one interrupt lands outside its wait (#454)."""
         self.start_task()
