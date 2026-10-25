@@ -44,6 +44,7 @@ try:
     from .. import autocode_planning_artifacts as artifacts
     from .. import autocode_planning_report_policy as report_policy
     from .. import autocode_progressive_state as progressive
+    from .. import autocode_regression_reference as regression_reference
     from .. import autocode_requirement_cues as requirement_cues
     from .. import autocode_risk_obligations as risk_obligations
     from .. import autocode_role_route as role_route
@@ -76,6 +77,7 @@ except ImportError:
     import autocode_planning_artifacts as artifacts
     import autocode_planning_report_policy as report_policy
     import autocode_progressive_state as progressive
+    import autocode_regression_reference as regression_reference
     import autocode_requirement_cues as requirement_cues
     import autocode_risk_obligations as risk_obligations
     import autocode_role_route as role_route
@@ -1360,6 +1362,7 @@ def context(state: RunState, stage, state_path):
             packet["follow_up"] = earlier_turn
     if stage in ("requirements_gather", "astra_discovery"):
         packet["workspace_inventory"] = workspace_inventory(state["workspace"], state["task"])
+    packet["regression_reference"] = regression_reference.context(state)
     try:
         from .. import autocode_design_manifest as design_manifest
         from .. import autocode_figma as figma
@@ -1396,6 +1399,8 @@ def context(state: RunState, stage, state_path):
             + ("" if compact_final or stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE)
         )
     )
+    if stage != "requirements_gather":
+        planning_policy += prompts.get("fragments/autoplanner/proof-reference-rule.md")
     progressive_rule = (
         progressive_policy(stage)
         if stage

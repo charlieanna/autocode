@@ -19,10 +19,12 @@ import json
 try:
     from . import autocode_goals as goals
     from . import autocode_plan_retention as retention
+    from . import autocode_regression_reference as regression_reference
     from . import autocode_roles as roles
 except ImportError:
     import autocode_goals as goals
     import autocode_plan_retention as retention
+    import autocode_regression_reference as regression_reference
     import autocode_roles as roles
 
 PLANNING_STAGES = frozenset(roles.ALL_PLANNING_STAGES)
@@ -57,7 +59,9 @@ def baseline_instruction(stage: str) -> str:
             "fragments/report-repair-context/requirements-corrections.md"
         )
     if stage in PLANNING_STAGES:
-        return prompts.get("fragments/report-repair-context/baseline-instruction-02.md")
+        return prompts.get("fragments/report-repair-context/baseline-instruction-02.md") + prompts.get(
+            "fragments/autoplanner/proof-reference-rule.md"
+        )
     if stage in DECISION_STAGES:
         return prompts.get("fragments/report-repair-context/baseline-instruction-03.md")
     return prompts.get("fragments/report-repair-context/baseline-instruction.md")
@@ -218,7 +222,11 @@ def prompt_parts(
     )
     receipt_instruction, receipt_handoff = receipt_parts
     return receipt_instruction + retention_instruction + historical_instruction, {
-        "header": {**receipt_handoff, **references},
+        "header": {
+            **receipt_handoff,
+            **references,
+            **({"regression_reference": regression_reference.context(state)} if stage in PLANNING_STAGES else {}),
+        },
         "original_report": historical_source,
         "protected_contract": protected,
         "clarification": {"clarification_context": clarification} if stage == "astra_finalize" else {},
