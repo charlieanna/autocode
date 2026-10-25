@@ -25,6 +25,11 @@ class Overview:
         self.errors: dict[polling.Key, str] = {}
         self.pending: set[polling.Key] = set()
         self.first = None
+        self.after = None
+        self.requested = ()
+
+    def cancel_navigation(self):
+        self.first, self.after = None, None
 
     def targets(self):
         return {key: polling.INVENTORY_SECONDS for key in self.pending}
@@ -47,11 +52,17 @@ class Overview:
                 text += ". Displaying the last snapshot."
         return text
 
-    def request(self, history, current=None):
+    def request(self, history, current=None, *, then=None):
         workspace = str(history.workspace)
         keys: tuple[polling.Key, ...] = (polling.ProjectRuns(workspace), (workspace, None))
-        text = self.snapshot(history, current)
-        if not history.rows:
+        text = (
+            self.snapshot(history, current)
+            if then is None
+            else "Reading the run list before opening the selected chat."
+        )
+        self.after = then
+        self.requested = keys
+        if not history.rows or then is not None:
             self.first = history, current
         for key in keys:
             if key not in self.pending and key not in self.poller.active:
@@ -81,3 +92,6 @@ class Overview:
                 self.say(
                     "Run list read finished. Type /runs to inspect its snapshot; /open keeps the displayed numbers."
                 )
+                after, self.after = self.after, None
+                if after is not None and not any(key in self.errors for key in self.requested):
+                    after()

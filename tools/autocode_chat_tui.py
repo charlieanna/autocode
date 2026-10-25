@@ -874,6 +874,7 @@ class ChatTUI:
         with self._lock:
             if self._closed:
                 raise EOFError
+            asked_context = self._context_key
             with contextlib.suppress(curses.error):
                 curses.flushinp()  # keys typed while AutoCode worked never answer a question nobody saw
             if self._launched:
@@ -929,7 +930,8 @@ class ChatTUI:
             with self._lock:
                 self._asking = False
                 self._screen.timeout(-1)
-                self._prompt = ""
+                if self._context_key == asked_context:
+                    self._prompt = ""
                 self._frame = 0
                 self._cursor(0)
                 self._draw()

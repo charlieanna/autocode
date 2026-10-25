@@ -678,6 +678,9 @@ appear automatically for the first requested list, then
 stay fixed until that explicit inspection, so a later read cannot retarget an
 `/open N` being typed. Listing a chat does not open a tab or subscribe to its
 individual status; only chats explicitly opened in this viewer join that set.
+An uncached `/open N` finishes its viewer navigation after fresh listings arrive.
+A newer navigation or a changed source chat/question cancels that pending open;
+a failed listing cannot complete it.
 
 #### Acceptance and rollout before implementation is enabled
 

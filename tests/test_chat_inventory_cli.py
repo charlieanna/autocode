@@ -102,10 +102,15 @@ raise SystemExit(code)
                 self.assertEqual({str(runs[0])}, {row["run"] for row in calls if row["kind"] == "status"})
                 screen.type("/open 2")
                 screen.keys("Enter")
-                screen.wait_for(lambda shown: "r23" in shown and "Anything else?" in shown, 10)
+                screen.wait_for(lambda shown: "· r23" in shown.splitlines()[0] and "? Anything else?" in shown, 10)
                 screen.type("B draft 你好")
                 screen.keys("Left", "C-Left")
-                screen.wait_for(lambda shown: composer_text(shown) == "" and "Anything else?" in shown, 10)
+                screen.wait_for(
+                    lambda shown: (
+                        "· r00" in shown.splitlines()[0] and composer_text(shown) == "" and "? Anything else?" in shown
+                    ),
+                    10,
+                )
                 screen.keys("C-Right")
                 screen.wait_for(lambda shown: composer_text(shown) == "B draft 你好", 10)
                 screen.type("X")

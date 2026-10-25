@@ -13,22 +13,26 @@ freezes the numbered snapshot used by `/open N`. Subsequent arrivals only update
 the cache, preserving the choice being typed. The first requested list appears
 automatically once its reads finish. Failed refreshes label the retained
 snapshot unavailable. Listing does not subscribe to individual run statuses.
+An uncached `/open N` completes viewer-only navigation from fresh successful
+listings, unless a newer navigation or source chat/question change cancels it.
 
 ## Focused evidence
 
 The new pure public-command regression fails against original client
 `229a85d2d91f1f42974f482ca9fc204b109cf7ad` at the synchronous `subprocess.run`.
-The corrected reader passes. The focused client/context/polling/attention,
+The corrected reader passes. An initial client/context/polling/attention,
 architecture and CI-selection batch passed 122 checks in 14.977 seconds on
-macOS. No supervised provider was launched locally.
+macOS. Final follow-up checks passed 29 inventory/history/attention tests in
+1.184 seconds and 87 context/TUI tests in 1.046 seconds. No supervised provider
+was launched locally.
 
 `tests.test_chat_inventory_cli` drives real curses input and public CLI argument
 arrays against a model-free command fixture. It renders 25 inventory entries,
 explicitly opens two stable identities, switches a Unicode draft and cursor,
 then holds both project and global listing children. In the local 120-column
-terminal, the inserted key rendered in 14.1 ms and `/help` in 21.8 ms, while both
+terminal, the inserted key rendered in 15.0 ms and `/help` in 23.3 ms, while both
 children remained held. `/quit` reaped every recorded read process. The whole
-case passed in 1.155 seconds. These are individual input samples, below the
+case passed in 1.215 seconds. These are individual input samples, below the
 proposed 250 ms controlled-host target, not a latency percentile or delivery
 benchmark. The CI result must identify its own exact head and Linux host.
 
@@ -40,6 +44,10 @@ active reads; healthy outcomes arrive, faults remain unavailable, and close
 reaps all children. Inventory shares that pool. Fairness depends on the current
 number of subscribed/read identities, two slots, five-second deadlines and the
 keyboard pump; the ten-second background interval is not a freshness deadline.
+Literal D3 holds A's correct response until after opening B, then checks that
+only A updates while B keeps its draft/cursor, plan, cost and target. Literal D6
+uses identical titles across projects and checks the exact workspace/run in
+`/open`, `/tab` and emitted public status argument arrays.
 
 ## Limits and retained failures
 
@@ -55,3 +63,16 @@ socket. With normal private IPC access, two fixture corrections were needed:
 the completed view initially omitted its follow-up input offer, and completed
 `/quit` exits zero rather than the paused viewer's two. Their failed outputs
 remain in the session; no product gate was weakened.
+
+Final-head attempt `3b0b1f50a7968b18f5977252a77dc1c04d6866b4` exposed two further
+problems in CI. Ubuntu run `40239109098` ran 435 tests/25 modules in 121 seconds;
+its only failed module was the new terminal case. Native run `40239109102` ran
+eight cases in 223.970 seconds; two uncached `/open` consumers failed because
+navigation stopped at the list. The asynchronous pending-open correction above
+retains that existing behavior and rejects late navigation. The terminal also
+exposed pre-existing question-to-question cleanup clearing the restored prompt,
+which incorrectly treated its draft as superseded. A new regression fails on
+original TUI `13e201a394` and passes after cleanup is limited to its original
+context. The terminal driver now waits for the selected header and active
+question, rather than matching a run name still present in the previous list.
+These failed CI runs are retained; their results are not reported as passes.
