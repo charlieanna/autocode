@@ -301,8 +301,17 @@ def normalize_human_boundary(state: RunState, run_dir):
             autopilot.queue_resolution(
                 state, value, source, source_stage=semantic, source_report=not semantic.startswith("astra")
             )
-            state.update({"status": "RUNNING", "phase": "RESOLVING"})
-            return
+            if state.get("next_stage") == "astra_resolve" and state.get("resolution_request"):
+                state.update({"status": "RUNNING", "phase": "RESOLVING"})
+                return
+            # Requeueing scheduled no diagnosis: this task and source already have one, so it staged
+            # the same blocker again. Setting the run RUNNING here repeated the stage that blocked,
+            # without limit (11 Completion Reviews on an unchanged source, 2026-10-25). Hold instead.
+            state["stop_reason"] = (
+                "The Completion Owner still does not accept this unchanged source after the existing "
+                "diagnosis, so another automatic review would reach the same result. Change the setting "
+                "or source the diagnosis names, or give feedback, then resume."
+            )
     # Deferred or rejected proposals stay private for resolver diagnosis.
     state.update({"status": "RESOLVER_PENDING", "phase": "RESOLVING"})
 
