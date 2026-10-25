@@ -82,7 +82,7 @@ BOUND_FLAGS = {
 OPERATOR_ONLY = {
     "PAUSED_TIMEOUT_RECOVERY": "the automatic-recovery allowance for this run is spent",
     "PAUSED_TIME_LIMIT": "the saved active-time limit is reached, or an attempt on a stronger route is projected past it",
-    "PAUSED_COST_LIMIT": "the saved cost cap is reached, or an attempt on a stronger route is projected past it",
+    "PAUSED_COST_LIMIT": "the saved cost cap is reached, or the next attempt is projected past it",
     "PAUSED_ITERATION_LIMIT": "the saved iteration ceiling is reached",
     "PAUSED_MILESTONE_TIME_LIMIT": "the milestone's active-time budget is reached",
     "PAUSED_MILESTONE_BUDGET": (

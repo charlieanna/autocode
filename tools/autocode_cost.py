@@ -6,10 +6,11 @@
   spent(state)    the known spend the cap is compared with
   exceeded(state) whether the known spend has reached the cap: the stage-boundary check
   crossing(state, model, record)
-                  whether one more attempt on a stronger route, projected from `record`'s tokens,
-                  would take the known spend past the cap: the check before a route climb (#611)
+                  whether one more attempt on `model`, projected from `record`'s tokens, would take
+                  the known spend past the cap: the check before a job's next attempt (#2019) or a
+                  route climb (#611)
   climb_stop(over, ...)
-                  the stop reason when that check refuses a climbed attempt
+                  the stop reason when that check refuses an attempt
   line(cost)      the one human line `--status` and a completion summary print
 
 Each stage has one basis, as in autocode_usage.stage_rows: the runner's own stages cost nothing,

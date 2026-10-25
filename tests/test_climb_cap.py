@@ -127,22 +127,32 @@ class ClimbCapTests(unittest.TestCase):
         ):
             with self.subTest(row=row):
                 stop({**state, "stages": [row, *state["stages"]]}, "sol", "sol")
-        # Once the climbed attempt has launched, the stage-boundary check governs the spend. An attempt on the rung
-        # whose start cannot be read counts as launched: a guess never pauses the run.
+        # Once the climbed attempt has launched it is no climb: the Tester's next attempt is priced as any other
+        # (#2019), from that attempt. An attempt on the rung whose start cannot be read counts as launched.
         undated = tested("xhigh")
         del undated["started_at"]
         for row in (tested("xhigh"), undated):
             with self.subTest(row=row):
                 launched = {**state, "stages": [*state["stages"], row]}
                 self.assertIsNone(climb_cap.pending(launched, "sol"))
+                self.assertIn(
+                    "The next Tester attempt (gpt-6-sol at xhigh effort) did not launch: projected at $0.004, the "
+                    "last Tester attempt's 1,000 input and 200 output tokens at gpt-6-sol's price, it would take the "
+                    "spend from $0.008 to $0.01, past the $0.006 cost cap",
+                    stop(launched, "sol", "sol"),
+                )
+                launched["settings"] = {**state["settings"], "limits": {"max_cost_usd": 0.012}}
                 climb_cap.guard(launched, "sol", "sol")
-        # An attempt without a climb is not priced here.
-        climb_cap.guard({**state, "reasoning_escalations": []}, "sol", "sol")
-        # A route the person set after the climb is theirs, not the climb's.
+        # An attempt without a climb is priced as the job's next attempt, not as a climb to a rung.
+        self.assertIn(
+            "The next Tester attempt (gpt-6-sol at xhigh effort)",
+            stop({**state, "reasoning_escalations": []}, "sol", "sol"),
+        )
+        # A route the person set after the climb is theirs, not the climb's; its next attempt is priced on it.
         chosen = climbed(0.006)
         chosen["settings"]["roles"]["sol"]["reasoning_effort"] = "max"
         self.assertIsNone(climb_cap.pending(chosen, "sol"))
-        climb_cap.guard(chosen, "sol", "sol")
+        self.assertIn("The next Tester attempt (gpt-6-sol at max effort)", stop(chosen, "sol", "sol"))
 
     def test_a_rung_restored_after_its_climbed_attempt_ran_is_not_a_climb_again(self):
         # M1: the Tester fails on GPT-6 Sol High, climbs to XHigh, and the XHigh attempt runs.
@@ -175,6 +185,11 @@ class ClimbCapTests(unittest.TestCase):
         self.assertEqual(route("xhigh", "openai/gpt-6-sol", "opencode"), state["settings"]["roles"]["sol"])
         state["settings"]["limits"]["max_cost_usd"] = round(climb_cap.cost.spent(state) + 0.002, 6)
         self.assertIsNone(climb_cap.pending(state, "sol"))
+        # The attempt is still priced, as the Tester's next attempt from its last one (#2019), not as a climb.
+        reason = stop(state, "sol", "sol")
+        self.assertIn("The next Tester attempt (openai/gpt-6-sol at xhigh effort) did not launch", reason)
+        self.assertNotIn("climb", reason)
+        state["settings"]["limits"]["max_cost_usd"] = round(climb_cap.cost.spent(state) + 0.005, 6)
         climb_cap.guard(state, "sol", "sol")
 
     def test_the_completion_reviewer_is_priced_from_its_attempts_on_its_route(self):
@@ -224,9 +239,16 @@ class ClimbCapTests(unittest.TestCase):
             "stages": [attempt(astra, stage="astra_plan", role="astra", started_at=EARLIER)],
         }
         escalation.advance(state, "astra", trigger="rejected_output", detail="invalid task plan")
-        # Spent $0.02; a climbed attempt projected at another $0.02 would pass the $0.03 cap.
-        climb_cap.guard(state, "astra_plan", "astra")
         self.assertEqual(astra, state["settings"]["roles"]["astra"])
+        # Spent $0.02; the next attempt, projected at another $0.02, would pass the $0.03 cap: it is priced as the
+        # Planner's next attempt on its own route (#2019), not as a climb to a rung.
+        reason = stop(state, "astra_plan", "astra")
+        self.assertIn(
+            "The next Planner attempt (gpt-6-astra at high effort) did not launch: projected at $0.02", reason
+        )
+        self.assertNotIn("climb", reason)
+        state["settings"]["limits"]["max_cost_usd"] = 0.04
+        climb_cap.guard(state, "astra_plan", "astra")
 
     def test_each_role_is_priced_from_its_own_climb_and_attempt(self):
         # The Tester climbs High -> XHigh, then the Completion Reviewer Medium -> High.
@@ -271,17 +293,131 @@ class ClimbCapTests(unittest.TestCase):
         )
 
     def test_a_climb_without_a_projection_never_pauses(self):
-        # No token counts, no earlier attempt, a climb without a readable time, or a parallel Builder's partial view.
-        undated = climbed(0.000001)
-        undated["reasoning_escalations"][-1]["at"] = "unknown"
+        # No token counts, no earlier attempt, or a parallel Builder's partial view.
         for name, state in (
             ("no token counts", climbed(0.000001, tokens={})),
             ("no earlier attempt", {**climbed(0.000001), "stages": []}),
-            ("climb time unreadable", undated),
             ("parallel Builder", {**climbed(0.000001), "parent_run": "/runs/parent"}),
         ):
             with self.subTest(name):
                 climb_cap.guard(state, "sol", "sol")
+        # A climb without a readable time is not priced as a climb, but the attempt is still the Tester's next
+        # attempt on the saved route, priced from its last one (#2019).
+        undated = climbed(0.000001)
+        undated["reasoning_escalations"][-1]["at"] = "unknown"
+        self.assertIsNone(climb_cap.pending(undated, "sol"))
+        self.assertIn("The next Tester attempt (gpt-6-sol at xhigh effort)", stop(undated, "sol", "sol"))
+
+
+class NextAttemptCapTests(unittest.TestCase):
+    """Any attempt of a job that already ran is priced against the cost cap before it launches (#2019): the
+    job's last attempt's tokens at the saved route's rate, with the same stop a climb gets."""
+
+    def test_a_next_attempt_projected_past_the_cap_pauses_before_it_launches(self):
+        # Spent: the first Tester attempt, $0.004. Projected: the same tokens on the same route, $0.004. $0.008 > $0.006.
+        state = {
+            "settings": {"engine": "codex", "roles": {"sol": route("high")}, "limits": {"max_cost_usd": 0.006}},
+            "stages": [tested("high", started_at=EARLIER)],
+        }
+        self.assertIsNone(climb_cap.pending(state, "sol"))
+        self.assertEqual(
+            "The next Tester attempt (gpt-6-sol at high effort) did not launch: projected at $0.004, the last "
+            "Tester attempt's 1,000 input and 200 output tokens at gpt-6-sol's price, it would take the spend from "
+            "$0.004 to $0.008, past the $0.006 cost cap. AutoCode never raises the cap; resume with --max-cost-usd "
+            "0.01 or more (0 for no cap) to make this attempt",
+            stop(state, "sol", "sol"),
+        )
+        # The route stands: a cap of at least the total, or none, lets that attempt launch.
+        self.assertEqual(route("high"), state["settings"]["roles"]["sol"])
+        for cap in (0.008, 0.01, 0, None):
+            with self.subTest(cap=cap):
+                state["settings"]["limits"]["max_cost_usd"] = cap
+                climb_cap.guard(state, "sol", "sol")
+
+    def test_the_projection_is_the_jobs_last_attempt_at_the_saved_routes_rate(self):
+        # The Plan Reviewer's second stage is its next attempt, priced from the first stage's tokens; a route the
+        # person moved to a dearer model prices those tokens at the new model's rate.
+        challenge = attempt(route("medium"), stage="astra_challenge", role="astra", route_role="plan_reviewer")
+        state = {
+            "settings": {
+                "engine": "codex",
+                "roles": {"plan_reviewer": route("medium"), "terra": route("medium")},
+                "limits": {"max_cost_usd": 0.006},
+            },
+            "stages": [challenge],
+        }
+        self.assertIn(
+            "The next Plan Reviewer attempt (gpt-6-sol at medium effort) did not launch: projected at $0.004, the "
+            "last Plan Reviewer attempt's 1,000 input and 200 output tokens at gpt-6-sol's price",
+            stop(state, "astra_finalize", "plan_reviewer"),
+        )
+        # 1,000 input and 200 output tokens at GPT-6 Astra's $10 / $50 per million cost $0.02.
+        state["settings"]["roles"]["plan_reviewer"] = route("medium", "gpt-6-astra")
+        self.assertIn(
+            "The next Plan Reviewer attempt (gpt-6-astra at medium effort) did not launch: projected at $0.02, the "
+            "last Plan Reviewer attempt's 1,000 input and 200 output tokens at gpt-6-astra's price, it would take the "
+            "spend from $0.004 to $0.02, past the $0.006 cost cap",
+            stop(state, "astra_finalize", "plan_reviewer"),
+        )
+        # A job's first attempt has no projection: the Builder launches, and the stage-boundary check governs it.
+        climb_cap.guard(state, "terra", "terra")
+
+    def test_the_basis_is_the_jobs_last_attempt_on_whatever_route_it_ran(self):
+        # Requirements runs requirements_gather on the `requirements` route and astra_discovery on the `glm` route
+        # (#1860): the second is the job's next attempt, priced from the first at the glm route's rate.
+        glm = route("low", "zai-coding-plan/glm-5.3", "opencode")
+        gather = attempt(
+            glm, {"input_tokens": 20000, "output_tokens": 800}, stage="requirements_gather", role="requirements"
+        )
+        state = {
+            "settings": {
+                "engine": "opencode",
+                "roles": {"requirements": dict(glm), "glm": dict(glm)},
+                "limits": {"max_cost_usd": 0.03},
+            },
+            "stages": [gather],
+        }
+        self.assertEqual([], climb_cap.attempts_of(state, "glm"))
+        self.assertEqual([gather], climb_cap.job_attempts(state, "astra_discovery"))
+        reason = stop(state, "astra_discovery", "glm")
+        self.assertIn("The next Requirements attempt (zai-coding-plan/glm-5.3 at low effort) did not launch", reason)
+        self.assertIn("the last Requirements attempt's 20,000 input and 800 output tokens", reason)
+        # Another job's first attempt is not priced from it.
+        climb_cap.guard(state, "astra_plan", "astra")
+
+    def test_a_next_attempt_without_a_projection_never_pauses(self):
+        # No cap, no token counts, a model without a rate, only report repairs or dry runs before it, or a parallel
+        # Builder's partial view: as for a climb, a guess never pauses the run.
+        def run(cap=0.000001, stages=None, model="gpt-6-sol", **extra):
+            return {
+                "settings": {
+                    "engine": "codex",
+                    "roles": {"sol": route("high", model)},
+                    "limits": {"max_cost_usd": cap},
+                },
+                "stages": [tested("high", started_at=EARLIER)] if stages is None else stages,
+                **extra,
+            }
+
+        for name, state in (
+            ("no cap", run(cap=None)),
+            ("no token counts", run(stages=[tested("high", {})])),
+            ("no rate", run(model="unpriced-model")),
+            ("report repair only", run(stages=[tested("high", report_only=True)])),
+            ("dry run only", run(stages=[tested("high", dry_run=True)])),
+            ("parallel Builder", run(parent_run="/runs/parent")),
+        ):
+            with self.subTest(name):
+                climb_cap.guard(state, "sol", "sol")
+
+    def test_only_the_cost_cap_is_projected_for_a_next_attempt(self):
+        # The active-time budget you set is projected before a climb, not before an ordinary next attempt: the
+        # stage-boundary check governs it, as before.
+        state = timed(1000)
+        state["reasoning_escalations"] = []
+        state["settings"]["roles"]["sol"] = route("high")
+        self.assertIsNone(climb_cap.pending(state, "sol"))
+        climb_cap.guard(state, "sol", "sol")
 
 
 class ClimbTimeTests(unittest.TestCase):

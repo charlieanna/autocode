@@ -119,6 +119,60 @@ class CostCapCliTests(unittest.TestCase):
         self.assertIn("Cost: $", summary.stdout)
         self.assertIn("cap $5.00.", summary.stdout)
 
+    def test_a_next_attempt_projected_past_the_cap_pauses_before_it_launches(self):
+        """#2019: an attempt of a job that already ran is priced before it launches, not only a climb. The fixture's
+        Requirements runs twice, around its one question, on gpt-5.6-sol at 100 input and 50 output tokens a stage,
+        (100 x $4 + 50 x $20) / 1M = $0.0014, after the Job recognizer's $0.0014. A cap of $0.0035 admits those two
+        stages, and the second Requirements attempt, projected at another $0.0014, would pass it."""
+        cap = "0.0035"
+        started = taskrun.TaskRun.start(
+            self.workspace, BRIEF, options=OPTIONS, start_options=("--max-cost-usd", cap), env=self.env, timeout=300
+        )
+        view = started.status()
+        self.assertEqual("answer", view["needs"]["kind"], view)
+        self.assertEqual(2, self.model_stages(view))
+        question = view["needs"]["questions"][0]
+        task = self.task(started.run_dir)
+        view = task.answer(
+            question["id"],
+            question["proposed_default"] or question["options"][0],
+            resolver_token=view["needs"].get("resolver_token"),
+        )
+        view = task.advance_until_input()
+        self.assertEqual("PAUSED_COST_LIMIT", view["needs"].get("pause_origin") or view["status"], view)
+        self.assertEqual("your_decision", view["pause_category"])
+        self.assertEqual(2, self.model_stages(view), "the projected attempt must not launch")
+        self.assertEqual(0.0028, view["cost"]["spent_usd"])
+        for part in (
+            "The next Requirements attempt (gpt-5.6-sol at high effort) did not launch: projected at $0.0014",
+            "the last Requirements attempt's 100 input and 50 output tokens at gpt-5.6-sol's price",
+            "it would take the spend from $0.0028 to $0.0042, past the $0.0035 cost cap",
+            "resume with --max-cost-usd 0.01 or more",
+        ):
+            self.assertIn(part, view["stop_reason"])
+        # A plain resume, and restating the cap, leave it paused before the same attempt.
+        for options in ((), ("--max-cost-usd", cap)):
+            with self.subTest(options=options):
+                held = self.task(started.run_dir, *options).resume_paused()
+                self.assertEqual("PAUSED_COST_LIMIT", held["needs"].get("pause_origin") or held["status"], held)
+                self.assertEqual(2, self.model_stages(held))
+        # Raising the cap to at least what the stop names lets that attempt launch; the run then completes under it.
+        raised = self.task(started.run_dir, "--max-cost-usd", "5")
+        view = raised.resume_paused()
+        for _ in range(4):
+            need = view["needs"]
+            if view["done"] or need["kind"] not in ("answer", "approve_plan", "continue"):
+                break
+            if need["kind"] == "answer":
+                question = need["questions"][0]
+                answer = question["proposed_default"] or question["options"][0]
+                view = raised.answer(question["id"], answer, resolver_token=need.get("resolver_token"))
+            elif need["kind"] == "approve_plan":
+                view = raised.approve_plan(need["token"])
+            view = raised.advance_until_input()
+        self.assertEqual("TASK_COMPLETE", view["status"], view)
+        self.assertEqual(10, self.model_stages(view))
+
     def test_qualified_claude_aliases_stop_at_the_cap_and_show_the_charged_attempt(self):
         for alias in ("anthropic/claude-opus-5-5", "kilo/anthropic/claude-opus-5-5"):
             with self.subTest(alias=alias):

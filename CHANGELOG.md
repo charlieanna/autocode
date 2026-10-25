@@ -22,6 +22,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Under a money cap (`--max-cost-usd`), every attempt of a job that already ran in the run is priced before
+  it launches, from that job's last attempt's tokens at the saved route's rate, and the run stops as
+  `PAUSED_COST_LIMIT` before an attempt projected past the cap, naming the job, the route, the projection and
+  the cap to resume with, as a climbed attempt already was. Before, only climbs were projected, so a run could
+  cross its cap by a whole stage ($1.81 to $2.96 under a $2.00 cap) and pause only afterwards (#2019).
 - A small clear brief's reduced Plan Reviewer effort (one rung below the configured one, #1564) is fitted to
   the variants the reviewer's model declares, and the move is recorded in `effort_fits`; a `--single-model`
   run keeps the model's listing for that. Before, `--single-model zai-coding-plan/glm-5.3` stopped once at

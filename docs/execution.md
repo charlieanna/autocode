@@ -897,29 +897,38 @@ caps what a run may spend, in USD. A run has no cap unless you set one, and `0` 
 - **When it pauses.** The cap is checked at every stage boundary, right after the active-time limit,
   before anything launches. Once the spend reaches the cap the run stops with `PAUSED_COST_LIMIT`, in
   the *your decision* category, and AutoResolver publishes the usual operational request naming the
-  spend and the cap. Stages already running finish first, so a run can end above its cap by up to one
-  stage, or by one parallel batch: workers are charged when the parent accounts their batch.
+  spend and the cap. Stages already running finish first, so a run can end above its cap by a stage it
+  could not price (below), or by one parallel batch: workers are charged when the parent accounts their batch.
+- **Before an attempt the run can price.** Every attempt of a job that already ran in this run is priced
+  before it launches: the job's last attempt's recorded tokens at the saved route's rate. If the spend so far
+  plus that projection would pass the cap, the run stops with `PAUSED_COST_LIMIT` before the attempt starts,
+  and the stop names the job, its model and effort, the tokens behind the projection and the attempt they came
+  from, the spend, the total and the cap to resume with, for example `The next Builder attempt (gpt-6-sol at
+  high effort) did not launch: projected at $0.42, the last Builder attempt's 61,200 input and 9,800 output
+  tokens at gpt-6-sol's price, it would take the spend from $4.80 to $5.22, past the $5.00 cost cap ... resume
+  with --max-cost-usd 5.22 or more`. So a run under a cap never launches a stage it can price past the cap: before
+  it, the ledger could go from $1.81 to $2.96 inside one stage under a $2.00 cap, and only then pause. A job's
+  first attempt has no projection, nor does an attempt whose job's last attempt recorded no token counts or whose
+  model has no rate: those launch, and the stage-boundary check governs them. The projection is an estimate,
+  not a bound: the next attempt can use more or fewer tokens than the one it follows.
 - **Before an attempt on a stronger route.** Two kinds of climb move a struggling role to a stronger route: a
   milestone's Builder escalating to its stronger model (see [Builder retry policy](models.md#builder-retry-policy)),
   and a role climbing one rung of its effort ladder after it struggled, such as the Tester going from GPT-6 Sol
-  High to XHigh (see [Models](models.md#default-models)). The first attempt on the stronger route is priced
-  before it launches: the role's last attempt's recorded tokens at the stronger route's rate. If the spend so
-  far plus that projection would pass the cap, the run stops with `PAUSED_COST_LIMIT` before the attempt
-  starts, and the stop names the job, the rung or model and effort, the tokens behind the projection, the
-  spend, the total and the cap to resume with, for example `The Tester's climb to GPT-6 Sol Max (gpt-6-sol at
-  max effort) did not launch: projected at $0.42, ... it would take the spend from $4.80 to $5.22, past the
-  $5.00 cost cap ... resume with --max-cost-usd 5.22 or more`. The projection is an estimate, not a bound:
-  a higher effort can use more tokens than the attempt it follows, and an effort climb on the same model is
-  priced like one more attempt on that model. Without a cap, a rate for the stronger model or token counts for
-  the last attempt there is no projection and nothing pauses here; once the stronger attempt has launched, the
-  stage-boundary check governs it. A parallel Builder sees only its own spend, so this check runs in the
-  serial run only; a parallel batch whose Builders would start on a climbed Builder route is not priced
-  before it launches, and the stage-boundary check governs it. The same attempt is also checked against an
-  active-time budget you set, after this check ([Timeouts and watchdog](#timeouts-and-watchdog)).
+  High to XHigh (see [Models](models.md#default-models)). The first attempt on the stronger route is priced the
+  same way, at the stronger route's rate, and its stop names the rung: `The Tester's climb to GPT-6 Sol Max
+  (gpt-6-sol at max effort) did not launch: projected at $0.42, ... it would take the spend from $4.80 to $5.22,
+  past the $5.00 cost cap ... resume with --max-cost-usd 5.22 or more`. A higher effort can use more tokens
+  than the attempt it follows, and an effort climb on the same model is priced like one more attempt on that
+  model. Once the stronger attempt has launched, the stage-boundary check governs it. A parallel Builder sees
+  only its own spend, so both checks run in the serial run only; a parallel batch whose Builders would start on
+  a climbed Builder route is not priced before it launches, and the stage-boundary check governs it. A climbed
+  attempt is also checked against an active-time budget you set, after the cost check ([Timeouts and
+  watchdog](#timeouts-and-watchdog)); an ordinary next attempt is not, and the stage-boundary check governs
+  its time.
 - **How it continues.** Only you decide: `autocode resume --max-cost-usd M` (or `--resume-paused
-  --max-cost-usd M`) with `M` above the spend, or `0` for no cap. After a stop before an attempt on a
-  stronger route, `M` must be at least the cap that stop names, or the run pauses again before the attempt.
-  The climb itself stays saved, so raising the cap lets that same attempt launch.
+  --max-cost-usd M`) with `M` above the spend, or `0` for no cap. After a stop before a priced attempt, `M`
+  must be at least the cap that stop names, or the run pauses again before the attempt. The route, and a
+  climb, stay saved, so raising the cap lets that same attempt launch.
   Restating a saved cap that is still above the spend acknowledges it too; restating an exhausted
   cap, a plain resume, information alone or any other setting does not, and the run stays paused.
   AutoCode never raises this cap itself: it is not a runner default, `--autoresolver-managed-limits`
