@@ -83,12 +83,20 @@ class PriceTableTests(unittest.TestCase):
         for alias, existing in (
             ("anthropic/claude-opus-5-5", "claude-opus-5-5"),
             ("kilo/anthropic/claude-opus-5-5", "kilo/anthropic/claude-opus-5.5"),
+            ("anthropic/claude-sonnet-5-5", "claude-sonnet-5-5"),
+            ("anthropic/claude-haiku-4-5", "claude-haiku-4-5-20251001"),
         ):
             with self.subTest(alias=alias):
                 self.assertIsNotNone(prices.rate(alias))
                 for key in ("input", "cached_input", "output", "source", "retrieved"):
                     self.assertEqual(prices.rate(existing)[key], prices.rate(alias)[key])
-                self.assertAlmostEqual(3.72, prices.estimate(alias + "#high", tokens))
+                self.assertAlmostEqual(prices.estimate(existing, tokens), prices.estimate(alias + "#high", tokens))
+        self.assertAlmostEqual(3.72, prices.estimate("anthropic/claude-opus-5-5#high", tokens))
+
+    def test_mimo_flash_on_the_token_plan_route_is_priced(self):
+        # Live Kilo runs on 2026-10-19 and 10-21 recorded this route's tokens with no rate.
+        tokens = {"input_tokens": 1_000_000, "cached_input_tokens": 600_000, "output_tokens": 100_000}
+        self.assertAlmostEqual(0.08568, prices.estimate("xiaomi-token-plan-sgp/mimo-v2.6-flash", tokens))
 
     def test_a_malformed_table_is_refused_with_the_field(self):
         cases = {
