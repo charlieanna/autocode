@@ -272,6 +272,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A permission question now says so before the person answers when none of its choices can do anything.
+  A greenfield run's completion gate offered "complete base-side collection evidence runner-side" as an
+  equivalent outcome, and nothing in the runner implements it: choosing it recorded the decision, popped the
+  request, resumed execution and spent two more validation rounds returning the same findings. A choice
+  bound to no setting now states that it changes nothing and names the actions that do — `--feedback`,
+  `--close-finding`, `--edit-goal` with `--approve-goal` (#2041).
 - A new chat no longer reports its own start as a status outage. `--status` exits 2 only while the run
   being created has no state file yet, and the client called that "Status unavailable … Last view is
   stale", followed a second later by "Status available again". Only those two lines wait for a run that
