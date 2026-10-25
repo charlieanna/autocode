@@ -37,6 +37,65 @@ class DraftVerificationRevisionTests(unittest.TestCase):
         revision_guard(state, after, [], "glm_revise")
         self.assertEqual(before, state)
 
+    def follow_up_draft(self):
+        state, _ = self.inputs()
+        contract = state["goal_contract"]
+        contract["origin"] = "astra_discovery"
+        approved = copy.deepcopy(contract)
+        approved.update(approval_status="approved", revision=6, hash="older")
+        state["contract_history"] = [approved]
+        contract["body"]["acceptance_criteria"].append(
+            {
+                "id": "AC8",
+                "criterion": "Given source [3, -1, 4], sum_positive(x for x in source, start=1) returns 8.",
+                "verification_method": "test: test_ac8_generator",
+                "human_review": False,
+                "sources": [{"source_id": "feedback:new", "quote": "Preserve generator input support."}],
+            }
+        )
+        after = copy.deepcopy(contract["body"])
+        after["acceptance_criteria"][-1]["criterion"] = (
+            "Given source [3, -1, 4], sum_positive((x for x in source), start=1) returns 8."
+        )
+        return state, after
+
+    def test_older_approval_does_not_make_a_new_draft_criterion_approved(self):
+        state, after = self.follow_up_draft()
+        before = copy.deepcopy(state)
+        self.assertEqual([], revision_guard(state, after, [], "glm_revise"))
+        self.assertEqual(before, state)
+
+    def test_new_criterion_correction_keeps_approved_ids_and_source_quotes_protected(self):
+        for kind in (
+            "old_id",
+            "lost_quote",
+            "approved_now",
+            "user_edited",
+            "current_user_edit",
+            "incomplete_history",
+            "malformed_history",
+            "changed_proof",
+        ):
+            state, after = self.follow_up_draft()
+            if kind == "old_id":
+                after["acceptance_criteria"][0]["criterion"] = "Different previously approved behavior."
+            elif kind == "lost_quote":
+                after["acceptance_criteria"][-1]["sources"] = []
+            elif kind == "approved_now":
+                state["goal_contract"]["approval_status"] = "approved"
+            elif kind == "user_edited":
+                state["contract_history"].append({**copy.deepcopy(state["goal_contract"]), "origin": "user_cli_edit"})
+            elif kind == "current_user_edit":
+                state["goal_contract"]["origin"] = "user_cli_edit"
+            elif kind == "incomplete_history":
+                state["contract_history"].append({"approval_status": "approved"})
+            elif kind == "malformed_history":
+                state["contract_history"].append({"approval_status": "approved", "body": ["invalid"]})
+            else:
+                after["acceptance_criteria"][-1]["verification_method"] = "Run any aggregate command"
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                revision_guard(state, after, [], "glm_revise")
+
     def test_a_declared_agent_proof_correction_is_accepted_before_approval(self):
         state, after = self.inputs()
         changes = [
