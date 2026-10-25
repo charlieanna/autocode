@@ -133,37 +133,85 @@ export interface OpenDecision {
   input?: IntegerCommandInput;
 }
 
-/** Validate a closed typed slot the core names; no arbitrary N or extra authority. */
-export function commandInputs(view: StatusView, named: NamedCommand): IntegerCommandInput[] {
-  const rows = view.needs?.command_inputs;
-  if (rows === undefined) return [];
-  const input = Array.isArray(rows) && rows.length === 1 ? rows[0] : undefined;
+/**
+ * The numbers a person may type into a core-named command (autocode_command_inputs, #2044): the flag,
+ * the row id and label the core gives it, the key `used` is reported under, and whether the saved
+ * current value can be fractional. The same table as tools/autocode_client_actions.INTEGER_INPUTS.
+ */
+const INTEGER_INPUTS: Record<string, [string, string, "used" | "elapsed", boolean]> = {
+  "--max-seconds": ["max_seconds", "Total active time (seconds)", "elapsed", true],
+  "--max-cost-usd": ["max_cost_usd", "Cost cap (whole USD)", "used", true],
+  "--max-iterations": ["max_iterations", "Total iterations", "used", false],
+  "--max-milestone-seconds": ["max_milestone_seconds", "Milestone active time (seconds)", "used", true],
+  "--max-milestone-replans": ["max_milestone_replans", "Milestone replans", "used", false],
+  "--no-progress-limit": ["no_progress_limit", "Unchanged implementation batches allowed", "used", false],
+  "--planning-review-call-limit": ["planning_review_call_limit", "Total plan-review calls", "used", false],
+  "--grant-recovery": ["grant_recovery", "Additional recoveries", "used", false],
+};
+
+function count(value: unknown, fractional: boolean): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value < Number.MAX_SAFE_INTEGER
+    && (fractional || Number.isInteger(value));
+}
+
+/** `input` when it is a closed number offer for exactly `named`; otherwise a gap. */
+export function checkInput(view: StatusView, input: IntegerCommandInput | undefined, named: NamedCommand): IntegerCommandInput {
+  const gap = () => new ClientGap("Unsupported or stale numeric recovery command from AutoCode");
+  const known = input && typeof input === "object" ? INTEGER_INPUTS[input.flag] : undefined;
+  if (!input || !known) throw gap();
+  const [id, label, usedKey, fractional] = known;
+  const row = input as unknown as Record<string, unknown>;
+  const current = row.current, used = row[usedKey];
+  const wholeCurrent = fractional && input.flag !== "--max-seconds";
+  const bounded = Number.isSafeInteger(input.minimum) && Number.isSafeInteger(input.maximum)
+    && input.minimum >= 1 && input.minimum <= input.maximum;
+  const limits = input.flag === "--grant-recovery"
+    ? bounded && Number.isSafeInteger(used) && (used as number) >= 1 && input.minimum === 1 && input.maximum === used
+    : bounded && count(used, fractional) && count(current, wholeCurrent) && input.maximum === Number.MAX_SAFE_INTEGER
+      && input.minimum === Math.floor(Math.max(current, used)) + 1;
+  const prefix = input.arg_index === 2 ? ["--resume-paused"] : [];
+  const indexes = input.flag === "--planning-review-call-limit" ? [1, 2] : [2];
   const token = view.recovery?.token;
-  const same = (argv: string[]) => JSON.stringify(named.argv) === JSON.stringify(argv);
-  const time = input?.id === "max_seconds" && view.status === "PAUSED_TIME_LIMIT" && view.needs?.kind === "resume"
-    && same(["--resume-paused", "--max-seconds", "N", "--expected-recovery-token", "-"])
-    && input.flag === "--max-seconds" && input.arg_index === 2 && input.label === "Total active time (seconds)"
-    && typeof input.elapsed === "number" && Number.isFinite(input.elapsed) && input.elapsed >= 0 && input.elapsed < Number.MAX_SAFE_INTEGER
-    && input.minimum === Math.floor(Math.max(input.current, input.elapsed)) + 1;
-  const planning = input?.id === "planning_review_call_limit" && view.status === "PAUSED_PLANNING_BUDGET" && view.needs?.kind === "planning_budget"
-    && input.flag === "--planning-review-call-limit" && input.label === "Total plan-review calls" && input.current >= 2
-    && Number.isSafeInteger(input.used) && input.used >= input.current && input.used < Number.MAX_SAFE_INTEGER
-    && input.minimum === Math.max(input.current, input.used) + 1
-    && ((input.arg_index === 2 && same(["--resume-paused", "--planning-review-call-limit", "N", "--expected-recovery-token", "-"]))
-      || (input.arg_index === 1 && same(["--planning-review-call-limit", "N", "--expected-recovery-token", "-"])));
-  const grant = input?.id === "grant_recovery" && view.status === "PAUSED_TIMEOUT_RECOVERY" && view.needs?.kind === "resume"
-    && input.flag === "--grant-recovery" && input.arg_index === 2 && input.label === "Additional recoveries"
-    && same(["--resume-paused", "--grant-recovery", "N", "--expected-recovery-token", "-"])
-    && Number.isSafeInteger(input.used) && input.used >= 1 && input.minimum === 1 && input.maximum === input.used;
-  if (!input || (!time && !planning && !grant) || view.needs?.new_run_required || view.needs?.edit_required
+  if (!limits || input.id !== id || input.label !== label || input.kind !== "integer" || input.placeholder !== "N"
+    || !indexes.includes(input.arg_index) || !count(current, wholeCurrent)
+    || (current === 0 && input.flag !== "--max-iterations")
+    || view.needs?.new_run_required || view.needs?.edit_required
     || typeof token !== "string" || !token
     || Object.keys(named.env).length !== 1 || named.env.AUTOCODE_EXPECTED_RECOVERY_TOKEN !== token
-    || input.kind !== "integer" || input.placeholder !== "N"
-    || !Number.isSafeInteger(input.current) || input.current <= 0 || input.current >= Number.MAX_SAFE_INTEGER
-    || (!grant && input.maximum !== Number.MAX_SAFE_INTEGER)) {
+    || JSON.stringify(named.argv) !== JSON.stringify([...prefix, input.flag, "N", "--expected-recovery-token", "-"])) {
+    throw gap();
+  }
+  return input;
+}
+
+function offered(view: StatusView): IntegerCommandInput | null {
+  const rows = view.needs?.command_inputs;
+  if (rows === undefined) return null;
+  if (!Array.isArray(rows) || rows.length !== 1 || !rows[0] || typeof rows[0] !== "object") {
     throw new ClientGap("Unsupported or stale numeric recovery command from AutoCode");
   }
-  return [input];
+  return rows[0];
+}
+
+/** Validate the closed typed slot next_command leaves open; a row naming its own command is a separate offer. */
+export function commandInputs(view: StatusView, named: NamedCommand): IntegerCommandInput[] {
+  const input = offered(view);
+  if (!input || input.command !== undefined) return [];
+  return [checkInput(view, input, named)];
+}
+
+/** The core's separate raise of the bound holding the run, when next_command is not that raise (#2044). */
+export function boundOffer(
+  view: StatusView,
+  own: { runDir: string; workspace: string },
+): { input: IntegerCommandInput; named: NamedCommand } | null {
+  const input = offered(view);
+  if (!input || input.command === undefined) return null;
+  if (typeof input.command !== "string" || !input.command) {
+    throw new ClientGap("Unsupported or stale numeric recovery command from AutoCode");
+  }
+  const named = parseNamedCommand(input.command, own);
+  return { input: checkInput(view, input, named), named };
 }
 
 /** Digits supplied by the person, within the advertised finite integer bounds. */

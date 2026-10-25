@@ -51,6 +51,71 @@ from .driver import (
 # Placeholders the view leaves for a decision it does not supply (autocode_pause_command).
 UNSUPPLIED = ("GOAL_FILE", "N", "WHAT CHANGED", "TOKEN", "RUN_DIR", "--explain")
 ADVANCING = ("--no-chat", "--resume-paused")
+MAX_SAFE_INTEGER = 9007199254740991
+# The numbers a person may type into a core-named command: flag -> (row id, label, the key `used` is
+# reported under, whether the saved current value can be fractional). Kept equal to
+# tools/autocode_client_actions.INTEGER_INPUTS by tests/test_pause_inputs_contract.py.
+INTEGER_INPUTS = {
+    "--max-seconds": ("max_seconds", "Total active time (seconds)", "elapsed", True),
+    "--max-cost-usd": ("max_cost_usd", "Cost cap (whole USD)", "used", True),
+    "--max-iterations": ("max_iterations", "Total iterations", "used", False),
+    "--max-milestone-seconds": ("max_milestone_seconds", "Milestone active time (seconds)", "used", True),
+    "--max-milestone-replans": ("max_milestone_replans", "Milestone replans", "used", False),
+    "--no-progress-limit": ("no_progress_limit", "Unchanged implementation batches allowed", "used", False),
+    "--planning-review-call-limit": ("planning_review_call_limit", "Total plan-review calls", "used", False),
+    "--grant-recovery": ("grant_recovery", "Additional recoveries", "used", False),
+}
+
+
+def _count(value, *, fractional):
+    if type(value) is int:
+        return 0 <= value < MAX_SAFE_INTEGER
+    return fractional and type(value) is float and math.isfinite(value) and 0 <= value < MAX_SAFE_INTEGER
+
+
+def check_input(view, row, words, env):
+    """``row`` when it is a closed number offer for exactly ``words``; otherwise a ConformanceGap."""
+    need = (view or {}).get("needs") or {}
+    token = ((view or {}).get("recovery") or {}).get("token")
+    known = INTEGER_INPUTS.get(row.get("flag")) if isinstance(row, dict) else None
+    if known is None:
+        raise ConformanceGap("Unsupported or stale numeric recovery command from AutoCode")
+    identity, label, used_key, fractional = known
+    flag, current, used = row["flag"], row.get("current"), row.get(used_key)
+    whole_current = fractional and flag != "--max-seconds"
+    minimum, maximum = row.get("minimum"), row.get("maximum")
+    bounded = type(minimum) is int and type(maximum) is int and 1 <= minimum <= maximum <= MAX_SAFE_INTEGER
+    if flag == "--grant-recovery":
+        limits = bounded and type(used) is int and used >= 1 and minimum == 1 and maximum == used
+    else:
+        limits = (
+            bounded
+            and _count(used, fractional=fractional)
+            and _count(current, fractional=whole_current)
+            and maximum == MAX_SAFE_INTEGER
+            and minimum == math.floor(max(current, used)) + 1
+        )
+    prefix = ["--resume-paused"] if row.get("arg_index") == 2 else []
+    if (
+        not limits
+        or row.get("id") != identity
+        or row.get("label") != label
+        or row.get("kind") != "integer"
+        or row.get("placeholder") != "N"
+        or row.get("arg_index") not in ((1, 2) if flag == "--planning-review-call-limit" else (2,))
+        or not _count(current, fractional=whole_current)
+        or (current == 0 and flag != "--max-iterations")
+        or need.get("new_run_required")
+        or need.get("edit_required")
+        or not isinstance(token, str)
+        or not token
+        or env != {"AUTOCODE_EXPECTED_RECOVERY_TOKEN": token}
+        or words != [*prefix, flag, "N", "--expected-recovery-token", "-"]
+    ):
+        raise ConformanceGap("Unsupported or stale numeric recovery command from AutoCode")
+    return row
+
+
 LIVE_POLL_SECONDS = 5.0
 
 
@@ -218,81 +283,37 @@ class ConformanceDriver(Driver):
 
     @staticmethod
     def integer_inputs(view, words, env):
-        """Only closed finite-time, review-total and recovery-grant offers type an N slot."""
-        need = (view or {}).get("needs") or {}
-        rows = need.get("command_inputs")
-        row = rows[0] if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict) else {}
-        token = ((view or {}).get("recovery") or {}).get("token")
-        current = row.get("current")
-        maximum = 9007199254740991
-        if (
-            need.get("new_run_required")
-            or need.get("edit_required")
-            or not isinstance(token, str)
-            or not token
-            or env != {"AUTOCODE_EXPECTED_RECOVERY_TOKEN": token}
-            or row.get("kind") != "integer"
-            or row.get("placeholder") != "N"
-            or type(row.get("arg_index")) is not int
-            or type(current) is not int
-            or not 0 < current < maximum
-            or type(row.get("minimum")) is not int
-            or type(row.get("maximum")) is not int
-            or not 1 <= row["maximum"] <= maximum
-        ):
+        """The one closed number ``words`` (next_command) leaves open, or none (#2044).
+
+        The same rules as tools/autocode_client_actions.check_input: a known bound flag, its core id
+        and label, ``[--resume-paused] FLAG N --expected-recovery-token -`` with the current token, and
+        bounds the saved counts imply. A row naming its own ``command`` is a separate offer
+        (bound_command), not a slot of this command.
+        """
+        rows = ((view or {}).get("needs") or {}).get("command_inputs")
+        if rows is None:
+            return []
+        if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
             raise ConformanceGap("Unsupported or stale numeric recovery command from AutoCode")
-        elapsed, used = row.get("elapsed"), row.get("used")
-        time = (
-            (view or {}).get("status") == "PAUSED_TIME_LIMIT"
-            and need.get("kind") == "resume"
-            and row.get("id") == "max_seconds"
-            and row.get("flag") == "--max-seconds"
-            and row["arg_index"] == 2
-            and row.get("label") == "Total active time (seconds)"
-            and words == ["--resume-paused", "--max-seconds", "N", "--expected-recovery-token", "-"]
-            and type(elapsed) in (int, float)
-            and 0 <= elapsed < maximum
-            and math.isfinite(elapsed)
-            and row["minimum"] == math.floor(max(current, elapsed)) + 1
-        )
-        planning = (
-            (view or {}).get("status") == "PAUSED_PLANNING_BUDGET"
-            and need.get("kind") == "planning_budget"
-            and row.get("id") == "planning_review_call_limit"
-            and row.get("flag") == "--planning-review-call-limit"
-            and row.get("label") == "Total plan-review calls"
-            and current >= 2
-            and type(used) is int
-            and current <= used < maximum
-            and row["minimum"] == max(current, used) + 1
-            and (
-                (
-                    row["arg_index"] == 2
-                    and words
-                    == ["--resume-paused", "--planning-review-call-limit", "N", "--expected-recovery-token", "-"]
-                )
-                or (
-                    row["arg_index"] == 1
-                    and words == ["--planning-review-call-limit", "N", "--expected-recovery-token", "-"]
-                )
-            )
-        )
-        grant = (
-            (view or {}).get("status") == "PAUSED_TIMEOUT_RECOVERY"
-            and need.get("kind") == "resume"
-            and row.get("id") == "grant_recovery"
-            and row.get("flag") == "--grant-recovery"
-            and row["arg_index"] == 2
-            and row.get("label") == "Additional recoveries"
-            and words == ["--resume-paused", "--grant-recovery", "N", "--expected-recovery-token", "-"]
-            and type(used) is int
-            and 1 <= used <= maximum
-            and row["minimum"] == 1
-            and row["maximum"] == used
-        )
-        if (not time and not planning and not grant) or (not grant and row["maximum"] != maximum):
-            raise ConformanceGap("Unsupported or stale numeric recovery command from AutoCode")
-        return rows
+        if "command" in rows[0]:
+            return []
+        return [check_input(view, rows[0], words, env)]
+
+    def bound_command(self, view: dict, chosen: dict) -> tuple[list[str], dict, str]:
+        """The core's separate raise of the bound holding the run, filled with the person's number."""
+        rows = (view.get("needs") or {}).get("command_inputs") or []
+        row = rows[0] if len(rows) == 1 and isinstance(rows[0], dict) else {}
+        if not isinstance(row.get("command"), str):
+            raise ConformanceGap("The view names no separate bound raise")
+        words, env, _ = self.named_command({**view, "next_command": row["command"]})
+        check_input(view, row, words, env)
+        value = chosen.get(row["id"])
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9]+", value) or len(value.lstrip("0")) > 16:
+            raise ConformanceGap(f"{row['label']} requires an explicit whole number from a person")
+        if not row["minimum"] <= int(value) <= row["maximum"]:
+            raise ConformanceGap("The chosen total is outside the advertised integer bounds")
+        words[row["arg_index"]] = str(int(value))
+        return words, env, "needs.command_inputs.command"
 
     def message_command(self, view: dict, text: str) -> tuple[list[str], dict, str]:
         """A person's feedback/follow-up through the optional chat input offer (#884)."""
