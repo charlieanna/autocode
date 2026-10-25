@@ -82,3 +82,42 @@ display or host-fixture correction.
 
 #1886 and parent #1877 remain open until the mandatory integrated evidence and
 live-delivery obligations are reconciled or explicitly deferred by the owner.
+
+## Retained real follow-up after #2071
+
+Merged runtime `51a4f676d4127d694bb7fd06c495fdd2f6b1830a` was installed in the
+existing isolated trial; all 936 shipped files matched that checkout. The saved
+chat `20261023-233633-chat-53c9db` initially remained complete at turn 1 with
+22 attempts, $0.529521 known and seven unpriced stages. A real TUI follow-up
+requested an optional keyword-only `start=0` accumulator, exactly four new
+pytest functions and preservation of all seven existing functions. This is a
+feature after the already delivered bug fix. The same chat reached turn 2;
+GLM-5.3 Low handled planning and Codex Medium handled independent plan review
+through Kilo 7.8.3. No MiMo or allowance reset was used.
+
+The continuation exposed distinct causes, which must not be collapsed into
+one latency claim:
+
+- The first report omitted `acceptance_tests`, a genuine output-format error.
+- Identical task/feedback text doubled six coverage obligations into twelve.
+  #2072/#2073 deduplicates the projection while retaining source receipts and
+  real coverage refusals.
+- Planning omitted protected text and milestone coverage. The guard refused
+  those omissions; it is not permission to weaken approved requirements.
+- Reviewer concern C2 inferred that already passing workspace tests could not
+  retain fail-first proof. Public evidence still names original run commit
+  `231f0c1820e82dd6accda4e76954e5032e1c7d9c`, whose function is `sum(values)`.
+  The runner does not reset that comparison on follow-up. #2074 supplies that
+  reference and its overlay limits in planning/repair context. The same review's
+  invalid generator syntax and missing keyword-only assertions were legitimate
+  separate concerns.
+
+The retained pre-correction bundle manifest is
+`01c16b41d71a769f84e3cce1c9a7d02db0469a6fdaf1facf86af6e487cb7a841`.
+At that checkpoint the run was paused before a second Builder, with $1.071969
+known and nine unpriced stages. It is not a completed follow-up. The original
+17 independent checks passed before starting it; the new accumulator oracle
+failed against the unchanged function with the expected missing-argument error.
+During live Requirements, `/help` rendered in 19.7 ms at 120x34. That measures
+input responsiveness, not delivery speed. Candidate prompt convergence, final
+product checks and a complete elapsed-time comparison remain outstanding.
