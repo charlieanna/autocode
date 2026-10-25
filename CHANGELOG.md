@@ -308,6 +308,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Requirements report that copies a coverage-checklist sentence exactly, as its prompt says, is no longer
+  refused as citing text the brief does not hold. The checklist adds a period to a Markdown heading and
+  shows a hard-wrapped sentence's line break, which models write as a space; the quote check now maps such a
+  quote back to the brief's own characters and saves that text. A quote no source holds is still refused,
+  but the refusal now names every such requirement at once, shows the closest sentence in the brief, and
+  says to copy it exactly or remove the requirement. Before, each repair repeated the same quote and the
+  run paused as invalid output again on every resume.
 - The Completion Reviewer no longer runs again and again on an unchanged source after the AutoResolver's
   diagnosis was answered. A repeated block on an already-diagnosed source now holds the run (`RESOLVER_PENDING`,
   with a stop reason naming the existing diagnosis) instead of scheduling the same review without limit, and a

@@ -35,6 +35,39 @@ class CoverageTests(unittest.TestCase):
                 {"task": "- The Validator must inspect images."}, self.report("The Validator must approve images.")
             )
 
+    def test_checklist_sentences_are_accepted_and_saved_as_the_briefs_own_text(self):
+        # The checklist adds a period to a heading and shows a wrapped sentence's line break, which a
+        # model writes as a space. Both prompts say to copy the checklist sentence in full; master refused
+        # both, and every repair repeated the quote until the run paused as invalid output.
+        task = "## Domain lookups must not return ()\n\nThe API must return the domains\nfor the account.\n"
+        heading, wrapped = goals.cue_sentences(task)
+        self.assertEqual("Domain lookups must not return ().", heading)
+        report = self.report(heading, " ".join(wrapped.split()))
+        goals.check_requirement_handoff({"task": task}, report)
+        self.assertEqual(
+            ["Domain lookups must not return ()", "The API must return the domains\nfor the account."],
+            [row["source_quote"] for row in report["requirements"]],
+        )
+        for row in report["requirements"]:
+            self.assertIn(row["source_quote"], task)
+
+    def test_every_unsupported_quote_is_named_with_its_closest_source_and_the_way_out(self):
+        state = {"task": "The API must return the domains for the account. Errors must be logged."}
+        report = self.report("The API must return the domains for the account.")
+        report["requirements"] += [
+            {"id": "R3", "text": "Check domains", "source_quote": "RAS.Check_Domain must be non-empty."},
+            {"id": "R4", "text": "Log", "source_quote": "Errors must be logged to syslog."},
+        ]
+        with self.assertRaises(ValueError) as caught:
+            goals.check_requirement_handoff(state, report)
+        message = str(caught.exception)
+        self.assertIn("Requirements R3, R4: source_quote is not in", message)
+        self.assertIn('the closest source sentence is "Errors must be logged."', message)
+        self.assertIn("remove that requirement", message)
+        # No Builder task or contract exists yet, so the message does not send the model looking for one.
+        self.assertNotIn("Builder task", message)
+        self.assertEqual("RAS.Check_Domain must be non-empty.", report["requirements"][1]["source_quote"])
+
     def test_builder_task_cannot_be_cited_as_new_user_requirement(self):
         inherited = "Fix the scheduling-dependent race in the conversation test."
         state = {
