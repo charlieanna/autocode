@@ -99,8 +99,8 @@ def usable(models: list[str]) -> list[str]:
 
 
 def family(model: str) -> str:
-    lineage_name = lineage(model)
-    return lineage_name if lineage_name in ("glm", "mimo") else model.split("/", 1)[0]
+    """The one family rule (autocode_model_identity): GLM, MiMo, Claude and GPT each one family, via any gateway."""
+    return model_identity.family(model)
 
 
 def by_provider(models: list[str]) -> dict[str, list[str]]:

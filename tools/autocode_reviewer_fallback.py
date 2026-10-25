@@ -21,8 +21,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_model_identity as model_identity
     from . import autocode_support as support
 except ImportError:
+    import autocode_model_identity as model_identity
     import autocode_support as support
 
 
@@ -32,15 +34,6 @@ SCOPE = "planning_reviewer_provider_stream_silence"
 
 def _stop(message) -> NoReturn:
     raise support.Paused("PAUSED_REVIEWER_FALLBACK", message)
-
-
-def _family(model):
-    name = model.rsplit("/", 1)[-1].lower()
-    if model.startswith("zai-coding-plan/") or name.startswith("glm-"):
-        return "glm"
-    if model.startswith("xiaomi-token-plan-sgp/") or name.startswith("mimo-"):
-        return "mimo"
-    return model
 
 
 def _route(config):
@@ -184,7 +177,7 @@ def _candidate(state: RunState, stage, current_role, current):
             or route["engine"] != current.get("engine")
             or route["provider"] != current.get("provider")
             or config.get("available") is False
-            or _family(route["model"]) == _family(producer_model)
+            or model_identity.shared_family(route["model"], producer_model)
         ):
             continue
         choices.append((role, route))

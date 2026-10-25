@@ -290,6 +290,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Every place that judges whether one model may check another's work now uses the one family rule in
+  `autocode_model_identity`. The Plan Reviewer stream fallback, the run scorer's independence check, the
+  model catalogue's suggestions and the stuck-job Investigator's route each kept an older copy that grouped
+  only GLM and MiMo, so the fallback could let GPT-6 Sol take over reviewing a plan GPT-6 Luna drafted, or
+  one Claude route check another's build, while `score_autocode_run` still reported the run as independent.
+  All four now agree with dispatch: GPT tiers are one family (2026-10-20), Claude is one family, and a gateway
+  spelling of a model is the same model.
 - A permission question now says so before the person answers when none of its choices can do anything.
   A greenfield run's completion gate offered "complete base-side collection evidence runner-side" as an
   equivalent outcome, and nothing in the runner implements it: choosing it recorded the decision, popped the
