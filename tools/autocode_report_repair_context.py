@@ -221,10 +221,12 @@ def prompt_parts(
         stage, original, latest if pending.get("latest_rejected") else None
     )
     receipt_instruction, receipt_handoff = receipt_parts
+    interpretations = goals.feedback_interpretation_context(state) if stage in PLANNING_STAGES else {}
     return receipt_instruction + retention_instruction + historical_instruction, {
         "header": {
             **receipt_handoff,
             **references,
+            **({"feedback_interpretations": interpretations} if interpretations else {}),
             **({"regression_reference": regression_reference.context(state)} if stage in PLANNING_STAGES else {}),
         },
         "original_report": historical_source,

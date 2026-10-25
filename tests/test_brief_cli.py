@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -114,6 +115,127 @@ class BriefCliTests(unittest.TestCase):
         after = second["usage"]["accounting"]["attempts"]
         self.assertGreater(len(after), len(before))
         self.assertEqual(4, sum(row["stage"] in ("astra_challenge", "astra_finalize") for row in after))
+
+    def test_feedback_interpretation_correction_keeps_review_and_token_bound_approval(self):
+        # #2083: a valid feedback ID made a new model inference immutable, even though the person
+        # never waived proof. Keep an older approved turn to exercise the actual historical boundary.
+        run, first = self.start(planning=("--joint-planning",), env={"SCENARIO_FAKE_EXISTING_SOURCE": "1"})
+        self.assert_reference(run, first)
+        before = len(first["usage"]["accounting"]["attempts"])
+        feedback = (
+            "AC6 and AC8 were added in the current unapproved draft after revision 6. "
+            "The saved approval covers AC1 through AC5. The installed core now distinguishes those identities "
+            "under the corrected revision guard. Re-evaluate the pending corrections with the requested feature "
+            "and test scope preserved. This is corrective information and grants no plan approval."
+        )
+        invented = (
+            "The corrected revision guard distinguishes the approved criteria from the new draft additions, "
+            "so the completed fail-first proofs are carried forward unchanged and only the new behavior needs "
+            "fresh fail-first proof."
+        )
+        corrected = (
+            "The feedback distinguishes approved identities from new draft additions; it grants no plan "
+            "approval and waives no fresh runner proof."
+        )
+        provider = self.root / "bin" / "codex"
+        script = provider.read_text()
+        self.assertEqual(1, script.count("def report_for(stage: str, data: dict) -> dict:\n"))
+        self.assertEqual(1, script.count("def _main() -> int:\n"))
+        amendment = textwrap.dedent(
+            """
+            def report_for(stage, data):
+                if data.get("report_repair"):
+                    witness = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("feedback-interpretation-repair-error.txt")
+                    if not witness.exists():
+                        witness.write_text(str(data.get("error")))
+                report = base_report_for(stage, data)
+                feedback = [row for row in data.get("brief_feedback") or [] if row.get("text") == CORRECTIVE]
+                if not feedback:
+                    return report
+                event_id = feedback[-1]["id"]
+                if stage == "astra_challenge":
+                    report.update(summary="Correct the invented waiver and cover list preservation", concerns=[
+                        {"id": "B1", "concern": "The model inferred a proof waiver the feedback never grants",
+                         "evidence_refs": ["goal_contract", "feedback:" + event_id],
+                         "requested_change": "Correct only the model interpretation; fresh runner proof remains required",
+                         "acceptance_test": CHECK, "blocking": True},
+                        {"id": "B2", "concern": "The list-preservation behavior needs an explicit criterion",
+                         "evidence_refs": ["task"], "requested_change": "Add C2 covering the saved list and IDs",
+                         "acceptance_test": CHECK, "blocking": True}])
+                if stage in ("astra_discovery", "glm_revise"):
+                    body = report["contract"]
+                    body["accepted_assumptions"].append({
+                        "text": INVENTED if stage == "astra_discovery" else CORRECTED,
+                        "basis": "user_feedback", "answer_id": event_id})
+                    if stage == "glm_revise":
+                        # The correction changes no approved identity, proof selector, permission or source.
+                        body["acceptance_criteria"].append({
+                            "id": "C2", "criterion": "Given two saved to-dos, listing preserves both items and their IDs",
+                            "verification_method": CHECK, "human_review": False,
+                            "sources": body["acceptance_criteria"][0]["sources"]})
+                        body["milestones"][0]["acceptance_criteria"].append("C2")
+                        body["initial_task"]["acceptance_criteria"].append("C2")
+                if stage == "astra_finalize" and any(
+                    row.get("id") == "C2"
+                    for row in ((data.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria", [])
+                ):
+                    report["contract"]["initial_task"]["acceptance_criteria"].append("C2")
+                return report
+
+            """
+        )
+        amendment = f"CORRECTIVE = {feedback!r}\nINVENTED = {invented!r}\nCORRECTED = {corrected!r}\n" + amendment
+        provider.write_text(
+            script.replace(
+                "def report_for(stage: str, data: dict) -> dict:\n",
+                "def base_report_for(stage: str, data: dict) -> dict:\n",
+            ).replace("def _main() -> int:\n", amendment + "def _main() -> int:\n")
+        )
+        # The follow-up adds the newly requested coverage, so its Builder has a real source change.
+        # Keep the original turn's reference untouched and reuse its implementation and three tests.
+        second_solution = self.root / "follow-up-reference"
+        shutil.copytree(self.scenario.dir / "reference", second_solution)
+        tests = second_solution / "test_todo.py"
+        test_marker = "    def test_unknown_id_leaves_store_identical(self):\n"
+        self.assertEqual(1, tests.read_text().count(test_marker))
+        tests.write_text(
+            tests.read_text().replace(
+                test_marker,
+                "    def test_list_preserves_saved_items_and_ids(self):\n"
+                "        self.todo('add', 'first')\n"
+                "        self.todo('add', 'second')\n"
+                "        before = self.store.read_bytes()\n"
+                "        self.assertEqual('1 first [open]\\n2 second [open]\\n', self.todo('list').stdout)\n"
+                "        self.assertEqual(before, self.store.read_bytes())\n\n" + test_marker,
+            )
+        )
+        config = self.root / "fake-config.json"
+        fixture = json.loads(config.read_text())
+        fixture["reference"] = str(second_solution)
+        config.write_text(json.dumps(fixture))
+        run.follow_up(feedback)
+        view = run.advance_until_input()
+        repair_error = self.root / "feedback-interpretation-repair-error.txt"
+        self.assertFalse(repair_error.exists(), repair_error.read_text() if repair_error.exists() else "")
+        self.assertEqual("approve_plan", view["needs"]["kind"], self.details(view))
+        attempts = view["usage"]["accounting"]["attempts"][before:]
+        self.assertFalse(any(row.get("report_only") for row in attempts), attempts)
+        self.assertEqual(
+            ["astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"],
+            [row["stage"] for row in attempts if row["stage"] != "requirements_gather"],
+        )
+        self.assertFalse(any(row["stage"] == "terra" for row in attempts))
+        with self.assertRaises(taskrun.TaskRunError):
+            run.approve_plan("r0:not-the-plan-that-was-shown")
+        self.assertEqual("approve_plan", run.status()["needs"]["kind"])
+        run.approve_plan(view["needs"]["token"])
+        complete = self.drive(run)
+        self.assert_reference(run, complete)
+        body = complete["approved_contract"]["body"]
+        self.assertIn(corrected, [row["text"] for row in body["accepted_assumptions"]])
+        self.assertNotIn(invented, [row["text"] for row in body["accepted_assumptions"]])
+        self.assertEqual(["C1", "C2"], [row["id"] for row in body["acceptance_criteria"]])
+        self.assertEqual(2, len(complete["approvals"]))
 
     def test_period_separated_commands_complete_without_a_phantom_add_observation(self):
         self.assertIn("exits 0. `todo.py list`", self.scenario.brief)

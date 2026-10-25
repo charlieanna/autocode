@@ -5,6 +5,7 @@ Pure functions over contract bodies and user events. No runner imports or writes
 
 from __future__ import annotations
 
+import copy
 import re
 from typing import TYPE_CHECKING
 
@@ -12,6 +13,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_assumption_provenance as assumption_provenance
     from . import autocode_contract_delta as delta
     from . import autocode_draft_examples as examples
     from . import autocode_protected_text as protected
@@ -20,6 +22,7 @@ try:
     from . import autocode_rewording_question as rewording
     from . import autocode_test_cases as test_cases
 except ImportError:
+    import autocode_assumption_provenance as assumption_provenance
     import autocode_contract_delta as delta
     import autocode_draft_examples as examples
     import autocode_protected_text as protected
@@ -173,6 +176,34 @@ def saved_user_basis(state: RunState, basis, answer_id):
             for event in state.get("brief_feedback", [])
         )
     return False
+
+
+def feedback_interpretations(state: RunState):
+    return assumption_provenance.feedback_interpretations(
+        state, model_origins=PLANNER_ORIGINS, saved_user_basis=saved_user_basis
+    )
+
+
+def feedback_interpretation_context(state: RunState):
+    return assumption_provenance.context(feedback_interpretations(state))
+
+
+def protected_contract_snapshot(state: RunState):
+    """Exact protected fields for a report repair, including saved assumption provenance."""
+    body = (state.get("goal_contract") or {}).get("body") or {}
+    snapshot = {
+        key: copy.deepcopy(body.get(key)) for key in (*PROTECTED_LISTS, "acceptance_criteria", "permission_boundaries")
+    }
+    editable = {row["text"] for row in feedback_interpretations(state)}
+    for key in ("accepted_assumptions", "delegated_decisions"):
+        rows = [
+            row
+            for row in body.get(key) or []
+            if row.get("basis") in PERSON_TEXT_BASES and row.get("text") not in editable
+        ]
+        if rows:
+            snapshot[key] = copy.deepcopy(rows)
+    return snapshot
 
 
 def canonical_items(previous: dict, changes: list) -> list:
@@ -430,6 +461,7 @@ def revision_guard(state: RunState, body, changes, origin):
         or revision.get("origin") == "user_cli_edit"
     ]
     protected_history = bool(protected_revisions)
+    interpretation_corrections = assumption_provenance.corrections(feedback_interpretations(state), body)
     if (
         origin in ("glm_draft", "astra_discovery")
         and previous_contract.get("approval_status") != "approved"
@@ -475,6 +507,12 @@ def revision_guard(state: RunState, body, changes, origin):
         if delta.engineering_delta(raw, previous, body, proof_corrections, PROTECTED_LISTS):
             continue
         if raw.get("item") in example_corrections:
+            continue
+        if (
+            raw.get("item") in interpretation_corrections
+            and raw.get("basis") == "agent_proposed"
+            and not raw.get("answer_id")
+        ):
             continue
         protected_changes.append(raw)
     _reject_unchanged_rewordings(previous, body, protected_changes)
@@ -638,6 +676,8 @@ def revision_guard(state: RunState, body, changes, origin):
     # and are recognized as an engineering delta above.
     added = [text for text in decision_rows(body) if text not in decision_rows(previous)]
     for text in user_backed_assumptions(previous):
+        if text in interpretation_corrections:
+            continue
         if text in kept:
             continue
         kind = "reworded" if any(row["change"] == "reworded" for row in declared.get(text, [])) else "removed"
