@@ -526,7 +526,11 @@ first switches the role on its own. It takes the next qualified model on an acco
 run already uses, keeps every checker independent of its producer, and prints a line such
 as `Builder: MODEL stopped (PAUSED_BUDGET); switched to NEW_MODEL on ACCOUNT without asking`.
 The switch sets the stopped attempt aside the same way an answer does, is recorded as a
-`route_assignment` whose actor is `runner`, and counts as an automatic recovery. AutoCode
+`route_assignment` whose actor is `runner`, and counts as an automatic recovery. When the new
+model bills another way than the stopped one (a subscription route replaced by a pay-per-token
+one, by the billing discovery recorded), the record carries `billing: {from, to}`, which the
+status view's `route_assignments` shows, and the line ends `; it bills pay per token where
+MODEL was subscription` (#2061). AutoCode
 asks instead when no such model remains, when you pinned the role's model with a flag,
 when a pause was requested, and for native runs and workflow jobs. The same switch applies
 to content-filter and output-limit stops.

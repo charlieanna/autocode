@@ -40,6 +40,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A quota switch that moves a role onto another way of paying now says so (#2061). When an automatically
+  selected run's stopped model is replaced by one the permitted set says bills differently (a subscription
+  route replaced by a pay-per-token one), its `route_assignment` record carries `billing: {from, to}`,
+  shown in the status view's `route_assignments`, and the printed switch line ends
+  `; it bills pay per token where MODEL was subscription`. Before, the line named only the new account.
 - Automatic model selection now runs only on an OpenCode version the provider conformance matrix
   qualifies (`tools/provider-matrix.json`: `known-good` or `accepted-for-ordinary-runs`, #2060). On a
   version with no such row, a new run prints why and keeps the fixed default routes, and an explicit

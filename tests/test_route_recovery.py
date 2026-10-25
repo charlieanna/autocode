@@ -97,6 +97,32 @@ class RouteRecoveryTests(unittest.TestCase):
         self.assertEqual(MIMO, record["to"])
         self.assertEqual("quota_assigned", state["settings"]["route_selection"]["routes"]["terra"]["origin"])
 
+    def test_a_switch_onto_another_way_of_paying_is_recorded_and_said(self):
+        # #2061: the permitted set says MiMo bills per token here, so the switch from the Sol
+        # subscription says so in its route record and its printed line.
+        state = self.state()
+        for candidates in state["settings"]["route_selection"]["candidates"].values():
+            for candidate in candidates:
+                if candidate["model"] == MIMO:
+                    candidate["billing"] = "pay per token"
+        with mock.patch("builtins.print") as printed:
+            self.assertTrue(
+                route_recovery.recover(
+                    self.runtime, state, self.root, self.root, support.Paused("PAUSED_BUDGET", "quota")
+                )
+            )
+        (record,) = [row for row in state["user_events"] if row["kind"] == "route_assignment"]
+        self.assertEqual({"from": "subscription", "to": "pay per token"}, record["billing"])
+        self.assertIn(f"it bills pay per token where {SOL} was subscription", printed.call_args.args[0])
+
+    def test_a_switch_on_the_same_way_of_paying_adds_no_billing_note(self):
+        state = self.state()
+        self.assertTrue(
+            route_recovery.recover(self.runtime, state, self.root, self.root, support.Paused("PAUSED_BUDGET", "quota"))
+        )
+        (record,) = [row for row in state["user_events"] if row["kind"] == "route_assignment"]
+        self.assertNotIn("billing", record)
+
     def test_replacement_checks_actual_routes_after_catalogue_substitution(self):
         state = self.state()
         # The saved selection still names GLM as Tester, but the actual Tester now uses
