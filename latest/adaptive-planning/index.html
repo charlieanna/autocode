@@ -670,6 +670,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#compact-planning-for-bug-fixes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compact planning for bug fixes
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1885,6 +1896,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#compact-planning-for-bug-fixes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compact planning for bug fixes
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1964,7 +1986,10 @@ Builder task). In the fixed sequence only the final review writes one.</p>
   request the Job recognizer judged <code>clear</code> went straight to the Planner; that skip
   is gone. While it names the job, Requirements also judges clarity by the
   recognizer's rule. Clarity then skips nothing; it keeps a small clear brief on one
-  review allowance at the reduced Plan Reviewer effort (#1564). A build named with
+  review allowance at the reduced Plan Reviewer effort (#1564), one rung below the configured
+  one and fitted to the variants the reviewer's model declares (GLM 5.3 declares <code>low</code>, <code>high</code>
+  and <code>max</code>, so a step from <code>high</code> lands on <code>high</code>, not <code>medium</code>; the move is recorded in
+  <code>effort_fits</code>, #2020). A build named with
   <code>--workflow build</code> still runs Requirements, and nobody judges its clarity.</li>
 <li>The setting applies only to new runs. A saved run keeps the planning flow it
   was started with: resuming with <code>--adaptive-planning</code> a run that lacks it, or
@@ -2263,6 +2288,38 @@ the pipeline.</p>
 <li>Planning restarts after a deferred approval are unbounded
   (<code>docs/bugs/2026-09-30-unbounded-planning-restart.md</code>).</li>
 </ul>
+<h2 id="compact-planning-for-bug-fixes">Compact planning for bug fixes<a class="headerlink" href="#compact-planning-for-bug-fixes" title="Permanent link">&para;</a></h2>
+<p><code>--compact-bugfix-planning</code> (new runs only; off by default) lets a reproduced, localized bug
+skip one paid planning call. On the ordinary bug-fix path Requirements runs, the Investigator
+reproduces the bug (<code>investigate_bug</code>), the Planner writes the plan draft (<code>astra_discovery</code>), the
+Plan Reviewer reviews it and you approve the displayed plan. On the compact path the runner
+writes that draft itself, deterministically, from two records it already holds: the
+Investigator's diagnosis (its root cause, invariant, regression cases, affected and test paths)
+and the Requirements record (every requirement row becomes a required behaviour, and the
+requirement trace is checked as a Planner's would be). The Plan Reviewer reviews the runner's
+draft exactly as it reviews a Planner's; a clean review goes to your exact-token approval, as an
+adaptive run's early approval does, and a blocking concern returns the run to the full path, where
+the Planner drafts with the review in its packet; the compact draft's review call is refunded, so the
+full path keeps the plan-review allowance it would have had. The draft is never approved by a policy.
+Everything after approval is unchanged: acceptance tests when configured, the Builder, the
+regression proof (each restore case fails on the original code and passes after the fix), the
+Tester and a separate Completion Reviewer.</p>
+<p>The path is taken only when every trusted signal admits it; a model's word can keep the full
+path but never grant the compact one:</p>
+<ul>
+<li>the run opted in and plans adaptively, with joint planning;</li>
+<li>Requirements named the bug-fix job (a pinned <code>--workflow bugfix</code> has no Requirements record);</li>
+<li>the Investigator reproduced the bug with a probe the runner ran, sized the fix <code>small</code>, and named
+  a root cause, an invariant and at least one regression case;</li>
+<li>the fix touches at most four files (affected and test paths together), and none of them, nor the
+  diagnosis note, matches the project's declared <code>sensitive-paths</code>
+  (<a href="../cli/#project-settings">project settings</a>); a project that declares none keeps the full path;</li>
+<li>the contract validators accept the runner's draft; a refused draft keeps the full path, with the
+  refusal recorded.</li>
+</ul>
+<p>The decision, its reasons and the hashes it rests on are recorded once per job and shown by the
+status view as <code>stage_policy</code> (<a href="../task-run/#status-view">task-run interface</a>). Existing runs keep
+their saved behaviour; a saved run refuses a changed flag.</p>
 
 
 

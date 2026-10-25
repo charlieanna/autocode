@@ -2538,7 +2538,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/76377546fa7a1e56df6e14b2d7807b1f86bd4cfb/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/e95dc550bd933989355180a78305ddeac5fd55ae/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2894,17 +2894,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and once the work is
   committed and merged it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/76377546fa7a1e56df6e14b2d7807b1f86bd4cfb/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/e95dc550bd933989355180a78305ddeac5fd55ae/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/76377546fa7a1e56df6e14b2d7807b1f86bd4cfb/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/e95dc550bd933989355180a78305ddeac5fd55ae/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/76377546fa7a1e56df6e14b2d7807b1f86bd4cfb/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/e95dc550bd933989355180a78305ddeac5fd55ae/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -3181,7 +3181,7 @@ plan and review approval the harness gave a run must also be listed among that r
 and so must each budget pause the scenario's person acknowledged, as the resume that names it.
 In a components scenario each such gate names the task run it was given to, so an
 approval listed only in another component's run fails
-(<a href="https://github.com/charlieanna/autocode/blob/76377546fa7a1e56df6e14b2d7807b1f86bd4cfb/scenarios/README.md">scenarios/README.md</a>).</p>
+(<a href="https://github.com/charlieanna/autocode/blob/e95dc550bd933989355180a78305ddeac5fd55ae/scenarios/README.md">scenarios/README.md</a>).</p>
 <h4 id="required-approver">Required approver<a class="headerlink" href="#required-approver" title="Permanent link">&para;</a></h4>
 <p>A team that wants only named people to approve can list their Git email addresses as
 <code>require-approver</code> in its <a href="../cli/#project-settings">project settings</a>:</p>
@@ -3362,29 +3362,38 @@ caps what a run may spend, in USD. A run has no cap unless you set one, and <cod
 <li><strong>When it pauses.</strong> The cap is checked at every stage boundary, right after the active-time limit,
   before anything launches. Once the spend reaches the cap the run stops with <code>PAUSED_COST_LIMIT</code>, in
   the <em>your decision</em> category, and AutoResolver publishes the usual operational request naming the
-  spend and the cap. Stages already running finish first, so a run can end above its cap by up to one
-  stage, or by one parallel batch: workers are charged when the parent accounts their batch.</li>
+  spend and the cap. Stages already running finish first, so a run can end above its cap by a stage it
+  could not price (below), or by one parallel batch: workers are charged when the parent accounts their batch.</li>
+<li><strong>Before an attempt the run can price.</strong> Every attempt of a job that already ran in this run is priced
+  before it launches: the job's last attempt's recorded tokens at the saved route's rate. If the spend so far
+  plus that projection would pass the cap, the run stops with <code>PAUSED_COST_LIMIT</code> before the attempt starts,
+  and the stop names the job, its model and effort, the tokens behind the projection and the attempt they came
+  from, the spend, the total and the cap to resume with, for example <code>The next Builder attempt (gpt-6-sol at
+  high effort) did not launch: projected at $0.42, the last Builder attempt's 61,200 input and 9,800 output
+  tokens at gpt-6-sol's price, it would take the spend from $4.80 to $5.22, past the $5.00 cost cap ... resume
+  with --max-cost-usd 5.22 or more</code>. So a run under a cap never launches a stage it can price past the cap: before
+  it, the ledger could go from $1.81 to $2.96 inside one stage under a $2.00 cap, and only then pause. A job's
+  first attempt has no projection, nor does an attempt whose job's last attempt recorded no token counts or whose
+  model has no rate: those launch, and the stage-boundary check governs them. The projection is an estimate,
+  not a bound: the next attempt can use more or fewer tokens than the one it follows.</li>
 <li><strong>Before an attempt on a stronger route.</strong> Two kinds of climb move a struggling role to a stronger route: a
   milestone's Builder escalating to its stronger model (see <a href="../models/#builder-retry-policy">Builder retry policy</a>),
   and a role climbing one rung of its effort ladder after it struggled, such as the Tester going from GPT-6 Sol
-  High to XHigh (see <a href="../models/#default-models">Models</a>). The first attempt on the stronger route is priced
-  before it launches: the role's last attempt's recorded tokens at the stronger route's rate. If the spend so
-  far plus that projection would pass the cap, the run stops with <code>PAUSED_COST_LIMIT</code> before the attempt
-  starts, and the stop names the job, the rung or model and effort, the tokens behind the projection, the
-  spend, the total and the cap to resume with, for example <code>The Tester's climb to GPT-6 Sol Max (gpt-6-sol at
-  max effort) did not launch: projected at $0.42, ... it would take the spend from $4.80 to $5.22, past the
-  $5.00 cost cap ... resume with --max-cost-usd 5.22 or more</code>. The projection is an estimate, not a bound:
-  a higher effort can use more tokens than the attempt it follows, and an effort climb on the same model is
-  priced like one more attempt on that model. Without a cap, a rate for the stronger model or token counts for
-  the last attempt there is no projection and nothing pauses here; once the stronger attempt has launched, the
-  stage-boundary check governs it. A parallel Builder sees only its own spend, so this check runs in the
-  serial run only; a parallel batch whose Builders would start on a climbed Builder route is not priced
-  before it launches, and the stage-boundary check governs it. The same attempt is also checked against an
-  active-time budget you set, after this check (<a href="#timeouts-and-watchdog">Timeouts and watchdog</a>).</li>
+  High to XHigh (see <a href="../models/#default-models">Models</a>). The first attempt on the stronger route is priced the
+  same way, at the stronger route's rate, and its stop names the rung: <code>The Tester's climb to GPT-6 Sol Max
+  (gpt-6-sol at max effort) did not launch: projected at $0.42, ... it would take the spend from $4.80 to $5.22,
+  past the $5.00 cost cap ... resume with --max-cost-usd 5.22 or more</code>. A higher effort can use more tokens
+  than the attempt it follows, and an effort climb on the same model is priced like one more attempt on that
+  model. Once the stronger attempt has launched, the stage-boundary check governs it. A parallel Builder sees
+  only its own spend, so both checks run in the serial run only; a parallel batch whose Builders would start on
+  a climbed Builder route is not priced before it launches, and the stage-boundary check governs it. A climbed
+  attempt is also checked against an active-time budget you set, after the cost check (<a href="#timeouts-and-watchdog">Timeouts and
+  watchdog</a>); an ordinary next attempt is not, and the stage-boundary check governs
+  its time.</li>
 <li><strong>How it continues.</strong> Only you decide: <code>autocode resume --max-cost-usd M</code> (or <code>--resume-paused
-  --max-cost-usd M</code>) with <code>M</code> above the spend, or <code>0</code> for no cap. After a stop before an attempt on a
-  stronger route, <code>M</code> must be at least the cap that stop names, or the run pauses again before the attempt.
-  The climb itself stays saved, so raising the cap lets that same attempt launch.
+  --max-cost-usd M</code>) with <code>M</code> above the spend, or <code>0</code> for no cap. After a stop before a priced attempt, <code>M</code>
+  must be at least the cap that stop names, or the run pauses again before the attempt. The route, and a
+  climb, stay saved, so raising the cap lets that same attempt launch.
   Restating a saved cap that is still above the spend acknowledges it too; restating an exhausted
   cap, a plain resume, information alone or any other setting does not, and the run stays paused.
   AutoCode never raises this cap itself: it is not a runner default, <code>--autoresolver-managed-limits</code>

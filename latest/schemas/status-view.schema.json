@@ -26,7 +26,7 @@
         "prompts_hash", "interaction_timing", "replay_source", "replay_progress", "replay_result",
         "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
         "provider", "route_assignments", "information_review", "tool_containment", "job_report_recovery",
-        "efficiency", "conversation", "chat", "workspace", "run_dir", "planning_depth", "pause", "package",
+        "efficiency", "conversation", "chat", "workspace", "run_dir", "planning_depth", "stage_policy", "pause", "package",
         "tool_containment_backend", "changes_by_criterion", "dev_server", "execution", "observation", "attention"
       ],
       "properties": {
@@ -258,6 +258,7 @@
         "workspace": {"type": ["string", "null"], "description": "The run's effective workspace; after bootstrap relocation it can differ from the handle a client started with."},
         "run_dir": {"type": ["string", "null"], "description": "The run's effective run directory, compared with a named command's run before it is taken."},
         "planning_depth": {"type": "object", "description": "How much planning the run chose and why (docs/adaptive-planning.md); documented in docs/task-run.md."},
+        "stage_policy": {"type": ["object", "null"], "description": "Which planning path a bug-fix run took and why (docs/adaptive-planning.md#compact-planning-for-bug-fixes): path, reasons, basis, decisions and fallback; null when the run never decided. Documented in docs/task-run.md."},
         "pause": {"type": ["object", "null"], "description": "The boundary pause a working run offers: label, effect, requested and next_command. Null when nothing is working.",
           "properties": {"label": {"type": "string"}, "effect": {"type": "string"}, "requested": {"type": "boolean"}, "next_command": {"type": ["array", "null"], "items": {"type": "string"}}}},
         "package": {"type": ["string", "null"], "description": "The repository directory a run started with --package works in; null for a run of the whole repository."},
