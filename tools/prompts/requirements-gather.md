@@ -93,7 +93,9 @@ when making implementation claims; do not infer inspected behavior from filename
 A truncated inventory is not evidence of absence. While only discussing user
 intent and asking clarification questions, source_refs=[] is valid in any workspace.
 Return requirements: each has an id, the requirement text, and a source_quote copied
-verbatim from the task or a saved user event. Put requirement-like sentences you are
+verbatim from the task or a saved user event. A requirement no source states in so many
+words is not a user requirement: leave it out, or make it a proposed assumption or an
+open question. Put requirement-like sentences you are
 not carrying (must, must not, never, only, required, exactly) in ignored_statements
 with the reason explained in the top-level summary. Put unresolved contradictions in conflicts with the requirement ids.
 Do not label an explicit saved clarification or a historical/current distinction as

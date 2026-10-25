@@ -308,6 +308,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Requirements report that copies a coverage-checklist sentence exactly, as its prompt says, is no longer
+  refused as citing text the brief does not hold. The checklist adds a period to a Markdown heading and
+  shows a hard-wrapped sentence's line break, which models write as a space; the quote check now maps such a
+  quote back to the brief's own characters and saves that text. A quote no source holds is still refused,
+  but the refusal now names every such requirement at once, shows the closest sentence in the brief, and
+  says to copy it exactly or remove the requirement. Before, each repair repeated the same quote and the
+  run paused as invalid output again on every resume.
 - Every place that judges whether one model may check another's work now uses the one family rule in
   `autocode_model_identity`. The Plan Reviewer stream fallback, the run scorer's independence check, the
   model catalogue's suggestions and the stuck-job Investigator's route each kept an older copy that grouped

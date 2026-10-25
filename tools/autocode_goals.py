@@ -40,6 +40,7 @@ try:
     from . import autocode_human_review_artifact as human_review_artifact
     from . import autocode_human_review_flow as human_review_flow
     from . import autocode_operational_change as operational_change
+    from . import autocode_requirement_quotes as requirement_quotes
     from . import autocode_run_status as run_status
     from . import autocode_source_log as source_log
     from . import autocode_util as s
@@ -63,6 +64,7 @@ except ImportError:
     import autocode_human_review_artifact as human_review_artifact
     import autocode_human_review_flow as human_review_flow
     import autocode_operational_change as operational_change
+    import autocode_requirement_quotes as requirement_quotes
     import autocode_run_status as run_status
     import autocode_source_log as source_log
     import autocode_util as s
@@ -371,23 +373,23 @@ def check_requirement_handoff(state: RunState, report):
     requirements = report.get("requirements", [])
     if not isinstance(requirements, list):
         raise ValueError("requirements must be an array")
-    seen, quotes, quote_by_id = set(), [], {}
+    seen, quotes, quote_by_id, unsupported = set(), [], {}, []
     for row in requirements:
         if not isinstance(row, dict) or not str(row.get("id", "")).strip() or not str(row.get("text", "")).strip():
             raise ValueError("Each requirement needs an id, text and source_quote")
         if row["id"] in seen:
             raise ValueError(f"Duplicate requirement id {row['id']}")
         seen.add(row["id"])
-        quote = str(row.get("source_quote", "")).strip()
-        if not quote or not any(quote in text for text in sources):
-            raise ValueError(
-                f"Requirement {row['id']} source_quote is not in the task or a saved user event. "
-                "If this text came from the current Builder task or approved contract, "
-                "keep that existing obligation there instead of adding a new requirement; "
-                "cite only verbatim task/user-event text for genuinely new requirements"
-            )
+        quote = requirement_quotes.ground(row.get("source_quote", ""), sources)
+        if quote is None:
+            unsupported.append(row)
+            continue
+        row["source_quote"] = quote  # the source's own text, even where the report copied the checklist's
         quotes.append(quote)
         quote_by_id[row["id"]] = quote
+    if unsupported:
+        inherited = bool(state.get("current_task") or state.get("goal_contract"))
+        raise ValueError(requirement_quotes.unsupported(unsupported, sources, inherited=inherited))
     ignored = report.get("ignored_statements", [])
     if not isinstance(ignored, list):
         raise ValueError("ignored_statements must be an array")
