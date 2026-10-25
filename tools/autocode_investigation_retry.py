@@ -1,6 +1,6 @@
 """Unverified artifact leads for an explicitly authorized Investigator retry.
 
-This projection reads metadata only. It grants no retry or evidence authority;
+This projection reads metadata and the saved event file's tail (what the attempt read and ran). It grants no retry or evidence authority;
 source/configuration admission and reproduction probes remain with their owners.
 """
 
@@ -8,6 +8,11 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+try:
+    from . import autocode_investigation_progress as progress
+except ImportError:
+    import autocode_investigation_progress as progress
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -39,6 +44,7 @@ def context(state: RunState) -> dict | None:
         or Path(events).stem != attempt.rsplit("/", 1)[-1]
     ):
         return None
+    explored = progress.summarize(progress.tail_rows(events), state.get("workspace"))
     return {
         "attempt_id": attempt,
         "source_identity": failure["source_identity"],
@@ -46,4 +52,7 @@ def context(state: RunState) -> dict | None:
         "previous_prompt": str(Path(events).with_suffix(".prompt.md")),
         "previous_events": events,
         "evidence_status": "unverified_leads_only",
+        # What the stopped attempt read and ran, from its saved events: leads to skip, not findings.
+        "stop_kind": recovery.get("timeout_kind"),
+        **explored,
     }
