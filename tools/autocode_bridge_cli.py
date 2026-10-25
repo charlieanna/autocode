@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import fcntl
 import json
 import os
 import sys
@@ -28,6 +27,7 @@ try:
     from . import autocode_bridge_worker as worker
     from . import autocode_github as github
     from . import autocode_issue as issue_tool
+    from . import autocode_util as util
     from .autocode_taskrun import TaskRunError
 except ImportError:
     import autocode_bridge_github as bridge_github
@@ -36,6 +36,7 @@ except ImportError:
     import autocode_bridge_worker as worker
     import autocode_github as github
     import autocode_issue as issue_tool
+    import autocode_util as util
     from autocode_taskrun import TaskRunError
 
 POLL_SECONDS = 10.0
@@ -309,7 +310,7 @@ class Bridge:
         # The lock file stays open (and the lock held) for the daemon's whole life.
         with open(store.root() / "bridge.lock", "a+") as lock:
             try:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                util.lock_file(lock)
             except OSError:
                 raise ConfigError("another bridge daemon already holds " + str(store.root() / "bridge.lock")) from None
             while True:

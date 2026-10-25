@@ -297,6 +297,13 @@ class BridgeTests(unittest.TestCase):
         bridge.tick()
         self.assertEqual(1, sum(1 for body in self.bodies() if "could not start" in body))  # posted once
 
+    def test_a_second_daemon_is_refused_while_the_lock_is_held(self):
+        bridge = self.bridge(FakeRun())
+        with open(store.root() / "bridge.lock", "a+") as lock:
+            bridge_cli.util.lock_file(lock)
+            with self.assertRaisesRegex(bridge_cli.ConfigError, "another bridge daemon already holds"):
+                bridge.run(once=True)
+
     def test_config_comes_from_the_environment_and_names_what_is_missing(self):
 
         with self.assertRaises(bridge_cli.ConfigError):

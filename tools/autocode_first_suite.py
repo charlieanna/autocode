@@ -102,6 +102,21 @@ def data_file(path) -> bool:
     return PurePosixPath(str(path)).suffix.lower() in DATA_SUFFIXES
 
 
+DESIGN_DIRECTORY = PurePosixPath("docs", "design")
+PROSE_DOCUMENT_SUFFIXES = (".rst", ".adoc")
+
+
+def non_markdown_design_document(path) -> bool:
+    """A prose document in the design workflow's directory, in a format it never writes.
+
+    The approved-design build accepts its own Markdown document as a base with no
+    behavior. Another prose format there is a document, not data the deliverable
+    reads, so it may not make the base document-only (#2069).
+    """
+    name = PurePosixPath(str(path))
+    return name.suffix.lower() in PROSE_DOCUMENT_SUFFIXES and name.parent == DESIGN_DIRECTORY
+
+
 def manifest(path) -> bool:
     """A project, dependency or license manifest: data, not source the suite runs."""
     name = PurePosixPath(str(path)).name
@@ -121,7 +136,9 @@ def inert_base_file(path, size, *, separate, source) -> bool:
     (data_file), but only when no nonempty file in the base is code or a test
     path: a first project's manifest holds no behavior to preserve (#1783), and
     neither does the data its deliverable will read (#2036); a base that holds
-    source still needs passing-test evidence.
+    source still needs passing-test evidence. A non-Markdown prose document in
+    the design workflow's directory is not one of those data files: the workflow
+    writes Markdown, so another format there is not the approved design (#2069).
     """
     if path == "README.md":
         return True
@@ -132,7 +149,7 @@ def inert_base_file(path, size, *, separate, source) -> bool:
         name.name == ".gitignore"
         or name.suffix == ".md"
         or size == 0
-        or (not source and (manifest(path) or data_file(path)))
+        or (not source and (manifest(path) or (data_file(path) and not non_markdown_design_document(path))))
     )
 
 
