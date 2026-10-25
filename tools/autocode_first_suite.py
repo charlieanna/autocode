@@ -75,6 +75,33 @@ MANIFESTS = frozenset(
 MANIFEST_SUFFIXES = (".csproj", ".fsproj", ".vbproj", ".sln")
 
 
+# Plain text and data a deliverable reads: nothing runs it. A greenfield chat task commonly ships its own
+# input beside the README (a word-frequency CLI and its sample.txt, #2036). Formats with an executable
+# form (.sh, .py, templates) are not here; a data file counts only in a base with no code or test file.
+DATA_SUFFIXES = (
+    ".txt",
+    ".text",
+    ".csv",
+    ".tsv",
+    ".json",
+    ".jsonl",
+    ".ndjson",
+    ".yaml",
+    ".yml",
+    ".xml",
+    ".ini",
+    ".dat",
+    ".log",
+    ".rst",
+    ".adoc",
+)
+
+
+def data_file(path) -> bool:
+    """A plain text or data file by its suffix: read by a program, never run by one."""
+    return PurePosixPath(str(path)).suffix.lower() in DATA_SUFFIXES
+
+
 def manifest(path) -> bool:
     """A project, dependency or license manifest: data, not source the suite runs."""
     name = PurePosixPath(str(path)).name
@@ -90,16 +117,23 @@ def inert_base_file(path, size, *, separate, source) -> bool:
 
     README.md is always accepted. In a separate checkout (the candidate cannot
     have hidden ignored code) a .gitignore, a Markdown document and an empty
-    file are accepted. So is a manifest, but only when no nonempty file in the
-    base is code or a test path: a first project's manifest holds no behavior
-    to preserve (#1783).
+    file are accepted. So are a manifest and a plain text or data file
+    (data_file), but only when no nonempty file in the base is code or a test
+    path: a first project's manifest holds no behavior to preserve (#1783), and
+    neither does the data its deliverable will read (#2036); a base that holds
+    source still needs passing-test evidence.
     """
     if path == "README.md":
         return True
     if not separate:
         return False
     name = PurePosixPath(str(path))
-    return name.name == ".gitignore" or name.suffix == ".md" or size == 0 or (not source and manifest(path))
+    return (
+        name.name == ".gitignore"
+        or name.suffix == ".md"
+        or size == 0
+        or (not source and (manifest(path) or data_file(path)))
+    )
 
 
 def absent_base_suite(base_receipt, candidate_receipt, *, document_only):
