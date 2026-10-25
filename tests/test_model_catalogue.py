@@ -155,6 +155,13 @@ class AdviseTest(unittest.TestCase):
         )
         self.assertEqual("openai/gpt-6-luna", advice["suggestions"]["sol"]["model"])
 
+    def test_family_is_the_shared_identity_rule(self):
+        # One rule for every caller (autocode_model_identity): a gateway in front of a model does not
+        # make it another family, and GPT tiers are one family (2026-10-20).
+        self.assertEqual(mc.family("openai/gpt-6-luna"), mc.family("kilo/openai/gpt-6-sol"))
+        self.assertEqual(mc.family("anthropic/claude-sonnet-5.5"), mc.family("kilo/anthropic/claude-opus-5.5"))
+        self.assertNotEqual(mc.family("zai-coding-plan/glm-5.3"), mc.family("openai/gpt-6-sol"))
+
     def test_new_mimo_routes_keep_the_existing_family_independence_rule(self):
         self.assertEqual("mimo", mc.family("mimo-token-plan/mimo-v2.6-pro"))
         self.assertFalse(mc.independent("mimo-token-plan/mimo-v2.6-pro", "opencode/mimo-v2.6-flash-free"))

@@ -62,12 +62,12 @@ except ImportError:
 import copy
 import datetime as dt
 import json
-import re
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_model_identity as model_identity
     from . import autocode_progressive_state as progressive
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
@@ -77,6 +77,7 @@ try:
     from .autocode_investigation_policy import enabled, max_calls
     from .autocode_test_cases import run_probes
 except ImportError:
+    import autocode_model_identity as model_identity
     import autocode_progressive_state as progressive
     import autocode_roles as roles
     import autocode_run_status as run_status
@@ -282,11 +283,10 @@ GATEWAY_PREFIX = "kilo/"
 
 
 def family(model) -> str:
-    """The model family a route belongs to, so the Investigator never judges its own: gpt-6-sol and gpt-6-luna are
-    gpt, zai-coding-plan/glm-5.3 and zhipuai-coding-plan/glm-5.3 are glm, kilo/anthropic/claude-opus-5.5 is claude."""
-    name = str(model or "").rsplit("/", 1)[-1]
-    found = re.match(r"[a-z]+", name.lower())
-    return found.group(0) if found else name
+    """The model family a route belongs to, so the Investigator never judges its own: the one rule in
+    autocode_model_identity (gpt-6-sol and gpt-6-luna are one family, zai-coding-plan/glm-5.3 and
+    zhipuai-coding-plan/glm-5.3 are glm, kilo/anthropic/claude-opus-5.5 is claude)."""
+    return model_identity.family(str(model or ""))
 
 
 def direct_default(roles: dict, stuck_model: str) -> str | None:
