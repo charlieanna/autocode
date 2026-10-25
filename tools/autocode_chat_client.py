@@ -1110,6 +1110,22 @@ class ChatClient:
         answers = {}
         for row in decided:
             answers[row.key] = self.decide(row, view.get("needs") or {})
+        if len(decided) == 1:
+            row = decided[0]
+            options = (row.question or {}).get("options") or []
+            text = answers[row.key]
+            normalized = text.strip()
+            labels = {str(option).strip() for option in options}
+            labels.add(str((row.question or {}).get("proposed_default") or "").strip())
+            conversation = view.get("chat") or {}
+            if (
+                row.kind == "answer"
+                and options
+                and normalized not in labels
+                and not normalized.lstrip("+-").isdigit()
+                and (conversation.get("input") or {}).get("kind") == "feedback"
+            ):
+                return self.send(text, conversation.get("context") or "")
         fresh = self.status()
         if fresh.get("needs") != view.get("needs"):
             self.say("The question changed while you were answering; here is the current one.")
