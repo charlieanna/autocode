@@ -1013,13 +1013,29 @@ def before_review(state: RunState, stage, workspace, run_dir):
     # completion still needs every case, enforced by complete(all_due=True).
     if not required(state):
         return
-    if (
-        stage in ("sol", "astra_checkpoint")
-        or stage == "astra_review"
-        and (state.get("regression_proof") or {}).get("source_revision")
-        != source_scope.snapshot(workspace, state)["revision"]
-    ):
+    if stage in ("sol", "astra_checkpoint") or stage == "astra_review" and _review_needs_proof(state, workspace):
         prove(state, workspace, run_dir)
+
+
+def _review_needs_proof(state: RunState, workspace):
+    """The Completion Owner reuses a proof of this source, except a failure proved only once.
+
+    A failing replay demands REWORK, and on an unchanged source that REWORK can only reach a
+    person: one timing flake in an unrelated test held a finished run (2026-10-25). So a failure
+    is replayed once more for the same source before the review sees it. A second failure stands.
+    """
+    current = source_scope.snapshot(workspace, state)["revision"]
+    saved = state.get("regression_proof") or {}
+    if saved.get("source_revision") != current:
+        return True
+    return saved.get("verdict") == verify.FAIL and (
+        sum(
+            1
+            for row in state.get("regression_proofs") or []
+            if isinstance(row, dict) and row.get("source_revision") == current
+        )
+        < 2
+    )
 
 
 def complete(state: RunState, current_revision, *, all_due=False):
