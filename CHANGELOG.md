@@ -323,6 +323,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- An approval from an earlier turn no longer makes new criterion IDs in the current draft count as
+  approved. The Planner can correct its new examples while retaining their source quotes; criteria
+  actually approved or edited by the person, proof selectors and incomplete legacy history stay
+  protected. The final revised plan still requires approval (#2076).
+
 - Planning, independent plan review and report repair now name the saved repository regression reference.
   A same-chat follow-up does not reset that commit: an existing regression may pass in today's fixed
   workspace and still fail on the original reference. The guidance retains fresh runner proof and

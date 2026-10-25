@@ -125,26 +125,35 @@ def draft_proof_corrections(state: RunState, before: dict, after: dict, reworded
     }
 
 
-def unapproved_rewordings(previous_contract, previous, body, protected_history):
+def unapproved_rewordings(previous_contract, previous, body, protected_revisions):
     """Criterion IDs a planner may reword in a plan nobody has approved yet (#1691).
 
     The Planner's own first draft can be wrong (a live run miscounted the spaces of an expected
-    output), and the next planning step must be able to correct it. While no contract was ever
-    approved or edited by the person, a criterion's wording may change when it still cites every
-    request quote it cited before, so whatever came from the person stays traced; once a contract
-    was approved, every wording change needs the person again.
+    output), and the next planning step must be able to correct it. In the current draft,
+    a criterion's wording may change when it still cites every
+    request quote it cited before. IDs present in approved or user-edited history remain protected;
+    an earlier turn's approval does not approve a new ID in the current draft.
     """
     if (
-        protected_history
-        or previous_contract.get("approval_status") != "draft"
+        previous_contract.get("approval_status") != "draft"
         or previous_contract.get("approval_event")
+        or previous_contract.get("origin") == "user_cli_edit"
     ):
         return set()
+    protected_ids = set()
+    for contract in protected_revisions:
+        historical_body = contract.get("body")
+        rows = historical_body.get("acceptance_criteria") if isinstance(historical_body, dict) else None
+        if not isinstance(rows, list) or any(
+            not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"].strip() for row in rows
+        ):
+            return set()  # Incomplete legacy history cannot establish that an ID is new.
+        protected_ids.update(row["id"] for row in rows)
     old = {row["id"]: row for row in previous.get("acceptance_criteria", []) if isinstance(row, dict) and row.get("id")}
     allowed = set()
     for row in body.get("acceptance_criteria", []):
         before = old.get(row.get("id")) if isinstance(row, dict) else None
-        if not before or before.get("criterion") == row.get("criterion"):
+        if not before or row.get("id") in protected_ids or before.get("criterion") == row.get("criterion"):
             continue
         sources = [source for source in before.get("sources") or [] if isinstance(source, dict)]
         if sources and all(source in (row.get("sources") or []) for source in sources):
@@ -413,12 +422,14 @@ def revision_guard(state: RunState, body, changes, origin):
         and str(event.get("contract_token", "")).startswith(f"r{previous_contract.get('revision')}:")
         for event in state.get("user_events", [])
     )
-    protected_history = any(
-        revision.get("approval_status") == "approved"
+    protected_revisions = [
+        revision
+        for revision in state.get("contract_history", [])
+        if revision.get("approval_status") == "approved"
         or revision.get("approval_event")
         or revision.get("origin") == "user_cli_edit"
-        for revision in state.get("contract_history", [])
-    )
+    ]
+    protected_history = bool(protected_revisions)
     if (
         origin in ("glm_draft", "astra_discovery")
         and previous_contract.get("approval_status") != "approved"
@@ -431,7 +442,7 @@ def revision_guard(state: RunState, body, changes, origin):
     protected.restore_spelling(
         previous, body, {raw.get("item") for raw in changes if isinstance(raw, dict)}, PROTECTED_LISTS
     )
-    reworded = unapproved_rewordings(previous_contract, previous, body, protected_history)
+    reworded = unapproved_rewordings(previous_contract, previous, body, protected_revisions)
     proof_corrections = draft_proof_corrections(state, previous, body, reworded) - {
         raw.get("item")
         for raw in changes
