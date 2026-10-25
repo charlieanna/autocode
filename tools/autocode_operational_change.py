@@ -62,10 +62,24 @@ def _value(settings, path):
     return {"present": key in values, "value": copy.deepcopy(values.get(key))}
 
 
+def carries_effect(request) -> bool:
+    """Whether any option of ``request`` changes runner state; prose alone never does."""
+    return options(request) is not None
+
+
 def bind(state: RunState, request, question):
     """Pin precisely the settings offered by this question before publication."""
     rows = options(request)
     if rows is None:
+        offered = request.get("options") if isinstance(request.get("options"), list) else []
+        if [label for label in offered if isinstance(label, str) and label.strip()]:
+            question["why"] = (
+                str(question.get("why") or "").rstrip()
+                + "\nNone of these choices changes a setting, an approval or an allowance: answering one"
+                " records your decision and re-checks the same source. To change something, revise the goal"
+                " with --feedback TEXT, close a finding you own with --close-finding ID --close-reason TEXT,"
+                " or edit the goal with --edit-goal and re-approve it."
+            )
         return
     paths = {path for row in rows for path in row["changes"]}
     question["operational_settings"] = {path: _value(state.get("settings", {}), path) for path in sorted(paths)}
