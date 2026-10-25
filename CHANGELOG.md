@@ -321,6 +321,12 @@ PR template asks for an entry here; a change without one is incomplete.
   in the day's earlier runs, and the task passed 8/8 with no send-back. A GPT-6 Sol Tester and the fixed default
   routes keep high; `--sol-reasoning-effort` still sets either.
 
+### Added
+
+- A manual-only disposable Linux guest qualification harness for literal reboot and public
+  no-replay evidence. Preparation and pure oracle checks do not claim that #1881 C4 or #1886 S05
+  has passed; actual guest execution remains unverified.
+
 ### Fixed
 
 - At a single option question, the terminal chat sends a typed correction through the core's offered
