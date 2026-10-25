@@ -171,5 +171,24 @@ class DeclaredForTests(unittest.TestCase):
         self.assertIsNone(route_fit.declared_for({}, "m"))
 
 
+class SavedSettingsIdentityTests(unittest.TestCase):
+    """A launch-time fit records how an effort was derived; it never changes which route was approved."""
+
+    def test_a_fit_recorded_after_an_approval_leaves_its_settings_identity_unchanged(self):
+        approved = settings_for(effort="medium")
+        launched = settings_for(effort="medium")
+        route_fit.record(launched, "terra", route_fit.fit(launched, "terra"))
+        self.assertNotEqual(approved, launched, "the launch records its fit")
+        self.assertTrue(route_fit.same(approved, launched))
+        self.assertEqual(route_fit.identity(approved), route_fit.identity(launched))
+        self.assertIn(util.digest(route_fit.identity(approved)), route_fit.digests(launched))
+
+    def test_a_changed_route_is_still_a_different_identity(self):
+        approved = settings_for(effort="medium")
+        changed = settings_for(effort="max")
+        self.assertFalse(route_fit.same(approved, changed))
+        self.assertNotIn(util.digest(approved), route_fit.digests(changed))
+
+
 if __name__ == "__main__":
     unittest.main()

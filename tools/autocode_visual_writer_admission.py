@@ -33,6 +33,7 @@ try:
     from . import autocode_design_inventory as inventory
     from . import autocode_native_locators as native_locators
     from . import autocode_process as processes
+    from . import autocode_route_fit as route_fit
     from . import autocode_source_scope as source_scope
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_tool_containment as containment
@@ -44,6 +45,7 @@ except ImportError:
     import autocode_design_inventory as inventory
     import autocode_native_locators as native_locators
     import autocode_process as processes
+    import autocode_route_fit as route_fit
     import autocode_source_scope as source_scope
     import autocode_source_snapshot as source_snapshot
     import autocode_tool_containment as containment
@@ -866,7 +868,7 @@ class WriterAdmissions:
             and identity["task_sha256"] == util.digest(binding["task"])
             and identity["assignment_source_revision"] == binding["assignment_source"]["revision"]
             and identity["operation_source_revision"] == source["revision"]
-            and identity["settings_sha256"] == util.digest(binding["settings"])
+            and identity["settings_sha256"] in route_fit.digests(binding["settings"])
             and identity["runtime_sha256"] == binding["runtime_sha256"],
             "retry lacks the exact original stopped outcome and existing single dispatch allowance",
         )

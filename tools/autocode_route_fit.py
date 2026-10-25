@@ -150,6 +150,25 @@ def launch(settings: dict, role: str, effort, stage=None, *, model=None):
     return result.effort
 
 
+def identity(settings: dict) -> dict:
+    """The settings an approval, retry or recovery binds: derived effort evidence left out."""
+    return {key: value for key, value in (settings or {}).items() if key not in DERIVED}
+
+
+def same(left, right) -> bool:
+    """Whether two saved settings authorize the same routes, a launch-time fit aside.
+
+    The fit records how an effort was derived, never which route was approved, so a copy
+    captured before a launch still matches the settings after it (#2057).
+    """
+    return left == right or identity(left) == identity(right)
+
+
+def digests(settings: dict) -> tuple:
+    """The digests a captured settings identity may have: with and without derived evidence."""
+    return (util.digest(settings), util.digest(identity(settings)))
+
+
 def reconcile(roles: dict, model: str, declared, *, explicit=()) -> dict:
     """Move every runner-chosen effort the model cannot serve to its nearest declared variant, in place.
 

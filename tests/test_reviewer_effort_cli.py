@@ -16,6 +16,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import autocode_route_fit as route_fit
 import autocode_taskrun as taskrun
 
 SCENARIOS = Path(__file__).resolve().parents[1] / "scenarios"
@@ -101,7 +102,11 @@ class ReviewerEffortCLI(unittest.TestCase):
                 self.assertEqual(unchanged["roles"][role], after["settings"]["roles"][role], role)
         self.assertEqual(unchanged["limits"], after["settings"]["limits"])
         if legacy:
-            self.assertEqual(unchanged, after["settings"], "legacy resume must not infer effort provenance")
+            self.assertEqual(
+                route_fit.identity(unchanged),
+                route_fit.identity(after["settings"]),
+                "legacy resume must not infer effort provenance",
+            )
         else:
             self.assertEqual(
                 "user_explicit" if explicit else "runner_default",
