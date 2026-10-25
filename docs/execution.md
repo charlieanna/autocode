@@ -865,7 +865,11 @@ is the runner default or was set explicitly, and how to change it (`autocode res
 --max-idle-seconds N`). Once the automatic recovery allowance is spent, the new
 limit is saved but no provider launches until `--grant-recovery N` is also given.
 Routes of a model family that reasons in long silent blocks run under a higher default:
-MiMo routes get 900 seconds when the limit is the runner default (`autocode_idle_policy`).
+MiMo routes get 900 seconds when the limit is the runner default (`autocode_idle_policy`), and so
+do the Requirements, Planner and Plan Reviewer launches at 600 seconds: those stages return one
+report and emit nothing before it, and live Planner calls for a large plan took 300 to 340 seconds.
+A MiMo Planner gets 900. A limit you set is used as given, the saved setting is never rewritten,
+and the stop text names the floor that applied.
 Native deltas count when the provider exposes them; wholly silent reasoning intervals
 still use the configured inactivity limit. An explicit `--max-idle-seconds` is always
 used as given, and the saved setting is not rewritten.

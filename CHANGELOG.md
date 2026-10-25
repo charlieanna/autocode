@@ -40,6 +40,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Requirements, Planner and Plan Reviewer launches on the default idle limit (300 s) run under a
+  600-second floor, as MiMo routes already run under 900: those stages return one report and emit
+  nothing before it, and on the 2026-10-20 vague-brief trial every Planner call for a large plan
+  took 300 to 340 s, three were killed at 308 to 310 s and replayed under the same limit, spending
+  every automatic recovery. An explicit `--max-idle-seconds` is used as given, the saved setting is
+  never rewritten, the stage timeout still bounds the call and the stop text names the floor.
 - Planning on a vague brief no longer stalls on the Planner's own text or restarts after its own
   answer (the 2026-10-20 trial needed a person five times and reached no plan). A revision that
   answers the Plan Reviewer's blocking concern may reword or drop a constraint, or replace a
@@ -302,6 +308,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Every place that judges whether one model may check another's work now uses the one family rule in
+  `autocode_model_identity`. The Plan Reviewer stream fallback, the run scorer's independence check, the
+  model catalogue's suggestions and the stuck-job Investigator's route each kept an older copy that grouped
+  only GLM and MiMo, so the fallback could let GPT-6 Sol take over reviewing a plan GPT-6 Luna drafted, or
+  one Claude route check another's build, while `score_autocode_run` still reported the run as independent.
+  All four now agree with dispatch: GPT tiers are one family (2026-10-20), Claude is one family, and a gateway
+  spelling of a model is the same model.
 - Stages on `anthropic/claude-sonnet-5-5`, `anthropic/claude-haiku-4-5` and `xiaomi-token-plan-sgp/mimo-v2.6-flash`
   are now priced (`tools/autocode_prices.json`, as of 2026-10-25). Live runs recorded their tokens with no rate, so
   the run's spend left them out and a `--max-cost-usd` cap could not count them. The two Claude ids take the rates

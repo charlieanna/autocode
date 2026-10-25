@@ -528,7 +528,10 @@ def run_role(
     stage_timeout = limits.get("stage_timeout_seconds")
     idle_timeout = limits.get("idle_timeout_seconds", 300)
     idle_limit, idle_origin = idle_policy.effective(
-        idle_timeout, state["settings"].get("budget_origins", {}).get("idle_timeout_seconds"), model
+        idle_timeout,
+        state["settings"].get("budget_origins", {}).get("idle_timeout_seconds"),
+        model,
+        stage=original_stage,
     )
     tool_timeout = limits.get("tool_timeout_seconds", 1800)
     native_before = (

@@ -141,6 +141,15 @@ class ReviewerFallbackTests(unittest.TestCase):
         self.assertIsNone(self.reserve())
         self.assertEqual(before, self.state)
 
+    def test_one_gpt_tier_never_reviews_another_gpt_tiers_plan(self):
+        # The fallback follows the one family rule (autocode_model_identity): GPT tiers are one family,
+        # so the Tester's Sol may not take over reviewing a plan Luna drafted.
+        self.state["settings"]["roles"]["glm"]["model"] = "openai/gpt-6-luna"
+        self.state["settings"]["roles"]["sol"]["model"] = "openai/gpt-6-sol"
+        before = copy.deepcopy(self.state)
+        self.assertIsNone(self.reserve())
+        self.assertEqual(before, self.state)
+
     def test_unavailable_alternate_denies(self):
         self.state["settings"]["roles"]["sol"]["available"] = False
         self.assertIsNone(self.reserve())
