@@ -337,6 +337,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Inherited Plan Reviewer charges count once when a small plan's review policy activates. Saved false
+  budget pauses offer ordinary Resume when the existing allowance still has room, preserving review
+  limits, reported usage, history and plan approval (#2087). New unapproved model interpretations of
+  feedback also remain correctable without treating them as the person's own words (#2085).
+
 - The manual C4 qualification reports named admission errors before setup and explicitly uses TCG
   for its disposable Linux guest. It retains accelerator/phase timing and never publishes PASS
   before guest cleanup succeeds; literal reboot proof remains pending (#1881, #1886).

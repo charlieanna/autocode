@@ -33,6 +33,7 @@ try:
     from . import autocode_operational_information as operational_information
     from . import autocode_pause_authority as pause_authority
     from . import autocode_planning as planning
+    from . import autocode_planning_review_usage as review_usage
     from . import autocode_progressive_state as progressive
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_human as resolver_human
@@ -47,6 +48,7 @@ except ImportError:
     import autocode_operational_information as operational_information
     import autocode_pause_authority as pause_authority
     import autocode_planning as planning
+    import autocode_planning_review_usage as review_usage
     import autocode_progressive_state as progressive
     import autocode_recovery_progress as recovery_progress
     import autocode_resolver_human as resolver_human
@@ -204,6 +206,17 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
             print(lifecycle.render(state))
             return 2
     specific_recovery = False
+    if (
+        args.resume_paused
+        and not decision_action
+        and review_usage.can_resume(state)
+        and review_usage.reconcile(state, at=runner.now())
+    ):
+        resolver_human.supersede_operational(state, "Inherited review accounting was corrected under the saved limit")
+        state.update({"status": "RUNNING", "phase": "PLANNING"})
+        state.pop("stop_reason", None)
+        runner.write_json(state_path, state)
+        specific_recovery = True
     issued = resolver_human.current(state)
     if args.resume_paused and issued and issued["scope"] == "operational_exhaustion":
         cause = state["resolver"]["human_escalations"][issued["request_id"]]["identity"]["proposal"]["origin"].get(

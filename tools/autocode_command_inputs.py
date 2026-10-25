@@ -23,12 +23,14 @@ try:
     from . import autocode_cost as cost
     from . import autocode_milestone_scope as milestone_scope
     from . import autocode_pause_authority as pause_authority
+    from . import autocode_planning_review_usage as review_usage
     from . import autocode_recovery_accounting as accounting
     from . import autocode_recovery_limits as recovery_limits
 except ImportError:
     import autocode_cost as cost
     import autocode_milestone_scope as milestone_scope
     import autocode_pause_authority as pause_authority
+    import autocode_planning_review_usage as review_usage
     import autocode_recovery_accounting as accounting
     import autocode_recovery_limits as recovery_limits
 
@@ -239,7 +241,7 @@ def has_planning_allowance(state: RunState):
 def _planning_counts(state: RunState):
     planning = state.get("planning") or {}
     current = planning.get("review_call_limit", (state.get("settings") or {}).get("planning_review_call_limit", 2))
-    used = planning.get("astra_calls")
+    used = review_usage.effective_calls(state)
     if (
         type(current) is not int
         or not 2 <= current < MAX_INTEGER
