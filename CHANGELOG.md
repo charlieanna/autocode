@@ -318,6 +318,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The channel bridge daemon takes its single-instance lock through `autocode_util.lock_file`, so the bridge
+  loads and runs on native Windows. Before, a module-level `fcntl` import failed at load there (#2035).
+- A base whose prose is a non-Markdown document in the design workflow's directory
+  (`docs/design/feature.rst` or `.adoc`) is no longer admitted as a document-only base, so it needs the
+  ordinary passing-test evidence again. The wider data-file list added for #2036 admitted `.rst` and `.adoc`
+  anywhere; the design workflow writes Markdown, so a document in another format there is not its output.
+
 - A Requirements report that copies a coverage-checklist sentence exactly, as its prompt says, is no longer
   refused as citing text the brief does not hold. The checklist adds a period to a Markdown heading and
   shows a hard-wrapped sentence's line break, which models write as a space; the quote check now maps such a
