@@ -213,7 +213,8 @@ def check_input(view: dict, row, command: NamedCommand) -> dict:
     """
     need = view.get("needs") or {}
     token = (view.get("recovery") or {}).get("token")
-    known = INTEGER_INPUTS.get(row.get("flag")) if isinstance(row, dict) else None
+    flag = row.get("flag") if isinstance(row, dict) else None
+    known = INTEGER_INPUTS.get(flag) if isinstance(flag, str) else None
     if known is None:
         raise ClientGap("Unsupported or stale numeric recovery command from AutoCode")
     identity, label, used_key, fractional = known
