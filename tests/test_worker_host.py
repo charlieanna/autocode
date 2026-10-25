@@ -94,7 +94,7 @@ class PersistentHost(unittest.TestCase):
             for path in logs.glob("*.log"):
                 (folder / (self._testMethodName + "-" + path.name)).write_bytes(path.read_bytes()[-20000:])
 
-    def hold(self, stage):
+    def hold(self, stage, *, run_workspace=None):
         ready, gate = self.workspace.parent / (stage + "-ready"), self.workspace.parent / (stage + "-gate")
         os.mkfifo(gate)
         self.gates[stage] = (ready, gate)
@@ -102,8 +102,13 @@ class PersistentHost(unittest.TestCase):
         marker = '    task = data.get("current_task") or {}'
         source = provider.read_text()
         self.assertIn(marker, source)
+        scope = (
+            f" and Path(data.get('state_file') or '/').is_relative_to(Path({str(run_workspace)!r}))"
+            if run_workspace is not None
+            else ""
+        )
         inserted = (
-            f"    if stage == {stage!r} and not Path({str(ready)!r}).exists():\n"
+            f"    if stage == {stage!r} and not Path({str(ready)!r}).exists(){scope}:\n"
             f"        Path({str(ready)!r}).touch()\n"
             f"        with open({str(gate)!r}) as fixture_gate:\n"
             "            fixture_gate.read()\n"
@@ -450,6 +455,111 @@ class PersistentHost(unittest.TestCase):
         screen.keys("Enter")
         self.assertEqual(2, screen.exit_status())
         self.assertTrue(self.run.status()["done"])
+
+    def test_three_projects_two_viewers_share_attention_without_replaying_a_stale_approval(self):
+        # Independent projects let one Builder work while another project's plan is answered.
+        # Install the scoped gate before any run starts, keeping one identical transport for all viewers.
+        completed_workspace = self.workspace
+        fixture_root = completed_workspace.parent
+        self.env["AUTOCODE_ATTENTION_HOME"] = str(fixture_root / "attention")
+        completed_env = self.env.copy()
+        projects = {}
+        for name in ("waiting-b", "building-a"):
+            workspace = fixture_root / name
+            subprocess.run(
+                ["git", "clone", "--quiet", "--local", "--no-hardlinks", str(completed_workspace), str(workspace)],
+                check=True,
+                capture_output=True,
+            )
+            projects[name] = workspace
+        self.hold("terra", run_workspace=projects["building-a"])
+
+        self.start("completed-c")
+        completed = self.run
+        self.dispatch(self.plan())
+        original_completion = self.wait(lambda value: value.get("done"))
+        self.workspace = projects["waiting-b"]
+        self.start("waiting-b")
+        waiting, original_plan = self.run, self.plan()
+        self.workspace = projects["building-a"]
+        self.start("building-a")
+        building = self.run
+        self.dispatch(self.plan())
+        held = self.at_stage("terra")
+
+        def terminal(run, env):
+            screen = TerminalScreen(
+                [*CORE, "chat", "--workspace", str(run.workspace), "--run-dir", str(run.run_dir)],
+                cwd=run.workspace,
+                env=env,
+                cols=120,
+                rows=34,
+                tmux=require_tmux(self),
+            )
+            self.addCleanup(screen.close)
+            return screen
+
+        first = terminal(completed, completed_env)
+        first.wait_for("Anything else?")
+        listings = chat.History(completed.workspace, command=CORE, env=completed_env).list()
+        waiting_number = next(
+            number for number, row in enumerate(listings, 1) if row["run_dir"] == str(waiting.run_dir)
+        )
+        first.type(f"/open {waiting_number}")
+        first.keys("Enter")
+        first.wait_for("Approve this plan")
+        first.paste("B draft 你好")
+        first.keys("Left", "F8")
+        first.wait_for("Plan approval needed")
+        first.wait_for("inspect evidence")
+        # Completion sorts after the only pending decision; select it explicitly.
+        first.keys("Down", "a")
+        first.wait_for("Alert acknowledged")
+        first.keys("Escape")
+        first.wait_for(lambda shown: "Approve this plan" in shown and composer_text(shown) == "B draft 你好")
+        first.type("X")
+        first.wait_for(lambda shown: composer_text(shown) == "B draft 你X好")
+        current_plan = waiting.status()
+        self.assertEqual(original_plan["needs"], current_plan["needs"])
+        self.assertEqual(self.attempts(original_plan), self.attempts(current_plan))
+        self.assertEqual("acknowledged", completed.status()["attention"]["acknowledgement"]["state"])
+        self.assertEqual(self.attempts(original_completion), self.attempts(completed.status()))
+        self.assertEqual(held["execution"]["controller_epoch"], building.status()["execution"]["controller_epoch"])
+
+        second = terminal(completed, completed_env)
+        second.wait_for("Anything else?")
+        second.keys("F8")
+        second.wait_for("[acknowledged]")
+        self.assertEqual("B draft 你X好", composer_text(first.text()))
+        second.keys("Escape")
+        listings = chat.History(completed.workspace, command=CORE, env=completed_env).list()
+        waiting_number = next(
+            number for number, row in enumerate(listings, 1) if row["run_dir"] == str(waiting.run_dir)
+        )
+        second.type(f"/open {waiting_number}")
+        second.keys("Enter")
+        second.wait_for("Approve this plan")
+        second.type("y")
+        second.keys("Enter")
+        second.wait_for("Anything else?", 120)
+        accepted = waiting.status()
+        self.assertTrue(accepted["done"])
+        self.assertEqual(1, sum(stage == "terra" for stage, _, _ in self.attempts(accepted)))
+        # The other viewer still holds the former approval prompt. It must inspect before acting.
+        first.keys("C-u")
+        first.type("y")
+        first.keys("Enter")
+        stale = first.wait_for("Anything else?")
+        self.assertIn("plan changed while", stale.lower())
+        self.assertEqual(self.attempts(accepted), self.attempts(waiting.status()))
+        self.assertTrue(actions.working(building.status()), "the other project's Builder remains held")
+        self.release("terra")
+        final = self.wait(lambda value: value.get("done"))
+        self.assertEqual(1, sum(stage == "terra" for stage, _, _ in self.attempts(final)))
+        self.evidence.append({"matrix": ["S06", "S07", "S10", "S14"], "stale_viewer": stale, "view": final})
+        for screen in (first, second):
+            screen.keys("C-d")
+            self.assertEqual(2, screen.exit_status())
 
     def test_fresh_full_screen_launch_detaches_and_is_found_through_public_listings(self):
         self.hold("requirements_gather")

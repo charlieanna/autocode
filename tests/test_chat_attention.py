@@ -138,6 +138,18 @@ class InventoryReads(unittest.TestCase):
 
 
 class DrawerTests(unittest.TestCase):
+    def test_acknowledgement_and_event_kind_stay_visible_ahead_of_a_long_task_snippet(self):
+        import autocode_chat_tui as tui
+
+        current = row()
+        current["attention"]["item"].update(
+            summary="Long task 你好 " * 8, kind="completion", label="Run finished; inspect evidence"
+        )
+        current["attention"]["acknowledgement"]["state"] = "acknowledged"
+        shown = tui.truncate(attention.label(current), 80)
+        self.assertIn("[acknowledged]", shown)
+        self.assertIn("Run finished; inspect evidence", shown)
+
     def test_acknowledge_and_cancel_preserve_unicode_draft_cursor_and_history_view(self):
         ui = screen_ui()
         ui._composer.insert("draft 你好")
