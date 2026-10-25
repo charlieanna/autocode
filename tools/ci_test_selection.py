@@ -122,6 +122,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     ("tools/prompts/fragments/autoplanner/", ("tests.test_autoplanner_review", "tests.test_planning_stages")),
     (
+        "tools/prompts/fragments/autoplanner/feedback-interpretations.md",
+        ("tests.test_feedback_assumption_provenance", "tests.test_report_repair_context", "tests.test_brief_cli"),
+    ),
+    (
         "tools/prompts/fragments/autoplanner/concern-only-contract-audit.md",
         ("tests.test_planning_report_policy", "tests.test_stage_repair_cli"),
     ),
@@ -221,7 +225,13 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_brief_cli",),
     ),
     (
-        ("tools/autocode_brief_acceptance.py", "tools/autocode_brief_obligations.py", "tools/units/autoplanner.py"),
+        (
+            "tools/autocode_brief_acceptance.py",
+            "tools/autocode_brief_obligations.py",
+            "tools/autocode_assumption_provenance.py",
+            "tools/autocode_contract_revision.py",
+            "tools/units/autoplanner.py",
+        ),
         ("tests.test_brief_cli",),
     ),
     (

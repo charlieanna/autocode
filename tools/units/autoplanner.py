@@ -1275,6 +1275,9 @@ def context(state: RunState, stage, state_path):
         "budget": prompts.get("fragments/autoplanner/context.md").format(review_call_limit(state) or "Unlimited"),
         "recovery_context": state.get("recovery_context"),
     }
+    interpretations = goals.feedback_interpretation_context(state)
+    if interpretations:
+        packet["feedback_interpretations"] = interpretations
     if stage in ("requirements_gather", "requirements"):
         try:
             from .. import autocode_project_memory_lifecycle as project_memory
