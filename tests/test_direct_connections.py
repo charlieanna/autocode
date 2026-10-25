@@ -282,6 +282,61 @@ class MultiProviderConnectionTests(unittest.TestCase):
         for headers, _body in claude_fixture.requests:
             self.assertEqual("claude-secret", headers["X-Api-Key"])
 
+    def test_derived_and_overridden_roles_resolve_their_provider_by_model(self):
+        config.save(settings(), "fixture-secret")
+        facade = providers.resolve("autocode")
+        argv, _, _ = facade.launch(
+            "analyst",
+            self.root,
+            self.root / ".autocode/runs/test",
+            None,
+            "fixture/producer",
+            "",
+            False,
+            report=self.root / "report.json",
+        )
+        self.assertIn("--provider=compatible", argv)
+        config.save_v2(multi_settings(), multi_keys())
+        facade = providers.resolve("autocode")
+        argv, _, _ = facade.launch(
+            "analyst",
+            self.root,
+            self.root / ".autocode/runs/test",
+            None,
+            "claude-opus-5.5",
+            "",
+            False,
+            report=self.root / "report.json",
+        )
+        self.assertIn("--provider=claude", argv)
+        facade.check_subscription_routes({"analyst": {"model": "claude-opus-5.5"}})
+        shared = multi_settings()
+        shared["roles"]["glm"] = {"provider": "openai", "model": "claude-opus-5.5"}
+        config.save_v2(shared, multi_keys())
+        facade = providers.resolve("autocode")
+        with self.assertRaisesRegex(ValueError, "several providers"):
+            facade.launch(
+                "analyst",
+                self.root,
+                self.root / ".autocode/runs/test",
+                None,
+                "claude-opus-5.5",
+                "",
+                False,
+                report=self.root / "report.json",
+            )
+        argv, _, _ = facade.launch(
+            "glm",
+            self.root,
+            self.root / ".autocode/runs/test",
+            None,
+            "claude-opus-5.5",
+            "",
+            False,
+            report=self.root / "report.json",
+        )
+        self.assertIn("--provider=openai", argv)
+
     def test_multi_provider_metadata_validation(self):
         good = multi_settings()
         for broken in (

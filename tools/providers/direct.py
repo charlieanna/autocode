@@ -60,18 +60,43 @@ class DirectProvider(command.CommandProvider):
         }
 
     def check_subscription_routes(self, roles, workspace=None, *, env=None):
-        used = {self.role_provider[role] for role in roles if role in self.role_provider}
-        for name in sorted(used or set(self.role_provider.values())):
+        for name in sorted(self._used_providers(roles)):
             connection.api_key(self.settings, name)
         # There is no Kilo/OpenCode gateway or billing-route substitution here.
+
+    def _used_providers(self, roles):
+        """The connection providers that serve these roles' models.
+
+        A run also launches derived roles (analyst, investigator, resolver...) that inherit a
+        base role's route, and a --role-model override can point at another provider's model,
+        so the launched model names the provider; a role's own assignment wins when it serves
+        that model. A model behind several keys is never silently picked between.
+        """
+        assigned = connection.assignment(self.settings)
+        used = set()
+        for role, entry in (roles or {}).items():
+            model = (entry or {}).get("model") if isinstance(entry, dict) else None
+            matches = {provider for provider, value in assigned.values() if value == model} if model else set()
+            named = self.role_provider.get(role)
+            if named is not None and (named in matches or not matches):
+                used.add(named)
+            elif len(matches) == 1:
+                used.add(matches.pop())
+            elif len(matches) > 1:
+                raise ValueError(
+                    f"Model {model!r} is configured on several providers of this connection; "
+                    f"role {role!r} names none, so no key was chosen for it"
+                )
+        return used
 
     def launch(self, role, workspace, run_dir, session, model, effort, allow_write, *, planning=False, **kwargs):
         argv, env, metadata = super().launch(
             role, workspace, run_dir, None, model, effort, allow_write, planning=planning, **kwargs
         )
-        provider = self.role_provider.get(role)
-        if not provider:
+        used = self._used_providers({role: {"model": model}})
+        if not used:
             raise ValueError(f"The direct connection has no API provider for role {role!r}")
+        provider = sorted(used)[0]
         argv.append("--provider=" + provider)
         if planning:
             argv.append("--planning")
