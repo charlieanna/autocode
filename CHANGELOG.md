@@ -315,6 +315,12 @@ PR template asks for an entry here; a change without one is incomplete.
   but the refusal now names every such requirement at once, shows the closest sentence in the brief, and
   says to copy it exactly or remove the requirement. Before, each repair repeated the same quote and the
   run paused as invalid output again on every resume.
+- The Completion Reviewer no longer runs again and again on an unchanged source after the AutoResolver's
+  diagnosis was answered. A repeated block on an already-diagnosed source now holds the run (`RESOLVER_PENDING`,
+  with a stop reason naming the existing diagnosis) instead of scheduling the same review without limit, and a
+  regression proof of the current source that failed once is replayed once before the Completion Owner reviews,
+  so a single flaky test does not drive rework. See `docs/bugs/2026-10-25-repeated-completion-review-after-diagnosis.md`.
+
 - Every place that judges whether one model may check another's work now uses the one family rule in
   `autocode_model_identity`. The Plan Reviewer stream fallback, the run scorer's independence check, the
   model catalogue's suggestions and the stuck-job Investigator's route each kept an older copy that grouped
