@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The bug Investigator now has a reproduction-first budget (#1902). After 30 completed source-reading or
+  searching calls with no attempt to reproduce (`limits.investigation_exploration_budget`; `0` disables;
+  no flag yet), the runner stops the stage early instead of letting it read until the stage deadline. It
+  pauses as a stage timeout with the usual retry question, and the exact retry's handoff lists what the
+  stopped attempt already read. See `docs/execution.md`.
 - Every number a bound pause leaves to a person is now described in `needs.command_inputs`, not only the
   active-time total, the plan-review allowance and the recovery grant. The cost cap, iteration ceiling,
   milestone time, milestone replans and unchanged-batch limit each get a row with its current value, what

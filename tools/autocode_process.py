@@ -788,7 +788,7 @@ def wait_for_stage(
         with firing:
             if stopped.is_set() or watchdog_fired.is_set() or child.poll() is not None:
                 return
-            if reason["kind"] in ("stage", "idle", "tool"):
+            if reason["kind"] in ("stage", "idle", "tool", "progress"):
                 timeout_decision = dict(reason)
             if activity is not None:
                 activity.timeout = reason
@@ -862,6 +862,10 @@ def wait_for_stage(
                 stop_at_deadline(
                     {"kind": "stage", "reason": f"Stage exceeded its {timeout:g}-second hard runtime limit"}
                 )
+                return
+            # Event-driven, not time-driven: completed tool calls already seen, so no startup grace.
+            if activity is not None and latest_observation[1].get("progress_stop"):
+                stop_at_deadline({"kind": "progress", "reason": latest_observation[1]["progress_stop"]})
                 return
             if current < startup_deadline:
                 if stopped.wait(0.05):
