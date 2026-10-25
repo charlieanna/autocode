@@ -94,6 +94,20 @@ Existing defaults and saved routes, efforts, usage, limits and
 approvals remain unchanged. This records direction, not completed runtime/SSH
 qualification or authority to administer a host or replay an uncertain call.
 
+**Channel bridge (GitHub first) approved 2026-10-24 (#2035, under roadmap
+#2022).** The owner approved a channel-bridge client — flat modules
+`tools/autocode_bridge_*.py`, the `autocode bridge run|check|status` subcommand
+— that runs on the same persistent Linux host as the core, takes labeled
+GitHub issues as requirements, starts `durable_local` runs, relays the human
+gates (questions, plan approval, pauses, attention) to the issue, and takes an
+allowlisted actor's reply as the exact action the fresh status view names
+(`docs/channels.md`). Its rules: control tokens never leave the host; free text
+never approves, and an approval binds to the plan token the issue was shown;
+person-only stops act only on an explicit allowlisted reply; refusals are
+relayed and never auto-retried; it may do nothing the headless conformance
+client cannot, and any gap is reported against the CLI or the view. Slack and
+Jira adapters follow on the same core, each on the owner's recorded decision.
+
 A further new client, or growth beyond that contract, needs the owner's decision again.
 
 Historical audit records (`audits/`), `learn/` and two top-level result reports

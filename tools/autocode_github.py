@@ -147,6 +147,19 @@ class Client:
             )
         return {**issue, "comments_list": comments[-max_comments:] if max_comments else []}
 
+    def open_issues(self, owner: str, repo: str, label: str) -> list[dict]:
+        """Open, non-PR issues carrying one label, newest first."""
+        rows = self._call("GET", f"/repos/{owner}/{repo}/issues?labels={label}&state=open&per_page=100")
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise GitHubError("GitHub returned an invalid issue list")
+        return [row for row in rows if "pull_request" not in row]
+
+    def issue_comment(self, ref: IssueRef, body: str) -> dict:
+        """Post one comment on an issue; reading needs no token, posting does."""
+        if not self.token:
+            raise GitHubError("posting an issue comment needs GITHUB_TOKEN or GH_TOKEN")
+        return self._call("POST", f"/repos/{ref.owner}/{ref.repo}/issues/{ref.number}/comments", {"body": util.redact(body)})
+
     def pull_request(self, ref: IssueRef) -> dict:
         """Read the current pull request, including its exact head and base commits."""
         result = self._call("GET", f"/repos/{ref.owner}/{ref.repo}/pulls/{ref.number}")

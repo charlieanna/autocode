@@ -148,6 +148,7 @@ for the architecture format, approvals and integration.
 ## More guides
 
 - [Parallel task lanes and components](docs/task-lanes.md)
+- [Channel bridge: requirements from GitHub issues, questions and approvals in comments](docs/channels.md)
 - [Execution and completion checks](docs/execution.md)
 - [Named test proof for Python, Go, Node and Vitest](docs/named-test-proof.md)
 - [Exact output, raw fallback and usage measurement](docs/exact-output.md)

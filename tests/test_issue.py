@@ -88,6 +88,21 @@ class ClientTests(unittest.TestCase):
             client.open_pull_request("acme", "widgets", head="b", base="main", title="t", body="b")
         self.assertEqual([], calls)
 
+    def test_open_issues_reads_one_label_and_skips_pull_requests(self):
+        client, calls = self.client([(200, [{"number": 7, "state": "open"}, {"number": 8, "pull_request": {}}])])
+        rows = client.open_issues("acme", "widgets", "autocode")
+        self.assertEqual([{"number": 7, "state": "open"}], rows)
+        self.assertEqual("https://api.example/repos/acme/widgets/issues?labels=autocode&state=open&per_page=100", calls[0][1])
+
+    def test_an_issue_comment_needs_a_token_and_carries_the_body(self):
+        client, calls = self.client([(201, {"id": 51})])
+        created = client.issue_comment(REF, "taken")
+        self.assertEqual({"id": 51}, created)
+        self.assertEqual({"body": "taken"}, calls[0][3])
+        client, _ = self.client([], token="")
+        with self.assertRaisesRegex(github.GitHubError, "GITHUB_TOKEN"):
+            client.issue_comment(REF, "taken")
+
 
 class BriefTests(unittest.TestCase):
     def test_issue_text_is_quoted_as_data(self):
