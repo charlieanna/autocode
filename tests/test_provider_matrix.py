@@ -42,6 +42,14 @@ class ProviderMatrixTests(unittest.TestCase):
             provider_matrix.status_for("opencode", "9.9.9"), "an untested version must not be reported as known-good"
         )
 
+    def test_only_a_conformant_row_qualifies_a_version_for_selection(self):
+        # #2060: automatic selection needs a row whose result allows ordinary runs.
+        self.assertIsNone(provider_matrix.unqualified("opencode", "1.18.33"))
+        self.assertIsNone(provider_matrix.unqualified("opencode", "2.0.20"))  # accepted-for-ordinary-runs
+        self.assertIn("has not passed the offline conformance suite", provider_matrix.unqualified("opencode", "9.9.9"))
+        refused = [{"engine": "opencode", "version": "1.0.0", "result": "refused", "note": "breaks reports"}]
+        self.assertIn("is refused", provider_matrix.unqualified("opencode", "1.0.0", refused))
+
     def test_regenerating_the_table_is_stable(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "providers.md"

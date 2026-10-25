@@ -40,6 +40,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Automatic model selection now runs only on an OpenCode version the provider conformance matrix
+  qualifies (`tools/provider-matrix.json`: `known-good` or `accepted-for-ordinary-runs`, #2060). On a
+  version with no such row, a new run prints why and keeps the fixed default routes, and an explicit
+  `--auto-select` refuses before any model call. Before, selection chose routes on any installed version,
+  including one the conformance suite had never run against. `autocode doctor` already showed the row.
 - Requirements, Planner and Plan Reviewer launches on the default idle limit (300 s) run under a
   600-second floor, as MiMo routes already run under 900: those stages return one report and emit
   nothing before it, and on the 2026-10-20 vague-brief trial every Planner call for a large plan
