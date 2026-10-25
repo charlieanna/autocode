@@ -559,7 +559,7 @@ class PersistentHost(unittest.TestCase):
         self.evidence.append({"matrix": ["S06", "S07", "S10", "S14"], "stale_viewer": stale, "view": final})
         for screen in (first, second):
             screen.keys("C-d")
-            self.assertEqual(2, screen.exit_status())
+            self.assertEqual(0, screen.exit_status(), "both viewers are leaving a completed chat")
 
     def test_fresh_full_screen_launch_detaches_and_is_found_through_public_listings(self):
         self.hold("requirements_gather")
