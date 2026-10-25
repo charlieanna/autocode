@@ -43,6 +43,7 @@ try:
     from .. import autocode_planner_escalation as planner_escalation
     from .. import autocode_planning_artifacts as artifacts
     from .. import autocode_planning_report_policy as report_policy
+    from .. import autocode_planning_review_usage as review_usage
     from .. import autocode_progressive_state as progressive
     from .. import autocode_regression_reference as regression_reference
     from .. import autocode_requirement_cues as requirement_cues
@@ -77,6 +78,7 @@ except ImportError:
     import autocode_planner_escalation as planner_escalation
     import autocode_planning_artifacts as artifacts
     import autocode_planning_report_policy as report_policy
+    import autocode_planning_review_usage as review_usage
     import autocode_progressive_state as progressive
     import autocode_regression_reference as regression_reference
     import autocode_requirement_cues as requirement_cues
@@ -840,6 +842,7 @@ def apply_review_depth_policy(state: RunState):
     planning = state.get("planning")
     if not isinstance(planning, dict):
         planning = state["planning"] = {}
+    review_usage.reconcile(state, at=s.now())
     if planning.get("review_depth_reduced"):
         return
     archived = sum(
@@ -847,6 +850,7 @@ def apply_review_depth_policy(state: RunState):
         for row in state.get("planning_history") or []
         if row.get("turn_event_id") == planning.get("turn_event_id")
     )
+    archived = review_usage.archived_calls(state, archived)
     planning["review_depth_reduced"] = True
     planning["review_calls_before_policy"] = archived
     planning["astra_calls"] = archived + planning.get("astra_calls", 0)

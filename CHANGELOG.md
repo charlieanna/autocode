@@ -337,6 +337,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Inherited Plan Reviewer charges count once when a small plan's review policy activates. Saved false
+  budget pauses offer ordinary Resume when the existing allowance still has room, preserving review
+  limits, reported usage, history and plan approval (#2087). New unapproved model interpretations of
+  feedback also remain correctable without treating them as the person's own words (#2085).
+
 - Manual C4 qualification composes preparation and reboot request deadlines within the existing
   global cap, retains bounded fixture progress, and collects read-only diagnostics before cleanup.
   Both failed qualification attempts remain failed; literal reboot proof is still pending (#1881).

@@ -54,6 +54,7 @@ try:
     from . import autocode_pause_command as pause_command
     from . import autocode_plan_file as plan_file
     from . import autocode_plan_file_origin as plan_file_origin
+    from . import autocode_planning_review_usage as review_usage
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
@@ -100,6 +101,7 @@ except ImportError:
     import autocode_pause_command as pause_command
     import autocode_plan_file as plan_file
     import autocode_plan_file_origin as plan_file_origin
+    import autocode_planning_review_usage as review_usage
     import autocode_progressive_plan as progressive_rules
     import autocode_quota_route as quota_route
     import autocode_recovery_limits as recovery_limits
@@ -1102,6 +1104,13 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             "permission_decision_limit": disposition.get("limit"),
         }
     if status == "PAUSED_PLANNING_BUDGET":
+        if review_usage.can_resume(state):
+            return {
+                "kind": "resume",
+                "action": "--resume-paused",
+                "reason": "An inherited Plan Reviewer charge was counted twice. Resume rechecks the receipts and "
+                "continues under the unchanged review limit; no plan approval is implied.",
+            }
         need = {"kind": "planning_budget", "reason": state.get("stop_reason")}
         # AutoResolver evaluated corrective information and held: name the control it requires (#486).
         review = operational_information.projection(state) or {}
