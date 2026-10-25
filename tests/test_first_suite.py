@@ -4,6 +4,7 @@ import shutil
 import sys
 import unittest
 
+import autocode_first_suite as first_suite
 import autocode_verify as verify
 
 from tests.test_verify import Project
@@ -136,6 +137,41 @@ class FirstPythonSuiteTests(unittest.TestCase):
         )
         self.assertEqual(verify.PASS, result["verdict"], result)
         self.assertTrue(any("no behavior to preserve" in note for note in result["notes"]), result["notes"])
+
+    def test_a_data_only_base_has_no_behavior_to_preserve(self):
+        # #2036: two live greenfield chats shipped the input their CLI reads beside the README. A text
+        # or data file is read, never run: with no code or test file in the base there is nothing to preserve.
+        for name, text in (
+            ("sample.txt", "the quick brown fox\nthe lazy dog\n"),
+            ("contacts.json", '[{"name": "Ana"}]\n'),
+        ):
+            with self.subTest(name):
+                result = self.prove({"README.md": "A new project.\n", name: text})
+                self.assertEqual(verify.PASS, result["verdict"], result)
+                self.assertTrue(
+                    any("no existing behavior to preserve" in note for note in result["notes"]), result["notes"]
+                )
+
+    def test_a_data_file_beside_existing_source_still_requires_preservation(self):
+        result = self.prove(
+            {"README.md": "An existing project.\n", "sample.txt": "the fox\n", "legacy.py": "VALUE = 1\n"}
+        )
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        self.assertTrue(
+            any("preservation of existing behavior is unproven" in row for row in result["unverified"]),
+            result["unverified"],
+        )
+
+    def test_only_formats_nothing_runs_count_as_data(self):
+        for path in ("sample.txt", "data/rows.csv", "fixtures/contacts.JSON", "notes.rst", "config.yaml"):
+            with self.subTest(path):
+                self.assertTrue(first_suite.data_file(path))
+        for path in ("run.sh", "tool.py", "page.html", "index.js", "Makefile", "data.sql", "template.j2", "noext"):
+            with self.subTest(path):
+                self.assertFalse(first_suite.data_file(path))
+        self.assertTrue(first_suite.inert_base_file("sample.txt", 10, separate=True, source=False))
+        self.assertFalse(first_suite.inert_base_file("sample.txt", 10, separate=True, source=True))
+        self.assertFalse(first_suite.inert_base_file("sample.txt", 10, separate=False, source=False))
 
     def test_a_manifest_beside_existing_source_still_requires_preservation(self):
         result = self.prove(
