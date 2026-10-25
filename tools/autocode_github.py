@@ -158,7 +158,9 @@ class Client:
         """Post one comment on an issue; reading needs no token, posting does."""
         if not self.token:
             raise GitHubError("posting an issue comment needs GITHUB_TOKEN or GH_TOKEN")
-        return self._call("POST", f"/repos/{ref.owner}/{ref.repo}/issues/{ref.number}/comments", {"body": util.redact(body)})
+        return self._call(
+            "POST", f"/repos/{ref.owner}/{ref.repo}/issues/{ref.number}/comments", {"body": util.redact(body)}
+        )
 
     def pull_request(self, ref: IssueRef) -> dict:
         """Read the current pull request, including its exact head and base commits."""

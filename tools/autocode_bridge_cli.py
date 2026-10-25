@@ -12,6 +12,7 @@ Configuration is environment-first, like examples/github-issue.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import fcntl
 import json
 import os
@@ -57,7 +58,7 @@ class Config:
     owned: bool = False  # the explicit no-systemd mode: runs live with the daemon
 
     @classmethod
-    def from_env(cls, environ=None, *, project=None, poll_seconds=None) -> "Config":
+    def from_env(cls, environ=None, *, project=None, poll_seconds=None) -> Config:
         environ = os.environ if environ is None else environ
 
         def names(name):
@@ -100,7 +101,16 @@ class Config:
 class Bridge:
     """One poll of the channel and of every bridged run; all decisions through the fresh view."""
 
-    def __init__(self, config: Config, channel: bridge_github.GitHubChannel, *, launch=None, adopt=None, prepare=None, sleeper=time.sleep):
+    def __init__(
+        self,
+        config: Config,
+        channel: bridge_github.GitHubChannel,
+        *,
+        launch=None,
+        adopt=None,
+        prepare=None,
+        sleeper=time.sleep,
+    ):
         self.config = config
         self.channel = channel
         self.launch = launch or worker.start_issue_run
@@ -136,14 +146,20 @@ class Bridge:
         try:
             options = list(self.config.options)
             started = self.launch(
-                self.config.project, github.IssueRef(self.channel.owner, self.channel.repo, number), issue, options,
+                self.config.project,
+                github.IssueRef(self.channel.owner, self.channel.repo, number),
+                issue,
+                options,
                 owned=self.config.owned,
             )
         except (worker.BridgeError, TaskRunError, OSError) as error:
             record["failed"] = f"{error}"[:500]
             record["gate"] = {"key": "failed"}
             store.save(record)
-            self.post(number, f"**AutoCode could not start this run**: {record['failed']}\n\nThe bridge keeps this issue off the queue; remove its record to retry.")
+            self.post(
+                number,
+                f"**AutoCode could not start this run**: {record['failed']}\n\nThe bridge keeps this issue off the queue; remove its record to retry.",
+            )
             return
         record.update(started)
         record["gate"] = {"key": "starting"}
@@ -187,10 +203,9 @@ class Bridge:
         self.relay_gate(record, run, view)
         self.consume_replies(record, run)
         if record.get("owned"):  # an owned run only moves when the daemon drives it to its next boundary
-            try:
+            with contextlib.suppress(TaskRunError):
+                # A no-progress stop keeps its saved boundary; the tick's caller reports it.
                 run.advance_until_input()
-            except TaskRunError:
-                pass  # the tick's caller reports it; the run keeps its saved boundary
         self.deliver(record, run)
 
     def relay_gate(self, record: dict, run, view: dict) -> None:
@@ -285,19 +300,23 @@ class Bridge:
             try:
                 self.tend(record)
             except (worker.BridgeError, TaskRunError, OSError, ValueError) as error:
-                print(f"autocode bridge: tending {record.get('owner')}/{record.get('repo')}#{record.get('number')} failed: {error}", file=sys.stderr)
+                print(
+                    f"autocode bridge: tending {record.get('owner')}/{record.get('repo')}#{record.get('number')} failed: {error}",
+                    file=sys.stderr,
+                )
 
     def run(self, *, once: bool = False) -> int:
-        lock = open(store.root() / "bridge.lock", "a+")
-        try:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            raise ConfigError("another bridge daemon already holds " + str(store.root() / "bridge.lock")) from None
-        while True:
-            self.tick()
-            if once:
-                return 0
-            self.sleep(self.config.poll_seconds)
+        # The lock file stays open (and the lock held) for the daemon's whole life.
+        with open(store.root() / "bridge.lock", "a+") as lock:
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                raise ConfigError("another bridge daemon already holds " + str(store.root() / "bridge.lock")) from None
+            while True:
+                self.tick()
+                if once:
+                    return 0
+                self.sleep(self.config.poll_seconds)
 
 
 def cmd_run(args) -> int:
@@ -318,7 +337,9 @@ def cmd_check(args) -> int:
     failures = []
     try:
         config = Config.from_env(project=args.project)
-        print(f"config     {config.repo} label {config.label!r}, {len(config.actors)} actor(s), options {list(config.options) or 'none'}")
+        print(
+            f"config     {config.repo} label {config.label!r}, {len(config.actors)} actor(s), options {list(config.options) or 'none'}"
+        )
     except ConfigError as error:
         print(f"config     ✖ {error}")
         failures.append("config")
@@ -360,7 +381,9 @@ def cmd_status(args) -> int:
         return 0
     for record in rows:
         where = f"{record['owner']}/{record['repo']}#{record['number']}"
-        state = record.get("failed") or (f"gate {record.get('gate', {}).get('key')}" + (", pr prepared" if record.get("pr_prepared") else ""))
+        state = record.get("failed") or (
+            f"gate {record.get('gate', {}).get('key')}" + (", pr prepared" if record.get("pr_prepared") else "")
+        )
         print(f"{where}: {state}")
         print(f"  {record.get('title') or ''}")
         print(f"  run {record.get('run_dir') or '-'}")
@@ -373,7 +396,12 @@ def parser() -> argparse.ArgumentParser:
     run = commands.add_parser("run", help="the daemon: take labeled issues, relay gates, take replies")
     run.add_argument("--once", action="store_true", help="one poll, then exit (for tests and cron-style operation)")
     run.add_argument("--project", help="the persistent checkout to build in (default: AUTOCODE_BRIDGE_PROJECT or cwd)")
-    run.add_argument("--poll-seconds", type=float, help="seconds between polls (default: 10, or AUTOCODE_BRIDGE_POLL_SECONDS)", default=None)
+    run.add_argument(
+        "--poll-seconds",
+        type=float,
+        help="seconds between polls (default: 10, or AUTOCODE_BRIDGE_POLL_SECONDS)",
+        default=None,
+    )
     run.set_defaults(handler=cmd_run)
     check = commands.add_parser("check", help="report configuration, GitHub access, durable availability")
     check.add_argument("--project")

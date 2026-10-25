@@ -68,7 +68,11 @@ def gate_key(view: dict) -> str:
             return f"route:{route.get('question_id')}:{route.get('stopped_model')}"
         ids = ",".join(str(row.get("id")) for row in need.get("questions") or ())
         scope = need.get("resolver_scope") or ""
-        return f"answer:{need.get('resolver_request_id')}:{scope}:{ids}" if need.get("resolver_token") else f"unpublished:{ids}"
+        return (
+            f"answer:{need.get('resolver_request_id')}:{scope}:{ids}"
+            if need.get("resolver_token")
+            else f"unpublished:{ids}"
+        )
     if kind in ("approve_plan", "review"):
         return f"{kind}:{need.get('token')}"
     return f"{kind}:{_reason(need)}:{need.get('job_retry_token') or ''}"
@@ -81,7 +85,10 @@ def plan_markdown(plan: dict) -> str:
         review = " (human review)" if row.get("human_review") else ""
         lines.append(f"- **{row['id']}**{review}: {row['criterion']}")
         lines.append(f"  - checked by: {row['verification_method']}")
-    for title, rows in (("Constraints", plan.get("constraints")), ("Permission boundaries", plan.get("permission_boundaries"))):
+    for title, rows in (
+        ("Constraints", plan.get("constraints")),
+        ("Permission boundaries", plan.get("permission_boundaries")),
+    ):
         if rows:
             lines += ["", f"**{title}**", *(f"- {row}" for row in rows)]
     delivery = plan.get("git_delivery")
@@ -104,7 +111,9 @@ def questions_markdown(need: dict) -> str:
             lines.append(f"  - proposed: {row['proposed_default']}")
     lines += [""]
     if len(questions) == 1:
-        lines.append("Reply with the answer" + (" (one of the options above)" if questions[0].get("options") else "") + ".")
+        lines.append(
+            "Reply with the answer" + (" (one of the options above)" if questions[0].get("options") else "") + "."
+        )
     else:
         lines.append("Reply with one line per question as `ID: your answer`.")
     return "\n".join(lines)
@@ -115,7 +124,7 @@ def route_markdown(need: dict) -> str:
     lines = [
         f"**AutoCode stopped: {route.get('role')} model {route.get('stopped_model')} ({route.get('cause')})**",
         "",
-        f"Reply `model NAME` to continue on another model"
+        "Reply `model NAME` to continue on another model"
         + (f", for example `model {route['candidates'][0]}`" if route.get("candidates") else "")
         + ".",
     ]
@@ -150,34 +159,34 @@ def relay(view: dict, record: dict) -> RelayResult:
             result.messages = [questions_markdown(need)]
             result.gate["request_id"] = need.get("resolver_request_id")
         # questions without a request and without a token relaunch; the next view relays them
-    elif kind in ("approve_plan", "review"):
-        token = actions.approval_token(view)
-        plan = actions.plan_for_approval(view) if kind == "approve_plan" else None
-        criteria = actions.review_criteria(view) if kind == "review" else None
-        if kind == "approve_plan" and plan is None:
+    elif kind == "approve_plan":
+        plan = actions.plan_for_approval(view)
+        if plan is None:
             result.messages = [
                 "**AutoCode is waiting for plan approval**, but the view does not carry the complete plan.\n\n"
                 "The bridge will not ask a person to approve terms it cannot show. This is a gap to report "
                 "against the CLI or the status view; the run waits untouched."
             ]
             result.gate["showable"] = False
-        elif kind == "review" and criteria is None:
+        else:
+            result.gate["token"] = actions.approval_token(view)
+            result.messages = [plan_markdown(plan)]
+    elif kind == "review":
+        criteria = actions.review_criteria(view)
+        if criteria is None:
             result.messages = [
                 "**AutoCode is waiting for a review decision**, but the criteria cannot be shown completely.\n\n"
                 "This is a gap to report; the run waits untouched."
             ]
             result.gate["showable"] = False
         else:
-            result.gate["token"] = token
-            if kind == "approve_plan":
-                result.messages = [plan_markdown(plan)]
-            else:
-                listed = ", ".join(row["id"] for row in criteria)
-                result.messages = [
-                    f"**AutoCode asks you to accept criteria**: {listed}\n\n"
-                    + "\n".join(f"- **{row['id']}**: {row['criterion']}" for row in criteria)
-                    + "\n\nReply `approve` to accept, or reply with a correction (it becomes review feedback)."
-                ]
+            result.gate["token"] = actions.approval_token(view)
+            listed = ", ".join(row["id"] for row in criteria)
+            result.messages = [
+                f"**AutoCode asks you to accept criteria**: {listed}\n\n"
+                + "\n".join(f"- **{row['id']}**: {row['criterion']}" for row in criteria)
+                + "\n\nReply `approve` to accept, or reply with a correction (it becomes review feedback)."
+            ]
     elif kind in actions.PERSON_ONLY_KINDS:
         if need.get("new_run_required"):
             result.messages = [
@@ -261,7 +270,10 @@ def interpret(record: dict, view: dict, text: str) -> ReplyAction:
         model = match.group(1).strip() if match else (text.strip() if text.strip() in candidates else "")
         if model:
             return ReplyAction("model", model=model)
-        return ReplyAction("none", text=f"Reply `model NAME` to continue{'; candidates: ' + ', '.join(candidates) if candidates else ''}.")
+        return ReplyAction(
+            "none",
+            text=f"Reply `model NAME` to continue{'; candidates: ' + ', '.join(candidates) if candidates else ''}.",
+        )
     if kind == "answer" and need.get("resolver_scope") in PERSON_ONLY_SCOPES:
         return ReplyAction("operational", text=text)
     if kind == "answer":
@@ -272,7 +284,9 @@ def interpret(record: dict, view: dict, text: str) -> ReplyAction:
     if kind == "retry_job" and not need.get("route"):
         if text.lower() in RESUME_WORDS:
             return ReplyAction("retry")
-        return ReplyAction("none", text="Reply `retry` to retry the stopped job, or comment `pause` and inspect the run.")
+        return ReplyAction(
+            "none", text="Reply `retry` to retry the stopped job, or comment `pause` and inspect the run."
+        )
     if kind in actions.PERSON_ONLY_KINDS:
         if need.get("edit_required") and text:
             return ReplyAction("feedback", text=text)
@@ -281,4 +295,6 @@ def interpret(record: dict, view: dict, text: str) -> ReplyAction:
         if need.get("new_run_required"):
             return ReplyAction("none", text="This stop cannot be resumed; start a fresh issue instead.")
         return ReplyAction("none", text="Reply `resume` to continue the run.")
-    return ReplyAction("feedback", text=text) if text else ReplyAction("none", text="Nothing to do on this run right now.")
+    return (
+        ReplyAction("feedback", text=text) if text else ReplyAction("none", text="Nothing to do on this run right now.")
+    )

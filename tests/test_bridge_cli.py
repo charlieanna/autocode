@@ -54,12 +54,23 @@ class FakeRun:
                     "kind": "answer",
                     "resolver_request_id": "req-1",
                     "resolver_token": "t1",
-                    "questions": [{"id": "q-1", "question": "Which database?", "options": ["sqlite", "postgres"], "proposed_default": "sqlite"}],
+                    "questions": [
+                        {
+                            "id": "q-1",
+                            "question": "Which database?",
+                            "options": ["sqlite", "postgres"],
+                            "proposed_default": "sqlite",
+                        }
+                    ],
                 },
             }
         if self.state in ("plan", "plan2"):
             token = SECOND_TOKEN if self.state == "plan2" else PLAN_TOKEN
-            return {"status": "AWAITING_GOAL_APPROVAL", "needs": {"kind": "approve_plan", "token": token}, "displayed_plan": plan_body(token)}
+            return {
+                "status": "AWAITING_GOAL_APPROVAL",
+                "needs": {"kind": "approve_plan", "token": token},
+                "displayed_plan": plan_body(token),
+            }
         return {"status": "COMPLETE", "done": True, "evidence": {"outcome": "delivered"}}
 
     def answer(self, question_id, text, *, resolver_token=None):
@@ -100,7 +111,8 @@ class FakeClient:
         return [
             row["issue"]
             for row in self.issues.values()
-            if row["issue"].get("state") == "open" and label in [item.get("name") for item in row["issue"].get("labels") or []]
+            if row["issue"].get("state") == "open"
+            and label in [item.get("name") for item in row["issue"].get("labels") or []]
         ]
 
     def issue(self, ref):
@@ -128,7 +140,14 @@ class BridgeTests(unittest.TestCase):
         self.saved_home = os.environ.get("AUTOCODE_BRIDGE_HOME")
         os.environ["AUTOCODE_BRIDGE_HOME"] = home.name
         self.home = home
-        self.client = FakeClient({7: {"issue": {"number": 7, "state": "open", "title": "Greeting CLI", "labels": [{"name": "autocode"}]}, "comments": []}})
+        self.client = FakeClient(
+            {
+                7: {
+                    "issue": {"number": 7, "state": "open", "title": "Greeting CLI", "labels": [{"name": "autocode"}]},
+                    "comments": [],
+                }
+            }
+        )
         self.prepared = []
 
     def tearDown(self):
@@ -143,19 +162,40 @@ class BridgeTests(unittest.TestCase):
         from autocode_bridge_github import GitHubChannel
 
         config = bridge_cli.Config(
-            repo="owner/repo", project=Path("/work/project"), label="autocode",
-            actors=("dev",), options=(), poll_seconds=10.0, open_pr=False,
+            repo="owner/repo",
+            project=Path("/work/project"),
+            label="autocode",
+            actors=("dev",),
+            options=(),
+            poll_seconds=10.0,
+            open_pr=False,
         )
-        started = launch or (lambda project, ref, issue, options, owned=False: {
-            "owner": "owner", "repo": "repo", "number": 7, "title": "Greeting CLI",
-            "project": str(project), "worktree": str(run.workspace), "branch": "autocode/issue-7-greeting-cli",
-            "run_dir": str(run.run_dir), "options": options, "receipt": {"launch_id": "a" * 32},
-            "ready": True, "gate": {}, "delivered": False, "pr_url": None,
-        })
+        started = launch or (
+            lambda project, ref, issue, options, owned=False: {
+                "owner": "owner",
+                "repo": "repo",
+                "number": 7,
+                "title": "Greeting CLI",
+                "project": str(project),
+                "worktree": str(run.workspace),
+                "branch": "autocode/issue-7-greeting-cli",
+                "run_dir": str(run.run_dir),
+                "options": options,
+                "receipt": {"launch_id": "a" * 32},
+                "ready": True,
+                "gate": {},
+                "delivered": False,
+                "pr_url": None,
+            }
+        )
         return bridge_cli.Bridge(
-            config, GitHubChannel(self.client, "owner/repo", "autocode", ("dev",)),
-            launch=started, adopt=lambda record: run,
-            prepare=lambda record, *, open_: self.prepared.append((record["number"], open_)) or "PR body written; draft PR #12",
+            config,
+            GitHubChannel(self.client, "owner/repo", "autocode", ("dev",)),
+            launch=started,
+            adopt=lambda record: run,
+            prepare=lambda record, *, open_: (
+                self.prepared.append((record["number"], open_)) or "PR body written; draft PR #12"
+            ),
         )
 
     def bodies(self):
@@ -258,17 +298,18 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(1, sum(1 for body in self.bodies() if "could not start" in body))  # posted once
 
     def test_config_comes_from_the_environment_and_names_what_is_missing(self):
-        import os
 
         with self.assertRaises(bridge_cli.ConfigError):
             bridge_cli.Config.from_env({})
-        config = bridge_cli.Config.from_env({
-            "AUTOCODE_BRIDGE_GITHUB_REPO": "owner/repo",
-            "AUTOCODE_BRIDGE_ACTORS": '["dev", "lead"]',
-            "AUTOCODE_BRIDGE_PROJECT": "/work/project",
-            "AUTOCODE_BRIDGE_OPTIONS": '["--engine", "codex"]',
-            "AUTOCODE_BRIDGE_OPEN_PR": "1",
-        })
+        config = bridge_cli.Config.from_env(
+            {
+                "AUTOCODE_BRIDGE_GITHUB_REPO": "owner/repo",
+                "AUTOCODE_BRIDGE_ACTORS": '["dev", "lead"]',
+                "AUTOCODE_BRIDGE_PROJECT": "/work/project",
+                "AUTOCODE_BRIDGE_OPTIONS": '["--engine", "codex"]',
+                "AUTOCODE_BRIDGE_OPEN_PR": "1",
+            }
+        )
         self.assertEqual(("dev", "lead"), config.actors)
         self.assertEqual(("--engine", "codex"), config.options)
         self.assertTrue(config.open_pr)
@@ -296,8 +337,11 @@ class ProvisionTests(unittest.TestCase):
         self.addCleanup(home.cleanup)
         self.project = Path(home.name) / "project"
         self.project.mkdir()
+        identity = ["-c", "user.name=T", "-c", "user.email=t@example.test"]
         subprocess.run(["git", "init", "-q", str(self.project)], check=True)
-        subprocess.run(["git", "-C", str(self.project), "commit", "--allow-empty", "-qm", "Start"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.project), *identity, "commit", "--allow-empty", "-qm", "Start"], check=True
+        )
         store_home = tempfile.TemporaryDirectory()
         self.addCleanup(store_home.cleanup)
         import os
@@ -323,7 +367,12 @@ class ProvisionTests(unittest.TestCase):
         import autocode_issue as issue_tool
 
         ref = github.IssueRef("acme", "widgets", 12)
-        issue = {"number": 12, "title": "Greeting!", "body": "Say hi", "html_url": "https://github.com/acme/widgets/issues/12"}
+        issue = {
+            "number": 12,
+            "title": "Greeting!",
+            "body": "Say hi",
+            "html_url": "https://github.com/acme/widgets/issues/12",
+        }
         record = worker.start_issue_run(self.project, ref, issue, ["--engine", "codex"], launch=self.launch)
         self.assertTrue(record["worktree"].startswith(str(self.project.resolve())))
         self.assertTrue((self.project / ".autocode" / "issues" / "acme-widgets-12" / ".git").exists())

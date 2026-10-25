@@ -21,15 +21,15 @@ try:
     from . import autocode_client_actions as actions
     from . import autocode_github as github
     from . import autocode_issue as issue_tool
-    from .autocode_taskrun import AUTOCODE, TaskRun, TaskRunError, run_process
     from .autocode_bridge_relay import ReplyAction
+    from .autocode_taskrun import AUTOCODE, TaskRun, TaskRunError, run_process
 except ImportError:
     import autocode_bridge_store as store
     import autocode_client_actions as actions
     import autocode_github as github
     import autocode_issue as issue_tool
-    from autocode_taskrun import AUTOCODE, TaskRun, TaskRunError, run_process
     from autocode_bridge_relay import ReplyAction
+    from autocode_taskrun import AUTOCODE, TaskRun, TaskRunError, run_process
 
 
 class BridgeError(RuntimeError):
@@ -39,15 +39,47 @@ class BridgeError(RuntimeError):
 # A human or run action may never ride in as a launch option and be replayed by a label
 # or a continuation (the same list examples/github-issue/issue_action.py enforces).
 FORBIDDEN_OPTIONS = {
-    "--answer", "--delegate", "--delegate-all", "--reject-assumption", "--feedback", "--follow-up",
-    "--edit-goal", "--goal-file", "--reconcile-review", "--review-token", "--close-finding",
-    "--close-reason", "--accept-completion", "--resume-paused", "--resolver-response",
-    "--resolver-request", "--resolver-token", "--resolver-message", "--retry-failed-stage",
-    "--retry-builder", "--diagnose-failed-stage", "--retry-report", "--grant-recovery",
-    "--accept-source-edit", "--accept-transport-change", "--abandon-stage", "--recover-job-report",
-    "--request-milestone-checkpoints", "--planning-review-call-limit", "--bind-dependency",
-    "--receive-dependency", "--show-goal", "--status", "--dry-run", "--migrate-only",
-    "--no-requirements", "--workspace", "--run-dir", "--in-place", "--ui-run", "--adaptive-planning",
+    "--answer",
+    "--delegate",
+    "--delegate-all",
+    "--reject-assumption",
+    "--feedback",
+    "--follow-up",
+    "--edit-goal",
+    "--goal-file",
+    "--reconcile-review",
+    "--review-token",
+    "--close-finding",
+    "--close-reason",
+    "--accept-completion",
+    "--resume-paused",
+    "--resolver-response",
+    "--resolver-request",
+    "--resolver-token",
+    "--resolver-message",
+    "--retry-failed-stage",
+    "--retry-builder",
+    "--diagnose-failed-stage",
+    "--retry-report",
+    "--grant-recovery",
+    "--accept-source-edit",
+    "--accept-transport-change",
+    "--abandon-stage",
+    "--recover-job-report",
+    "--request-milestone-checkpoints",
+    "--planning-review-call-limit",
+    "--bind-dependency",
+    "--receive-dependency",
+    "--show-goal",
+    "--status",
+    "--dry-run",
+    "--migrate-only",
+    "--no-requirements",
+    "--workspace",
+    "--run-dir",
+    "--in-place",
+    "--ui-run",
+    "--adaptive-planning",
 }
 
 
@@ -155,7 +187,9 @@ def _launch_owned(worktree, run_dir, brief, options):
 
 def adopt(record: dict, command=AUTOCODE) -> TaskRun:
     """The saved run as a TaskRun handle, durable or owned alike."""
-    return TaskRun(Path(record["worktree"]), Path(record["run_dir"]), command=command, options=tuple(record.get("options") or ()))
+    return TaskRun(
+        Path(record["worktree"]), Path(record["run_dir"]), command=command, options=tuple(record.get("options") or ())
+    )
 
 
 def inspect_launch(record: dict, run: TaskRun) -> dict:
@@ -168,7 +202,9 @@ def inspect_launch(record: dict, run: TaskRun) -> dict:
 
 def advancing(view: dict) -> bool:
     """Whether this view's named command continues the run (and so needs the worker envelope on a durable run)."""
-    return ((view.get("needs") or {}).get("kind") in ("continue", "resume", "retry_job")) or bool(view.get("next_command"))
+    return ((view.get("needs") or {}).get("kind") in ("continue", "resume", "retry_job")) or bool(
+        view.get("next_command")
+    )
 
 
 def dispatch(run: TaskRun, view: dict, command: actions.NamedCommand) -> None:
@@ -208,7 +244,9 @@ def take(run: TaskRun, view: dict, action: ReplyAction) -> str:
     if action.kind == "approve":
         token = actions.approval_token(view)
         if not token or not action.shown_token or token != action.shown_token:
-            raise BridgeError("that approval matches no complete plan shown here; the current plan is relayed for a fresh decision")
+            raise BridgeError(
+                "that approval matches no complete plan shown here; the current plan is relayed for a fresh decision"
+            )
         run.approve_plan(token)
         return "Plan approved; the build is starting."
     if action.kind == "review":

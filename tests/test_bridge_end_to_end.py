@@ -89,10 +89,16 @@ class BridgeEndToEndTests(unittest.TestCase):
         bindir.mkdir()
         shutil.copy2(TOOLS / "live_fixture_provider.py", bindir / "codex")
         (bindir / "codex").chmod(0o755)
-        FakeGitHub.issues = {7: {
-            "number": 7, "title": "Add a greeting CLI", "state": "open", "body": BRIEF,
-            "labels": [{"name": "autocode"}], "html_url": "https://github.com/acme/widgets/issues/7",
-        }}
+        FakeGitHub.issues = {
+            7: {
+                "number": 7,
+                "title": "Add a greeting CLI",
+                "state": "open",
+                "body": BRIEF,
+                "labels": [{"name": "autocode"}],
+                "html_url": "https://github.com/acme/widgets/issues/7",
+            }
+        }
         FakeGitHub.comments = {7: []}
         FakeGitHub.next_id = 5000
         server = HTTPServer(("127.0.0.1", 0), FakeGitHub)
@@ -101,8 +107,10 @@ class BridgeEndToEndTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         self.env = {
             **os.environ,
-            "GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@example.test",
-            "GIT_COMMITTER_NAME": "T", "GIT_COMMITTER_EMAIL": "t@example.test",
+            "GIT_AUTHOR_NAME": "T",
+            "GIT_AUTHOR_EMAIL": "t@example.test",
+            "GIT_COMMITTER_NAME": "T",
+            "GIT_COMMITTER_EMAIL": "t@example.test",
             "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
             "AUTOCODE_HOME": str(root / "registry"),
             "AUTOCODE_BRIDGE_HOME": str(root / "bridge"),
@@ -121,13 +129,18 @@ class BridgeEndToEndTests(unittest.TestCase):
     def git(self, *args, cwd=None):
         return subprocess.run(
             ["git", "-C", str(cwd or self.project), "-c", "user.name=T", "-c", "user.email=t@example.test", *args],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
 
     def bridge_once(self):
         result = subprocess.run(
             [sys.executable, str(TOOLS / "autocode.py"), "bridge", "run", "--once"],
-            capture_output=True, text=True, env=self.env, timeout=300,
+            capture_output=True,
+            text=True,
+            env=self.env,
+            timeout=300,
         )
         self.assertEqual(0, result.returncode, result.stderr)
         return result
@@ -144,7 +157,9 @@ class BridgeEndToEndTests(unittest.TestCase):
             bodies = self.posted()
             if any("Task complete" in body for body in bodies):
                 break
-            if any("Plan for approval" in body for body in bodies) and not any("Plan approved" in body for body in bodies):
+            if any("Plan for approval" in body for body in bodies) and not any(
+                "Plan approved" in body for body in bodies
+            ):
                 self.reply("approve")
             elif any("questions for you" in body for body in bodies) and not any("Answered" in body for body in bodies):
                 proposed = re.search(r"proposed: (.+)", "\n".join(bodies))
@@ -165,7 +180,10 @@ class BridgeEndToEndTests(unittest.TestCase):
 
         status = subprocess.run(
             [sys.executable, str(TOOLS / "autocode.py"), "bridge", "status", "--json"],
-            capture_output=True, text=True, env=self.env, timeout=60,
+            capture_output=True,
+            text=True,
+            env=self.env,
+            timeout=60,
         )
         rows = json.loads(status.stdout)["records"]
         self.assertEqual(1, len(rows))

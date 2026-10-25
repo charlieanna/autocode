@@ -16,7 +16,13 @@ def answer_view(**need):
             "resolver_request_id": "req-1",
             "resolver_token": "t1",
             "questions": [
-                {"id": "q-1", "question": "Which database?", "why": "It sets the migration path", "options": ["sqlite", "postgres"], "proposed_default": "sqlite"},
+                {
+                    "id": "q-1",
+                    "question": "Which database?",
+                    "why": "It sets the migration path",
+                    "options": ["sqlite", "postgres"],
+                    "proposed_default": "sqlite",
+                },
                 {"id": "q-2", "question": "Any seed data?", "why": "It shapes the checks"},
             ],
             **need,
@@ -31,7 +37,9 @@ def plan_view(token="r1:abc", *, complete=True):
         "acceptance_criteria": [
             {"id": "c1", "criterion": "greets by name", "verification_method": "unittest", "human_review": False},
             {"id": "c2", "criterion": "no stderr output", "verification_method": "human review", "human_review": True},
-        ] if complete else [{"id": "c1"}],
+        ]
+        if complete
+        else [{"id": "c1"}],
         "constraints": ["keep the public API"],
         "permission_boundaries": ["read-only outside src/"],
     }
@@ -94,8 +102,13 @@ class RelayTests(unittest.TestCase):
             "needs": {
                 "kind": "answer",
                 "resolver_token": "t2",
-                "route": {"question_id": "route-builder", "role": "builder", "cause": "quota",
-                          "stopped_model": "glm-5.3", "candidates": ["glm-5.4", "gpt-6-terra"]},
+                "route": {
+                    "question_id": "route-builder",
+                    "role": "builder",
+                    "cause": "quota",
+                    "stopped_model": "glm-5.3",
+                    "candidates": ["glm-5.4", "gpt-6-terra"],
+                },
             },
         }
         result = relay.relay(view, {"gate": {}})
@@ -155,15 +168,24 @@ class InterpretTests(unittest.TestCase):
         self.assertEqual("none", relay.interpret({"gate": {}}, view, "try harder").kind)
 
     def test_an_edit_required_pause_takes_text_as_feedback(self):
-        view = {"status": "PAUSED_GOAL_UNAPPROVED", "needs": {"kind": "resume", "reason": "the plan conflicts", "edit_required": True}}
+        view = {
+            "status": "PAUSED_GOAL_UNAPPROVED",
+            "needs": {"kind": "resume", "reason": "the plan conflicts", "edit_required": True},
+        }
         self.assertEqual("feedback", relay.interpret({"gate": {}}, view, "drop the migration").kind)
 
     def test_a_review_gate_takes_the_approve_word_or_feedback(self):
         view = {
             "status": "AWAITING_REVIEW",
             "needs": {"kind": "review", "token": "rev1", "criteria": ["c1", "c2"]},
-            "approved_contract": {"body": {"acceptance_criteria": [
-                {"id": "c1", "criterion": "greets by name"}, {"id": "c2", "criterion": "no stderr output"}]}},
+            "approved_contract": {
+                "body": {
+                    "acceptance_criteria": [
+                        {"id": "c1", "criterion": "greets by name"},
+                        {"id": "c2", "criterion": "no stderr output"},
+                    ]
+                }
+            },
         }
         action = relay.interpret({"gate": {"token": "rev1"}}, view, "approve")
         self.assertEqual("review", action.kind)

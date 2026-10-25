@@ -6,7 +6,6 @@ from pathlib import Path
 
 import autocode_bridge_github as bridge_github
 import autocode_bridge_store as store
-import autocode_github as github
 
 
 class FakeClient:
@@ -21,7 +20,8 @@ class FakeClient:
         return [
             row["issue"]
             for row in self.issues.values()
-            if row["issue"].get("state") == "open" and label in [item.get("name") for item in row["issue"].get("labels") or []]
+            if row["issue"].get("state") == "open"
+            and label in [item.get("name") for item in row["issue"].get("labels") or []]
         ]
 
     def issue(self, ref):
@@ -73,7 +73,9 @@ class AdapterTests(unittest.TestCase):
         identity = selected.post(7, "taken")
         self.assertEqual([(7, "taken")], client.posted)
         self.assertIsInstance(identity, int)
-        self.assertEqual([], selected.new_comments({"initial_comment_id": 0, "comments_seen": [identity]}, selected.issue(7)))
+        self.assertEqual(
+            [], selected.new_comments({"initial_comment_id": 0, "comments_seen": [identity]}, selected.issue(7))
+        )
 
 
 class StoreTests(unittest.TestCase):
@@ -95,10 +97,16 @@ class StoreTests(unittest.TestCase):
 
     def test_records_round_trip_outside_every_workspace(self):
         record = {
-            "owner": "Owner", "repo": "Repo", "number": 7, "title": "Greeting",
-            "project": "/work/project", "worktree": "/work/project/.autocode/issues/owner-repo-7",
-            "branch": "autocode/issue-7", "run_dir": "/work/project/.autocode/runs/r1",
-            "gate": {"key": "answer:x"}, "receipt": {"launch_id": "a" * 32},
+            "owner": "Owner",
+            "repo": "Repo",
+            "number": 7,
+            "title": "Greeting",
+            "project": "/work/project",
+            "worktree": "/work/project/.autocode/issues/owner-repo-7",
+            "branch": "autocode/issue-7",
+            "run_dir": "/work/project/.autocode/runs/r1",
+            "gate": {"key": "answer:x"},
+            "receipt": {"launch_id": "a" * 32},
         }
         store.save(record)
         self.assertEqual(record, store.load("Owner", "Repo", 7))
@@ -109,8 +117,14 @@ class StoreTests(unittest.TestCase):
         )
 
     def test_a_failed_start_is_a_record_without_a_run(self):
-        record = {"owner": "o", "repo": "r", "number": 9, "project": "/work/project",
-                  "gate": {"key": "failed"}, "failed": "durable execution is unavailable"}
+        record = {
+            "owner": "o",
+            "repo": "r",
+            "number": 9,
+            "project": "/work/project",
+            "gate": {"key": "failed"},
+            "failed": "durable execution is unavailable",
+        }
         store.save(record)
         self.assertEqual("failed", store.load("o", "r", 9)["gate"]["key"])
 

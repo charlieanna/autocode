@@ -29,9 +29,8 @@ REMEMBERED_COMMENTS = 200
 
 def root(create: bool = True) -> Path:
     """The bridge's private storage root; each host has one bridge per root."""
-    selected = (
-        os.environ.get("AUTOCODE_BRIDGE_HOME")
-        or (Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "autocode" / "bridge")
+    selected = os.environ.get("AUTOCODE_BRIDGE_HOME") or (
+        Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "autocode" / "bridge"
     )
     selected = Path(selected)
     if create:
@@ -70,7 +69,7 @@ def load(owner: str, repo: str, number: int) -> dict | None:
 
 
 def save(record: dict) -> None:
-    required = ("owner", "repo", "number", "project", "gate")
+    required: tuple[str, ...] = ("owner", "repo", "number", "project", "gate")
     if not record.get("failed"):
         required = (*required, "worktree", "branch", "run_dir")
     for key in required:
