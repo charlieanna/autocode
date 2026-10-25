@@ -20,9 +20,11 @@ from pathlib import Path
 
 try:
     from . import autocode_chat_cost as cost
+    from . import autocode_chat_stage_policy as stage_policy
     from . import autocode_chat_verification as verification
 except ImportError:
     import autocode_chat_cost as cost
+    import autocode_chat_stage_policy as stage_policy
     import autocode_chat_verification as verification
 
 LOG_LIMIT = 200
@@ -205,6 +207,9 @@ def sections(view: dict | None, *, launched: bool = False) -> list[Section]:
     if usage := cost.compact(view):
         summary, entries = usage
         result.append(Section("Usage", summary, tuple(Row("·", line, "dim") for line in entries)))
+    if path := stage_policy.compact(view):  # which planning path a bug-fix run took and why (#1884 F2)
+        summary, entries = path
+        result.append(Section("Plan path", summary, tuple(Row("·", line, "dim") for line in entries)))
     if recent := events(view):
         result.append(Section("Activity", "", tuple(event_row(event) for event in recent[-EVENT_ROWS:])))
     requirements = _mapping(progress.get("requirements"))
@@ -359,7 +364,7 @@ def text(name: str, view: dict | None, log: StageLog) -> str:
     if name == "/details":
         explanation = _mapping(view.get("explanation")).get("explanation")
         said = str(explanation or (view.get("progress") or {}).get("line") or "AutoCode has said nothing more yet.")
-        more = "\n\n".join(filter(None, (verification.details(view), cost.details(view))))
+        more = "\n\n".join(filter(None, (verification.details(view), cost.details(view), stage_policy.details(view))))
         return said + ("\n\n" + more if more else "")
     wanted = {"/plan": "Requirements", "/tasks": "Tasks"}[name]
     for section in sections(view):

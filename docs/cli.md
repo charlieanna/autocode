@@ -758,6 +758,13 @@ is a worker-liveness check, evidence acceptance or meaningful work progress.
 Failed reads retain the last snapshot under a last-known label; a fresh read
 clears that read error. No ETA or completion percentage is inferred.
 
+A Plan path section appears for a bug-fix run that recorded which planning path it took (the
+status view's `stage_policy`, [compact planning](adaptive-planning.md#compact-planning-for-bug-fixes)):
+`compact: Planner draft omitted` with what covers the omission (the runner's draft, the Plan Reviewer,
+your approval, the regression proof), or `full: every planning stage runs` with the first reason the
+full path was kept, and where a review fell back to it. `/details` lists every reason, the decision
+rows and the hashes the decision rests on. It renders the core's record and offers no action.
+
 The Verification section and `/details` distinguish the core's current delivery
 gate from report inspection. A recorded PASS can be unchecked or stale, and a
 verified delivery can still have a report not explicitly inspected by that status
