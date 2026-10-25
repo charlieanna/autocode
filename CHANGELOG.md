@@ -15,6 +15,11 @@ PR template asks for an entry here; a change without one is incomplete.
   the variants the reviewer's model declares, and the move is recorded in `effort_fits`; a `--single-model`
   run keeps the model's listing for that. Before, `--single-model zai-coding-plan/glm-5.3` stopped once at
   the Plan Reviewer on a derived `medium` the model does not declare (#2020).
+- The regression-proof gate treats a plain text or data file in a greenfield base (`.txt`, `.csv`,
+  `.json`, `.yaml` and the like, read by the deliverable and never run) as it treats a manifest: when no
+  nonempty file in the base is code or a test path, the base holds no behaviour to preserve and the gate
+  does not stay closed on it. Before, a chat task that shipped its own input beside the README could pass
+  every criterion and never complete (#2036).
 - In the terminal chat, `/connect NAME use`, `/mode` and `/engine` typed at the first
   "What do you want done?" question now apply to the chat started there, as they already did
   for `/new`; before, that first chat ran on the default connection and mode while the header
