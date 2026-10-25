@@ -40,6 +40,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Requirements, Planner and Plan Reviewer launches on the default idle limit (300 s) run under a
+  600-second floor, as MiMo routes already run under 900: those stages return one report and emit
+  nothing before it, and on the 2026-10-20 vague-brief trial every Planner call for a large plan
+  took 300 to 340 s, three were killed at 308 to 310 s and replayed under the same limit, spending
+  every automatic recovery. An explicit `--max-idle-seconds` is used as given, the saved setting is
+  never rewritten, the stage timeout still bounds the call and the stop text names the floor.
 - Under a money cap (`--max-cost-usd`), every attempt of a job that already ran in the run is priced before
   it launches, from that job's last attempt's tokens at the saved route's rate, and the run stops as
   `PAUSED_COST_LIMIT` before an attempt projected past the cap, naming the job, the route, the projection and
