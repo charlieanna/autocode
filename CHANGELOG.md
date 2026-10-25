@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The bug Investigator now has a reproduction-first budget (#1902). After 30 completed source-reading or
+  searching calls with no attempt to reproduce (`limits.investigation_exploration_budget`; `0` disables;
+  no flag yet), the runner stops the stage early instead of letting it read until the stage deadline. It
+  pauses as a stage timeout with the usual retry question, and the exact retry's handoff lists what the
+  stopped attempt already read. See `docs/execution.md`.
+
 - The terminal chat shows which planning path a bug-fix run took: a Plan path section in the side
   panel (`compact: Planner draft omitted` with what covers it, or `full: every planning stage runs` with
   the first reason, and any fallback) and a Planning path block in `/details` with every reason, the
