@@ -40,6 +40,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Attention rows keep read state and event type visible before long task titles
+  at narrow terminal widths. Integrated qualification also covers three projects
+  and two viewers sharing acknowledgement and refusing stale approval (#2070,
+  #1886).
+
 - A quota switch that moves a role onto another way of paying now says so (#2061). When an automatically
   selected run's stopped model is replaced by one the permitted set says bills differently (a subscription
   route replaced by a pay-per-token one), its `route_assignment` record carries `billing: {from, to}`,
