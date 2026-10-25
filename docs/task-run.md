@@ -340,7 +340,10 @@ Stale revisions, conflicting request IDs and stale question tokens are refused.
 During joint planning, technical decisions with a proposed default are resolved internally and
 sent through drafting and review again. They are retained as `user_events` receipts with
 `actor=autocode` and `kind=technical_decision`, outside the human `answers` ledger and chat history.
-They cannot authorize a protected contract change or approve a plan. Genuine questions about the
+They cannot authorize a protected contract change or approve a plan, and they never renew the
+plan-review allowance: the redraft continues the planning cycle that asked, carrying its spent
+review calls, its first review and its revision (`planning.inherited_review` in the saved state),
+and with one review call left the final review decides on the redraft. Genuine questions about the
 requested outcome, behavior, cost, permissions or side effects still require a human answer, as do
 unresolved facts and rejected assumptions. A repeated identical technical question goes to report
 repair instead of another planning loop. Non-joint runs keep their existing question path.

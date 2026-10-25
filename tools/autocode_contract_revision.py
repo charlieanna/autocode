@@ -16,6 +16,7 @@ try:
     from . import autocode_draft_examples as examples
     from . import autocode_protected_text as protected
     from . import autocode_python_tests as python_tests
+    from . import autocode_requirement_cues as cues
     from . import autocode_rewording_question as rewording
     from . import autocode_test_cases as test_cases
 except ImportError:
@@ -23,11 +24,16 @@ except ImportError:
     import autocode_draft_examples as examples
     import autocode_protected_text as protected
     import autocode_python_tests as python_tests
+    import autocode_requirement_cues as cues
     import autocode_rewording_question as rewording
     import autocode_test_cases as test_cases
 
 PLANNER_ORIGINS = {"glm_draft", "glm_revise", "astra_finalize", "astra_discovery"}
 PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
+# The lists a revision may change on its own when the Plan Reviewer blocked the draft and the line is the
+# Planner's own (reviewer_requested_own_text): a constraint or a permission boundary that only restates how the
+# Planner split the work. required_behaviors, scope_exclusions and important_failure_cases stay the person's.
+PLANNER_OWN_LISTS = ("constraints", "permission_boundaries")
 # The person's own words. A delegated decision is the Planner's choice made on the person's behalf, so
 # the Planner may revise it like its own proposal; a delegated answer can still authorize a change.
 PERSON_TEXT_BASES = ("user_answer", "user_feedback")
@@ -239,6 +245,85 @@ def reviewer_backed(state: RunState, item) -> str | None:
     return None
 
 
+def blocking_review_concerns(state: RunState) -> list[str]:
+    """The ids of the blocking concerns in this planning cycle's saved first review, in report order."""
+    reports = (state.get("planning") or {}).get("reports") or {}
+    ids = []
+    for stage in ("astra_challenge", "plan_review"):
+        report = (reports.get(stage) or {}).get("report") or {}
+        for concern in report.get("concerns") or []:
+            if isinstance(concern, dict) and concern.get("blocking") and concern.get("id"):
+                ids.append(str(concern["id"]))
+    return ids
+
+
+def _comparable(text) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip().rstrip(".;:!").lower()
+
+
+def quotes_person_text(state: RunState, item) -> bool:
+    """Whether a contract line repeats a sentence of the person's own text, or sits inside one.
+
+    The person's text is what the requirement tracer scans (autocode_requirement_cues.scan_texts): the brief,
+    their feedback and their answers, never a model default. A constraint that restates "Python standard
+    library only." from the brief is theirs; the Planner's own file split is not."""
+    line = _comparable(item)
+    if not line:
+        return True
+    for text in cues.scan_texts(state):
+        for sentence in cues.sentences(text):
+            said = _comparable(sentence)
+            if said and (said in line or line in said):
+                return True
+    return False
+
+
+def reviewer_requested_own_text(state: RunState, previous_contract: dict, previous: dict, rows, origin) -> dict:
+    """Declared constraint and permission changes a revision may make without the person: {item: concern ids}.
+
+    A live vague-brief run (2026-10-20) put its milestone file split into a constraint and a permission
+    boundary; the Plan Reviewer's blocking concern asked to rebalance the milestones, and the revision that did
+    so was refused for changing protected text, which cost a repair, a question AutoCode answered itself and a
+    planning restart from scratch. In a contract nobody has approved or edited, a ``glm_revise`` may reword or
+    drop a constraint, or replace a permission boundary, when the current cycle's first review holds a blocking
+    concern, the change is declared as the Planner's own (``agent_proposed``) with its replacement, and the line
+    repeats none of the person's sentences (quotes_person_text). The declared change is shown at approval with
+    the concern that asked for it, and the final review judges it. Anything the person wrote, every other
+    protected list and every approved contract keep the saved-basis rule."""
+    if (
+        origin != "glm_revise"
+        or previous_contract.get("approval_status") != "draft"
+        or previous_contract.get("approval_event")
+        or any(
+            revision.get("approval_status") == "approved"
+            or revision.get("approval_event")
+            or revision.get("origin") == "user_cli_edit"
+            for revision in state.get("contract_history", [])
+        )
+    ):
+        return {}
+    concerns = blocking_review_concerns(state)
+    if not concerns:
+        return {}
+    allowed: dict = {}
+    for row in rows:
+        item = row.get("item")
+        if row.get("basis") != "agent_proposed" or row.get("answer_id") or not isinstance(item, str):
+            continue
+        owners = [key for key in (*PROTECTED_LISTS, "permission_boundaries") if item in previous.get(key, [])]
+        if len(owners) != 1 or owners[0] not in PLANNER_OWN_LISTS:
+            continue  # a line that is also a required behavior or an exclusion stays the person's
+        replacement = str(row.get("replacement") or "").strip()
+        if owners[0] == "constraints":
+            declared = row.get("change") == "removed" or (row.get("change") == "reworded" and replacement)
+        else:  # dropping a boundary widens what the Builder may touch; only a replacement is the Planner's own
+            declared = row.get("change") == "permission_changed" and bool(replacement)
+        if not declared or quotes_person_text(state, item):
+            continue
+        allowed[item] = list(concerns)
+    return allowed
+
+
 def _review_question(state: RunState, previous: dict, body: dict, items, message: str, proposed=None):
     """Raise the person's question for refused changes only they can settle, if every one is.
 
@@ -382,11 +467,26 @@ def revision_guard(state: RunState, body, changes, origin):
             continue
         protected_changes.append(raw)
     _reject_unchanged_rewordings(previous, body, protected_changes)
-    unbacked = [raw for raw in protected_changes if not saved_user_basis(state, raw.get("basis"), raw.get("answer_id"))]
+    own_text = reviewer_requested_own_text(state, previous_contract, previous, protected_changes, origin)
+    for raw in protected_changes:
+        if raw.get("item") in own_text:  # shown at approval: the concern that asked for the Planner's own change
+            raw["review_concerns"] = own_text[raw["item"]]
+    unbacked = [
+        raw
+        for raw in protected_changes
+        if raw.get("item") not in own_text and not saved_user_basis(state, raw.get("basis"), raw.get("answer_id"))
+    ]
     if unbacked:
         raw = unbacked[0]
         message = f"Changing a protected contract item {raw.get('item')!r} needs a saved user answer or feedback event; change={raw['change']!r}"
         approved = protected_history or previous_contract.get("approval_status") == "approved"
+        if (
+            not approved
+            and origin == "glm_revise"
+            and any(raw.get("item") in previous.get(key, []) for key in PLANNER_OWN_LISTS)
+            and quotes_person_text(state, raw.get("item"))
+        ):
+            message += f"; {str(raw.get('item'))[:80]!r} repeats the person's own words, so only they can change it"
         rewordings = []
         for row in unbacked:
             item = row["item"]

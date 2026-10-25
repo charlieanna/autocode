@@ -26,6 +26,18 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Planning on a vague brief no longer stalls on the Planner's own text or restarts after its own
+  answer (the 2026-10-20 trial needed a person five times and reached no plan). A revision that
+  answers the Plan Reviewer's blocking concern may reword or drop a constraint, or replace a
+  permission boundary, that the Planner itself wrote (it repeats none of the person's sentences)
+  while nobody has approved or edited the plan, declaring the change as its own; the approval
+  screen shows the change with the concern that asked for it. A technical question AutoCode settles
+  with the Planner's default continues the reviewed planning cycle instead of opening a new one:
+  the spent review calls, the first review and the revision are carried, the re-review is told
+  which answers were AutoCode's, and with one call left the final review decides on the redraft.
+  The allowance grows by one call, once per run, only when the final review's own question spent
+  it, and never past a limit the person set. The Planner is told to state which files a milestone
+  owns in `affected_paths`, never as a constraint or a permission boundary.
 - Under a money cap (`--max-cost-usd`), every attempt of a job that already ran in the run is priced before
   it launches, from that job's last attempt's tokens at the saved route's rate, and the run stops as
   `PAUSED_COST_LIMIT` before an attempt projected past the cap, naming the job, the route, the projection and
