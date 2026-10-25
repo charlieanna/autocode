@@ -58,6 +58,15 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual({}, variants.reconcile(roles, "m", []))
         self.assertEqual("medium", roles["completion"]["reasoning_effort"])
 
+    def test_a_single_model_runs_saved_listing_serves_declared_for_first(self):
+        settings = {
+            "declared_variants": {"zai-coding-plan/glm-5.3": ["low", "high", "max"]},
+            "route_selection": {"candidates": {"sol": [{"model": "zai-coding-plan/glm-5.3", "levels": ["low"]}]}},
+        }
+        self.assertEqual(["low", "high", "max"], variants.declared_for(settings, "zai-coding-plan/glm-5.3"))
+        self.assertIsNone(variants.declared_for(settings, "other/model"))
+        self.assertIsNone(variants.declared_for({"declared_variants": {"m": "not a list"}}, "m"))
+
     def test_the_runs_recorded_candidate_levels_serve_a_route_answer(self):
         settings = {
             "route_selection": {

@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A small clear brief's reduced Plan Reviewer effort (one rung below the configured one, #1564) is fitted to
+  the variants the reviewer's model declares, and the move is recorded in `effort_fits`; a `--single-model`
+  run keeps the model's listing for that. Before, `--single-model zai-coding-plan/glm-5.3` stopped once at
+  the Plan Reviewer on a derived `medium` the model does not declare (#2020).
 - The regression-proof gate treats a plain text or data file in a greenfield base (`.txt`, `.csv`,
   `.json`, `.yaml` and the like, read by the deliverable and never run) as it treats a manifest: when no
   nonempty file in the base is code or a test path, the base holds no behaviour to preserve and the gate

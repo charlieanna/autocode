@@ -76,9 +76,16 @@ def notice(moved: dict, model: str, declared) -> str | None:
     )
 
 
+DECLARED = "declared_variants"  # settings key: {model: [levels]} a new run read from the tool's listing (#2020)
+
+
 def declared_for(settings: dict, model: str) -> list | None:
-    """The variants a run recorded for ``model`` when it chose its routes (``route_selection.candidates``),
-    whichever role listed it; None when the run holds no listing for it."""
+    """The variants a run recorded for ``model``: the listing a ``--single-model`` run saved (``DECLARED``), else
+    the one it read when it chose its routes (``route_selection.candidates``), whichever role listed it; None
+    when the run holds no listing for it."""
+    recorded = ((settings or {}).get(DECLARED) or {}).get(model)
+    if isinstance(recorded, list):
+        return list(recorded)
     candidates = ((settings or {}).get("route_selection") or {}).get("candidates") or {}
     for rows in candidates.values():
         for row in rows or ():
