@@ -9,6 +9,10 @@ from __future__ import annotations
 
 import copy
 import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_prompts as prompts
@@ -22,7 +26,7 @@ def _comparable(text):
     return re.sub(r"\s+", " ", str(text or "")).strip().rstrip(".;:!").lower()
 
 
-def _quotes_person(state, text):
+def _quotes_person(state: RunState, text):
     line = _comparable(text)
     return not line or any(
         said and (said in line or line in said)
@@ -32,7 +36,7 @@ def _quotes_person(state, text):
     )
 
 
-def feedback_interpretations(state, *, model_origins, saved_user_basis):
+def feedback_interpretations(state: RunState, *, model_origins, saved_user_basis):
     """New feedback paraphrases editable in this explicitly model-authored draft.
 
     Missing or malformed protected history cannot establish that a row is new.

@@ -229,6 +229,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_brief_cli",),
     ),
     (
+        ("tools/autocode_planning_review_usage.py", "tools/autocode_assumption_provenance.py"),
+        ("tests.test_run_state",),
+    ),
+    (
         (
             "tools/autocode_brief_acceptance.py",
             "tools/autocode_brief_obligations.py",
@@ -296,6 +300,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         (
             "tools/autocode_command_inputs.py",
+            "tools/autocode_planning_review_usage.py",
             "tools/autocode_recovery_view.py",
             "tools/autocode_recovery_accounting.py",
             "tools/autocode_recovery_grants.py",

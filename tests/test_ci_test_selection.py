@@ -8,6 +8,13 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_planning_provenance_helpers_keep_the_importless_run_state_scan(self):
+        consumer = "tests.test_run_state"
+        for path in ("tools/autocode_planning_review_usage.py", "tools/autocode_assumption_provenance.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                self.assertIn(consumer, selected)
+
     def test_proof_reference_prompt_keeps_planning_repair_and_public_follow_up_consumers(self):
         consumers = {
             "tests.test_planning_proof_reference",
