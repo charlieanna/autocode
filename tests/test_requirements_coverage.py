@@ -214,6 +214,43 @@ class CoverageTests(unittest.TestCase):
             goals.check_requirement_trace(state, {}, {})
         goals.check_requirement_trace(state, {}, {"deliverables": ["docs/design/cache.md"]})
 
+    def test_follow_up_scans_the_receipted_task_once_without_erasing_its_sources(self):
+        state = self.follow_up()
+        text = "The design must retain the existing API."
+        event = state["brief_feedback"][-1]
+        event["text"] = text
+        state["turns"][-1]["say"] = text
+        extra = {"kind": "brief_feedback", "id": "extra", "actor": "user_cli", "text": "Only cache.md may change."}
+        state["brief_feedback"].append(extra)
+        state["user_events"].append(extra)
+        before = copy.deepcopy(state)
+        self.assertEqual([text, extra["text"]], goals.scan_texts(state))
+        self.assertIn(event, state["user_events"])
+        self.assertIn(text, goals.source_texts(state))
+        self.assertEqual(before, state, "source deduplication must not rewrite the saved journal")
+
+    def test_follow_up_checklist_and_missing_diagnostic_do_not_repeat_the_same_obligation(self):
+        state = self.follow_up()
+        text = "The design must retain the existing API."
+        state["brief_feedback"][-1]["text"] = text
+        state["turns"][-1]["say"] = text
+        prompt, _ = autoplanner.context(state, "requirements_gather", Path("/fixture/state.json"))
+        packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual([text], packet["requirement_coverage_checklist"])
+        with self.assertRaises(ValueError) as caught:
+            goals.check_requirement_handoff(state, self.report())
+        self.assertEqual([text], json.loads(str(caught.exception).split(": ", 1)[1]))
+        goals.check_requirement_handoff(state, self.report(text))
+
+    def test_only_identical_sources_are_deduplicated(self):
+        text = "The CLI must retain drafts."
+        distinct = "The CLI must retain drafts and their cursor."
+        state = {"task": text, "brief_feedback": [{"text": text}, {"text": distinct}]}
+        self.assertEqual([text, distinct], goals.scan_texts(state))
+        self.assertEqual([text, text, distinct], goals.source_texts(state))
+        with self.assertRaisesRegex(ValueError, "their cursor"):
+            goals.check_requirement_handoff(state, self.report(text))
+
     def test_same_kind_and_unreceipted_turns_keep_coverage_guards(self):
         for state in (self.follow_up("discuss"), self.follow_up()):
             if state["workflow"]["kind"] == "design":

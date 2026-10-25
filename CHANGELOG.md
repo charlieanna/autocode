@@ -323,6 +323,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Requirements scans an identical follow-up source once when it is both the current task and saved
+  feedback. Planning and repair checklists and missing-coverage diagnostics no longer repeat those
+  obligations; the source journal and all distinct requirement checks remain intact (#2072).
+
 - The channel bridge daemon takes its single-instance lock through `autocode_util.lock_file`, so the bridge
   loads and runs on native Windows. Before, a module-level `fcntl` import failed at load there (#2035).
 - A base whose prose is a non-Markdown document in the design workflow's directory
