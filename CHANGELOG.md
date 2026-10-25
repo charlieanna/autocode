@@ -20,6 +20,10 @@ PR template asks for an entry here; a change without one is incomplete.
   command, so a number typed at the pause raises the bound. Before, those pauses named an `N` no client
   could fill, and #1950's fix could only say the typed number set nothing (#2044).
 
+- The terminal chat shows which planning path a bug-fix run took: a Plan path section in the side
+  panel (`compact: Planner draft omitted` with what covers it, or `full: every planning stage runs` with
+  the first reason, and any fallback) and a Planning path block in `/details` with every reason, the
+  decision rows and the hashes behind them, from the status view's `stage_policy` alone (#1884 F2).
 - `--compact-bugfix-planning` (new runs, off by default): for a bug the Investigator reproduces with a
   runner-run probe, sizes small and localizes to at most four files none of which the project's
   `sensitive-paths` name, the runner writes the plan draft from the diagnosis and the Requirements record
@@ -281,6 +285,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A permission question now says so before the person answers when none of its choices can do anything.
+  A greenfield run's completion gate offered "complete base-side collection evidence runner-side" as an
+  equivalent outcome, and nothing in the runner implements it: choosing it recorded the decision, popped the
+  request, resumed execution and spent two more validation rounds returning the same findings. A choice
+  bound to no setting now states that it changes nothing and names the actions that do — `--feedback`,
+  `--close-finding`, `--edit-goal` with `--approve-goal` (#2041).
 - A new chat no longer reports its own start as a status outage. `--status` exits 2 only while the run
   being created has no state file yet, and the client called that "Status unavailable … Last view is
   stale", followed a second later by "Status available again". Only those two lines wait for a run that

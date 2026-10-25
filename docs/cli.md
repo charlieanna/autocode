@@ -28,6 +28,7 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | `autocode dashboard` | Local browser dashboard. |
 | `autocode unattended` | Agent wrapper that refuses operator decisions and reports a stop (see [Unattended callers](#unattended-callers-agents)). |
 | `autocode issue brief\|start\|status\|continue\|plan\|pr` | Read a GitHub issue, work on it through the task-run interface, put the plan waiting for approval in a pull request as a plan file for review (`plan`), and prepare a pull request (see [GitHub issues](issues.md)). |
+| `autocode bridge run\|check\|status` | The channel bridge daemon: take labeled GitHub issues, start durable runs, relay questions, plan approvals and pauses to the issue, and take an allowlisted actor's reply as the exact action the status view names (see [Channel bridge](channels.md)). |
 | `autocode arena init\|ingest\|cases\|run\|report\|propose\|annotate\|compare` | Run independent benchmark cases, append evidence-backed failure investigations and compare candidate cohorts (see [Arena](arena.md)). |
 | `autocode checkpoint --workspace PATH --run-dir RUN --compare CHECKPOINT` | Compare retained code or restore it by the exact inspected token (`--working` shows what the Builder has changed so far, display only); accepts `--json` (see [Saved code checkpoints](task-run.md#saved-code-checkpoints)). |
 | `autocode merge [WORKTREE] [--workspace PATH] [--into BRANCH] [--json]` | Merge a delivered task worktree into its base branch (see [Task lanes](task-lanes.md#when-a-task-finishes)). |
@@ -612,6 +613,7 @@ also accepts `-h` / `--help`.
 | `autocode arena` | `--report`, `--reviewer` | Annotate a completed attempt from an attribution JSON report; an explicit independent reviewer is required to confirm a diagnosis. |
 | `autocode unattended --analyze` | `--analyze`, `--run-dir`, `--workspace`, `--out` | Read-only run analysis; optionally save its evidence report in `--out`. |
 | `autocode dashboard` | `--workspace`, `--watch-root`, `--watch-depth`, `--runner`, `--port`, `--provider` | Repeated projects and discovery roots, discovery depth (3), CLI runner, local port (8765) and provider for new runs. |
+| `autocode bridge` | `--once`, `--project`, `--poll-seconds`, `--json` | With `run`: one poll then exit (for tests and cron-style operation), the persistent checkout to build in (default: `AUTOCODE_BRIDGE_PROJECT` or the daemon's directory) and seconds between polls (default 10, or `AUTOCODE_BRIDGE_POLL_SECONDS`); with `status`, JSON output. See [Channel bridge](channels.md). |
 
 ## Terminal chat
 
@@ -757,6 +759,13 @@ the local receipt while the core checkpoint stays identical; neither timestamp
 is a worker-liveness check, evidence acceptance or meaningful work progress.
 Failed reads retain the last snapshot under a last-known label; a fresh read
 clears that read error. No ETA or completion percentage is inferred.
+
+A Plan path section appears for a bug-fix run that recorded which planning path it took (the
+status view's `stage_policy`, [compact planning](adaptive-planning.md#compact-planning-for-bug-fixes)):
+`compact: Planner draft omitted` with what covers the omission (the runner's draft, the Plan Reviewer,
+your approval, the regression proof), or `full: every planning stage runs` with the first reason the
+full path was kept, and where a review fell back to it. `/details` lists every reason, the decision
+rows and the hashes the decision rests on. It renders the core's record and offers no action.
 
 The Verification section and `/details` distinguish the core's current delivery
 gate from report inspection. A recorded PASS can be unchecked or stale, and a

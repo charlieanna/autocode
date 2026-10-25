@@ -36,6 +36,7 @@ SUBCOMMANDS = {
     "attention": "autocode_attention_cli",
     "verify": "autocode_verify_task",
     "issue": "autocode_issue",
+    "bridge": "autocode_bridge_cli",
     "arena": "autocode_arena",
     "dashboard": "dashboard.agent_console",
     "unattended": "autocode_unattended",
