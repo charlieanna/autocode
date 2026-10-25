@@ -2244,7 +2244,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/bedab8ede1382340202c0c645c70ddd8cbc36599/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/26dde8bbc06b8c2237070b444104197f1438dc7d/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3010,7 +3010,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/bedab8ede1382340202c0c645c70ddd8cbc36599/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/26dde8bbc06b8c2237070b444104197f1438dc7d/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3423,8 +3423,83 @@ before resuming. Missing issued tokens offer a noninteractive display, and a
 missing original source or immutable caller binding offers inspection. A terminal
 stop or dependency wait offers no recovery command. CLI gates still validate
 freshness and authority when a person executes any displayed command.</p>
-<p>For the exact finite total-time recovery, <code>needs.command_inputs</code> describes the
-person's numeric decision additively:</p>
+<p><code>needs.command_inputs</code> describes the one number a pause leaves to a person, so a
+client can ask for it instead of handing the command off (#2044). Every bound a
+budget pause names is described, with the same row shape:</p>
+<table>
+<thead>
+<tr>
+<th>Pause holding the run</th>
+<th><code>id</code></th>
+<th><code>flag</code></th>
+<th><code>label</code></th>
+<th><code>used</code> reports</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PAUSED_TIME_LIMIT</code></td>
+<td><code>max_seconds</code></td>
+<td><code>--max-seconds</code></td>
+<td>Total active time (seconds)</td>
+<td><code>elapsed</code>: active seconds</td>
+</tr>
+<tr>
+<td><code>PAUSED_COST_LIMIT</code></td>
+<td><code>max_cost_usd</code></td>
+<td><code>--max-cost-usd</code></td>
+<td>Cost cap (whole USD)</td>
+<td>known spend in USD</td>
+</tr>
+<tr>
+<td><code>PAUSED_ITERATION_LIMIT</code></td>
+<td><code>max_iterations</code></td>
+<td><code>--max-iterations</code></td>
+<td>Total iterations</td>
+<td>the current iteration</td>
+</tr>
+<tr>
+<td><code>PAUSED_MILESTONE_TIME_LIMIT</code>, <code>PAUSED_MILESTONE_BUDGET</code></td>
+<td><code>max_milestone_seconds</code></td>
+<td><code>--max-milestone-seconds</code></td>
+<td>Milestone active time (seconds)</td>
+<td>the milestone's counted seconds</td>
+</tr>
+<tr>
+<td><code>PAUSED_MILESTONE_STALLED</code></td>
+<td><code>max_milestone_replans</code></td>
+<td><code>--max-milestone-replans</code></td>
+<td>Milestone replans</td>
+<td>replans used</td>
+</tr>
+<tr>
+<td><code>PAUSED_NO_PROGRESS</code> (its unchanged-batch bound only)</td>
+<td><code>no_progress_limit</code></td>
+<td><code>--no-progress-limit</code></td>
+<td>Unchanged implementation batches allowed</td>
+<td>unchanged batches counted</td>
+</tr>
+</tbody>
+</table>
+<p>For each, <code>minimum</code> is one more than the larger of <code>current</code> (the saved bound;
+the cost cap may be fractional) and the count, <code>maximum</code> is the largest safe
+integer, and the command is <code>--resume-paused FLAG N --expected-recovery-token -</code>
+with the current <code>recovery.token</code> in <code>AUTOCODE_EXPECTED_RECOVERY_TOKEN</code>. The row
+is offered wherever that bound holds the run: at its own pause, after
+AutoResolver published its operational request for it, and once corrective
+information has been reviewed and held (not while that review is pending). It is
+not offered while the run is active, while an attempt or report repair is
+unreconciled, or where the need names another control (a retry, an edit, a
+model question, a new run).</p>
+<p>Where <code>next_command</code> is that raise, the row binds to it. Where it is not, because
+the need is a plain <code>--resume-paused</code> or AutoResolver's operational response, the
+row also carries <code>command</code>: the raise itself, a complete command with the run's
+paths and the private token channel. A client fills the row's <code>arg_index</code> in
+that command and takes it, never in <code>next_command</code> or in a reply. The terminal
+chat offers it at the pause's yes/no and at the operational reply; the headless
+conformance client and the VS Code client validate it the same way
+(<code>tools/autocode_client_actions.check_input</code>).</p>
+<p>For the finite total-time recovery, for example:</p>
 <pre><code class="language-json">{&quot;id&quot;:&quot;max_seconds&quot;,&quot;kind&quot;:&quot;integer&quot;,&quot;flag&quot;:&quot;--max-seconds&quot;,&quot;placeholder&quot;:&quot;N&quot;,
  &quot;arg_index&quot;:2,&quot;label&quot;:&quot;Total active time (seconds)&quot;,&quot;current&quot;:2700,&quot;elapsed&quot;:2800.5,
  &quot;minimum&quot;:2801,&quot;maximum&quot;:9007199254740991}
@@ -3439,7 +3514,7 @@ descriptor and token binding before substituting that one argument. A person
 must enter a whole number between <code>minimum</code> and <code>maximum</code>; there is no default
 and no extraction of numbers from chat. The minimum exceeds both the saved cap
 and consumed active time. An empty, zero, fractional, unsafe or out-of-range
-value grants nothing. Other unresolved <code>N</code> placeholders remain client gaps.</p>
+value grants nothing. An <code>N</code> with no row is a client gap.</p>
 <p>This choice changes only the total active-time cap. It neither changes other
 limits or model routes nor approves a plan. Recovery freshness is rechecked
 under the run lock, including the saved active-time accounting. Ordinary CLI
@@ -3467,7 +3542,7 @@ choice. Planning accounting participates in the recovery token's freshness.</p>
 allowance setter and preserves charged calls, recovery history, other limits,
 routes and plan approval. It does not reset a cycle, change allowance policy or
 approve the plan. Ordinary CLI callers retain their existing explicit zero
-semantics. Other numeric placeholders remain unsupported.</p>
+semantics.</p>
 <p>An exhausted <code>PAUSED_TIMEOUT_RECOVERY</code> can name one additional finite choice:</p>
 <pre><code class="language-json">{&quot;id&quot;:&quot;grant_recovery&quot;,&quot;kind&quot;:&quot;integer&quot;,&quot;flag&quot;:&quot;--grant-recovery&quot;,&quot;placeholder&quot;:&quot;N&quot;,
  &quot;arg_index&quot;:2,&quot;label&quot;:&quot;Additional recoveries&quot;,&quot;current&quot;:3,&quot;used&quot;:3,&quot;minimum&quot;:1,&quot;maximum&quot;:3}
@@ -3539,7 +3614,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/bedab8ede1382340202c0c645c70ddd8cbc36599/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/26dde8bbc06b8c2237070b444104197f1438dc7d/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
