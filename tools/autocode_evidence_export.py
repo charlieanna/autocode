@@ -110,7 +110,7 @@ def metadata(state: RunState):
     }
 
 
-def record(state, anchor):
+def record(state: RunState, anchor):
     """Store the small authentication anchor, never another report's document."""
     state["evidence_export"] = {
         key: anchor.get(key)
