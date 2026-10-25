@@ -2122,7 +2122,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/c7bf4e82588ddef6757ae5e636f12cb328d05d19/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/e558ec084cd661174c739bf25b005e58cd1863fd/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2292,7 +2292,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/c7bf4e82588ddef6757ae5e636f12cb328d05d19/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/e558ec084cd661174c739bf25b005e58cd1863fd/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2684,7 +2684,11 @@ first switches the role on its own. It takes the next qualified model on an acco
 run already uses, keeps every checker independent of its producer, and prints a line such
 as <code>Builder: MODEL stopped (PAUSED_BUDGET); switched to NEW_MODEL on ACCOUNT without asking</code>.
 The switch sets the stopped attempt aside the same way an answer does, is recorded as a
-<code>route_assignment</code> whose actor is <code>runner</code>, and counts as an automatic recovery. AutoCode
+<code>route_assignment</code> whose actor is <code>runner</code>, and counts as an automatic recovery. When the new
+model bills another way than the stopped one (a subscription route replaced by a pay-per-token
+one, by the billing discovery recorded), the record carries <code>billing: {from, to}</code>, which the
+status view's <code>route_assignments</code> shows, and the line ends <code>; it bills pay per token where
+MODEL was subscription</code> (#2061). AutoCode
 asks instead when no such model remains, when you pinned the role's model with a flag,
 when a pause was requested, and for native runs and workflow jobs. The same switch applies
 to content-filter and output-limit stops.</p>
