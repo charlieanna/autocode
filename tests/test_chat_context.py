@@ -29,6 +29,27 @@ def view(run, context, *, durable=True):
 
 
 class PerRunContext(unittest.TestCase):
+    def test_leaving_one_question_does_not_erase_the_other_runs_restored_prompt_and_draft(self):
+        ui = screen_ui()
+        ui.set_context(WORKSPACE, A)
+        ui.observe(view(A, "a1"))
+        ui._prompt = "A question"
+        ui._handle(tui.Pasted("A draft 你好"), asking=True)
+        ui.switch(WORKSPACE, B)
+        ui.observe(view(B, "b1"))
+
+        def switch_to_a():
+            ui.switch(WORKSPACE, A)
+            raise chat.Switched
+
+        ui._read_key = switch_to_a
+        with patch.object(tui.curses, "curs_set"), patch.object(tui.curses, "flushinp"):
+            with self.assertRaises(chat.Switched):
+                ui.ask("B question")
+            ui.observe(view(A, "a1"))
+            ui._read_key = lambda: "\n"
+            self.assertEqual("A draft 你好", ui.ask("A question"))
+
     def test_restored_draft_does_not_claim_switch_capability_before_fresh_status(self):
         ui = screen_ui()
         ui.set_context(WORKSPACE, A)

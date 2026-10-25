@@ -55,6 +55,7 @@ try:
     from . import autocode_chat_attention as attention
     from . import autocode_chat_attention_discovery as attention_discovery
     from . import autocode_chat_context as contexts
+    from . import autocode_chat_inventory as inventory
     from . import autocode_chat_panel as panel
     from . import autocode_chat_polling as polling
     from . import autocode_chat_setup as setup
@@ -65,6 +66,7 @@ except ImportError:
     import autocode_chat_attention as attention
     import autocode_chat_attention_discovery as attention_discovery
     import autocode_chat_context as contexts
+    import autocode_chat_inventory as inventory
     import autocode_chat_panel as panel
     import autocode_chat_polling as polling
     import autocode_chat_setup as setup
@@ -125,6 +127,7 @@ class History:
         self.workspace, self.command, self.env = Path(workspace), tuple(command), env
         self.rows: list[dict] = []
         self.attention: attention_discovery.Discovery | None = None
+        self.overview: inventory.Overview | None = None
         self.left_out = 0
         self.new = new or setup.NewChat()  # what /new and the first question start: /mode, /engine, /connect
         # Runs a backend's interactive sign-in or setup on the terminal itself (the full-screen chat steps aside).
@@ -222,6 +225,8 @@ class History:
 
     def slash(self, name: str, argument: str, current=None):
         """/runs, /open N and /new; the other client commands need a run to act on."""
+        if self.overview is not None and name in ("/open", "/new"):
+            self.overview.cancel_navigation()
         if name == "/attention":
             return (
                 self.attention.menu()
@@ -229,6 +234,8 @@ class History:
                 else "Open a terminal chat to inspect saved attention."
             )
         if name == "/runs":
+            if self.overview is not None:
+                return self.overview.request(self, current)
             try:
                 rows = self.list()
                 return panel.runs_text(rows, current, here=self.workspace.resolve(), left_out=self.left_out)
@@ -244,6 +251,8 @@ class History:
                 return "This is a new chat: type what you want done."
             raise NewChat
         if name == "/open":
+            if not self.rows and self.overview is not None:
+                return self.overview.request(self, current, then=lambda: self.slash(name, argument, current))
             rows = self.rows or self.list()
             if not argument.isdigit() or not 1 <= int(argument) <= len(rows):
                 return f"There is no chat {argument or 'to open'}. Type /runs to see them, then /open N."
@@ -318,6 +327,7 @@ class ChatClient:
         self.attention_changed: Callable[[dict], None] | None = None
         self._composing_new = False
         self._poller = polling.StatusPoller(self.command, env=self.env)
+        self._overview = inventory.Overview(self._poller, self.say)
         self._status_view: dict | None = None
         self._status_serial = 0
         self._status_error = ""
@@ -359,8 +369,13 @@ class ChatClient:
         targets.update({(str(workspace), run): OTHERS_SECONDS for run, (workspace, _) in self.others.items()})
         if self.history is not None:
             targets[(current[0], None)] = polling.INVENTORY_SECONDS
+        targets.update(self._overview.targets())
         for key, raw, error in self._poller.tick(targets):
+            if isinstance(key, polling.ProjectRuns):
+                self._overview.accept(key, raw, error)
+                continue
             if key[1] is None:
+                self._overview.accept(key, raw, error)
                 self._attention.listing(raw, error, started=self._poller.completed.get(key, 0))
                 continue
             try:
@@ -593,6 +608,25 @@ class ChatClient:
         if name in ("/runs", "/open", "/new", "/mode", "/engine", "/connect"):
             if self.history is None:
                 return "This chat has no project list."
+            self.history.overview = self._overview
+            if name == "/open" and not self.history.rows:
+
+                def identity():
+                    return str(self.workspace), str(self.run_dir), contexts.draft_identity(self._status_view)
+
+                source = identity()
+
+                def selected():
+                    if identity() != source:
+                        self.say("Open cancelled because the source chat or question changed.")
+                        return
+                    try:
+                        self.history.slash(name, argument, current=self.run_dir)
+                    except Opened as opened:
+                        self.talk_to(Path(opened.row.get("workspace") or self.workspace), Path(opened.row["run_dir"]))
+                        raise Switched from None
+
+                return self._overview.request(self.history, self.run_dir, then=selected)
             try:
                 return self.history.slash(name, argument, current=None if self._composing_new else self.run_dir)
             except Opened as opened:
@@ -709,6 +743,7 @@ class ChatClient:
 
     def talk_to(self, workspace: Path, run_dir: Path) -> None:
         """Restore another run's session display, then refresh its authority. Watch the run left."""
+        self._overview.cancel_navigation()
         self._display_contexts.keep(
             contexts.identity(self.workspace, self.run_dir),
             {
@@ -790,6 +825,7 @@ class ChatClient:
 
     def tab(self, argument: str) -> str:
         """/tab N: carry on with tab N's chat; ``next`` and ``previous`` step through the tabs."""
+        self._overview.cancel_navigation()
         rows = self.tabs()
         here = next(row["number"] for row in rows if row["current"])
         steps = {"next": here % len(rows) + 1, "previous": (here - 2) % len(rows) + 1}
@@ -1640,6 +1676,7 @@ def cli(argv: list[str] | None = None) -> int:
                 workspace, command=AUTOCODE, env=None, say=say, changed=ui.attention, open_run=open_attention
             )
             history.attention = discovery
+            history.overview = discovery._overview
             ui.idle = discovery.poll
         if args.mode is None and saved.mode is not None:
             history.forget_unlisted_mode()
