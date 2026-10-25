@@ -268,3 +268,38 @@ The live recognizer judged every request correctly: 8 clear, 3 vague.
   to keep existing test names; its effect is not measured yet.
 - Planning restarts after a deferred approval are unbounded
   (`docs/bugs/2026-09-30-unbounded-planning-restart.md`).
+
+## Compact planning for bug fixes
+
+`--compact-bugfix-planning` (new runs only; off by default) lets a reproduced, localized bug
+skip one paid planning call. On the ordinary bug-fix path Requirements runs, the Investigator
+reproduces the bug (`investigate_bug`), the Planner writes the plan draft (`astra_discovery`), the
+Plan Reviewer reviews it and you approve the displayed plan. On the compact path the runner
+writes that draft itself, deterministically, from two records it already holds: the
+Investigator's diagnosis (its root cause, invariant, regression cases, affected and test paths)
+and the Requirements record (every requirement row becomes a required behaviour, and the
+requirement trace is checked as a Planner's would be). The Plan Reviewer reviews the runner's
+draft exactly as it reviews a Planner's; a clean review goes to your exact-token approval, as an
+adaptive run's early approval does, and a blocking concern returns the run to the full path, where
+the Planner drafts with the review in its packet; the compact draft's review call is refunded, so the
+full path keeps the plan-review allowance it would have had. The draft is never approved by a policy.
+Everything after approval is unchanged: acceptance tests when configured, the Builder, the
+regression proof (each restore case fails on the original code and passes after the fix), the
+Tester and a separate Completion Reviewer.
+
+The path is taken only when every trusted signal admits it; a model's word can keep the full
+path but never grant the compact one:
+
+- the run opted in and plans adaptively, with joint planning;
+- Requirements named the bug-fix job (a pinned `--workflow bugfix` has no Requirements record);
+- the Investigator reproduced the bug with a probe the runner ran, sized the fix `small`, and named
+  a root cause, an invariant and at least one regression case;
+- the fix touches at most four files (affected and test paths together), and none of them, nor the
+  diagnosis note, matches the project's declared `sensitive-paths`
+  ([project settings](cli.md#project-settings)); a project that declares none keeps the full path;
+- the contract validators accept the runner's draft; a refused draft keeps the full path, with the
+  refusal recorded.
+
+The decision, its reasons and the hashes it rests on are recorded once per job and shown by the
+status view as `stage_policy` ([task-run interface](task-run.md#status-view)). Existing runs keep
+their saved behaviour; a saved run refuses a changed flag.

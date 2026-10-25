@@ -7,7 +7,7 @@ sub-tables belong to other tooling); config.toml wins a key both set. AutoCode's
 committed and reviewed like any other.
 
 Keys are the flag names without the leading dashes (KEYS): ``engine``, ``test-command``, the role model and
-reasoning-effort flags, and the budgets. Two keys have no flag (FILE_ONLY), so no command line sets or replaces
+reasoning-effort flags, and the budgets. Three keys have no flag (FILE_ONLY), so no command line sets or replaces
 them: ``require-approver``, the Git email addresses allowed to approve the run's plan and reviews and to accept
 its completion (autocode_required_approver), which a replay (--replay-recording) never takes; and ``serve``, the
 command that runs the project's development server (autocode_dev_server_config), which in pyproject.toml can be
@@ -37,11 +37,13 @@ try:
     from . import autocode_project_memory as project_memory
     from . import autocode_project_memory_interface as memory_interface
     from . import autocode_required_approver as required_approver
+    from . import autocode_sensitive_paths as sensitive_paths
 except ImportError:
     import autocode_dev_server_config as dev_server_config
     import autocode_project_memory as project_memory
     import autocode_project_memory_interface as memory_interface
     import autocode_required_approver as required_approver
+    import autocode_sensitive_paths as sensitive_paths
 
 ENGINE = ("engine",)
 MODELS = (
@@ -88,7 +90,7 @@ BUDGETS = (
 KEYS = (*ENGINE, *MODELS, *EFFORTS, *COMMANDS, *BUDGETS)
 # Settings only a project file gives, with no flag: a team's rule a new run saves (autocode_required_approver),
 # and the command that serves its app (autocode_dev_server_config).
-FILE_ONLY = (required_approver.KEY, dev_server_config.KEY)
+FILE_ONLY = (required_approver.KEY, dev_server_config.KEY, sensitive_paths.KEY)
 
 _PROVIDER = (
     "the provider runs a command you installed, so a project cannot choose it: use --provider, "
@@ -213,6 +215,10 @@ def apply(actions, args, explicit, workspace, *, memory_input=None) -> dict[str,
             continue
         if key == dev_server_config.KEY:  # no flag; autocode_configure saves it with a new run
             setattr(args, dev_server_config.SETTING, dev_server_config.checked(value, source))
+            applied[key] = source
+            continue
+        if key == sensitive_paths.KEY:  # no flag; autocode_configure saves it with a new run (#2021)
+            setattr(args, sensitive_paths.SETTING, sensitive_paths.checked(value, source))
             applied[key] = source
             continue
         action = actions["--" + key]
