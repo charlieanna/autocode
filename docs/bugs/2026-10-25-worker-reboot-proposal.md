@@ -8,8 +8,15 @@ tests remain simulated evidence.
 ## Exact environment and proposed action
 
 The manual-only `worker-reboot-c4` workflow creates one new QEMU guest inside a
-GitHub-hosted `ubuntu-24.04` x86_64 runner. It refuses self-hosted runners and
-missing readable/writable `/dev/kvm`, with no emulation or container fallback.
+GitHub-hosted `ubuntu-24.04` x86_64 runner. It refuses self-hosted, non-Linux,
+non-x86_64 or root callers. The guest accelerator is explicitly TCG, using
+`-machine q35 -accel tcg,thread=multi -cpu max`; there is no automatic accelerator
+fallback. KVM availability is recorded as diagnostic metadata, not an admission
+requirement. KVM was a qualification speed preference, absent from the product
+lifecycle contract. [QEMU system emulation](https://www.qemu.org/docs/master/system/introduction.html)
+boots a real guest OS with TCG; this does not substitute user-mode emulation or
+a container for the guest. The unchanged runtime still admits only its supported
+Linux ABI, process namespace and seccomp-continuation boundary.
 It does not change the existing `worker_host_setup.sh` or its CI-only guard.
 No PR, push or schedule event runs this workflow; PR checks exercise only the
 pure fake observations in `tests/test_worker_reboot.py`.
@@ -35,7 +42,7 @@ After the reviewed revision is merged and the coordinating session confirms
 execution, the proposed manual dispatch is:
 
 ```sh
-gh workflow run worker-reboot.yml --ref REVIEWED_MERGED_COMMIT
+gh workflow run worker-reboot.yml --ref REVIEWED_PINNED_BRANCH
 ```
 
 The workflow's exact advancing command is:
@@ -47,8 +54,10 @@ timeout --signal=TERM --kill-after=15s 22m \
 ```
 
 The workflow must exist on the default branch for GitHub's manual-dispatch
-registration. The coordinating session reviewed the exact environment, commands
-and bounds for qualification-only publication. Dispatch remains deferred until
+registration. The named branch must resolve to the merged reviewed commit;
+result metadata records the actual checkout SHA. The coordinating session
+reviewed the exact environment adjustment, commands and bounds for
+qualification-only publication. Dispatch remains deferred until
 it confirms the merged reviewed revision. Preparation did not install packages,
 download a disk image, boot a VM or reboot any system.
 
@@ -57,8 +66,8 @@ download a disk image, boot a VM or reboot any system.
 One QEMU process receives 2 virtual CPUs, 2 GiB RAM and a 12 GiB copy-on-write
 guest disk. The 593 MB published image is read-only backing storage. The job
 has a 30 minute limit; the coordinator has a 22 minute external timeout.
-Individual bounds are 180 seconds for initial SSH, 600 for cloud-init, 180 for
-fixture preparation, 180 for reboot/reconnect and 45 for each of three public
+Individual bounds are 300 seconds for initial SSH, 600 for cloud-init, 180 for
+fixture preparation, 300 for reboot/reconnect and 45 for each of three public
 post-reboot samples. Source transfer and installation have their own bounded
 subprocess timeouts. A failed admission, provisioning or timeout is unverified,
 never a passing skip, and is not retried automatically.
@@ -70,6 +79,27 @@ SSH. The narrowly scoped Ubuntu user-namespace sysctl adjustment is inside the
 guest, following the existing disposable worker-host qualification. Guest
 runtime dependencies use the existing pinned psutil 7.1.0 test convention.
 No model account, provider credential or repository-write token is copied.
+
+## Admission diagnostics before setup
+
+The initial step runs only the standard-library command:
+
+```sh
+python -I tests/worker_reboot_vm.py --admission-only
+```
+
+It prints the accelerator, named GitHub runner/host identity facts, UID, required
+path-presence flags and `/dev/kvm` stat/access metadata. It evaluates every
+mandatory predicate and reports each failed name instead of one generic shell
+exit. It never dumps the environment, installs anything, creates a VM, reads a
+model account or administers the host. A failed predicate exits nonzero before
+coordinator installation or image download; Bash pipefail preserves that refusal
+while `tee` retains its JSON report.
+
+The workflow creates `.scenario-runs/worker-reboot-admission` with a fresh-only
+`mkdir`. This separate early directory cannot collide with the coordinator's
+fresh `.scenario-runs/worker-reboot` directory. The coordinator still refuses
+an existing attempt directory rather than overwriting earlier evidence.
 
 ## Identity, fixture and reboot boundary
 
@@ -130,13 +160,34 @@ invent an uncertain outcome where cleanup provided a known result, or infer
 permission to replay an uncertain provider call. Applying recovery is left to
 the named human boundary and is not needed to establish this C4 no-replay slice.
 
-Evidence is limited to `.scenario-runs/worker-reboot`: before/after public
-observations, success/failure metadata, exact Git checkout SHA and tools-tree
-pin, public runtime identity, source-archive/image hashes, the exact
-outer command list and QEMU/serial output. Private SSH material, the seed,
+Evidence is limited to `.scenario-runs/worker-reboot-admission` and
+`.scenario-runs/worker-reboot`: allowlisted admission facts, before/after public
+observations, success/failure metadata, the selected accelerator and phase/total
+wall durations, exact Git checkout SHA and tools-tree pin, public runtime
+identity, source-archive/image hashes, the exact outer command list and
+QEMU/serial output. `result.json` is published only after the exact QEMU child
+has stopped successfully. Cleanup failure records failure evidence and never
+leaves a PASS result. `phase-durations.json` retains setup, boot, provisioning,
+source installation, fixture preparation, reboot, read-only inspection and
+cleanup scopes; unsuccessful phases remain unsuccessful. Private SSH material, the seed,
 overlay and guest disk remain under private `RUNNER_TEMP` and are never uploaded.
 Cleanup terminates only the coordinator's exact QEMU child. GitHub disposes the
 new runner and its guest storage at the end of the bounded job.
+
+## Retained first attempt
+
+The sole first actual qualification attempt,
+[run 40240501353](https://github.com/charlieanna/autocode/actions/runs/40240501353),
+used merged revision `4698d44ddd1c0def83dbd22693e4f27214a864f5`. It failed the
+initial shell admission step with exit 1. The log did not print predicate values
+or execution tracing, so the exact failed GitHub-hosted/x86_64/KVM predicate is
+unknown. Coordinator setup, image download and guest boot/reboot were skipped.
+This failure remains evidence; it established neither reboot nor recovery.
+
+The TCG follow-up is an explicitly reviewed qualification-environment change,
+not a retry of that unchanged revision or an automatic fallback. No TCG guest
+has yet run. The new diagnostics make any next refusal attributable without
+weakening hosted-runner, guest identity or native runtime admission.
 
 ## Review and remaining proof
 
@@ -147,7 +198,7 @@ a new disposable CI environment. The coordinating session reviewed publication;
 execution still awaits its confirmation of the merged reviewed revision. It does not authorize administering
 the user's Mac or an existing Linux host.
 
-Actual KVM availability on the selected runner, image boot/cloud-init behavior,
+Actual TCG boot/performance on the selected runner, image/cloud-init behavior,
 guest containment admission, real shutdown/reconnect timing and the C4 oracles
 remain unverified. If any prerequisite fails, retain the failed artifact and
 report that limit instead of broadening the host or bypassing admission.

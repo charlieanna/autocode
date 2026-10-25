@@ -101,6 +101,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("tests.test_planning_artifacts", "tests.test_report_repair_context"),
     ),
     ("tools/prompts/fragments/autoplanner/brief-observation-review-rule.md", ("tests.test_brief_acceptance",)),
+    (
+        "tools/prompts/fragments/autoplanner/out-of-checkout-proxy-rule.md",
+        ("tests.test_autoplanner_review",),
+    ),
     ("tools/autocode_capture_bootstrap.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/autocode_native_capture_linux.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/prompts/plan-chat.md", ("tests.test_plan_chat_cli",)),
@@ -121,6 +125,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("tools/prompts/fragments/autoplanner/", ("tests.test_autoplanner_review", "tests.test_planning_stages")),
+    (
+        "tools/prompts/fragments/autoplanner/feedback-interpretations.md",
+        ("tests.test_feedback_assumption_provenance", "tests.test_report_repair_context", "tests.test_brief_cli"),
+    ),
     (
         "tools/prompts/fragments/autoplanner/concern-only-contract-audit.md",
         ("tests.test_planning_report_policy", "tests.test_stage_repair_cli"),
@@ -221,7 +229,13 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_brief_cli",),
     ),
     (
-        ("tools/autocode_brief_acceptance.py", "tools/autocode_brief_obligations.py", "tools/units/autoplanner.py"),
+        (
+            "tools/autocode_brief_acceptance.py",
+            "tools/autocode_brief_obligations.py",
+            "tools/autocode_assumption_provenance.py",
+            "tools/autocode_contract_revision.py",
+            "tools/units/autoplanner.py",
+        ),
         ("tests.test_brief_cli",),
     ),
     (
@@ -367,7 +381,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     # The full-screen chat in a real terminal (#1646): its tests launch the CLI, so imports cannot select them.
     (("tools/autocode_chat_", "tools/autocode_client_actions.py"), ("tests.test_chat_screens",)),
-    (("tools/autocode_chat_", "tools/autocode_client_actions.py"), ("tests.test_chat_polling_cli",)),
+    (
+        ("tools/autocode_chat_", "tools/autocode_client_actions.py"),
+        ("tests.test_chat_polling_cli", "tests.test_chat_inventory_cli"),
+    ),
     (("tools/autocode.py", "tools/autopilot.py", "tools/autocode_taskrun.py"), ("tests.test_launch_state_cli",)),
     (
         ("tools/autocode_build_loop", "tools/autocode_run_setup", "tools/autocode_run_actions"),

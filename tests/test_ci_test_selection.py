@@ -64,6 +64,7 @@ class DynamicDependenciesTests(unittest.TestCase):
             "tests.test_chat_tui",
             "tests.test_chat_client",
             "tests.test_chat_polling_cli",
+            "tests.test_chat_inventory_cli",
         }
         for path in (
             "tools/autocode_chat_cost.py",

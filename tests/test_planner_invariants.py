@@ -7,6 +7,7 @@ from pathlib import Path
 
 import autocode_goal_lifecycle as lifecycle
 import autocode_planning as planning
+import autocode_trace_coverage as trace_coverage
 import autopilot
 from goal_fixtures import body
 
@@ -447,6 +448,189 @@ class TraceTests(unittest.TestCase):
                 )
                 with self.assertRaisesRegex(ValueError, expected):
                     autopilot.apply_planning(current, "astra_discovery", payload, {"output": "draft.json"})
+
+
+class ProxyGapTests(unittest.TestCase):
+    """A covered criterion proven on an internal value while a note places the user-visible result
+    outside this checkout is a stand-in that discharges nothing the user sees (#2068)."""
+
+    def gaps(
+        self, requirement, criterion, *, note="The board is rendered by BoardHost, which is outside this checkout"
+    ):
+        contract = {
+            "required_behaviors": ["Show the empty domain list as `--`"],
+            "constraints": [note] if note else [],
+            "scope_exclusions": ["Web service"],
+            "accepted_assumptions": [],
+            "acceptance_criteria": [
+                {
+                    "id": "C1",
+                    "criterion": criterion,
+                    "verification_method": "Run the board check",
+                    "human_review": False,
+                }
+            ],
+        }
+        trace = [{"requirement_id": requirement["id"], "disposition": "covered", "evidence": "C1"}]
+        return trace_coverage.proxy_gaps([requirement], trace, contract)
+
+    def test_a_proxy_criterion_under_an_external_note_is_one_gap(self):
+        requirement = {
+            "id": "R1",
+            "text": "The board shows the empty domain list as `--`",
+            "source_quote": "The board shows the empty domain list as `--`.",
+        }
+        self.assertEqual(
+            [
+                {
+                    "requirement_id": "R1",
+                    "literal": "--",
+                    "criteria": ["list_domains returns a non-empty response"],
+                }
+            ],
+            self.gaps(requirement, "list_domains returns a non-empty response"),
+        )
+
+    def test_the_same_note_with_a_criterion_that_names_the_visible_literal_is_no_gap(self):
+        requirement = {
+            "id": "R1",
+            "text": "The board shows the empty domain list as `--`",
+            "source_quote": "The board shows the empty domain list as `--`.",
+        }
+        self.assertEqual([], self.gaps(requirement, "The empty domain list renders as `--`"))
+
+    def test_a_proxy_criterion_without_an_external_note_is_no_gap(self):
+        requirement = {
+            "id": "R1",
+            "text": "The board shows the empty domain list as `--`",
+            "source_quote": "The board shows the empty domain list as `--`.",
+        }
+        self.assertEqual([], self.gaps(requirement, "list_domains returns a non-empty response", note=None))
+
+    def test_scope_wording_and_write_discipline_are_no_external_note(self):
+        requirement = {
+            "id": "R1",
+            "text": "The board shows the empty domain list as `--`",
+            "source_quote": "The board shows the empty domain list as `--`.",
+        }
+        for note in (
+            "Deployment is outside the scope of this project",
+            "Secrets are managed outside this repository",
+            "Do not write files outside this workspace",
+            "The renderer is outside the scope of this repository",
+        ):
+            with self.subTest(note=note):
+                self.assertEqual([], self.gaps(requirement, "list_domains returns a non-empty response", note=note))
+
+    def test_the_original_incident_phrasing_is_still_a_gap(self):
+        requirement = {
+            "id": "R1",
+            "text": "The board shows the empty domain list as `--`",
+            "source_quote": "The board shows the empty domain list as `--`.",
+        }
+        self.assertEqual(
+            [
+                {
+                    "requirement_id": "R1",
+                    "literal": "--",
+                    "criteria": ["list_domains returns a non-empty response"],
+                }
+            ],
+            self.gaps(
+                requirement, "list_domains returns a non-empty response", note="RegManager is outside this checkout"
+            ),
+        )
+
+    def test_a_change_refusal_here_is_a_gap_including_the_contracted_forms(self):
+        requirement = {
+            "id": "R1",
+            "text": "The board shows the empty domain list as `--`",
+            "source_quote": "The board shows the empty domain list as `--`.",
+        }
+        gap = [{"requirement_id": "R1", "literal": "--", "criteria": ["list_domains returns a non-empty response"]}]
+        for note in (
+            "The renderer can't be changed here",
+            "The renderer can\u2019t be changed here",
+            "The renderer cannot be changed here",
+            "The renderer won't be changed here",
+        ):
+            with self.subTest(note=note):
+                self.assertEqual(gap, self.gaps(requirement, "list_domains returns a non-empty response", note=note))
+
+    def test_a_component_owned_by_another_repository_is_a_gap(self):
+        requirement = {
+            "id": "R1",
+            "text": "The board shows the empty domain list as `--`",
+            "source_quote": "The board shows the empty domain list as `--`.",
+        }
+        gap = [{"requirement_id": "R1", "literal": "--", "criteria": ["list_domains returns a non-empty response"]}]
+        for note in (
+            "The renderer lives in another repository",
+            "The renderer is owned by a different repo",
+            "The renderer is part of a separate service",
+        ):
+            with self.subTest(note=note):
+                self.assertEqual(gap, self.gaps(requirement, "list_domains returns a non-empty response", note=note))
+
+    def test_the_note_matcher_takes_explicit_statements_only(self):
+        from autocode_trace_coverage import places_outside_checkout as places
+
+        for note in (
+            "RegManager, which renders the list, is outside this checkout",
+            "The renderer can't be changed here",
+            "The renderer cannot be modified in this repository",
+            "AssetPanel lives in another repository",
+            "The renderer is not in this repository",
+        ):
+            with self.subTest(note=note):
+                self.assertTrue(places(note))
+        for note in (
+            "This repository uses external dependencies",
+            "This repository calls an external API",
+            "Dependencies of this repository are external and pinned",
+            "Do not modify anything outside this checkout",
+            "Do not write files outside this workspace",
+            "This workspace is beyond the scope of this project",
+            "Secrets are managed outside this repository",
+            "Python standard library only",
+        ):
+            with self.subTest(note=note):
+                self.assertFalse(places(note))
+
+    def test_a_non_string_requirement_text_is_ignored(self):
+        requirement = {"id": "R1", "text": 7}
+        self.assertEqual([], self.gaps(requirement, "list_domains returns a non-empty response"))
+
+    def test_a_second_differently_named_proxy_is_a_gap(self):
+        requirement = {
+            "id": "R2",
+            "text": "The asset panel prints `[]` for no assets",
+            "source_quote": "The asset panel prints `[]` for no assets.",
+        }
+        contract = {
+            "required_behaviors": ["Print the empty asset list as `[]`"],
+            "constraints": [],
+            "scope_exclusions": [],
+            "accepted_assumptions": [
+                {"text": "AssetPanel renders the list and is outside this repository", "basis": "agent_proposed"}
+            ],
+            "acceptance_criteria": [
+                {"id": "C7", "criterion": "assetctl list returns rows", "verification_method": "run assetctl"}
+            ],
+        }
+        trace = [{"requirement_id": "R2", "disposition": "covered", "evidence": "C7"}]
+        self.assertEqual(
+            [{"requirement_id": "R2", "literal": "[]", "criteria": ["assetctl list returns rows"]}],
+            trace_coverage.proxy_gaps([requirement], trace, contract),
+        )
+
+    def test_a_requirement_without_a_literal_is_no_gap(self):
+        requirement = {
+            "id": "R1",
+            "text": "The board lists the registered domains",
+            "source_quote": "The board lists the registered domains.",
+        }
+        self.assertEqual([], self.gaps(requirement, "list_domains returns a non-empty response"))
 
 
 class PlanEvidenceTests(unittest.TestCase):

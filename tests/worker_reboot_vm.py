@@ -2,7 +2,7 @@
 
 The reviewed cloud image must already exist locally with its approved SHA256.
 This harness never downloads an image, administers an existing host or accepts
-an arbitrary SSH target. No workflow currently invokes it.
+an arbitrary SSH target. Its workflow is manual-only.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import platform
 import shlex
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import tarfile
@@ -23,38 +24,73 @@ import time
 import uuid
 from pathlib import Path
 
-from tests.worker_reboot_guest import check_reboot
-
 BOOT = Path("/proc/sys/kernel/random/boot_id")
 GUEST = "/opt/autocode"
 USER = "autocode"
+ACCELERATOR = "tcg"
 IMAGE_URL = "https://cloud-images.ubuntu.com/releases/noble/release-20261017/ubuntu-24.04-server-cloudimg-amd64.img"
 IMAGE_SHA256 = "04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94"
 
 
-def require_ci() -> None:
-    if (
-        sys.platform != "linux"
-        or platform.machine() != "x86_64"
-        or os.environ.get("GITHUB_ACTIONS") != "true"
-        or os.environ.get("RUNNER_OS") != "Linux"
-        or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"
-        or not os.environ.get("RUNNER_TEMP")
-        or not os.environ.get("GITHUB_WORKSPACE")
-        or os.getuid() == 0
-    ):
-        raise RuntimeError("Only a disposable GitHub-hosted x86_64 Linux runner may start this guest")
-    if not os.access("/dev/kvm", os.R_OK | os.W_OK):
-        raise RuntimeError("KVM is required; do not silently replace this host qualification with emulation")
+def admission_metadata() -> dict:
+    """Read only named host facts; KVM is diagnostic because TCG is explicit."""
+    kvm = {"exists": False, "readable": os.access("/dev/kvm", os.R_OK), "writable": os.access("/dev/kvm", os.W_OK)}
+    try:
+        device = Path("/dev/kvm").stat()
+        kvm.update(
+            exists=True,
+            character_device=stat.S_ISCHR(device.st_mode),
+            mode=oct(stat.S_IMODE(device.st_mode)),
+            uid=device.st_uid,
+            gid=device.st_gid,
+        )
+    except OSError as error:
+        kvm["stat_error"] = {"type": type(error).__name__, "errno": error.errno}
+    data = {
+        "accelerator": ACCELERATOR,
+        "github_actions": os.environ.get("GITHUB_ACTIONS"),
+        "runner_environment": os.environ.get("RUNNER_ENVIRONMENT"),
+        "runner_os": os.environ.get("RUNNER_OS"),
+        "runner_arch": os.environ.get("RUNNER_ARCH"),
+        "platform": sys.platform,
+        "machine": platform.machine(),
+        "uid": os.getuid() if hasattr(os, "getuid") else None,
+        "has_runner_temp": bool(os.environ.get("RUNNER_TEMP")),
+        "has_workspace": bool(os.environ.get("GITHUB_WORKSPACE")),
+        "kvm": kvm,
+    }
+    checks = (
+        (data["platform"] == "linux", "platform must be linux"),
+        (data["machine"] == "x86_64", "machine must be x86_64"),
+        (data["github_actions"] == "true", "GITHUB_ACTIONS must be true"),
+        (data["runner_os"] == "Linux", "RUNNER_OS must be Linux"),
+        (data["runner_environment"] == "github-hosted", "RUNNER_ENVIRONMENT must be github-hosted"),
+        (data["has_runner_temp"], "RUNNER_TEMP is missing"),
+        (data["has_workspace"], "GITHUB_WORKSPACE is missing"),
+        (type(data["uid"]) is int and data["uid"] > 0, "uid must be a nonroot Linux user"),
+    )
+    data["errors"] = [error for accepted, error in checks if not accepted]
+    return data
+
+
+def require_ci(metadata=None) -> dict:
+    data = admission_metadata() if metadata is None else metadata
+    if data["errors"]:
+        raise RuntimeError(
+            "Only a disposable GitHub-hosted x86_64 Linux runner may start this guest: " + "; ".join(data["errors"])
+        )
+    return data
 
 
 def qemu_command(qemu, disk, seed, serial, port, instance) -> list[str]:
     return [
         str(qemu),
         "-machine",
-        "q35,accel=kvm",
+        "q35",
+        "-accel",
+        "tcg,thread=multi",
         "-cpu",
-        "host",
+        "max",
         "-smp",
         "2",
         "-m",
@@ -209,10 +245,24 @@ class VM:
 
 
 def main() -> None:
+    total_started = time.monotonic()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--image", type=Path, required=True, help="Already staged, reviewed Ubuntu 24.04 amd64 qcow2")
+    parser.add_argument(
+        "--admission-only", action="store_true", help="Print named read-only admission facts; never set up a guest"
+    )
+    parser.add_argument("--image", type=Path, help="Already staged, reviewed Ubuntu 24.04 amd64 qcow2")
     args = parser.parse_args()
-    require_ci()
+    admission = admission_metadata()
+    if args.admission_only:
+        print(json.dumps(admission, indent=2), flush=True)
+        require_ci(admission)
+        return
+    require_ci(admission)
+    if args.image is None:
+        parser.error("--image is required unless --admission-only is used")
+    # The early admission command needs only the standard library, before dependencies are installed.
+    from tests.worker_reboot_guest import check_reboot
+
     source = Path(os.environ["GITHUB_WORKSPACE"]).resolve(strict=True)
     image = args.image.resolve(strict=True)
     with image.open("rb") as stream:
@@ -221,6 +271,7 @@ def main() -> None:
         raise ValueError("Reviewed cloud-image SHA256 does not match")
     evidence = source / ".scenario-runs/worker-reboot"
     evidence.mkdir(parents=True, exist_ok=False)
+    (evidence / "admission.json").write_text(json.dumps(admission, indent=2))
     folder = Path(tempfile.mkdtemp(prefix="autocode-c4-", dir=os.environ["RUNNER_TEMP"]))
     os.chmod(folder, 0o700)
     instance, outer_boot = str(uuid.uuid4()), BOOT.read_text().strip()
@@ -229,6 +280,16 @@ def main() -> None:
         port = reserved.getsockname()[1]
     machine = VM(folder, port, instance, outer_boot)
     commands = []
+    phase_seconds = {}
+    phase_name, phase_started = "coordinator_setup", total_started
+    outcome = "failed"
+    result = None
+
+    def enter_phase(name):
+        nonlocal phase_name, phase_started
+        now = time.monotonic()
+        phase_seconds[phase_name] = round(now - phase_started, 6)
+        phase_name, phase_started = name, now
 
     def terminate(signum, frame):
         raise SystemExit(128 + signum)
@@ -257,11 +318,13 @@ def main() -> None:
             "qemu-system-x86_64", folder / "disk.qcow2", folder / "seed.img", evidence / "serial.log", port, instance
         )
         commands.append(command)
+        enter_phase("guest_boot")
         with (evidence / "qemu.log").open("wb") as output:
             machine.child = subprocess.Popen(
                 command, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT, start_new_session=True
             )
-        machine.wait(["true"], seconds=180)
+        machine.wait(["true"], seconds=300)
+        enter_phase("guest_provision")
         # Cloud-init finishes before source installation or any provider launch.
         machine.ssh(["cloud-init", "status", "--wait"], timeout=600)
         checked = machine.ssh(["cat", "/etc/autocode-reboot-product-uuid"]).stdout.strip().lower()
@@ -270,6 +333,7 @@ def main() -> None:
         guest_boot = machine.ssh(["cat", str(BOOT)]).stdout.strip()
         if guest_boot == outer_boot:
             raise RuntimeError("Guest shares the runner boot ID: container/service restart is insufficient")
+        enter_phase("source_install")
         archive = folder / "source.tar"
         source_archive(source, archive)
         local(
@@ -287,11 +351,13 @@ def main() -> None:
         def in_source(argv):
             return ["sh", "-ec", "cd /opt/autocode && exec " + shlex.join(argv)]
 
+        enter_phase("fixture_prepare")
         before = machine.ssh(in_source(machine.phase("prepare")), timeout=180).stdout
         (evidence / "before.json").write_text(before)
         baseline = json.loads(before)  # An invalid/missing baseline never grants a reboot.
         if baseline["boot_id"] != guest_boot or baseline["launch"]["ready"] is not True:
             raise RuntimeError("Baseline is not the admitted launch on this guest boot")
+        enter_phase("guest_reboot")
         pid = machine.child.pid
         try:
             reboot = machine.ssh(in_source(machine.phase("reboot")), timeout=15, check=False)
@@ -300,42 +366,76 @@ def main() -> None:
             # An accepted reboot may close SSH without a reply. Inspect this guest; never retry reboot.
             receipt = {"outcome": "SSH receipt timed out; guest boot inspection required"}
         (evidence / "reboot-receipt.json").write_text(json.dumps(receipt))
-        machine.wait(["cat", str(BOOT)], seconds=180, changed_boot=guest_boot)
+        machine.wait(["cat", str(BOOT)], seconds=300, changed_boot=guest_boot)
         if machine.child.pid != pid or BOOT.read_text().strip() != outer_boot:
             raise RuntimeError("Outer host or QEMU incarnation changed")
+        enter_phase("read_only_inspection")
         for sample in range(3):
             after = machine.ssh(in_source(machine.phase("inspect")), timeout=45).stdout
             (evidence / f"after-{sample}.json").write_text(after)
             check_reboot(baseline, json.loads(after))
         with archive.open("rb") as stream:
             source_digest = hashlib.file_digest(stream, "sha256").hexdigest()
-        (evidence / "result.json").write_text(
-            json.dumps(
-                {
-                    "result": "PASS",
-                    "instance": instance,
-                    "qemu_pid": pid,
-                    "outer_boot_id": outer_boot,
-                    "image_url": IMAGE_URL,
-                    "image_sha256": IMAGE_SHA256,
-                    "source_archive_sha256": source_digest,
-                    "checkout_sha": checkout_sha,
-                    "git_tools_tree": tools_tree,
-                    "runtime": baseline["view"]["execution"]["runtime"],
-                    "limits": {"vcpus": 2, "memory_mib": 2048, "disk_gib": 12},
-                },
-                indent=2,
-            )
-        )
+        enter_phase("cleanup")
+        result = {
+            "result": "PASS",
+            "accelerator": ACCELERATOR,
+            "phase_seconds": dict(phase_seconds),
+            "instance": instance,
+            "qemu_pid": pid,
+            "outer_boot_id": outer_boot,
+            "image_url": IMAGE_URL,
+            "image_sha256": IMAGE_SHA256,
+            "source_archive_sha256": source_digest,
+            "checkout_sha": checkout_sha,
+            "git_tools_tree": tools_tree,
+            "runtime": baseline["view"]["execution"]["runtime"],
+            "limits": {"vcpus": 2, "memory_mib": 2048, "disk_gib": 12},
+        }
+        outcome = "passed"
     except BaseException as error:
-        failure = {"type": type(error).__name__, "reason": str(error)}
+        failure = {"type": type(error).__name__, "reason": str(error), "accelerator": ACCELERATOR, "phase": phase_name}
         if isinstance(error, subprocess.CalledProcessError):
             failure.update(stdout=error.stdout, stderr=error.stderr)
         (evidence / "failure.json").write_text(json.dumps(failure, indent=2))
         raise
     finally:
-        machine.stop()  # Exact child only; never pkill, shutdown or reboot on the runner.
-        (evidence / "commands.json").write_text(json.dumps(commands, indent=2))
+        if phase_name != "cleanup":
+            enter_phase("cleanup")
+        try:
+            machine.stop()  # Exact child only; never pkill, shutdown or reboot on the runner.
+            if result is not None:
+                (evidence / "result.json").write_text(json.dumps(result, indent=2))
+        except BaseException as error:
+            outcome = "failed"
+            (evidence / "failure.json").write_text(
+                json.dumps(
+                    {
+                        "type": type(error).__name__,
+                        "reason": str(error),
+                        "accelerator": ACCELERATOR,
+                        "phase": "cleanup",
+                    },
+                    indent=2,
+                )
+            )
+            raise
+        finally:
+            (evidence / "commands.json").write_text(json.dumps(commands, indent=2))
+            now = time.monotonic()
+            phase_seconds[phase_name] = round(now - phase_started, 6)
+            (evidence / "phase-durations.json").write_text(
+                json.dumps(
+                    {
+                        "accelerator": ACCELERATOR,
+                        "outcome": outcome,
+                        "last_phase": phase_name,
+                        "phase_seconds": phase_seconds,
+                        "total_seconds": round(now - total_started, 6),
+                    },
+                    indent=2,
+                )
+            )
         # Private seed/SSH material and disk remain under RUNNER_TEMP for runner disposal, never uploaded.
 
 

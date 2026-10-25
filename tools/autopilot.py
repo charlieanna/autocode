@@ -550,6 +550,7 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
     planning = state["planning"]
     reports = planning["reports"]
     if stage == "astra_challenge":
+        planning_unit.proxy_concerns(state, value)
         concerns = value["concerns"]
         ids = [c["id"] for c in concerns]
         if len(ids) != len(set(ids)) or any(not x.strip() for x in ids):

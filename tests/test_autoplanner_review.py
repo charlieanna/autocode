@@ -4,10 +4,12 @@ and stale displays. One case per finding, numbered as in the review."""
 
 import copy
 import unittest
+from pathlib import Path
 
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 from goal_fixtures import body
+from units import autoplanner as planner
 
 from .test_autoplanner_step2 import EpisodeCase, clarification_only, discovery, question, requirements
 from .test_autoplanner_step3 import ObligationCase, decision_question, plan
@@ -200,6 +202,92 @@ class DelegationReviewTests(ObligationCase):
         self.assertEqual([], self.state.get("deferred_obligations", []))
         goals.reject_assumption(self.state, "A1", shown(self.state))
         self.assertEqual(1, len(self.state["deferred_obligations"]))
+
+
+class ProxyConcernTests(ObligationCase):
+    """A covered criterion proven on an internal value while the plan places the user-visible result
+    outside this checkout is stored as a blocking concern for the person (#2068)."""
+
+    def setUp(self):
+        super().setUp()
+        self.state["task"] = "The board shows the empty domain list as `--`."
+
+    def handoff(self):
+        from .test_autoplanner_step3 import requirements as reqs
+
+        report = reqs()
+        report["requirements"] = [
+            {
+                "id": "R1",
+                "text": "The board shows the empty domain list as `--`",
+                "source_quote": "The board shows the empty domain list as `--`.",
+            }
+        ]
+        return report
+
+    def draft(self, criterion):
+        contract = plan()
+        contract["required_behaviors"] = ["Show the empty domain list as `--`"]
+        contract["constraints"] = ["The board is rendered by BoardHost, which is outside this checkout"]
+        contract["acceptance_criteria"] = [
+            {"id": "C1", "criterion": criterion, "verification_method": "Run the board check", "human_review": False}
+        ]
+        return contract
+
+    def reviewed(self, criterion):
+        self.apply("requirements_gather", self.handoff())
+        self.apply("astra_discovery", self.discovery(self.draft(criterion)))
+        self.apply("astra_challenge", self.challenge())
+        return self.state["planning"]["reports"]["astra_challenge"]["report"]["concerns"]
+
+    def test_a_proxy_draft_is_stored_with_one_blocking_proxy_concern(self):
+        concerns = self.reviewed("list_domains returns a non-empty response")
+        self.assertEqual(["proxy-R1"], [row["id"] for row in concerns])
+        concern = concerns[0]
+        self.assertTrue(concern["blocking"])
+        self.assertIn("outside this checkout", concern["concern"])
+        self.assertIn("`--`", concern["concern"])
+        self.assertIn("the user sees", concern["concern"])
+        self.assertIn("confirm", concern["concern"])
+        self.assertTrue(concern["requested_change"].strip())
+        self.assertTrue(concern["acceptance_test"].strip())
+
+    def test_a_draft_whose_criterion_names_the_visible_literal_gets_no_proxy_concern(self):
+        self.assertEqual([], self.reviewed("The empty domain list renders as `--`"))
+
+    def test_a_second_challenge_on_the_same_draft_does_not_add_a_second_proxy_concern(self):
+        self.apply("requirements_gather", self.handoff())
+        self.apply("astra_discovery", self.discovery(self.draft("list_domains returns a non-empty response")))
+        self.apply("astra_challenge", self.challenge())
+        self.assertEqual(
+            ["proxy-R1"],
+            [row["id"] for row in self.state["planning"]["reports"]["astra_challenge"]["report"]["concerns"]],
+        )
+        for _ in range(2):  # a later round is not re-blocked either, however many follow
+            self.apply("astra_challenge", self.challenge())
+            self.assertEqual([], self.state["planning"]["reports"]["astra_challenge"]["report"]["concerns"])
+
+    def test_a_gap_with_no_cited_criterion_says_no_criterion_cited(self):
+        contract = self.draft("list_domains returns a non-empty response")
+        contract["acceptance_criteria"] = [{}]
+        state = {
+            "goal_contract": {"origin": "astra_discovery", "body": contract},
+            "planning": {"reports": {"astra_discovery": {"report": self.discovery(contract)}}},
+            "requirements_handoff": {"report": self.handoff()},
+        }
+        value = {"concerns": []}
+        planner.proxy_concerns(state, value)
+        self.assertEqual(["proxy-R1"], [row["id"] for row in value["concerns"]])
+        concern = value["concerns"][0]["concern"]
+        self.assertIn("no criterion cited", concern)
+        self.assertNotIn("no cited criterion (the cited criteria)", concern)
+
+    def test_the_astra_challenge_prompt_carries_the_out_of_checkout_proxy_rule(self):
+        self.apply("requirements_gather", self.handoff())
+        self.apply("astra_discovery", self.discovery(self.draft("list_domains returns a non-empty response")))
+        prompt, _ = planner.context(self.state, "astra_challenge", Path("/tmp/state.json"))
+        self.assertIn("OUT-OF-CHECKOUT PROXY", prompt)
+        self.assertIn("this proves X, the user sees Y", prompt)
 
 
 if __name__ == "__main__":

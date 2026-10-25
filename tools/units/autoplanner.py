@@ -54,6 +54,7 @@ try:
     from .. import autocode_support as s
     from .. import autocode_task_authority as task_authority
     from .. import autocode_test_cases as test_cases
+    from .. import autocode_trace_coverage as trace_coverage
     from .. import autocode_util as util
     from .. import autocode_utility_route as utility_route
     from .. import autocode_verification_plan as verification_plan
@@ -87,6 +88,7 @@ except ImportError:
     import autocode_support as s
     import autocode_task_authority as task_authority
     import autocode_test_cases as test_cases
+    import autocode_trace_coverage as trace_coverage
     import autocode_util as util
     import autocode_utility_route as utility_route
     import autocode_verification_plan as verification_plan
@@ -147,6 +149,10 @@ EXAMPLE_CHECK_RULE = prompts.get("fragments/autoplanner/example-check-rule.md")
 # rejects a draft that drops a backticked brief literal (autocode_brief_literals); this rule asks the
 # reviewer whether the examples agree with it, which no mechanical check can decide.
 BRIEF_TRACE_RULE = prompts.get("fragments/autoplanner/brief-trace-rule.md")
+# The same question the runner raises mechanically (autocode_trace_coverage.proxy_gaps, #2068): a
+# criterion traced to a user-visible requirement may prove an internal value while a note places
+# the visible result outside this checkout, and only the person can confirm the connection.
+OUT_OF_CHECKOUT_PROXY_RULE = prompts.get("fragments/autoplanner/out-of-checkout-proxy-rule.md")
 # A live cent-drift plan (2026-09-30) required a 175,712-cart enumeration to "finish in under about 10 seconds". The
 # Builder asserted elapsed time, the test took 10.39 s on a loaded machine, and the run stopped after two retries
 # with correct billing code: no code change could make the criterion hold.
@@ -1274,6 +1280,9 @@ def context(state: RunState, stage, state_path):
         "budget": prompts.get("fragments/autoplanner/context.md").format(review_call_limit(state) or "Unlimited"),
         "recovery_context": state.get("recovery_context"),
     }
+    interpretations = goals.feedback_interpretation_context(state)
+    if interpretations:
+        packet["feedback_interpretations"] = interpretations
     if stage in ("requirements_gather", "requirements"):
         try:
             from .. import autocode_project_memory_lifecycle as project_memory
@@ -1446,6 +1455,7 @@ def context(state: RunState, stage, state_path):
         design_rule += native_test_names.rule(native) if native else ""
         design_rule += EXAMPLE_CHECK_RULE if stage in ("astra_challenge", "astra_finalize") else ""
         design_rule += BRIEF_TRACE_RULE if stage in ("astra_challenge", "astra_finalize") else ""
+        design_rule += OUT_OF_CHECKOUT_PROXY_RULE if stage in ("astra_challenge", "astra_finalize") else ""
         design_rule += NO_TIMING_RULE
     design_rule += acceptance_policy.COVERAGE
     if stage != "requirements_gather" and not test_cases.design_only(state):
@@ -1650,6 +1660,52 @@ def schema_for(state: RunState, stage):
         adaptive.report_schema(state, stage, SCHEMAS[stage], goals.PLANNING_BODY_SCHEMA),
         (state.get("settings") or {}).get("design_manifest"),
     )
+
+
+def proxy_concerns(state: RunState, value):
+    """One blocking concern per covered user-visible requirement a stand-in criterion discharges (#2068),
+    appended to the review report before it is stored, so the person sees the question the plan cannot
+    answer from this repository."""
+    trace = retention.validated_trace(state)
+    if not trace:
+        return
+    handoff = (state.get("requirements_handoff") or {}).get("report") or {}
+    body = (state.get("goal_contract") or {}).get("body") or {}
+    existing = {str(row.get("id") or "") for row in value.setdefault("concerns", [])}
+    # A proxy concern is raised once per requirement (#2068): the person's confirmation is the mechanical
+    # exit, so a later round of the same contract is not re-blocked. The prompt rule still covers what
+    # this check can no longer ask.
+    raised = state["planning"].setdefault("proxy_concerns_raised", [])
+    existing |= set(raised)
+    for gap in trace_coverage.proxy_gaps(handoff.get("requirements") or [], trace, body):
+        cid = "proxy-" + str(gap["requirement_id"])
+        if cid in existing:
+            continue
+        proven = "; ".join(gap["criteria"]) or "no criterion cited"
+        said = f"{proven} (the cited criteria)" if gap["criteria"] else proven
+        seen = "`" + str(gap["literal"]) + "`"
+        value["concerns"].append(
+            {
+                "id": cid,
+                "concern": (
+                    f"This proves {said}, the user sees {seen} (the literal), "
+                    f"{seen} is rendered by code outside this checkout; confirm {proven} changes {seen}, "
+                    "or ask the person"
+                ),
+                "evidence_refs": [str(gap["requirement_id"]), *gap["criteria"]],
+                "requested_change": (
+                    f"Trace {gap['requirement_id']} to a criterion that proves what the user sees for {seen}, "
+                    "or confirm with the person that the cited criteria change it"
+                ),
+                "acceptance_test": (
+                    f"A covered criterion for {gap['requirement_id']} names {seen} in its own text, "
+                    "or a saved user answer confirms the cited criteria change it"
+                ),
+                "blocking": True,
+            }
+        )
+        existing.add(cid)
+        raised.append(cid)
 
 
 def after_challenge(state: RunState, value, record):

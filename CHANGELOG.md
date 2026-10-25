@@ -40,6 +40,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The terminal's `/runs` and an uncached `/open` now read project and global
+  listings asynchronously in the existing bounded read pool. Keyboard input
+  stays available during slow discovery, and numbered `/open` choices stay
+  fixed until the person inspects `/runs` again (#1882).
+- Switching between questions preserves the restored chat's prompt and draft;
+  cleanup from the question being left no longer erases that saved context
+  (#1882).
+
 - Attention rows keep read state and event type visible before long task titles
   at narrow terminal widths. Integrated qualification also covers three projects
   and two viewers sharing acknowledgement and refusing stale approval (#2070,
@@ -328,6 +336,10 @@ PR template asks for an entry here; a change without one is incomplete.
   has passed; actual guest execution remains unverified.
 
 ### Fixed
+
+- The manual C4 qualification reports named admission errors before setup and explicitly uses TCG
+  for its disposable Linux guest. It retains accelerator/phase timing and never publishes PASS
+  before guest cleanup succeeds; literal reboot proof remains pending (#1881, #1886).
 
 - At a single option question, the terminal chat sends a typed correction through the core's offered
   feedback action with its existing fresh-context checks. Exact/default/numeric choices remain answers;

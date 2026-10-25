@@ -844,6 +844,9 @@ class HistoryTests(unittest.TestCase):
             patcher = mock.patch.object(chat, name, return_value=rows)
             patcher.start()
             self.addCleanup(patcher.stop)
+        client._overview.accept(chat.polling.ProjectRuns(str(WORKSPACE)), json.dumps({"runs": self.ROWS}), "")
+        client._overview.accept((str(WORKSPACE), None), json.dumps({"runs": []}), "")
+        client.slash("/runs", "")
         return client
 
     def test_runs_also_lists_other_projects_chats_under_their_project(self):
@@ -856,6 +859,7 @@ class HistoryTests(unittest.TestCase):
             "updated_at": "2026-10-19T15:00:00",
         }
         with mock.patch.object(chat, "every_project_runs", return_value=[other, self.ROWS[0]]):
+            client._overview.accept((str(WORKSPACE), None), json.dumps({"runs": [other, self.ROWS[0]]}), "")
             text = client.slash("/runs", "")
         self.assertLess(text.index("The other one"), text.index("Elsewhere"), "this project first")
         self.assertIn("elsewhere  /elsewhere\n  3. Elsewhere", text)

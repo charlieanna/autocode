@@ -23,12 +23,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Check disposable runner and KVM admission before setup
+      - name: Record named disposable-runner admission before setup
+        shell: bash
         run: |
-          test "$RUNNER_ENVIRONMENT" = github-hosted
-          test "$(uname -m)" = x86_64
-          test -r /dev/kvm
-          test -w /dev/kvm
+          mkdir -p .scenario-runs
+          mkdir .scenario-runs/worker-reboot-admission
+          python -I tests/worker_reboot_vm.py --admission-only | tee .scenario-runs/worker-reboot-admission/admission.json
       - name: Prepare the disposable coordinator
         run: |
           sudo apt-get update -q
@@ -53,6 +53,8 @@ jobs:
         if: always()
         with:
           name: worker-reboot-c4-evidence
-          path: .scenario-runs/worker-reboot
+          path: |
+            .scenario-runs/worker-reboot-admission
+            .scenario-runs/worker-reboot
           if-no-files-found: warn
           retention-days: 7

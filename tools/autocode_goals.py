@@ -46,7 +46,8 @@ try:
     from . import autocode_util as s
     from . import autocode_workflows as workflows
     from .autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
-    from .autocode_contract_revision import PROTECTED_LISTS as _PROTECTED_LISTS
+    from .autocode_contract_revision import feedback_interpretation_context as feedback_interpretation_context
+    from .autocode_contract_revision import protected_contract_snapshot as protected_contract_snapshot
     from .autocode_contract_revision import revision_guard as revision_guard
     from .autocode_contract_revision import saved_user_basis as _saved_user_basis
     from .autocode_git_delivery_policy import SCHEMA as GIT_DELIVERY
@@ -70,7 +71,8 @@ except ImportError:
     import autocode_util as s
     import autocode_workflows as workflows  # noqa: F401 - goal compatibility API
     from autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
-    from autocode_contract_revision import PROTECTED_LISTS as _PROTECTED_LISTS
+    from autocode_contract_revision import feedback_interpretation_context as feedback_interpretation_context
+    from autocode_contract_revision import protected_contract_snapshot as protected_contract_snapshot
     from autocode_contract_revision import revision_guard as revision_guard
     from autocode_contract_revision import saved_user_basis as _saved_user_basis
     from autocode_git_delivery_policy import SCHEMA as GIT_DELIVERY
@@ -269,13 +271,6 @@ def validate_requirements_body(state: RunState, body):
     for key in ("intended_outcome", "intended_user", "deliverables", "required_behaviors", "permission_boundaries"):
         if not body[key] or (isinstance(body[key], str) and not body[key].strip()):
             raise ValueError(f"Requirements are missing {key}")
-
-
-def protected_contract_snapshot(state: RunState):
-    body = (state.get("goal_contract") or {}).get("body") or {}
-    return {
-        key: copy.deepcopy(body.get(key)) for key in (*_PROTECTED_LISTS, "acceptance_criteria", "permission_boundaries")
-    }
 
 
 def _cites_saved_user_event(state: RunState, evidence):
