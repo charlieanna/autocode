@@ -1043,27 +1043,38 @@ Codex, Claude Code, or another coding-agent executable. In VS Code open
 
 ```sh
 autocode connections setup
+autocode connections add openai
 autocode connections check --provider autocode --json
 autocode "hi" --provider autocode --joint-planning --spec-first
 ```
 
 Setup is interactive in a terminal and launches no model. Choose **mimo**,
-**zai**, **openai**, **claude**, or a custom **compatible** API. One direct
-provider/endpoint is selected for a connection; mixed-provider routing remains
-available through the existing Kilo backend.
+**zai**, **openai**, **openrouter**, **claude**, or a custom **compatible** API.
+`connections setup` keeps one provider per connection; `connections add
+PROVIDER` (issue #2055) configures several providers at once, each with its own
+key in the same private store, and assigns each role to its provider — for
+example Planner/Builder/Requirements on an OpenAI key and the independent
+reviewer/tester roles on a Claude key, so verifier independence is satisfied
+without flags. `add` reports immediately when the resulting routes are not
+independent; re-adding a provider with a blank key rotates nothing and keeps
+the other providers' keys. Google's Gemini API is refused until its own
+transport ships; openrouter reaches many vendors today through one key. A
+version-1 single-provider connection keeps working and upgrades in place the
+first time a second provider is added.
 
 | API choice | Protocol | Authentication | Response limit field |
 | --- | --- | --- | --- |
 | MiMo | Chat Completions | `api-key` | `max_completion_tokens` |
 | Z.ai | Chat Completions | Bearer key | `max_tokens` |
-| OpenAI / custom compatible | Chat Completions | Bearer key | `max_completion_tokens` |
+| OpenAI / OpenRouter / custom compatible | Chat Completions | Bearer key | `max_completion_tokens` |
 | Claude | Anthropic Messages | `x-api-key`, version `2023-06-01` | `max_tokens` |
 
 MiMo and Z.ai require an explicit base URL, including its version path. Use the
 exact endpoint and matching key for your billing route: ordinary API access and
 Token/Coding Plan subscriptions have separate endpoints. Setup shows the API
 examples and requires you to choose; it never falls back to another billing
-route. OpenAI defaults to `https://api.openai.com/v1`; Claude defaults to
+route. OpenAI defaults to `https://api.openai.com/v1`; OpenRouter defaults to
+`https://openrouter.ai/v1`; Claude defaults to
 `https://api.anthropic.com/v1`. Endpoint overrides require HTTPS (HTTP is allowed
 only for loopback fixtures). This setup accepts API keys, not ChatGPT or Claude
 subscription logins. Kilo continues to own its separate sign-in and routes.
@@ -1086,7 +1097,9 @@ The API key lives in a separate `auth.json` file, mode `0600`, under
 `$XDG_CONFIG_HOME/autocode/direct/` (default `~/.config/autocode/direct/`), whose
 mode is `0700`. This is a private local file, not an OS keychain. The credential
 is bound to the API endpoint: changing the endpoint requires an explicit key for
-that destination. Status and launch arguments never contain key values. Listing
+that destination, and in a multi-provider connection each provider's key is
+bound to that provider's endpoint alone. Status and launch arguments never
+contain key values. Listing
 connections reads metadata only; **Check setup** validates local setup, not live
 model access. `configured` and `setup_required` are distinct.
 Key rotation for the same endpoint preserves transport identity; changes to the

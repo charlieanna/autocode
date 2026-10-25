@@ -19,10 +19,12 @@ class DirectProvider(command.CommandProvider):
 
     def __init__(self):
         self.settings = connection.load()
+        self.role_provider = connection.role_providers(self.settings)
+        models = {role: model for role, (_provider, model) in connection.assignment(self.settings).items()}
         runtime = Path(__file__).resolve().parents[1] / "autocode_direct_runtime.py"
         config = {
             "name": "autocode",
-            "models": sorted(set(self.settings["roles"].values())),
+            "models": sorted(set(models.values())),
             "command": [
                 sys.executable,
                 str(runtime),
@@ -36,7 +38,7 @@ class DirectProvider(command.CommandProvider):
                 "-o",
                 "{report}",
             ],
-            "roles": {role: {"model": model, "effort": ""} for role, model in self.settings["roles"].items()},
+            "roles": {role: {"model": model, "effort": ""} for role, model in models.items()},
         }
         super().__init__(config, connection.directory() / "connection.json")
 
@@ -58,13 +60,19 @@ class DirectProvider(command.CommandProvider):
         }
 
     def check_subscription_routes(self, roles, workspace=None, *, env=None):
-        connection.api_key(self.settings)
+        used = {self.role_provider[role] for role in roles if role in self.role_provider}
+        for name in sorted(used or set(self.role_provider.values())):
+            connection.api_key(self.settings, name)
         # There is no Kilo/OpenCode gateway or billing-route substitution here.
 
     def launch(self, role, workspace, run_dir, session, model, effort, allow_write, *, planning=False, **kwargs):
         argv, env, metadata = super().launch(
             role, workspace, run_dir, None, model, effort, allow_write, planning=planning, **kwargs
         )
+        provider = self.role_provider.get(role)
+        if not provider:
+            raise ValueError(f"The direct connection has no API provider for role {role!r}")
+        argv.append("--provider=" + provider)
         if planning:
             argv.append("--planning")
         if allow_write and not planning:

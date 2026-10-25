@@ -159,6 +159,112 @@ class DirectCliTests(unittest.TestCase):
         self.assertEqual("autocode", view["provider"])
         self.assertFalse((self.workspace / "greet.py").exists())
 
+    def test_hi_runs_on_a_multi_provider_connection_and_only_calls_the_roles_provider(self):
+        stages = []
+
+        def respond(body):
+            data = json.loads(body["messages"][1]["content"].split("CURRENT HANDOFF DATA\n", 1)[1])
+            stages.append(data["stage"])
+            if data["stage"] == "recognize_workflow":
+                report = {
+                    "workflow": "build",
+                    "reason": "Greeting needs an engineering outcome",
+                    "signals": [],
+                    "design_document": "",
+                    "clarity": "vague",
+                }
+            elif data["stage"] == "requirements_gather":
+                report = {
+                    "assistant_reply": "Hi! What would you like to build or change?",
+                    "job": "build",
+                    "design_document": "",
+                    "clarity": "vague",
+                    "summary": "No task specified",
+                    "intended_outcome": "Not yet specified by the user",
+                    "required_behaviors": [],
+                    "constraints": [],
+                    "acceptance_tests": [],
+                    "source_refs": [],
+                    "proposed_assumptions": [],
+                    "requirements": [],
+                    "ignored_statements": [],
+                    "conflicts": [],
+                    "proposed_reframes": [],
+                    "ignored_requirements": [],
+                    "machine_resolutions": [],
+                    "access_blockers": [],
+                    "open_questions": [
+                        {
+                            "id": "outcome",
+                            "question": "Hi! What would you like to build or change?",
+                            "why": "A greeting names no engineering outcome",
+                            "options": [],
+                            "proposed_default": "",
+                            "kind": "decision",
+                            "category": "requested_outcome",
+                            "delegable": False,
+                        }
+                    ],
+                }
+            else:
+                return 400, {"error": "Unexpected stage"}
+            return 200, {
+                "choices": [{"message": {"role": "assistant", "content": json.dumps(report)}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 15, "completion_tokens": 10},
+            }
+
+        producer = HttpFixture(respond)
+        self.addCleanup(producer.close)
+        reviewer = HttpFixture(lambda _body: (500, {"error": "the reviewer provider must not be called"}))
+        self.addCleanup(reviewer.close)
+        value = {
+            "version": 2,
+            "providers": {
+                "openai": {"transport": "compatible", "endpoint": producer.url},
+                "claude": {"transport": "anthropic", "endpoint": reviewer.url},
+            },
+            "roles": {
+                **{role: {"provider": "openai", "model": "fixture/producer"} for role in ("astra", "glm", "terra")},
+                **{
+                    role: {"provider": "claude", "model": "fixture/reviewer"}
+                    for role in ("completion", "plan_reviewer", "sol")
+                },
+            },
+        }
+        keys = {
+            "openai": {"api_key": "openai-secret", "endpoint": producer.url},
+            "claude": {"api_key": "claude-secret", "endpoint": reviewer.url},
+        }
+        from unittest import mock
+
+        with mock.patch.dict(os.environ, self.env):
+            config.save_v2(value, keys)
+        run = taskrun.TaskRun.start(
+            self.workspace,
+            "hi",
+            options=(
+                "--provider",
+                "autocode",
+                "--evidence-provenance",
+                "fake",
+                "--joint-planning",
+                "--spec-first",
+                "--max-seconds",
+                "120",
+                "--max-stage-seconds",
+                "60",
+            ),
+            env=self.env,
+            timeout=180,
+        )
+        view = run.status()
+        self.assertEqual("answer", view["needs"]["kind"], view)
+        self.assertEqual(["requirements_gather"], stages)
+        self.assertEqual("autocode", view["provider"])
+        self.assertEqual([], reviewer.requests, "the reviewer provider received traffic a producer stage owed")
+        for headers, _body in producer.requests:
+            self.assertEqual("Bearer openai-secret", headers["Authorization"])
+
     def test_discussion_tool_roundtrip_completes_through_the_supervised_cli(self):
         (self.workspace / "README.md").write_text("DIRECT_TOOL_EVIDENCE\n")
         subprocess.run(["git", "-C", str(self.workspace), "add", "README.md"], check=True)

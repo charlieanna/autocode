@@ -21,6 +21,7 @@ import autocode_direct_runtime as runtime
 import autocode_direct_transport as transport
 import autocode_event_metrics as metrics
 import autocode_providers as providers
+import autocode_verifier_independence as verifier_independence
 
 
 class HttpFixture:
@@ -66,6 +67,232 @@ def settings(endpoint="https://models.example.invalid/v1", transport_name="compa
             for role in config.ROLES
         },
     }
+
+
+def multi_settings():
+    return {
+        "version": 2,
+        "providers": {
+            "openai": {"transport": "compatible", "endpoint": "https://api.openai.com/v1"},
+            "claude": {"transport": "anthropic", "endpoint": "https://api.anthropic.com/v1"},
+        },
+        "roles": {
+            **{role: {"provider": "openai", "model": "gpt-6.1"} for role in config.PRODUCER_ROLES},
+            **{role: {"provider": "claude", "model": "claude-opus-5.5"} for role in config.REVIEWER_ROLES},
+        },
+    }
+
+
+def multi_keys():
+    return {
+        "openai": {"api_key": "openai-secret", "endpoint": "https://api.openai.com/v1"},
+        "claude": {"api_key": "claude-secret", "endpoint": "https://api.anthropic.com/v1"},
+    }
+
+
+@contextlib.contextmanager
+def interactive(replies, key):
+    output = io.StringIO()
+    with (
+        mock.patch("builtins.input", side_effect=lambda _prompt: replies.pop(0) if replies else ""),
+        mock.patch.object(config.os, "isatty", return_value=True),
+        mock.patch.object(config.getpass, "getpass", return_value=key),
+        contextlib.redirect_stdout(output),
+    ):
+        yield output
+
+
+class MultiProviderConnectionTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        environment = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.root)})
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def add(self, provider, replies, key):
+        with interactive(replies, key):
+            self.assertEqual(0, connections.cli(["add", provider]))
+
+    def test_two_api_keys_get_independent_checkers_with_no_flags(self):
+        self.add("openai", ["", "gpt-6.1", "gpt-6.1"], "openai-secret")
+        self.add("claude", ["", "reviewer", "claude-opus-5.5"], "claude-secret")
+        value = config.load()
+        self.assertEqual(2, value["version"])
+        self.assertEqual("openai", config.role_providers(value)["terra"])
+        self.assertEqual("claude", config.role_providers(value)["sol"])
+        self.assertEqual("gpt-6.1", value["roles"]["terra"]["model"])
+        self.assertEqual("claude-opus-5.5", value["roles"]["sol"]["model"])
+        routes = {role: {"model": spec["model"]} for role, spec in value["roles"].items()}
+        self.assertEqual([], verifier_independence.violations({"roles": routes}))
+        self.assertEqual("openai-secret", config.api_key(value, "openai"))
+        self.assertEqual("claude-secret", config.api_key(value, "claude"))
+
+    def test_secrets_stay_private_and_out_of_the_public_view_and_launch_argv(self):
+        self.add("openai", ["", "gpt-6.1", "gpt-6.1"], "openai-secret")
+        self.add("claude", ["", "reviewer", "claude-opus-5.5"], "claude-secret")
+        self.assertEqual(0o600, (config.directory() / "auth.json").stat().st_mode & 0o777)
+        self.assertEqual(0o700, config.directory().stat().st_mode & 0o777)
+        self.assertNotIn("openai-secret", (config.directory() / "connection.json").read_text())
+        self.assertNotIn("claude-secret", json.dumps(connections.view()))
+        facade = providers.resolve("autocode")
+        for role, provider in (("terra", "openai"), ("sol", "claude")):
+            argv, _, _ = facade.launch(
+                role,
+                self.root,
+                self.root / ".autocode/runs/test",
+                None,
+                config.load()["roles"][role]["model"],
+                "",
+                False,
+                report=self.root / "report.json",
+                planning=True,
+            )
+            self.assertIn("--provider=" + provider, argv)
+            self.assertNotIn("openai-secret", json.dumps(argv))
+            self.assertNotIn("claude-secret", json.dumps(argv))
+        row = next(row for row in connections.view()["connections"] if row["id"] == "autocode")
+        self.assertEqual("configured", row["connection_status"])
+        self.assertIn("claude + openai", row["detail"])
+        self.assertEqual(["connections", "add"], row["actions"][0]["next_command"])
+
+    def test_each_key_is_bound_to_its_own_providers_endpoint(self):
+        config.save_v2(multi_settings(), multi_keys())
+        value = config.load()
+        changed = multi_settings()
+        changed["providers"]["openai"]["endpoint"] = "https://other.example.invalid/v1"
+        with self.assertRaisesRegex(ValueError, "endpoint"):
+            config.save_v2(changed, multi_keys())
+        self.assertEqual(value, config.load())
+        self.assertEqual("claude-secret", config.api_key(changed, "claude"))
+        with self.assertRaisesRegex(ValueError, "No zai"):
+            config.api_key(value, "zai")
+
+    def test_readding_a_provider_rotates_only_its_key_and_keeps_role_details(self):
+        self.add("openai", ["", "gpt-6.1", "gpt-6.1"], "openai-secret")
+        self.add("claude", ["", "reviewer", "claude-opus-5.5"], "claude-secret")
+        before = config.load()
+        self.add("claude", ["", "reviewer", ""], "rotated-claude-key")
+        after = config.load()
+        self.assertEqual(before["roles"], after["roles"])
+        self.assertEqual("openai-secret", config.api_key(after, "openai"))
+        self.assertEqual("rotated-claude-key", config.api_key(after, "claude"))
+
+    def test_v1_connection_upgrades_keeping_its_key_when_a_second_provider_is_added(self):
+        config.save(settings(), "single-secret")
+        self.add("claude", ["", "reviewer", "claude-opus-5.5"], "claude-secret")
+        value = config.load()
+        self.assertEqual(2, value["version"])
+        self.assertEqual("fixture/producer", value["roles"]["terra"]["model"])
+        self.assertEqual("claude-opus-5.5", value["roles"]["sol"]["model"])
+        self.assertEqual("single-secret", config.api_key(value, "compatible"))
+        self.assertEqual("claude-secret", config.api_key(value, "claude"))
+
+    def test_setup_refuses_to_flatten_a_multi_provider_connection(self):
+        config.save_v2(multi_settings(), multi_keys())
+        with interactive([], "") as output:
+            self.assertEqual(2, connections.cli(["setup"]))
+        self.assertIn("connections add", output.getvalue())
+        self.assertEqual(multi_settings(), config.load())
+
+    def test_single_setup_still_writes_version_one(self):
+        with interactive(["compatible", "https://models.example.invalid/v1", "p", "r"], "fixture-secret"):
+            self.assertEqual(0, connections.cli(["setup"]))
+        self.assertEqual(1, config.load()["version"])
+        self.assertEqual("fixture-secret", config.api_key())
+
+    def test_google_refused_until_its_transport_exists(self):
+        with interactive([], "") as output:
+            self.assertEqual(2, connections.cli(["add", "google"]))
+        self.assertIn("openrouter", output.getvalue())
+        self.assertFalse((config.directory() / "connection.json").exists())
+
+    def test_a_provider_serving_both_sides_of_one_family_is_flagged_at_setup(self):
+        with interactive(["", "gpt-6.1", "gpt-6.1"], "openai-secret") as output:
+            self.assertEqual(0, connections.cli(["add", "openai"]))
+        routes = {role: {"model": spec["model"]} for role, spec in config.load()["roles"].items()}
+        self.assertNotEqual([], verifier_independence.violations({"roles": routes}))
+        self.assertIn("not independent", output.getvalue())
+
+    def test_narrowing_a_provider_names_the_now_unassigned_roles_and_saves_nothing(self):
+        config.save_v2(multi_settings(), multi_keys())
+        with interactive(["", "producer", "gpt-6.1"], "openai-secret") as output:
+            with self.assertRaisesRegex(ValueError, "sol"):
+                connections.cli(["add", "claude"])
+        self.assertIn("These roles move to claude", output.getvalue())
+        self.assertEqual(multi_settings(), config.load())
+
+    def test_check_only_validates_the_keys_a_runs_roles_use(self):
+        config.save_v2(multi_settings(), multi_keys())
+        record = json.loads((config.directory() / "auth.json").read_text())
+        del record["keys"]["claude"]
+        (config.directory() / "auth.json").write_text(json.dumps(record))
+        facade = providers.resolve("autocode")
+        facade.check_subscription_routes({"glm": {"model": "gpt-6.1"}})
+        with self.assertRaisesRegex(ValueError, "claude"):
+            facade.check_subscription_routes({"sol": {"model": "claude-opus-5.5"}})
+        # Check setup reports the whole connection as needing setup, like a broken single connection does.
+        self.assertEqual("setup_required", connections.connection_view("autocode", check=True)["connection_status"])
+
+    def test_runtime_resolves_transport_endpoint_and_key_per_provider(self):
+        config.save_v2(multi_settings(), multi_keys())
+        value = config.load()
+        openai_record = config.provider_settings(value, "openai")
+        self.assertEqual("compatible", openai_record["transport"])
+        self.assertEqual("https://api.openai.com/v1", openai_record["endpoint"])
+        self.assertEqual("anthropic", config.provider_settings(value, "claude")["transport"])
+        self.assertTrue(config.model_allowed(value, "openai", "gpt-6.1"))
+        self.assertTrue(config.model_allowed(value, "claude", "claude-opus-5.5"))
+        self.assertFalse(config.model_allowed(value, "openai", "claude-opus-5.5"))
+        with self.assertRaisesRegex(ValueError, "No zai"):
+            config.provider_settings(value, "zai")
+
+    def test_two_transports_serve_one_connection_over_http(self):
+        config.save_v2(multi_settings(), multi_keys())
+        value = config.load()
+
+        def completions(_body):
+            return 200, {"choices": [{"message": {"role": "assistant", "content": "{}"}, "finish_reason": "stop"}]}
+
+        def messages(_body):
+            return 200, {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "{}"}],
+                "stop_reason": "end_turn",
+            }
+
+        openai_fixture = HttpFixture(completions)
+        self.addCleanup(openai_fixture.close)
+        claude_fixture = HttpFixture(messages)
+        self.addCleanup(claude_fixture.close)
+        openai_record = {**config.provider_settings(value, "openai"), "endpoint": openai_fixture.url}
+        claude_record = {**config.provider_settings(value, "claude"), "endpoint": claude_fixture.url}
+        report = self.root / "report.json"
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(0, runtime.run(openai_record, "openai-secret", "task", "gpt-6.1", "", report, mock.Mock()))
+            self.assertEqual(
+                0, runtime.run(claude_record, "claude-secret", "task", "claude-opus-5.5", "", report, mock.Mock())
+            )
+        self.assertEqual(["/v1/chat/completions"], openai_fixture.paths)
+        self.assertEqual(["/v1/messages"], claude_fixture.paths)
+        for headers, _body in openai_fixture.requests:
+            self.assertEqual("Bearer openai-secret", headers["Authorization"])
+        for headers, _body in claude_fixture.requests:
+            self.assertEqual("claude-secret", headers["X-Api-Key"])
+
+    def test_multi_provider_metadata_validation(self):
+        good = multi_settings()
+        for broken in (
+            {**good, "providers": {}},
+            {**good, "providers": {"zai": {"transport": "anthropic", "endpoint": "https://api.z.ai/api/paas/v4"}}},
+            {**good, "roles": {**good["roles"], "sol": {"provider": "zai", "model": "claude-opus-5.5"}}},
+            {**good, "roles": {role: spec for role, spec in good["roles"].items() if role != "sol"}},
+            {**good, "roles": {**good["roles"], "sol": {"provider": "claude"}}},
+        ):
+            with self.subTest(broken=json.dumps(broken, default=str)[:80]), self.assertRaises(ValueError):
+                config.save_v2(broken, multi_keys())
 
 
 class DirectConnectionsTests(unittest.TestCase):
