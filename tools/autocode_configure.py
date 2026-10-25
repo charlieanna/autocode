@@ -30,6 +30,7 @@ try:
     from . import autocode_adaptive_planning as adaptive
     from . import autocode_base_patch as operator_patch
     from . import autocode_budget_recovery as budget_recovery
+    from . import autocode_compact_planning as compact_planning
     from . import autocode_design_manifest as design_manifest
     from . import autocode_effort_variants as effort_variants
     from . import autocode_figma as figma
@@ -57,6 +58,7 @@ except ImportError:
     import autocode_adaptive_planning as adaptive
     import autocode_base_patch as operator_patch
     import autocode_budget_recovery as budget_recovery
+    import autocode_compact_planning as compact_planning
     import autocode_design_manifest as design_manifest
     import autocode_effort_variants as effort_variants
     import autocode_figma as figma
@@ -320,6 +322,10 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         )
     if started and adaptive.resume_refused(state.get("settings") or {}, getattr(args, "adaptive_planning", None)):
         raise ValueError("Adaptive planning is a new-run policy; a saved run keeps its planning flow")
+    if started and compact_planning.resume_refused(
+        state.get("settings") or {}, getattr(args, "compact_bugfix_planning", None)
+    ):
+        raise ValueError(f"{compact_planning.FLAG} is a new-run policy; a saved run keeps its planning path")
     if started and skip_requirements.resume_refused(state.get("settings") or {}, args):
         raise ValueError(
             "--skip-requirements and --skip-to-build are chosen when a run starts; a saved run keeps its choice"
@@ -710,6 +716,9 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         **({"package": args.package} if getattr(args, "package", None) else {}),
         # Who may approve: the project's require-approver, fixed at launch (autocode_required_approver).
         **({"require_approver": args.require_approver} if getattr(args, "require_approver", None) else {}),
+        # Which paths a shorter planning path may never touch: the project's sensitive-paths, fixed at launch
+        # (autocode_sensitive_paths); an empty list is a declaration, so None alone means "not declared".
+        **({"sensitive_paths": args.sensitive_paths} if getattr(args, "sensitive_paths", None) is not None else {}),
         # The command that serves the app: the project's [serve], fixed at launch (autocode_dev_server_config).
         **({"serve": args.serve} if getattr(args, "serve", None) else {}),
         "context_soft_tokens": args.context_soft_tokens if args.context_soft_tokens is not None else 10000,
@@ -779,6 +788,8 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         settings["adaptive_planning"] = True
     if getattr(args, "plan_review_full", False):
         settings["plan_review_full"] = True
+    if compact_planning.new_run_setting(getattr(args, "compact_bugfix_planning", None), joint):
+        settings[compact_planning.SETTING] = True
     settings.update(skip_requirements.new_run_settings(args, joint))
     # A persisted review allowance for new runs (#1565): the flag wins, then the
     # user's config.toml, then the machinery's built-in default. A resumed run
@@ -811,6 +822,9 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         # (#2006). After every role exists, a runner-chosen effort moves to the nearest declared variant
         # and the move is recorded; an effort a person named refuses here, naming its flag.
         declared = _declared_levels(provider_mod, state["workspace"], single_model)
+        if declared is not None:
+            # Kept for the efforts derived later in the run (the Plan Reviewer's reduced tier, #2020).
+            settings[effort_variants.DECLARED] = {single_model: list(declared)}
         explicit = {r for r in settings["roles"] if getattr(args, f"{r}_reasoning_effort", None)}
         if getattr(args, "reasoning_effort", None):
             explicit = set(settings["roles"])

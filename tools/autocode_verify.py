@@ -215,7 +215,8 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
     when the candidate cannot have hidden ignored code (below), a Markdown
     document (``.md``), a .gitignore, an empty file, or, if no nonempty file in
     the base is code or a test path, a project, dependency or license manifest
-    (``first_suite.manifest``: a first project, #1783); and
+    (``first_suite.manifest``: a first project, #1783) or a plain text or data
+    file the deliverable reads (``first_suite.data_file``, #2036); and
     make_tree copies no git-ignored code into the proof trees (``generated_sources`` of
     ``dependencies_from`` is empty, and so is the launch inventory of an
     in-place run, ``ignored_inputs``: autocode_launch_inputs.Supply).

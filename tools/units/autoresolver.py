@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 try:
     from .. import autocode_bug_job as bug_job
     from .. import autocode_bug_questions as bug_questions
+    from .. import autocode_compact_planning as compact_planning
     from .. import autocode_discuss_job as discuss_job
     from .. import autocode_failures as failures
     from .. import autocode_goal_lifecycle as lifecycle
@@ -50,6 +51,7 @@ try:
 except ImportError:
     import autocode_bug_job as bug_job
     import autocode_bug_questions as bug_questions
+    import autocode_compact_planning as compact_planning
     import autocode_discuss_job as discuss_job
     import autocode_failures as failures
     import autocode_goal_lifecycle as lifecycle
@@ -194,6 +196,10 @@ def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None)
         return
     if bug_job.small_correction(state):
         start_small_correction(state, workspace)
+        return
+    # An opted-in, reproduced, localized bug may plan on the compact path: the runner's draft goes to the Plan
+    # Reviewer and then to the person; otherwise the Planner drafts, as bug_job.apply arranged (#2021).
+    compact_planning.start(state, workspace)
 
 
 def wait_on_existing_diagnosis(state: RunState, decision, record, request, *, source_stage):

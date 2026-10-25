@@ -9,6 +9,17 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- `--compact-bugfix-planning` (new runs, off by default): for a bug the Investigator reproduces with a
+  runner-run probe, sizes small and localizes to at most four files none of which the project's
+  `sensitive-paths` name, the runner writes the plan draft from the diagnosis and the Requirements record
+  instead of launching the Planner's draft call; the Plan Reviewer reviews that draft, a clean review goes
+  to the person's exact-token approval and a blocking concern returns the run to the Planner. The new
+  project setting `sensitive-paths` (no flag) lists the path patterns such a path may never touch; a
+  project without it keeps the full path. The status view's new `stage_policy` field records the decision
+  and its reasons (#2021, the first #1867 checkpoint).
+
 ### Changed
 
 - Under a money cap (`--max-cost-usd`), every attempt of a job that already ran in the run is priced before
@@ -16,6 +27,15 @@ PR template asks for an entry here; a change without one is incomplete.
   `PAUSED_COST_LIMIT` before an attempt projected past the cap, naming the job, the route, the projection and
   the cap to resume with, as a climbed attempt already was. Before, only climbs were projected, so a run could
   cross its cap by a whole stage ($1.81 to $2.96 under a $2.00 cap) and pause only afterwards (#2019).
+- A small clear brief's reduced Plan Reviewer effort (one rung below the configured one, #1564) is fitted to
+  the variants the reviewer's model declares, and the move is recorded in `effort_fits`; a `--single-model`
+  run keeps the model's listing for that. Before, `--single-model zai-coding-plan/glm-5.3` stopped once at
+  the Plan Reviewer on a derived `medium` the model does not declare (#2020).
+- The regression-proof gate treats a plain text or data file in a greenfield base (`.txt`, `.csv`,
+  `.json`, `.yaml` and the like, read by the deliverable and never run) as it treats a manifest: when no
+  nonempty file in the base is code or a test path, the base holds no behaviour to preserve and the gate
+  does not stay closed on it. Before, a chat task that shipped its own input beside the README could pass
+  every criterion and never complete (#2036).
 - In the terminal chat, `/connect NAME use`, `/mode` and `/engine` typed at the first
   "What do you want done?" question now apply to the chat started there, as they already did
   for `/new`; before, that first chat ran on the default connection and mode while the header

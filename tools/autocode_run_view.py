@@ -65,6 +65,7 @@ try:
     from . import autocode_risk_disclosure as risk_disclosure
     from . import autocode_role_transport as role_transport
     from . import autocode_route_ladder as route_ladder
+    from . import autocode_stage_policy as stage_policy
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_task_input as task_input
     from . import autocode_tool_containment as tool_containment
@@ -110,6 +111,7 @@ except ImportError:
     import autocode_risk_disclosure as risk_disclosure
     import autocode_role_transport as role_transport
     import autocode_route_ladder as route_ladder
+    import autocode_stage_policy as stage_policy
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
     import autocode_tool_containment as tool_containment
@@ -234,6 +236,9 @@ def view(
         # How much planning the run chose and why (autocode_adaptive_planning.view, #697): whether recognition
         # skipped Requirements as clear, the plan's size, the review allowance and an early approval.
         "planning_depth": adaptive_planning.view(state),
+        # Which planning path a bug-fix run took and why (autocode_stage_policy.view, #2021): the compact path's
+        # omitted Planner draft and what covers it, or the full path's reasons; null when the run never decided.
+        "stage_policy": stage_policy.view(state),
         # Which request of the conversation the run is on: 1, then one more per --follow-up
         # (autocode_follow_up).
         "turn": len(state.get("turns") or []) + 1,

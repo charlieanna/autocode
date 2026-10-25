@@ -167,6 +167,7 @@ class RunViewTests(unittest.TestCase):
                 "execution",
                 "observation",
                 "planning_depth",
+                "stage_policy",
                 "changes_by_criterion",
                 "dev_server",
             },

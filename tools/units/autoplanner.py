@@ -32,8 +32,10 @@ try:
     from .. import autocode_brief_literals as brief_literals
     from .. import autocode_brief_obligations as brief_obligations
     from .. import autocode_bug_job as bug_job
+    from .. import autocode_compact_planning as compact_planning
     from .. import autocode_design_plan as design_plan
     from .. import autocode_draft_examples as examples
+    from .. import autocode_effort_variants as effort_variants
     from .. import autocode_failures as failures
     from .. import autocode_follow_up as follow_up
     from .. import autocode_goals as goals
@@ -62,8 +64,10 @@ except ImportError:
     import autocode_brief_literals as brief_literals
     import autocode_brief_obligations as brief_obligations
     import autocode_bug_job as bug_job
+    import autocode_compact_planning as compact_planning
     import autocode_design_plan as design_plan
     import autocode_draft_examples as examples
+    import autocode_effort_variants as effort_variants
     import autocode_failures as failures
     import autocode_follow_up as follow_up
     import autocode_goals as goals
@@ -788,8 +792,18 @@ def apply_reviewer_effort_tier(state: RunState):
     if not isinstance(route, dict):
         return
     tier = reduced_reviewer_effort(route)
-    if tier is not None:
-        route["reasoning_effort"] = tier
+    if tier is None:
+        return
+    # The rung below may be one the model does not declare (GLM 5.3 declares low, high and max: a step from high
+    # lands on medium). Fit it to the declared variants as the profile efforts are (#2015), and record the move;
+    # with no listing the launch check decides, as before (#2020).
+    model = route.get("model")
+    declared = effort_variants.declared_for(settings, model) if isinstance(model, str) else None
+    fitted = effort_variants.nearest(tier, declared) if declared else None
+    if fitted is not None and fitted != tier:
+        settings.setdefault("effort_fits", {})["plan_reviewer"] = {"from": tier, "to": fitted, "reason": "review_depth"}
+        tier = fitted
+    route["reasoning_effort"] = tier
 
 
 def apply_review_depth_policy(state: RunState):
@@ -1322,6 +1336,9 @@ def context(state: RunState, stage, state_path):
     findings = follow_up.review_findings(state)
     if findings:
         packet["review_findings"] = findings
+    fallback = compact_planning.fallback_context(state)
+    if fallback:  # the Plan Reviewer refused the runner's compact draft: the Planner drafts afresh (#2021)
+        packet["compact_draft_fallback"] = fallback
     if stage == "requirements_gather":
         packet["previous_requirements_handoff"] = state.get("requirements_handoff")
         # Requirements names a follow-up's job (#1860): the earlier turn, as the recognizer was told it.
@@ -1399,6 +1416,7 @@ def context(state: RunState, stage, state_path):
         BUG_DIAGNOSIS_RULE if diagnosis else ""
     )
     design_rule += REVIEW_FINDINGS_RULE if findings else ""
+    design_rule += compact_planning.fallback_rule(state)
     design_rule += task_authority.instruction(test_cases.current_diagnosis(state))
     if turn:
         design_rule += prompts.get("fragments/autoplanner/context-02.md")
@@ -1620,7 +1638,11 @@ def schema_for(state: RunState, stage):
 def after_challenge(state: RunState, value, record):
     """Where the first review leads. In an adaptive run, a review with no blocking concern approves
     the Planner's draft as the final plan (autocode_adaptive_planning); otherwise the Planner revises."""
+    compact = compact_planning.reviewing(state)
     if not adaptive.enabled(state):
+        if compact:  # the runner's draft has no Planner to revise it: the full path plans afresh (#2021)
+            compact_planning.fall_back(state, "the run does not plan adaptively")
+            return
         state["next_stage"] = "glm_revise"
         return
     planning, contract = state["planning"], cast(dict, state["goal_contract"])
@@ -1637,6 +1659,17 @@ def after_challenge(state: RunState, value, record):
         or not adaptive.approvable(contract["body"])
         or progressive.view(state).get("candidate")
     ):
+        if compact:
+            # The compact draft is not revised: a blocking concern returns the run to the full path, where
+            # the Planner drafts with this review in its packet (autocode_compact_planning.fall_back, #2021).
+            blocking = adaptive.blocking(value["concerns"])
+            compact_planning.fall_back(
+                state,
+                "the Plan Reviewer raised blocking concerns " + ", ".join(c["id"] for c in blocking)
+                if blocking
+                else "the Plan Reviewer's review could not approve the draft as written",
+            )
+            return
         # A progressive delegation is authorized by an accepted revision and final
         # independent review. A challenge cannot supply that approval evidence.
         state["next_stage"] = "glm_revise"
@@ -1679,6 +1712,9 @@ def after_challenge(state: RunState, value, record):
         cast(dict, state).clear()
         state.update(saved)
         state["planning"]["adaptive"]["approval_refused"] = str(error)
+        if compact:
+            compact_planning.fall_back(state, f"the reviewed compact draft was refused: {error}")
+            return
         state["next_stage"] = "glm_revise"
         return
     planning = state["planning"]
