@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A small clear brief's reduced Plan Reviewer effort (one rung below the configured one, #1564) is fitted to
+  the variants the reviewer's model declares, and the move is recorded in `effort_fits`; a `--single-model`
+  run keeps the model's listing for that. Before, `--single-model zai-coding-plan/glm-5.3` stopped once at
+  the Plan Reviewer on a derived `medium` the model does not declare (#2020).
 - In the terminal chat, `/connect NAME use`, `/mode` and `/engine` typed at the first
   "What do you want done?" question now apply to the chat started there, as they already did
   for `/new`; before, that first chat ran on the default connection and mode while the header

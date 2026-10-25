@@ -40,7 +40,10 @@ What does not change:
   request the Job recognizer judged `clear` went straight to the Planner; that skip
   is gone. While it names the job, Requirements also judges clarity by the
   recognizer's rule. Clarity then skips nothing; it keeps a small clear brief on one
-  review allowance at the reduced Plan Reviewer effort (#1564). A build named with
+  review allowance at the reduced Plan Reviewer effort (#1564), one rung below the configured
+  one and fitted to the variants the reviewer's model declares (GLM 5.3 declares `low`, `high`
+  and `max`, so a step from `high` lands on `high`, not `medium`; the move is recorded in
+  `effort_fits`, #2020). A build named with
   `--workflow build` still runs Requirements, and nobody judges its clarity.
 - The setting applies only to new runs. A saved run keeps the planning flow it
   was started with: resuming with `--adaptive-planning` a run that lacks it, or

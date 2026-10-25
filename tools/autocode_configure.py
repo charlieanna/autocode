@@ -811,6 +811,9 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         # (#2006). After every role exists, a runner-chosen effort moves to the nearest declared variant
         # and the move is recorded; an effort a person named refuses here, naming its flag.
         declared = _declared_levels(provider_mod, state["workspace"], single_model)
+        if declared is not None:
+            # Kept for the efforts derived later in the run (the Plan Reviewer's reduced tier, #2020).
+            settings[effort_variants.DECLARED] = {single_model: list(declared)}
         explicit = {r for r in settings["roles"] if getattr(args, f"{r}_reasoning_effort", None)}
         if getattr(args, "reasoning_effort", None):
             explicit = set(settings["roles"])

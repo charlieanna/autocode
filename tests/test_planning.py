@@ -996,6 +996,8 @@ class PlanningTests(unittest.TestCase):
         self.assertTrue(set(efforts.values()) <= {"low", "high", "max"}, efforts)
         self.assertIn("completion", settings["effort_fits"])
         self.assertEqual({"from": "medium", "to": "high"}, settings["effort_fits"]["completion"])
+        # Kept for the efforts the run derives later, such as the Plan Reviewer's reduced tier (#2020).
+        self.assertEqual({"zai-coding-plan/glm-5.3": ["low", "high", "max"]}, settings["declared_variants"])
         self.assertTrue(any("--single-model zai-coding-plan/glm-5.3 declares" in line for line in printed), printed)
         with (
             patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}),
@@ -2138,6 +2140,35 @@ class ReviewerEffortTierTests(unittest.TestCase):
         self.assertEqual("low", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
         self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["plan_reviewer"]["model"])
         self.assertIs(True, state["settings"]["roles"]["plan_reviewer"]["model_pinned"])
+
+    def test_the_reduced_tier_is_fitted_to_the_models_declared_variants(self):
+        """#2020: GLM 5.3 declares low, high and max, so the rung below high (medium) is not a variant it serves. The
+        reduced tier moves to the nearest declared one, as --single-model's profile efforts do (#2015), and the
+        move is recorded; a run with no listing keeps the plain rung for the launch check to judge."""
+        state = self.state()
+        state["settings"]["roles"]["plan_reviewer"]["model"] = "zai-coding-plan/glm-5.3"
+        state["settings"]["declared_variants"] = {"zai-coding-plan/glm-5.3": ["low", "high", "max"]}
+        planning.charge(state, "astra_challenge")
+        self.assertEqual("high", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        self.assertEqual(
+            {"from": "medium", "to": "high", "reason": "review_depth"},
+            state["settings"]["effort_fits"]["plan_reviewer"],
+        )
+        # The listing a selected route carries serves too, and a declared rung stays where it lands.
+        selected = self.state()
+        selected["settings"]["roles"]["plan_reviewer"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+        selected["settings"]["route_selection"] = {
+            "candidates": {
+                "sol": [{"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "levels": ["low", "medium", "high"]}]
+            }
+        }
+        planning.charge(selected, "astra_challenge")
+        self.assertEqual("medium", selected["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        self.assertNotIn("effort_fits", selected["settings"])
+        unknown = self.state()
+        planning.charge(unknown, "astra_challenge")
+        self.assertEqual("medium", unknown["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        self.assertNotIn("effort_fits", unknown["settings"])
 
     def test_explicit_and_unknown_saved_efforts_keep_their_tier_and_charges(self):
         for origin in ("user_explicit", None):

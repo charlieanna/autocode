@@ -34,6 +34,7 @@ try:
     from .. import autocode_bug_job as bug_job
     from .. import autocode_design_plan as design_plan
     from .. import autocode_draft_examples as examples
+    from .. import autocode_effort_variants as effort_variants
     from .. import autocode_failures as failures
     from .. import autocode_follow_up as follow_up
     from .. import autocode_goals as goals
@@ -64,6 +65,7 @@ except ImportError:
     import autocode_bug_job as bug_job
     import autocode_design_plan as design_plan
     import autocode_draft_examples as examples
+    import autocode_effort_variants as effort_variants
     import autocode_failures as failures
     import autocode_follow_up as follow_up
     import autocode_goals as goals
@@ -788,8 +790,18 @@ def apply_reviewer_effort_tier(state: RunState):
     if not isinstance(route, dict):
         return
     tier = reduced_reviewer_effort(route)
-    if tier is not None:
-        route["reasoning_effort"] = tier
+    if tier is None:
+        return
+    # The rung below may be one the model does not declare (GLM 5.3 declares low, high and max: a step from high
+    # lands on medium). Fit it to the declared variants as the profile efforts are (#2015), and record the move;
+    # with no listing the launch check decides, as before (#2020).
+    model = route.get("model")
+    declared = effort_variants.declared_for(settings, model) if isinstance(model, str) else None
+    fitted = effort_variants.nearest(tier, declared) if declared else None
+    if fitted is not None and fitted != tier:
+        settings.setdefault("effort_fits", {})["plan_reviewer"] = {"from": tier, "to": fitted, "reason": "review_depth"}
+        tier = fitted
+    route["reasoning_effort"] = tier
 
 
 def apply_review_depth_policy(state: RunState):
