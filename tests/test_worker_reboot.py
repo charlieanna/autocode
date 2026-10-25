@@ -689,7 +689,9 @@ class CoordinatorSafetyTests(unittest.TestCase):
                 self.assertEqual("boot-before", reconnect.kwargs["changed_boot"])
             phases = json.loads((evidence / "phase-durations.json").read_text())
             if prepare_error or no_budget or invalid_baseline:
-                self.assertEqual((["prepare"] if prepare_error or invalid_baseline else []) + ["diagnose", "cleanup"], events)
+                self.assertEqual(
+                    (["prepare"] if prepare_error or invalid_baseline else []) + ["diagnose", "cleanup"], events
+                )
                 self.assertFalse((evidence / "result.json").exists())
                 self.assertEqual("fixture_prepare", json.loads((evidence / "failure.json").read_text())["phase"])
                 progress = json.loads((evidence / "prepare-progress.json").read_text())

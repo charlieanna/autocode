@@ -586,7 +586,9 @@ def main() -> None:
     except BaseException as error:
         failure = {"type": type(error).__name__, "reason": str(error), "accelerator": ACCELERATOR, "phase": phase_name}
         if phase_name == "fixture_prepare":
-            trace = (prepare_trace + trace_records(getattr(error, "stdout", None), getattr(error, "stderr", None)))[-64:]
+            trace = (prepare_trace + trace_records(getattr(error, "stdout", None), getattr(error, "stderr", None)))[
+                -64:
+            ]
             (evidence / "prepare-progress.json").write_text(json.dumps(trace, indent=2))
             failure["trace"] = trace
         elif isinstance(error, subprocess.CalledProcessError):
