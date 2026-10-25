@@ -1162,10 +1162,16 @@ class ChatClient:
 
     def resolver_reply(self, view: dict) -> bool:
         context = (view.get("chat") or {}).get("context") or ""
+        offer = self.bound_offer(view)
+        if offer:
+            row = offer[0]
+            self.say(f"To raise it instead, type a new {row['label'].lower()} ({row['minimum']} or more).")
         reply = self.ask("\nYour reply (Enter to leave it for now): ")
         if not reply:
             self.say(f"Nothing sent. The run is paused; pick it up with: autocode chat --run-dir {self.run_dir}")
             return False
+        if offer and reply.strip().isdigit():
+            return self.raise_bound(view, offer, reply)
         self.take(actions.message(self.status(), reply, context, self.workspace, self.run_dir))
         return True
 
@@ -1193,15 +1199,15 @@ class ChatClient:
         route = need.get("route") or {}
         # A stopped job's model question, named by the view as a command (#2005): a typed model takes it.
         model_command = route.get("command") if need.get("kind") == "retry_job" and route.get("question_id") else None
-        answer = self.ask(f"{prompt}? [y/N]{', or type the model to continue on' if model_command else ''}: ")
+        offer = self.bound_offer(view)
+        hint = ", or type the model to continue on" if model_command else ""
+        if offer:
+            hint = f", or type a new {offer[0]['label'].lower()} ({offer[0]['minimum']} or more)"
+        answer = self.ask(f"{prompt}? [y/N]{hint}: ")
         if model_command and answer.strip() and answer.strip().lower() not in (*YES, "n", "no"):
             return self.route_model(view, model_command, route, answer.strip())
-        if unapplied := actions.unapplied_bound(answer, why, decided):
-            self.say(
-                f"'{answer.strip()}' sets nothing: this pause advertises no {unapplied} entry, so a "
-                f"number here is not a new limit. Raise it with: autocode resume {unapplied} N "
-                f"--run-dir {self.run_dir}"
-            )
+        if offer and answer.strip() and answer.strip().lower() not in (*YES, "n", "no"):
+            return self.raise_bound(view, offer, answer)
         if answer.lower() not in YES:
             self.say(f"Left as it is. Pick it up with: autocode chat --run-dir {self.run_dir}")
             return False
@@ -1210,6 +1216,32 @@ class ChatClient:
             self.say("The run changed meanwhile; here is where it stands now.")
             return True
         self.take(actions.fill(fresh, command, answers))
+        return True
+
+    def bound_offer(self, view: dict):
+        """The view's separate raise of the bound holding the run (#2044), or None when it names none."""
+        try:
+            return actions.bound_offer(view, self.workspace, self.run_dir)
+        except actions.ClientGap:
+            return None
+
+    def raise_bound(self, view: dict, offer, text: str) -> bool:
+        """A number typed at a bound pause: the core's named raise with it, or why it is refused.
+
+        Before #2044 this pause named the raise only in prose, so the chat could only say the number set
+        nothing (#1950). The core now names the command; the chat fills its one slot and takes it."""
+        row, command = offer
+        try:
+            filled = actions.fill_offer(view, row, command, text)
+        except actions.ClientGap as error:
+            self.say(f"{error}. Left as it is. Pick it up with: autocode chat --run-dir {self.run_dir}")
+            return False
+        fresh = self.status()
+        if fresh.get("needs") != view.get("needs"):
+            self.say("The run changed meanwhile; here is where it stands now.")
+            return True
+        self.say(f"Next it runs: autocode {shlex.join(filled.argv)}")
+        self.take(filled)
         return True
 
     def route_model(self, view: dict, text: str, route: dict, model: str) -> bool:

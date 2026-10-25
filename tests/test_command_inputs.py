@@ -234,11 +234,13 @@ class CommandInputTests(unittest.TestCase):
     def test_only_exact_finite_total_control_gets_an_input(self):
         need = {"kind": "resume"}
         for action in (
-            "--resume-paused",
             "--resume-paused --max-cost-usd N",
             "--resume-paused --max-seconds N --no-chat",
+            "--resume-paused --retry-failed-stage",
         ):
             self.assertIsNone(inputs.project(checkpoint(), need, action))
+        # A plain resume at the time pause leaves the bound open: the raise is offered beside it (#2044).
+        self.assertIn("command", inputs.project(checkpoint(), need, "--resume-paused")[0])
         for extra in ({"kind": "answer"}, {"edit_required": True}, {"new_run_required": True}, {"action": "--explain"}):
             self.assertIsNone(inputs.project(checkpoint(), {**need, **extra}, inputs.TOTAL_TIME_ACTION))
         for current, elapsed in (

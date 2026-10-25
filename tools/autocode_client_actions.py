@@ -171,26 +171,6 @@ def parse(text: str, workspace: Path, run_dir: Path) -> NamedCommand:
     return NamedCommand(argv, env)
 
 
-# The bound a pause's own prose tells the person to raise, when its view advertises no entry for it (#1950).
-BOUND_CONTROL = re.compile(
-    r"use autocode resume (--(?:max-seconds|max-cost-usd|max-milestone-seconds|max-iterations)) N"
-)
-
-
-def unapplied_bound(reply: str, why: str, advertised) -> str | None:
-    """Name the flag a typed reply tried to set, when this pause offers no number entry for it.
-
-    A yes/no whose prose says "use autocode resume --max-seconds N" still consumes any number typed
-    into it as a decline, so the person believes they raised the bound. Naming the control turns a
-    silent no-op into an answer; the client gains no authority and takes no flag the view did not name.
-    """
-    text = (reply or "").strip()
-    if advertised or not text or text.lower() in ("y", "yes", "n", "no"):
-        return None
-    match = BOUND_CONTROL.search(why or "")
-    return match.group(1) if match else None
-
-
 def named(view: dict, workspace: Path, run_dir: Path) -> NamedCommand:
     """``view["next_command"]``; an active run's ``continue`` need has none, and its action is ``--no-chat``."""
     text = view.get("next_command")
@@ -201,84 +181,117 @@ def named(view: dict, workspace: Path, run_dir: Path) -> NamedCommand:
     raise ClientGap(f"needs {(view.get('needs') or {}).get('kind')!r} at {view.get('status')!r} names no next_command")
 
 
-def integer_inputs(view: dict, command: NamedCommand) -> list[dict]:
-    """The one closed number a time-limit, plan-review or recovery-grant offer leaves open, or none.
+# The numbers a person may type into a core-named command (autocode_command_inputs, #2044): the flag,
+# the row id and label the core gives it, the key `used` is reported under, and whether the saved
+# current value can be fractional. A row for any other flag is refused, as is one that disagrees here.
+INTEGER_INPUTS = {
+    "--max-seconds": ("max_seconds", "Total active time (seconds)", "elapsed", True),
+    "--max-cost-usd": ("max_cost_usd", "Cost cap (whole USD)", "used", True),
+    "--max-iterations": ("max_iterations", "Total iterations", "used", False),
+    "--max-milestone-seconds": ("max_milestone_seconds", "Milestone active time (seconds)", "used", True),
+    "--max-milestone-replans": ("max_milestone_replans", "Milestone replans", "used", False),
+    "--no-progress-limit": ("no_progress_limit", "Unchanged implementation batches allowed", "used", False),
+    "--planning-review-call-limit": ("planning_review_call_limit", "Total plan-review calls", "used", False),
+    "--grant-recovery": ("grant_recovery", "Additional recoveries", "used", False),
+}
+TOKEN_ENV = "AUTOCODE_EXPECTED_RECOVERY_TOKEN"
 
-    Anything but exactly the advertised shape is refused, so a client can never
-    type a number into a command the core did not offer it for.
+
+def _count(value, *, fractional):
+    """A saved count the core reported: a finite nonnegative safe number, whole unless ``fractional``."""
+    if type(value) is int:
+        return 0 <= value < MAX_SAFE_INTEGER
+    return fractional and type(value) is float and value == value and 0 <= value < MAX_SAFE_INTEGER
+
+
+def check_input(view: dict, row, command: NamedCommand) -> dict:
+    """``row`` when it is a closed number offer for exactly ``command``; otherwise a ClientGap.
+
+    The command must be ``[--resume-paused] FLAG N --expected-recovery-token -`` with the view's
+    current recovery token in its private channel, and the bounds must be the ones the saved
+    counts imply, so a client can never type a number into a command the core did not offer it for.
     """
     need = view.get("needs") or {}
-    rows = need.get("command_inputs")
-    if rows is None:
-        return []
-    row = rows[0] if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict) else {}
     token = (view.get("recovery") or {}).get("token")
-    current, used, argv = row.get("current"), row.get("used"), command.argv
-    time = (
-        row.get("id") == "max_seconds"
-        and view.get("status") == "PAUSED_TIME_LIMIT"
-        and need.get("kind") == "resume"
-        and argv == ["--resume-paused", "--max-seconds", "N", "--expected-recovery-token", "-"]
-        and row.get("flag") == "--max-seconds"
-        and row.get("arg_index") == 2
-        and row.get("label") == "Total active time (seconds)"
-        and type(row.get("elapsed")) in (int, float)
-        and 0 <= row["elapsed"] < MAX_SAFE_INTEGER
-        and type(current) is int
-        and row.get("minimum") == int(max(current, row["elapsed"])) + 1
-    )
-    planning = (
-        row.get("id") == "planning_review_call_limit"
-        and view.get("status") == "PAUSED_PLANNING_BUDGET"
-        and need.get("kind") == "planning_budget"
-        and row.get("flag") == "--planning-review-call-limit"
-        and row.get("label") == "Total plan-review calls"
-        and type(current) is int
-        and current >= 2
-        and type(used) is int
-        and current <= used < MAX_SAFE_INTEGER
-        and row.get("minimum") == max(current, used) + 1
-        and (
-            (
-                row.get("arg_index") == 2
-                and argv == ["--resume-paused", "--planning-review-call-limit", "N", "--expected-recovery-token", "-"]
-            )
-            or (
-                row.get("arg_index") == 1
-                and argv == ["--planning-review-call-limit", "N", "--expected-recovery-token", "-"]
-            )
+    known = INTEGER_INPUTS.get(row.get("flag")) if isinstance(row, dict) else None
+    if known is None:
+        raise ClientGap("Unsupported or stale numeric recovery command from AutoCode")
+    identity, label, used_key, fractional = known
+    flag, current, used = row["flag"], row.get("current"), row.get(used_key)
+    prefix = ["--resume-paused"] if row.get("arg_index") == 2 else []
+    minimum, maximum = row.get("minimum"), row.get("maximum")
+    bounded = type(minimum) is int and type(maximum) is int and 1 <= minimum <= maximum <= MAX_SAFE_INTEGER
+    if flag == "--grant-recovery":
+        limits = bounded and type(used) is int and used >= 1 and minimum == 1 and maximum == used
+    else:
+        limits = (
+            bounded
+            and _count(used, fractional=fractional)
+            and maximum == MAX_SAFE_INTEGER
+            and _count(current, fractional=fractional and flag != "--max-seconds")
+            and minimum == int(max(current, used)) + 1
         )
-    )
-    grant = (
-        row.get("id") == "grant_recovery"
-        and view.get("status") == "PAUSED_TIMEOUT_RECOVERY"
-        and need.get("kind") == "resume"
-        and row.get("flag") == "--grant-recovery"
-        and row.get("arg_index") == 2
-        and row.get("label") == "Additional recoveries"
-        and argv == ["--resume-paused", "--grant-recovery", "N", "--expected-recovery-token", "-"]
-        and type(used) is int
-        and used >= 1
-        and row.get("minimum") == 1
-        and row.get("maximum") == used
-    )
     if (
-        not (time or planning or grant)
+        not limits
+        or row.get("id") != identity
+        or row.get("label") != label
+        or row.get("kind") != "integer"
+        or row.get("placeholder") != "N"
+        or row.get("arg_index") not in ((1, 2) if flag == "--planning-review-call-limit" else (2,))
+        or not _count(current, fractional=fractional and flag != "--max-seconds")
+        or (current == 0 and flag != "--max-iterations")
         or need.get("new_run_required")
         or need.get("edit_required")
         or not isinstance(token, str)
         or not token
-        or command.env != {"AUTOCODE_EXPECTED_RECOVERY_TOKEN": token}
-        or row.get("kind") != "integer"
-        or row.get("placeholder") != "N"
-        or type(current) is not int
-        or not 0 < current < MAX_SAFE_INTEGER
-        or type(row.get("minimum")) is not int
-        or type(row.get("maximum")) is not int
-        or (not grant and row["maximum"] != MAX_SAFE_INTEGER)
+        or command.env != {TOKEN_ENV: token}
+        or command.argv != [*prefix, flag, "N", "--expected-recovery-token", "-"]
     ):
         raise ClientGap("Unsupported or stale numeric recovery command from AutoCode")
-    return [row]
+    return row
+
+
+def _offered(view: dict):
+    rows = (view.get("needs") or {}).get("command_inputs")
+    if rows is None:
+        return None
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        raise ClientGap("Unsupported or stale numeric recovery command from AutoCode")
+    return rows[0]
+
+
+def integer_inputs(view: dict, command: NamedCommand) -> list[dict]:
+    """The one closed number ``command`` (the view's next_command) leaves open, or none.
+
+    A row that names its own ``command`` is a separate offer (bound_offer), not a slot of this one.
+    """
+    row = _offered(view)
+    if row is None or "command" in row:
+        return []
+    return [check_input(view, row, command)]
+
+
+def bound_offer(view: dict, workspace: Path, run_dir: Path) -> tuple[dict, NamedCommand] | None:
+    """The raise of the bound holding the run when next_command is not that raise (#2044), or None.
+
+    At a plain resume or an operational request for a bound pause, the core names the raise as the
+    row's own ``command``: a person's number goes there, never into the plain resume or a reply.
+    """
+    row = _offered(view)
+    if row is None or "command" not in row:
+        return None
+    if not isinstance(row["command"], str) or not row["command"]:
+        raise ClientGap("Unsupported or stale numeric recovery command from AutoCode")
+    command = parse(row["command"], *own(view, workspace, run_dir))
+    return check_input(view, row, command), command
+
+
+def fill_offer(view: dict, row: dict, command: NamedCommand, text: str) -> NamedCommand:
+    """A separate bound offer's command with the person's number in its one slot."""
+    check_input(view, row, command)
+    argv = list(command.argv)
+    argv[row["arg_index"]] = integer_value(text, row)
+    return NamedCommand(argv, dict(command.env))
 
 
 def decisions(view: dict, command: NamedCommand) -> list[Decision]:
