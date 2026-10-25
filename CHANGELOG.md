@@ -323,6 +323,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- At a single option question, the terminal chat sends a typed correction through the core's offered
+  feedback action with its existing fresh-context checks. Exact/default/numeric choices remain answers;
+  no feedback action is invented when the view offers none. Corrections no longer require leaving the
+  TUI for `--feedback` (#2078).
+
 - An approval from an earlier turn no longer makes new criterion IDs in the current draft count as
   approved. The Planner can correct its new examples while retaining their source quotes; criteria
   actually approved or edited by the person, proof selectors and incomplete legacy history stay
