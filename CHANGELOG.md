@@ -337,6 +337,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The manual C4 qualification reports named admission errors before setup and explicitly uses TCG
+  for its disposable Linux guest. It retains accelerator/phase timing and never publishes PASS
+  before guest cleanup succeeds; literal reboot proof remains pending (#1881, #1886).
+
 - At a single option question, the terminal chat sends a typed correction through the core's offered
   feedback action with its existing fresh-context checks. Exact/default/numeric choices remain answers;
   no feedback action is invented when the view offers none. Corrections no longer require leaving the
