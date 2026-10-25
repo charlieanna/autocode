@@ -290,6 +290,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Stages on `anthropic/claude-sonnet-5-5`, `anthropic/claude-haiku-4-5` and `xiaomi-token-plan-sgp/mimo-v2.6-flash`
+  are now priced (`tools/autocode_prices.json`, as of 2026-10-25). Live runs recorded their tokens with no rate, so
+  the run's spend left them out and a `--max-cost-usd` cap could not count them. The two Claude ids take the rates
+  of the rows they alias; MiMo 2.6 Flash takes Xiaomi's pay-as-you-go price.
+
 - A permission question now says so before the person answers when none of its choices can do anything.
   A greenfield run's completion gate offered "complete base-side collection evidence runner-side" as an
   equivalent outcome, and nothing in the runner implements it: choosing it recorded the decision, popped the
