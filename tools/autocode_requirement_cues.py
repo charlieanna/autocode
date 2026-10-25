@@ -175,7 +175,7 @@ def earlier_job_handoff(state: RunState, report) -> bool:
 
 
 def scan_texts(state: RunState):
-    """source_texts minus delegated answers: a model default is quotable, never owed."""
+    """Distinct obligation sources; delegated defaults remain quotable, never owed."""
     turn = new_workflow_turn(state)
     feedback = state.get("brief_feedback") or []
     answers = list((state.get("answers") or {}).values())
@@ -192,4 +192,6 @@ def scan_texts(state: RunState):
     texts += [
         event.get("text", "") for event in answers if isinstance(event, dict) and event.get("kind") != "delegated"
     ]
-    return [text for text in texts if text]
+    # A follow-up is both the current task and receipted feedback. Scan it once without changing either
+    # journal entry or source_texts: prompts, report repair and validation share this projection.
+    return list(dict.fromkeys(text for text in texts if text))
