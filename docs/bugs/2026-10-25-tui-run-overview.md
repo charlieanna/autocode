@@ -30,9 +30,9 @@ was launched locally.
 arrays against a model-free command fixture. It renders 25 inventory entries,
 explicitly opens two stable identities, switches a Unicode draft and cursor,
 then holds both project and global listing children. In the local 120-column
-terminal, the inserted key rendered in 15.0 ms and `/help` in 23.3 ms, while both
+terminal, the inserted key rendered in 14.2 ms and `/help` in 23.3 ms, while both
 children remained held. `/quit` reaped every recorded read process. The whole
-case passed in 1.215 seconds. These are individual input samples, below the
+case passed in 1.206 seconds. These are individual input samples, below the
 proposed 250 ms controlled-host target, not a latency percentile or delivery
 benchmark. The CI result must identify its own exact head and Linux host.
 
@@ -76,3 +76,12 @@ original TUI `13e201a394` and passes after cleanup is limited to its original
 context. The terminal driver now waits for the selected header and active
 question, rather than matching a run name still present in the previous list.
 These failed CI runs are retained; their results are not reported as passes.
+
+The corrected native run `40240153979` passed all eight cases in 139.952 seconds
+at `224012742`. Review then identified a narrow first-list callback race: cached
+inventory, uncached `/open`, a newer `/runs` displaying its snapshot, and a late
+changed inventory could replace those displayed numbers. The new deterministic
+regression fails that head; each new request now clears the older first-list
+callback. All 15 affected inventory/history checks passed in 1.184 seconds, and
+the real terminal passed with the final samples above. New exact-head CI must
+qualify this final correction separately.

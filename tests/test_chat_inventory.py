@@ -161,6 +161,24 @@ class OverviewReads(unittest.TestCase):
             (Path(expected["workspace"]), Path(expected["run_dir"])), (self.client.workspace, self.client.run_dir)
         )
 
+    def test_a_newer_runs_snapshot_cancels_initial_open_rendering_before_late_refresh(self):
+        self.client._overview.accept(polling.ProjectRuns(str(WORKSPACE)), json.dumps({"runs": ROWS}), "")
+        self.client._overview.accept((str(WORKSPACE), None), json.dumps({"runs": ROWS}), "")
+        self.client.slash("/open", "2")
+        self.client.slash("/runs", "")
+        displayed = list(self.client.history.rows)
+        changed = [
+            {**row, "title": "Changed arrival", "updated_at": f"2026-10-25T12:{number:02}:00"}
+            for number, row in enumerate(ROWS)
+        ]
+        for _ in range(4):
+            self.client.poll()
+            self.finish(changed)
+        self.assertEqual(
+            displayed, self.client.history.rows, "a late first-list callback cannot replace displayed numbers"
+        )
+        self.assertEqual(RUNS[0], self.client.run_dir, "the newer /runs cancelled pending navigation too")
+
     def test_uncached_open_cannot_jump_after_a_source_switch_newer_navigation_or_changed_question(self):
         self.client.slash("/open", "2")
         self.client.slash("/runs", "")  # the newer explicit navigation supersedes the pending open

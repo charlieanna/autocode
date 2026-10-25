@@ -53,6 +53,7 @@ class Overview:
         return text
 
     def request(self, history, current=None, *, then=None):
+        self.first = None
         workspace = str(history.workspace)
         keys: tuple[polling.Key, ...] = (polling.ProjectRuns(workspace), (workspace, None))
         text = (
