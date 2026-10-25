@@ -40,6 +40,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A quota switch that moves a role onto another way of paying now says so (#2061). When an automatically
+  selected run's stopped model is replaced by one the permitted set says bills differently (a subscription
+  route replaced by a pay-per-token one), its `route_assignment` record carries `billing: {from, to}`,
+  shown in the status view's `route_assignments`, and the printed switch line ends
+  `; it bills pay per token where MODEL was subscription`. Before, the line named only the new account.
 - Under a money cap (`--max-cost-usd`), every attempt of a job that already ran in the run is priced before
   it launches, from that job's last attempt's tokens at the saved route's rate, and the run stops as
   `PAUSED_COST_LIMIT` before an attempt projected past the cap, naming the job, the route, the projection and
