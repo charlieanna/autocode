@@ -33,8 +33,10 @@ import argparse
 from pathlib import Path
 
 try:
+    from . import autocode_scope_question as scope_question
     from . import autocode_util as util
 except ImportError:
+    import autocode_scope_question as scope_question
     import autocode_util as util
 
 SETTING = "spec_first"
@@ -163,6 +165,10 @@ def questions(state: RunState) -> list[dict]:
     """The handoff's unanswered open questions, then (spec-first) the review question; [] when nothing waits."""
     if not state.get("requirements_handoff") or state.get("goal_contract"):
         return []
+    # Work that belongs to another repository is settled with the person before any plan, on every flow (#2066).
+    scope = scope_question.question(state)
+    if scope:
+        return [scope]
     answered = state.get("answers") or {}
     unresolved = [row for row in _report(state).get("open_questions") or [] if row.get("id") not in answered]
     if not enabled(state):

@@ -467,6 +467,13 @@ def main() -> int:
             "machine_resolutions": [],
             "access_blockers": [],
         }
+        external = os.environ.get("AUTOCODE_FIXTURE_EXTERNAL_PART")
+        if external:  # TARGET|WORK|QUOTE: a part of the request that belongs to another repository (#2066)
+            target, work, quote = external.split("|", 2)
+            report["workspace_scope"] = {
+                "spans_repositories": True,
+                "external_parts": [{"target": target, "work": work, "source_quote": quote, "evidence": ""}],
+            }
         # Requirements names the job it understood in every run (#1846, #1860); this fixture only builds.
         report.update(job="build", design_document="")
         asked = (
@@ -682,6 +689,12 @@ def main() -> int:
                 "proofs": [],
             }
         report["requirement_trace"] = []
+    contract = report.get("contract") if isinstance(report, dict) else None
+    if isinstance(contract, dict) and "scope_exclusions" in contract:
+        # A planner records each part the person left out of this run, as its packet says (#2066).
+        for entry in data.get("scope_exclusions_required") or []:
+            if entry not in contract["scope_exclusions"]:
+                contract["scope_exclusions"] = [*contract["scope_exclusions"], entry]
     output = Path(sys.argv[sys.argv.index("-o") + 1])
     output.write_text(json.dumps(report))
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)

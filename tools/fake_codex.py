@@ -339,9 +339,17 @@ elif stage == "requirements_gather":
         # Requirements names the job (#1860); this offline fixture treats every request as a build.
         "job": "build",
         "design_document": "",
-        # This offline fixture's requests belong to this repository alone (#2066).
+        # This offline fixture's requests belong to this repository alone (#2066), unless a test names a part
+        # that belongs elsewhere as TARGET|WORK|QUOTE, the quote copied from its task.
         "workspace_scope": {"spans_repositories": False, "external_parts": []},
     }
+    external = os.environ.get("AUTOCODE_FIXTURE_EXTERNAL_PART")
+    if external:
+        target, work, quote = external.split("|", 2)
+        result["workspace_scope"] = {
+            "spans_repositories": True,
+            "external_parts": [{"target": target, "work": work, "source_quote": quote, "evidence": ""}],
+        }
     if 'Add "clarity"' in prompt or "clarity" in schema.get("properties", {}):
         # Vague, as the recognizer answered: the review allowance counts per planning cycle as before. A report
         # repair's prompt has no rule, but its schema still asks for clarity.
@@ -910,5 +918,10 @@ if stage == "astra_finalize" and "retain_contract" in schema.get("properties", {
         }
     result["contract"] = retained
     result["requirement_trace"] = []
+# A planner records each part the person left out of this run, as its packet says (#2066).
+if isinstance(result.get("contract"), dict) and "scope_exclusions" in result["contract"]:
+    for entry in data.get("scope_exclusions_required") or []:
+        if entry not in result["contract"]["scope_exclusions"]:
+            result["contract"]["scope_exclusions"] = [*result["contract"]["scope_exclusions"], entry]
 Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 50}}))

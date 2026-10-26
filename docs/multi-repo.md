@@ -18,10 +18,14 @@ deliver only the API half.
   says so in its `workspace_scope`. The runner keeps a reported part only when
   its quote is verbatim in the request or a saved answer, or when it cites a file
   in this repository that shows it, such as a client of the other service. Other
-  claims are dropped. Asking you what to do about a kept part (this repository
-  only, link a run in the other repository, or stop) is the next step of
-  [#2066](https://github.com/charlieanna/autocode/issues/2066) and is not yet
-  built.
+  claims are dropped.
+- **It asks you before planning.** A kept part stops the run with one question.
+  Answer `This repository only` to plan this repository's part. The plan then lists
+  each other part in its scope exclusions as `Not covered: changes in TARGET: WORK`,
+  so the approval screen shows what this run will not deliver. To change the
+  request instead, give feedback. Linking a run in the other repository and
+  stopping with a brief for each repository are later steps of
+  [#2066](https://github.com/charlieanna/autocode/issues/2066).
 - **Component builds stay inside one repository.** `autocode components` builds
   several components in parallel, but every component worktree comes from the
   same repository's HEAD, and integration applies their changes to a worktree of

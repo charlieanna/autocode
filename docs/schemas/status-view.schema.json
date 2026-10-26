@@ -27,7 +27,8 @@
         "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
         "provider", "route_assignments", "information_review", "tool_containment", "job_report_recovery",
         "efficiency", "conversation", "chat", "workspace", "run_dir", "planning_depth", "stage_policy", "pause", "package",
-        "tool_containment_backend", "changes_by_criterion", "dev_server", "execution", "observation", "attention"
+        "tool_containment_backend", "changes_by_criterion", "dev_server", "execution", "observation", "attention",
+        "scope"
       ],
       "properties": {
         "execution": {
@@ -264,7 +265,8 @@
         "package": {"type": ["string", "null"], "description": "The repository directory a run started with --package works in; null for a run of the whole repository."},
         "tool_containment_backend": {"type": ["object", "null"], "description": "The kernel boundary the latest contained launch ran in; null until a stage launches contained."},
         "changes_by_criterion": {"type": ["object", "null"], "description": "Saved Builder steps attributed to the approved plan's criteria; null until a plan is approved. Attribution, not proof."},
-        "dev_server": {"type": ["object", "null"], "description": "The run's development server: configured, status, url, code_checkpoint, restarts and waiting."}
+        "dev_server": {"type": ["object", "null"], "description": "The run's development server: configured, status, url, code_checkpoint, restarts and waiting."},
+        "scope": {"type": "object", "required": ["spans_repositories", "external_parts", "uncovered", "decision", "dropped", "linked"], "properties": {"spans_repositories": {"type": "boolean"}, "external_parts": {"type": "array", "items": {"type": "object", "required": ["target", "work"], "properties": {"target": {"type": "string"}, "work": {"type": "string"}}}}, "uncovered": {"type": "array", "items": {"type": "string"}}, "decision": {"type": ["string", "null"]}, "dropped": {"type": "array", "items": {"type": "string"}}, "linked": {"type": "array"}}, "description": "Work the request places in another repository (#2066): the grounded external parts, the targets the person left out of this run (each recorded in scope_exclusions), the person's decision (this_repository, or null while unanswered), the targets dropped for want of a verbatim quote or a cited file, and linked runs ([] until linking exists)."}
       }
     },
     "result": {
