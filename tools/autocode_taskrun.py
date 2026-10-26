@@ -25,6 +25,7 @@ from typing import Any
 try:
     from . import autocode_conversation_session as conversation_session
     from . import autocode_operational_change as operational_change
+    from . import autocode_route_fit as route_fit
     from . import autocode_taskrun_worker as worker_driver
     from .autocode_captured_process import ProcessError
     from .autocode_captured_process import run as run_captured
@@ -32,6 +33,7 @@ try:
 except ImportError:
     import autocode_conversation_session as conversation_session
     import autocode_operational_change as operational_change
+    import autocode_route_fit as route_fit
     import autocode_taskrun_worker as worker_driver
     from autocode_captured_process import ProcessError
     from autocode_captured_process import run as run_captured
@@ -710,9 +712,13 @@ class TaskRun:
         The same answer as ``--answer effort-ROLE=EFFORT``: AutoCode refuses a level the model does not
         declare and leaves the run paused. It saves without launching; continue with resume_paused().
         A ``--<role>-reasoning-effort`` in ``options`` is updated, so advancing never passes the old level back.
+        A global ``--reasoning-effort`` would set every role again on resume, so the role's own flag, which
+        wins over it, is added beside it.
         """
         view = self._act("assign effort", "--answer", f"effort-{role}={effort}")
-        flag = "--" + role.replace("_", "-") + "-reasoning-effort"
+        flag = route_fit.flag(role)
+        if flag == "--reasoning-effort":
+            return view  # a role without its own flag: the global one is the person's to change
         self.options = tuple(
             effort
             if index and self.options[index - 1] == flag
@@ -721,6 +727,9 @@ class TaskRun:
             else option
             for index, option in enumerate(self.options)
         )
+        named = any(option == flag or option.startswith(flag + "=") for option in self.options)
+        if not named and any(o == "--reasoning-effort" or o.startswith("--reasoning-effort=") for o in self.options):
+            self.options = (*self.options, f"{flag}={effort}")
         return view
 
     def respond_operational(self, request_id: str, request_token: str, text: str) -> dict:

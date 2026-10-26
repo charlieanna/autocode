@@ -1528,6 +1528,24 @@ class TaskRunClientTests(unittest.TestCase):
         )
         status.assert_called_once()
 
+    def test_an_effort_answer_survives_a_global_effort_flag_on_resume(self):
+        # #2057: a saved run re-applies --reasoning-effort to every role, so the answered role's own flag,
+        # which wins over it, must travel beside it; an existing role flag is rewritten in place.
+        for options, expected in (
+            (
+                ("--reasoning-effort", "medium"),
+                ("--reasoning-effort", "medium", "--plan-reviewer-reasoning-effort=high"),
+            ),
+            (("--plan-reviewer-reasoning-effort", "medium"), ("--plan-reviewer-reasoning-effort", "high")),
+            (("--fake",), ("--fake",)),
+        ):
+            with self.subTest(options=options):
+                run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"), options=options)
+                with patch.object(run, "_act", return_value={}) as act:
+                    run.assign_effort("plan_reviewer", "high")
+                act.assert_called_once_with("assign effort", "--answer", "effort-plan_reviewer=high")
+                self.assertEqual(expected, run.options)
+
     def test_review_rejection_carries_note_and_keeps_token_out_of_argv(self):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
         with patch.object(run, "_act", return_value={"needs": {"kind": "resume"}}) as act:
