@@ -22,7 +22,9 @@ open one to pick up), `autocode runs --all --json` (every project's chats, for `
 run's mode). The full-screen chat's
 `/diff` and `/undo` take a saved code step's `compare` and `restore` actions, which the
 status view names (`view["code_checkpoints"]`); going back makes a new run on a new
-branch, and the chat carries on with it.
+branch, and the chat carries on with it. For a run whose view lists linked runs, `/changeset`
+reads `autocode changeset status --json` and takes only the set approval or joint check it
+names (autocode_chat_changeset).
 
 While a stage works, Ctrl-C asks the run to pause after the current step (the
 view's named pause). For an owned worker, a second Ctrl-C interrupts the step
@@ -54,6 +56,7 @@ from pathlib import Path
 try:
     from . import autocode_chat_attention as attention
     from . import autocode_chat_attention_discovery as attention_discovery
+    from . import autocode_chat_changeset as changeset
     from . import autocode_chat_context as contexts
     from . import autocode_chat_inventory as inventory
     from . import autocode_chat_panel as panel
@@ -65,6 +68,7 @@ try:
 except ImportError:
     import autocode_chat_attention as attention
     import autocode_chat_attention_discovery as attention_discovery
+    import autocode_chat_changeset as changeset
     import autocode_chat_context as contexts
     import autocode_chat_inventory as inventory
     import autocode_chat_panel as panel
@@ -97,6 +101,10 @@ class Restored(Exception):
 
 class Switched(Exception):
     """The person opened another chat with /open: the chat now talks to that run."""
+
+
+class SetApproved(Exception):
+    """/changeset approved every plan of the change set: the chat reads this run again and carries on."""
 
 
 class Refused(actions.ClientGap):
@@ -606,6 +614,8 @@ class ChatClient:
             return "You are already writing a new request. Enter it to start, or leave it empty to return."
         if name == "/tab":
             return self.tab(argument)
+        if name == "/changeset":
+            return self.changeset()
         if name in ("/runs", "/open", "/new", "/mode", "/engine", "/connect"):
             if self.history is None:
                 return "This chat has no project list."
@@ -666,6 +676,40 @@ class ChatClient:
             f"Go back to step {number}?",
             go_back,
         )
+
+    def changeset(self):
+        """``/changeset``: this run's change set, read with ``changeset status --json``, and the one
+        action it names now (the set approval, else the joint check), confirmed by the person first."""
+        argv = actions.changeset_status(self.status(), self.workspace, self.run_dir)
+        if argv is None:
+            return "This run is in no change set. `autocode changeset link` links a run in another repository."
+        proc = self.cli(argv)
+        try:
+            summary = json.loads(proc.stdout)
+        except ValueError:
+            summary = None
+        if proc.returncode != 0 or not isinstance(summary, dict) or "error" in summary:
+            return f"AutoCode could not show the change set: {tail(proc)}"
+        shown = changeset.text(summary, render_plan)
+        offered = changeset.offer(summary)
+        if offered is None:
+            return shown
+        key, question = offered
+        try:
+            words = actions.changeset_action(summary, key)
+        except actions.ClientGap as error:
+            return f"{shown}\n{error}"
+
+        def take() -> str:
+            done = self.cli(words)
+            if done.returncode != 0:
+                return f"AutoCode refused that: {tail(done)}"
+            if key == "verification":
+                return (done.stdout or "").strip() or "Checked."
+            self.say("\nAutoCode: Every plan of the change set is approved.")
+            raise SetApproved
+
+        return panel.Confirm(shown, question, take)
 
     # ---- the person ------------------------------------------------------------------------
 
@@ -922,8 +966,8 @@ class ChatClient:
                 try:
                     if (stop := self.step()) is not None:
                         return stop
-                except (Restored, Switched):
-                    continue  # going back to a saved step, or /open: carry on with that run
+                except (Restored, Switched, SetApproved):
+                    continue  # going back to a saved step, /open or a set approval: carry on with that run
                 except Refused as error:
                     # Nothing was stopped: another driver may hold the run, or what was shown went stale. The
                     # person is told, then asked before the run is read and asked again, so a refusal that
@@ -1088,6 +1132,8 @@ class ChatClient:
             raise actions.ClientGap("The complete plan is unavailable; review it with autocode --show-goal first")
         self.say("\n" + render_plan(plan))
         self.say(f"(Everything the plan records: autocode --show-goal --run-dir {self.run_dir})")
+        if hint := changeset.approval_hint(view):
+            self.say(hint)
         context = (view.get("chat") or {}).get("context") or ""
         reply = self.ask("\nApprove this plan? [y/N], or type what to change: ")
         if reply.lower() in YES:

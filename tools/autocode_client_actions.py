@@ -4,7 +4,8 @@ A human-facing client (the terminal chat, the VS Code extension, the browser
 dashboard) takes only the action the status view names: ``view["next_command"]``,
 the optional ``view["chat"]["input"]`` message offer and the optional
 ``view["pause"]["next_command"]`` (docs/task-run.md), and a saved code step's
-``compare`` and ``restore`` actions (``view["code_checkpoints"]``). It fills only the decisions
+``compare`` and ``restore`` actions (``view["code_checkpoints"]``), and for a run in a change set
+the set approval and joint check ``changeset status`` names (``changeset_action``). It fills only the decisions
 the view leaves to a person: a ``QUESTION=ANSWER`` or ``QUESTION=MODEL`` slot, a
 ``QUESTION=EFFORT`` slot limited to the levels ``needs.effort`` declares, or the one
 typed number a recovery offers. A command the client cannot take from the
@@ -571,3 +572,33 @@ def live_diff(view: dict, workspace: Path, run_dir: Path) -> list[str]:
     if action.get("next_command") != expected:
         raise ClientGap("Unsupported working-diff action from AutoCode")
     return expected
+
+
+def changeset_status(view: dict, workspace: Path, run_dir: Path) -> list[str] | None:
+    """``changeset status --json`` for a run whose view lists linked runs (``scope.linked``), as
+    arguments after ``autocode``; None when the run is in no change set (owner decision 2026-10-25, #2066)."""
+    if not ((view.get("scope") or {}).get("linked")):
+        return None
+    _, run_dir = own(view, workspace, run_dir)
+    return ["changeset", "status", "--run-dir", str(run_dir), "--json"]
+
+
+def changeset_action(summary: dict, key: str) -> list[str]:
+    """The change set's named set approval (``approval``) or joint check (``verification``), as
+    arguments after ``autocode``, or a gap. The approval carries the ``set_token`` of the plans the
+    summary shows, so taking it approves only the plans the person read."""
+    section = summary.get(key)
+    section = section if isinstance(section, dict) else {}
+    runs = summary.get("runs")
+    first = runs[0] if isinstance(runs, list) and runs and isinstance(runs[0], dict) else {}
+    source, token = first.get("run_dir"), section.get("set_token")
+    if key not in ("approval", "verification"):
+        raise ClientGap(f"AutoCode names no change-set action {key!r}")
+    if not section.get("next_command"):
+        raise ClientGap("AutoCode offers no " + ("set approval" if key == "approval" else "joint check") + " right now")
+    expected = ["autocode", "changeset", "verify", "--run-dir", str(source)]
+    if key == "approval":
+        expected = ["autocode", "changeset", "approve", "--run-dir", str(source), "--set-token", str(token)]
+    if not source or (key == "approval" and not token) or section["next_command"] != expected:
+        raise ClientGap(f"Unsupported change-set {key} action from AutoCode")
+    return expected[1:]

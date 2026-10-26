@@ -99,6 +99,20 @@ def find(run_dir) -> dict | None:
     return None
 
 
+def memberships() -> dict[str, str]:
+    """Each run directory of a change set, resolved, with that set's id; {} when the record cannot be read."""
+    try:
+        found = records()
+    except (ChangesetError, OSError):
+        return {}
+    return {
+        str(run_dir): record["id"]
+        for record in found
+        for run_dir in (record["source"]["run_dir"], *(row.get("run_dir") for row in record["members"]))
+        if run_dir
+    }
+
+
 def reserve(*, source_workspace, source_run_dir, target: str, workspace, brief: str) -> dict:
     """Add an unstarted member for ``target``; refuse a target that already has one."""
     source_run_dir, workspace = str(Path(source_run_dir).resolve()), str(Path(workspace).resolve())
