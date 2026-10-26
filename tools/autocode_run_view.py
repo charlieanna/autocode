@@ -21,8 +21,10 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
+    from . import autocode_acceptance_recovery as acceptance_recovery
     from . import autocode_interaction_timing as interaction_timing
 except ImportError:
+    import autocode_acceptance_recovery as acceptance_recovery
     import autocode_interaction_timing as interaction_timing
 
 try:
@@ -663,6 +665,7 @@ def evidence(state: RunState) -> dict:
                 "commands",
                 "source_revision",
                 "case_tests",
+                "follow_up_baseline",
                 "unstable",
             )
         }
@@ -1130,6 +1133,14 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             "permission_decision_limit": disposition.get("limit"),
         }
     if status == "PAUSED_PLANNING_BUDGET":
+        if acceptance_recovery.can_resume(state):
+            return {
+                "kind": "resume",
+                "action": "--resume-paused",
+                "reason": "The runner reopened this approved plan for unchanged tests delivered in the prior turn. "
+                "Resume rechecks the tests and restores that exact approved plan, retaining all review charges "
+                "and its saved allowance; no new plan is approved.",
+            }
         if review_usage.can_resume(state):
             return {
                 "kind": "resume",

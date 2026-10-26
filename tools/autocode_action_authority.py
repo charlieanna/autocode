@@ -25,9 +25,11 @@ if TYPE_CHECKING:
 import sys
 
 try:
+    from . import autocode_acceptance_recovery as acceptance_recovery
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
+    from . import autocode_launch_inputs as launch_inputs
     from . import autocode_member_stop as member_stop
     from . import autocode_milestones as milestones
     from . import autocode_operational_information as operational_information
@@ -38,11 +40,15 @@ try:
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_result_application as result_application
     from . import autocode_support as support
+    from . import autocode_verify as verify
 except ImportError:
+    import autocode_acceptance_recovery as acceptance_recovery
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
     import autocode_interventions as interventions
+    import autocode_launch_inputs as launch_inputs
     import autocode_member_stop as member_stop
     import autocode_milestones as milestones
     import autocode_operational_information as operational_information
@@ -53,7 +59,9 @@ except ImportError:
     import autocode_recovery_progress as recovery_progress
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_result_application as result_application
     import autocode_support as support
+    import autocode_verify as verify
 
 
 def prepare_actions(runner, args, state: RunState, factory):
@@ -206,6 +214,48 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
             print(lifecycle.render(state))
             return 2
     specific_recovery = False
+    if (
+        args.resume_paused
+        and not decision_action
+        and not explicit_recovery_requested(args, state)
+        and not any(resolver_human.pending_interruptions(run_dir).values())
+        and acceptance_recovery.can_resume(state)
+    ):
+
+        def restore_acceptance(candidate: RunState):
+            clean_run, _ = launch_inputs.runners(candidate, workspace, run_dir, verify.scratch_run)
+
+            def check_tests(tests):
+                acceptance_recovery.require_boundary(candidate, getattr(args, "expected_goal_token", None))
+                return clean_run(
+                    workspace,
+                    run_dir / "check-replay" / "acceptance-recovery",
+                    tests=tests,
+                    timeout=verify.DEFAULT_TIMEOUT,
+                )
+
+            if not acceptance_recovery.reconcile(
+                candidate,
+                workspace,
+                at=runner.now(),
+                run_tests=check_tests,
+            ):
+                raise ValueError("The inherited-test correction no longer has exact recovery provenance")
+
+        try:
+            candidate = result_application.prepare(
+                state, run_dir, acceptance_recovery.STAGE, restore_acceptance, persist=runner.write_json
+            )
+        except ValueError as error:
+            print(f"Input rejected: {error}", file=sys.stderr)
+            return 2
+        cast(dict, state).clear()
+        state.update(candidate)
+        runner.write_json(state_path, state)
+        # Continue through ordinary settings, queued-input and Build admission.
+        # Reconciliation grants no Resolver or report-repair allowance.
+        decided.evidence_reconciled = True
+        specific_recovery = True
     if (
         args.resume_paused
         and not decision_action

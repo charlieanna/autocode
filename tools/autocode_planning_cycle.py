@@ -150,13 +150,13 @@ def new_cycle(state: RunState, *, new_turn=False):
             # redrafted plan needs a review the carried total had already spent: a live run dead-ended at
             # 2/2 with nobody to ask. One fresh allowance per run; a second internal restart still stops.
             state["planning"].update(astra_calls=0, internal_answer_renewals=1)
-        if archived.get("review_call_limit_origin") == "user_explicit":
-            # Carry the explicit bound with the charges it limits. Otherwise a
-            # spec-first send-back retains spent calls but silently restores the
-            # smaller configured default. Ordinary per-cycle allowances below
-            # keep their existing reset policy.
+        if archived.get("review_call_limit_origin") in ("user_explicit", "runner_default"):
+            # Carry the saved bound with the same-turn charges it limits. A
+            # runner-default renewal is no new allowance on this restart; a new
+            # human turn still gets its configured default rather than this one.
             state["planning"].update(
-                review_call_limit=archived["review_call_limit"], review_call_limit_origin="user_explicit"
+                review_call_limit=archived["review_call_limit"],
+                review_call_limit_origin=archived["review_call_limit_origin"],
             )
     if new_turn and archived and explicit:
         state["planning"].update(astra_calls=archived.get("astra_calls", 0))

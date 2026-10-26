@@ -40,6 +40,7 @@ import shutil
 from pathlib import Path
 
 try:
+    from . import autocode_acceptance_provenance as provenance
     from . import autocode_acceptance_tests as acceptance
     from . import autocode_run_status as run_status
     from . import autocode_stray_writes as stray_writes
@@ -47,6 +48,7 @@ try:
     from . import autocode_util as util
     from .autocode_verify import is_test_path
 except ImportError:
+    import autocode_acceptance_provenance as provenance
     import autocode_acceptance_tests as acceptance
     import autocode_run_status as run_status
     import autocode_stray_writes as stray_writes
@@ -92,22 +94,30 @@ PROMPT = prompts.get("acceptance-tests.md")
 REPAIR_RULES = prompts.get("fragments/acceptance-tests/repair-rules.md")
 
 
-def _case(case: dict) -> dict:
+def _case(case: dict, inherited=False) -> dict:
     return {
         "id": case["id"],
         "criterion": test_cases.case_text(case),
         "test_name": case.get("test_name") or test_cases.case_test_name(case["id"]),
-        "kind": "guard: must pass on today's code" if case.get("kind") == "preserve" else "test: must fail today",
+        "kind": (
+            "test: already delivered in the completed prior turn; retain its existing test, which may pass today; "
+            "fresh original-reference fail-first proof remains required"
+            if inherited
+            else "guard: must pass on today's code"
+            if case.get("kind") == "preserve"
+            else "test: must fail today"
+        ),
     }
 
 
 def packet(state: RunState, inventory: dict | None = None, engine: str | None = None) -> dict:
+    inherited = provenance.inherited_cases(state, workspace=state.get("workspace"))
     return {
         "stage": STAGE,
         "task": state["task"],
         "workspace": state.get("workspace"),
         "execution_engine": engine,
-        "cases": [_case(case) for case in acceptance.job_cases(state)],
+        "cases": [_case(case, case["id"] in inherited) for case in acceptance.job_cases(state)],
         "goal_contract": state.get("goal_contract"),
         "current_task": state.get("current_task"),
         "saved_answers": state.get("answers") or {},
@@ -183,7 +193,7 @@ def corrected_body(state: RunState, names: dict[str, str]) -> dict:
     return body
 
 
-def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: dict) -> dict[str, str]:
+def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: dict, *, inherited=()) -> dict[str, str]:
     """Per case, how the runner saw its test on today's code; raises ValueError naming what is wrong."""
     if run.get("error"):
         raise ValueError(f"The runner could not run the acceptance tests on today's code: {run['error']}")
@@ -217,6 +227,8 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
             verdicts[case["id"]] = "passes" if passed[case["id"]] else ""
             if not passed[case["id"]]:
                 wrong.append(f"guard {case['id']} ({case['test_name']}) does not pass on today's code")
+        elif case["id"] in inherited and passed[case["id"]]:
+            verdicts[case["id"]] = "already passes"
         elif case["id"] in already:
             verdicts[case["id"]] = "already passes" if passed[case["id"]] else ""
             if not passed[case["id"]]:
@@ -282,8 +294,9 @@ def apply(
     if bad:
         raise ValueError(f"Each test file must exist in the workspace and be a test file: {bad}")
     run = (run_tests or (lambda tests: {"error": "no test runner was given"}))(files)
-    verdicts = _verdicts(state, cases, value, workspace, run)
-    already = {row["case_id"]: row for row in value["already_passing"]}
+    inherited = provenance.inherited_cases(state, reports=value["tests"], workspace=workspace)
+    verdicts = _verdicts(state, cases, value, workspace, run, inherited=inherited)
+    already = {row["case_id"]: row for row in value["already_passing"] if row["case_id"] not in inherited}
     if already:
         names = {row["case_id"]: row["test_name"] for row in value["tests"] if row["case_id"] in already}
         # A bug's reproduction that already passes disagrees with its diagnosis: only the user can settle that.

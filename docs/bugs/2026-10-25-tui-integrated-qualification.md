@@ -54,7 +54,7 @@ claiming that the whole matrix has passed.
 | Scenarios | Public proof and negative controls | Scope still to reconcile |
 | --- | --- | --- |
 | S01-S04: approval, external view, slow verification, detach/SSH | `test_worker_host` launches persistent services, exercises quit/Ctrl-D/SIGHUP/SIGKILL/PTY/SSH loss, and checks unchanged attempt and controller identities before completion. `test_chat_polling_cli` keeps input live during held reads. | Final native-host artifact at the recorded qualification head; an owned legacy worker retains its different exit policy. |
-| S05: worker and host loss | Native worker-loss cases retain edits/routes/attempts and refuse false completion. `test_worker_cli` separately injects a changed boot identity and unavailable boot inspection; accepted launch receipts never re-arm dispatch. | A simulated boot identity is not a literal machine reboot. Preserve that distinction in any final H3 verdict. |
+| S05: worker and host loss | Native worker-loss cases retain edits/routes/attempts and refuse false completion. `test_worker_cli` separately injects a changed boot identity and unavailable boot inspection; accepted launch receipts never re-arm dispatch. Literal graceful guest reboot passed in run 40247430778, with three public post-reboot checks and exact-child cleanup. | The disposable `durable_local` fixture does not convert the retained legacy `owned` product run or establish abrupt power-loss behavior. |
 | S06-S07: competing viewers and three runs | Existing launch-receipt contention plus the new three-project/two-viewer case; a stale approval must not dispatch a second Builder. | The new combined case needs the dedicated host result, not a mocked service or skipped local test. |
 | S08: late, failed and reordered reads | `test_chat_polling`, `test_chat_polling_cli`, `test_chat_context` and `test_chat_observation` preserve fresh authority, drafts and last-known availability while reads hang or arrive late. | Report actual samples and configured bounds; no inferred 25-run freshness promise. |
 | S09: uncertain provider/report recovery | Retained-attempt worker-loss cases, explicit refusal/token regressions and verification display tests distinguish saved edits from accepted checks. | Retain the exact fault/action family for a final combined recovery verdict; one pause receipt is not universal action idempotency. |
@@ -121,3 +121,37 @@ failed against the unchanged function with the expected missing-argument error.
 During live Requirements, `/help` rendered in 19.7 ms at 120x34. That measures
 input responsiveness, not delivery speed. Candidate prompt convergence, final
 product checks and a complete elapsed-time comparison remain outstanding.
+
+## Later qualification and approved-plan transition (#2096)
+
+The literal graceful reboot qualification passed at source
+`1f8f49d4d266921d3b0baac445971e4dc6fa72c3` in Actions run 40247430778.
+Artifact 12619417187 has ZIP SHA256
+`779deeb1e75373628c8daa7e824f0e001bcf4341e007b19078c685cc1dd729fb`.
+The guest boot changed while the outer host boot did not. All three public
+samples retained attempts, routes, approvals, edited file hashes and known
+completed usage with one dispatch, no false completion and an explicit
+process-cleanup recovery hold. Cleanup passed; the coordinator took 670.036
+seconds. Both earlier failed qualification attempts remain recorded in #1881.
+These are offline-provider lifecycle checks, not live model throughput.
+
+Merged #2085 corrected feedback provenance; #2089 corrected duplicate inherited
+review counting. On installed master
+`0b39b1681b8bb3658d78970c4bbbed9361d8521d`, ordinary TUI Resume completed
+the final review without a new allowance. The owner then approved exact plan
+revision 12, exported body hash
+`c14147a7fb3edd065138e26e8223a9a5188e86de117116d1f33e2ad5de72fcd7`.
+The test writer preserved all seven original pytest function bodies and added
+exactly four tests. Independent pre-Builder pytest gave three expected
+missing-`start` failures and eight passes in 0.02 seconds.
+
+The next transition exposed #2096: inherited cases that intentionally pass the
+previous completed turn were unconditionally relabeled `guard:` and sent back
+to planning. This produced unapproved revision 13 and a 3/2 review hold before
+Builder. Public bundle manifest:
+`9368699ce839cb34e08b96d66fbb4a9b104c30ddd57345973632214092e7453b`.
+The correction must preserve the exact approved plan, actual review charges
+and fresh original-reference proof. A new follow-up guard additionally needs
+fresh results against authenticated previous-delivery source; historical PASS
+receipts cannot replace either current check. At this checkpoint, the
+follow-up remains incomplete and no faster delivery result is established.

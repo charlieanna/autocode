@@ -345,6 +345,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Follow-up test generation keeps unchanged tests from a completed turn under their approved
+  fail-first meaning instead of reopening planning when they pass current code. Fresh proof checks
+  inherited regressions against the original reference and new guards against the completed source.
+  Exact runner-only corrections can recover through ordinary Resume; review charges, saved allowances,
+  approvals and history remain intact, including renewed default limits on same-turn restarts (#2096).
+
 - A direct connection's OpenRouter provider defaults to `https://openrouter.ai/api/v1`, its real API
   base, and VS Code's Connections view runs a multi-provider connection's `add` action in a terminal
   as it does `setup` (#2055).
