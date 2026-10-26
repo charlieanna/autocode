@@ -132,7 +132,10 @@ def execute(
     role, so a tool that refuses the effort names the flag that changes it (#2108). Without it the
     probe keeps its generic read-only/write role."""
     directory.mkdir(parents=True)
-    event_path, report_path = directory / "events.jsonl", directory / "report.json"
+    # One "events" stem: a report_file adapter reads its report next to the events file the
+    # launch wrote (Path.with_suffix), and the model preflight reads the events stream from
+    # this directory under the same name.
+    event_path, report_path = directory / "events.jsonl", directory / "events.json"
     schema_path, prompt_path = directory / "schema.json", directory / "prompt.txt"
     atomic_json(schema_path, schema)
     child_env = agent_env.scrubbed(env)
@@ -226,6 +229,10 @@ def execute(
                     raise
                 code, timed_out = child.returncode, True
     rows = support.events(event_path)
+    if adapter is not None and getattr(adapter, "NORMALIZES_EVENTS", False):
+        # The adapter's public event contract (usage totals on the terminal row) differs
+        # from its raw stream; the oracle judges the contract a consumer reads.
+        rows = adapter.normalized_events(rows)
     atomic_json(directory / "normalized-events.json", rows)
     report, report_error = None, None
     try:

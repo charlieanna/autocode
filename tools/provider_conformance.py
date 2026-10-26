@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One conformance contract across Codex, OpenCode, KiloCode and Claude Code.
+"""One conformance contract across Codex, OpenCode, KiloCode, Claude Code and the direct engine.
 
 Offline: python tools/provider_conformance.py --fake
 Live:    python tools/provider_conformance.py --route codex=gpt-6-luna \
@@ -14,6 +14,7 @@ import json
 import math
 import os
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -30,9 +31,18 @@ except ImportError:
     from autocode_util import atomic_json, file_hash, snapshot
 
 
-PROVIDERS = ("codex", "opencode", "kilocode", "claude")
+PROVIDERS = ("codex", "opencode", "kilocode", "claude", "autocode")
 # The model each local fake route asks for; every other route asks for test/probe.
-FAKE_MODELS = {"codex": "probe", "claude": "claude-haiku-4-5-20251001"}
+FAKE_MODELS = {"codex": "probe", "claude": "claude-haiku-4-5-20251001", "autocode": fake.DIRECT_MODEL}
+
+
+def fake_providers() -> tuple[str, ...]:
+    """The routes ``--fake`` runs here. The direct engine's contained shell is qualified on
+    the supported Linux boundary; other hosts keep the four CLI transports, matching the
+    run boundary its supervised launches already follow."""
+    if sys.platform == "linux":
+        return PROVIDERS
+    return tuple(name for name in PROVIDERS if name != "autocode")
 
 
 def run_route(name, model, directory, *, effort, timeout, env, fake_mode=False):
@@ -53,8 +63,12 @@ def run_route(name, model, directory, *, effort, timeout, env, fake_mode=False):
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         result.update(status="UNAVAILABLE", error=str(error))
     else:
+        # The direct engine launches a fresh process per stage and keeps no session to
+        # resume, so its contract is the two stage boundaries a sessionless tool can prove.
+        sessions = adapter is None or bool(getattr(adapter, "SUPPORTS_SESSIONS", True))
+        phases = ("build", "validate", "resume") if sessions else ("build", "validate")
         session = None
-        for phase in ("build", "validate", "resume"):
+        for phase in phases:
             data = contract.handoff(workspace, phase)
             stage_dir = workspace / ".autocode" / phase
             expected_session = session if phase == "resume" else None
@@ -107,7 +121,9 @@ def run_route(name, model, directory, *, effort, timeout, env, fake_mode=False):
                 break
             session = checked["session"]
         result["status"] = (
-            "PASS" if len(result["phases"]) == 3 and all(p["status"] == "PASS" for p in result["phases"]) else "FAIL"
+            "PASS"
+            if len(result["phases"]) == len(phases) and all(p["status"] == "PASS" for p in result["phases"])
+            else "FAIL"
         )
         if result["phases"][-1]["status"] == "INTERRUPTED":
             result["status"] = "INTERRUPTED"
@@ -120,8 +136,10 @@ def route(value):
     name, separator, model = value.partition("=")
     if name not in PROVIDERS or not separator or not model or any(c.isspace() for c in model):
         raise argparse.ArgumentTypeError(
-            "Use codex=MODEL, opencode=PROVIDER/MODEL, kilocode=PROVIDER/MODEL or claude=MODEL"
+            "Use codex=MODEL, opencode=PROVIDER/MODEL, kilocode=PROVIDER/MODEL, claude=MODEL or autocode=MODEL"
         )
+    if name == "autocode" and sys.platform != "linux":
+        raise argparse.ArgumentTypeError("the direct engine's conformance probe runs on the supported Linux boundary")
     return name, model
 
 
@@ -146,7 +164,9 @@ def source_identity():
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--fake", action="store_true", help="every local fake route (all four transports), no model/network requests"
+        "--fake",
+        action="store_true",
+        help="every local fake route (all five transports); no model traffic, only loopback fixtures",
     )
     parser.add_argument("--fake-fault", choices=fake.FAULTS, help="exercise a rejecting oracle (requires --fake)")
     parser.add_argument("--route", action="append", type=route, default=[])
@@ -160,7 +180,7 @@ def main(argv=None):
     if args.fake_fault and not args.fake:
         parser.error("--fake-fault requires --fake")
     if args.fake and args.route:
-        parser.error("--fake selects every local fake route (all four); omit --route")
+        parser.error("--fake selects every local fake route (all five); omit --route")
     if not args.fake and (not args.route or not args.i_authorize_live_model_spend):
         parser.error("Live probes require --route and --i-authorize-live-model-spend")
     args.output.mkdir(parents=True, exist_ok=True)
@@ -168,7 +188,11 @@ def main(argv=None):
     env = dict(os.environ)
     if args.fake:
         env = fake.environment(directory, env, args.fake_fault)
-    routes = [(p, FAKE_MODELS.get(p, "test/probe")) for p in PROVIDERS] if args.fake else args.route
+        if env.get("XDG_CONFIG_HOME"):
+            # The direct engine's adapter loads its fixture connection from the process
+            # environment; every other route only sees configuration absent there.
+            os.environ["XDG_CONFIG_HOME"] = env["XDG_CONFIG_HOME"]
+    routes = [(p, FAKE_MODELS.get(p, "test/probe")) for p in fake_providers()] if args.fake else args.route
     results = []
     summary = {
         "contract_version": 1,

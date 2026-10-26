@@ -1035,6 +1035,7 @@ A version the offline conformance suite has not been run against is
 | opencode | 2.0.20 | opencode-standalone | refused | refused | accepted-for-ordinary-runs | 2026-10-06 | `9a31a8e8` | Uses --standalone and a provider/model#effort id. A 2.x binary fails the containment and visual checks closed until it has its own conformance pass (docs/bugs/2026-10-06-opencode-2.md). |
 | codex | native | codex | n/a | n/a | known-good | 2026-10-03 | `b96a633e` | Native Codex probes in docs/provider-conformance.md; ChatGPT login required. |
 | kilocode | registered-adapter | kilocode | n/a | n/a | known-good | 2026-10-03 | `b96a633e` | Registered KiloCode adapter; see docs/provider-conformance.md. |
+| autocode | direct-1 | direct-compatible | qualified | n/a | known-good | 2026-10-26 | `ed2a01957` | The direct engine's own runtime, kernel-contained shell and event stream against a loopback model fixture (#2055); covers the OpenAI/OpenRouter-compatible API-key transport. Sessionless engine: build and validate boundaries. The Anthropic-messages transport and Google remain pending. |
 
 <!-- END provider conformance matrix -->
 

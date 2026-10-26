@@ -57,6 +57,17 @@
       "date": "2026-10-03",
       "commit": "b96a633e",
       "note": "Registered KiloCode adapter; see docs/provider-conformance.md."
+    },
+    {
+      "engine": "autocode",
+      "version": "direct-1",
+      "transport": "direct-compatible",
+      "containment": "qualified",
+      "visual_profile": "n/a",
+      "result": "known-good",
+      "date": "2026-10-26",
+      "commit": "ed2a01957",
+      "note": "The direct engine's own runtime, kernel-contained shell and event stream against a loopback model fixture (#2055); covers the OpenAI/OpenRouter-compatible API-key transport. Sessionless engine: build and validate boundaries. The Anthropic-messages transport and Google remain pending."
     }
   ]
 }
