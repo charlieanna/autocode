@@ -211,6 +211,49 @@ class ReadyGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "dropped a literal"):
             self.ready(draft)
 
+    def test_documentary_location_labels_do_not_become_product_values(self):
+        for location in ("tools/parser.py:292–363", "src/parser.py:292-363", "parser.py:292"):
+            with self.subTest(location=location):
+                text = f"- `{location}`: reject unknown event references and preserve exit code 7."
+                records = [{"id": "task:0", "kind": "task", "text": text}]
+                kept = body([criterion("C1", "Reject unknown event references and preserve exit code 7.", [text])])
+                trace.check_citations(kept, records)
+                self.ready(kept, records=records)
+                changed = body([criterion("C1", "Reject unknown event references and preserve exit codes.", [text])])
+                with self.assertRaisesRegex(ValueError, "changed a number the source states: 7"):
+                    self.ready(changed, records=records)
+
+    def test_known_source_record_references_do_not_introduce_numeric_values(self):
+        for text in ("The original task:0 requires exactly 7 rows.", "Copied from task:0, process exactly 7 rows."):
+            with self.subTest(text=text):
+                records = [{"id": "task:0", "kind": "task", "text": text}]
+                self.ready(body([criterion("C1", "Process exactly 7 rows.", [text])]), records=records)
+                with self.assertRaisesRegex(ValueError, "changed a number the source states: 7"):
+                    self.ready(body([criterion("C1", "Process rows.", [text])]), records=records)
+
+    def test_location_outputs_unknown_source_ids_and_real_examples_remain_protected(self):
+        cases = (
+            ("Print `tools/parser.py:292–363` exactly.", "Print a source location.", "changed a number"),
+            ("Print original task:0 exactly.", "Print a source identifier.", "changed a number"),
+            (
+                "Emit `task:0` exactly, with exit code 7.",
+                "Emit a source identifier with exit code 7.",
+                "changed a number",
+            ),
+            ("The original task:9 requires exactly 7 rows.", "Process exactly 7 rows.", "changed a number"),
+            (
+                '- `tools/parser.py:292–363`: reject `{command: null, evidence_ref: "event:", exit_code: null}`.',
+                "Reject a check with missing command metadata.",
+                "dropped a literal",
+            ),
+        )
+        for text, criterion_text, error in cases:
+            with self.subTest(text=text), self.assertRaisesRegex(ValueError, error):
+                self.ready(
+                    body([criterion("C1", criterion_text, [text])]),
+                    records=[{"id": "task:0", "kind": "task", "text": text}],
+                )
+
     def test_a_dropped_negation_is_refused(self):
         draft = body(
             [

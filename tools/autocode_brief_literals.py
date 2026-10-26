@@ -8,7 +8,8 @@ brief-to-contract transcription, run where the runner checks each planner draft'
 and on each plan file a person loads with --goal-file (autocode_goal_file).
 
 A literal is an inline code span in text the user wrote (the task, brief feedback, the user's own
-answers); fenced code blocks are left out. The contract keeps a literal when it quotes it verbatim
+answers); fenced code blocks and leading documentary file:line labels are left out. Inline
+paths, output strings and file-scope constraints are still literals. The contract keeps a literal when it quotes it verbatim
 anywhere, or, for a template (one with a placeholder such as ID or TEXT, an ALL-CAPS word of letters,
 or an alternation such as open|done), when an acceptance criterion fills it in (`1 buy milk [open]`).
 Whitespace differences never count. Whether every example then agrees with the literal is the Plan
@@ -19,8 +20,10 @@ from __future__ import annotations
 
 try:
     from . import autocode_prompts as prompts
+    from . import autocode_source_metadata as source_metadata
 except ImportError:
     import autocode_prompts as prompts
+    import autocode_source_metadata as source_metadata
 
 
 import re
@@ -41,7 +44,7 @@ def literals(texts) -> list[str]:
     """The inline code spans in ``texts``, in order, without repeats."""
     found = []
     for text in texts:
-        for span in SPAN.findall(FENCE.sub(" ", text or "")):
+        for span in SPAN.findall(source_metadata.without_location_labels(FENCE.sub(" ", text or ""))):
             span = " ".join(span.split())
             if span and span not in found:
                 found.append(span)
