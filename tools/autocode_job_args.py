@@ -11,6 +11,7 @@ def validate(args, parser, explicit):
     args._job_cap_change = bool(
         args.job_retry_token
         and (args.max_seconds is not None or args.max_cost_usd is not None)
+        and not names_job_model
         and not (args.resume_paused or args.retry_failed_stage)
     )
     if args._job_cap_change and (

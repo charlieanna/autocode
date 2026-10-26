@@ -56,6 +56,8 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/providers/configs/kilocode.toml", ("tests.test_planning",)),
     ("tests/resolver_recommendation_provider.py", ("tests.test_resolver_recommendation_cli",)),
     ("tests/failure_routing_provider.py", ("tests.test_failure_routing_cli", "tests.test_investigator_route")),
+    ("tools/blackbox_build_provider.py", ("tests.test_failure_routing_cli",)),
+    ("tools/fake_codex.py", ("tests.test_subprocess",)),
     ("tools/prompts/bug-investigation.md", ("tests.test_bug_job",)),
     (
         "tools/autocode_prices.json",
