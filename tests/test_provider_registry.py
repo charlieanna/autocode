@@ -74,7 +74,13 @@ class ProviderRegistryTests(unittest.TestCase):
         self.assertIsInstance(mine, kilocode.KiloProvider)
         self.assertEqual("kilo_mine", mine.NAME)
         self.assertNotIsInstance(autocode_providers.resolve("other_tool"), kilocode.KiloProvider)
-        with tempfile.TemporaryDirectory() as temp, mock.patch.object(mine, "validate_effort"):
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch.object(mine, "validate_effort"),
+            mock.patch.object(
+                kilocode.kilocode_policy, "restrict", side_effect=lambda argv, child, *a, **kw: (argv, child)
+            ) as policy,
+        ):
             _, child, _ = mine.launch(
                 "terra",
                 Path(temp),
@@ -85,6 +91,8 @@ class ProviderRegistryTests(unittest.TestCase):
                 True,
                 env={"PATH": "/usr/bin"},
             )
+        policy.assert_called_once()
+        self.assertTrue(policy.call_args.kwargs["write_stage"])
         config = json.loads(child["KILO_CONFIG_CONTENT"])
         self.assertTrue(any(plugin.endswith("/opencode_activity.mjs") for plugin in config["plugin"]), config)
         self.assertIn("KILO_EXPERIMENTAL_OUTPUT_TOKEN_MAX", child)

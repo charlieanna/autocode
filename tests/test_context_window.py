@@ -331,6 +331,12 @@ class LaunchTests(unittest.TestCase):
         provider = KiloProvider(tomllib.loads(config.read_text()), config)
         # The native variant preflight asks the installed Kilo; it is not what this test is about.
         self.enterContext(patch.object(provider, "validate_effort"))
+        policy = self.enterContext(
+            patch(
+                "providers.kilocode.kilocode_policy.restrict",
+                side_effect=lambda argv, child, *a, **kw: (argv, child),
+            )
+        )
         for given, expected in (
             (None, {"auto": False}),
             ({"compaction": {"auto": True, "buffer": 1000}, "plugin": []}, {"auto": False, "buffer": 1000}),
@@ -367,6 +373,8 @@ class LaunchTests(unittest.TestCase):
             )
         self.assertEqual({"auto": False}, json.loads(child["KILO_CONFIG_CONTENT"])["compaction"])
         self.assertTrue(worker["provider_session"] is None)
+        self.assertEqual(4, policy.call_count)
+        self.assertTrue(all(call.kwargs["write_stage"] for call in policy.call_args_list))
 
 
 class ViewTests(unittest.TestCase):
