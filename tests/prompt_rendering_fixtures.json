@@ -72,12 +72,12 @@
     "sha256": "1422185d4af2dc18662a4506475a7725d94852c7432ec138bc3a2550ef4ff513"
   },
   "execution/sol/v2": {
-    "bytes": 12611,
-    "sha256": "ec2f527194a29a1a00192ea83af05a6c531594aada8375e03a197db191dff62c"
+    "bytes": 13040,
+    "sha256": "a4c3d66376721f91442b1b6dd08d82293e5e321fda7277894ee3df9202d71e25"
   },
   "execution/sol/v3": {
-    "bytes": 15312,
-    "sha256": "813d418e8fd4b0a3585f469b282ac96d901fcb877fb9ca9fe10c6f8e832f56f0"
+    "bytes": 15741,
+    "sha256": "f0a19576a24ee6a8431f92a21a6eb1c69cbb742110204808af028022f82e3898"
   },
   "execution/terra/v2": {
     "bytes": 9030,
@@ -112,40 +112,40 @@
     "sha256": "2e93341551d9e869cd35cb246f9aba1fc1848cd0287c4ef62913d676e9f05ca2"
   },
   "full-repair/astra_challenge": {
-    "bytes": 13408,
-    "sha256": "8f37d9195b8eb256dffdb7924d8e038235f1171adf7f1c03963d127a6f0b2e79"
+    "bytes": 13872,
+    "sha256": "7044ed4f02598b8d43592186ba17d16f5c07326cff1f9870f6e7c86ff5989329"
   },
   "full-repair/astra_discovery": {
-    "bytes": 20950,
-    "sha256": "00de03483d23d025be27fa53bdfb7f5e7bf41d26b14c96d701a2a85ec3ede388"
+    "bytes": 21414,
+    "sha256": "1936f9af56a9887792c772205fbf064ad870f6d28ea6b7357f1aa63f957bb77a"
   },
   "full-repair/astra_finalize": {
-    "bytes": 22828,
-    "sha256": "61a8c362d7b1e2a9254a76368287e99d9523f158e3cdd077fe757a453b74249c"
+    "bytes": 23292,
+    "sha256": "4caa0ac0f096e0ca8190a5cb6fac692444f4f85e58d03d74611f7bd3fa9fc364"
   },
   "full-repair/astra_review": {
-    "bytes": 6734,
-    "sha256": "e6803b54fb2aeb91cce7211529d153a6237d077fb0db43fda438e666a5853381"
+    "bytes": 7198,
+    "sha256": "21ec3d49b5670a273cb1e091fbc71249d006cf473133948830a9b4e900c8cdea"
   },
   "full-repair/glm_revise": {
-    "bytes": 21267,
-    "sha256": "496561d8ce997c8bc25cb2d90127869b1536ae334628e2e3454ba5975b6c362e"
+    "bytes": 21731,
+    "sha256": "fad95fb2b43ec58eac86233821f833174d8143177584a11522f826fe6bc460f3"
   },
   "full-repair/investigate_stuck": {
-    "bytes": 7683,
-    "sha256": "beeac89f88f7b9a431ad54ea6fbebfed53bb3ca13c60fbc46696ae2a9f6a6146"
+    "bytes": 8147,
+    "sha256": "8dd0499278267cbc9c6681d3bd0a2b567638f39fec8bd3e80165662ba86fc339"
   },
   "full-repair/requirements_gather": {
-    "bytes": 13647,
-    "sha256": "774dcbaeb0a10f573ff9f7a46c02671520832323726f988f1730f4e5ccb43fc4"
+    "bytes": 14111,
+    "sha256": "d3ba84cbb918fa2fcd4c61fdcfcb991d69e340c6f350ddc8a302a6bfd7304518"
   },
   "full-repair/sol": {
-    "bytes": 5683,
-    "sha256": "2570ec8f5d1d5b18359925a681a99453d575723dab641d6877c512870f726300"
+    "bytes": 6147,
+    "sha256": "b6ac2f06beae71e2a4c9e7bc2977b04e02cf75e74ff4a63bd0ba20ed5cce40f4"
   },
   "full-repair/terra": {
-    "bytes": 5685,
-    "sha256": "0d8494940168d597951b82bc408db6faaaccca071f78d42174754174c438c51c"
+    "bytes": 6149,
+    "sha256": "fe353d07decc9ac95fcefce97a112855608e669e44c162cac23f4da33971a580"
   },
   "job/autocode_bug_job/codex": {
     "bytes": 10750,
@@ -244,12 +244,12 @@
     "sha256": "04765da9c2f10a1cbe166b2e758ca8760f053f3be0455d6fd3592e38c2150e3c"
   },
   "milestones/sol/False": {
-    "bytes": 19236,
-    "sha256": "376a8ab1c666f19ff6aac57fbaf413af1337df1085e975e26c91747679beba99"
+    "bytes": 19665,
+    "sha256": "3ddedba83de540e63f7cc23261e5942c65e86e908b4ebb2a2036946b19d6d511"
   },
   "milestones/sol/True": {
-    "bytes": 19657,
-    "sha256": "9209b5e7de1ce9757e2b2e8fd332622b3762b3b3edc24f76f8288b655569785e"
+    "bytes": 20086,
+    "sha256": "8d44845f7e2d5077c61adaab2a6d59a078746d2fce5e5b8e31c89d3d68e4f396"
   },
   "milestones/terra/False": {
     "bytes": 15498,
@@ -476,8 +476,8 @@
     "sha256": "8bfced33880c2c4cd194fb1788bbf9cde13da86774f66030b3d7638dbb44f4ec"
   },
   "progressive/sol": {
-    "bytes": 16716,
-    "sha256": "796de8ca4b6ac2339bc7e8687d3deb9c26ca5ad2bfdc8245d67a767e4830ab48"
+    "bytes": 17145,
+    "sha256": "b654f6b890ea784bb3110fb8db46a0117a256c8c5535c177aecb7e34e8d62d39"
   },
   "progressive/terra": {
     "bytes": 13135,
@@ -492,8 +492,8 @@
     "sha256": "b306d5a2daab9306e33277650689607a86c13a4dad649faee7f32ca9fcd905c8"
   },
   "provider/opencode-output-contract": {
-    "bytes": 4367,
-    "sha256": "c01510a50407843e9903666f18a6540459184040b777df9010864023d24e7235"
+    "bytes": 5040,
+    "sha256": "f528c25e617f556a6b69928ed43ddeba208899dd9bfdeda3629b4183148b53ef"
   },
   "repair/baseline/astra_challenge": {
     "bytes": 1495,
@@ -632,8 +632,8 @@
     "sha256": "ccb97f9a51bd25f9991cc43cca315fe8b6c51ba70c27dfee13da318edaae41b7"
   },
   "review/sol": {
-    "bytes": 21824,
-    "sha256": "38f4bb35f90eccec4f8eb6799349bc5af1560c3176fd5bca63ec68689b76c7ab"
+    "bytes": 22253,
+    "sha256": "9fe54d623c1b6be51a10f48a9d53df097009f5973a5dde9facf4d12b9f7b502b"
   },
   "scratch/answer_question": {
     "bytes": 293,
@@ -744,8 +744,8 @@
     "sha256": "1422185d4af2dc18662a4506475a7725d94852c7432ec138bc3a2550ef4ff513"
   },
   "unit/sol": {
-    "bytes": 21824,
-    "sha256": "38f4bb35f90eccec4f8eb6799349bc5af1560c3176fd5bca63ec68689b76c7ab"
+    "bytes": 22253,
+    "sha256": "9fe54d623c1b6be51a10f48a9d53df097009f5973a5dde9facf4d12b9f7b502b"
   },
   "unit/terra": {
     "bytes": 12062,
@@ -760,11 +760,11 @@
     "sha256": "6658d692fea811c51e90471f02ead4d4e7da3e26a50191ad57f924713b5ff736"
   },
   "workflow/sol/False": {
-    "bytes": 15066,
-    "sha256": "4843d3b48134545bca9f081ae67e185f744c2cd7f7d50f05b30b8222e5f1958c"
+    "bytes": 15495,
+    "sha256": "5e65940c80071ed0358eeeb3adf20da0649c42c16a678621707daf2187a0cc61"
   },
   "workflow/sol/True": {
-    "bytes": 15742,
-    "sha256": "2b7386fcca4d056dda2b428145842ee0202b6a270c323461f83bc3c671151079"
+    "bytes": 16171,
+    "sha256": "1de74d1695b58828c6251f8ead57926b4b2ff00c7cfe837a49e21306187db272"
   }
 }
