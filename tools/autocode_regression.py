@@ -65,6 +65,7 @@ try:
     from . import autocode_base_patch as operator_patch
     from . import autocode_component_plan as component_plan
     from . import autocode_follow_up as follow_up
+    from . import autocode_follow_up_proof as follow_up_proof
     from . import autocode_goals as goals
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_mutation_check as mutation_check
@@ -84,6 +85,7 @@ except ImportError:
     import autocode_base_patch as operator_patch
     import autocode_component_plan as component_plan
     import autocode_follow_up as follow_up
+    import autocode_follow_up_proof as follow_up_proof
     import autocode_goals as goals
     import autocode_launch_inputs as launch_inputs
     import autocode_mutation_check as mutation_check
@@ -122,6 +124,7 @@ SUMMARY_KEYS = (
     "proof_stability",
     "diff_coverage",
     "mutation_check",
+    "follow_up_baseline",
 )
 
 
@@ -436,6 +439,7 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
     operator = operator_patch.pinned(state)
     # The ignored files an in-place run's scratch trees receive: those it started with (#529).
     inputs = launch_inputs.supply(state, workspace, run_dir) if base else None
+    turn_baseline = follow_up_proof.context(state, workspace, run_dir, cases(state, all_due=all_due))
     # Stored only in regression_proof; prove reads it before reusing evidence.
     # A repaired test environment must invalidate a prior failure (or PASS)
     # even when the source and acceptance criteria have not changed.
@@ -465,6 +469,7 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
         "contract_identity": util.digest(state.get("goal_contract")),
         "cases_identity": util.digest(cases(state, all_due=all_due)),
         "preserve_only": preserve_only(state, all_due=all_due),
+        "follow_up_baseline": turn_baseline,
     }
     if (
         saved.get("source_revision") == current
@@ -670,9 +675,11 @@ def _proving(
             if due
             else {}
         )
+        turn_baseline = execution_context.get("follow_up_baseline")
+        follow_up_ids = {case["id"] for case in turn_baseline["cases"]} if turn_baseline else set()
         check_cases(
             proof,
-            due,
+            [case for case in due if case["id"] not in follow_up_ids],
             refused,
             suite_passing=suite,
             failing=result.get("failed_on_candidate") or [],
@@ -680,6 +687,21 @@ def _proving(
             by_id=bool(result.get("no_test_changed")),
             incomplete=bool(result.get("guard_run_incomplete")),
         )
+        if turn_baseline:
+            receipt = follow_up_proof.collect(
+                turn_baseline,
+                workspace,
+                out,
+                result,
+                framework,
+                verify=verify,
+                dependencies=dependencies["dependencies_from"],
+                inputs=inputs,
+                timeout=suite_timeout(state),
+            )
+            follow_up_proof.apply(proof, turn_baseline, receipt, result)
+            if receipt.get("command"):
+                result["checks"]["follow_up_baseline"] = receipt
         proof["checks"] = {
             label: {
                 "command": receipt["command"],
@@ -707,6 +729,11 @@ def _proving(
         proof.setdefault("unverified", []).append(
             "Execution context changed while proving the candidate: " + ", ".join(changed)
         )
+    if execution_context.get("follow_up_baseline") != follow_up_proof.context(
+        state, workspace, run_dir, cases(state, all_due=all_due)
+    ):
+        proof["verdict"] = verify.UNVERIFIED
+        proof.setdefault("unverified", []).append("Follow-up baseline changed while proving the candidate")
     # Report only (#699): mutants run only once the verdict is final and a pass, so a proof that fails its
     # cases or its context check spends nothing on them; every other proof carries the not-passed note.
     proof["mutation_check"] = mutation_check.final(
