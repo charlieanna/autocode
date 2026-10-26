@@ -82,6 +82,7 @@ class Decided:
     retained_report: object = None  # an inspected Investigator report on offer, never authority to adopt it
     decision_action: bool = False  # an answer, approval, feedback or other decision was given
     information_admitted: bool = False  # AutoResolver admitted corrective information for one continuation
+    evidence_reconciled: bool = False  # exact retained evidence corrected; ordinary admission, no allowance resets
     checked_authority: bool = False  # the held pause's own authority, checked before queued input applies
     issued: dict | None = None  # AutoResolver's current request when that authority was weighed
     released: bool = False  # that authority released the held pause (autocode_stop)

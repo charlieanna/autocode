@@ -1227,7 +1227,11 @@ acceptance criterion with its latest recorded outcome and evidence, the
 findings ledger, and, for bug fixes, the runner's own fail-before/pass-after
 regression proof (`verdict`, `fail_to_pass`, `failures`, `unverified`,
 `commands`, `source_revision`, and `case_tests`: each English test case's
-proving tests; `null` otherwise). Each acceptance row also carries
+proving tests; `null` otherwise). Optional
+`follow_up_baseline`, when present on the proof, identifies the immutable completed-turn
+source freshly checked for new follow-up guards. Inherited regressions still use the
+original run reference; this field does not reuse a previous proof or approve a plan.
+Each acceptance row also carries
 `validator_status`: the latest saved validation's result for that criterion
 (`FAIL`, `PASS` or `NOT_VERIFIED`), or `null` when that validation has no row
 for it. A failed criterion must be distinguishable from an unchecked one; the

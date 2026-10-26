@@ -51,6 +51,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture", "tests.test_review_attribution_cli")),
     ("scenarios/harness/profiles.py", ("tests.test_kilocode_effort",)),
     ("tools/prompts/acceptance-tests.md", ("tests.test_acceptance_tests",)),
+    ("tools/prompts/fragments/acceptance-tests/", ("tests.test_acceptance_tests", "tests.test_acceptance_provenance")),
     ("tools/prompts/fragments/test-cases/diagnosis-builder-note.md", ("tests.test_acceptance_tests",)),
     ("tools/providers/configs/kilocode.toml", ("tests.test_planning",)),
     ("tests/resolver_recommendation_provider.py", ("tests.test_resolver_recommendation_cli",)),
@@ -220,6 +221,20 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_acceptance_tests",),
     ),
     (("tools/autocode_python_tests.py", "tools/autocode_verify.py"), ("tests.test_acceptance_tests",)),
+    (
+        (
+            "tools/autocode_acceptance_provenance.py",
+            "tools/autocode_acceptance_recovery.py",
+            "tools/autocode_acceptance_tests_job.py",
+            "tools/autocode_follow_up_proof.py",
+        ),
+        (
+            "tests.test_acceptance_provenance",
+            "tests.test_acceptance_recovery_cli",
+            "tests.test_follow_up_acceptance_cli",
+            "tests.test_run_state",
+        ),
+    ),
     (
         ("tools/autocode_plan_chat.py", "tools/autocode_requirements_handoff.py", "tools/prompts/plan-chat.md"),
         ("tests.test_acceptance_tests",),

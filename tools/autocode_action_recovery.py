@@ -161,7 +161,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
             # only after exhaustion-gated retry decisions below. A
             # continuation admitted on corrective information renews
             # neither allowance: information never resets a count (#486).
-            if not information_admitted:
+            if not information_admitted and not getattr(decided, "evidence_reconciled", False):
                 resolver_runtime.reset_for_resume(state)
             if args.retry_report:
                 try:
@@ -219,7 +219,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
             # above (which requires and archives the true attempt count)
             # already consumed it if one applied; resetting first would
             # corrupt that archived count and always fail those guards.
-            if not information_admitted:
+            if not information_admitted and not getattr(decided, "evidence_reconciled", False):
                 runner.reset_report_repair_for_resume(state)
         runner.reconcile_active(state, run_dir, workspace)
     except runner.ReportRepairQueued:

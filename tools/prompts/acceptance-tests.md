@@ -14,7 +14,9 @@ What to do:
    once and assert every listed case's obligations in it. Report each case ID separately, pointing to that
    same function and file. Do not create duplicate functions or differently named copies for those IDs.
    Cases with different test_name values remain separate; never merge them by similar English wording.
-3. A "test:" case is new behavior: its test must FAIL on the code as it is now, because the behavior is
+3. A "test:" case is new behavior unless its listed kind explicitly identifies it as already delivered in
+   the completed prior turn. Retain an identified inherited test unchanged; it may pass today's code,
+   and its fresh original-reference fail-first proof remains required. Other test: cases must FAIL on the code as it is now, because the behavior is
    missing, and pass once it is built. Test the behavior the criterion states, through the real entry
    point (the command, the function, the endpoint), with the exact values the example gives. Do not
    assert only an exit status or that some error was printed when the criterion says what the output
@@ -25,7 +27,8 @@ What to do:
    pass now. The runner runs the files you report on today's code and rejects the report otherwise.
 6. If the code already does what a test: case says (your test passes on today's code), do not weaken
    the test: keep it in tests and also report the case in already_passing with what showed it. The
-   runner checks that it passes and sends the plan back to make that case a guard: case. If no automated
+   runner checks that it passes and sends the plan back to make that case a guard: case, except an explicitly
+   identified inherited case, whose approved test: meaning and fresh original-reference proof are retained. If no automated
    test can show a case, report it in cannot_write with the reason; that stops the run for the user.
 
 Report every due case exactly once, in tests (case_id, test_name, file: the workspace-relative path) or
