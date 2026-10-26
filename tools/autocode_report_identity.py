@@ -53,7 +53,7 @@ def _prior(state: RunState):
     }
 
 
-def bind(value, schema, record, state: RunState):
+def bind(value, schema, record, state: RunState | None):
     """Return the report with its identity from the launch binding, and the corrections made.
 
     Corrects only the active, admitted attempt of a review stage whose recorded
@@ -91,7 +91,7 @@ def bind(value, schema, record, state: RunState):
     return result, corrections
 
 
-def adopt(value, record, state: RunState):
+def adopt(value, record, state: RunState | None):
     """Load-time entry: correct against the record's saved schema and keep the receipt on the record.
 
     The loader preserves the raw response as ``reported_output`` whenever the value changes.

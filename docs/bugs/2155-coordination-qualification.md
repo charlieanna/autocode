@@ -127,3 +127,10 @@ without changing behavior. An earlier macOS batch also selected a supervised
 provider test, which host admission refused, and a platform-specific PATH
 expectation. Those results are not Linux qualification; the relevant CLI and
 full-flow checks run in Linux above.
+
+PR #2169's first CI lint run found that the report loader can call `adopt` with
+no run state. Its existing guard already handles that case; `adopt` and `bind`
+now declare `RunState | None`. The exact CI type command (`mypy tools/`) passes
+all 674 source files, and the report-identity/run-state regressions pass all 25
+tests. This changes annotations only, so the behavioral flow evidence above
+remains applicable.
