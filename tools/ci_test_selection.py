@@ -47,6 +47,12 @@ SUITE_CONSUMERS = (
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tools/prompts/validator.md", ("tests.test_validation_metadata", "tests.test_report_repair")),
+    (
+        "tools/prompts/fragments/provider-opencode/prompt-for-schema.md",
+        ("tests.test_schema_prompt_formatting", "tests.test_report_repair"),
+    ),
+    ("tools/prompts/fragments/autocode/execute-report-repair-06.md", ("tests.test_report_repair",)),
     ("docs/schemas/status-view.schema.json", ("tests.test_json_contract",)),
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture", "tests.test_review_attribution_cli")),
     ("scenarios/harness/profiles.py", ("tests.test_kilocode_effort",)),

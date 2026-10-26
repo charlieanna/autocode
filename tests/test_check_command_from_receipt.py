@@ -18,6 +18,35 @@ ARGV = ["python3", "-B", "-c", "import sys; print('peek ok'); sys.exit(0)"]
 
 
 class CommandFromReceiptTests(unittest.TestCase):
+    def test_ac12_capture_receipt_and_report_file_policy_preserved(self):
+        from providers.command import CommandProvider
+
+        checks = [{"command": None, "exit_code": None, "evidence_ref": ".autocode/evidence/check.json"}]
+        receipt_path = self.workspace / checks[0]["evidence_ref"]
+        output_path = Path(self.receipt["full_output"])
+        before = {path: path.read_bytes() for path in (receipt_path, output_path, self.events)}
+        support.verify_checks(checks, self.workspace, self.events)
+        self.assertEqual(
+            [{"command": shlex.join(ARGV), "exit_code": 0, "evidence_ref": ".autocode/evidence/check.json"}], checks
+        )
+        for path, contents in before.items():
+            self.assertEqual(contents, path.read_bytes())
+        config = {"name": "synthetic", "command": ["fixture", "{report}"], "roles": {}, "output": "report_file"}
+        provider = CommandProvider(config, self.workspace / "provider.toml")
+        schema = support.read(Path(support.__file__).parent / "autocode-schemas/v2/sol-report.schema.json")
+        prompt = provider.prompt_for_schema("Verify\nCURRENT HANDOFF DATA\n{}", schema, self.events)
+        self.assertIn("receipt", prompt.lower())
+        self.assertIn("event:", prompt)
+        self.assertRegex(prompt.lower(), r"(?s)(?:not|never|do not|cannot|can't|must not).{0,180}event:")
+        tampered = dict(self.receipt, exit_code=True)
+        receipt_path.write_text(json.dumps(tampered))
+        with self.assertRaises(ValueError):
+            support.verify_checks(
+                [{"command": None, "exit_code": None, "evidence_ref": ".autocode/evidence/check.json"}],
+                self.workspace,
+                self.events,
+            )
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

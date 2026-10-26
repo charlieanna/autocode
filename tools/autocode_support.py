@@ -291,21 +291,27 @@ def _receipt_mismatch_error(check, receipt, path, workspace, tool_outputs, *, re
 
 def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_context=None):
     """Verify checks against executed events or attempt-bound, output-hashed receipts.
-    Fill only absent exit codes from unique evidence."""
+    Fill omitted commands and exit codes only from unique authenticated evidence."""
     rows = [] if receipt_only else events(event_path)
     tool_outputs = [
         e["item"]
         for e in rows
         if e.get("type") == "item.completed" and e.get("item", {}).get("type") in ("command_execution", "tool_output")
     ]
+    ambiguous_ids = (
+        event_matching.ambiguous_native_command_ids(Path(event_path).read_text(errors="replace"))
+        if not receipt_only
+        and any(isinstance(check, dict) and check.get("command") is None for check in checks)
+        and Path(event_path).exists()
+        else set()
+    )
     normalized = copy.deepcopy(checks)
     for check in normalized:
         if (
             not isinstance(check, dict)
             or not isinstance(check.get("evidence_ref"), str)
             or not isinstance(check.get("command"), str)
-            # A capture receipt already names its command: a check citing one may leave it null (#1710).
-            and (check.get("command") is not None or check["evidence_ref"].startswith("event:"))
+            and check.get("command") is not None
         ):
             raise ValueError("Check needs a command and evidence reference")
         missing_exit = check.get("exit_code") is None
@@ -315,6 +321,9 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
             if receipt_only:
                 raise ValueError("Report-file providers require capture receipts, not event references")
             event_id = check["evidence_ref"].split(":", 1)[1]
+            missing_command = check.get("command") is None
+            if missing_command and not event_id:
+                raise ValueError("Check needs a command and evidence reference")
             matches = [
                 e["item"]
                 for e in rows
@@ -324,7 +333,9 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
             ]
             if len(matches) == 1 and isinstance(matches[0].get("command"), str):
                 executed = matches[0]["command"]
-                same = same_command(executed, check["command"])
+                if missing_command and event_id in ambiguous_ids:
+                    raise ValueError("Check is not supported by an exact executed Validator event")
+                same = missing_command or same_command(executed, check["command"])
                 if not same and event_matching.workspace_wrapped_command(executed, check["command"], workspace):
                     same = True
                     check["command"] = executed
@@ -333,11 +344,13 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
                     and type(matches[0].get("exit_code")) is int
                     and (missing_exit or matches[0]["exit_code"] == check["exit_code"])
                 ):
+                    if missing_command:
+                        check["command"] = executed
                     check["exit_code"] = matches[0]["exit_code"]
                     continue
             # A model sees no event IDs or exit codes, so a check may cite a bare "event:": it binds to the LATEST
             # run of its exact command, exit-less runs included, whose exit must be known and match (EVD-06).
-            if not matches:
+            if not matches and not missing_command:
                 alternates = [
                     e["item"]
                     for e in rows
@@ -399,7 +412,7 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
 
 
 def derived_check_fields(checks, reported_checks, events_path):
-    """Which fields of each check the runner filled from its evidence: an exit code, or a receipt's command."""
+    """Which omitted command/exit fields the runner filled from authenticated evidence."""
     derived = []
     for index, check in enumerate(checks):
         reported = reported_checks[index] if index < len(reported_checks) else {}

@@ -16,6 +16,305 @@ from .test_autocode import s as support
 
 
 class ValidationMetadataTests(unittest.TestCase):
+    COMPOUND_COMMAND = "cat example.py && python3 -m unittest -q"
+
+    def native_event(self, event_id="synthetic-check", command=None, exit_code=0):
+        return {
+            "type": "tool_use",
+            "sessionID": "synthetic-session",
+            "part": {
+                "id": event_id,
+                "sessionID": "synthetic-session",
+                "messageID": "synthetic-message",
+                "tool": "bash",
+                "state": {
+                    "status": "completed",
+                    "input": {"command": self.COMPOUND_COMMAND if command is None else command},
+                    "metadata": {"exit": exit_code},
+                    "output": "synthetic observation",
+                },
+            },
+        }
+
+    def native_log(self, *rows):
+        self.log.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    def assert_checks_refused_unchanged(self, checks, **options):
+        original = copy.deepcopy(checks)
+        with self.assertRaises(ValueError):
+            support.verify_checks(checks, self.workspace, self.log, **options)
+        self.assertEqual(original, checks)
+
+    def test_t1_hydrates_null_fields_from_exact_event(self):
+        self.native_log(self.native_event())
+        checks = [{"command": None, "evidence_ref": "event:synthetic-check", "exit_code": None}]
+        self.assertIsNone(support.verify_checks(checks, self.workspace, self.log))
+        self.assertEqual(
+            [{"command": self.COMPOUND_COMMAND, "evidence_ref": "event:synthetic-check", "exit_code": 0}], checks
+        )
+
+    def test_exact_native_repeated_updates_still_name_one_command(self):
+        completed = self.native_event()
+        running = copy.deepcopy(completed)
+        running["part"]["state"]["status"] = "running"
+        self.native_log(running, completed, copy.deepcopy(completed))
+        check = {"command": None, "evidence_ref": "event:synthetic-check", "exit_code": None}
+        support.verify_checks([check], self.workspace, self.log)
+        self.assertEqual(self.COMPOUND_COMMAND, check["command"])
+        self.assertEqual(0, check["exit_code"])
+
+    def test_exact_native_conflicting_updates_cannot_supply_missing_command(self):
+        for field, value in (
+            ("command", "python3 other.py"),
+            ("exit", 7),
+            ("message", "another-message"),
+            ("session", "foreign-session"),
+        ):
+            with self.subTest(field=field):
+                completed = self.native_event()
+                other = copy.deepcopy(completed)
+                if field == "command":
+                    other["part"]["state"]["input"]["command"] = value
+                elif field == "exit":
+                    other["part"]["state"]["metadata"]["exit"] = value
+                else:
+                    other["part"]["messageID" if field == "message" else "sessionID"] = value
+                self.native_log(completed, other)
+                self.assert_checks_refused_unchanged(
+                    [{"command": None, "evidence_ref": "event:synthetic-check", "exit_code": None}]
+                )
+
+    def test_t2_hydrates_multiple_rows(self):
+        commands = {
+            "check-a": self.COMPOUND_COMMAND,
+            "check-b": "python3 -m compileall -q tools",
+            "check-c": "python3 -m unittest tests.test_validation_metadata -q",
+        }
+        self.native_log(*(self.native_event(key, command) for key, command in commands.items()))
+        checks = [{"command": None, "evidence_ref": "event:" + key, "exit_code": None} for key in commands]
+        self.assertIsNone(support.verify_checks(checks, self.workspace, self.log))
+        self.assertEqual(
+            [{"command": command, "evidence_ref": "event:" + key, "exit_code": 0} for key, command in commands.items()],
+            checks,
+        )
+
+    def test_t3_null_command_with_supplied_exit(self):
+        self.native_log(self.native_event())
+        check = {"command": None, "evidence_ref": "event:synthetic-check", "exit_code": 0}
+        self.assertIsNone(support.verify_checks([check], self.workspace, self.log))
+        self.assertEqual(
+            {"command": self.COMPOUND_COMMAND, "evidence_ref": "event:synthetic-check", "exit_code": 0}, check
+        )
+
+    def test_t4_refuses_shortened_compound_command(self):
+        self.native_log(self.native_event())
+        self.assert_checks_refused_unchanged(
+            [{"command": "python3 -m unittest -q", "evidence_ref": "event:synthetic-check", "exit_code": 0}]
+        )
+
+    def test_t5_refuses_bare_event_placeholder(self):
+        self.native_log(self.native_event())
+        checks = [{"command": None, "evidence_ref": "event:", "exit_code": None}]
+        with self.assertRaisesRegex(ValueError, "Check needs a command and evidence reference"):
+            support.verify_checks(checks, self.workspace, self.log)
+        self.assertEqual([{"command": None, "evidence_ref": "event:", "exit_code": None}], checks)
+
+    def test_t6_hydrates_nonzero_exit(self):
+        self.native_log(self.native_event(command="python3 -m unittest -q", exit_code=7))
+        check = {"command": None, "evidence_ref": "event:synthetic-check", "exit_code": None}
+        self.assertIsNone(support.verify_checks([check], self.workspace, self.log))
+        self.assertEqual(
+            {"command": "python3 -m unittest -q", "evidence_ref": "event:synthetic-check", "exit_code": 7}, check
+        )
+        self.assertIs(type(check["exit_code"]), int)
+
+    def test_t7_atomic_refusal_leaves_rows_unchanged(self):
+        self.native_log(self.native_event())
+        self.assert_checks_refused_unchanged(
+            [
+                {"command": self.COMPOUND_COMMAND, "evidence_ref": "event:synthetic-check", "exit_code": None},
+                {"command": None, "evidence_ref": "event:unknown", "exit_code": None},
+            ]
+        )
+
+    def test_t8_refuses_mismatched_typed_exit(self):
+        self.native_log(self.native_event())
+        self.assert_checks_refused_unchanged(
+            [{"command": self.COMPOUND_COMMAND, "evidence_ref": "event:synthetic-check", "exit_code": 1}]
+        )
+
+    def test_t9_receipt_only_refuses_event_reference(self):
+        self.native_log(self.native_event())
+        self.assert_checks_refused_unchanged(
+            [{"command": None, "evidence_ref": "event:synthetic-check", "exit_code": None}], receipt_only=True
+        )
+        checks = [{"command": self.COMPOUND_COMMAND, "evidence_ref": "event:synthetic-check", "exit_code": 0}]
+        original = copy.deepcopy(checks)
+        with self.assertRaisesRegex(ValueError, "Report-file providers require capture receipts, not event references"):
+            support.verify_checks(checks, self.workspace, self.log, receipt_only=True)
+        self.assertEqual(original, checks)
+
+    def test_ac10_refuses_guess_sources_and_bad_exits(self):
+        valid = self.native_event()
+        missing_command = copy.deepcopy(valid)
+        del missing_command["part"]["state"]["input"]["command"]
+        missing_state = copy.deepcopy(valid)
+        del missing_state["part"]["state"]
+        missing_exit = copy.deepcopy(valid)
+        missing_exit["part"]["state"]["metadata"] = {}
+        mixed = self.native_event("other")
+        mixed["sessionID"] = mixed["part"]["sessionID"] = "foreign-session"
+        receipt_output = {
+            "type": "item.completed",
+            "item": {
+                "type": "tool_output",
+                "id": "synthetic-check",
+                "command": self.COMPOUND_COMMAND,
+                "aggregated_output": json.dumps({"command": ["python3", "-m", "unittest", "-q"], "exit_code": 0}),
+            },
+        }
+        scenarios = {
+            "unknown_id": ([valid], "event:unknown"),
+            "duplicate_id": ([valid, self.native_event(command="python3 other.py")], "event:synthetic-check"),
+            "mixed_sessions": ([valid, mixed], "event:synthetic-check"),
+            "missing_command": ([missing_command], "event:synthetic-check"),
+            "missing_state": ([missing_state], "event:synthetic-check"),
+            "missing_native_exit": ([missing_exit], "event:synthetic-check"),
+            "missing_normalized_exit": (
+                [
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "command_execution",
+                            "id": "synthetic-check",
+                            "command": self.COMPOUND_COMMAND,
+                        },
+                    }
+                ],
+                "event:synthetic-check",
+            ),
+            "unknown_exit": ([self.native_event(exit_code=None)], "event:synthetic-check"),
+            "boolean_exit": ([self.native_event(exit_code=True)], "event:synthetic-check"),
+            "incomplete_tool": (
+                [
+                    {
+                        **valid,
+                        "part": {
+                            **valid["part"],
+                            "state": {
+                                **valid["part"]["state"],
+                                "status": "running",
+                            },
+                        },
+                    }
+                ],
+                "event:synthetic-check",
+            ),
+            "receipt_shaped_output": ([receipt_output], "event:synthetic-check"),
+            "prose": (
+                [
+                    {
+                        "type": "text",
+                        "sessionID": "synthetic-session",
+                        "part": {
+                            "id": "synthetic-check",
+                            "text": self.COMPOUND_COMMAND + " exit 0",
+                        },
+                    }
+                ],
+                "event:synthetic-check",
+            ),
+        }
+        for label, (rows, reference) in scenarios.items():
+            with self.subTest(source=label):
+                self.native_log(*rows)
+                self.assert_checks_refused_unchanged([{"command": None, "evidence_ref": reference, "exit_code": None}])
+
+    def test_ac11_typed_fallback_unchanged(self):
+        command = "python3 -m unittest -q"
+        wrapped = f"cd {shlex.quote(str(self.workspace))} && {command} 2>&1"
+        for executed in (command, wrapped):
+            with self.subTest(executed=executed):
+                self.native_log(self.native_event("first", executed), self.native_event("latest", executed, 7))
+                checks = [{"command": command, "evidence_ref": "event:", "exit_code": None}]
+                support.verify_checks(checks, self.workspace, self.log)
+                self.assertEqual([{"command": executed, "evidence_ref": "event:latest", "exit_code": 7}], checks)
+                self.assert_checks_refused_unchanged([{"command": command, "evidence_ref": "event:", "exit_code": 0}])
+                self.assert_checks_refused_unchanged([{"command": None, "evidence_ref": "event:", "exit_code": None}])
+                self.native_log(self.native_event("first", executed), self.native_event("latest", executed, None))
+                for exit_code in (None, 0):
+                    self.assert_checks_refused_unchanged(
+                        [{"command": command, "evidence_ref": "event:", "exit_code": exit_code}]
+                    )
+
+    def test_ac15_derived_provenance_and_artifact_immutability_preserved(self):
+        receipt, _ = self.receipt()
+        original_report = self.run / "original-report.json"
+        original_report.write_text(json.dumps({"verdict": "FAIL", "checks": []}))
+        self.native_log(self.native_event())
+        original = {
+            "events": str(self.log),
+            "output": str(original_report),
+            "output_mode": "report_file",
+            "capture_context": self.context,
+        }
+        preserved = {path: path.read_bytes() for path in (original_report, self.log, receipt, self.run / "check.log")}
+        repair_events = self.run / "repair-events.jsonl"
+        repair_events.write_text("{}\n")
+        output = self.run / "repair.json"
+        report = {
+            "verdict": "FAIL",
+            "checks_run": ["python test.py"],
+            "findings": [],
+            "unverified_criteria": [],
+            "criterion_results": [],
+            "checks": [{"command": None, "exit_code": None, "evidence_ref": str(receipt)}],
+        }
+        output.write_text(json.dumps(report))
+        record = {
+            "output": str(output),
+            "events": str(repair_events),
+            "output_mode": "report_file",
+            "capture_context": {**self.context, "nonce": "repair"},
+            "schema": str(runner.SCHEMA_DIR / "v2/sol-report.schema.json"),
+        }
+        with self.assertRaises(ValueError):
+            runner.load_stage_report(record, self.workspace)
+        result = runner.load_stage_report(record, self.workspace, original)
+        self.assertEqual("FAIL", result["verdict"])
+        self.assertEqual(
+            [{"command": "python test.py", "exit_code": 0, "evidence_ref": str(receipt)}], result["checks"]
+        )
+        self.assertEqual(report, support.read(record["reported_output"]))
+        self.assertEqual(
+            [
+                {
+                    "check_index": 0,
+                    "field": field,
+                    "value": value,
+                    "evidence_ref": str(receipt),
+                    "events": str(self.log),
+                }
+                for field, value in (("exit_code", 0), ("command", "python test.py"))
+            ],
+            record["derived_check_metadata"],
+        )
+        for path, contents in preserved.items():
+            self.assertEqual(contents, path.read_bytes(), str(path))
+
+    def test_ac19_refuses_conflicting_supplied_exit_with_null_command(self):
+        self.native_log(self.native_event())
+        for conflicting_exit in (1, True):
+            bad = {"command": None, "evidence_ref": "event:synthetic-check", "exit_code": conflicting_exit}
+            with self.subTest(exit_code=conflicting_exit):
+                self.assert_checks_refused_unchanged([bad])
+                self.assert_checks_refused_unchanged(
+                    [
+                        {"command": None, "evidence_ref": "event:synthetic-check", "exit_code": None},
+                        bad,
+                    ]
+                )
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
