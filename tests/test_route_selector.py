@@ -51,9 +51,25 @@ def gateway_only():
 class QualificationTableTests(unittest.TestCase):
     def test_the_shipped_table_parses_and_covers_every_pipeline_role(self):
         table = selector.table()
-        self.assertEqual("2026-10-20", table["as_of"])
+        self.assertEqual("2026-10-25", table["as_of"])
         for role in selector.PIPELINE_ROLES:
             self.assertTrue(selector.qualified(role), f"{role} has no qualified model")
+
+    def test_the_table_excludes_mimo_from_plan_review_with_the_owner_decision(self):
+        # #2121: a stock profile pins MiMo as reviewer, so a live run reaches it; the exclusion
+        # keeps that run from qualifying it and selection from ever choosing it.
+        excluded = selector.table()["excluded"]["plan_reviewer"]
+        self.assertEqual([MIMO], [entry["model"] for entry in excluded])
+        self.assertIn("Owner decision 2026-10-20", excluded[0]["evidence"])
+
+    def test_an_excluded_model_needs_evidence_and_may_not_also_be_qualified(self):
+        listed = {**selector.qualified("plan_reviewer")[0], "model": MIMO, "routes": [MIMO]}
+        table = {"as_of": "x", "roles": {"plan_reviewer": [listed]}, "excluded": {"plan_reviewer": [{"model": MIMO}]}}
+        with self.assertRaisesRegex(ValueError, "evidence is required"):
+            selector.parse(table)
+        table["excluded"]["plan_reviewer"][0]["evidence"] = "Owner decision"
+        with self.assertRaisesRegex(ValueError, "excluded and also listed"):
+            selector.parse(table)
 
     def test_every_entry_names_its_evidence_and_provenance(self):
         for role in selector.PIPELINE_ROLES:

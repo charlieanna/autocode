@@ -7,7 +7,8 @@ price table is. The script reads one finished run's saved state, checks that it 
 and merges the reached route into `tools/autocode_route_qualification.json`.
 
 It never launches a model, never answers anything and never invents a route: a role with no
-recorded attempt is skipped and named. `--dry-run` prints the table it would write and the lines
+recorded attempt is skipped and named, and so is a model the table excludes for its role even when
+a profile pinned it. `--dry-run` prints the table it would write and the lines
 a person would put in the PR; without it the file is rewritten and validated first.
 
     python tools/qualify_routes.py --run-dir .autocode/runs/RUN \
@@ -139,7 +140,10 @@ def merge(table: dict, role: str, record: dict, evidence: str) -> str:
 
 
 def qualify(state: RunState, table: dict, *, evidence: str, only=()) -> list[str]:
-    """Merge every reached role the table covers; returns one line per role."""
+    """Merge every reached role the table covers; returns one line per role.
+
+    A model the table excludes for its role is named and skipped: a live run can reach it
+    through a profile that pins it, but that is not permission to auto-select it (#2121)."""
     seen = reached(state)
     lines = []
     for role in sorted((state.get("settings") or {}).get("roles") or {}):
@@ -149,6 +153,13 @@ def qualify(state: RunState, table: dict, *, evidence: str, only=()) -> list[str
             continue
         record = route_of(state, role)
         job = record.get("job") or roles.screen_name(role)
+        blocked = {
+            identity.identity(entry["model"]): entry["evidence"]
+            for entry in (table.get("excluded") or {}).get(role) or ()
+        }.get(identity.identity(record["model"]))
+        if blocked:
+            lines.append(f"{job}: not qualified — {record['model']} is excluded from automatic selection: {blocked}")
+            continue
         models = seen.get(role) or []
         if identity.identity(record["model"]) not in {identity.identity(model) for model in models}:
             lines.append(

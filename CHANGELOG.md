@@ -353,6 +353,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The qualification table can now record that a role must never auto-select a model, with the
+  decision as its evidence, and both selection and `tools/qualify_routes.py` honor it: a stock
+  profile that pins the model still reaches it, but the run qualifies the other roles and names
+  the exclusion instead of adding an entry (#2121, #2057). The Plan Reviewer's MiMo v2.6 Pro
+  exclusion restores the owner's 2026-10-20 "never choose MiMo to review a plan" decision, which
+  the qualifier's documented command silently reversed by adding it back at rank 0.
+
 - `tools/qualify_routes.py` keeps the qualification table's top-level fields when it writes, so a
   merge no longer deletes the table's `basis` policy text: it rebuilt the file from the parsed
   `as_of` and `roles` alone, and only a real write (not `--dry-run`) showed the loss (#2117, #2057).

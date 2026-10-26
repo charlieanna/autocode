@@ -19,6 +19,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import qualify_routes
 
+MIMO = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+
 TABLE = {
     "as_of": "2026-10-20",
     "basis": "test table",
@@ -101,6 +103,34 @@ class QualifyRoutesTests(unittest.TestCase):
 
     def written(self):
         return json.loads(self.table.read_text(encoding="utf-8"))
+
+    def test_a_model_the_table_excludes_is_named_and_not_qualified(self):
+        # #2121: the stock glm-mimo-kilo profile pins MiMo as reviewer, so the run reaches it, but
+        # the owner ruled MiMo out for plan review; the table's exclusion wins over the evidence.
+        table = json.loads(self.table.read_text(encoding="utf-8"))
+        table["roles"]["plan_reviewer"] = [
+            {
+                "model": "openai/gpt-6-sol",
+                "routes": ["openai/gpt-6-sol"],
+                "effort": "high",
+                "provenance": "qualified",
+                "evidence": "The first choice.",
+            }
+        ]
+        table["excluded"] = {
+            "plan_reviewer": [{"model": MIMO, "evidence": "Owner decision 2026-10-20: never choose MiMo."}]
+        }
+        self.table.write_text(json.dumps(table), encoding="utf-8")
+        settings = state()
+        settings["settings"]["roles"]["plan_reviewer"] = {"model": MIMO, "reasoning_effort": "high"}
+        (self.run_dir / "state.json").write_text(json.dumps(settings), encoding="utf-8")
+        attempts = {"attempts": [{"route_role": "plan_reviewer", "role": "astra", "model": MIMO}]}
+        with mock.patch.object(qualify_routes.usage, "accounting", return_value=attempts):
+            code, output = self.run_script("--date", "2026-10-25")
+        self.assertEqual(0, code, output)
+        self.assertEqual(["openai/gpt-6-sol"], [entry["model"] for entry in self.written()["roles"]["plan_reviewer"]])
+        self.assertIn(f"Plan Reviewer: not qualified — {MIMO} is excluded from automatic selection", output)
+        self.assertIn("Owner decision 2026-10-20", output)
 
     def test_a_write_keeps_the_table_fields_the_selector_does_not_own(self):
         # #2117: the shipped table carries its policy as a top-level `basis`; a write that rebuilt
