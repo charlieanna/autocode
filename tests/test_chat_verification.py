@@ -66,6 +66,9 @@ class VerificationDisplayTests(unittest.TestCase):
                     }
                 },
             )
+            # Inspection is separate from immutable canonical outcome facts.
+            view["review_result"] = view["evidence"]["workflow_result"].copy()
+            view["evidence"]["workflow_result"].pop("freshness")
             before = copy.deepcopy(view)
             self.assertIn("Review result", {section.title for section in panel.sections(view)})
             self.assertIn("recorded request changes", verification.cue(view))

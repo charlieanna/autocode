@@ -82,7 +82,7 @@ class ReviewAttributionCLI(unittest.TestCase):
             )
             view = run.advance_until_input()
             self.assertTrue(view["done"], view)
-            result = view["evidence"]["workflow_result"]
+            result = view["review_result"]
             self.assertEqual("approve", result["outcome"])
             self.assertEqual("current", result["freshness"])
             attempts = view["usage"]["accounting"]["attempts"]
@@ -103,21 +103,23 @@ class ReviewAttributionCLI(unittest.TestCase):
             self.assertEqual(original, (project / "calc.py").read_text())
             canonical = run.evidence_report(require_current=False)
             recorded = canonical["document"]["workflow_result"]
+            self.assertEqual(recorded, view["evidence"]["workflow_result"])
+            self.assertNotIn("freshness", recorded)
             self.assertEqual(result["source_revision"], recorded["source_revision"])
             self.assertEqual(recorded, {key: result[key] for key in recorded})
             self.assertIn("pre-existing observations", canonical["markdown"])
             # Inspection is read-only and does not silently extend an old review.
-            self.assertEqual(result, run.status()["evidence"]["workflow_result"])
+            self.assertEqual(result, run.status()["review_result"])
             code = run.workspace / "calc.py"
             code.write_text(original + "# changed after review\n")
-            stale = run.status()["evidence"]["workflow_result"]
+            stale = run.status()["review_result"]
             self.assertEqual(("approve", "stale_or_unverified"), (stale["outcome"], stale["freshness"]))
             code.write_text(original)
-            self.assertEqual("current", run.status()["evidence"]["workflow_result"]["freshness"])
+            self.assertEqual("current", run.status()["review_result"]["freshness"])
             report_path.write_bytes(raw + b"\n")
-            self.assertEqual("stale_or_unverified", run.status()["evidence"]["workflow_result"]["freshness"])
+            self.assertEqual("stale_or_unverified", run.status()["review_result"]["freshness"])
             report_path.unlink()
-            self.assertEqual("stale_or_unverified", run.status()["evidence"]["workflow_result"]["freshness"])
+            self.assertEqual("stale_or_unverified", run.status()["review_result"]["freshness"])
 
     def test_new_feature_failure_on_both_sides_remains_a_blocker_on_changed_lines(self):
         with tempfile.TemporaryDirectory(prefix="review-new-feature-cli-") as tmp:

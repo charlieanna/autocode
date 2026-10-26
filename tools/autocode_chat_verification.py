@@ -19,7 +19,7 @@ def _text(value, default="unknown"):
 
 def review_result(view):
     if view.get("workflow") == "review":
-        return _map(_map(view.get("evidence")).get("workflow_result"))
+        return _map(view.get("review_result")) or _map(_map(view.get("evidence")).get("workflow_result"))
     return {}
 
 

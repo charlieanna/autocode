@@ -190,7 +190,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
     if public_view.get("workflow") == "review" and state.get("status") == "TASK_COMPLETE":
         result = public_view["evidence"].get("workflow_result")
         if result:
-            public_view["evidence"]["workflow_result"] = review_result.inspect(
+            public_view["review_result"] = review_result.inspect(
                 result, workspace, current.get("revision") if current else None
             )
     public_view["attention"] = attention_status.observed(public_view.get("attention"))

@@ -16,7 +16,9 @@ An explicitly user-pinned review now starts its Reviewer directly. Only its
 Validator route is due for preflight; successful tool/model/effort receipts are
 still reused. Unpinned Requirements intake and build approval are unchanged.
 The core records a post-report source revision and status checks that revision
-and report digest. Terminal header, panel and details render the public review
+and report digest in a separate `review_result` inspection. The authenticated
+`evidence.workflow_result` remains stable for downstream exact comparisons.
+Terminal header, panel and details render the public review
 result. Older unbound reviews stay unknown, and changed evidence stays stale.
 No model timeout, model route, verification gate or budget was weakened.
 

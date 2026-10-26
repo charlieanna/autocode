@@ -2354,9 +2354,11 @@ is not probed. Probe receipts still bind to the exact tool, model and effort.
 
 For completed reviews, `view.evidence.workflow_result` preserves the recorded
 outcome, summary, report path and digest. New reviews also record `source_revision`
-after the core writes its report. Status adds `freshness` (`current`,
+after the core writes its report. Status exposes a separate `view.review_result`
+inspection with `freshness` (`current`,
 `stale_or_unverified`, or `unknown`) and `reasons` after comparing that binding
 and report digest with the current workspace. Old reviews without a source
 binding remain unknown; status does not upgrade them or rerun a model. A review
-outcome is not build-delivery acceptance. The terminal renders these public
+outcome is not build-delivery acceptance. The authenticated
+`evidence.workflow_result` stays unchanged by read-time inspection. The terminal renders these public
 review facts in its header, Review result panel and `/details`.
