@@ -2406,7 +2406,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/f9903638da9a8ac6322c8c887bfa424286d1e0d0/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/c9f4063b771ce490389f4ee7c7625ae773ad6777/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -3051,7 +3051,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/f9903638da9a8ac6322c8c887bfa424286d1e0d0/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/c9f4063b771ce490389f4ee7c7625ae773ad6777/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3129,7 +3129,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   also leaves a change outside the package <code>UNVERIFIED</code>, because the package
   suite never ran it.</p>
 <p>The <code>feature-monorepo-package</code> scenario
-(<a href="https://github.com/charlieanna/autocode/blob/f9903638da9a8ac6322c8c887bfa424286d1e0d0/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
+(<a href="https://github.com/charlieanna/autocode/blob/c9f4063b771ce490389f4ee7c7625ae773ad6777/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
 one package of a two-package repository with <code>--package</code> and the scripted
 model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open <code>runner</code> finding.
@@ -3227,9 +3227,17 @@ and the runner, not a model, runs something that shows it.</p>
 <li>The runner runs every probe in a scratch copy of the code as it is now, with
   a two-minute limit each. A probe that fails rejects the answer. A probe
   cannot change the workspace.</li>
-<li>Claims without a probe stay grounded by their source file only, as before.</li>
-<li>Probed claims are recorded in the run state (<code>answer.probes</code>) and shown in
-  the answer's evidence list.</li>
+<li>A probed claim also carries <code>counterexample</code>: the smallest edit to one
+  repository file (<code>file</code>, <code>find</code>, <code>replace</code>) that makes the claim false. The
+  runner makes that edit in a second scratch copy and runs the probe again; it
+  must fail there. A probe that exits 0 whatever the code says, such as
+  <code>python3 -c 'assert 2 + 2 == 4'</code>, does not tell the claim from its opposite,
+  so the answer is rejected and goes to the usual bounded report repair; it is
+  never shown as a check that ran (#1769).</li>
+<li>Claims without a probe stay grounded by their source file only, as before,
+  and the answer lists them as read from the source, not run.</li>
+<li>Probed claims are recorded in the run state (<code>answer.probes</code>, each with its
+  counterexample's exit code) and shown in the answer's evidence list.</li>
 </ul>
 <h3 id="design-a-concern-about-todays-code-carries-a-probe">Design: a concern about today's code carries a probe<a class="headerlink" href="#design-a-concern-about-todays-code-carries-a-probe" title="Permanent link">&para;</a></h3>
 <p>The design workflow's Architect judges a document, so nothing is applied. The
@@ -3248,6 +3256,11 @@ same probe rule as discussions applies to what it says about the code.</p>
   <code>probe</code>; a constraint that lives in prose (a README rule) has none. The
   blockers file written beside the design records each conflict's proving
   probe in <code>proven_by</code>.</li>
+<li><strong>Counterexamples.</strong> As in a discussion, every probed concern and conflict
+  also carries <code>counterexample</code>, the one edit after which the code no longer
+  behaves as it says, and its probe must fail there. A concern or conflict
+  blocks work, so a probe that passes whatever the code says rejects the
+  report (#1769).</li>
 </ul>
 <p>The scratch runs are <code>autocode_verify.scratch_run</code>. A Python test delivered
 into a project with no test suite of its own still runs under unittest.</p>
@@ -3361,7 +3374,7 @@ it is generated from the front matter so reviewers can read the plan.</p>
 holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
 (<code>scenarios/run.py</code>) checks this at every plan approval its catalog runs reach: it exports the plan
 and reads the file back with <code>--check</code> before it approves the plan
-(<a href="https://github.com/charlieanna/autocode/blob/f9903638da9a8ac6322c8c887bfa424286d1e0d0/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
+(<a href="https://github.com/charlieanna/autocode/blob/c9f4063b771ce490389f4ee7c7625ae773ad6777/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
 committing it approves nothing. Text that looks like a credential is masked before the file is
 written, with the same policy as <code>autocode bundle</code>; the export then says that the file's goal hash
 differs from the run's.</p>
