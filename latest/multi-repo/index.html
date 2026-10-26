@@ -862,6 +862,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#walkthrough-a-bug-reveals-another-repository" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Walkthrough: a bug reveals another repository
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification-and-current-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verification and current limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-manual-workflow" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1887,6 +1909,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#walkthrough-a-bug-reveals-another-repository" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Walkthrough: a bug reveals another repository
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification-and-current-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verification and current limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-manual-workflow" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1918,7 +1962,7 @@
 
 
 <h1 id="work-that-spans-several-repositories">Work that spans several repositories<a class="headerlink" href="#work-that-spans-several-repositories" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/0a814da77b353336219f05cb7f3d42ebbbf9e33a/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/54b9b0ec46fa28652c17a25ce70fa307e9a48498/README.md">← Back to README</a></p>
 <p>One AutoCode run changes one repository. Its workspace is one Git tree. The
 checkpoints, diffs, protected tests and the Builder's declared changes are all
 bounded to that tree, and a Builder write outside it is treated as a fault.</p>
@@ -1928,19 +1972,26 @@ history service is two pieces of work. A run started in the API repository can
 deliver only the API half.</p>
 <h2 id="what-autocode-does-today">What AutoCode does today<a class="headerlink" href="#what-autocode-does-today" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Requirements notices the other repository.</strong> When the request or the code it
-  reads shows that part of the work belongs elsewhere, the Requirements report
+<li><strong>Requirements and the Investigator notice the other repository.</strong> When the request or the code they
+  read shows that part of the work belongs elsewhere, the report
   says so in its <code>workspace_scope</code>. The runner keeps a reported part only when
   its quote is verbatim in the request or a saved answer, or when it cites a file
   in this repository that shows it, such as a client of the other service. Other
-  claims are dropped.</li>
+  claims are dropped. This includes work discovered while reproducing a bug that
+  the initial request did not mention. The same public scope and ready briefs
+  make that repository available for linking.</li>
 <li><strong>It asks you before planning.</strong> A kept part stops the run with one question.
   Answer <code>This repository only</code> to plan this repository's part. The plan then lists
   each other part in its scope exclusions as <code>Not covered: changes in TARGET: WORK</code>,
   so the approval screen shows what this run will not deliver. To change the
   request instead, give feedback. To stop instead, leave the question
   unanswered: the run's status (<code>scope.briefs</code>) holds a ready brief for each
-  repository, this one first, to start a run with in each.</li>
+  repository, this one first, to start a run with in each.
+  A reproduced bug still waits on its unanswered questions. A follow-up with an
+  existing plan also asks about newly discovered external work: an earlier choice
+  cannot cover another turn or different work. Later model reports retain grounded
+  obligations until human feedback permits Requirements to revise the scope.
+  Answering the scope question requires a refreshed plan and its explicit approval.</li>
 <li><strong>You can link a run in the other repository.</strong> <code>autocode changeset link</code> starts a
   run in a registered project with that repository's ready brief and records the two
   runs as one change set, which both runs' status shows under <code>scope.linked</code>
@@ -1952,9 +2003,11 @@ deliver only the API half.</p>
   (<a href="../task-run/#approving-the-set">Approving the set</a>).</li>
 <li><strong>You can check the linked runs together.</strong> Name an integration command, such as the
   consumer's tests against the producer's checkout, with <code>autocode changeset check-command</code>.
-  <code>autocode changeset verify</code> runs it once every run is complete, and a later code change in
-  either repository makes its result stale. A failed check can reopen the run that diverged,
-  or you can waive it with a reason. <code>autocode changeset pr-body</code> writes the section each
+  <code>autocode changeset verify</code> runs it once every run is complete. Its evidence identifies the
+  command, execution target, member runs and their code; a change to any of those withdraws it.
+  Replacing the check also clears its previous waiver. A concurrent record change refuses an
+  old result instead of attaching it to a new check. A failed check can reopen the run that
+  diverged, or you can waive that check with a reason. <code>autocode changeset pr-body</code> writes the section each
   pull request carries, with the merge order
   (<a href="../task-run/#checking-the-set-together-and-delivering-it">Checking the set together</a>).</li>
 <li><strong>The terminal chat shows the change set.</strong> Its side panel lists the linked runs, and
@@ -1974,6 +2027,153 @@ deliver only the API half.</p>
   Git repository with the services as nested repositories or submodules, changes
   inside them appear to the parent only as a gitlink, so its diffs and test
   checks do not see them. Treat both as unsupported.</li>
+</ul>
+<h2 id="walkthrough-a-bug-reveals-another-repository">Walkthrough: a bug reveals another repository<a class="headerlink" href="#walkthrough-a-bug-reveals-another-repository" title="Permanent link">&para;</a></h2>
+<p>This is the <strong>current manual fallback</strong>, not the intended everyday chat flow.
+The owner-approved target in <a href="https://github.com/charlieanna/autocode/issues/2155">#2155</a>
+is automatic discovery, coordinated fixes, a combined regression and linked PRs
+from the original TUI bug request. The person should answer genuine ambiguities
+and required approvals, not supply repository topology or an integration command.
+That full workflow remains unimplemented and unverified.</p>
+<p>Suppose you report “Submitting an order records the wrong total” in <code>order-api</code>.
+The Investigator finds a call to <code>history-service</code> and reports that its consumer
+also needs to accept the corrected payload. You did not need to name that
+repository in the original request. The pause is triggered by the grounded
+report; it is not a guarantee that a model will discover every dependency.</p>
+<p><strong>1. Use one registry across the repositories.</strong> In every terminal used for this
+change set, choose the same location before starting runs:</p>
+<pre><code class="language-sh">export AUTOCODE_HOME=&quot;$HOME/.autocode&quot;
+autocode registry location
+autocode &quot;Submitting an order records the wrong total&quot; \
+  --workspace /path/to/order-api --engine codex --workflow bugfix
+</code></pre>
+<p>Use your chosen engine consistently; <code>codex</code> here is an example. Without an
+explicit <code>AUTOCODE_HOME</code>, task startup uses workspace-local registry storage.
+For runs already created elsewhere, set the shared home and import their
+existing project roots with <code>autocode registry import /path/to/project</code>.
+Import reads saved runs and launches no model.</p>
+<p><strong>2. Keep the scope question open while selecting the other checkout.</strong> Copy the
+source run directory from AutoCode's output. Inspect the exact target and ready
+brief under <code>scope.external_parts</code> and <code>scope.briefs</code>:</p>
+<pre><code class="language-sh">api_run=/absolute/path/to/the/source/run
+autocode --run-dir &quot;$api_run&quot; --status --json
+</code></pre>
+<p>Select an existing committed checkout yourself. The linked run works directly
+in the selected checkout, so give it a dedicated Git worktree when you want to
+keep your normal checkout separate:</p>
+<pre><code class="language-sh">git -C /path/to/history-service worktree add \
+  -b autocode/history-fix /path/to/history-fix
+autocode registry add /path/to/history-fix
+autocode registry list
+autocode changeset link --run-dir &quot;$api_run&quot; \
+  --target history-service --workspace /path/to/history-fix -- --engine codex
+</code></pre>
+<p>Replace <code>history-service</code> with the exact target the status reported. <code>registry add</code>
+registers a committed local Git root without a task or model request. It does not
+clone repositories, change branches or approve code changes. A target that was
+not reported, or a checkout you have not registered, is refused.</p>
+<p><strong>3. Bring both runs to their plan approval.</strong> <code>changeset status</code> lists each run's
+directory, current need and continuation command. Open each run's chat:</p>
+<pre><code class="language-sh">autocode changeset status --run-dir &quot;$api_run&quot;
+autocode --run-dir &quot;$api_run&quot; --chat
+# Use the linked run_dir printed by changeset status:
+autocode --run-dir /absolute/path/to/the/linked/run --chat
+</code></pre>
+<p>In the source chat, answer the scope question <code>This repository only</code>. This means
+<em>this run</em> owns the API side; the linked run owns history's side. Linking itself
+does not answer the question. Read the exclusions in both plans and make sure
+their payload fields, examples and acceptance checks agree. Leave individual
+plans unapproved while preparing approval of the set.</p>
+<p><strong>4. Review and approve the plans together.</strong> In the terminal chat use
+<code>/changeset</code>, or read the CLI's complete plans and run the approval command it
+prints:</p>
+<pre><code class="language-sh">autocode changeset status --run-dir &quot;$api_run&quot;
+# After reading every plan, substitute the token just shown:
+autocode changeset approve --run-dir &quot;$api_run&quot; --set-token TOKEN_JUST_SHOWN
+</code></pre>
+<p>No token is offered while a member still needs answers or planning. The token
+binds all current plans. An interrupted partial approval holds every Builder;
+read status again and retry with its current token. After approval, continue
+each run with its printed next command or <code>autocode resume --run-dir RUN</code>.
+If history discovers a third repository, link it from history's run in the same
+way: it joins this set and all current plans need fresh approval.</p>
+<p><strong>5. Name a real check of the combined behavior.</strong> The command must exercise
+both delivered versions. For example, if history has a
+<code>tests.test_api_contract</code> module that reads the producer checkout from
+<code>AUTOCODE_CHANGESET_WORKSPACES</code>:</p>
+<pre><code class="language-sh">autocode changeset check-command --run-dir &quot;$api_run&quot; --in history-service -- \
+  python3 -m unittest tests.test_api_contract
+# Once both runs have completed their own checks:
+autocode changeset verify --run-dir &quot;$api_run&quot;
+autocode changeset status --run-dir &quot;$api_run&quot;
+</code></pre>
+<p>Provide that project-specific test; AutoCode does not generate it from the
+command above. <code>AUTOCODE_CHANGESET_WORKSPACES</code> is a JSON mapping from the target
+names in <code>changeset status</code> to the actual run workspaces. Read it in the test
+instead of hard-coding your original checkout. The command runs in the selected
+member's workspace. A failed check leaves the set unverified; use
+<code>autocode changeset reopen --run-dir "$api_run" --target history-service</code>
+when that member needs correction. A waiver requires your explicit reason.</p>
+<p><strong>6. Prepare delivery.</strong> Review the merge order and include the generated
+change-set section in each pull request:</p>
+<pre><code class="language-sh">autocode changeset order --run-dir &quot;$api_run&quot; order-api history-service
+autocode changeset pr-body --run-dir &quot;$api_run&quot; --target order-api
+autocode changeset pr-body --run-dir &quot;$api_run&quot; --target history-service
+</code></pre>
+<p>Use the exact target names from status, including the source name. These
+commands record order and print text; they do not publish or merge pull requests.</p>
+<h2 id="verification-and-current-limits">Verification and current limits<a class="headerlink" href="#verification-and-current-limits" title="Permanent link">&para;</a></h2>
+<p>The deterministic regressions drive the public CLI/TaskRun interface with
+offline providers. They test runner behavior, not a live model's ability to
+discover an arbitrary service dependency.</p>
+<table>
+<thead>
+<tr>
+<th>Case</th>
+<th>Coverage</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Initial bug request omits the other repository; Investigator cites a local service client</td>
+<td><code>tests/test_bug_questions.py</code>: pause before planning, public registration of a fresh checkout, linked start, reciprocal links, no Builder, explicit local-only answer</td>
+</tr>
+<tr>
+<td>New external work during a follow-up with an existing plan</td>
+<td><code>tests/test_scope_question_cli.py</code>: asks again and invalidates earlier authority</td>
+</tr>
+<tr>
+<td>Invalid target or unregistered checkout; stale or interrupted set approval</td>
+<td><code>tests/test_changeset_cli.py</code>: rejects unknown members, stale tokens and Builder dispatch after partial approval; retry and explicit standalone release</td>
+</tr>
+<tr>
+<td>A → B → C membership</td>
+<td><code>tests/test_changeset_store.py</code>: one canonical set; duplicates and ambiguous legacy overlap refused</td>
+</tr>
+<tr>
+<td>Real producer output disagrees with the consumer expectation</td>
+<td><code>tests/test_changeset_delivery_cli.py</code>: real command fails, blocks joint completion, and can reopen the affected run</td>
+</tr>
+<tr>
+<td>Code/check changes, waiver replacement and concurrent check edits</td>
+<td><code>tests/test_changeset_delivery.py</code> and delivery CLI tests: old evidence cannot accept a different command or version</td>
+</tr>
+</tbody>
+</table>
+<p>These are focused regressions, not one live, end-to-end multi-service production
+trial. No such live trial is claimed. The current implementation also has these
+limits:</p>
+<ul>
+<li>Discovery depends on the model reporting grounded external work; it does not
+  crawl every repository or automatically clone a missing one.</li>
+<li>The person selects and links checkouts and supplies the joint check. A parent
+  folder containing sibling repositories is still unsupported.</li>
+<li>Without a named integration command, <code>verification.done</code> means all individual
+  runs completed. It does <strong>not</strong> prove the producer and consumer agree. Name the
+  check before treating the overall bug as resolved.</li>
+<li>Set approval binds member plans; a separately versioned shared-interface
+  contract and the remaining guided onboarding work are tracked in
+  <a href="https://github.com/charlieanna/autocode/issues/2066">#2066</a>.</li>
 </ul>
 <h2 id="the-manual-workflow">The manual workflow<a class="headerlink" href="#the-manual-workflow" title="Permanent link">&para;</a></h2>
 <p>Without a change set, coordinate the repositories yourself:</p>

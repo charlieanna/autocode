@@ -1918,7 +1918,7 @@
 
 
 <h1 id="replay-a-saved-run">Replay a saved run<a class="headerlink" href="#replay-a-saved-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/0a814da77b353336219f05cb7f3d42ebbbf9e33a/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/54b9b0ec46fa28652c17a25ce70fa307e9a48498/README.md">← Back to README</a></p>
 <p>Replay drives a fresh AutoCode task run with a saved brief, model routes and
 provider events. It makes no model calls. Normal replay runs the current
 verification checks again; a previous PASS cannot establish a current PASS.
@@ -1950,7 +1950,10 @@ before sharing it: source files and model-authored prose can themselves contain
 private project data.</p>
 <p>Every recorded provider dispatch must match the current stage, occurrence,
 model route, session continuation and source. Plan approvals and answers also
-must match the current public request. Replay displays the new plan and uses
+must match the current public request, including a plan's scope exclusions and
+Git delivery terms. Older recordings that omitted those fields cannot authorize
+new nonempty exclusions or a commit obligation; replay refuses that mismatch.
+Replay displays the new plan and uses
 fresh tokens from that run. It never invents an answer or adopts an old token
 after a mismatch. A project's <code>require-approver</code> does not apply: no person approves
 in a replay (<a href="../execution/#required-approver">Required approver</a>).</p>

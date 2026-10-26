@@ -1610,6 +1610,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#registry-add" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        registry add
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#registry-import" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1909,6 +1920,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#registry-add" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        registry add
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#registry-import" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1940,7 +1962,7 @@
 
 
 <h1 id="browser-registry-api">Browser registry API<a class="headerlink" href="#browser-registry-api" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/0a814da77b353336219f05cb7f3d42ebbbf9e33a/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/54b9b0ec46fa28652c17a25ce70fa307e9a48498/README.md">← Back to README</a></p>
 <p>Autocode automatically records every real new run and ordinary resumed run before a
 provider can start. The registry is a small per-user pointer index, not a copy of
 <code>state.json</code>, logs, prompts, credentials, or provider configuration. It is stored at
@@ -1979,8 +2001,19 @@ workspace writer lock, then obtains the registry lock only for the central
 read/update/write, releases it, and only then proceeds toward a provider stage.
 Registration failures pause the preserved run as <code>PAUSED_REGISTRY</code>; fix storage
 and explicitly resume the same <code>--run-dir</code> to retry its stable identity.</p>
+<h2 id="registry-add">registry add<a class="headerlink" href="#registry-add" title="Permanent link">&para;</a></h2>
+<p><code>autocode registry add /path/to/project [--json]</code> registers an explicitly selected,
+existing Git checkout or worktree with at least one commit. It accepts the root,
+not a subdirectory or a bare repository, and canonicalizes aliases. It creates
+no run, launches no provider and changes no project files. Repeating it returns
+<code>already_registered: true</code>. Invalid roots or corrupt/conflicting registry data
+return an <code>error</code> object and exit 2 without replacing existing records.</p>
+<p>Use this to make a fresh local checkout available to <code>changeset link</code> without a
+dummy task. Use one explicit <code>AUTOCODE_HOME</code> for registration, source runs,
+linked runs and change-set commands. Task text and model output never invoke
+registration, and clients' named-action contracts are unchanged.</p>
 <h2 id="registry-import">registry import<a class="headerlink" href="#registry-import" title="Permanent link">&para;</a></h2>
-<p><code>registry import</code> is the only registry discovery operation that writes. It requires an
+<p><code>registry import</code> discovers and registers existing runs. It requires an
 explicit selected directory, resolves that root canonically, and searches the root at
 depth zero through depth 3 by default. <code>--max-depth</code> must be a nonnegative integer;
 <code>--directory-budget</code> must be a positive integer and defaults to 10000. The budget counts
