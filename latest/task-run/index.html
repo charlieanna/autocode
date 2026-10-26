@@ -782,6 +782,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../multi-repo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several repositories
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2244,7 +2272,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a93ccf652101d05da50ec4fb6d99f772bac3fd22/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/9a666438c0e37c8fbcb874e3b744cfdd42d04bb6/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2252,6 +2280,9 @@ code outside the runner (the scenario harness, <code>autocode issue</code>, the
 architecture and multi-component layer) to control a run. Such code must not import
 runner internals such as <code>autocode.py</code> or read <code>state.json</code> directly; that file has
 about 140 keys and changes without notice.</p>
+<p>A task run is bound to one workspace, one Git tree. The multi-component layer drives
+several task runs, but all of them come from the same repository; it cannot link runs in
+separate repositories. See <a href="../multi-repo/">Work that spans several repositories</a>.</p>
 <p>Every step is one CLI invocation, and the run's state lives on disk. A caller
 that crashes can reattach to the same run directory with
 <code>TaskRun(workspace, run_dir)</code>, or with <code>TaskRun.attach(workspace)</code> if it never
@@ -3023,7 +3054,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/a93ccf652101d05da50ec4fb6d99f772bac3fd22/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/9a666438c0e37c8fbcb874e3b744cfdd42d04bb6/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3632,7 +3663,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/a93ccf652101d05da50ec4fb6d99f772bac3fd22/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/9a666438c0e37c8fbcb874e3b744cfdd42d04bb6/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.

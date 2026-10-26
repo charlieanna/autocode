@@ -16,7 +16,7 @@
         <link rel="prev" href="../visual-captures/">
       
       
-        <link rel="next" href="../cli/">
+        <link rel="next" href="../multi-repo/">
       
       
         
@@ -926,6 +926,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../multi-repo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several repositories
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -2046,7 +2074,7 @@
 
 
 <h1 id="task-lanes-and-multiple-tasks">Task lanes and multiple tasks<a class="headerlink" href="#task-lanes-and-multiple-tasks" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a93ccf652101d05da50ec4fb6d99f772bac3fd22/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/9a666438c0e37c8fbcb874e3b744cfdd42d04bb6/README.md">← Back to README</a></p>
 <h2 id="connected-task-lanes">Connected task lanes<a class="headerlink" href="#connected-task-lanes" title="Permanent link">&para;</a></h2>
 <p>Use <code>autocode tasks</code> (or <code>autocode-tasks</code>) when several complete Autocode tasks must
 run in order or independently. Tasks inside one lane run sequentially in the same
@@ -2103,7 +2131,9 @@ plan — an explicit person's decision to delegate, not a default choice.</p>
 (created fresh from the repository's HEAD if it does not exist yet), left
 uncommitted for review, the same way a single AutoCode task leaves its own
 work. An existing <code>TARGET</code> must be the top directory of a worktree of the same
-repository; anything else is refused before a file is written. Extra flags for the underlying task runs (models, reasoning effort,
+repository; anything else is refused before a file is written. Components are
+always parts of one repository; for work in separate repositories see
+<a href="../multi-repo/">Work that spans several repositories</a>. Extra flags for the underlying task runs (models, reasoning effort,
 provider) go after <code>--options</code>, shell-quoted.</p>
 <h3 id="a-component-with-a-figma-design">A component with a Figma design<a class="headerlink" href="#a-component-with-a-figma-design" title="Permanent link">&para;</a></h3>
 <p>Design the screen before starting the component build. In <code>components.json</code>,
