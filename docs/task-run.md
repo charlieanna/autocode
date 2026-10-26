@@ -1900,7 +1900,9 @@ it names, after showing what they act on:
 
 The shared rule is `autocode_client_actions.changeset_action`. The terminal chat's side panel
 lists the linked runs, `/changeset` shows the set and offers these actions, and `/runs` groups
-the chats of one change set. The other `changeset` commands stay the person's own.
+the chats of one change set. The channel bridge posts the set's plans at a plan gate and takes `approve set`
+only with the set token of the plans it posted (`docs/channels.md`). The other `changeset`
+commands stay the person's own.
 
 ## Dependencies between existing runs
 
