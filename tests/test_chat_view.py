@@ -108,6 +108,56 @@ class ChatViewTests(unittest.TestCase):
         state["status"] = "RUNNING"
         self.assertIsNone(self.project(state, "continue")["input"])
 
+    def test_invalid_planning_reports_offer_correction_without_retry_or_approval(self):
+        import autocode_roles as roles
+
+        for stage in roles.ALL_PLANNING_STAGES:
+            with self.subTest(stage=stage):
+                state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": stage, "task": "Fix it"}
+                before = copy.deepcopy(state)
+                result = self.project(state, "resume")
+                self.assertEqual("feedback", result["input"]["kind"])
+                self.assertEqual(
+                    [
+                        "autocode",
+                        "--workspace",
+                        "/a project",
+                        "--run-dir",
+                        "/a project/.autocode/run",
+                        "--feedback",
+                        "MESSAGE",
+                    ],
+                    shlex.split(result["input"]["next_command"]),
+                )
+                self.assertEqual(before, state)
+
+    def test_invalid_execution_reports_and_person_only_holds_offer_no_correction(self):
+        for stage in (None, "unknown", "terra", "sol", "astra_review", "investigate_bug"):
+            with self.subTest(stage=stage):
+                state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": stage}
+                self.assertIsNone(self.project(state, "resume")["input"])
+        for request in ({"kind": "human_review"}, {"kind": "blocker"}):
+            state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": "astra_finalize", "user_request": request}
+            self.assertIsNone(self.project(state, "resume")["input"])
+
+    def test_invalid_planning_report_does_not_release_held_operational_authority(self):
+        import autocode_goals as goals
+
+        state = {
+            "status": "PAUSED_INVALID_OUTPUT",
+            "next_stage": "astra_finalize",
+            goals.RESOLVER_PROPOSAL_KEY: {
+                "scope": "operational_exhaustion",
+                "origin": {"pause_status": "PAUSED_TIME_LIMIT"},
+            },
+        }
+        self.assertIsNone(self.project(state, "resume")["input"])
+
+    def test_a_retained_invalid_report_does_not_offer_feedback_while_running(self):
+        state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": "astra_finalize"}
+        public = {"status": "RUNNING", "needs": {"kind": "continue"}}
+        self.assertIsNone(chat.project(state, public, workspace="/ws", run_dir="/run")["input"])
+
     def test_operational_pause_and_human_review_cannot_be_bypassed_with_feedback(self):
         for request in (
             {"kind": "human_review"},
