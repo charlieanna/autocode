@@ -246,6 +246,38 @@ behavior checks. Once focused checks pass, proceed to the pull-request update;
 do not add unrelated verification work or wait for unrelated CI jobs. Report
 any pending CI checks accurately.
 
+### Before you push
+
+These are the breaks that keep reaching CI (#2168, #2169). Each check is cheap;
+run the ones your change touches.
+
+- **A new public CLI option or subcommand** needs its entry in `docs/cli.md`:
+  a main-run option in an option table, a subcommand's options in its row under
+  "Subcommand options". Run `tests.test_cli_documentation`.
+- **A new status-view field** (anything `autocode_run_view.view` always returns,
+  including a new key in a nested object such as `scope`) needs its declaration
+  and `required` entry in `docs/schemas/status-view.schema.json` and its name in
+  the field inventory in `tests/test_taskrun.py`. Run `tests.test_json_contract`
+  and `tests.test_taskrun`, and search `tests/` for exact-dict assertions on the
+  object you extended (`grep -rn '"spans_repositories"' tests/` style).
+- **A terminal-screen test** (`tests/terminal_screen.py`) must `wait_for` a
+  predicate covering everything it then asserts. tmux shows blank and
+  half-drawn frames between a key or resize and curses' redraw; waiting for one
+  string and asserting another is a flake.
+- **A test that runs `python3`, `pytest` or another tool by name** cannot rely on
+  an activated venv. CI calls `.venv/bin/python` without activating it, so put
+  `Path(sys.executable).parent` on the fixture's `PATH` or call `sys.executable`.
+- **A failure already on master** is fixed in its own small pull request, not
+  folded into a feature branch. Two feature branches fixing the same master
+  failure conflict with each other as soon as one merges.
+- **Merge or rebase on current `origin/master` before pushing**, and again when
+  another pull request touching the same files merges. A pull request with
+  merge conflicts gets no CI run at all. `tools/ci_test_selection.py` is a common
+  conflict point: keep both sides' entries.
+- When the change touches any of the above, run
+  `$PY tools/run_suite.py --changed` once before pushing: it is the selection
+  CI runs, and catching a contract break locally costs minutes, not a CI round.
+
 The commands below are available checks, not a checklist to run for every fix.
 
 ```sh
