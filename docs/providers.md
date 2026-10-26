@@ -363,7 +363,11 @@ of the AutoCode process itself: ambient keys trip joint-planning's billing-route
 gate (`PAUSED_BILLING_ROUTE`) even when GoCode would have supplied the right
 route for the child. Unset them in the shell that launches `autocode` or
 `scenarios/run.py`, or put them in the provider's `forbid_env` so AutoCode
-strips them before the stage.
+strips them before the stage. `autocode doctor` names this gate on a Codex
+setup before any run pauses: the `billing:codex` check lists the exported
+variables or the `model_provider`/`openai_base_url` lines in Codex's own
+config, with the exact `unset` command and `autocode connections setup` as the
+API-key alternative (#2055).
 
 Put `-o {report}` (or `--output-last-message {report}`) in the **command list**
 as its own argv slot, not only inside a `sh -c` string. When Autocode sees that

@@ -103,6 +103,37 @@ class EngineTests(unittest.TestCase):
             checks = doctor.engine_checks(on_path("codex"), fake_runner({("codex", "login", "status"): (code, "")}))
             self.assertEqual(status, {c.name: c.status for c in checks}["engine:codex"])
 
+    def test_an_ambient_api_key_on_a_codex_setup_names_the_exact_unset_command(self):
+        with tempfile.TemporaryDirectory() as home:
+            check = doctor.codex_billing_check(
+                environ={"PATH": "/usr/bin:/bin", "OPENAI_API_KEY": "sk-fixture", "CODEX_HOME": home},
+            )
+        self.assertEqual(doctor.MISSING, check.status)
+        self.assertIn("OPENAI_API_KEY", check.detail)
+        self.assertIn("PAUSED_BILLING_ROUTE", check.detail)
+        self.assertIn("unset OPENAI_API_KEY", check.fix)
+        self.assertIn("autocode connections setup", check.fix)
+
+    def test_a_codex_config_override_is_named_with_its_file(self):
+        with tempfile.TemporaryDirectory() as home:
+            config = Path(home) / "config.toml"
+            config.write_text('model_provider = "litellm"\nopenai_base_url = "https://gateway.example/v1"\n')
+            check = doctor.codex_billing_check(environ={"CODEX_HOME": home})
+        self.assertEqual(doctor.MISSING, check.status)
+        self.assertIn(str(config), check.detail)
+        self.assertIn("model_provider", check.detail)
+        self.assertIn("openai_base_url", check.detail)
+        self.assertIn(f"remove those lines from {config}", check.fix)
+
+    def test_a_clean_codex_environment_passes_and_engine_checks_include_the_row(self):
+        with tempfile.TemporaryDirectory() as home:
+            check = doctor.codex_billing_check(environ={"CODEX_HOME": home})
+        self.assertEqual(doctor.OK, check.status)
+        checks = doctor.engine_checks(on_path("codex"), fake_runner({("codex", "login", "status"): (0, "")}))
+        self.assertIn("billing:codex", {c.name: c.status for c in checks})
+        absent = doctor.engine_checks(on_path(), fake_runner({}))
+        self.assertNotIn("billing:codex", {c.name: c.status for c in absent})
+
     def test_the_default_engine_must_be_ready_and_a_ready_codex_is_named_as_the_alternative(self):
         codex_only = doctor.engine_checks(on_path("codex"), fake_runner({("codex", "login", "status"): (0, "")}))
         verdict = doctor.engine_verdict(codex_only, None)
