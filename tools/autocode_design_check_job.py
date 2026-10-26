@@ -51,14 +51,14 @@ try:
     from . import autocode_stage_access as stage_access
     from . import autocode_stray_writes as stray_writes
     from . import autocode_workflows as workflows
-    from .autocode_test_cases import run_probes
+    from .autocode_test_cases import COUNTEREXAMPLE, run_probes
 except ImportError:
     import autocode_follow_up as follow_up
     import autocode_run_status as run_status
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_workflows as workflows
-    from autocode_test_cases import run_probes
+    from autocode_test_cases import COUNTEREXAMPLE, run_probes
 
 STAGE = workflows.DESIGN_CHECK_STAGE
 STOP_STATUS = "PAUSED_DESIGN_CONFLICT"
@@ -69,8 +69,10 @@ CONFLICT = {
     "additionalProperties": False,
     "required": ["design_says", "conflicts_with", "files", "options", "example", "probe"],
     # example: the conflict as one concrete case in plain English; probe: a shell command, run from the
-    # repository root, that exits 0 exactly when the repository holds the constraint. Both "" when the
-    # constraint lives in prose (a README rule) that no command can show.
+    # repository root, that exits 0 exactly when the repository holds the constraint; counterexample: the
+    # edit to one file after which it no longer does, where the probe must fail (#1769). All "" when the
+    # constraint lives in prose (a README rule) that no command can show. counterexample is not required
+    # here, so reports saved before it still load.
     "properties": {
         "design_says": TEXT,
         "conflicts_with": TEXT,
@@ -78,6 +80,7 @@ CONFLICT = {
         "options": TEXTS,
         "example": TEXT,
         "probe": TEXT,
+        "counterexample": COUNTEREXAMPLE,
     },
 }
 SCHEMA = {
@@ -162,15 +165,18 @@ def check(state: RunState, value: dict, changed_files, workspace) -> None:
         raise ValueError("With no conflicts, the check must state the design's binding decisions for the plan")
 
 
-def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None) -> None:
-    """``run_probe(command)`` runs a probe in a scratch copy (the unit passes autocode_verify.scratch_run);
-    without it a probed conflict is rejected rather than trusted."""
+def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None, run_counterexample=None) -> None:
+    """``run_probe(command)`` runs a probe in a scratch copy (the unit passes autocode_verify.scratch_run)
+    and ``run_counterexample(command, counterexample)`` runs it with the conflict's counterexample made
+    (autocode_counterexample.runner); without them a probed conflict is rejected rather than trusted."""
     check(state, value, record.get("changed_files"), workspace)
     shown = run_probes(
         value["conflicts"],
         run_probe or (lambda command: {"error": "no probe runner was given"}),
         what="conflict",
         key="design_says",
+        run_counterexample=run_counterexample
+        or (lambda command, edit: {"error": "no counterexample runner was given"}),
     )
     design = value["design_document"].strip()
     if not value["conflicts"]:

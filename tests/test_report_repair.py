@@ -1612,6 +1612,15 @@ class RepairTests(unittest.TestCase):
         self.assertIn("Keep every concern id from previous_review", runner.jobs.repair_rules("review_design"))
         self.assertEqual("", runner.jobs.repair_rules("terra"))
 
+    def test_an_analyst_repair_is_told_its_probe_must_fail_on_a_counterexample(self):
+        # Live run 20261021-001305-chat-25ca74: the second repair's probe was `python3 -c 'assert 2 + 2 == 4'`,
+        # which the runner accepted; a repair that is now refused for it must be told why (#1769).
+        for stage in ("answer_question", "review_design", "check_design"):
+            with self.subTest(stage=stage):
+                rules = runner.jobs.repair_rules(stage)
+                self.assertIn("A probed row also needs counterexample", rules)
+                self.assertIn("read from the source, not run", rules)
+
     def test_a_validator_pass_without_checks_gets_a_report_repair(self):
         # Live run 2026-09-29: the Validator ran its check but returned "checks": [], and the run paused.
         with self.assertRaisesRegex(ValueError, "lacks successful executed checks"):
