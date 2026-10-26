@@ -56,6 +56,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Independent reviewers receive complete, snapshot-matched source text for small approved file
+  scopes, avoiding repeated source-discovery calls. Larger or uncertain scopes keep ordinary
+  filesystem inspection; checks, approvals and independent completion review remain required (#2113).
+
 - The terminal's `/runs` and an uncached `/open` now read project and global
   listings asynchronously in the existing bounded read pool. Keyboard input
   stays available during slow discovery, and numbered `/open` choices stay
@@ -352,6 +356,11 @@ PR template asks for an entry here; a change without one is incomplete.
   has passed; actual guest execution remains unverified.
 
 ### Fixed
+
+- A feature follow-up no longer inherits an instruction to re-investigate the previous turn's
+  reproduced bug. Current-turn bug invariants still require independent checks. Kilo/OpenCode
+  receipt guidance now agrees with the Tester's supported command/exit-code hydration, avoiding
+  redundant command transcription without relaxing receipt authentication (#2113).
 
 - The model access preflight now proves each route under the role that owns it, and a tool refusing
   the level there pauses as `PAUSED_TRANSPORT_UNVERIFIED` with that role's own flag instead of an

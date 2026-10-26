@@ -594,8 +594,8 @@ def builder_note(state: RunState) -> str:
 
 
 def validator_note(state: RunState) -> str:
-    """The invariant the Validator must check directly, for a reproduced bug; "" otherwise."""
-    found = state.get("investigation") or {}
+    """The current turn's reproduced invariant; historical diagnoses stay evidence, not new work."""
+    found = current_diagnosis(state)
     if found.get("outcome") != "reproduced" or not str(found.get("invariant") or "").strip():
         return ""
     return VALIDATOR_INVARIANT.format(invariant=found["invariant"].strip())

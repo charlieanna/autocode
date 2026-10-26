@@ -33,6 +33,7 @@ try:
     from . import autocode_milestone_replan as replan
     from . import autocode_package_writes as package_writes
     from . import autocode_protected_oracles as protected_oracles
+    from . import autocode_review_source as review_source
     from . import autocode_stage_roles as stage_roles
     from . import autocode_support as support
     from . import autocode_visual_evidence as visual
@@ -42,6 +43,7 @@ except ImportError:
     import autocode_milestone_replan as replan
     import autocode_package_writes as package_writes
     import autocode_protected_oracles as protected_oracles
+    import autocode_review_source as review_source
     import autocode_stage_roles as stage_roles
     import autocode_support as support
     import autocode_visual_evidence as visual
@@ -154,6 +156,9 @@ def context_packet(state: RunState, stage, state_path):
             implementation=impl, validation=validation, unresolved_findings=state.get("unresolved_findings", [])
         )
     if stage in ("sol", "astra_checkpoint", "astra_review"):
+        attached_source = review_source.context(state, current)
+        if attached_source:
+            base["review_source"] = attached_source
         try:
             from . import autocode_regression as regression
         except ImportError:
