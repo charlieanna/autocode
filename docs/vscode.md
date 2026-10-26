@@ -129,6 +129,15 @@ provider and per-role routes. Person-only recovery decisions still require their
 separate confirmation (`autocode.confirmPersonOnly`). Free text cannot bypass an
 operational stop or approve a plan.
 
+**Change sets.** For a run linked with runs in other repositories (`scope.linked`,
+`autocode changeset link`), Run details reads `autocode changeset status --json`
+and shows every run of the change set. While the set approval is offered it lists
+every run's plan, and **Approve all N plans** asks first, then approves them
+together. If a plan changes after the card was shown, nothing is approved. Once
+every run is complete and an integration check is due, **Run the set's check**
+asks first, then runs it. These are the only change-set actions the extension
+takes ([change sets in clients](task-run.md#change-sets-in-clients)).
+
 ## Run it from a checkout
 
 ```sh
