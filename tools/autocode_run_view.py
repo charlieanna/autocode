@@ -158,12 +158,16 @@ def view(
     try:
         from . import autocode_attention as attention
         from . import autocode_changeset_store as changeset_store
+        from . import autocode_coordination_store as coordination_store
+        from . import autocode_related_profile as related_profile
         from . import autocode_replay_view as replay_view
         from . import autocode_scope_question as scope_question
         from . import autocode_worker_view as worker_view
     except ImportError:
         import autocode_attention as attention
         import autocode_changeset_store as changeset_store
+        import autocode_coordination_store as coordination_store
+        import autocode_related_profile as related_profile
         import autocode_replay_view as replay_view
         import autocode_scope_question as scope_question
         import autocode_worker_view as worker_view
@@ -312,6 +316,18 @@ def view(
     # Work that belongs to another repository, and what the person left out of this run (#2066).
     result["scope"] = scope_question.view(
         state, (state.get("requirements_handoff") or {}).get("dropped_external_parts")
+    )
+    result["related_profile"] = related_profile.project(state)
+    result["coordination"] = (
+        coordination_store.offer(
+            run_dir,
+            eligible=result["workflow"] == "bugfix"
+            and not (state.get("settings") or {}).get("coordination_member")
+            and result["scope"]["spans_repositories"]
+            and not result["scope"]["decision"],
+        )
+        if run_dir
+        else None
     )
     if run_dir is not None:  # the other runs of this run's change set (autocode_changeset)
         result["scope"]["linked"] = changeset_store.linked_for(run_dir)

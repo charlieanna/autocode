@@ -22,6 +22,43 @@ workspace where someone else may also run AutoCode, note `TaskRun.runs_in(worksp
 before the start and pass it as `attach(workspace, exclude=...)`, so that only a run
 created since can be adopted.
 
+## Automatic coordination from chat
+
+For an unresolved bug with grounded external scope, `view.coordination` names
+`status_command`, `next_command` and `cancel_command`. The terminal client reads
+`autocode coordinate status --run-dir RUN --json` and executes only its named
+actions. It does not read child state, select repositories or compose tests.
+`/repos PATH` uses the public registry API for one-time local checkout access.
+
+The version-1 coordination view identifies the anchor, record revision, phase,
+member workspaces/runs/PRs, `done`, `needs`, and optional `next_command` and
+`approval`. An approval binds the exact currently displayed plans, membership,
+bases and publication branches. Clients reread before approving. Pass its token
+privately as `--token -` with `AUTOCODE_COORDINATION_TOKEN`; providers never receive
+that variable. A missing or changed token authorizes nothing. Repository-choice
+actions exist only for current catalog candidates. Cancellation prevents further
+dispatch and submits only current members' named boundary-pause actions.
+
+The coordinator drives each member using `TaskRun`. `related_profile` is the
+public configuration export: selected role routes, efforts, providers, run limits
+and policies, without sessions or approvals. Fresh related runs accept a pinned
+`--related-profile FILE --related-profile-sha256 SHA256`; this cannot be applied
+to a saved run. `TaskRun.assign_linked_scope(identity)` consumes only a current
+core-owned changeset assignment. It retires the exact covered scope question;
+it neither invents a human answer nor approves a plan.
+
+An integration task works on original baselines and candidate copies, generates
+the joint test, and returns differences to members through follow-ups. Publication
+requires every member's canonical completion evidence, exact matching integration
+copies, and fresh standalone `verify` fail-before/pass-after evidence. The
+coordinator owns durable publication intent and reconciles branch/PR identity
+before any retry. It never merges. Manual change-set completion alone is not
+automatic coordination completion.
+
+Automatic coordination currently runs in owned terminal chats. A `durable_local`
+anchor is refused without changing its saved execution policy. See
+[multi-repository setup and limits](multi-repo.md).
+
 ## Python client
 
 `tools/autocode_taskrun.py` wraps the commands below.

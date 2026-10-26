@@ -25,9 +25,11 @@ if TYPE_CHECKING:
 from pathlib import Path
 
 try:
+    from . import autocode_scope_assignment as assignment
     from . import autocode_util as util
     from . import autocode_workspace_scope_state as workspace_scope
 except ImportError:
+    import autocode_scope_assignment as assignment
     import autocode_util as util
     import autocode_workspace_scope_state as workspace_scope
 
@@ -50,6 +52,8 @@ def parts(state: RunState) -> list[dict]:
 
 def decision(state: RunState) -> str | None:
     """The person's choice for this run's scope, or None while no answer names one."""
+    if assignment.current(state):
+        return "linked_repositories"
     offered = _question(state)
     if not offered:
         return None
@@ -133,7 +137,7 @@ def _question(state: RunState) -> dict | None:
 
 def uncovered(state: RunState) -> list[dict]:
     """The external parts the person chose to leave out of this run."""
-    if decision(state) != "this_repository":
+    if decision(state) not in ("this_repository", "linked_repositories"):
         return []
     return [{"target": part["target"], "work": part.get("work", "")} for part in parts(state)]
 
@@ -200,6 +204,7 @@ def view(state: RunState, dropped=None) -> dict:
     """The status view's ``scope``: what the request spans and what this run leaves out."""
     found = parts(state)
     return {
+        "identity": workspace_scope.identity(state),
         "spans_repositories": bool(found),
         "external_parts": [{"target": part["target"], "work": part.get("work", "")} for part in found],
         "uncovered": [part["target"] for part in uncovered(state)],

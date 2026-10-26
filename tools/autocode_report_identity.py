@@ -53,7 +53,7 @@ def _prior(state: RunState):
     }
 
 
-def bind(value, schema, record, state: RunState):
+def bind(value, schema, record, state: RunState | None):
     """Return the report with its identity from the launch binding, and the corrections made.
 
     Corrects only the active, admitted attempt of a review stage whose recorded

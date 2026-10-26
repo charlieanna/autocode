@@ -20,6 +20,7 @@ DECISION_FLAGS = (
     "--reject-assumption",
     "--approve-goal",
     "--changeset-token",
+    "--assign-linked-scope",
     "--edit-goal",
     "--goal-file",
     "--approve-review",
@@ -67,6 +68,8 @@ DECISION_FLAGS = (
 # Every other flag: setup, routing, planning-flow switches and start-time budgets an
 # unattended caller must be able to set.
 START_FLAGS = (
+    "--related-profile",
+    "--related-profile-sha256",
     "--adaptive-planning",
     "--astra-model",
     "--astra-provider",

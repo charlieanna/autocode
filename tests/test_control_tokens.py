@@ -40,6 +40,7 @@ class ControlTokenTests(unittest.TestCase):
             "AUTOCODE_EXPECTED_GOAL_TOKEN",
             "AUTOCODE_EXPECTED_RECOVERY_TOKEN",
             "AUTOCODE_CHECKPOINT_EXPECTED_TOKEN",
+            "AUTOCODE_COORDINATION_TOKEN",
         }
         env = {name: "inert-canary" for name in names}
         env.update({"AUTOCODE_PASS_ENV": ",".join(names), "AUTOCODE_CAPTURE_CONTEXT": "{}", "PATH": "/bin"})

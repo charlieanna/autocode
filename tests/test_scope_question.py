@@ -64,7 +64,11 @@ class ScopeQuestionTests(unittest.TestCase):
                 "dropped": ["billing"],
                 "linked": [],
             },
-            {key: value for key, value in scope.view(answered, ["billing"]).items() if key != "briefs"},
+            {
+                key: value
+                for key, value in scope.view(answered, ["billing"]).items()
+                if key not in ("briefs", "identity")
+            },
         )
 
     def test_each_repository_gets_a_ready_brief_this_one_first(self):

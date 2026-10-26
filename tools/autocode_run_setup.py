@@ -373,6 +373,11 @@ def resolve(runner, args, parser):
             "next_stage": "astra_plan",
             "acceptance_criteria": [],
         }
+        try:
+            from . import autocode_related_profile as related_profile
+        except ImportError:
+            import autocode_related_profile as related_profile
+        related_profile.install(state, args)
         if created:
             # The selected folder held no repository, so the work happens in a project AutoCode
             # created. A launch line on stdout never reaches a chat client (#1908).

@@ -32,6 +32,7 @@ try:
     from . import autocode_job_args as job_args
     from . import autocode_package_scope as package_scope
     from . import autocode_project_config as project_config
+    from . import autocode_related_profile as related_profile
     from . import autocode_resolver_human as resolver_human
     from . import autocode_review_args as review_args
     from . import autocode_role_transport as role_transport
@@ -56,6 +57,7 @@ except ImportError:
     import autocode_job_args as job_args
     import autocode_package_scope as package_scope
     import autocode_project_config as project_config
+    import autocode_related_profile as related_profile
     import autocode_resolver_human as resolver_human
     import autocode_review_args as review_args
     import autocode_role_transport as role_transport
@@ -89,6 +91,7 @@ NEW_RUN_INPUTS = (
     "package",
     "new_run_dir",
     "replay_recording",
+    "related_profile",
 )
 # The user actions that only read the run: they return before the run lock and save nothing, so
 # with no unfinished run they may show a finished one. --show-goal is not one: it takes the lock,
@@ -148,6 +151,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     brief_input.add_argument("--brief", help="Task text; use - to read literal UTF-8 text from stdin")
     brief_input.add_argument("--brief-file", type=Path, help="Read literal UTF-8 task text from this file")
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
+    related_profile.add_arguments(parser)
     parser.add_argument(
         "--unit",
         choices=autopilot.UNITS,
@@ -701,6 +705,7 @@ def parse(unit, argv, default_models):
         args = parser.parse_args(argv)
     if (args.brief is not None or args.brief_file is not None) and (args.run_dir or resume_only):
         parser.error("--brief and --brief-file start a new run; they cannot accompany a saved run or resume")
+    related_profile.validate_arguments(args, parser)
     try:
         args.task = task_input.load(args.task, brief=args.brief, brief_file=args.brief_file, stdin=sys.stdin)
     except (OSError, UnicodeError, ValueError) as error:

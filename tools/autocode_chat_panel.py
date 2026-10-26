@@ -95,6 +95,7 @@ COMMANDS = (
     Command("/mode", "The mode new chats start in: /mode ID"),
     Command("/engine", "The engine new chats run on: /engine NAME"),
     Command("/connect", "Backends: check one, sign in, or use it for new chats"),
+    Command("/repos", "Repositories for automatic discovery; /repos PATH authorizes a local checkout"),
     Command("/attention", "Saved alerts: inspect, acknowledge or open (also F8)"),
     Command("/panel", "Show or hide the side panel"),
     Command("/pause", "Ask AutoCode to pause after the current step"),
@@ -116,6 +117,7 @@ def _rows(value) -> list[dict]:
 # /connect through `modes list --json` and `connections list --json` (autocode_chat_setup), /changeset
 # through `changeset status --json` (autocode_chat_changeset).
 CLIENT_COMMANDS = (
+    "/repos",
     "/diff",
     "/undo",
     "/changeset",
@@ -241,6 +243,20 @@ def sections(view: dict | None, *, launched: bool = False) -> list[Section]:
     if linked := changeset.compact(view):  # the other runs of this run's change set (#2066)
         summary, entries = linked
         result.append(Section("Change set", summary, tuple(Row("·", line, "dim") for line in entries)))
+    if coordinated := _mapping(view.get("coordination")):
+        summary = str(coordinated.get("phase", "discovering")).replace("_", " ")
+        if coordinated.get("active"):
+            summary += " · " + str(coordinated["active"])
+        result.append(
+            Section(
+                "Coordinated bug fix",
+                summary,
+                tuple(
+                    Row("·", f"{row['target']}: {row.get('pr_url') or row['status']}", "plain")
+                    for row in _rows(coordinated.get("members"))
+                ),
+            )
+        )
     if recent := events(view):
         result.append(Section("Activity", "", tuple(event_row(event) for event in recent[-EVENT_ROWS:])))
     requirements = _mapping(progress.get("requirements"))

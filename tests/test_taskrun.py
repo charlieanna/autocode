@@ -172,6 +172,8 @@ class RunViewTests(unittest.TestCase):
                 "changes_by_criterion",
                 "dev_server",
                 "scope",
+                "coordination",
+                "related_profile",
                 "proxied_requirements",
             },
             set(run_view.view({"status": "RUNNING"})),
