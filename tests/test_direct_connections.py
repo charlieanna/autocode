@@ -208,6 +208,11 @@ class MultiProviderConnectionTests(unittest.TestCase):
         self.assertIn("openrouter", output.getvalue())
         self.assertFalse((config.directory() / "connection.json").exists())
 
+    def test_openrouter_defaults_to_its_api_base_url(self):
+        with interactive(["", "anthropic/claude-x", "openai/gpt-x"], "openrouter-secret"):
+            self.assertEqual(0, connections.cli(["add", "openrouter"]))
+        self.assertEqual("https://openrouter.ai/api/v1", config.load()["providers"]["openrouter"]["endpoint"])
+
     def test_a_provider_serving_both_sides_of_one_family_is_flagged_at_setup(self):
         with interactive(["", "gpt-6.1", "gpt-6.1"], "openai-secret") as output:
             self.assertEqual(0, connections.cli(["add", "openai"]))

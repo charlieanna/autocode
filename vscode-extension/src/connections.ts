@@ -65,7 +65,7 @@ export class ConnectionsPanel implements vscode.Disposable {
       const action = this.rows.find((item) => item.id === row.id)?.actions.find((item) => item.id === message.action);
       if (message.type !== "action" || !action) return;
       const settings = readSettings();
-      if (action.id === "login" || action.id === "setup") {
+      if (action.id === "login" || action.id === "setup" || action.id === "add") {
         // VS Code launches AutoCode directly as the terminal process, with an
         // argument array. No sendText(), shell interpolation or auth output log.
         vscode.window.createTerminal({ name: `AutoCode: ${row.label} setup`, shellPath: settings.command,
