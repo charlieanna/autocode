@@ -18,7 +18,9 @@ TOKEN_ENV_VARS = {
     "expected_recovery_token": "AUTOCODE_EXPECTED_RECOVERY_TOKEN",
 }
 CHECKPOINT_TOKEN_ENV_VARS = {"expected_token": "AUTOCODE_CHECKPOINT_EXPECTED_TOKEN"}
-CONTROL_TOKEN_ENV_VARS = frozenset((*TOKEN_ENV_VARS.values(), *CHECKPOINT_TOKEN_ENV_VARS.values()))
+CONTROL_TOKEN_ENV_VARS = frozenset(
+    (*TOKEN_ENV_VARS.values(), *CHECKPOINT_TOKEN_ENV_VARS.values(), "AUTOCODE_COORDINATION_TOKEN")
+)
 
 
 def resolve_placeholders(args, parser, environ: Mapping[str, str], *, fields=TOKEN_ENV_VARS) -> None:

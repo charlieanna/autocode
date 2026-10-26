@@ -768,6 +768,30 @@ def restage_pending(state: RunState):
     return True
 
 
+def supersede_assigned_scope(state: RunState, published, remaining, receipt):
+    """Retire an exact core-assigned scope question without fabricating a user answer."""
+    if current(state) != published or published.get("scope") not in ("clarification", "intake"):
+        raise ValueError("Repository assignment no longer matches the pending request")
+    entry = state["resolver"]["human_escalations"][published["request_id"]]
+    proposal = entry["identity"]["proposal"]
+    entry.update(status="superseded", superseded_at=support.now(), assignment=copy.deepcopy(receipt))
+    state.pop(PUBLIC, None)
+    state.pop(PRIVATE, None)
+    state.pop("user_request", None)
+    state["pending_questions"] = remaining
+    if remaining:
+        queue(
+            state,
+            proposal["scope"],
+            proposal["origin"],
+            questions=remaining,
+            evidence=proposal.get("evidence"),
+            status=proposal["status"],
+            phase=proposal.get("phase"),
+            next_stage=proposal.get("next_stage"),
+        )
+
+
 def withdrawn(state: RunState):
     """The last active operational proposal if withdrawn and no other request is open.
 

@@ -57,23 +57,24 @@ sign-in, a new Git project, route checks and common setup errors.
 
 ## A bug that turns out to span repositories
 
-You can start with just the symptom in one repository. If Requirements or the
-Investigator reports evidence that another repository needs work, AutoCode asks
-before planning or building that work. It does not assume the first request
-listed every repository.
+On a supported Linux host, open terminal chat:
 
-Each repository gets its own run. The current implementation requires explicit
-linking and a named integration check. A partial set
-approval cannot release a Builder; changing a plan requires fresh approval.
-Changing code or the integration command makes old check results stale.
+```sh
+cd /path/to/your/project
+autocode chat
+```
 
-The intended TUI workflow is one bug request through automatic repository
-discovery, coordinated fixes, combined regression testing and linked PR creation.
-That complete workflow is **not implemented yet**; [#2155](https://github.com/charlieanna/autocode/issues/2155)
-tracks its acceptance criteria. The [current manual walkthrough](docs/multi-repo.md#walkthrough-a-bug-reveals-another-repository)
-documents the existing fallback. Discovery still depends on what the Investigator finds; the
-[coverage and limitations](docs/multi-repo.md#verification-and-current-limits)
-distinguish deterministic tests from real-model discovery.
+Use `/connect` to check your coding backend, and `/repos /path/to/repository`
+once for each local checkout AutoCode may use, then describe the bug. Grounded discoveries select unique
+catalog matches automatically and can lead to further repositories. AutoCode
+prepares isolated worktrees, shows the coordinated plans for approval, fixes the
+repositories, generates a joint regression and publishes linked PRs after
+independent verification. Missing access or ambiguous matches produce a question.
+
+The joint regression must fail on the combined original code and pass on the
+exact candidate trees. Separate green repository tests cannot finish this flow.
+PRs are never merged automatically. See [TUI setup](docs/multi-repo.md#automatic-bug-fixes-from-terminal-chat)
+and [verification limits](docs/multi-repo.md#verification-and-current-limits).
 
 To check a change made by another coding tool, supply its comparison base and
 your acceptance criteria to `autocode verify`. It checks the existing change

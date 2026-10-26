@@ -389,6 +389,10 @@ def index_identity(workspace):
 def read(root):
     require_git_environment()
     root = Path(root).resolve()
+    # The public verification result names this file. Accept that exact
+    # reference as well as the output directory used by older callers.
+    if root.name == "verification.json" and root.is_file():
+        root = root.parent
     receipt = util.read_object(root / "verification.json")
     reasons = []
     try:

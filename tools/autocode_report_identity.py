@@ -12,6 +12,10 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from .autocode_util import read as read_json
@@ -22,7 +26,7 @@ FIELDS = ("contract_hash", "contract_revision", "task_id")
 STAGES = ("sol", "astra_review", "astra_checkpoint")
 
 
-def current_identity(state):
+def current_identity(state: RunState):
     contract = state.get("goal_contract") or {}
     return {
         "contract_hash": contract.get("hash"),
@@ -39,7 +43,7 @@ def _launched(record):
     }
 
 
-def _prior(state):
+def _prior(state: RunState):
     """Identities this run used before; an echo of one is stale, never a typo."""
     contracts = state.get("contract_history") or []
     return {
@@ -49,7 +53,7 @@ def _prior(state):
     }
 
 
-def bind(value, schema, record, state):
+def bind(value, schema, record, state: RunState):
     """Return the report with its identity from the launch binding, and the corrections made.
 
     Corrects only the active, admitted attempt of a review stage whose recorded
@@ -87,7 +91,7 @@ def bind(value, schema, record, state):
     return result, corrections
 
 
-def adopt(value, record, state):
+def adopt(value, record, state: RunState):
     """Load-time entry: correct against the record's saved schema and keep the receipt on the record.
 
     The loader preserves the raw response as ``reported_output`` whenever the value changes.

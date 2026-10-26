@@ -119,6 +119,17 @@ command, waivers, reopening, the merge order and pull-request text stay the pers
 
 A further new client, or growth beyond that contract, needs the owner's decision again.
 
+**Automatic multi-repository TUI delivery approved 2026-10-26 (#2155).** The owner
+requested implementation from one TUI bug report: discover authorized repositories,
+coordinate their fixes, prove the joint regression, and publish linked PRs automatically.
+The TUI may read and take the core's `coordinate` status/named actions, show exact
+coordinated plans for approval, and register a person-selected local checkout with
+`/repos PATH`. Repository selection, task coordination, joint proof and publication
+belong to core modules over TaskRun. Model text never authorizes a host path or remote.
+Required approvals, genuine ambiguity/access questions and per-run gates remain;
+automatic merging is not authorized. This supersedes the manual link/check-command
+UX as the intended bug-fix flow, while preserving the #2066 remote-catalog ownership.
+
 Historical audit records (`audits/`), `learn/` and two top-level result reports
 were archived at tag `archive/pre-restructure-2026-09-26`
 (`git show archive/pre-restructure-2026-09-26:audits/...`).
