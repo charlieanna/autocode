@@ -33,6 +33,13 @@ def normalize_absent_authority(value, schema, record):
             target.setdefault("git_delivery", None)
     if "recovery_change" in properties:
         result.setdefault("recovery_change", None)
+    # A trace row's proxy_reason (#2068) is null except on a proxied row; reports written before it, and
+    # fixtures that never mark a proxy, leave it out.
+    trace_row = properties.get("requirement_trace", {}).get("items", {}).get("properties", {})
+    if "proxy_reason" in trace_row and isinstance(result.get("requirement_trace"), list):
+        for row in result["requirement_trace"]:
+            if isinstance(row, dict):
+                row.setdefault("proxy_reason", None)
     stage = str(record.get("original_stage") or record.get("stage", "")).removesuffix("_report_repair")
     if stage in ("requirements_gather", "requirements") and "project_conventions" in properties:
         result.setdefault("project_conventions", [])

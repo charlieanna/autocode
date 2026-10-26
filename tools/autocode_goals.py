@@ -459,7 +459,7 @@ def check_requirement_trace(state: RunState, report, contract, *, coverage=True)
         raise ValueError("Planner report needs requirement_trace")
     by_id = {}
     for row in trace:
-        if not isinstance(row, dict) or row.get("disposition") not in ("covered", "excluded", "superseded"):
+        if not isinstance(row, dict) or row.get("disposition") not in ("covered", "proxied", "excluded", "superseded"):
             raise ValueError("requirement_trace entries need requirement_id, disposition and evidence")
         rid = row.get("requirement_id")
         if rid in by_id or rid not in {r["id"] for r in requirements}:

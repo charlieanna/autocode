@@ -57,6 +57,7 @@ try:
     from . import autocode_pause_command as pause_command
     from . import autocode_plan_file as plan_file
     from . import autocode_plan_file_origin as plan_file_origin
+    from . import autocode_plan_retention as plan_retention
     from . import autocode_planning_review_usage as review_usage
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_quota_route as quota_route
@@ -73,6 +74,7 @@ try:
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_task_input as task_input
     from . import autocode_tool_containment as tool_containment
+    from . import autocode_trace_coverage as trace_coverage
     from . import autocode_transport_recovery as transport_recovery
     from . import autocode_verification_view as verification_view
 except ImportError:
@@ -105,6 +107,7 @@ except ImportError:
     import autocode_pause_command as pause_command
     import autocode_plan_file as plan_file
     import autocode_plan_file_origin as plan_file_origin
+    import autocode_plan_retention as plan_retention
     import autocode_planning_review_usage as review_usage
     import autocode_progressive_plan as progressive_rules
     import autocode_quota_route as quota_route
@@ -121,6 +124,7 @@ except ImportError:
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
     import autocode_tool_containment as tool_containment
+    import autocode_trace_coverage as trace_coverage
     import autocode_transport_recovery as transport_recovery
     import autocode_usage
     import autocode_verification_view as verification_view
@@ -310,6 +314,10 @@ def view(
     )
     if run_dir is not None:  # the other runs of this run's change set (autocode_changeset)
         result["scope"]["linked"] = changeset_store.linked_for(run_dir)
+    # The requirements the current plan proves only on a stand-in for what the user sees, because code
+    # outside this checkout renders it (#2068): requirement_id, the criteria it cites (evidence) and
+    # proxy_reason, from the trace that produced the current contract; [] when none or no plan yet.
+    result["proxied_requirements"] = trace_coverage.proxied_rows(plan_retention.validated_trace(state))
     result["chat"] = chat_view.project(state, result, run_dir=run_dir, workspace=workspace)
     result["attention"] = attention.project(
         state, result, workspace=workspace, run_dir=run_dir, context=result["chat"]["context"]

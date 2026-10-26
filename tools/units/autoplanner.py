@@ -445,10 +445,14 @@ CHANGE["properties"]["example_correction"] = {**examples.RECEIPT_SCHEMA, "type":
 TRACE = obj(
     {
         "requirement_id": S,
-        "disposition": {"type": "string", "enum": ["covered", "excluded", "superseded"]},
+        "disposition": {"type": "string", "enum": ["covered", "proxied", "excluded", "superseded"]},
         "evidence": S,
     }
 )
+# A proxied row's criteria prove a stand-in for what the user sees, rendered by code outside this checkout
+# (#2068); proxy_reason says why, and autocode_trace_coverage holds it to the person's confirmation. Every
+# other row says null, as CHANGE's example_correction does.
+TRACE["properties"]["proxy_reason"] = {"type": ["string", "null"]}
 # New reports use the structured form; this is also the generation schema, so
 # the model needs a concrete item shape. A report produced before structured
 # assumptions (a plain string item) is still accepted by apply_planning, which
@@ -1709,11 +1713,12 @@ def proxy_concerns(state: RunState, value):
                 "evidence_refs": [str(gap["requirement_id"]), *gap["criteria"]],
                 "requested_change": (
                     f"Trace {gap['requirement_id']} to a criterion that proves what the user sees for {seen}, "
-                    "or confirm with the person that the cited criteria change it"
+                    "or mark it proxied with a proxy_reason and ask the person, as a blocking decision question, "
+                    "whether the cited criteria change it"
                 ),
                 "acceptance_test": (
                     f"A covered criterion for {gap['requirement_id']} names {seen} in its own text, "
-                    "or a saved user answer confirms the cited criteria change it"
+                    "or the row is proxied and a saved user answer or an open decision question settles it"
                 ),
                 "blocking": True,
             }

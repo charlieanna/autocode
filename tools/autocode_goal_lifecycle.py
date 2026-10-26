@@ -58,6 +58,7 @@ try:
     from . import autocode_native_test_names as native_test_names
     from . import autocode_operational_change as operational_change
     from . import autocode_plan_chat as plan_chat
+    from . import autocode_plan_retention as plan_retention
     from . import autocode_planning_cycle as planning_cycle
     from . import autocode_progressive_state as progressive_state
     from . import autocode_proof_declarations as proof_declarations
@@ -68,6 +69,7 @@ try:
     from . import autocode_source_log as source_log
     from . import autocode_task_feasibility as task_feasibility
     from . import autocode_test_cases as test_cases
+    from . import autocode_trace_coverage as trace_coverage
     from . import autocode_util as s
     from . import autocode_verification_plan as verification_plan
     from . import autocode_workflows as workflows
@@ -105,6 +107,7 @@ except ImportError:
     import autocode_native_test_names as native_test_names
     import autocode_operational_change as operational_change
     import autocode_plan_chat as plan_chat
+    import autocode_plan_retention as plan_retention
     import autocode_planning_cycle as planning_cycle
     import autocode_progressive_state as progressive_state
     import autocode_proof_declarations as proof_declarations
@@ -115,6 +118,7 @@ except ImportError:
     import autocode_source_log as source_log
     import autocode_task_feasibility as task_feasibility
     import autocode_test_cases as test_cases
+    import autocode_trace_coverage as trace_coverage
     import autocode_util as s
     import autocode_verification_plan as verification_plan
     import autocode_workflows as workflows
@@ -870,6 +874,7 @@ def render(state: RunState, run_dir=None):
             contract["revision"],
             test_cases.proof_cases(state, all_due=True),
             design_only=test_cases.design_only(state),
+            proxied=trace_coverage.proxied_rows(plan_retention.validated_trace(state)),
         )
         lines += goal_file.approval_lines(state)
         lines += [""] + approval_view.actions(

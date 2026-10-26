@@ -8,3 +8,10 @@ or "AC3 checks this"), or a required_behaviors entry copied exactly; a paraphras
 evidence is a scope_exclusions entry copied exactly and backed by a saved user answer; for superseded, it cites
 the saved answer or feedback event ID. While the draft has open_blocking_questions and no criteria yet, a covered
 row may say what it waits on (for example "pending Q1"); the next draft, after the answer, must cite criteria.
+disposition proxied is for a user-visible requirement whose result is rendered by code outside this checkout,
+so its criteria can prove only a stand-in (an internal value the visible result is believed to depend on).
+Its evidence cites criteria as for covered, and proxy_reason says what the user sees, what the criteria prove
+instead and why nothing here can show the link. Never mark such a row covered. Until a saved answer accepts
+the stand-in (cite its ID in proxy_reason), add an open_blocking_questions entry of kind decision that names
+the requirement ID and asks the person whether proving the stand-in is enough. Every other row's proxy_reason
+is null.

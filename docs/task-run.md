@@ -1696,6 +1696,15 @@ bug-fix run's Investigator has reported (and for every other job); then:
 The record reports a decision the core made from trusted inputs; it grants nothing, and a
 client renders it without acting on it.
 
+`proxied_requirements` lists the requirements the current plan proves only on a stand-in
+(#2068): the user-visible result is rendered by code outside this checkout, so the plan's
+criteria prove an internal value the result is believed to depend on. Each row has
+`requirement_id`, `evidence` (the criteria it cites) and `proxy_reason`. A plan may mark a
+requirement `proxied` only with the person's word: a saved answer cited in `proxy_reason`, or
+until then a blocking decision question about that requirement, which the run asks before the
+plan can be approved. It is `[]` when there are none or no plan yet, and it grants nothing; the
+approval screen lists the same rows under "Proven only on a stand-in".
+
 `needs` is `null` when the run is complete. Otherwise its `kind` says what the
 run is waiting for:
 
