@@ -35,6 +35,8 @@ class AutomaticSelectionCLI(unittest.TestCase):
         script = fixtures._MIXED_TRANSPORT_FIXTURE.replace("__LOG__", str(self.log)).replace(
             "__FIXTURE__", str(fixtures.HERE / "live_fixture_provider.py")
         )
+        # Selection tests use the qualified version; the shared fixture keeps its version-refusal control.
+        script = script.replace("print('1.16.0')", "print('1.18.33')")
         begin = script.index("models = (")
         end = script.index("def record", begin)
         script = script[:begin] + "models = " + repr(models) + "\n" + script[end:]
