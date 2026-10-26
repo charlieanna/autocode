@@ -173,3 +173,13 @@ def linked_for(run_dir) -> list[dict]:
         for row in record["members"]
     ]
     return [row for row in rows if row["run_dir"] != wanted]
+
+
+def set_fields(key: str, fields: dict) -> dict:
+    """Replace the given top-level fields of change set ``key`` (verification and delivery, #2066 step 6)."""
+    with _locked() as document:
+        record = document["changesets"].get(key)
+        if record is None:
+            raise ChangesetError(f"no change set {key}")
+        record.update(fields)
+        return dict(record)

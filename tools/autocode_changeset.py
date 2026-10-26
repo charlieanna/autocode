@@ -24,7 +24,11 @@ the Builder until all of them are approved. Approving one run alone (its own ``-
 stays an explicit person action that releases that run by itself.
 
 Linking changes nothing in the source run: it still asks its scope question, and its plan still
-records the linked target as not covered there. Joint verification is a later step of #2066.
+records the linked target as not covered there.
+
+Checking the runs together and delivering them (``check-command``, ``verify``, ``waive``,
+``reopen``, ``order``, ``pr-body``; #2066 step 6) is autocode_changeset_delivery; ``status``
+carries its ``verification``.
 """
 
 from __future__ import annotations
@@ -37,11 +41,13 @@ import sys
 from pathlib import Path
 
 try:
+    from . import autocode_changeset_delivery as delivery
     from . import autocode_changeset_store as store
     from . import autocode_client_actions as actions
     from . import autocode_registry as registry
     from . import autocode_taskrun as taskrun
 except ImportError:
+    import autocode_changeset_delivery as delivery
     import autocode_changeset_store as store
     import autocode_client_actions as actions
     import autocode_registry as registry
@@ -170,7 +176,39 @@ def status(run_dir, *, command=taskrun.AUTOCODE) -> dict:
         row.update(_member_status(row["workspace"], row["run_dir"], command))
     summary = {"changeset": record["id"], "created_at": record.get("created_at"), "runs": runs}
     summary["approval"] = _approval(summary)
+    summary["verification"] = delivery.view(summary, record)
     return summary
+
+
+def uncovered(summary: dict, *, command=taskrun.AUTOCODE) -> list[str]:
+    """The source run's external parts no run of the set covers, as ``TARGET: WORK``."""
+    _, view = source_view(Path(summary["runs"][0]["run_dir"]), command=command)
+    linked = {row["target"] for row in summary["runs"]}
+    return [
+        f"{part.get('target')}: {part.get('work', '')}".rstrip(": ")
+        for part in (view.get("scope") or {}).get("external_parts") or []
+        if part.get("target") not in linked
+    ]
+
+
+def deliver(name: str, args) -> dict:
+    """Run one verification or delivery action against the set's fresh status."""
+    summary = status(args.run_dir)
+    record = store.find(args.run_dir) or {}
+    if name == "check-command":
+        options = args.check[1:] if args.check[:1] == ["--"] else args.check
+        delivery.set_check(summary, record, args.within, options)
+    elif name == "verify":
+        delivery.verify(summary, record)
+    elif name == "waive":
+        delivery.waive(summary, record, args.reason)
+    elif name == "reopen":
+        delivery.reopen(summary, record, args.target, args.message)
+    elif name == "order":
+        delivery.set_order(summary, record, args.targets)
+    elif name == "pr-body":
+        return {"body": delivery.pr_body(summary, record, args.target, uncovered(summary))}
+    return status(args.run_dir)
 
 
 def approve(run_dir, token: str, *, command=taskrun.AUTOCODE) -> dict:
@@ -214,6 +252,31 @@ def parser() -> argparse.ArgumentParser:
         "--set-token", required=True, help=f"the set_token `changeset status` showed; - reads {SET_TOKEN_ENV}"
     )
     approving.add_argument("--json", action="store_true", help="print the change set as JSON")
+    checking = commands.add_parser("check-command", help="name the integration command run once all runs complete")
+    checking.add_argument("--run-dir", type=Path, required=True, help="any run of the change set")
+    checking.add_argument("--in", dest="within", required=True, help="the run (repository) whose workspace it runs in")
+    checking.add_argument("--json", action="store_true", help="print the change set as JSON")
+    checking.add_argument("check", nargs=argparse.REMAINDER, help="after --: the command, as an argument array")
+    verifying = commands.add_parser("verify", help="run the integration command against every run's code")
+    verifying.add_argument("--run-dir", type=Path, required=True, help="any run of the change set")
+    verifying.add_argument("--json", action="store_true", help="print the change set as JSON")
+    waiving = commands.add_parser("waive", help="accept the set without a passing integration check")
+    waiving.add_argument("--run-dir", type=Path, required=True, help="any run of the change set")
+    waiving.add_argument("--reason", required=True, help="why the set is accepted without a passing check")
+    waiving.add_argument("--json", action="store_true", help="print the change set as JSON")
+    reopening = commands.add_parser("reopen", help="send the run that diverged a follow-up")
+    reopening.add_argument("--run-dir", type=Path, required=True, help="any run of the change set")
+    reopening.add_argument("--target", required=True, help="the run (repository) to reopen")
+    reopening.add_argument("--message", help="the follow-up; default: the failed check's output")
+    reopening.add_argument("--json", action="store_true", help="print the change set as JSON")
+    ordering = commands.add_parser("order", help="set the order the pull requests merge in")
+    ordering.add_argument("--run-dir", type=Path, required=True, help="any run of the change set")
+    ordering.add_argument("targets", nargs="+", help="every run (repository) of the set, first to merge first")
+    ordering.add_argument("--json", action="store_true", help="print the change set as JSON")
+    body = commands.add_parser("pr-body", help="the section a run's pull request carries")
+    body.add_argument("--run-dir", type=Path, required=True, help="any run of the change set")
+    body.add_argument("--target", required=True, help="the run (repository) whose pull request it is")
+    body.add_argument("--json", action="store_true", help="print the section as JSON")
     listing = commands.add_parser("list", help="every change set")
     listing.add_argument("--json", action="store_true", help="print the change sets as JSON")
     return result
@@ -231,6 +294,13 @@ def _render(summary: dict) -> str:
         lines.append("Approve every plan above at once: " + " ".join(approval["next_command"]))
     elif approval.get("waiting_on"):
         lines.append("Set approval waits for a plan from: " + ", ".join(approval["waiting_on"]))
+    verification = summary.get("verification") or {}
+    if verification.get("done"):
+        lines.append("Checked together: done. Merge order: " + ", then ".join(verification["merge_order"]))
+    elif verification.get("next_command"):
+        lines.append("Check the runs together: " + " ".join(verification["next_command"]))
+    elif (verification.get("result") or {}).get("current"):
+        lines.append("The integration check failed: reopen the run that diverged, or waive it with a reason.")
     return "\n".join(lines)
 
 
@@ -241,13 +311,21 @@ def cli(argv=None) -> int:
             result: dict = {"changesets": store.records()}
         elif args.command == "status":
             result = status(args.run_dir)
+        elif args.command in ("check-command", "verify", "waive", "reopen", "order", "pr-body"):
+            result = deliver(args.command, args)
         elif args.command == "approve":
             token = os.environ.get(SET_TOKEN_ENV, "") if args.set_token == "-" else args.set_token
             result = approve(args.run_dir, token)
         else:
             options = args.options[1:] if args.options[:1] == ["--"] else args.options
             result = link(args.run_dir, args.target, args.workspace, options=options)
-    except (LinkRefused, store.ChangesetError, registry.RegistryError, taskrun.TaskRunError) as error:
+    except (
+        LinkRefused,
+        delivery.DeliveryRefused,
+        store.ChangesetError,
+        registry.RegistryError,
+        taskrun.TaskRunError,
+    ) as error:
         message = str(error)
         if args.json:
             print(json.dumps({"error": message}))
@@ -256,6 +334,8 @@ def cli(argv=None) -> int:
         return 1
     if args.json:
         print(json.dumps(result, indent=2))
+    elif args.command == "pr-body":
+        print(result["body"], end="")
     elif args.command == "list":
         print(
             "\n".join(f"{row['id']}: {row['source']['run_dir']}" for row in result["changesets"]) or "No change sets."

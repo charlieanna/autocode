@@ -34,8 +34,16 @@ deliver only the API half.
 - **You can approve the linked plans together.** `autocode changeset status` shows every
   run's plan and one set token, and `autocode changeset approve` approves them all at
   once. A plan that changes in any run withdraws the token
-  ([Approving the set](task-run.md#approving-the-set)). Checking that the two sides agree
-  is a later step of [#2066](https://github.com/charlieanna/autocode/issues/2066).
+  ([Approving the set](task-run.md#approving-the-set)).
+- **You can check the linked runs together.** Name an integration command, such as the
+  consumer's tests against the producer's checkout, with `autocode changeset check-command`.
+  `autocode changeset verify` runs it once every run is complete, and a later code change in
+  either repository makes its result stale. A failed check can reopen the run that diverged,
+  or you can waive it with a reason. `autocode changeset pr-body` writes the section each
+  pull request carries, with the merge order
+  ([Checking the set together](task-run.md#checking-the-set-together-and-delivering-it)).
+  Showing all this in the terminal chat, VS Code and the channel bridge is a later step of
+  [#2066](https://github.com/charlieanna/autocode/issues/2066).
 - **Component builds stay inside one repository.** `autocode components` builds
   several components in parallel, but every component worktree comes from the
   same repository's HEAD, and integration applies their changes to a worktree of
@@ -50,7 +58,7 @@ deliver only the API half.
 
 ## The manual workflow
 
-Until linked runs are checked together, coordinate the repositories yourself:
+Without a change set, coordinate the repositories yourself:
 
 1. Write one brief per repository. Each brief states the shared requirement,
    the interface both sides agree on (field names, payload examples, an API
@@ -65,4 +73,4 @@ Until linked runs are checked together, coordinate the repositories yourself:
 5. Before merging, run the consumer's tests against the producer's branch, and
    link the two pull requests to each other with the merge order.
 
-Nothing checks that the two halves agree yet. That is the gap the later steps close.
+Without a change set, nothing checks that the two halves agree.

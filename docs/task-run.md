@@ -1856,7 +1856,36 @@ approval the person was shown. Otherwise it approves each run with its own plan 
 source run first. No run builds before its plan is approved, so approving through the set
 keeps every run out of the Builder until all are approved. Approving one run alone with its
 own `--approve-goal` stays possible as an explicit person action that releases that run.
-Checking the runs together before they are done is a later step of #2066.
+
+#### Checking the set together and delivering it
+
+Each run still passes its own completion gate. `changeset status` adds `verification`:
+
+- `waiting_on` lists the runs not yet `TASK_COMPLETE`. Nothing is checked together before then.
+- `check` is the integration command the person named, `result` its last run and `waiver` the
+  person's reason to accept the set without it. Each carries `current`, which is true only while
+  every run's status and every workspace's code (commit, diff and untracked files, AutoCode's own
+  excluded) match what it was recorded against.
+- `done` is true once every run is complete and either no command was named, a current result
+  passed, or a current waiver exists.
+- `merge_order` and `next_command` (the `verify` argument array, while a check is due).
+
+The actions:
+
+- `changeset check-command --run-dir RUN --in TARGET -- COMMAND...` names the command, run
+  with no shell in that run's workspace. `AUTOCODE_CHANGESET_WORKSPACES` holds a JSON object
+  from each run's repository name to its workspace, so the consumer's tests can run against
+  the producer's checkout. This is where the shared interface is checked. A new command
+  clears the old result.
+- `changeset verify --run-dir RUN` runs it. A check that changes a workspace does not pass.
+- `changeset waive --run-dir RUN --reason TEXT` records a waiver for the code as it is now.
+- `changeset reopen --run-dir RUN --target TARGET [--message TEXT]` sends that run a
+  follow-up, by default the failed check's command and output.
+- `changeset order --run-dir RUN TARGET...` sets the merge order. By default the source
+  run merges first.
+- `changeset pr-body --run-dir RUN --target TARGET` prints the Markdown section that run's
+  pull request carries: the change set id, every run, the merge order, the check's outcome or
+  the waiver, and the parts no run of the set covers.
 
 ## Dependencies between existing runs
 
