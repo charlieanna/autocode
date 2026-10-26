@@ -96,11 +96,17 @@ class CompactPlanningTests(unittest.TestCase):
     def investigated(self, state, *, probe="python3 -c 'raise SystemExit(0)'", shown=True, **overrides):
         """Apply the Investigator's report as the unit does, with the runner's probe result faked."""
         output = self.root / "investigation.json"
-        value = diagnosis(probe=probe, untestable="", **overrides)
+        counterexample = {"file": "pager.py", "find": "//", "replace": "/"}
+        value = diagnosis(probe=probe, untestable="", counterexample=counterexample, **overrides)
         output.write_text(json.dumps(value))
         record = {"changed_files": [], "output": str(output), "source_revision": "rev-1"}
         bug_job.apply(
-            state, value, record, str(self.root), run_probe=lambda command: {"exit_code": 0 if shown else 1, "tail": ""}
+            state,
+            value,
+            record,
+            str(self.root),
+            run_probe=lambda command: {"exit_code": 0 if shown else 1, "tail": ""},
+            run_counterexample=lambda command, edit: {"exit_code": 1, "tail": ""},
         )
         return state
 

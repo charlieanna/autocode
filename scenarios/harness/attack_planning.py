@@ -103,6 +103,12 @@ def citation_after_clarification(fake, original, stage, data, trace):
             "probe": 'python3 -c "import json; from pathlib import Path; '
             f"assert json.loads(Path('{copied}').read_text())['code_refs'] == ['.autocode/state.json']; "
             "assert Path('README.md').is_file()\"",
+            # The probe must fail once the attempt cites durable source instead (#1769).
+            "counterexample": {
+                "file": copied,
+                "find": (text := Path(attempt).read_text()),
+                "replace": text.replace(".autocode/state.json", "README.md"),
+            },
             "untestable": "",
         }
     value = original(stage, data)

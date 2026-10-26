@@ -228,7 +228,10 @@ exist, in the repository or in the run's directory, and a retry must cite at lea
 runner copies only the cited run files into a scratch tree, each at `run/<name>`, and runs
 the probe there: a probe that does not exit 0, or that needs a file the Investigator did
 not cite, rejects the report, and the original pause is restored with the reason. The
-probe's receipt is recorded with the investigation.
+probe also carries `counterexample`, one edit to a cited file after which it no longer
+shows the cause; the runner makes it in another scratch tree and the probe must fail
+there, so a probe that passes whatever the files say retries nothing (#1769). The
+probe's receipt, with its counterexample's exit code, is recorded with the investigation.
 
 Bounds: one investigation per distinct stage and pause, three per run
 (`settings.stuck_investigation.max_calls_per_run`; 0 turns it off). A Builder failure the
@@ -464,9 +467,13 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
     example `python3 -c "from pager import page_count; assert page_count(5, 2) == 2"`.
     The runner runs it in a scratch copy and rejects the report if it does
     not exit 0, so the diagnosis rests on something the runner saw, not on
-    the Investigator's word. A bug no command can show here (a live registry,
-    a race, a device) says why in `untestable` instead. The note records the
-    probe that showed the bug in `proven_by`.
+    the Investigator's word. The probe also carries `counterexample`, the one
+    edit that removes the bug, and must fail in a scratch copy with that edit
+    made: a probe that exits 0 whatever the code says, such as
+    `python3 -c 'assert 2 + 2 == 4'`, is not a reproduction (#1769). A bug no
+    command can show here (a live registry, a race, a device) says why in
+    `untestable` instead. The note records the probe that showed the bug in
+    `proven_by`.
   - **Contract criteria.** Each case becomes an acceptance criterion of the
     small-fix contract. For a large fix, it becomes one the Planner must carry
     into the plan you approve.

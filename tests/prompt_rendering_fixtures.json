@@ -1,7 +1,7 @@
 {
   "bug/prepared-scratch": {
-    "bytes": 10570,
-    "sha256": "393c31a4d34b20397e5229c6e54b12fc30aa687b48297fe120ba020e38b24458"
+    "bytes": 11160,
+    "sha256": "c82fa2db113296a53e4883ca0dbcb12fc2bab67d2b46f29db975d587c824b85c"
   },
   "containment/astra_checkpoint/False": {
     "bytes": 726,
@@ -132,8 +132,8 @@
     "sha256": "496561d8ce997c8bc25cb2d90127869b1536ae334628e2e3454ba5975b6c362e"
   },
   "full-repair/investigate_stuck": {
-    "bytes": 6793,
-    "sha256": "6a84eef2cddac10fdfb263b25da0b0f8f74ed278b184badfe0afaa9748fe8ba1"
+    "bytes": 7683,
+    "sha256": "beeac89f88f7b9a431ad54ea6fbebfed53bb3ca13c60fbc46696ae2a9f6a6146"
   },
   "full-repair/requirements_gather": {
     "bytes": 13647,
@@ -148,12 +148,12 @@
     "sha256": "0d8494940168d597951b82bc408db6faaaccca071f78d42174754174c438c51c"
   },
   "job/autocode_bug_job/codex": {
-    "bytes": 9361,
-    "sha256": "ae3acfec86fcc1659d141fbcf42e84eb3ef105dac4f7f0b226f32f3fd784f345"
+    "bytes": 9951,
+    "sha256": "0f624c574962707c324cd29034a1d8959ab4581e73aa83eb2c43bdf14d04ec19"
   },
   "job/autocode_bug_job/opencode": {
-    "bytes": 9364,
-    "sha256": "30e8dac574a8da2d8d51e1759108cd53aee2c7e6a4683a3f9e85660fdc26a453"
+    "bytes": 9954,
+    "sha256": "2f770d24f0ae741a5a23d59000342a0e90989a9d1a90ad7a253e6ae278957a48"
   },
   "job/autocode_design_check_job/codex": {
     "bytes": 3290,
@@ -260,8 +260,8 @@
     "sha256": "707c67144828b4a51e9fdd585ff7077593bfa87208caadc214b455507ade9c7b"
   },
   "package/investigate_bug": {
-    "bytes": 11799,
-    "sha256": "70978af7f628fff829b8721583251bd19d3456c28b319b4545dd950e0224e122"
+    "bytes": 12389,
+    "sha256": "3f1dc568d04f1c542868fb72d2c20a9215bd3d7e8492bd037f37697763313ba4"
   },
   "package/terra": {
     "bytes": 12868,
@@ -588,8 +588,8 @@
     "sha256": "ee32650d58c819693b86bdd049e47cd5bd3d24f4b15321f33eeb22363ec57550"
   },
   "repair/evidence/investigate_stuck": {
-    "bytes": 655,
-    "sha256": "19d8da6aba26ec131541820e1796fa723fb91b1d896e380991ac0cad43ffe58a"
+    "bytes": 943,
+    "sha256": "49f695bbd1ddf50795bf0bea1bbc2bf817be6d9ef708f1b8e305749e0802ffa2"
   },
   "repair/evidence/requirements_gather": {
     "bytes": 1163,
@@ -728,12 +728,12 @@
     "sha256": "40606db57cb1dfe868b45b1bcd1fdd17dbfd21e71389703c1fdaf2686e45962f"
   },
   "stuck/builder-failure": {
-    "bytes": 4737,
-    "sha256": "53613695c353a9c2773f43aae4cce619e199cbf32db952c78df5aff4576ab807"
+    "bytes": 5339,
+    "sha256": "2350583b8758483b10bc512e44fd72d88d8d57d5b6edd3c4cbe141cacd95eed4"
   },
   "stuck/ordinary": {
-    "bytes": 3900,
-    "sha256": "d9ad71ef1cda01bed3028d7d18176c999f6427a954e7fd6dcd325923d7c0a499"
+    "bytes": 4502,
+    "sha256": "69b3ba57343b50fa26e3a1516092a05cf2af0ea6b10db83ca1f7a460b4518adf"
   },
   "unit/astra_checkpoint": {
     "bytes": 10459,

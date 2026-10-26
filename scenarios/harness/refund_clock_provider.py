@@ -114,6 +114,12 @@ assert store_date(1772409600) == date(2026, 3, 2)
         "example": "Given an order delivered at 2026-03-02 00:00 UTC (March 1 in store time), store_date() "
         "returns March 2, so the refund window ends a store day late.",
         "probe": shlex.join([sys.executable, "-B", "-c", code]),
+        # The probe must fail once the cited report is no longer a REWORK (#1769).
+        "counterexample": {
+            "file": "run/" + Path(refs[0]).name,
+            "find": (text := Path(refs[0]).read_text()),
+            "replace": json.dumps({**json.loads(text), "status": "PASS"}),
+        },
         "untestable": "",
         "failure_class": "execution",
         "failure_id": failure["failure_id"],

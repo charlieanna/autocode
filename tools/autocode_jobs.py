@@ -56,8 +56,9 @@ STAGES = tuple(UNIT)
 # The jobs whose report carries evidence rows the runner probes. `investigate_stuck` is not here: its
 # repair prompt already states its own evidence and probe-path policy (autocode_stuck_repair_context).
 PROBING_STAGES = frozenset({discuss_job.STAGE, bug_job.STAGE, design_job.STAGE, design_check_job.STAGE})
-# The probing jobs whose probes must also fail on a deliberately constructed counterexample (#1769).
-COUNTEREXAMPLE_STAGES = frozenset({discuss_job.STAGE, design_job.STAGE, design_check_job.STAGE})
+# The probing jobs whose probes must also fail on a deliberately constructed counterexample (#1769): all of
+# them. `investigate_stuck` requires one too, stated in its own repair instruction.
+COUNTEREXAMPLE_STAGES = PROBING_STAGES
 
 
 def ended_in(state: RunState):

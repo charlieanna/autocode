@@ -8,3 +8,9 @@
   exit 0 or needs a file you did not cite. For example: python3 -c "import json; r = json.load(open(
   'run/astra_discovery-03.json')); assert ' ' in r['code_refs'][0]". When no command can show the cause
   (a judgement about two positions), leave probe "" and say why in untestable; otherwise untestable is "".
+- counterexample: for a probe, the smallest edit to one file you cite after which it would no longer show
+  that cause, as file (its scratch path, run/<file name> for a run file), find (text copied exactly from
+  that file, occurring once) and replace. For the example above: file "run/astra_discovery-03.json", find
+  the cited code_ref, replace it with the same path without the space. The runner makes that edit in
+  another scratch tree and the probe must fail there; a probe that passes whatever the files say shows
+  nothing and rejects your report. With no probe, file, find and replace are "".

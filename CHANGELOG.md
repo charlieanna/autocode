@@ -375,6 +375,9 @@ PR template asks for an entry here; a change without one is incomplete.
   `python3 -c 'assert 2 + 2 == 4'`, which exits 0 either way, is refused and goes to the usual bounded
   report repair instead of being shown as a check that ran. The Analyst's answer now lists claims
   without a probe as read from the source, not run.
+  The bug Investigator's reproduction probe and the stuck Investigator's probe now follow the same
+  rule: a reproduction names the edit that removes the bug, and a diagnosed cause names the edit to a
+  cited file after which the file no longer shows it.
 
 - A report rejected for its format on a configured Kilo connection (a provider TOML whose command
   runs `kilo`, such as `kilo_glm_mimo`) now goes straight to the full report repair, as on the bundled
