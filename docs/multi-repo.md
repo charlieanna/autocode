@@ -42,8 +42,11 @@ deliver only the API half.
   or you can waive it with a reason. `autocode changeset pr-body` writes the section each
   pull request carries, with the merge order
   ([Checking the set together](task-run.md#checking-the-set-together-and-delivering-it)).
-  Showing all this in the terminal chat, VS Code and the channel bridge is a later step of
-  [#2066](https://github.com/charlieanna/autocode/issues/2066).
+- **The terminal chat shows the change set.** Its side panel lists the linked runs, and
+  `/changeset` shows every run and asks before approving the plans together or running the
+  check. `/runs` groups the chats of one change set
+  ([Change sets in clients](task-run.md#change-sets-in-clients)). VS Code and the channel bridge
+  follow in [#2066](https://github.com/charlieanna/autocode/issues/2066).
 - **Component builds stay inside one repository.** `autocode components` builds
   several components in parallel, but every component worktree comes from the
   same repository's HEAD, and integration applies their changes to a worktree of

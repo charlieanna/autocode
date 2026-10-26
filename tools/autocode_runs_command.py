@@ -27,6 +27,7 @@ from pathlib import Path
 try:
     from . import autocode_attention as attention
     from . import autocode_attention_status as attention_status
+    from . import autocode_changeset_store as changeset_store
     from . import autocode_chat_view as chat_view
     from . import autocode_registry as registry
     from . import autocode_replay_view as replay_view
@@ -34,6 +35,7 @@ try:
 except ImportError:
     import autocode_attention as attention
     import autocode_attention_status as attention_status
+    import autocode_changeset_store as changeset_store
     import autocode_chat_view as chat_view
     import autocode_registry as registry
     import autocode_replay_view as replay_view
@@ -95,8 +97,9 @@ def title(task) -> str | None:
     return (first[: TITLE_LIMIT - 1] + "…" if len(first) > TITLE_LIMIT else first) or None
 
 
-def row(workspace: Path, run_dir: Path, now: float) -> dict:
-    """Project one run directory onto a display row, reading only its checkpoint."""
+def row(workspace: Path, run_dir: Path, now: float, changesets: dict[str, str] | None = None) -> dict:
+    """Project one run directory onto a display row, reading only its checkpoint. ``changesets`` maps a
+    linked run directory to its change set (autocode_changeset_store.memberships)."""
     state_path = run_dir / "state.json"
     try:
         updated_at = _stamp(state_path.stat().st_mtime)
@@ -156,6 +159,7 @@ def row(workspace: Path, run_dir: Path, now: float) -> dict:
         "next_command": command,
         "reason": reason,
         "updated_at": updated_at,
+        "changeset": (changesets or {}).get(str(run_dir.resolve())),
     }
 
 
@@ -190,8 +194,12 @@ def _pairs(workspace: Path, all_workspaces: bool) -> list[tuple[Path, Path]]:
 def rows(workspace: Path, *, all_workspaces: bool = False, now: float | None = None) -> list[dict]:
     """Every run in scope: needing-runs first, then working, settled and unreadable, each by start time."""
     clock = time.time() if now is None else now
+    changesets = changeset_store.memberships()
     return sorted(
-        (row(one_workspace, run_dir, clock) for run_dir, one_workspace in _pairs(Path(workspace), all_workspaces)),
+        (
+            row(one_workspace, run_dir, clock, changesets)
+            for run_dir, one_workspace in _pairs(Path(workspace), all_workspaces)
+        ),
         key=lambda item: (BUCKETS.index(item["bucket"]), item.get("run_dir") or ""),
     )
 

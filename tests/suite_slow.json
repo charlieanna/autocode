@@ -73,5 +73,6 @@
   "tests.test_planning_cycle_cli": "One fake-provider TaskRun v2 run through two planning cycles with feedback between; 21 s locally (Linux cloud container, one module at a time), 2026-10-15 (#1252)",
   "tests.test_parallel_criterion_changes": "20-26 s locally (macOS, one module at a time), 2026-10-17; one scripted parallel-diamond run through the real CLI, plan to completion with one parallel batch",
   "tests.test_chat_screens": "The full-screen chat in tmux with the offline fixture provider: three start-screen checks and one run to completion (76 s locally on macOS, 2026-10-19); mapped from tools/autocode_chat_* in ci_test_selection",
+  "tests.test_changeset_chat": "Two linked offline fixture runs reach plan approval and complete while the chat client approves the set and runs its check through the CLI; about 34 s on macOS, 2026-10-25",
   "tests.test_changeset_delivery_cli": "Two linked offline fixture runs complete through the task-run interface, then the change set's integration check, waiver and reopen run through the CLI; about 70 s on macOS, 2026-10-26"
 }

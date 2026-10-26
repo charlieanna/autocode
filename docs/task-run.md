@@ -1887,6 +1887,21 @@ The actions:
   pull request carries: the change set id, every run, the merge order, the check's outcome or
   the waiver, and the parts no run of the set covers.
 
+#### Change sets in clients
+
+Each `runs --json` row carries `changeset`, the id of the change set its run belongs to, or
+`null`. A client (owner decision 2026-10-25) may read `autocode changeset status --run-dir RUN
+--json` for a run whose status view lists `scope.linked`, and take only the two argument arrays
+it names, after showing what they act on:
+
+- `approval.next_command`, after showing every run's `plan`. It carries the `set_token` of those
+  plans, so a revision in any run makes the core refuse it.
+- `verification.next_command`, the joint check.
+
+The shared rule is `autocode_client_actions.changeset_action`. The terminal chat's side panel
+lists the linked runs, `/changeset` shows the set and offers these actions, and `/runs` groups
+the chats of one change set. The other `changeset` commands stay the person's own.
+
 ## Dependencies between existing runs
 
 An already authorized delivery should not become a request for a person to assemble

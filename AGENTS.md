@@ -108,6 +108,15 @@ relayed and never auto-retried; it may do nothing the headless conformance
 client cannot, and any gap is reported against the CLI or the view. Slack and
 Jira adapters follow on the same core, each on the owner's recorded decision.
 
+**Change sets in clients approved 2026-10-25 (#2066, step 7).** The terminal chat, the VS Code
+client and the channel bridge may read `autocode changeset status --run-dir RUN --json` for a run
+whose status view lists `scope.linked`, and take only the two argument arrays it names: the set
+approval (`approval.next_command`), bound to the `set_token` of the plans the person was shown,
+and the joint check (`verification.next_command`)
+([change sets in clients](docs/task-run.md#change-sets-in-clients)). They show the linked runs, and
+group a change set's chats by the `changeset` of each `runs --json` row. Linking, the check
+command, waivers, reopening, the merge order and pull-request text stay the person's commands.
+
 A further new client, or growth beyond that contract, needs the owner's decision again.
 
 Historical audit records (`audits/`), `learn/` and two top-level result reports

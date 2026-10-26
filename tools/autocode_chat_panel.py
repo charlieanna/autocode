@@ -19,10 +19,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 try:
+    from . import autocode_chat_changeset as changeset
     from . import autocode_chat_cost as cost
     from . import autocode_chat_stage_policy as stage_policy
     from . import autocode_chat_verification as verification
 except ImportError:
+    import autocode_chat_changeset as changeset
     import autocode_chat_cost as cost
     import autocode_chat_stage_policy as stage_policy
     import autocode_chat_verification as verification
@@ -85,6 +87,7 @@ COMMANDS = (
     Command("/live", "Show or hide the live agent log; /live NAME, thinking or tools filters it"),
     Command("/diff", "The saved code steps; /diff N shows what changed since step N"),
     Command("/undo", "Go back to a saved step on a new branch: /undo N"),
+    Command("/changeset", "This run's change set: every run, and approving or checking them together"),
     Command("/runs", "Your chats in every project, open and finished; /open N opens one"),
     Command("/open", "Open chat N from /runs and carry on there"),
     Command("/new", "Start a new chat in a new tab (Ctrl-T)"),
@@ -110,15 +113,40 @@ def _rows(value) -> list[dict]:
 
 # The commands the chat client carries out: /diff and /undo through actions its fresh status view
 # names, /runs, /open and /new through the run lists (`autocode runs --json`), /mode, /engine and
-# /connect through `modes list --json` and `connections list --json` (autocode_chat_setup).
-CLIENT_COMMANDS = ("/diff", "/undo", "/runs", "/open", "/new", "/tab", "/mode", "/engine", "/connect", "/attention")
+# /connect through `modes list --json` and `connections list --json` (autocode_chat_setup), /changeset
+# through `changeset status --json` (autocode_chat_changeset).
+CLIENT_COMMANDS = (
+    "/diff",
+    "/undo",
+    "/changeset",
+    "/runs",
+    "/open",
+    "/new",
+    "/tab",
+    "/mode",
+    "/engine",
+    "/connect",
+    "/attention",
+)
 # Leaving a working run requires its current durable-detach capability.
 SWITCHING_COMMANDS = ("/open", "/new", "/tab")
 
 
 # What needs a run to act on: none of these does anything before the first chat is open. ``/new``
 # is not one: before a chat it says the person is already in a new chat (#1759).
-RUN_COMMANDS = ("/plan", "/tasks", "/log", "/details", "/live", "/diff", "/undo", "/tab", "/panel", "/pause")
+RUN_COMMANDS = (
+    "/plan",
+    "/tasks",
+    "/log",
+    "/details",
+    "/live",
+    "/diff",
+    "/undo",
+    "/changeset",
+    "/tab",
+    "/panel",
+    "/pause",
+)
 
 
 def commands(
@@ -210,6 +238,9 @@ def sections(view: dict | None, *, launched: bool = False) -> list[Section]:
     if path := stage_policy.compact(view):  # which planning path a bug-fix run took and why (#1884 F2)
         summary, entries = path
         result.append(Section("Plan path", summary, tuple(Row("·", line, "dim") for line in entries)))
+    if linked := changeset.compact(view):  # the other runs of this run's change set (#2066)
+        summary, entries = linked
+        result.append(Section("Change set", summary, tuple(Row("·", line, "dim") for line in entries)))
     if recent := events(view):
         result.append(Section("Activity", "", tuple(event_row(event) for event in recent[-EVENT_ROWS:])))
     requirements = _mapping(progress.get("requirements"))
@@ -575,7 +606,10 @@ def runs_text(rows: list[dict], current=None, *, here=None, left_out: int = 0) -
         mark = "  (this chat)" if current is not None and str(row.get("run_dir")) == str(current) else ""
         when = str(row.get("updated_at") or "").replace("T", " ")[:16]
         lines.append(f"{number:>3}. {title}{mark}")
-        lines.append(f"     {run_state(row)}" + (f" · {when}" if when else ""))
+        linked = " · change set" if row.get("changeset") else ""
+        lines.append(f"     {run_state(row)}" + (f" · {when}" if when else "") + linked)
+    if sets := changeset.groups(rows):
+        lines.extend(["", *sets])
     if left_out:
         lines.append(f"({left_out} more in other projects cannot be opened: their runs were removed.)")
     lines.append("Type /open N to open one, or /new to start another.")
