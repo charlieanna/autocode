@@ -105,3 +105,11 @@ The requirement_coverage_checklist contains the exact task sentences checked by
 the runner. Account for every entry in requirements using a verbatim source_quote,
 or in ignored_statements with the exact statement and a substantive reason in the top-level summary.
 Include requirements from the rest of the task and saved user events as well.
+This run can change only this repository. When the request or the code you read shows that part
+of the work belongs to another repository (another service, a separately versioned client or
+library), report it in workspace_scope: spans_repositories=true and one external_parts entry per
+other repository with its target name, the work that belongs there, a source_quote copied
+verbatim from the task or a saved user event, and evidence (the repository-relative file you read
+that shows it, also listed in source_refs, or the empty string). A part with neither a verbatim
+quote nor a cited file is dropped by the runner. Otherwise return spans_repositories=false and
+external_parts=[]. Do not decide what to do about the other part; the run asks the person.
