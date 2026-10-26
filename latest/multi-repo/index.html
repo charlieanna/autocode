@@ -1918,7 +1918,7 @@
 
 
 <h1 id="work-that-spans-several-repositories">Work that spans several repositories<a class="headerlink" href="#work-that-spans-several-repositories" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a80047f0cc80beef7a07941083eab6621497b1ca/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/6bc780008ca6f4c365f1779290ac1f481e660c3a/README.md">← Back to README</a></p>
 <p>One AutoCode run changes one repository. Its workspace is one Git tree. The
 checkpoints, diffs, protected tests and the Builder's declared changes are all
 bounded to that tree, and a Builder write outside it is treated as a fault.</p>
@@ -1938,8 +1938,10 @@ deliver only the API half.</p>
   Answer <code>This repository only</code> to plan this repository's part. The plan then lists
   each other part in its scope exclusions as <code>Not covered: changes in TARGET: WORK</code>,
   so the approval screen shows what this run will not deliver. To change the
-  request instead, give feedback. Linking a run in the other repository and
-  stopping with a brief for each repository are later steps of
+  request instead, give feedback. To stop instead, leave the question
+  unanswered: the run's status (<code>scope.briefs</code>) holds a ready brief for each
+  repository, this one first, to start a run with in each. Linking a run in the
+  other repository is a later step of
   <a href="https://github.com/charlieanna/autocode/issues/2066">#2066</a>.</li>
 <li><strong>Component builds stay inside one repository.</strong> <code>autocode components</code> builds
   several components in parallel, but every component worktree comes from the
