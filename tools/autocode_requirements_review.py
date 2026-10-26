@@ -163,12 +163,12 @@ def review_question(state: RunState) -> dict:
 
 def questions(state: RunState) -> list[dict]:
     """The handoff's unanswered open questions, then (spec-first) the review question; [] when nothing waits."""
-    if not state.get("requirements_handoff") or state.get("goal_contract"):
-        return []
     # Work that belongs to another repository is settled with the person before any plan, on every flow (#2066).
     scope = scope_question.question(state)
     if scope:
         return [scope]
+    if not state.get("requirements_handoff") or state.get("goal_contract"):
+        return []
     answered = state.get("answers") or {}
     unresolved = [row for row in _report(state).get("open_questions") or [] if row.get("id") not in answered]
     if not enabled(state):
@@ -196,7 +196,7 @@ def wait(state: RunState, record: dict, queue) -> None:
 
 
 def accepts(state: RunState, proposal: dict) -> bool:
-    """Only this run's own review questions, for the current handoff, before any contract exists."""
+    """Only this run's current review questions, including new scope on a retained contract."""
     rows = proposal.get("questions") or []
     declared = questions(state)
     return (
@@ -206,6 +206,14 @@ def accepts(state: RunState, proposal: dict) -> bool:
         and len({row.get("id") for row in rows}) == len(rows)
         and all(row in declared for row in rows)
     )
+
+
+def recover_scope(state: RunState, queue) -> None:
+    """A guarded legacy/resumed execution returns to the same public scope decision."""
+    if state.get("status") != "PAUSED_SCOPE_DECISION" or not scope_question.question(state):
+        return
+    record = (state.get("workspace_scope") or {}).get("origin") or state.get("requirements_handoff") or {}
+    wait(state, record, queue)
 
 
 def after_answers(state: RunState) -> None:

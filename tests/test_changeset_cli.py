@@ -11,6 +11,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_changeset as changeset
 import autocode_taskrun as taskrun
@@ -46,7 +47,8 @@ class ChangesetCliTests(unittest.TestCase):
             self.source, f"{BRIEF} {ELSEWHERE}", options=OPTIONS, env=self.env, timeout=180
         )
         view = self.run.advance_until_input()
-        self.assertEqual("workspace-scope-1", view["needs"]["questions"][0]["id"], view["stop_reason"])
+        self.scope_question = view["needs"]["questions"][0]["id"]
+        self.assertTrue(self.scope_question.startswith("workspace-scope-"), view["stop_reason"])
 
     def changeset(self, *args):
         env = {**os.environ, **self.env}
@@ -133,7 +135,7 @@ class ChangesetCliTests(unittest.TestCase):
         self.assertIsNone(shown["approval"]["set_token"], "the source run has not planned yet")
         self.assertEqual([Path(self.source).name], shown["approval"]["waiting_on"], shown["runs"][1])
 
-        self.run.answer("workspace-scope-1", "This repository only")
+        self.run.answer(self.scope_question, "This repository only")
         self.assertEqual("AWAITING_GOAL_APPROVAL", self.run.advance_until_input()["status"])
         shown = json.loads(self.changeset("status", "--run-dir", str(self.run.run_dir), "--json").stdout)
         token = shown["approval"]["set_token"]
@@ -157,6 +159,79 @@ class ChangesetCliTests(unittest.TestCase):
             approved = run.status().get("approved_contract")
             self.assertIsNotNone(approved)
         self.assertIsNone(json.loads(done.stdout)["approval"]["set_token"])
+
+    def test_partial_set_approval_blocks_dispatch_and_can_retry_or_release_one_run(self):
+        register_project(self.home, self.member)
+        linked = self.link()
+        self.assertEqual(0, linked.returncode, linked.stdout + linked.stderr)
+        member_dir = Path(json.loads(linked.stdout)["runs"][1]["run_dir"])
+        environment = {**self.env, "AUTOCODE_FIXTURE_IGNORED_STATEMENTS": MEMBER_ONLY}
+        environment.pop("AUTOCODE_FIXTURE_EXTERNAL_PART")
+        member = taskrun.TaskRun(self.member.resolve(), member_dir, env=environment)
+        member.advance_until_input()
+        self.run.answer(self.scope_question, "This repository only")
+        self.assertEqual("AWAITING_GOAL_APPROVAL", self.run.advance_until_input()["status"])
+        shown = json.loads(self.changeset("status", "--run-dir", str(self.run.run_dir), "--json").stdout)
+        token = shown["approval"]["set_token"]
+        approve_plan = taskrun.TaskRun.approve_plan
+
+        def fail_second(run, plan_token, **kwargs):
+            if run.run_dir == member_dir:
+                raise taskrun.TaskRunError("injected lost member approval")
+            return approve_plan(run, plan_token, **kwargs)
+
+        with patch.dict(os.environ, environment), patch.object(taskrun.TaskRun, "approve_plan", fail_second):
+            os.environ.pop("AUTOCODE_FIXTURE_EXTERNAL_PART", None)
+            with self.assertRaisesRegex(changeset.LinkRefused, "after approving"):
+                changeset.approve(self.run.run_dir, token)
+        before = self.run.status()
+        self.assertEqual("approve_plan", before["needs"]["kind"])
+        self.assertTrue(before["needs"]["changeset_held"])
+        held = self.run.advance()  # even a direct resume cannot dispatch the partially approved Builder
+        self.assertEqual("PAUSED_CHANGESET_APPROVAL", held["status"], held.get("stop_reason"))
+        self.assertIsNone(held["interaction_timing"]["first_builder_at"])
+        self.assertEqual(before["usage"]["accounting"]["attempts"], held["usage"]["accounting"]["attempts"])
+        fresh = json.loads(self.changeset("status", "--run-dir", str(member_dir), "--json").stdout)
+        self.assertTrue(fresh["approval"]["set_token"], fresh)
+        retry = self.changeset(
+            "approve", "--run-dir", str(member_dir), "--set-token", fresh["approval"]["set_token"], "--json"
+        )
+        self.assertEqual(0, retry.returncode, retry.stdout + retry.stderr)
+        self.assertEqual("continue", self.run.status()["needs"]["kind"])
+        self.assertEqual("continue", member.status()["needs"]["kind"])
+        queued = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools" / "autocode.py"),
+                "intervention",
+                "submit",
+                "--workspace",
+                str(member.workspace),
+                "--run-dir",
+                str(member.run_dir),
+                "--request-id",
+                "member-revision",
+                "--kind",
+                "feedback",
+                "--text",
+                "Also log the greeting time.",
+                "--json",
+            ],
+            env={**os.environ, **environment},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(0, queued.returncode, queued.stdout + queued.stderr)
+        revised = member.advance()
+        self.assertIsNone(revised["interaction_timing"]["first_builder_at"])
+        source = self.run.status()
+        self.assertTrue(source["needs"]["changeset_held"], "a member revision withdraws the shared release")
+        self.run.approve_plan(source["needs"]["token"])
+        self.assertEqual(
+            "continue", self.run.status()["needs"]["kind"], "explicit standalone approval releases this run"
+        )
+        self.assertIsNone(member.status().get("approved_contract"))
 
 
 class SetTokenTests(unittest.TestCase):

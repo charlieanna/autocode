@@ -181,16 +181,19 @@ def persist(path, state: RunState, *, before_commit=None, after_commit=None):
         import autocode_usage as token_usage
         import autocode_util as util
     try:
+        from . import autocode_changeset_barrier as changeset_barrier
         from . import autocode_code_checkpoints as code_checkpoints
     except ImportError:
+        import autocode_changeset_barrier as changeset_barrier
         import autocode_code_checkpoints as code_checkpoints
     code_checkpoints.update(state, util.Path(path).parent)
     checkpoints.update(state)
     entry = record(state)
-    if after_commit is None and before_commit is None:
-        util.atomic_json(path, state)
-    else:
-        util.atomic_json(path, state, before_commit=before_commit, after_commit=after_commit)
+    with changeset_barrier.checkpoint(path, state):
+        if after_commit is None and before_commit is None:
+            util.atomic_json(path, state)
+        else:
+            util.atomic_json(path, state, before_commit=before_commit, after_commit=after_commit)
     activity_log.record(path, state)
     token_usage.record(path, state)
     # Publication uses the durable owned checkpoint, not a model's prose. Its

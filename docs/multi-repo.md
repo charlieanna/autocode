@@ -13,12 +13,14 @@ deliver only the API half.
 
 ## What AutoCode does today
 
-- **Requirements notices the other repository.** When the request or the code it
-  reads shows that part of the work belongs elsewhere, the Requirements report
+- **Requirements and the Investigator notice the other repository.** When the request or the code they
+  read shows that part of the work belongs elsewhere, the report
   says so in its `workspace_scope`. The runner keeps a reported part only when
   its quote is verbatim in the request or a saved answer, or when it cites a file
   in this repository that shows it, such as a client of the other service. Other
-  claims are dropped.
+  claims are dropped. This includes work discovered while reproducing a bug that
+  the initial request did not mention. The same public scope and ready briefs
+  make that repository available for linking.
 - **It asks you before planning.** A kept part stops the run with one question.
   Answer `This repository only` to plan this repository's part. The plan then lists
   each other part in its scope exclusions as `Not covered: changes in TARGET: WORK`,
@@ -26,6 +28,11 @@ deliver only the API half.
   request instead, give feedback. To stop instead, leave the question
   unanswered: the run's status (`scope.briefs`) holds a ready brief for each
   repository, this one first, to start a run with in each.
+  A reproduced bug still waits on its unanswered questions. A follow-up with an
+  existing plan also asks about newly discovered external work: an earlier choice
+  cannot cover another turn or different work. Later model reports retain grounded
+  obligations until human feedback permits Requirements to revise the scope.
+  Answering the scope question requires a refreshed plan and its explicit approval.
 - **You can link a run in the other repository.** `autocode changeset link` starts a
   run in a registered project with that repository's ready brief and records the two
   runs as one change set, which both runs' status shows under `scope.linked`
@@ -37,9 +44,11 @@ deliver only the API half.
   ([Approving the set](task-run.md#approving-the-set)).
 - **You can check the linked runs together.** Name an integration command, such as the
   consumer's tests against the producer's checkout, with `autocode changeset check-command`.
-  `autocode changeset verify` runs it once every run is complete, and a later code change in
-  either repository makes its result stale. A failed check can reopen the run that diverged,
-  or you can waive it with a reason. `autocode changeset pr-body` writes the section each
+  `autocode changeset verify` runs it once every run is complete. Its evidence identifies the
+  command, execution target, member runs and their code; a change to any of those withdraws it.
+  Replacing the check also clears its previous waiver. A concurrent record change refuses an
+  old result instead of attaching it to a new check. A failed check can reopen the run that
+  diverged, or you can waive that check with a reason. `autocode changeset pr-body` writes the section each
   pull request carries, with the merge order
   ([Checking the set together](task-run.md#checking-the-set-together-and-delivering-it)).
 - **The terminal chat shows the change set.** Its side panel lists the linked runs, and

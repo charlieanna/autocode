@@ -415,6 +415,17 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     # `autocode changeset` drives runs as subprocesses, so imports cannot select its CLI test.
     (
         (
+            "tools/autocode_workspace_scope",
+            "tools/autocode_scope_question.py",
+            "tools/autocode_bug_questions.py",
+            "tools/autocode_bug_job.py",
+            "tools/autocode_requirements_handoff.py",
+            "tools/autocode_requirements_review.py",
+        ),
+        ("tests.test_scope_question_cli", "tests.test_bug_questions"),
+    ),
+    (
+        (
             "tools/autocode_changeset",
             "tools/autocode_run_view.py",
             "tools/autocode_scope_question.py",

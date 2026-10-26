@@ -885,6 +885,10 @@ def render(state: RunState, run_dir=None):
 
 
 def present(state: RunState, run_dir=None):
+    try:
+        from . import autocode_changeset_barrier as changeset_barrier
+    except ImportError:
+        import autocode_changeset_barrier as changeset_barrier
     public = human.current(state)
     if not plan_chat.pending(state):
         state.pop("displayed_goal", None)
@@ -902,7 +906,7 @@ def present(state: RunState, run_dir=None):
     # Any current request is shown against the contract: --delegate-all and
     # --reject-assumption act on that display at clarification and permission
     # stops. Approval itself still requires the goal-approval status.
-    if public and state.get("goal_contract"):
+    if (public or changeset_barrier.held_approval(state)) and state.get("goal_contract"):
         state["displayed_goal"] = token(state["goal_contract"])
     if state.get("goal_contract"):
         # Question actions bind to the displayed handoff even without a

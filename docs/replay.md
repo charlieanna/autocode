@@ -39,7 +39,10 @@ private project data.
 
 Every recorded provider dispatch must match the current stage, occurrence,
 model route, session continuation and source. Plan approvals and answers also
-must match the current public request. Replay displays the new plan and uses
+must match the current public request, including a plan's scope exclusions and
+Git delivery terms. Older recordings that omitted those fields cannot authorize
+new nonempty exclusions or a commit obligation; replay refuses that mismatch.
+Replay displays the new plan and uses
 fresh tokens from that run. It never invents an answer or adopts an old token
 after a mismatch. A project's `require-approver` does not apply: no person approves
 in a replay ([Required approver](execution.md#required-approver)).

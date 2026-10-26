@@ -1215,12 +1215,23 @@ def match_action(recording, action, view):
     del recording
     needs = view.get("needs") or {}
     selected = {key: needs.get(key) for key in ("kind", "stage", "questions", "scope", "criteria") if key in needs}
+    expected = action["match"]
     if action["kind"] == "approve_plan":
         plan = view.get("displayed_plan") or {}
         selected["plan"] = {
-            key: plan.get(key) for key in ("acceptance_criteria", "constraints", "permission_boundaries")
+            **{key: plan.get(key) for key in ("acceptance_criteria", "constraints", "permission_boundaries")},
+            "scope_exclusions": plan.get("scope_exclusions", []),
+            "git_delivery": plan.get("git_delivery"),
         }
-    if selected != action["match"]:
+        # Old recordings omitted these terms. They can approve only a plan with no such terms,
+        # never silently inherit a new exclusion or commit obligation from the replayed plan.
+        recorded_plan = expected.get("plan")
+        if isinstance(recorded_plan, dict):
+            expected = {
+                **expected,
+                "plan": {"scope_exclusions": [], "git_delivery": None, **recorded_plan},
+            }
+    if selected != expected:
         raise RecordingError("Replay diverged: current operator request differs from the recording")
     return copy.deepcopy(action["payload"])
 

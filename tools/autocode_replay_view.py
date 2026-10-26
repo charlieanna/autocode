@@ -321,7 +321,13 @@ def _project(state: RunState, *, run_dir=None):
                         "kind": "approve_plan",
                         "plan": {
                             key: deepcopy(body.get(key))
-                            for key in ("acceptance_criteria", "constraints", "permission_boundaries")
+                            for key in (
+                                "acceptance_criteria",
+                                "constraints",
+                                "permission_boundaries",
+                                "scope_exclusions",
+                                "git_delivery",
+                            )
                         },
                     },
                 }

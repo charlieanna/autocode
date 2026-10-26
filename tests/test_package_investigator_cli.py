@@ -97,6 +97,8 @@ def diagnosis(affected_paths, test_paths):
         "questions": [],
         "tests_run": ["python3 -m unittest"],
         "plan_approval_requested": False,
+        "workspace_scope": {"spans_repositories": False, "external_parts": []},
+        "counterexample": {"file": "", "find": "", "replace": ""},
         "probe": "",
         "untestable": "The fixture keeps the reproduction to the scripted report",
     }
@@ -191,7 +193,10 @@ class PackageInvestigatorCLI(unittest.TestCase):
     def test_a_diagnosis_that_names_the_other_package_is_refused_and_not_planned_from(self):
         run, _ = self.investigate(diagnosis([f"{PACKAGE}/pager.py", "packages/search/pager.py"], [PACKAGE]))
         view = run.status()
-        self.assertTrue(view["status"].startswith("PAUSED_"), view)
+        details = {key: view.get(key) for key in ("status", "next_stage", "stop_reason", "needs")}
+        self.assertTrue(view["status"].startswith("PAUSED_") or view["status"] == "WAITING_FOR_USER", details)
+        self.assertFalse(view["done"])
+        self.assertNotEqual("approve_plan", (view["needs"] or {}).get("kind"))
         self.assertEqual("investigate_bug", view["next_stage"])
         self.assertIn("packages/search/pager.py", view["stop_reason"])
         self.assertIn(f"This run works in the package {PACKAGE}/", view["stop_reason"])

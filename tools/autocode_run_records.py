@@ -31,6 +31,7 @@ try:
     from . import autocode_progressive_state as progressive
     from . import autocode_recovery_accounting as accounting
     from . import autocode_report_repair_queue as report_repair_queue
+    from . import autocode_requirements_review as requirements_review
     from . import autocode_resolver_human as resolver_human
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
@@ -50,6 +51,7 @@ except ImportError:
     import autocode_progressive_state as progressive
     import autocode_recovery_accounting as accounting
     import autocode_report_repair_queue as report_repair_queue
+    import autocode_requirements_review as requirements_review
     import autocode_resolver_human as resolver_human
     import autocode_roles as roles
     import autocode_run_status as run_status
@@ -141,6 +143,7 @@ def normalize_human_boundary(state: RunState, run_dir):
         or milestones.release_obsolete_gate_request(state, public)
     ):
         return
+    requirements_review.recover_scope(state, resolver_human.queue)
     proposal = state.get(resolver_human.PRIVATE)
     # The batch's last records belong to its members, never the parent. A pending member request
     # left stale by a settings write must stay for its retry/answer instead of becoming a legacy decision.

@@ -92,7 +92,7 @@ export interface PanelState {
   checkpoints: { id: string; label: string; at: string | null; files: number; available: boolean; reason: string | null; verdict: string | null; actions: { id: string; label: string }[] }[];
   checkpointsBlocked: string | null;
   /** The plan the current token asks to approve, only when the view shows it. */
-  plan: { revision: number | null; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; delivery: string | null } | null;
+  plan: { revision: number | null; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; exclusions: string[]; delivery: string | null } | null;
   /** The token the approval is bound to; the webview echoes it back so a stale click cannot approve. */
   token: string | null;
   /** False when the action would be an approval of a plan this client never displayed. */
@@ -526,6 +526,7 @@ function planOf(plan: DisplayedPlan): NonNullable<PanelState["plan"]> {
     criteria: plan.acceptance_criteria ?? [],
     constraints: plan.constraints ?? [],
     boundaries: plan.permission_boundaries ?? [],
+    exclusions: plan.scope_exclusions ?? [],
     delivery: plan.git_delivery ? "Create one local atomic commit: " + plan.git_delivery.message : null,
   };
 }
@@ -998,6 +999,10 @@ function render(state) {
         cardContent.appendChild(el('h2', null, 'What it may do'));
         state.plan.boundaries.forEach((text) => cardContent.appendChild(el('div', 'row', text)));
       }
+      if (state.plan.exclusions.length) {
+        cardContent.appendChild(el('h2', null, 'Not covered'));
+        state.plan.exclusions.forEach((text) => cardContent.appendChild(el('div', 'row', text)));
+      }
     }
 
     if (state.gap) {
@@ -1210,6 +1215,10 @@ function render(state) {
       app.appendChild(el('h2', null, 'What it may do'));
       state.plan.boundaries.forEach((text) => app.appendChild(el('div', 'row', text)));
     }
+    if (state.plan.exclusions.length) {
+      app.appendChild(el('h2', null, 'Not covered'));
+      state.plan.exclusions.forEach((text) => app.appendChild(el('div', 'row', text)));
+    }
   }
 
   if (state.changeset) renderChangeset(state.changeset, state);
@@ -1325,7 +1334,18 @@ function renderChangeset(set, state) {
     row.target + ' (' + (row.role === 'source' ? 'source run' : 'linked run') + '): ' + row.status + (row.needs ? ', needs ' + row.needs : ''))));
   set.plans.forEach((entry) => {
     app.appendChild(el('div', 'why', entry.target + ': plan revision ' + (entry.plan.revision === null ? '?' : entry.plan.revision)));
-    entry.plan.criteria.forEach((criterion) => app.appendChild(el('div', 'row', criterion.id + ': ' + criterion.criterion)));
+    entry.plan.criteria.forEach((criterion) => {
+      app.appendChild(el('div', 'row', criterion.id + ': ' + criterion.criterion));
+      app.appendChild(el('pre', null, criterion.verification_method));
+      if (criterion.human_review) app.appendChild(el('div', 'why', 'You check this one yourself'));
+    });
+    for (const [title, rows] of [['Constraints', entry.plan.constraints], ['What it may do', entry.plan.boundaries], ['Not covered', entry.plan.exclusions]]) {
+      if (rows.length) {
+        app.appendChild(el('h3', null, title));
+        rows.forEach((text) => app.appendChild(el('div', 'row', text)));
+      }
+    }
+    if (entry.plan.delivery) app.appendChild(el('div', 'row', entry.plan.delivery));
   });
   if (set.note) app.appendChild(el('div', 'notice', set.note));
   if (set.offer) {

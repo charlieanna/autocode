@@ -36,7 +36,7 @@ class ScopeQuestionCliTests(unittest.TestCase):
         view = self.start()
         self.assertEqual("answer", view["needs"]["kind"], (view["status"], view["stop_reason"]))
         [question] = view["needs"]["questions"]
-        self.assertEqual("workspace-scope-1", question["id"])
+        self.assertTrue(question["id"].startswith("workspace-scope-"))
         self.assertIn("greet-history: Record each greeting", question["question"])
         self.assertEqual(
             {
@@ -56,7 +56,7 @@ class ScopeQuestionCliTests(unittest.TestCase):
         )
         self.assertNotIn("astra_discovery", self.stages(), "no plan before the person decides")
 
-        self.run.answer("workspace-scope-1", "This repository only")
+        self.run.answer(question["id"], "This repository only")
         view = self.run.advance_until_input()
         self.assertEqual("AWAITING_GOAL_APPROVAL", view["status"], view["stop_reason"])
         self.assertEqual(["greet-history"], view["scope"]["uncovered"])
@@ -83,6 +83,35 @@ class ScopeQuestionCliTests(unittest.TestCase):
         self.assertEqual(["billing"], view["scope"]["dropped"])
         excluded = view["displayed_plan"]["scope_exclusions"] or []
         self.assertFalse([row for row in excluded if row.startswith("Not covered:")])
+
+    def test_followup_with_retained_goal_asks_again_for_new_external_work(self):
+        workspace, env = fixture_workspace(self)
+        self.run = taskrun.TaskRun.start(
+            workspace,
+            BRIEF,
+            options=(*FIXTURE_OPTIONS, "--joint-planning", "--no-adaptive-planning"),
+            env=env,
+            timeout=180,
+        )
+        plan = self.run.advance_until_input()
+        self.assertEqual("approve_plan", plan["needs"]["kind"], plan["stop_reason"])
+        self.run.approve_plan(plan["needs"]["token"])
+        self.assertEqual("TASK_COMPLETE", self.run.advance_until_input()["status"])
+        self.run.env["AUTOCODE_FIXTURE_EXTERNAL_PART"] = PART
+        self.run.follow_up(ELSEWHERE)
+        view = self.run.advance_until_input()
+        self.assertEqual("answer", view["needs"]["kind"], view["stop_reason"])
+        [question] = view["needs"]["questions"]
+        self.assertTrue(question["id"].startswith("workspace-scope-"))
+        self.assertIsNone(view["scope"]["decision"])
+        self.assertEqual([], view["scope"]["uncovered"])
+        self.run.answer(question["id"], "This repository only")
+        revised = self.run.advance_until_input()
+        self.assertEqual("approve_plan", revised["needs"]["kind"], revised["stop_reason"])
+        self.assertNotEqual(plan["needs"]["token"], revised["needs"]["token"])
+        self.assertIn(
+            "Not covered: changes in greet-history: Record each greeting", revised["displayed_plan"]["scope_exclusions"]
+        )
 
 
 if __name__ == "__main__":

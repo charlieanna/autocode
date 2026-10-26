@@ -427,7 +427,7 @@ def plan_for_approval(view: dict) -> dict | None:
         return None
     if not all(
         isinstance(rows, list) and all(isinstance(text, str) for text in rows)
-        for rows in (plan.get("constraints"), plan.get("permission_boundaries"))
+        for rows in (plan.get("constraints"), plan.get("permission_boundaries"), plan.get("scope_exclusions", []))
     ):
         return None
     return plan

@@ -181,6 +181,7 @@ These options accept `-` to read their paired environment variable:
 | `--job-retry-token` | `AUTOCODE_JOB_RETRY_TOKEN` |
 | `--recover-job-report` | `AUTOCODE_RECOVER_JOB_REPORT` |
 | `--approve-goal` | `AUTOCODE_APPROVE_GOAL_TOKEN` |
+| `--changeset-token` | `AUTOCODE_CHANGESET_TOKEN` |
 | `--review-token` | `AUTOCODE_REVIEW_TOKEN` |
 | `--expected-goal-token` | `AUTOCODE_EXPECTED_GOAL_TOKEN` |
 | `--expected-recovery-token` | `AUTOCODE_EXPECTED_RECOVERY_TOKEN` |
@@ -227,6 +228,7 @@ not approve a plan or start a model.
 | `--reject-assumption A1 --review-token 'r3:<hash>'` | Reject a structured assumption from the displayed requirements handoff (repeatable). A stale token, or a handoff refreshed since display, is refused. Never approves; invalidates any existing approval. |
 | `--show-goal` | Display the current contract/revision. At the approval stop it also says what approving authorizes and what the token locks, and ends with a summary of the decision (outcome, permissions, criteria and how each is checked, what passing proves), the limits in effect and the exact approve command ([sample](workflow.md#conversation-and-approval)). |
 | `--approve-goal 'r3:<hash>'` | Approve the exact displayed revision. |
+| `--changeset-token TOKEN` | With `--approve-goal` on a saved run, bind the approval to a prepared change set. The coordinator supplies this through `TaskRun`; use `changeset approve` to review and approve all member plans. Builders remain held until every member has accepted the same set. |
 | `--edit-goal body.json` | Load a full contract body as a new draft revision. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). |
 | `--goal-file PATH` | Load a plan file (`autocode plan --export`, reviewed and edited in a pull request) into a saved run as its next draft revision, as `--edit-goal` loads a body; the plan then goes through ordinary approval (in joint planning the Plan Reviewer reviews it first). Refused with the run left as it was when the file cannot be read, its text no longer matches its front matter, it still holds text the export masked as credential-shaped, its runner records are not the run's, or a planner's draft of it would be sent back: a literal the request states that the plan drops (with the message the planner gets), a Go test the request names that no criterion proves by that name, `git status` in a check, or a command the shell cannot parse. The approval stop then names the file and its goal hash and says whether the plan to approve is still the plan loaded from it, and the completed run's evidence report (and the PR body built from it) cites the file, its goal hash and the approved plan's. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). It does not start a new run. See [Reviewing a plan in a pull request](workflow.md#reviewing-a-plan-in-a-pull-request). |
 | `--approve-review C1 --review-token '…'` | Record a human-review decision for criterion `C1`. |

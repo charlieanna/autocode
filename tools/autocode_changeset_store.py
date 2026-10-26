@@ -87,16 +87,45 @@ def _locked() -> Iterator[dict[str, Any]]:
 def records() -> list[dict]:
     """Every change set, by id."""
     document = _read()
+    seen = set()
+    for record in document["changesets"].values():
+        for row in members(record):
+            if row["run_dir"] and row["run_dir"] in seen:
+                raise ChangesetError("overlapping legacy change sets require membership reconciliation before use")
+            if row["run_dir"]:
+                seen.add(row["run_dir"])
     return [document["changesets"][key] for key in sorted(document["changesets"])]
+
+
+def members(record: dict) -> list[dict]:
+    """Canonical public membership, shared by status, admission and delivery."""
+    source = record["source"]
+    return [{"role": "source", "target": Path(source["workspace"]).name, **source}] + [
+        {"role": "member", "target": row["target"], "workspace": row["workspace"], "run_dir": row.get("run_dir")}
+        for row in record["members"]
+    ]
+
+
+def _find(document: dict, run_dir) -> dict | None:
+    wanted = str(Path(run_dir).resolve())
+    matches = [r for r in document["changesets"].values() if any(m["run_dir"] == wanted for m in members(r))]
+    if len(matches) > 1:
+        raise ChangesetError("overlapping legacy change sets require membership reconciliation before use")
+    return matches[0] if matches else None
+
+
+def _touch(record: dict) -> None:
+    record["revision"] = int(record.get("revision", 0)) + 1
+
+
+def _membership_changed(record: dict) -> None:
+    record["approval"] = None
+    _touch(record)
 
 
 def find(run_dir) -> dict | None:
     """The change set ``run_dir`` belongs to, as its source or as a member; None when it is in none."""
-    wanted = str(Path(run_dir).resolve())
-    for record in records():
-        if record["source"]["run_dir"] == wanted or any(row.get("run_dir") == wanted for row in record["members"]):
-            return record
-    return None
+    return _find(_read(), run_dir)
 
 
 def memberships() -> dict[str, str]:
@@ -116,8 +145,9 @@ def memberships() -> dict[str, str]:
 def reserve(*, source_workspace, source_run_dir, target: str, workspace, brief: str) -> dict:
     """Add an unstarted member for ``target``; refuse a target that already has one."""
     source_run_dir, workspace = str(Path(source_run_dir).resolve()), str(Path(workspace).resolve())
-    key = changeset_id(source_run_dir)
     with _locked() as document:
+        existing = _find(document, source_run_dir)
+        key = existing["id"] if existing else changeset_id(source_run_dir)
         record = document["changesets"].setdefault(
             key,
             {
@@ -127,19 +157,31 @@ def reserve(*, source_workspace, source_run_dir, target: str, workspace, brief: 
                 "members": [],
             },
         )
-        if any(row["target"] == target for row in record["members"]):
+        if any(row["target"] == target for row in members(record)):
             raise ChangesetError(f"{target} is already linked in {key}")
+        if any(row["workspace"] == workspace for row in members(record)):
+            raise ChangesetError(f"{workspace} already belongs to {key}; do not start another member there")
         member = {"target": target, "workspace": workspace, "run_dir": None, "brief": brief, "linked_at": util.now()}
         record["members"].append(member)
+        _membership_changed(record)
         return {**record, "members": list(record["members"])}
 
 
 def bind(key: str, target: str, run_dir) -> None:
     """Record the run directory the member for ``target`` started."""
     with _locked() as document:
-        for row in document["changesets"][key]["members"]:
+        owner = _find(document, run_dir)
+        if owner is not None:
+            raise ChangesetError(f"{run_dir} already belongs to {owner['id']}")
+        record = document["changesets"][key]
+        for row in record["members"]:
             if row["target"] == target:
+                if row.get("run_dir"):
+                    raise ChangesetError(f"{target} already has a run")
                 row["run_dir"] = str(Path(run_dir).resolve())
+                _membership_changed(record)
+                return
+        raise ChangesetError(f"{target} has no reserved member in {key}")
 
 
 def release(key: str, target: str) -> None:
@@ -149,6 +191,7 @@ def release(key: str, target: str) -> None:
         if record is None:
             return
         record["members"] = [row for row in record["members"] if row["target"] != target or row["run_dir"]]
+        _membership_changed(record)
         if not record["members"]:
             del document["changesets"][key]
 
@@ -189,11 +232,85 @@ def linked_for(run_dir) -> list[dict]:
     return [row for row in rows if row["run_dir"] != wanted]
 
 
-def set_fields(key: str, fields: dict) -> dict:
+def set_fields(key: str, fields: dict, *, expected_revision: int | None = None) -> dict:
     """Replace the given top-level fields of change set ``key`` (verification and delivery, #2066 step 6)."""
     with _locked() as document:
         record = document["changesets"].get(key)
         if record is None:
             raise ChangesetError(f"no change set {key}")
+        if expected_revision is not None and int(record.get("revision", 0)) != expected_revision:
+            raise ChangesetError("the change set changed during this action; inspect its current status")
         record.update(fields)
+        _touch(record)
         return dict(record)
+
+
+def begin_approval(run_dir, token: str, plans: dict[str, str], expected_members: list[dict]) -> None:
+    """Hold the whole membership before any participant receives an approval."""
+    with _locked() as document:
+        record = _find(document, run_dir)
+        if record is None or members(record) != expected_members:
+            raise ChangesetError("change-set membership changed; inspect every plan again")
+        if set(plans) != {row["run_dir"] for row in members(record)} or not all(plans.values()):
+            raise ChangesetError("every change-set member needs a current plan")
+        record["approval"] = {"token": token, "plans": dict(plans), "released": False}
+        _touch(record)
+
+
+def release_approval(run_dir, token: str) -> None:
+    """Release only the exact cohort whose core checkpoints durably acknowledged approval."""
+    with _locked() as document:
+        record = _find(document, run_dir)
+        approval = (record or {}).get("approval") or {}
+        if (
+            record is None
+            or approval.get("token") != token
+            or set(approval.get("plans", {})) != {row["run_dir"] for row in members(record)}
+        ):
+            raise ChangesetError("change-set membership or plans changed; approvals remain held")
+        observations = record.get("approval_observations") or {}
+        for member, plan in approval["plans"].items():
+            observation = observations.get(member) or {}
+            grant = observation.get("grant") or {}
+            if not (
+                observation.get("plan_token") == plan
+                and observation.get("approved")
+                and grant.get("set_token") == token
+                and grant.get("plan_token") == plan
+                and grant.get("task_digest") == observation.get("task_digest")
+            ):
+                raise ChangesetError("not every member durably accepted this set; approvals remain held")
+        approval["released"] = True
+        _touch(record)
+
+
+@contextlib.contextmanager
+def publishing_approval(run_dir, observation: dict) -> Iterator[None]:
+    """Fence a core checkpoint using only that core's own public approval observation.
+
+    Invalidation is durable *before* changed task/plan state is written. An interrupted
+    write leaves a hold, never a speculative approval. Acknowledgement follows the
+    successful core save while the membership lock still excludes set release.
+    """
+    if not path().exists():
+        yield
+        return
+    with _locked() as document:
+        record = _find(document, run_dir)
+        if record is None:
+            yield
+            return
+        key = str(Path(run_dir).resolve())
+        observations = record.setdefault("approval_observations", {})
+        if observations.get(key) == observation:
+            yield
+            return
+        observations.pop(key, None)
+        approval = record.get("approval")
+        if approval:
+            approval["released"] = False
+        _touch(record)
+        util.atomic_json(path(), document)
+        yield
+        observations[key] = observation
+        _touch(record)

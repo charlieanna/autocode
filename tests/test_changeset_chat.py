@@ -54,7 +54,7 @@ class ChangesetChatTests(base.ChangesetCliTests):
         self.assertEqual("with 1 other run", sections["Change set"].summary)
         self.assertIn("greet-history · linked run", [row.text for row in sections["Change set"].rows])
 
-        self.run.answer("workspace-scope-1", "This repository only")
+        self.run.answer(self.scope_question, "This repository only")
         self.assertEqual("AWAITING_GOAL_APPROVAL", self.run.advance_until_input()["status"])
         offered = client.changeset()
         self.assertIsInstance(offered, panel.Confirm)
@@ -98,6 +98,7 @@ class ChangesetChatTests(base.ChangesetCliTests):
     test_a_linked_run_starts_in_the_registered_project_with_the_ready_brief = None
     test_only_a_registered_project_and_a_found_target_can_be_linked = None
     test_one_set_token_approves_every_shown_plan_and_a_revision_withdraws_it = None
+    test_partial_set_approval_blocks_dispatch_and_can_retry_or_release_one_run = None
 
 
 class ChangesetActionTests(unittest.TestCase):

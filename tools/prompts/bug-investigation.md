@@ -100,8 +100,16 @@ What to do:
    A failed tool or unavailable environment is not evidence that the code works; explain the blocker
    and ask for the missing access or reproduction context. fix_size is none; fix_plan, affected_paths,
    test_paths and test_cases are empty; probe and untestable are "", and so are counterexample's fields.
-5. conclusion: two or three sentences a person can act on.
-6. note_path: where the runner saves your diagnosis. Use the path the request names if it names one under
+5. workspace_scope: report any part of the fix that belongs to another repository, even when the
+   original request did not mention it. For each external part name target and work, plus either an
+   exact source_quote from the request or saved human input, or evidence naming an existing file you
+   inspected in this workspace (relative path, optionally :line). Use spans_repositories false and
+   external_parts [] when none is needed. Keep affected_paths and test_paths within this repository;
+   discovering another repository grants no access or permission to change it. Reproduction does not
+   resolve scope: questions must retain any human decision needed before a fix can be planned, even
+   for outcome reproduced. The runner asks the person about grounded external work before planning.
+6. conclusion: two or three sentences a person can act on.
+7. note_path: where the runner saves your diagnosis. Use the path the request names if it names one under
    docs/bugs/, otherwise docs/bugs/<short-kebab-name>.json.
 
 Return JSON only, matching the schema the runner gives you. The runner writes the note; you do not.

@@ -8,9 +8,9 @@ run can check, all driven by a person through ``autocode changeset`` (autocode_c
   each run's repository name to its workspace, so for example the consumer's tests can run against
   the producer's checkout. It is the place for the shared interface check: the producer's tests
   emit the contract and the consumer's tests read it;
-- ``verify`` runs it once every run is TASK_COMPLETE. The result is bound to a fingerprint of every
-  workspace (its commit, its diff and its untracked files), so a later change in any repository
-  makes it stale and the set is no longer done;
+- ``verify`` runs it once every run is TASK_COMPLETE. Results and waivers identify the named check,
+  member runs and every workspace's code. A later change withdraws that evidence; a concurrent
+  record change refuses the write instead of assigning an old result to a new check;
 - ``waive`` records the person's reason to accept the set without a passing check, bound the same
   way; ``reopen`` sends the run that diverged a follow-up carrying the failed check's output;
 - ``order`` sets the merge order, and ``pr_body`` writes the section each pull request carries:
@@ -68,11 +68,35 @@ def workspace_fingerprint(workspace) -> str:
 
 
 def fingerprint(summary: dict) -> str:
-    """One digest over every run of the set: each run's status and its workspace's code."""
+    """Bind evidence to the member runs, their statuses and their workspace code."""
     rows = sorted(
-        f"{row['target']}={row.get('status')}:{workspace_fingerprint(row['workspace'])}" for row in summary["runs"]
+        (
+            row["target"],
+            row["workspace"],
+            row.get("run_dir"),
+            row.get("role"),
+            row.get("status"),
+            workspace_fingerprint(row["workspace"]),
+        )
+        for row in summary["runs"]
     )
-    return hashlib.sha256("\n".join(rows).encode()).hexdigest()[:32]
+    return hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()[:32]
+
+
+def check_identity(record: dict) -> str | None:
+    """The exact named command, execution target and definition, never inferred for old evidence."""
+    check = record.get("check")
+    if not check:
+        return None
+    return hashlib.sha256(json.dumps(check, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _expected_revision(summary: dict, record: dict) -> int:
+    """A separately read record must still be the one whose run views the caller inspected."""
+    revision = record.get("revision", 0)
+    if summary.get("changeset") != record.get("id") or summary.get("record_revision") != revision:
+        raise DeliveryRefused("the change set changed since it was inspected; read its status again")
+    return revision
 
 
 def targets(summary: dict) -> list[str]:
@@ -98,8 +122,21 @@ def view(summary: dict, record: dict) -> dict:
     check = record.get("check")
     result, waiver = record.get("check_result"), record.get("waiver")
     current = fingerprint(summary) if not waiting else None
-    result_current = bool(result and current and result.get("fingerprint") == current)
-    waiver_current = bool(waiver and current and waiver.get("fingerprint") == current)
+    identity = check_identity(record)
+    result_current = bool(
+        result
+        and current
+        and identity
+        and result.get("fingerprint") == current
+        and result.get("check_identity") == identity
+    )
+    waiver_current = bool(
+        waiver
+        and current
+        and identity
+        and waiver.get("fingerprint") == current
+        and waiver.get("check_identity") == identity
+    )
     passed = result_current and bool(result and result.get("passed"))
     done = not waiting and (check is None or passed or waiver_current)
     next_command = None
@@ -118,24 +155,28 @@ def view(summary: dict, record: dict) -> dict:
 
 
 def set_check(summary: dict, record: dict, target: str, command: list[str]) -> dict:
-    """Name the integration command, run in ``target``'s workspace; a new command clears the old result."""
+    """Name the integration command; its previous result and waiver authorize no replacement check."""
+    revision = _expected_revision(summary, record)
     _row(summary, target)
     if not command:
         raise DeliveryRefused("name the integration command after --, as an argument array")
     return store.set_fields(
         record["id"],
-        {"check": {"command": list(command), "in": target, "set_at": util.now()}, "check_result": None},
+        {"check": {"command": list(command), "in": target, "set_at": util.now()}, "check_result": None, "waiver": None},
+        expected_revision=revision,
     )
 
 
 def verify(summary: dict, record: dict, *, timeout=CHECK_TIMEOUT_SECONDS) -> dict:
     """Run the integration command once every run is complete; save the result bound to their code."""
-    state = view(summary, record)
-    if state["waiting_on"]:
-        raise DeliveryRefused(f"every run must be complete first: waiting on {', '.join(state['waiting_on'])}")
+    revision = _expected_revision(summary, record)
+    verification = view(summary, record)
+    if verification["waiting_on"]:
+        raise DeliveryRefused(f"every run must be complete first: waiting on {', '.join(verification['waiting_on'])}")
     check = record.get("check")
     if not check:
         raise DeliveryRefused("no integration command is named; set one with `changeset check-command`")
+    identity = check_identity(record)
     workspaces = {row["target"]: row["workspace"] for row in summary["runs"]}
     before = fingerprint(summary)
     try:
@@ -160,24 +201,35 @@ def verify(summary: dict, record: dict, *, timeout=CHECK_TIMEOUT_SECONDS) -> dic
         "at": util.now(),
         # A check that changed a workspace proves nothing about the code the runs delivered.
         "fingerprint": after,
+        "check_identity": identity,
         "changed_workspaces": before != after,
         "output": output[-OUTPUT_LIMIT:],
     }
-    return store.set_fields(record["id"], {"check_result": result})
+    return store.set_fields(record["id"], {"check_result": result}, expected_revision=revision)
 
 
 def waive(summary: dict, record: dict, reason: str) -> dict:
     """Accept the set without a passing check, for the stated reason, for the code as it is now."""
+    revision = _expected_revision(summary, record)
     reason = " ".join(str(reason or "").split())
     if not reason:
         raise DeliveryRefused("a waiver needs a reason")
-    state = view(summary, record)
-    if state["waiting_on"]:
-        raise DeliveryRefused(f"every run must be complete first: waiting on {', '.join(state['waiting_on'])}")
-    if state["done"] and not (state["waiver"] or {}).get("current"):
+    verification = view(summary, record)
+    if verification["waiting_on"]:
+        raise DeliveryRefused(f"every run must be complete first: waiting on {', '.join(verification['waiting_on'])}")
+    if verification["done"] and not (verification["waiver"] or {}).get("current"):
         raise DeliveryRefused("the change set is already done; there is nothing to waive")
     return store.set_fields(
-        record["id"], {"waiver": {"reason": reason, "at": util.now(), "fingerprint": fingerprint(summary)}}
+        record["id"],
+        {
+            "waiver": {
+                "reason": reason,
+                "at": util.now(),
+                "fingerprint": fingerprint(summary),
+                "check_identity": check_identity(record),
+            }
+        },
+        expected_revision=revision,
     )
 
 
@@ -209,7 +261,7 @@ def set_order(summary: dict, record: dict, order: list[str]) -> dict:
 def pr_body(summary: dict, record: dict, target: str, uncovered: list[str]) -> str:
     """The Markdown section ``target``'s pull request carries, so the requests cross-link."""
     _row(summary, target)
-    state = view(summary, record)
+    verification = view(summary, record)
     lines = [f"## Change set {summary['changeset']}", ""]
     lines.append(f"This pull request is the {target} side of a change that spans {len(summary['runs'])} repositories.")
     lines += ["", "| Repository | Role | Status | Run |", "| --- | --- | --- | --- |"]
@@ -218,8 +270,8 @@ def pr_body(summary: dict, record: dict, target: str, uncovered: list[str]) -> s
         lines.append(
             f"| {row['target']}{here} | {row['role']} | {row.get('status')} | `{Path(row['run_dir'] or '').name}` |"
         )
-    lines += ["", "Merge order: " + ", then ".join(state["merge_order"]) + "."]
-    check, result, waiver = state["check"], state["result"], state["waiver"]
+    lines += ["", "Merge order: " + ", then ".join(verification["merge_order"]) + "."]
+    check, result, waiver = verification["check"], verification["result"], verification["waiver"]
     if check is None:
         lines.append("Integration check: none was named.")
     elif result and result["current"] and result["passed"]:

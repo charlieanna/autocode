@@ -747,8 +747,13 @@ class TaskRun:
             secret_env={"AUTOCODE_RESOLVER_TOKEN": request_token},
         )
 
-    def approve_plan(self, token: str) -> dict:
-        return self._act("approve plan", "--approve-goal", "-", secret_env={"AUTOCODE_APPROVE_GOAL_TOKEN": token})
+    def approve_plan(self, token: str, *, changeset_token: str | None = None) -> dict:
+        """Approve this plan; a set preparation keeps it held until every member acknowledges."""
+        options = ("--changeset-token", "-") if changeset_token else ()
+        environment = {"AUTOCODE_APPROVE_GOAL_TOKEN": token}
+        if changeset_token:
+            environment["AUTOCODE_CHANGESET_TOKEN"] = changeset_token
+        return self._act("approve plan", "--approve-goal", "-", *options, secret_env=environment)
 
     def approve_review(self, criterion: str, token: str) -> dict:
         return self._act(

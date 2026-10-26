@@ -69,6 +69,7 @@ KEYS: frozenset[str] = frozenset(
         "builder_retry_decisions",
         "builder_retry_key",
         "changed_files",
+        "changeset_approval",
         "checked",
         "checkpoint_continuation",
         "checkpoint_history",
@@ -270,6 +271,7 @@ KEYS: frozenset[str] = frozenset(
         "visual_acceptance_receipts",
         "workflow",
         "workspace",
+        "workspace_scope",
         "workspace_bootstrap",
     }
 )
@@ -288,6 +290,8 @@ class RunState(TypedDict, total=False):
     task_sha256: str  # written by task_input.assign; run_view derives it from saved text, including legacy runs
     task_id: str  # current task id; written by goals
     workspace: str  # the project (or task worktree) root
+    workspace_scope: dict  # workspace_scope_state.record owns validated current-turn external work; Requirements/Investigator and scope gate read it
+    changeset_approval: dict  # changeset_barrier.approve writes exact set/standalone grant; checkpoint publication and execution guard read it
     project_workspace: str  # the project a task worktree belongs to
     # The folder a launch selected that held no Git repository, and the project AutoCode created to
     # run in: {selected, project}, equal when an empty folder became the project itself. Written once

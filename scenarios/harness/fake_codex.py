@@ -1309,6 +1309,7 @@ def investigate(data: dict) -> dict:
         "questions": [str(q) for q in saved.get("questions", [])],
         "tests_run": ["scripted"],
         "plan_approval_requested": bool(saved.get("plan_approval_requested")),
+        "workspace_scope": saved.get("workspace_scope") or {"spans_repositories": False, "external_parts": []},
         # The runner checks the reproduction: [fake] probe in scenario.toml exits 0 while the seed's
         # bug is present; a scenario without one takes the untestable path.
         "probe": (CONFIG.get("probe") or "") if reproduced else "",

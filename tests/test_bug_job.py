@@ -49,6 +49,7 @@ CASE = {
     "given": "the registry times out once after applying a renew",
     "when": "renew('example.com') runs",
     "then": "the registry records exactly 1 renew mutation",
+    "kind": "restore",
 }
 
 
@@ -71,6 +72,8 @@ def diagnosis(outcome="reproduced", **overrides):
         "questions": [],
         "tests_run": ["python3 -m unittest"],
         "plan_approval_requested": False,
+        "workspace_scope": {"spans_repositories": False, "external_parts": []},
+        "counterexample": {"file": "", "find": "", "replace": ""},
     }
     if outcome == "not_reproduced":
         value.update(
