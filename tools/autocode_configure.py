@@ -172,7 +172,17 @@ def _declared_levels(provider_mod, workspace, model):
 
 
 def _auto_select(
-    args, roles, provider_mod, single_model, history_models, history_providers, engine, workspace, version=None
+    args,
+    roles,
+    provider_mod,
+    single_model,
+    history_models,
+    history_providers,
+    engine,
+    workspace,
+    version=None,
+    joint=False,
+    started=False,
 ):
     """Choose routes from the tool's connected accounts (#1426) — the default for new runs.
 
@@ -267,6 +277,20 @@ def _auto_select(
         # None is the model's own default level; a tool that cannot omit the level
         # argument omits it (providers/command.py, #1426 step 5).
         roles[role]["reasoning_effort"] = route.get("reasoning_effort")
+    if not pinned and not started:
+        # A new run with no model flag named anything: say what was chosen, per role, before
+        # spending (#2057). A saved run keeps the routes it started with and stays quiet.
+        try:
+            from . import model_catalogue as catalogue
+        except ImportError:
+            import model_catalogue as catalogue
+        shown = set(roles) | ({"requirements", "glm", "plan_reviewer"} if joint else set())
+        report = {"routes": result["routes"], "candidates": found["candidates"], "tool": found["tool"]}
+        lines = catalogue.route_lines(report, shown)
+        if lines:
+            print(f"Routes for this run, from {found['tool']}'s local listing:", flush=True)
+            for line in lines:
+                print("  " + line, flush=True)
     return result
 
 
@@ -675,6 +699,8 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         engine,
         state["workspace"],
         version=local.get("version") if provider_name in (None, "opencode") else None,
+        joint=joint,
+        started=started,
     )
     builder_retry = autopilot.builder_policy.configured(
         getattr(args, "builder_strong_model", None), provider_mod, single_model=single_model

@@ -3,6 +3,8 @@
 Credentials stay with the backend. Status subprocess output is deliberately not
 returned: company helpers can print tokens, account names or environment exports.
 Only user-level registered providers are discovered, never workspace TOML files.
+`list --routes` and the end of `setup` read the connected tool's own model listing to
+say which route each role would use (#2057); that is a listing, never a model call.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 
 try:
     from . import autocode_direct_config as direct
@@ -34,6 +37,11 @@ def parser():
     actions = result.add_subparsers(dest="action", required=True)
     listing = actions.add_parser("list", help="Discover installed and registered backends without checking login")
     listing.add_argument("--json", action="store_true", help="Return the public connection view")
+    listing.add_argument(
+        "--routes",
+        action="store_true",
+        help="Also choose the route each role would use, from the connected tool's own model listing (#2057)",
+    )
     check = actions.add_parser("check", help="Check backend credentials without launching a model")
     check.add_argument("--provider", required=True)
     check.add_argument("--json", action="store_true")
@@ -166,16 +174,62 @@ def view():
     return {"version": 1, "connections": rows}
 
 
+def routes():
+    """The route each role would run on, from the connected tool's own local listing (#2057).
+
+    Listing only: it reads the tool's model and login lists, launches no model and returns no
+    credential. A tool that cannot list its models, or whose accounts cannot field an
+    independent checker, carries ``routes_stop`` instead of failing the connection view.
+    """
+    try:
+        from . import model_catalogue
+    except ImportError:
+        import model_catalogue
+    try:
+        found = model_catalogue.preview()
+    except (RuntimeError, ValueError, OSError) as error:
+        return {"tool": None, "routes": [], "routes_lines": [], "routes_stop": str(error)}
+    return {
+        "tool": found.get("tool"),
+        "routes": model_catalogue.route_rows(found),
+        "routes_lines": model_catalogue.route_lines(found),
+        "routes_stop": found.get("stop"),
+    }
+
+
+def say_routes(stream=None):
+    """Print one line per role after setup: the choice a person no longer has to make (#2057)."""
+    stream = stream or sys.stdout
+    found = routes()
+    if found["routes_stop"] or not found["routes"]:
+        print(
+            "Routes for a new run are not chosen yet: " + (found["routes_stop"] or "no qualified route was found"),
+            file=stream,
+        )
+        return
+    print(f"Routes for a new run, from {found['tool']}'s local listing:", file=stream)
+    for line in found["routes_lines"]:
+        print("  " + line, file=stream)
+
+
 def cli(argv):
     args = parser().parse_args(argv)
     if args.action in ("setup", "add"):
         try:
-            return direct.setup() if args.action == "setup" else direct.add(args.provider)
+            code = direct.setup() if args.action == "setup" else direct.add(args.provider)
         except (KeyboardInterrupt, EOFError):
             print("\nAutoCode setup cancelled.")
             return 130
+        if code == 0 and args.action == "setup":
+            say_routes()
+        return code
     if args.action == "list":
         result = view()
+        if args.routes:
+            result.update(routes())
+        else:
+            result["routes"] = None
+            result["routes_next_command"] = ["connections", "list", "--routes", "--json"]
     elif args.action == "check":
         result = connection_view(args.provider, check=True)
     else:
