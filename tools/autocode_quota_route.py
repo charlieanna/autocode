@@ -84,7 +84,7 @@ KIND = "route_assignment"
 ROLES = ("astra", "terra", "sol", "completion", "glm", "requirements", "resolver", "plan_reviewer")
 # Workflow-job models are changed by an answer with the exact job token, never a
 # resume flag. The stuck-stage Investigator answer also saves its preparation pin.
-JOB_ROLES = ("architect", "analyst", "investigator", "stuck_investigator")
+JOB_ROLES = ("architect", "analyst", "investigator", "stuck_investigator", "acceptance_tester")
 ROUTABLE = ROLES + JOB_ROLES
 _JOB_PAUSES = ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED")  # autocode_job_failure.PAUSES
 _OPENCODE_MODEL = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,120}")
@@ -221,9 +221,9 @@ def _job_row(state: RunState) -> dict | None:
 
 
 def job_question(state: RunState) -> dict | None:
-    """The saved model question, or a bound legacy stopped Investigator projection.
+    """The saved model question, or a bound legacy stopped-job projection.
 
-    Older Investigator stops omitted the question. Reconstruct only from that
+    Older Investigator and acceptance-writer stops omitted the question. Reconstruct only from that
     exact archived physical attempt, its captured source and launch configuration;
     this read grants no retry authority and never changes the saved state.
     """
@@ -231,16 +231,22 @@ def job_question(state: RunState) -> dict | None:
     if isinstance(failure.get("route"), dict):
         return failure["route"]
     row = _job_row(state)
-    bug_timeout = failure.get("stage") == "investigate_bug" and failure.get("kind") == "timeout"
-    role = "investigator" if bug_timeout else "stuck_investigator"
+    timeout_role = (
+        {"investigate_bug": "investigator", "write_acceptance_tests": "acceptance_tester"}.get(
+            str(failure.get("stage") or "")
+        )
+        if failure.get("kind") == "timeout"
+        else None
+    )
+    role = timeout_role or "stuck_investigator"
     config = failure.get("configuration")
     bound = (config.get("roles") or {}).get(role) if isinstance(config, dict) else None
     launched = (row or {}).get("launch_route") or {}
     if (
-        (failure.get("stage") != "investigate_stuck" and not bug_timeout)
-        or (bug_timeout and (state.get("active_stage") is not None or state.get("active_runner_check") is not None))
+        (failure.get("stage") != "investigate_stuck" and not timeout_role)
+        or (timeout_role and (state.get("active_stage") is not None or state.get("active_runner_check") is not None))
         or not row
-        or (bug_timeout and row.get("timed_out") is not True)
+        or (timeout_role and row.get("timed_out") is not True)
         or row.get("worker_attempt")
         or not row.get("rejected")
         or _routable(state, row) != role
