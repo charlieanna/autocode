@@ -193,10 +193,6 @@ class InterpretTests(unittest.TestCase):
         self.assertEqual("feedback", relay.interpret({"gate": {"token": "rev1"}}, view, "c2 is wrong").kind)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 def changeset_summary(set_token=None):
     other = {
         "role": "member",
@@ -226,7 +222,7 @@ def changeset_summary(set_token=None):
 
 class ChangesetRelayTests(unittest.TestCase):
     def view(self):
-        return {**plan_view(), "run_dir": RUN}
+        return {**plan_view(), "run_dir": RUN, "scope": {"linked": [{"target": "greet-history"}]}}
 
     def test_a_plan_gate_in_a_change_set_offers_the_set_approval_once_it_is_named(self):
         waiting = relay.relay(self.view(), {"gate": {}}, changeset_summary())
@@ -247,3 +243,17 @@ class ChangesetRelayTests(unittest.TestCase):
         self.assertEqual(("approve_set", "set-1"), (action.kind, action.shown_token))
         self.assertEqual("approve", relay.interpret({"gate": gate}, self.view(), "approve").kind)
         self.assertEqual("feedback", relay.interpret({"gate": gate}, self.view(), "approve the set please").kind)
+
+    def test_a_set_that_cannot_be_read_for_one_poll_does_not_relay_the_plan_again(self):
+        for summary in (changeset_summary(), changeset_summary("set-1")):
+            shown = relay.relay(self.view(), {"gate": {}}, summary)
+            unread = relay.relay(self.view(), {"gate": shown.gate}, None)
+            self.assertEqual([], unread.messages, "a transient changeset status failure is not a new gate")
+            # with no messages the bridge keeps the shown gate, set token included
+            self.assertEqual([], relay.relay(self.view(), {"gate": shown.gate}, summary).messages)
+        replanned = {**plan_view("r1:new"), "run_dir": RUN, "scope": self.view()["scope"]}
+        self.assertEqual(1, len(relay.relay(replanned, {"gate": shown.gate}, None).messages), "a new plan is relayed")
+
+
+if __name__ == "__main__":
+    unittest.main()
