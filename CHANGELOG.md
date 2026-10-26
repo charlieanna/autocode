@@ -362,6 +362,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A report rejected for its format on a configured Kilo connection (a provider TOML whose command
+  runs `kilo`, such as `kilo_glm_mimo`) now goes straight to the full report repair, as on the bundled
+  `kilocode` provider. Since #2010 these connections get the Kilo launch, whose read-only boundary
+  drops the session, so the one-turn same-session correction was spent with no context.
+
 - The qualification table can now record that a role must never auto-select a model, with the
   decision as its evidence, and both selection and `tools/qualify_routes.py` honor it: a stock
   profile that pins the model still reaches it, but the run qualifies the other roles and names

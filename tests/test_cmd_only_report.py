@@ -5,10 +5,12 @@ is in test_cmd_only_report_cli.
 """
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 from unittest.mock import Mock
 
 import autocode_cmd_only_report as cmd_only
@@ -146,6 +148,28 @@ class CorrectionRouteTests(unittest.TestCase):
                         pending["original"]["provider"] = "kilocode"
                     self.assertIsNone(self.correct(pending, "plan_reviewer"))
                     self.assertNotIn("correction_attempted", pending)
+
+    def test_a_configured_kilo_connection_also_needs_the_full_report_handoff(self):
+        # A TOML whose command runs kilo launches through KiloProvider (#2010), whose read-only boundary strips
+        # the session, so a context-free reminder would be a wasted call there too.
+        bundled = Path(format_correction.__file__).with_name("providers") / "configs" / "kilocode.toml"
+        with tempfile.TemporaryDirectory() as home:
+            folder = Path(home) / "autocode" / "providers"
+            folder.mkdir(parents=True)
+            text = bundled.read_text().replace('name = "kilocode"', 'name = "kilo_glm_mimo"', 1)
+            (folder / "kilo_glm_mimo.toml").write_text(text)
+            (folder / "plain_tool.toml").write_text(
+                text.replace('"kilo", "run"', '"plain-tool", "run"', 1).replace(
+                    'name = "kilo_glm_mimo"', 'name = "plain_tool"', 1
+                )
+            )
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": home}):
+                for provider, expected in (("kilo_glm_mimo", None), ("plain_tool", "reviewer-session")):
+                    with self.subTest(provider=provider):
+                        route = {**self.route, "engine": "opencode", "provider": provider}
+                        self.state["settings"]["roles"]["plan_reviewer"] = route
+                        pending = self.pending(engine="opencode", launch_route=route)
+                        self.assertEqual(expected, format_correction.session_for(self.state, pending, "plan_reviewer"))
 
     def test_the_correction_is_targeted_and_runs_nothing(self):
         prompt = format_correction.prompt(cmd_only.ERROR)
