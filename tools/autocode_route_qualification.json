@@ -16,7 +16,7 @@
         "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
         "effort": "medium",
         "provenance": "qualified",
-        "evidence": "Today's default Requirements route (tools/providers/opencode.py DEFAULT_MODELS) and the Requirements route of the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py)."
+        "evidence": "Today's default Requirements route (tools/providers/opencode.py DEFAULT_MODELS) and the Requirements route of the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
       }
     ],
     "glm": [
@@ -25,7 +25,7 @@
         "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
         "effort": "high",
         "provenance": "qualified",
-        "evidence": "Today's default Planner route (DEFAULT_MODELS, 'Requirements medium -> Planner high') and the planner route of the live glm53-mimo and glm-mimo-kilo profiles."
+        "evidence": "Today's default Planner route (DEFAULT_MODELS, 'Requirements medium -> Planner high') and the planner route of the live glm53-mimo and glm-mimo-kilo profiles. Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
       }
     ],
     "terra": [
@@ -75,7 +75,7 @@
         "effort": "medium",
         "preference": 4,
         "provenance": "qualified",
-        "evidence": "Built in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py), checked by GLM validation and completion."
+        "evidence": "Built in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py), checked by GLM validation and completion. Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
       },
       {
         "model": "kilo/deepseek/deepseek-v4.1-flash",
@@ -118,7 +118,7 @@
         "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
         "effort": "medium",
         "provenance": "qualified",
-        "evidence": "Validated MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Medium since 2026-10-21 (owner decision): on ladder-07 on Kilo the GLM Tester at medium took 242 s with 14.9k reasoning tokens against 269-468 s and 23.1k at high, and the run passed 8/8 with no send-back."
+        "evidence": "Validated MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Medium since 2026-10-21 (owner decision): on ladder-07 on Kilo the GLM Tester at medium took 242 s with 14.9k reasoning tokens against 269-468 s and 23.1k at high, and the run passed 8/8 with no send-back. Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
       }
     ],
     "completion": [
@@ -136,7 +136,7 @@
         "effort": "medium",
         "preference": 1,
         "provenance": "qualified",
-        "evidence": "Completed MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py)."
+        "evidence": "Completed MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Live 2026-10-25 (bugfix-trivial on glm-mimo-kilo, run 20261025-192705-pager-page-count-11-5-returns-2-but-eleven-items-74a4bb2b) reached TASK_COMPLETE on this route."
       }
     ],
     "astra": [
