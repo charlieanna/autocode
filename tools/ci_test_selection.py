@@ -289,7 +289,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_quota_route.py",
             "tools/autocode_job_args.py",
         ),
-        ("tests.test_investigator_route",),
+        ("tests.test_investigator_route", "tests.test_acceptance_writer_route"),
     ),
     (
         (

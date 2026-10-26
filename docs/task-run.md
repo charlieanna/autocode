@@ -2000,7 +2000,13 @@ A job stopped by its provider's content filter, on quota, or by its stage time l
 `job`, `current_model`, `engine`, `cause`, `stopped_model`, and `candidates` for a
 refusal). The same model is likely to refuse again, so before retrying, a person
 can name another model: `run.assign_model(role, model)` answers
-`--answer route-ROLE=MODEL --job-retry-token TOKEN` with the view's token. A model the
+`--answer route-ROLE=MODEL --job-retry-token TOKEN` with the view's token. The spec-first acceptance-test
+writer uses its own
+`route-acceptance_tester` question; an explicit answer changes only that saved
+writer route, leaving the later Tester (`sol`) and Completion Reviewer unchanged.
+A retained acceptance-writer timeout without a saved question is projected only
+from its matching archived timed-out attempt, source identity and launch configuration.
+This read changes no evidence and grants no retry authority. A model the
 launch would refuse, or the refused model itself, raises and changes nothing. An
 accepted model is saved as a `route_assignment` and the need comes back with a new
 `job_retry_token`; the old one is rejected. Its `route` is asked again against the new

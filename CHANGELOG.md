@@ -381,6 +381,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A stopped acceptance-test writer now exposes its own token-bound model choice, including safely bound retained timeouts. Selecting a model preserves the other roles, usage and plan and still requires a separate retry (#2158).
+
 - A person can now change a failed job's total time/accounting caps using its exact retry token
   (#2156). The job stays paused, usage stays recorded and a fresh token is required for a separate
   retry. Stale source, mixed settings and changes to other limits remain refused.
