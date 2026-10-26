@@ -21,6 +21,10 @@ import json
 import sys
 from datetime import date
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_model_identity as identity
@@ -42,7 +46,7 @@ class NotEvidence(ValueError):
     """The run cannot qualify a route; the message says which check failed."""
 
 
-def read_run(run_dir: Path) -> dict:
+def read_run(run_dir: Path) -> RunState:
     """The run's saved state; a missing or unreadable one is not evidence."""
     path = Path(run_dir) / "state.json"
     try:
@@ -51,10 +55,10 @@ def read_run(run_dir: Path) -> dict:
         raise NotEvidence(f"{path} cannot be read ({error})") from None
     if not isinstance(state, dict):
         raise NotEvidence(f"{path} is not a run state")
-    return state
+    return cast("RunState", state)
 
 
-def check_live(state: dict) -> str:
+def check_live(state: RunState) -> str:
     """The run's declared provenance, refusing anything that cannot be live evidence."""
     kind = ((state.get("settings") or {}).get("evidence_provenance") or {}).get("kind")
     if kind != "live":
@@ -67,10 +71,10 @@ def check_live(state: dict) -> str:
     return kind
 
 
-def reached(state: dict) -> dict:
+def reached(state: RunState) -> dict:
     """The model each role actually sent an attempt to, from the run's own accounting."""
     rows = (usage.accounting(state) or {}).get("attempts") or []
-    seen = {}
+    seen: dict[str, list[str]] = {}
     for row in rows:
         role = row.get("role")
         model = row.get("model")
@@ -79,7 +83,7 @@ def reached(state: dict) -> dict:
     return seen
 
 
-def route_of(state: dict, role: str) -> dict:
+def route_of(state: RunState, role: str) -> dict:
     """The saved route the role completed on: model, level, job."""
     record = role_route.record(state, role)
     if not record.get("model"):
@@ -122,7 +126,7 @@ def merge(table: dict, role: str, record: dict, evidence: str) -> str:
     return "confirmed" if was == "qualified" else f"promoted from {was!r}"
 
 
-def qualify(state: dict, table: dict, *, evidence: str, only=()) -> list[str]:
+def qualify(state: RunState, table: dict, *, evidence: str, only=()) -> list[str]:
     """Merge every reached role the table covers; returns one line per role."""
     seen = reached(state)
     lines = []
