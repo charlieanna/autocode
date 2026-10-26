@@ -357,6 +357,10 @@ PR template asks for an entry here; a change without one is incomplete.
   merge no longer deletes the table's `basis` policy text: it rebuilt the file from the parsed
   `as_of` and `roles` alone, and only a real write (not `--dry-run`) showed the loss (#2117, #2057).
 
+- `tools/qualify_routes.py` counts only attempts that finished with accepted output: a rejected,
+  timed-out, interrupted, still-active or report-repair attempt no longer qualifies its route, so a
+  reviewer route that went silent and was replaced by a fallback is not written as qualified (#2114).
+
 - `tools/qualify_routes.py` now credits each attempt to the route slot its stage launched, so a
   finished live run can qualify its Plan Reviewer and Completion Reviewer routes (#2114, #2057).
   Those stages run under the `astra` unit; the attempt rows named the unit, so the two slots were
