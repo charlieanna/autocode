@@ -2969,7 +2969,7 @@ async function submitTaskAction(run,action,extra={}){
   }
   if(action==='continue'&&extra.expected_goal_token&&current.conversation?.plan_gate?.pending_product_change){dashboardNotice('A requirement change is awaiting a new reviewed plan.');return;}
   if(taskReadError||taskArchiveBlocked(run.run)||current.task_archived||projectBlocked(run.workspace)||current.project_removed||taskActionBusy(current)||taskChatPending.has(run.run)||(action==='continue'&&typeof unresolvedModelReplacement==='function'&&unresolvedModelReplacement(current)))return;
-  if(action==='recover_pause'&&(!extra.recovery_token||current.interventions?.recovery?.token!==extra.recovery_token)){dashboardNotice('The saved pause changed. Refresh and inspect the current recovery card.');return;}
+  if(['recover_pause','set_pause_number'].includes(action)&&(!extra.recovery_token||current.interventions?.recovery?.token!==extra.recovery_token)){dashboardNotice('The saved pause changed. Refresh and inspect the current recovery card.');return;}
   const scopes={approve_goal:['goal_approval'],approve_review:['human_review'],answer:['clarification','permission','goal_change'],delegate:['clarification','permission','goal_change'],resolver_response:['operational_exhaustion','blocker']}[action];
   const response=scopes?{...resolverResponseFields(run),...extra}:extra;
   if(scopes&&(!resolverReplyCurrent(current,response,scopes)
@@ -3149,8 +3149,44 @@ function renderRecoveryCard(host,run,recovery){
     const setup=button('Check workspace setup',openWorkspaceSetup,'text-button');setup.dataset.setupRecovery='true';
     actions.append(setup,n('p','Check local prerequisites and account instructions in a setup chat. This task stays paused.'));
   }
-  const update=()=>{for(const control of mutations)control.disabled=!inspection.open||!!taskReadError||taskActionBusy(run)||run.interventions?.mode==='unavailable'||!!(typeof unresolvedModelReplacement==='function'&&unresolvedModelReplacement(run));};
+  const number=renderPauseNumber(actions,run,recovery,inspection);
+  const update=()=>{for(const control of mutations)control.disabled=!inspection.open||!!taskReadError||taskActionBusy(run)||run.interventions?.mode==='unavailable'||!!(typeof unresolvedModelReplacement==='function'&&unresolvedModelReplacement(run));number?.update();};
   inspection.addEventListener('toggle',update);update();host.append(actions);
+}
+// The one number a pause leaves to a person (#2044): a new limit, plan-review allowance or recovery
+// grant. The status view describes it in needs.command_inputs; the backend types it only into the
+// command the view names for it, after the shared client rule checks the row against a fresh status.
+const pauseNumberDrafts=new Map();
+function pauseNumberOffer(run){
+  const rows=run.status_view?.needs?.command_inputs,row=Array.isArray(rows)&&rows.length===1?rows[0]:null;
+  return row&&typeof row==='object'&&row.kind==='integer'&&typeof row.id==='string'&&Number.isSafeInteger(row.minimum)&&Number.isSafeInteger(row.maximum)?row:null;
+}
+function pauseNumberHelp(row){
+  const used=row.id==='max_seconds'?row.elapsed:row.used;
+  if(row.id==='grant_recovery')return 'Recoveries used: '+used+'. Enter 1 to '+row.maximum+' additional recoveries. Recovery history is kept.';
+  return 'Saved: '+row.current+'. Used so far: '+used+'. Enter a whole number of at least '+row.minimum+'. Other saved limits and model routes stay the same, and no plan is approved.';
+}
+function pauseNumberLabel(row){return row.id==='grant_recovery'?'Grant and continue':row.id==='planning_review_call_limit'?'Set review allowance':'Raise limit and continue';}
+function renderPauseNumber(host,run,recovery,inspection){
+  const row=pauseNumberOffer(run);if(!row||!recovery.token)return null;
+  const key=run.run+'\0'+recovery.token+'\0'+row.id,id='pause-number-'+row.id.replace(/[^a-z0-9_-]/gi,'-');
+  const group=card('','recovery-choice pause-number'),label=n('label',row.label);label.htmlFor=id;
+  const field=focusKey(Object.assign(document.createElement('input'),{id,type:'text',inputMode:'numeric',autocomplete:'off',value:pauseNumberDrafts.get(key)||''}),'pause-number:'+key);
+  field.dataset.pauseNumber=row.id;
+  const help=n('p',pauseNumberHelp(row));help.className='field-note';help.id=id+'-help';field.setAttribute('aria-describedby',help.id);
+  const valid=()=>{const value=field.value.trim(),number=/^[0-9]+$/.test(value)?Number(value):NaN;return Number.isSafeInteger(number)&&number>=row.minimum&&number<=row.maximum;};
+  const submit=focusKey(button(pauseNumberLabel(row),async()=>{
+    const current=latestRun?.run===run.run?latestRun:run;
+    if(!inspection.open||current.interventions?.recovery?.token!==recovery.token){dashboardNotice('The saved pause changed. Refresh and inspect the current recovery card.');return;}
+    if(!valid())return;
+    try{const result=await submitTaskAction(run,'set_pause_number',{recovery_token:recovery.token,input_id:row.id,value:field.value.trim()});if(result)pauseNumberDrafts.delete(key);}
+    catch(error){dashboardNotice(error.message);}
+  }),'pause-number-submit:'+key);
+  submit.dataset.pauseNumberSubmit=row.id;
+  const update=()=>{submit.disabled=!valid()||!inspection.open||!!taskReadError||taskActionBusy(run)||run.interventions?.mode==='unavailable';};
+  field.addEventListener('input',()=>{pauseNumberDrafts.set(key,field.value);update();});
+  group.append(label,field,submit,help);host.append(group);
+  return {update};
 }
 
 function renderTaskAttention(run){

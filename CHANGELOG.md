@@ -11,6 +11,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The VS Code run details and sidebar chat now show the separate limit raise a bound pause names once
+  AutoResolver holds it or `next_command` is a plain resume: a number field and a **Raise limit and
+  continue** button that takes only the row's own command, confirmed with the limit it changes. Typed
+  raises at the cost, iteration, milestone and unchanged-batch pauses are confirmed by name instead of
+  as "total active time". The browser dashboard's recovery card gains a number entry for the one
+  number a pause leaves to a person (`needs.command_inputs`), so a run paused at a limit can be
+  restarted with a typed number from the dashboard too (#2044 follow-up).
+
 - `autocode connections setup` now ends by naming the route each role will use (model, reasoning
   level, the account and that it is a qualified choice), and a new run with no model flag prints the
   same lines before it spends anything (#2057). Both read the connected tool's own model listing and
