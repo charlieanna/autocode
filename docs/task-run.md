@@ -1802,6 +1802,8 @@ a saved answer, or when it cites a file in this workspace that shows it.
 - `decision` is `this_repository` once the person chose it, else `null`.
 - `uncovered` lists the targets this run leaves out.
 - `linked` is `[]` until runs can be linked.
+- `briefs` holds a ready brief (`repository`, `brief`) for each repository the request
+  spans, this one first, for a person who stops here and runs them separately.
 
 A kept part stops the run before any plan, with one nondelegable question
 (`workspace-scope-1`, kind `answer`). Its only option is `This repository only`. Other

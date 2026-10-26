@@ -55,8 +55,20 @@ class ScopeQuestionTests(unittest.TestCase):
                 "dropped": ["billing"],
                 "linked": [],
             },
-            scope.view(answered, ["billing"]),
+            {key: value for key, value in scope.view(answered, ["billing"]).items() if key != "briefs"},
         )
+
+    def test_each_repository_gets_a_ready_brief_this_one_first(self):
+        spanning = {**state(HISTORY), "task": "DTI-12398: add the delivery window.", "workspace": "/work/rg-api"}
+        here, there = scope.briefs(spanning)
+        self.assertEqual("rg-api", here["repository"])
+        self.assertIn("DTI-12398: add the delivery window.", here["brief"])
+        self.assertIn("Not covered here, a separate run in each repository: epp-history", here["brief"])
+        self.assertEqual("epp-history", there["repository"])
+        self.assertTrue(there["brief"].startswith("In epp-history: Store the delivery window."))
+        self.assertIn("This run owns only epp-history's side", there["brief"])
+        self.assertEqual([], scope.briefs(state()))
+        self.assertIn("scope.briefs", scope.question(spanning)["question"])
 
 
 if __name__ == "__main__":

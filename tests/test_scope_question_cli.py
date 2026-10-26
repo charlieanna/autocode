@@ -47,7 +47,12 @@ class ScopeQuestionCliTests(unittest.TestCase):
                 "dropped": [],
                 "linked": [],
             },
-            view["scope"],
+            {key: value for key, value in view["scope"].items() if key != "briefs"},
+        )
+        self.assertEqual(
+            [view["workspace"].rstrip("/").rsplit("/", 1)[-1], "greet-history"],
+            [row["repository"] for row in view["scope"]["briefs"]],
+            "a person who stops here has a ready brief for each repository",
         )
         self.assertNotIn("astra_discovery", self.stages(), "no plan before the person decides")
 
