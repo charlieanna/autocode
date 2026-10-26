@@ -159,6 +159,16 @@ if __name__ == "__main__":
     unittest.main()
 
 
+# The claim's opposite: the cited limit changed, where a probe of the claim must fail.
+COUNTEREXAMPLE = """--- a/app/metadata.py
++++ b/app/metadata.py
+@@ -1,2 +1,2 @@
+ TTL = 3600
+-LIMIT_PER_HOUR = 60
++LIMIT_PER_HOUR = 600
+"""
+
+
 class ProbeTests(unittest.TestCase):
     """A claim may be shown by running code: the runner runs its probe in a scratch copy, no model."""
 
@@ -184,12 +194,13 @@ class ProbeTests(unittest.TestCase):
         )
         return state, root
 
-    def claim(self, probe, example="Given app/metadata.py; when LIMIT_PER_HOUR is read; then it is 60"):
+    def claim(self, probe, example="Given app/metadata.py; when LIMIT_PER_HOUR is read; then it is 60", counter=None):
         return {
             "claim": "upstream allows 60 requests/hour",
             "source": "app/metadata.py",
             "example": example,
             "probe": probe,
+            "counterexample": COUNTEREXAMPLE if counter is None else counter,
         }
 
     def test_a_claim_whose_probe_exits_0_is_recorded_as_shown(self):
@@ -197,7 +208,13 @@ class ProbeTests(unittest.TestCase):
         state, _ = self.apply(
             [
                 self.claim(probe),
-                {"claim": "cache lives in-process", "source": "app/metadata.py", "example": "", "probe": ""},
+                {
+                    "claim": "cache lives in-process",
+                    "source": "app/metadata.py",
+                    "example": "",
+                    "probe": "",
+                    "counterexample": "",
+                },
             ]
         )
         self.assertEqual(
@@ -205,6 +222,21 @@ class ProbeTests(unittest.TestCase):
             [(row["claim"], row["exit_code"]) for row in state["answer"]["probes"]],
         )
         self.assertIn("shown by running: " + probe, discuss_job.render(state))
+        self.assertIn("cache lives in-process (app/metadata.py); from reading the code", discuss_job.render(state))
+        self.assertNotEqual(0, state["answer"]["probes"][0]["counterexample_exit_code"])
+
+    def test_a_probe_that_passes_whatever_the_code_says_shows_nothing(self):
+        """The #1769 run: an assertion about arithmetic, not the repository, backed an invented claim."""
+        with self.assertRaisesRegex(ValueError, "do not tell the claim from its counterexample.*still exited 0"):
+            self.apply([self.claim("python3 -c 'assert 2 + 2 == 4'")])
+
+    def test_a_probe_needs_a_counterexample_that_applies(self):
+        probe = "python3 -c 'from app.metadata import LIMIT_PER_HOUR; assert LIMIT_PER_HOUR == 60'"
+        with self.assertRaisesRegex(ValueError, "needs its counterexample"):
+            self.apply([self.claim(probe, counter="")])
+        stale = COUNTEREXAMPLE.replace("TTL = 3600", "TTL = 7200")
+        with self.assertRaisesRegex(ValueError, "do not tell the claim.*apply"):
+            self.apply([self.claim(probe, counter=stale)])
 
     def test_a_claim_whose_probe_fails_rejects_the_answer(self):
         probe = "python3 -c 'from app.metadata import LIMIT_PER_HOUR; assert LIMIT_PER_HOUR == 600'"
@@ -216,7 +248,14 @@ class ProbeTests(unittest.TestCase):
             self.apply([self.claim("true", example=" ")])
 
     def test_a_probe_runs_in_a_scratch_copy_and_cannot_touch_the_workspace(self):
-        state, root = self.apply([self.claim("echo changed > app/metadata.py && touch made-by-probe")])
+        state, root = self.apply(
+            [
+                self.claim(
+                    "python3 -c 'from app.metadata import LIMIT_PER_HOUR; assert LIMIT_PER_HOUR == 60' "
+                    "&& echo changed > app/metadata.py && touch made-by-probe"
+                )
+            ]
+        )
         self.assertEqual("TTL = 3600\nLIMIT_PER_HOUR = 60\n", (root / "app" / "metadata.py").read_text())
         self.assertFalse((root / "made-by-probe").exists())
         self.assertEqual(1, len(state["answer"]["probes"]))

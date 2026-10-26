@@ -834,14 +834,23 @@ and the runner, not a model, runs something that shows it.
 - The runner runs every probe in a scratch copy of the code as it is now, with
   a two-minute limit each. A probe that fails rejects the answer. A probe
   cannot change the workspace.
-- Claims without a probe stay grounded by their source file only, as before.
-- Probed claims are recorded in the run state (`answer.probes`) and shown in
-  the answer's evidence list.
+- A probed claim also carries `counterexample`: a unified diff of the cited
+  code under which the claim would be false. The runner applies it in a fresh
+  scratch copy, and the probe must exit non-zero there. A probe that passes
+  whatever the code says, such as `python3 -c 'assert 2 + 2 == 4'`, shows nothing
+  and rejects the answer. So does a counterexample that does not apply. A
+  rejected answer gets the usual bounded report repair; the claim is never
+  quietly shown as checked (#1769).
+- Claims without a probe stay grounded by their source file only, and the answer
+  shows them as read from the code, not as a check that ran.
+- Probed claims are recorded in the run state (`answer.probes`, with each
+  counterexample's exit code) and shown in the answer's evidence list.
 
 ### Design: a concern about today's code carries a probe
 
-The design workflow's Architect judges a document, so nothing is applied. The
-same probe rule as discussions applies to what it says about the code.
+The design workflow's Architect judges a document, so nothing is applied. What it
+says about the code carries a probe that must exit 0 on the code as it is. It
+needs no counterexample yet (#1769).
 
 - **Reviewing a design (`review_design`).** Every blocking concern carries
   `example`, the problem as one concrete case in plain English. A concern that

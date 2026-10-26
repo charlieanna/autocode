@@ -135,19 +135,25 @@ def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None)
         state, workspace, run_dir or Path(record.get("output") or workspace).parent.parent, verify.scratch_run
     )
     if stage == discuss_job.STAGE:
-        # The runner, not the Analyst, runs each claim's probe, in a scratch copy of the code.
-        return discuss_job.apply(
-            state,
-            value,
-            record,
-            workspace,
-            run_probe=lambda command: clean_run(
+        # The runner, not the Analyst, runs each claim's probe, in a scratch copy of the code; with the
+        # claim's counterexample diff applied, in a fresh one where the probe must fail (#1769).
+        probes = Path(record.get("output") or workspace).parent / "answer-probes"
+
+        def answer_probe(command, counterexample=None):
+            if counterexample is None:
+                return clean_run(workspace, probes, command=command, timeout=PROBE_TIMEOUT)
+            patch = probes.with_name("answer-counterexample.patch")
+            patch.parent.mkdir(parents=True, exist_ok=True)
+            patch.write_text(counterexample if counterexample.endswith("\n") else counterexample + "\n")
+            return clean_run(
                 workspace,
-                Path(record.get("output") or workspace).parent / "answer-probes",
+                probes.with_name("answer-counterexample"),
                 command=command,
+                patch=patch,
                 timeout=PROBE_TIMEOUT,
-            ),
-        )
+            )
+
+        return discuss_job.apply(state, value, record, workspace, run_probe=answer_probe)
     if stage == stuck_job.STAGE:
         # The runner shows the diagnosed cause: the probe runs in a scratch tree holding only the cited files.
         def probe(command, files):

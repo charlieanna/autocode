@@ -1611,6 +1611,8 @@ class RepairTests(unittest.TestCase):
         # The Designer keeps its own repair rules beside it, and a build-pipeline stage keeps none.
         self.assertIn("Keep every concern id from previous_review", runner.jobs.repair_rules("review_design"))
         self.assertEqual("", runner.jobs.repair_rules("terra"))
+        # The Analyst's repair also says what its counterexample is, as its stage prompt does.
+        self.assertIn("A probed claim also carries counterexample", runner.jobs.repair_rules("answer_question"))
 
     def test_a_validator_pass_without_checks_gets_a_report_repair(self):
         # Live run 2026-09-29: the Validator ran its check but returned "checks": [], and the run paused.

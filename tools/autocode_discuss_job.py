@@ -13,7 +13,10 @@ content and the runner writes it. The runner then:
 - runs each claim's ``probe``, when it has one: a command that exits 0 exactly when the
   claim holds, run by the runner in a scratch copy of the code as it is. A probe that
   fails rejects the answer. The claim's ``example`` states in plain English the concrete
-  case the probe checks. Claims without a probe stay grounded by their source file only,
+  case the probe checks, and its ``counterexample`` (a diff of the cited code under which the
+  claim is false) must make the probe fail, so a probe that passes whatever the code says
+  shows nothing (#1769). Claims without a probe stay grounded by their source file only,
+  shown as code analysis, not as a check that ran,
 - writes the requested note (a ``.json`` note must parse), and completes the run.
 
 Pure module: prompt, schema, transition, rendering; the unit passes in the function
@@ -56,11 +59,12 @@ TEXT = {"type": "string"}
 EVIDENCE = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["claim", "source", "example", "probe"],
+    "required": ["claim", "source", "example", "probe", "counterexample"],
     # example: the concrete case a probe checks ("Given ..., when ..., then ..."); probe: a shell
-    # command, run from the repository root, that exits 0 exactly when the claim holds. Both "" when
-    # the claim is shown by its source alone.
-    "properties": {"claim": TEXT, "source": TEXT, "example": TEXT, "probe": TEXT},
+    # command, run from the repository root, that exits 0 exactly when the claim holds;
+    # counterexample: a unified diff of the cited code under which the claim is false, where the probe
+    # must exit non-zero. All three "" when the claim is shown by its source alone.
+    "properties": {"claim": TEXT, "source": TEXT, "example": TEXT, "probe": TEXT, "counterexample": TEXT},
 }
 SCHEMA = {
     "type": "object",
@@ -75,6 +79,8 @@ SCHEMA = {
     },
 }
 
+# What a report-only repair adds to the shared probe definition (autocode_jobs.repair_rules, #1769).
+REPAIR_RULES = prompts.get("fragments/discuss-job/repair-rules.md")
 PROMPT = prompts.get("analyst-02.md") + stage_access.scratch_rule(STAGE) + prompts.get("analyst.md")
 
 
@@ -138,10 +144,15 @@ def check(value: dict, changed_files, workspace) -> None:
 
 
 def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None) -> None:
-    """``run_probe(command)`` runs a probe in a scratch copy (the unit passes autocode_verify.scratch_run);
-    without it, an answer with probes is rejected rather than trusted."""
+    """``run_probe(command, counterexample=None)`` runs a probe in a scratch copy, with the counterexample
+    diff applied when one is given (the unit passes autocode_verify.scratch_run); without it, an answer
+    with probes is rejected rather than trusted."""
     check(value, record.get("changed_files"), workspace)
-    shown = run_probes(value["evidence"], run_probe or (lambda command: {"error": "no probe runner was given"}))
+    shown = run_probes(
+        value["evidence"],
+        run_probe or (lambda command, counterexample=None: {"error": "no probe runner was given"}),
+        counterexamples=True,
+    )
     note = value["note_path"].strip()
     if note:
         target = Path(workspace) / note
@@ -176,9 +187,10 @@ def render(state: RunState) -> str:
     found = state.get("answer") or {}
     lines = ["ANSWER — nothing was changed", "", found.get("answer", ""), "", "Evidence:"]
     probed = {row["claim"] for row in found.get("probes") or []}
+    # A claim no probe ran is code analysis from its cited source, never presented as a check (#1769).
     lines += [
         f"  - {row['claim']} ({row['source']})"
-        + ("; shown by running: " + row["probe"] if row["claim"] in probed else "")
+        + ("; shown by running: " + row["probe"] if row["claim"] in probed else "; from reading the code")
         for row in found.get("evidence") or []
     ]
     lines += ["Question for you: " + question for question in found.get("questions") or []]

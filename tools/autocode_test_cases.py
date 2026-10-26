@@ -351,15 +351,26 @@ def match_cases(cases: list[dict], test_ids: list[str], *, framework=None) -> di
 CITATION_PROBE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*:\S+$")
 
 
-def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "claim") -> list[dict]:
+def run_probes(
+    rows: list[dict], run_probe, *, what: str = "claim", key: str = "claim", counterexamples: bool = False
+) -> list[dict]:
     """Run every row's ``probe`` (``run_probe(command)``, a scratch run); each must exit 0.
 
     A probed row needs its ``example`` in plain English. Returns the receipts of the rows shown;
     raises ValueError naming the rows whose probe did not exit 0. ``what`` names the rows in
     messages (claim, concern, conflict) and ``key`` is the field that identifies a row.
+
+    ``counterexamples``: a probe is shown as executed evidence only when it tells the claim from
+    its opposite (owner decision 2026-10-21, #1769). Each probed row then also needs a
+    ``counterexample``, a unified diff that changes the cited code so the claim no longer holds;
+    ``run_probe(command, counterexample)`` runs the probe with it applied in a fresh scratch copy,
+    and the probe must exit non-zero there. A probe that exits 0 whatever the code says, or a
+    counterexample that does not apply, rejects the report for a bounded repair, never a silent
+    downgrade.
     """
     shown: list[Any] = []
     failed: list[Any] = []
+    blind: list[Any] = []
     for row in rows:
         probe = str(row.get("probe") or "").strip()
         if not probe:
@@ -374,6 +385,13 @@ def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "
             )
         if not str(row.get("example") or "").strip():
             raise ValueError(f"A probed {what} needs its example in plain English: {row.get(key)!r}")
+        counterexample = str(row.get("counterexample") or "")
+        if counterexamples and not counterexample.strip():
+            raise ValueError(
+                f"A probed {what} needs its counterexample: a unified diff of the cited code under which "
+                f"{row.get(key)!r} would be false, so the probe is seen to fail there. Without one, give "
+                'probe, example and counterexample "" and let the cited source show it.'
+            )
         run = run_probe(probe)
         receipt = {
             key: row.get(key),
@@ -381,13 +399,29 @@ def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "
             "exit_code": run.get("exit_code"),
             "tail": (run.get("tail") or run.get("error") or "")[-600:],
         }
-        (shown if run.get("exit_code") == 0 and not run.get("error") else failed).append(receipt)
+        if run.get("exit_code") != 0 or run.get("error"):
+            failed.append(receipt)
+            continue
+        if counterexamples:
+            opposite = run_probe(probe, counterexample)
+            receipt["counterexample_exit_code"] = opposite.get("exit_code")
+            if opposite.get("error") or opposite.get("exit_code") in (0, None):
+                blind.append({**receipt, "why": opposite.get("error") or "it still exited 0"})
+                continue
+        shown.append(receipt)
     if failed:
         raise ValueError(
             f"These {what}s' probes did not exit 0 on the code as it is, so they are not shown: "
             + "; ".join(
                 f"{row[key]!r} ({row['probe']}: exit {row['exit_code']}) {row['tail'][-200:]}" for row in failed
             )
+        )
+    if blind:
+        raise ValueError(
+            f"These {what}s' probes do not tell the {what} from its counterexample, so they show nothing: "
+            + "; ".join(f"{row[key]!r} ({row['probe']}: {str(row['why'])[-200:]})" for row in blind)
+            + f". Give a probe that exits non-zero once the counterexample is applied, or drop the probe and "
+            f"let the cited source show the {what}."
         )
     return shown
 
