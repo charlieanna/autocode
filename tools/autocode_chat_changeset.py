@@ -15,6 +15,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+# `changeset status` and `approve` read every run's status view, so they get longer than one status read;
+# the joint check runs the person's own command, which the core bounds at 1800 s.
+READ_TIMEOUT = 120.0
+CHECK_TIMEOUT = 1860.0
 APPROVE = "Approve every plan above together?"
 VERIFY = "Run the set's integration check now?"
 

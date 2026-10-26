@@ -348,7 +348,7 @@ class ChatClient:
 
     # ---- the CLI ---------------------------------------------------------------------------
 
-    def cli(self, argv, *, env=None) -> subprocess.CompletedProcess:
+    def cli(self, argv, *, env=None, timeout: float = polling.READ_TIMEOUT) -> subprocess.CompletedProcess:
         try:
             return subprocess.run(
                 [*self.command, *argv],
@@ -356,7 +356,7 @@ class ChatClient:
                 text=True,
                 env={**(self.env or os.environ), **(env or {})},
                 cwd=self.workspace,
-                timeout=polling.READ_TIMEOUT,
+                timeout=timeout,
             )
         except subprocess.TimeoutExpired:
             raise actions.ClientGap("The command receipt timed out; check status before trying it again.") from None
@@ -683,7 +683,10 @@ class ChatClient:
         argv = actions.changeset_status(self.status(), self.workspace, self.run_dir)
         if argv is None:
             return "This run is in no change set. `autocode changeset link` links a run in another repository."
-        proc = self.cli(argv)
+        try:
+            proc = self.cli(argv, timeout=changeset.READ_TIMEOUT)
+        except actions.ClientGap as error:
+            return str(error)
         try:
             summary = json.loads(proc.stdout)
         except ValueError:
@@ -701,7 +704,12 @@ class ChatClient:
             return f"{shown}\n{error}"
 
         def take() -> str:
-            done = self.cli(words)
+            try:
+                done = self.cli(
+                    words, timeout=changeset.CHECK_TIMEOUT if key == "verification" else changeset.READ_TIMEOUT
+                )
+            except actions.ClientGap as error:
+                return str(error)
             if done.returncode != 0:
                 return f"AutoCode refused that: {tail(done)}"
             if key == "verification":
