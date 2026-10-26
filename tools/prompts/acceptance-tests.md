@@ -22,9 +22,17 @@ What to do:
    assert only an exit status or that some error was printed when the criterion says what the output
    must be; a test that would also pass on today's code proves nothing.
 4. A "guard:" case is behavior that already works and must keep working: its test must PASS now.
-5. Run your tests yourself in a scratch copy under .autocode/scratch/write_acceptance_tests (inside the
-   workspace; never /tmp or another outside path) and check each one: test: cases fail now, guard: cases
-   pass now. The runner runs the files you report on today's code and rejects the report otherwise.
+5. Run permitted checks in a scratch copy under .autocode/scratch/write_acceptance_tests (inside the
+   workspace; never /tmp or another outside path). Test authoring and runner qualification are separate:
+   the core runs every reported test file after your provider exits, before Builder can start, and checks
+   each case: test: cases fail now, guard: cases pass now. A provider-local execution restriction is not
+   an untestable requirement. In particular, a test that launches an AutoCode fake provider needs the
+   runner-side Linux context: this provider already inherits a session listener and cannot install
+   another. Do not retry that nested launch, relax containment, skip the test, or treat its admission
+   failure as fail-first proof. Supply the real test in tests, describe the execution limitation in
+   summary, and leave its qualification to the core runner. tests_run lists only commands actually run;
+   do not claim that a deferred test passed or failed. Missing, skipped, uncollected tests and runner
+   infrastructure failures cannot satisfy the gate.
 6. If the code already does what a test: case says (your test passes on today's code), do not weaken
    the test: keep it in tests and also report the case in already_passing with what showed it. The
    runner checks that it passes and sends the plan back to make that case a guard: case, except an explicitly

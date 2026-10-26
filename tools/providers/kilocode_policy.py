@@ -17,6 +17,9 @@ except ImportError:
     import autocode_tool_containment as containment
 
 READ_TOOLS = ("read", "glob", "grep", "list")
+# Writable stage work stays in the one session whose commands/reports the core
+# can authenticate. Delegation, interactive gates and unknown tools stay denied.
+WRITE_TOOLS = (*READ_TOOLS, "bash", "edit", "todowrite", "todoread", "lsp", "webfetch", "websearch", "codesearch")
 
 
 def intersect(rules, tools):
@@ -44,9 +47,13 @@ def intersect(rules, tools):
     return result
 
 
-def restrict(argv, child, workspace, *, role, request=None, report_recovery=False, portable_shell=False):
+def restrict(
+    argv, child, workspace, *, role, request=None, report_recovery=False, portable_shell=False, write_stage=False
+):
     """``portable_shell``: a read-only checker on a host without the kernel shell (macOS, #1766) keeps the read
     tools and Kilo's own shell, intersected with the operator's policy; edits stay denied."""
+    if write_stage and (request is not None or report_recovery or portable_shell):
+        raise ValueError("A writable Kilo stage cannot use a read-only tool boundary")
     if portable_shell and (request is not None or report_recovery):
         raise ValueError("A portable Kilo shell replaces the kernel boundary; it cannot accompany one")
     # A remote server or inherited session could apply different tool grants.
@@ -86,7 +93,9 @@ def restrict(argv, child, workspace, *, role, request=None, report_recovery=Fals
     if report_recovery and request is not None:
         raise ValueError("Report recovery cannot grant a verification shell")
     permitted = (
-        ()
+        WRITE_TOOLS
+        if write_stage
+        else ()
         if report_recovery
         else ("bash",)
         if request is not None
@@ -95,6 +104,13 @@ def restrict(argv, child, workspace, *, role, request=None, report_recovery=Fals
         else READ_TOOLS
     )
     policy = intersect(original.get("permission"), permitted)
+    if write_stage:
+        # Kilo's action-only permissions reject pattern objects (and can discard
+        # the entire inline config). Collapse only an unconditional rule; a
+        # patterned rule cannot be represented here, so it remains denied.
+        for tool in ("todowrite", "todoread", "webfetch", "websearch"):
+            rules = policy[tool]
+            policy[tool] = rules["*"] if set(rules) == {"*"} else "deny"
     config = json.loads(child["KILO_CONFIG_CONTENT"])
     agents = config.get("agent", {})
     if not isinstance(agents, dict):

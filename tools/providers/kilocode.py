@@ -112,16 +112,16 @@ class KiloProvider(command.CommandProvider):
                 hook = Path(__file__).with_name("requirements_stream.mjs").resolve().as_uri()
                 config["plugin"] = [p for p in config["plugin"] if p != hook] + [hook]
             child["KILO_CONFIG_CONTENT"] = json.dumps(config)
-            if planning or not allow_write:
-                argv, child = kilocode_policy.restrict(
-                    argv,
-                    child,
-                    workspace,
-                    role=role,
-                    request=containment,
-                    report_recovery=report_recovery,
-                    portable_shell=portable_shell,
-                )
+            argv, child = kilocode_policy.restrict(
+                argv,
+                child,
+                workspace,
+                role=role,
+                request=containment,
+                report_recovery=report_recovery,
+                portable_shell=portable_shell,
+                write_stage=allow_write and not planning,
+            )
             return argv, child, saved
         try:
             from .. import autocode_native_role_isolation as native

@@ -180,6 +180,10 @@ class KiloCapTests(unittest.TestCase):
                 self.subTest(overrides=overrides),
                 patch.dict(os.environ, env, clear=True),
                 patch.object(adapter, "validate_effort"),
+                patch(
+                    "providers.kilocode.kilocode_policy.restrict",
+                    side_effect=lambda argv, child, *a, **kw: (argv, child),
+                ),
             ):
                 _, child, _, worker = provider_launch.prepare(
                     engine="opencode",

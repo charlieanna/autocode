@@ -25,6 +25,12 @@ class KiloEffortTests(unittest.TestCase):
         with patch.dict("os.environ", {"XDG_CONFIG_HOME": str(self.root)}):
             self.provider = kilocode.load("kilocode")
         self.env = {"PATH": "/fixture/bin", "RETAINED": "yes"}
+        # This unit tests effort admission; native policy is exercised separately.
+        policy = patch.object(
+            kilocode.kilocode_policy, "restrict", side_effect=lambda argv, child, *a, **kw: (argv, child)
+        )
+        policy.start()
+        self.addCleanup(policy.stop)
 
     def listing(self, variants):
         return "fixture/model\n" + json.dumps({"variants": variants})

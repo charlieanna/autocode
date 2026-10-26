@@ -104,6 +104,14 @@ provider listener or claim its kernel family-extinction proof. Commands already
 inside a provider family continue to inherit that family's filter. The model
 adapters always use the mandatory provider boundary; there is no CLI opt-out.
 
+Ordinary Kilo write stages also use an effective native tool policy. Read, coding,
+shell, todo, language-server and search tools are intersected with the operator's
+rules; asks remain denied in headless mode. Delegation, provider-owned interactive
+questions/planning gates, external-directory access and unknown tools are denied.
+The stage starts a fresh restricted session so earlier session grants cannot
+restore those tools. Mixed-session streams remain invalid; AutoCode never merges
+subagent reports or commands into the primary session's evidence.
+
 ## OpenCode adapter
 
 The Requirements Gatherer, Planner and default Builder use the connections already configured in OpenCode. `--engine opencode`

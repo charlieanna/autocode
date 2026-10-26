@@ -381,6 +381,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Acceptance writers now hand provider-local blocked integration tests to the existing core scratch runner instead of calling the requirement untestable; per-test red/guard qualification remains mandatory (#2161).
+- Kilo write stages now use a single-session tool policy, preventing subagent delegation that would invalidate the stage's evidence while retaining operator restrictions on coding tools (#2163).
+
 - A stopped acceptance-test writer now exposes its own token-bound model choice, including safely bound retained timeouts. Selecting a model preserves the other roles, usage and plan and still requires a separate retry (#2158).
 
 - A person can now change a failed job's total time/accounting caps using its exact retry token
