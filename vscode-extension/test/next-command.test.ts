@@ -6,6 +6,8 @@ import {
   applyDecisions,
   effortLevels,
   boundOffer,
+  changesetAction,
+  changesetStatusArgs,
   commandInputs,
   findUnsupplied,
   isAdvancing,
@@ -15,7 +17,7 @@ import {
   requiresConfirmation,
   splitCommandLine,
 } from "../src/core/next-command";
-import type { StatusView } from "../src/core/view";
+import type { ChangesetSummary, StatusView } from "../src/core/view";
 
 const RUN = "/ws/.autocode/runs/20261015-run";
 const WS = "/ws";
@@ -257,4 +259,23 @@ test("the core can suppress a duplicate resume dialog without authorizing automa
   assert.equal(requiresConfirmation({ kind: "resume", confirmation_required: true }), true);
   assert.equal(requiresConfirmation({ kind: "retry_job", confirmation_required: false }), true);
   assert.equal(requiresConfirmation({ kind: "answer", resolver_scope: "blocker", confirmation_required: false }), true);
+});
+
+test("a change set's actions are taken only as changeset status names them (#2066)", () => {
+  const source = "/ws/.autocode/runs/a";
+  const summary: ChangesetSummary = {
+    changeset: "changeset-1",
+    runs: [{ role: "source", target: "ws", workspace: "/ws", run_dir: source, status: "AWAITING_GOAL_APPROVAL" }],
+    approval: { set_token: "set-1", waiting_on: [], next_command: ["autocode", "changeset", "approve", "--run-dir", source, "--set-token", "set-1"] },
+    verification: { waiting_on: ["ws"], done: false, merge_order: ["ws"], next_command: null },
+  };
+  assert.deepEqual(changesetAction(summary, "approval"), ["changeset", "approve", "--run-dir", source, "--set-token", "set-1"]);
+  assert.throws(() => changesetAction(summary, "verification"), /no joint check/);
+  const moved = { ...summary, approval: { ...summary.approval, set_token: "set-2" } };
+  assert.throws(() => changesetAction(moved, "approval"), (error: unknown) => error instanceof ClientGap && /Unsupported/.test(String(error)));
+  assert.equal(changesetStatusArgs({ status: "X", done: false, scope: { linked: [] } }, own), null);
+  assert.deepEqual(
+    changesetStatusArgs({ status: "X", done: false, scope: { linked: [{ changeset: "c", target: "b", role: "member", workspace: "/b", run_dir: null }] } }, own),
+    ["changeset", "status", "--run-dir", RUN, "--json"],
+  );
 });

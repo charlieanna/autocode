@@ -10,6 +10,7 @@ import {
   readRegistryList,
   readStatusPayload,
   usageLine,
+  readChangesetSummary,
 } from "../src/core/view";
 
 const envelope = (view: unknown) => JSON.stringify({ ok: true, view });
@@ -181,4 +182,14 @@ test("the run-details usage line uses public cap accounting even without token u
   const view = readStatusPayload(envelope({ status: "RUNNING", done: false,
     cost: { spent_usd: 1.966683, cap_usd: 2, complete: false, unpriced_stages: 10 } }));
   assert.equal(usageLine(view), "Cost counted toward cap: at least $1.97 / $2.00 cap (partial; 10 unpriced stages)");
+});
+
+test("changeset status JSON is read, and its refusal is an error (#2066)", () => {
+  const summary = readChangesetSummary(JSON.stringify({
+    changeset: "changeset-1", runs: [], approval: { set_token: null, waiting_on: [], next_command: null },
+    verification: { waiting_on: [], done: true, merge_order: [], next_command: null },
+  }));
+  assert.equal(summary.changeset, "changeset-1");
+  assert.throws(() => readChangesetSummary(JSON.stringify({ error: "this run is in no change set" })), /in no change set/);
+  assert.throws(() => readChangesetSummary("{}"), /did not return a change set/);
 });

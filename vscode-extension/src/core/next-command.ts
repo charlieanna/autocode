@@ -10,7 +10,7 @@
  * No VS Code API and no Node built-ins, so it is unit-testable in-process.
  */
 
-import type { EffortNeed, IntegerCommandInput, StatusView } from "./view";
+import type { ChangesetSummary, EffortNeed, IntegerCommandInput, StatusView } from "./view";
 
 export class ClientGap extends Error {
   constructor(message: string) {
@@ -328,4 +328,35 @@ function splitOnce(text: string, separator: string): [string, boolean, string] {
   const index = text.indexOf(separator);
   if (index < 0) return [text, false, ""];
   return [text.slice(0, index), true, text.slice(index + 1)];
+}
+
+/**
+ * `changeset status --json` for a run whose view lists linked runs, or null when it is in no
+ * change set (owner decision 2026-10-25, #2066). Mirrors `autocode_client_actions.changeset_status`.
+ */
+export function changesetStatusArgs(view: StatusView, own: { runDir: string }): string[] | null {
+  if (!view.scope?.linked?.length) return null;
+  return ["changeset", "status", "--run-dir", view.run_dir || own.runDir, "--json"];
+}
+
+/**
+ * The change set's named set approval or joint check, as arguments after `autocode`, or a gap.
+ * The approval carries the `set_token` of the plans the summary shows, so taking it approves only
+ * the plans a person read. Mirrors `autocode_client_actions.changeset_action`.
+ */
+export function changesetAction(summary: ChangesetSummary, key: "approval" | "verification"): string[] {
+  const section = summary[key];
+  const source = summary.runs?.[0]?.run_dir;
+  if (!section?.next_command?.length) {
+    throw new ClientGap(`AutoCode offers no ${key === "approval" ? "set approval" : "joint check"} right now`);
+  }
+  const token = summary.approval?.set_token;
+  const expected = key === "approval"
+    ? ["autocode", "changeset", "approve", "--run-dir", String(source), "--set-token", String(token)]
+    : ["autocode", "changeset", "verify", "--run-dir", String(source)];
+  const named = section.next_command;
+  if (!source || (key === "approval" && !token) || named.length !== expected.length || named.some((word, i) => word !== expected[i])) {
+    throw new ClientGap(`Unsupported change-set ${key} action from AutoCode`);
+  }
+  return expected.slice(1);
 }

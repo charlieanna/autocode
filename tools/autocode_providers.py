@@ -55,6 +55,21 @@ def resolve(name: str):
     return provider
 
 
+def kilo_connection(name) -> bool:
+    """Whether provider ``name`` launches through KiloProvider: the bundled kilocode or a TOML that runs kilo
+    (#2010). An unknown or broken config is not a Kilo connection; launching it reports its own error."""
+    if name == "kilocode":
+        return True
+    try:
+        from .providers import kilocode
+    except ImportError:
+        from providers import kilocode
+    try:
+        return isinstance(resolve(name), kilocode.KiloProvider)
+    except (OSError, ValueError, RuntimeError):
+        return False
+
+
 def ignored_user_config(name: str) -> Path | None:
     """A user provider config named after a built-in provider: never read, so doctor names it."""
     if name not in BUILT_IN:

@@ -208,6 +208,8 @@ export interface StatusView {
   controller?: { kind?: string; checked?: boolean; alive?: boolean | null } | null;
   current_task?: { id?: string; objective?: string } | null;
   code_checkpoints?: CodeCheckpoints | null;
+  /** What the request spans beyond this repository; `linked` lists the other runs of its change set (#2066). */
+  scope?: { linked?: LinkedRun[] | null; [key: string]: unknown } | null;
   /** The pause the view offers while the run works (#1598); a client runs only its `next_command`. */
   pause?: { label?: string; effect?: string; requested?: boolean; next_command?: string[] | null } | null;
   chat?: {
@@ -243,6 +245,57 @@ export interface ChatLogEntry {
   text: string;
   status?: "running" | "done" | "failed";
   paths?: string[];
+}
+
+/** One other run of this run's change set, as `view.scope.linked` lists it. */
+export interface LinkedRun {
+  changeset: string;
+  target: string;
+  role: "source" | "member";
+  workspace: string;
+  run_dir: string | null;
+}
+
+/** One run of a change set, as `autocode changeset status --json` shows it. */
+export interface ChangesetRun {
+  role: "source" | "member";
+  target: string;
+  workspace: string;
+  run_dir: string;
+  status: string;
+  needs?: string | null;
+  plan?: DisplayedPlan | null;
+}
+
+/** `autocode changeset status --json` (docs/task-run.md#change-sets-in-clients). */
+export interface ChangesetSummary {
+  changeset: string;
+  runs: ChangesetRun[];
+  approval: { set_token: string | null; waiting_on: string[]; next_command: string[] | null };
+  verification: {
+    waiting_on: string[];
+    done: boolean;
+    merge_order: string[];
+    next_command: string[] | null;
+    check?: { command: string[]; in: string } | null;
+    result?: { passed: boolean; current: boolean; exit_code?: number | null } | null;
+    waiver?: { reason: string; current: boolean } | null;
+  };
+}
+
+/** Parse `changeset status --json`; its refusal (`{"error": ...}`) or another shape is an error. */
+export function readChangesetSummary(raw: string): ChangesetSummary {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    throw new Error("changeset status did not return JSON");
+  }
+  if (typeof parsed?.error === "string") throw new Error(parsed.error);
+  if (typeof parsed?.changeset !== "string" || !Array.isArray(parsed.runs) || !parsed.approval || !parsed.verification) {
+    throw new Error("changeset status did not return a change set");
+  }
+  return parsed as unknown as ChangesetSummary;
 }
 
 /** The envelope `autocode --status` prints: the view sits under `"view"`. */

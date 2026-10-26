@@ -1898,11 +1898,13 @@ it names, after showing what they act on:
   plans, so a revision in any run makes the core refuse it.
 - `verification.next_command`, the joint check.
 
-The shared rule is `autocode_client_actions.changeset_action`. The terminal chat's side panel
-lists the linked runs, `/changeset` shows the set and offers these actions, and `/runs` groups
-the chats of one change set. The channel bridge posts the set's plans at a plan gate and takes `approve set`
-only with the set token of the plans it posted (`docs/channels.md`). The other `changeset`
-commands stay the person's own.
+The shared rule is `autocode_client_actions.changeset_action`, mirrored by
+`vscode-extension/src/core/next-command.ts`. The terminal chat's side panel lists the linked
+runs, `/changeset` shows the set and offers these actions, and `/runs` groups the chats of one
+change set. VS Code's Run details shows the set with one button for the action named now. The
+channel bridge posts the set's plans at a plan gate and takes `approve set` only with the set
+token of the plans it posted (`docs/channels.md`). The other `changeset` commands stay the
+person's own.
 
 ## Dependencies between existing runs
 
