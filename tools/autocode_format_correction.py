@@ -40,10 +40,12 @@ from pathlib import Path
 
 try:
     from . import autocode_cmd_only_report as cmd_only
+    from . import autocode_providers as providers
     from . import autocode_support as support
     from .autocode_run_records import stage_supports_sessions
 except ImportError:
     import autocode_cmd_only_report as cmd_only
+    import autocode_providers as providers
     import autocode_support as support
     from autocode_run_records import stage_supports_sessions
 
@@ -75,10 +77,11 @@ def session_for(state: RunState, pending, route_role=None) -> str | None:
     role = route_role or original.get("route_role") or original.get("role")
     route = (settings.get("roles") or {}).get(role) or {}
     provider = original.get("provider") or route.get("provider") or settings.get("provider")
-    if original.get("engine") == "opencode" and provider == "kilocode":
+    if original.get("engine") == "opencode" and provider and providers.kilo_connection(provider):
         # Every correction is read-only. The Kilo launch boundary strips its
         # session to prevent inherited tool grants, so a context-free reminder
         # cannot work. Leave the original report intact for the full repair.
+        # A configured Kilo connection gets the same launch (#2010), so the same skip.
         return None
     return event_thread_id(Path(original["events"]))
 
