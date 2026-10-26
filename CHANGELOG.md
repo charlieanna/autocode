@@ -27,6 +27,12 @@ PR template asks for an entry here; a change without one is incomplete.
   refusal was prose, and the chat could offer only `Continue? [y/N]`, which stopped at the same launch
   again (#2020, #2039). `TaskRun.assign_effort(role, effort)` gives the same answer.
 
+- A job that stopped on its time limit or the Investigator's exploration budget now offers the same
+  model at its next lower declared reasoning variant first (#1902). The status view names
+  `--answer route-ROLE=MODEL@LEVEL --job-retry-token -` as `next_command` (`needs.route.lower_effort`),
+  the answer binds the exact retry to that level, and the retry launches at it. Only a level the model's
+  listing declares (or a probe passed) is offered; a named level it does not declare is refused. The
+  retry's handoff now also says which limit stopped the attempt (`stop_kind`), which it left empty before.
 - The bug Investigator now has a reproduction-first budget (#1902). After 30 completed source-reading or
   searching calls with no attempt to reproduce (`limits.investigation_exploration_budget`; `0` disables;
   no flag yet), the runner stops the stage early instead of letting it read until the stage deadline. It

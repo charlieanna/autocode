@@ -10,6 +10,7 @@ from pathlib import Path
 import autocode_investigation_progress as progress
 import autocode_process as processes
 from autocode_activity import ActivityMonitor
+from autocode_taskrun import TaskRunError
 
 from .test_job_failure_recovery import PROVIDER, WRAPPER, JobHarness
 
@@ -215,6 +216,85 @@ class InvestigatorThatOnlyExplores(JobHarness):
         )
         self.assertEqual(1, self.count())
         self.assertNotIn("120", need["reason"])  # stopped by the budget, not the 900-second window
+
+
+# The explorer, also logging each launch's argv and prompt; and the wrapper, also saving the tool's
+# variant listing for the configured model at the normal settings boundary (as a Kilo/OpenCode run
+# records its listing), never by editing a checkpoint.
+LOGGING_EXPLORER = EXPLORER.replace(
+    "sys.stdin.read()\n",
+    "prompt=sys.stdin.read()\n"
+    "with Path(os.environ['JOB_LAUNCHES']).open('a') as f:f.write(json.dumps({'argv':sys.argv,'prompt':prompt})+'\\n')\n",
+    1,
+)
+DECLARING_WRAPPER = WRAPPER.replace("'filtered'):", "'filtered','explore'):", 1).replace(
+    "raise SystemExit(autocode.main())",
+    "configure_declared=autocode.configure\n"
+    "def declared(*args,**kwargs):\n"
+    " selected=configure_declared(*args,**kwargs)\n"
+    " selected['declared_variants']=json.loads(os.environ['JOB_DECLARED'])\n"
+    " return selected\n"
+    "autocode.configure=declared\n"
+    "raise SystemExit(autocode.main())",
+    1,
+)
+
+
+class InvestigatorRetriesAtALowerEffort(JobHarness):
+    """#1902 step 2: the stop offers the same model at a lighter declared variant; the answer binds the retry to it."""
+
+    def launches(self):
+        return [json.loads(line) for line in Path(self.env["JOB_LAUNCHES"]).read_text().splitlines()]
+
+    def test_an_exploration_stop_offers_and_binds_the_next_lower_declared_effort(self):
+        self.assertIn("JOB_LAUNCHES", LOGGING_EXPLORER)
+        self.assertIn("JOB_DECLARED", DECLARING_WRAPPER)
+        self.wrapper.write_text(DECLARING_WRAPPER)
+        (self.workspace / ".autocode/bin/codex").write_text(LOGGING_EXPLORER)
+        self.env["JOB_LAUNCHES"] = str(self.workspace / ".autocode" / "launches")
+        self.env["JOB_DECLARED"] = json.dumps({"gpt-6-sol": ["low", "high"]})
+        self.options = (*self.options, "--reasoning-effort", "high")
+        run = self.start("explore", workflow="bugfix")
+        held = run.status()
+        need = held["needs"]
+        self.assertEqual(("PAUSED_JOB_FAILURE", "investigate_bug"), (held["status"], need.get("stage")), need)
+        route = need["route"]
+        self.assertEqual(("timeout", "investigator"), (route["cause"], route["role"]))
+        self.assertEqual(
+            {"model": "gpt-6-sol", "from": "high", "to": "low", "answer": "gpt-6-sol@low"}, route["lower_effort"]
+        )
+        self.assertEqual(["gpt-6-sol@low"], route["candidates"])
+        self.assertIn("--answer route-investigator=gpt-6-sol@low --job-retry-token", held["next_command"])
+        self.assertIn("lower effort", need["reason"])
+        self.assertIn('model_reasoning_effort="high"', " ".join(self.launches()[0]["argv"]))
+
+        # A level the model does not declare is refused and changes nothing.
+        with self.assertRaisesRegex(TaskRunError, "does not declare reasoning variant 'medium'"):
+            run.assign_model("investigator", "gpt-6-sol@medium")
+        self.assertEqual(held["needs"], run.status()["needs"])
+
+        assigned = run.assign_model("investigator", "gpt-6-sol@low")
+        self.assertEqual(1, self.count(), "naming the lighter variant launches nothing")
+        self.assertEqual(
+            ("gpt-6-sol", "low"), tuple(assigned["routes"]["investigator"][k] for k in ("model", "reasoning_effort"))
+        )
+        for role in set(held["routes"]) - {"investigator"}:
+            self.assertEqual(held["routes"][role], assigned["routes"][role], role)
+        self.assertEqual(held["usage"], assigned["usage"])
+        token = assigned["needs"]["job_retry_token"]
+        self.assertNotEqual(need["job_retry_token"], token)
+        self.assertNotIn("lower_effort", assigned["needs"]["route"])
+        self.assertIn("at low effort (was high)", assigned["needs"]["reason"])
+        with self.assertRaises(TaskRunError):
+            run.retry_job(need["job_retry_token"])
+        self.assertEqual(1, self.count())
+
+        run.retry_job(token)  # the retry explores again and stops again; its launch is the oracle
+        self.assertEqual(2, self.count())
+        retry = self.launches()[1]
+        self.assertIn('model_reasoning_effort="low"', " ".join(retry["argv"]))
+        # The handoff names which limit stopped the attempt it retries.
+        self.assertIn('"stop_kind": "progress"', retry["prompt"])
 
 
 if __name__ == "__main__":

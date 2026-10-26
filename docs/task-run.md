@@ -2258,6 +2258,16 @@ job's model, rotates its retry token and launches nothing. It preserves other ro
 bug Investigator's Plan Reviewer), effort, limits, usage and the archived attempt. A same-model
 exact retry is still accepted, but can time out again; no model or time-limit change is automatic.
 
+When the stopped model declares a lighter reasoning variant than the one the job launched at
+(the tool's listing, or a level a preflight probe passed), the question offers that variant first
+(#1902): `needs.route.lower_effort` is `{model, from, to, answer}`, `needs.route.candidates` is
+`[answer]`, and `next_command` is that answer, `--answer route-ROLE=MODEL@LEVEL --job-retry-token -`.
+This covers the deadline and the Investigator's exploration-budget stop alike. The answer form
+`MODEL@LEVEL` names the effort with the model; a level the model does not declare is refused and
+changes nothing, and with no listing the launch's own check decides. The named level is saved as
+the person's, bound into the rotated retry token, and the retry launches at it. A model without a
+lower declared variant gets the question as before.
+
 A saved bug-Investigator timeout without a route question can expose one only when the archived
 rejected, timed-out attempt matches its source capture, launch route, configuration and archive.
 An active/uncertain attempt or a mismatch cannot gain that model action. The answer then rechecks

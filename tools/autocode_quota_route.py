@@ -394,6 +394,24 @@ def question(
                 "the archived attempt and recorded usage are retained."
             ),
         )
+        lighter = lower_effort(state, role, stopped_on)
+        if lighter:
+            # The lever that worked live (#1902): the same model at a lighter variant it declares, offered
+            # first. Still a person's answer; nothing moves until it is given.
+            asked.update(
+                question=(
+                    f"{job} exceeded its execution time limit; retry {stopped_on} at {lighter['to']} effort, "
+                    "name another model, or retry unchanged"
+                ),
+                lower_effort=lighter,
+                candidates=[lighter["answer"]],
+                recommendation=(
+                    f"Recommended: the same model at a lower effort it declares, {lighter['to']} (was "
+                    f"{lighter['from']}): --answer {asked['id']}={lighter['answer']} --job-retry-token - "
+                    "(reads AUTOCODE_JOB_RETRY_TOKEN)."
+                ),
+            )
+            asked["why"] += " " + asked["recommendation"]
         return asked
     if attempt.get("pause_status") == CONTEXT_STATUS:
         asked.update(
@@ -458,6 +476,62 @@ def question(
         )
         asked["why"] += " " + asked["recommendation"]
     return asked
+
+
+def lower_effort(state: RunState, role: str, model) -> dict | None:
+    """The next lower reasoning variant ``model`` declares below the level ``role`` stopped at, or None.
+
+    The level is the one the stopped job's exact retry is bound to (else the saved route's), fitted to the
+    declared variants as its launch fitted it (autocode_route_fit). Only a level the tool lists, or a probe
+    passed, is offered: with neither, nothing is (an unsupported level is never proposed).
+    """
+    settings = state.get("settings") or {}
+    if not isinstance(model, str) or not model:
+        return None
+    bound = ((state.get("job_failure") or {}).get("configuration") or {}).get("roles") or {}
+    route = bound.get(role)
+    if not isinstance(route, dict):
+        route = (settings.get("roles") or {}).get(role) or {}
+    levels = route_fit.declared_for(settings, model) or route_fit.certified_for(settings, model)
+    levels = [level for level in levels or () if level in route_fit.SCALE]
+    effort = route.get("reasoning_effort")
+    if not levels or effort not in route_fit.SCALE:
+        return None
+    launched = route_fit.nearest(effort, levels)
+    lower = [level for level in levels if route_fit.SCALE.index(level) < route_fit.SCALE.index(launched)]
+    if not lower:
+        return None
+    return {"model": model, "from": launched, "to": lower[-1], "answer": f"{model}@{lower[-1]}"}
+
+
+def split_effort(answer: str) -> tuple[str, str | None]:
+    """(model, effort) from a model answer ``MODEL@LEVEL``; (answer, None) without a known level suffix."""
+    model, separator, level = answer.rpartition("@")
+    level = level.strip().lower()
+    if not separator or not model.strip() or level not in route_fit.SCALE:
+        return answer, None
+    return model.strip(), level
+
+
+def check_effort(state: RunState, role: str, model: str, effort: str, *, job: str | None = None) -> None:
+    """Refuse a named ``effort`` that ``model`` does not declare, by the one fit rule (autocode_route_fit).
+
+    The level is a person's, so it never moves: a listing without it refuses, naming the declared ones;
+    with no listing the launch check decides, as for any person-named level.
+    """
+    trial = copy.deepcopy(state.get("settings") or {})
+    route = (trial.get("roles") or {}).get(role)
+    if not isinstance(route, dict):
+        raise ValueError(f"This run has no {job or role} route to assign")
+    route.update(model=model, reasoning_effort=effort)
+    trial.setdefault("effort_origins", {})[role] = route_fit.USER_EXPLICIT
+    try:
+        route_fit.fit(trial, role)
+    except route_fit.EffortUnsupported as error:
+        raise ValueError(
+            f"{model} does not declare reasoning variant {effort!r} for the {job or role}; it declares "
+            f"{', '.join(error.declared)}. Answer with one of those: --answer {PREFIX}{role}={model}@LEVEL"
+        ) from None
 
 
 def _provider(model) -> str | None:
@@ -763,10 +837,13 @@ def assign(
     request_id: str | None = None,
     current: str | None = None,
     actor: str = "user_cli",
+    effort: str | None = None,
 ) -> dict:
     """Set the role's model, drop its session and append the route_assignment record; return the record.
 
     The record's ``from`` is ``current`` (as for ``validate``) when given, else the role's saved route.
+    ``effort`` is a level the person named with the model (``MODEL@LEVEL``, checked by ``check_effort``):
+    saved as theirs and recorded as the assignment's ``effort``.
     """
     settings = state["settings"]
     route = settings["roles"][role]
@@ -792,8 +869,15 @@ def assign(
     # The role keeps its effort; the named model may not declare it (#2006). One fit rule (#2057):
     # a runner-chosen effort moves to the nearest declared variant and is recorded; a person-named
     # one the model does not declare refuses with its flag.
+    if effort is not None:
+        record["effort"] = {"from": route.get("reasoning_effort"), "to": effort, "named": True}
+        route["reasoning_effort"] = effort
+        settings.setdefault("effort_origins", {})[role] = route_fit.USER_EXPLICIT
+        (settings.get("effort_fits") or {}).pop(role, None)
+        if settings.get("effort_fits") == {}:
+            settings.pop("effort_fits")
     fitted = route_fit.fit(settings, role)
-    if fitted.reason == "fitted":
+    if effort is None and fitted.reason == "fitted":
         route["reasoning_effort"] = fitted.effort
         record["effort"] = {"from": fitted.from_effort, "to": fitted.effort}
         route_fit.record(settings, role, fitted, cause="route_answer")

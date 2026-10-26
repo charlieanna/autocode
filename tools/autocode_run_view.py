@@ -795,6 +795,9 @@ def _route(question: dict) -> dict:
     }
     if "candidates" in question:
         route["candidates"] = list(question["candidates"])
+    if isinstance(question.get("lower_effort"), dict):
+        # A time-limit stop on a model with a lighter declared variant (#1902): {model, from, to, answer}.
+        route["lower_effort"] = dict(question["lower_effort"])
     return route
 
 
@@ -1006,8 +1009,10 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                 "authentication",
                 "timeout",
             ) and not isinstance(failure.get("route_assignment"), dict):
+                # A timeout whose model declares a lighter variant names that answer itself (#1902).
+                value = (need["route"].get("lower_effort") or {}).get("answer") or "MODEL"
                 need["action"] = (
-                    f"--answer {need['route']['question_id']}=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
+                    f"--answer {need['route']['question_id']}={value} --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
                 )
         return need
     if status == "WAITING_FOR_DEPENDENCY":
