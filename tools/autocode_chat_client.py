@@ -305,9 +305,10 @@ class ChatClient:
         self.tab_order: list[str] = [str(self.run_dir)]
         self.titles: dict[str, str] = {}
         self.tabs_changed: Callable[[list[dict]], None] | None = None
-        self.seen: set[str] = set()
+        self.seen: set[str | tuple[str, str]] = set()
         self.viewed: set[str] = set()  # runs that have answered --status, so a refusal before one is told apart
         self.said: set[str] = set()  # message texts already shown, so a question is not printed twice
+        self._local_echoes: set[tuple[str, str]] = set()  # direct prompts awaiting their next public-message echo
         self._replied_context: str | None = None  # the chat context the last sent reply answered
         self.started = False  # the first view prints the whole conversation, later ones only what is new
         self.last_line: tuple = ()
@@ -695,7 +696,9 @@ class ChatClient:
         chat = view.get("chat") or {}
         streaming_text = None
         for row in chat.get("messages") or []:
-            key = str(row.get("id"))
+            text = (row.get("text") or "").strip()
+            ident = row.get("id")
+            key = str(ident) if ident not in (None, "") else (str(row.get("role") or ""), text)
             if row.get("streaming"):
                 streaming_text = row.get("text") or None  # shown while written, replaced by the finished message
                 continue
@@ -704,12 +707,15 @@ class ChatClient:
             self.seen.add(key)
             if row.get("role") == "user" and self.started:
                 continue  # the person just typed it
-            text = (row.get("text") or "").strip()
-            if row.get("role") != "user" and text in self.said:
-                continue  # already shown, as the question being asked
             self.said.add(text)
+            echo = (str(row.get("role") or ""), text)
+            if echo in self._local_echoes:
+                self._local_echoes.remove(echo)
+                continue  # the direct prompt was just shown; distinct public messages still own their IDs
             who = "You" if row.get("role") == "user" else "AutoCode"
             self.say(f"\n{who}: {text}")
+        # A prompt without an immediate public counterpart must not hide a later turn's message.
+        self._local_echoes.clear()
         self._live_quiet = 0 if streaming_text != self._live_text else self._live_quiet + 1
         self._live_text = streaming_text
         if self._stream is not None:
@@ -749,6 +755,7 @@ class ChatClient:
             {
                 "seen": set(self.seen),
                 "said": set(self.said),
+                "local_echoes": set(self._local_echoes),
                 "started": self.started,
                 "last_line": self.last_line,
                 "last_notice": self.last_notice,
@@ -760,6 +767,7 @@ class ChatClient:
         known = self.others.pop(str(run_dir), None)
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
         self.seen, self.said, self.started, self.last_line, self.last_notice = set(), set(), False, (), None
+        self._local_echoes = set()
         self.last_progress = None
         self._status_view, self._status_error = None, ""
         self._replied_context = None
@@ -775,6 +783,7 @@ class ChatClient:
             saved = self._display_contexts.get(contexts.identity(self.workspace, self.run_dir)) if restored else None
             if saved:
                 self.seen, self.said, self.started = saved["seen"], saved["said"], saved["started"]
+                self._local_echoes = saved["local_echoes"]
                 self.last_line, self.last_notice, self.last_progress = (
                     saved["last_line"],
                     saved["last_notice"],
@@ -1120,10 +1129,12 @@ class ChatClient:
         elif question and question not in self.said:
             # Ask the question this prompt waits on, even if the transcript has not shown it yet.
             self.said.add(question)
+            self._local_echoes.add(("assistant", question))
             self.say(f"\nAutoCode: {question}")
         summary = ((review or {}).get("summary") or "").strip()
         if summary and summary not in self.said:
             self.said.add(summary)
+            self._local_echoes.add(("assistant", summary))
             self.say(f"\nAutoCode: {summary}")
         prompt = "\nYou: " if not review else f"\n{review['label']}? [y/N], or type what to change: "
         reply = self.ask(prompt)
@@ -1210,6 +1221,7 @@ class ChatClient:
         asked = (question.get("question") or "").strip()
         if asked not in self.said:
             self.said.add(asked)
+            self._local_echoes.add(("assistant", asked))
             self.say(f"\nAutoCode: {asked or row.key}")
         if question.get("why"):
             self.say(f"  Why: {question['why']}")

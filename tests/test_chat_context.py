@@ -207,15 +207,18 @@ class PerRunContext(unittest.TestCase):
         self.addCleanup(client.close)
         client.switched = ui.switch
         client.seen, client.said, client.started = {"a-message"}, {"A said"}, True
+        client._local_echoes = {("assistant", "A local question")}
         client._replied_context, client._pause_pending = "a-token", True
         client.talk_to(WORKSPACE, B)
         self.assertEqual(set(), client.seen)
+        self.assertEqual(set(), client._local_echoes)
         self.assertIsNone(client._replied_context)
         self.assertFalse(client._pause_pending)
         client.accept_status(view(B, "b1"))
         client.seen = {"b-message"}
         client.talk_to(WORKSPACE, A)
         self.assertEqual({"a-message"}, client.seen)
+        self.assertEqual({("assistant", "A local question")}, client._local_echoes)
         self.assertEqual("a-token", client._replied_context)
         self.assertIsNone(client._status_view)
         self.assertIsNone(ui._view)

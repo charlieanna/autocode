@@ -1101,6 +1101,69 @@ class TabTests(unittest.TestCase):
 
 
 class StreamAndNoticeTests(unittest.TestCase):
+    def test_a_new_turn_shows_its_completion_even_when_an_earlier_turn_said_the_same_text(self):
+        client = ScriptedChat({})
+        self.addCleanup(client.close)
+        text = "The requested task is complete."
+        prior = {"id": "feedback-previous-response", "role": "assistant", "text": text}
+        client.show({"chat": {"messages": [prior], "notice": "I couldn’t finish this step."}})
+        client.show({"chat": {"messages": [prior], "notice": "Working on your request…"}})
+        completed = {
+            "done": True,
+            "chat": {"messages": [prior, {"id": "response-1", "role": "assistant", "text": text}]},
+        }
+        client.show(completed)
+        client.show(completed)
+        self.assertEqual(2, client.text().count(f"AutoCode: {text}"))
+        self.assertEqual(f"\nAutoCode: {text}", client.out[-1])
+
+    def test_messages_without_ids_have_distinct_stable_role_and_text_identities(self):
+        client = ScriptedChat({})
+        self.addCleanup(client.close)
+        view = {
+            "chat": {
+                "messages": [
+                    {"role": "assistant", "text": "First reply"},
+                    {"role": "assistant", "text": "Second reply"},
+                    {"role": "user", "text": "First reply"},
+                ]
+            }
+        }
+        client.show(view)
+        client.show(view)
+        self.assertEqual(["\nAutoCode: First reply", "\nAutoCode: Second reply", "\nYou: First reply"], client.out)
+
+    def test_a_local_prompt_echo_is_consumed_once_without_hiding_another_public_message(self):
+        view = ConversationTests.REVIEW
+        client = ScriptedChat(view)
+        self.addCleanup(client.close)
+        with self.assertRaises(chat.Left):
+            client.requirements(view, actions.named(view, WORKSPACE, RUN))
+        text = view["chat"]["review"]["summary"]
+        message = {"id": "recorded-question", "role": "assistant", "text": text}
+        client.show({"chat": {"messages": [message]}})
+        self.assertEqual(1, client.text().count(f"AutoCode: {text}"))
+        client.show({"chat": {"messages": [message, {**message, "id": "later-reply"}]}})
+        self.assertEqual(2, client.text().count(f"AutoCode: {text}"))
+
+    def test_an_unmatched_local_prompt_cannot_hide_a_later_turn_message(self):
+        view = ConversationTests.REVIEW
+        client = ScriptedChat(view)
+        self.addCleanup(client.close)
+        with self.assertRaises(chat.Left):
+            client.requirements(view, actions.named(view, WORKSPACE, RUN))
+        client.show({"chat": {"messages": []}})
+        text = view["chat"]["review"]["summary"]
+        client.show({"chat": {"messages": [{"id": "later-reply", "role": "assistant", "text": text}]}})
+        self.assertEqual(2, client.text().count(f"AutoCode: {text}"))
+
+    def test_a_local_user_echo_does_not_hide_an_assistant_message_with_the_same_text(self):
+        client = ScriptedChat({})
+        self.addCleanup(client.close)
+        client._local_echoes = {("user", "Same words")}
+        client.show({"chat": {"messages": [{"id": "new-reply", "role": "assistant", "text": "Same words"}]}})
+        self.assertEqual(["\nAutoCode: Same words"], client.out)
+
     def test_a_reply_being_written_is_streamed_then_replaced_by_the_finished_message(self):
         streamed = []
         client = ScriptedChat({})
