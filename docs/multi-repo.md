@@ -25,9 +25,13 @@ deliver only the API half.
   so the approval screen shows what this run will not deliver. To change the
   request instead, give feedback. To stop instead, leave the question
   unanswered: the run's status (`scope.briefs`) holds a ready brief for each
-  repository, this one first, to start a run with in each. Linking a run in the
-  other repository is a later step of
-  [#2066](https://github.com/charlieanna/autocode/issues/2066).
+  repository, this one first, to start a run with in each.
+- **You can link a run in the other repository.** `autocode changeset link` starts a
+  run in a registered project with that repository's ready brief and records the two
+  runs as one change set, which both runs' status shows under `scope.linked`
+  ([Linked runs](task-run.md#linked-runs)). Each run still plans, builds and completes
+  on its own. Approving the plans together and checking that the two sides agree are
+  later steps of [#2066](https://github.com/charlieanna/autocode/issues/2066).
 - **Component builds stay inside one repository.** `autocode components` builds
   several components in parallel, but every component worktree comes from the
   same repository's HEAD, and integration applies their changes to a worktree of
@@ -42,13 +46,14 @@ deliver only the API half.
 
 ## The manual workflow
 
-Until linked runs exist, coordinate the repositories yourself:
+Until linked runs are approved and checked together, coordinate the repositories yourself:
 
 1. Write one brief per repository. Each brief states the shared requirement,
    the interface both sides agree on (field names, payload examples, an API
    schema fragment), and that this run owns only this repository's side.
 2. Start a run in each repository, the producer first when one side consumes the
-   other: `autocode` in each checkout, or `autocode --workspace PATH`.
+   other: `autocode` in each checkout, or `autocode --workspace PATH`. Or start the
+   other repository's run with `autocode changeset link` so the two are recorded together.
 3. Read and approve each plan against the same interface. A plan that changes
    the interface needs the same change in the other repository's plan.
 4. `autocode runs --all` lists the runs of every registered project, grouped by
@@ -56,4 +61,4 @@ Until linked runs exist, coordinate the repositories yourself:
 5. Before merging, run the consumer's tests against the producer's branch, and
    link the two pull requests to each other with the merge order.
 
-Nothing checks that the two halves agree. That is the gap linked runs will close.
+Nothing checks that the two halves agree yet. That is the gap the later steps close.
