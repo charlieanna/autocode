@@ -54,6 +54,11 @@ Everything is configured through the environment:
    constraints and permission boundaries. Reply `approve` to accept it, or
    reply with what to change (that goes back to the Requirements Gatherer, and
    the revised plan is posted for a fresh decision).
+   If the run is one of a change set (`autocode changeset link`), the bridge
+   also posts the other runs. Once every run waits with a complete plan, it
+   posts their plans too, and `approve set` approves every plan together
+   ([change sets in clients](task-run.md#change-sets-in-clients)). `approve`
+   still releases this run alone.
 4. Walk away. If the run pauses or a role's model runs out of quota, the
    bridge posts why and what to reply (`resume`, or `model NAME`).
 5. On completion the bridge commits the change on the run's branch and
@@ -73,7 +78,9 @@ the terminal chat and the headless conformance client:
   posted first. Anything else becomes feedback to the planning stage.
 - **An approval binds to the plan that was shown.** The bridge records the
   token of the plan it posted; if the plan changed since, the approval is
-  refused and the new plan is posted instead. Words written before a gate was
+  refused and the new plan is posted instead. `approve set` binds the same way
+  to the change set's plans it posted, and takes only the set approval
+  `autocode changeset status` names. Words written before a gate was
   posted can never answer it: each gate remembers which comments it has already
   consumed.
 - **Person-only stops stay person-only.** Pauses, retries and blockers are

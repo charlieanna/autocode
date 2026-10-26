@@ -416,7 +416,12 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_runs_command.py",
             "tools/autocode_chat_changeset.py",
         ),
-        ("tests.test_changeset_cli", "tests.test_changeset_delivery_cli", "tests.test_changeset_chat"),
+        (
+            "tests.test_changeset_cli",
+            "tests.test_changeset_delivery_cli",
+            "tests.test_changeset_chat",
+            "tests.test_changeset_bridge",
+        ),
     ),
     # The full-screen chat in a real terminal (#1646): its tests launch the CLI, so imports cannot select them.
     (("tools/autocode_chat_", "tools/autocode_client_actions.py"), ("tests.test_chat_screens",)),

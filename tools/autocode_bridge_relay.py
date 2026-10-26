@@ -24,6 +24,7 @@ except ImportError:
     import autocode_client_actions as actions
 
 APPROVE_WORDS = ("approve", "approved", "y", "yes", "lgtm")
+APPROVE_SET = "approve set"  # the reply that takes a change set's named set approval (#2066)
 RESUME_WORDS = ("resume", "y", "yes", "continue", "retry")
 MODEL_PREFIX = re.compile(r"(?:use\s+)?model\s+(.+)$", re.IGNORECASE)
 ANSWER_LINE = re.compile(r"^(?P<id>[\w.-]+)\s*[:=]\s*(?P<text>.+)$")
@@ -44,11 +45,11 @@ class RelayResult:
 class ReplyAction:
     """The one action a reply names, checked against the gate the person saw."""
 
-    kind: str  # answers approve feedback follow_up resume retry model operational review none
+    kind: str  # answers approve approve_set feedback follow_up resume retry model operational review none
     answers: dict[str, str] = field(default_factory=dict)
     text: str = ""
     model: str = ""
-    # The plan/review token the person was shown with this gate, for the caller's fresh check.
+    # The plan/review (or change-set) token the person was shown with this gate, for the caller's fresh check.
     shown_token: str = ""
 
 
@@ -56,8 +57,9 @@ def _reason(need: dict) -> str:
     return str(need.get("reason") or need.get("guidance") or "the run stopped").strip()
 
 
-def gate_key(view: dict) -> str:
-    """A stable identity for the current gate, so an unchanged stop is relayed once."""
+def gate_key(view: dict, changeset: dict | None = None) -> str:
+    """A stable identity for the current gate, so an unchanged stop is relayed once. A plan gate in a
+    change set also changes when the set becomes approvable (its set token)."""
     if view.get("done"):
         return "done"
     need = view.get("needs") or {}
@@ -73,6 +75,8 @@ def gate_key(view: dict) -> str:
             if need.get("resolver_token")
             else f"unpublished:{ids}"
         )
+    if kind == "approve_plan" and changeset:
+        return f"{kind}:{need.get('token')}:set:{(changeset.get('approval') or {}).get('set_token')}"
     if kind in ("approve_plan", "review"):
         return f"{kind}:{need.get('token')}"
     return f"{kind}:{_reason(need)}:{need.get('job_retry_token') or ''}"
@@ -94,6 +98,30 @@ def plan_markdown(plan: dict) -> str:
     delivery = plan.get("git_delivery")
     if isinstance(delivery, dict) and delivery:
         lines += ["", "**Delivery**", f"- branch: {delivery.get('branch') or 'the task worktree branch'}"]
+    return "\n".join(lines)
+
+
+def changeset_markdown(summary: dict, view: dict) -> str:
+    """A plan gate's change-set note: the other runs and, once the set approval is named, their plans."""
+    here = str(view.get("run_dir") or "")
+    runs = [row for row in summary.get("runs") or [] if isinstance(row, dict)]
+    others = [row for row in runs if str(row.get("run_dir")) != here] or runs[1:]
+    names = ", ".join(f"{row.get('target')} ({row.get('status') or 'starting'})" for row in others)
+    approval = summary.get("approval") or {}
+    if not approval.get("next_command"):
+        waiting = ", ".join(approval.get("waiting_on") or []) or "the other runs"
+        return (
+            f"**This run is one of change set {summary.get('changeset')}**, with {names}. Once every run waits "
+            f"with a complete plan (waiting on: {waiting}), reply `{APPROVE_SET}` to approve them together. "
+            "`approve` releases this run alone."
+        )
+    lines = [
+        f"**This run is one of change set {summary.get('changeset')}**, with {names}. Reply `{APPROVE_SET}` to "
+        "approve the plan above and each plan below together; `approve` releases this run alone."
+    ]
+    for row in others:
+        body = plan_markdown(row.get("plan") or {}).split("\n", 2)
+        lines += ["", f"**{row.get('target')}'s plan**", *(body[2:] if len(body) > 2 else [])]
     return "\n".join(lines)
 
 
@@ -133,9 +161,10 @@ def route_markdown(need: dict) -> str:
     return "\n".join(lines)
 
 
-def relay(view: dict, record: dict) -> RelayResult:
-    """The channel messages this view calls for, and the gate state to remember."""
-    result = RelayResult(gate={"key": gate_key(view)})
+def relay(view: dict, record: dict, changeset: dict | None = None) -> RelayResult:
+    """The channel messages this view calls for, and the gate state to remember. ``changeset`` is
+    ``autocode changeset status --json`` for a run in a change set (owner decision 2026-10-25)."""
+    result = RelayResult(gate={"key": gate_key(view, changeset)})
     if record.get("gate", {}).get("key") == result.gate["key"]:
         return result  # an unchanged stop was already relayed
     if view.get("done"):
@@ -171,6 +200,9 @@ def relay(view: dict, record: dict) -> RelayResult:
         else:
             result.gate["token"] = actions.approval_token(view)
             result.messages = [plan_markdown(plan)]
+            if changeset:
+                result.messages.append(changeset_markdown(changeset, view))
+                result.gate["set_token"] = (changeset.get("approval") or {}).get("set_token")
     elif kind == "review":
         criteria = actions.review_criteria(view)
         if criteria is None:
@@ -257,6 +289,8 @@ def interpret(record: dict, view: dict, text: str) -> ReplyAction:
         return ReplyAction("follow_up", text=text)
     kind = need.get("kind")
     if kind == "approve_plan":
+        if " ".join(text.lower().split()) == APPROVE_SET:
+            return ReplyAction("approve_set", shown_token=str(gate.get("set_token") or ""))
         if text.lower() in APPROVE_WORDS:
             return ReplyAction("approve", shown_token=str(gate.get("token") or ""))
         return ReplyAction("feedback", text=text)

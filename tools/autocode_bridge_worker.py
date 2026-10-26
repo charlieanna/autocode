@@ -12,7 +12,10 @@ owns the controller, not the bridge.
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import subprocess
 import time
 from pathlib import Path
 
@@ -236,6 +239,55 @@ def answer_all(run: TaskRun, answers: dict[str, str]) -> str:
     return note + (f" Still open, answer again: {', '.join(missing)}." if missing else "")
 
 
+CHANGESET_TIMEOUT = 300  # changeset status and approve read, and approve, every run of the set
+
+
+def _changeset_cli(run: TaskRun, argv: list[str]) -> subprocess.CompletedProcess:
+    env = {**os.environ, **run.env} if run.env else None
+    try:
+        return run_process([*run.command, *argv], env=env, timeout=CHANGESET_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise BridgeError("the change set did not answer in time; it is relayed again on the next poll") from None
+
+
+def changeset_summary(run: TaskRun, view: dict) -> dict | None:
+    """``changeset status --json`` for a plan gate of a run in a change set, else None; a set that
+    cannot be read is relayed as this run's plan alone."""
+    if (view.get("needs") or {}).get("kind") != "approve_plan" or not (view.get("scope") or {}).get("linked"):
+        return None
+    argv = actions.changeset_status(view, run.workspace, run.run_dir)
+    if argv is None:
+        return None
+    try:
+        reply = _changeset_cli(run, argv)
+        summary = json.loads(reply.stdout)
+    except (BridgeError, OSError, ValueError):
+        return None
+    return summary if reply.returncode == 0 and isinstance(summary, dict) and "error" not in summary else None
+
+
+def approve_set(run: TaskRun, view: dict, shown_token: str) -> str:
+    """The change set's named set approval, only for the set token this issue was shown."""
+    summary = changeset_summary(run, view)
+    token = ((summary or {}).get("approval") or {}).get("set_token")
+    if not summary or not token or not shown_token or token != shown_token:
+        raise BridgeError(
+            "that set approval matches no change set shown here; the current plans are relayed for a fresh decision"
+        )
+    try:
+        argv = actions.changeset_action(summary, "approval")
+    except actions.ClientGap as error:
+        raise BridgeError(str(error)) from None
+    reply = _changeset_cli(run, argv)
+    if reply.returncode != 0:
+        try:
+            message = json.loads(reply.stdout).get("error")
+        except (ValueError, AttributeError):
+            message = None
+        raise BridgeError(message or (reply.stderr or reply.stdout or "").strip()[-500:] or "the set approval failed")
+    return "Every plan of the change set is approved; each run builds."
+
+
 def take(run: TaskRun, view: dict, action: ReplyAction) -> str:
     """Execute the one action a reply named, against the fresh view the caller just read."""
     need = view.get("needs") or {}
@@ -249,6 +301,8 @@ def take(run: TaskRun, view: dict, action: ReplyAction) -> str:
             )
         run.approve_plan(token)
         return "Plan approved; the build is starting."
+    if action.kind == "approve_set":
+        return approve_set(run, view, action.shown_token)
     if action.kind == "review":
         token = actions.approval_token(view)
         if not token or not action.shown_token or token != action.shown_token:

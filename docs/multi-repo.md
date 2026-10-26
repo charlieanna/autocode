@@ -46,8 +46,8 @@ deliver only the API half.
   `/changeset` shows every run and asks before approving the plans together or running the
   check. `/runs` groups the chats of one change set
   ([Change sets in clients](task-run.md#change-sets-in-clients)). VS Code's Run details does the
-  same with one button. The channel bridge follows in
-  [#2066](https://github.com/charlieanna/autocode/issues/2066).
+  same with one button. On a GitHub issue, the channel bridge posts every run's plan and takes
+  `approve set`.
 - **Component builds stay inside one repository.** `autocode components` builds
   several components in parallel, but every component worktree comes from the
   same repository's HEAD, and integration applies their changes to a worktree of

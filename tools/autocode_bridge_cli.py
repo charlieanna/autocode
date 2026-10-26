@@ -210,7 +210,7 @@ class Bridge:
         self.deliver(record, run)
 
     def relay_gate(self, record: dict, run, view: dict) -> None:
-        result = bridge_relay.relay(view, record)
+        result = bridge_relay.relay(view, record, worker.changeset_summary(run, view))
         if result.publish_questions:
             worker.publish_questions(run, view)
             return

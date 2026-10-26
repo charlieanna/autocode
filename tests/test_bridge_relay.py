@@ -195,3 +195,55 @@ class InterpretTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def changeset_summary(set_token=None):
+    other = {
+        "role": "member",
+        "target": "greet-history",
+        "workspace": "/work/history",
+        "run_dir": "/work/history/.autocode/runs/m1",
+        "status": "AWAITING_GOAL_APPROVAL" if set_token else "WAITING_FOR_USER",
+        "plan": plan_view("m1:def")["displayed_plan"] if set_token else None,
+    }
+    command = ["autocode", "changeset", "approve", "--run-dir", RUN, "--set-token", set_token] if set_token else None
+    return {
+        "changeset": "changeset-1",
+        "runs": [{"role": "source", "target": "project", "workspace": WORKSPACE, "run_dir": RUN}, other],
+        "approval": {
+            "set_token": set_token,
+            "waiting_on": [] if set_token else ["greet-history"],
+            "next_command": command,
+        },
+        "verification": {
+            "waiting_on": ["project", "greet-history"],
+            "done": False,
+            "merge_order": [],
+            "next_command": None,
+        },
+    }
+
+
+class ChangesetRelayTests(unittest.TestCase):
+    def view(self):
+        return {**plan_view(), "run_dir": RUN}
+
+    def test_a_plan_gate_in_a_change_set_offers_the_set_approval_once_it_is_named(self):
+        waiting = relay.relay(self.view(), {"gate": {}}, changeset_summary())
+        self.assertEqual(2, len(waiting.messages))
+        self.assertIn("waiting on: greet-history", waiting.messages[1])
+        self.assertIsNone(waiting.gate["set_token"])
+        ready = relay.relay(self.view(), {"gate": waiting.gate}, changeset_summary("set-1"))
+        self.assertNotEqual(waiting.gate["key"], ready.gate["key"], "the set becoming approvable is a new gate")
+        self.assertEqual(("r1:abc", "set-1"), (ready.gate["token"], ready.gate["set_token"]))
+        self.assertIn("Reply `approve set`", ready.messages[1])
+        self.assertIn("**greet-history's plan**", ready.messages[1])
+        self.assertIn("greets by name", ready.messages[1], "the other run's plan is shown before it is approved")
+        self.assertEqual([], relay.relay(self.view(), {"gate": ready.gate}, changeset_summary("set-1")).messages)
+
+    def test_only_the_set_reply_takes_the_set_approval_with_the_shown_token(self):
+        gate = {"token": "r1:abc", "set_token": "set-1"}
+        action = relay.interpret({"gate": gate}, self.view(), "  Approve   SET ")
+        self.assertEqual(("approve_set", "set-1"), (action.kind, action.shown_token))
+        self.assertEqual("approve", relay.interpret({"gate": gate}, self.view(), "approve").kind)
+        self.assertEqual("feedback", relay.interpret({"gate": gate}, self.view(), "approve the set please").kind)
