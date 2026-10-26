@@ -8,6 +8,10 @@ buggy code. A historical checkpoint supplies source only, never a PASS receipt.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_acceptance_provenance as provenance
@@ -25,7 +29,7 @@ except ImportError:
     import autocode_util as util
 
 
-def context(state, workspace, run_dir, cases):
+def context(state: RunState, workspace, run_dir, cases):
     """Bind only new guards to the exact previously completed source, or refuse."""
     if not state.get("turns"):
         return None
@@ -33,7 +37,8 @@ def context(state, workspace, run_dir, cases):
     if previous is None or not contracts.approved(state):
         return None
     old = {row["id"]: row for row in previous["body"].get("acceptance_criteria", [])}
-    current = {row["id"]: row for row in state["goal_contract"]["body"].get("acceptance_criteria", [])}
+    current_contract = state.get("goal_contract") or {}
+    current = {row["id"]: row for row in current_contract["body"].get("acceptance_criteria", [])}
     guards = [row for row in cases if row.get("kind") == "preserve" and row["id"] in current and row["id"] not in old]
     if not guards:
         return None
@@ -101,11 +106,12 @@ def collect(context, workspace, out, result, framework, *, verify, dependencies,
             verify.remove_tree(workspace, tree)
 
 
-def apply(proof, context, receipt, result):
+def apply(proof, context, receipt, result, *, refused=None):
     """Add fresh pass-before/pass-after evidence without changing original flips."""
     proof["follow_up_baseline"] = {key: value for key, value in context.items() if key != "cases"}
     proof.setdefault("case_tests", {})
     results = receipt.get("results") or {}
+    refused = refused or {}
     command_failure = receipt.get("exit_code") not in (0, 1) or (
         receipt.get("exit_code") == 1 and not results.get("failed")
     )
@@ -121,7 +127,9 @@ def apply(proof, context, receipt, result):
         cid = case["id"]
         framework = proof.get("framework") or {}
         framework = framework.get("name") if isinstance(framework, dict) else framework
-        before = test_cases.match_cases([case], results.get("passed") or [], framework=framework)[cid]
+        before = test_cases.match_cases(
+            [case], [test for test in results.get("passed") or [] if test not in refused], framework=framework
+        )[cid]
         candidate = set(proof.get("pass_to_pass") or []) | set(proof.get("fail_to_pass") or [])
         matches = [test for test in before if test in candidate]
         before_failed = test_cases.match_cases(

@@ -699,7 +699,7 @@ def _proving(
                 inputs=inputs,
                 timeout=suite_timeout(state),
             )
-            follow_up_proof.apply(proof, turn_baseline, receipt, result)
+            follow_up_proof.apply(proof, turn_baseline, receipt, result, refused=refused)
             if receipt.get("command"):
                 result["checks"]["follow_up_baseline"] = receipt
         proof["checks"] = {

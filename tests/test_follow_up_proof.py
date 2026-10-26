@@ -142,6 +142,21 @@ class FreshGuardEvidence(unittest.TestCase):
         self.assertEqual("FAIL", proof["verdict"])
         self.assertEqual([], proof["case_tests"]["AC2"])
 
+    def test_a_wrapper_refusal_cannot_become_a_follow_up_guard(self):
+        proof = {
+            "verdict": "PASS",
+            "fail_to_pass": ["test_guard"],
+            "pass_to_pass": [],
+            "failures": [],
+            "unverified": [],
+        }
+        receipt = {"exit_code": 0, "results": {"complete": True, "passed": ["test_guard"], "failed": []}}
+        follow_proof.apply(
+            proof, {"cases": [CASE]}, receipt, {}, refused={"test_guard": "only launches another runner"}
+        )
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertEqual([], proof["case_tests"]["AC2"])
+
     def test_skip_import_error_timeout_or_incomplete_output_is_not_fresh_pass(self):
         for extra in (
             {"timed_out": True},
