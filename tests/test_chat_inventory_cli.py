@@ -118,8 +118,12 @@ raise SystemExit(code)
                 screen.type("X")
                 screen.wait_for(lambda shown: composer_text(shown) == "B draft 你X好", 10)
                 screen.keys("C-u")
+                screen.wait_for(lambda shown: composer_text(shown) == "", 1)
                 (root / "hold").touch()
                 screen.type("/runs")
+                # The setup switches tabs asynchronously. Bind Enter to the
+                # visibly populated composer, not an older blank prompt.
+                screen.wait_for(lambda shown: composer_text(shown) == "/runs", 1)
                 screen.keys("Enter")
                 screen.wait_for(
                     lambda shown: all((root / (kind + "-held")).exists() for kind in ("project", "all")), 10

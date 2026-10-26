@@ -64,5 +64,6 @@ model requests or faster service responses.
 
 The wider suite also exposed a terminal-test race: it sampled as soon as an old
 entry label appeared, before curses finished drawing the new list footer. The
-check now waits for both intended list content and its footer, retaining every
-open-tab/key/help/quit assertion and adding no fixed sleep.
+check now waits for both intended list content and its footer, then binds Enter
+to the visibly populated composer after asynchronous tab setup. It retains every
+open-tab/key/help/quit assertion and adds no fixed sleep.
