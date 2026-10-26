@@ -163,41 +163,11 @@ def git(root: Path, *args: str, check: bool = True) -> str:
 
 
 def stage_source(worktree):
-    """Stage Git-visible source, preserving arbitrary names and excluding run data."""
-    proc = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(worktree),
-            "-c",
-            "core.fileMode=true",
-            "ls-files",
-            "--cached",
-            "--modified",
-            "--deleted",
-            "--others",
-            "--exclude-standard",
-            "-z",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode:
-        raise IssueError("Could not inventory source to stage: " + proc.stderr.strip())
-    names = sorted({name for name in proc.stdout.split("\0") if delivery.source_name(name)})
-    for start in range(0, len(names), 500):
-        git(
-            worktree,
-            "-c",
-            "core.fileMode=true",
-            "add",
-            "-A",
-            "--",
-            *(":(literal)" + name for name in names[start : start + 500]),
-        )
-    staged = git(worktree, "diff", "--cached", "--name-only", "-z").split("\0")
-    if any(name == ".autocode" or name.startswith(".autocode/") for name in staged):
-        raise IssueError("Run data is already staged; remove .autocode paths from the index before preparing a PR")
+    """Stage exactly the public delivery source inventory."""
+    try:
+        delivery.stage_source(worktree)
+    except ValueError as error:
+        raise IssueError(str(error)) from error
 
 
 def project_root(path: str | None) -> Path:

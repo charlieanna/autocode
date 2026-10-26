@@ -53,6 +53,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("tests.test_schema_prompt_formatting", "tests.test_report_repair"),
     ),
     ("tools/prompts/fragments/autocode/execute-report-repair-06.md", ("tests.test_report_repair",)),
+    ("tests/coordination_provider.py", ("tests.test_coordination_tui_e2e",)),
     ("docs/schemas/status-view.schema.json", ("tests.test_json_contract",)),
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture", "tests.test_review_attribution_cli")),
     ("scenarios/harness/profiles.py", ("tests.test_kilocode_effort",)),
@@ -182,6 +183,25 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        (
+            "tools/autocode_coordinate.py",
+            "tools/autocode_coordination_",
+            "tools/autocode_chat_coordination.py",
+            "tools/autocode_chat_client.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_taskrun.py",
+            "tools/autocode_related_profile.py",
+            "tools/autocode_scope_assignment.py",
+            "tools/autocode_action_scope.py",
+            "tools/autocode_verify_task.py",
+            "tools/autocode_verify_record.py",
+            "tools/autocode_issue_delivery.py",
+            "tools/autocode_github.py",
+            "tools/autocode_scope_question.py",
+        ),
+        ("tests.test_coordinate", "tests.test_coordination_tui_e2e"),
+    ),
     (
         ("tools/autocode_run_view.py", "tools/autocode_status_command.py", "tools/autocode_worker_view.py"),
         ("tests.test_json_contract", "tests.test_worktrees"),

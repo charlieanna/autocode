@@ -38,6 +38,7 @@ SUBCOMMANDS = {
     "issue": "autocode_issue",
     "bridge": "autocode_bridge_cli",
     "changeset": "autocode_changeset",
+    "coordinate": "autocode_coordinate",
     "arena": "autocode_arena",
     "dashboard": "dashboard.agent_console",
     "unattended": "autocode_unattended",

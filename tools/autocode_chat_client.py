@@ -58,6 +58,7 @@ try:
     from . import autocode_chat_attention_discovery as attention_discovery
     from . import autocode_chat_changeset as changeset
     from . import autocode_chat_context as contexts
+    from . import autocode_chat_coordination as coordination
     from . import autocode_chat_inventory as inventory
     from . import autocode_chat_panel as panel
     from . import autocode_chat_polling as polling
@@ -70,6 +71,7 @@ except ImportError:
     import autocode_chat_attention_discovery as attention_discovery
     import autocode_chat_changeset as changeset
     import autocode_chat_context as contexts
+    import autocode_chat_coordination as coordination
     import autocode_chat_inventory as inventory
     import autocode_chat_panel as panel
     import autocode_chat_polling as polling
@@ -132,7 +134,8 @@ class History:
     """
 
     def __init__(self, workspace: Path, *, command=AUTOCODE, env=None, new: setup.NewChat | None = None):
-        self.workspace, self.command, self.env = Path(workspace), tuple(command), env
+        self.workspace, self.command = Path(workspace), tuple(command)
+        self.env = coordination.environment(workspace, env)
         self.rows: list[dict] = []
         self.attention: attention_discovery.Discovery | None = None
         self.overview: inventory.Overview | None = None
@@ -233,6 +236,8 @@ class History:
 
     def slash(self, name: str, argument: str, current=None):
         """/runs, /open N and /new; the other client commands need a run to act on."""
+        if name == "/repos":
+            return coordination.repositories(self, argument)
         if self.overview is not None and name in ("/open", "/new"):
             self.overview.cancel_navigation()
         if name == "/attention":
@@ -295,7 +300,7 @@ class ChatClient:
     ):
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
         self.command = tuple(command)
-        self.env = env
+        self.env = coordination.environment(workspace, env)
         self._ask, self._say = ask, say
         self.poll_seconds = poll_seconds
         # A renderer's view of the run, and its wait between polls; "pause" asks for the view's pause.
@@ -479,8 +484,9 @@ class ChatClient:
         the first asks for the view's boundary pause, the second interrupts the child
         and a third stops it. The chat never exits while the child still runs.
         """
-        if ("--new-run-dir" in argv and self._execution_offer.get("id") == "durable_local") or (
-            ((self._status_view or {}).get("execution") or {}).get("mode") == "durable_local"
+        if argv[:1] != ["coordinate"] and (
+            ("--new-run-dir" in argv and self._execution_offer.get("id") == "durable_local")
+            or (((self._status_view or {}).get("execution") or {}).get("mode") == "durable_local")
         ):
             return worker.advance(self, argv, env)
         with tempfile.TemporaryFile("w+") as log:
@@ -526,6 +532,9 @@ class ChatClient:
             if child.returncode not in (0, 2):
                 log.seek(0)
                 raise actions.ClientGap(f"AutoCode exited {child.returncode}: {log.read()[-2000:].strip()}")
+            if argv[:1] == ["coordinate"] and child.returncode:
+                log.seek(0)
+                raise actions.ClientGap("Coordination stopped: " + log.read()[-2000:].strip())
             if str(self.run_dir) not in self.viewed:
                 try:
                     self.status()
@@ -544,6 +553,15 @@ class ChatClient:
         )
         try:
             view = self.status()
+            if view.get("coordination"):
+                words = coordination.named(view["coordination"].get("cancel_command"), self.run_dir, "cancel")
+                proc = self.cli(words)
+                self.say(
+                    "Coordination cancelled at the next boundary; saved work is retained."
+                    if proc.returncode == 0
+                    else "Cancellation receipt is unconfirmed: " + tail(proc)
+                )
+                return True
             words = actions.pause(view, f"chat-pause-{secrets.token_hex(8)}", self.workspace, self.run_dir)
         except actions.ClientGap as error:
             self.say(f"{error}. {again}")
@@ -616,7 +634,7 @@ class ChatClient:
             return self.tab(argument)
         if name == "/changeset":
             return self.changeset()
-        if name in ("/runs", "/open", "/new", "/mode", "/engine", "/connect"):
+        if name in ("/runs", "/open", "/new", "/mode", "/engine", "/connect", "/repos"):
             if self.history is None:
                 return "This chat has no project list."
             self.history.overview = self._overview
@@ -1022,6 +1040,8 @@ class ChatClient:
                 self.say("Nothing sent; current status is required before a task decision.")
             return None
         self.show(view)
+        if view.get("coordination"):
+            return coordination.step(self, view, render_plan)
         if view.get("done"):
             if not self.follow_up(view):
                 self.say("\nDone.")

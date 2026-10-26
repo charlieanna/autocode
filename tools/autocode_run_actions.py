@@ -32,6 +32,7 @@ try:
     from . import autocode_action_prepare as action_prepare
     from . import autocode_action_recovery as action_recovery
     from . import autocode_action_resolver as action_resolver
+    from . import autocode_action_scope as action_scope
     from . import autocode_conversation_ingress as conversation_ingress
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
@@ -55,6 +56,7 @@ except ImportError:
     import autocode_action_prepare as action_prepare
     import autocode_action_recovery as action_recovery
     import autocode_action_resolver as action_resolver
+    import autocode_action_scope as action_scope
     import autocode_conversation_ingress as conversation_ingress
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
@@ -297,6 +299,7 @@ STEPS = (
     action_authority.reconsider,  # AutoResolver reconsiders its operational request
     action_recovery.resume,  # --abandon-stage, or an explicit resume's recovery
     prepare,  # migration, settings, queued input, --retry-builder
+    action_scope.apply,  # exact core-owned external repository assignment; no plan approval
     action_decisions.apply,  # answers, approvals, feedback and completion
     admit,  # a completed or waiting run stops; anything else is made ready to build
 )

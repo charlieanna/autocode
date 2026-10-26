@@ -11,7 +11,66 @@ repository. A ticket that adds a field to an API service and records it in a
 history service is two pieces of work. A run started in the API repository can
 deliver only the API half.
 
-## What AutoCode does today
+## Automatic bug fixes from terminal chat
+
+Start `autocode chat` in the repository where you see the symptom. On a supported
+Linux host, use an owned chat (the default), set up your coding backend with `/connect`, then authorize the local
+Git checkouts AutoCode may use:
+
+```text
+/repos /path/to/order-api
+/repos /path/to/history-service
+/repos /path/to/tax-service
+Submitting an order records the wrong total.
+```
+
+This catalog is setup, not a list you must add to each bug report. `/repos` shows
+it. Chat setup and related runs share one registry; `AUTOCODE_HOME` can select a
+shared registry across projects. Checkouts need committed product code, a branch
+identifying the delivery base, a GitHub `origin`, Git push authentication, and
+`gh auth login`, `GITHUB_TOKEN` or `GH_TOKEN` for PR creation. `/repos` shows
+authentication readiness. Before creating a worktree, AutoCode checks repository
+write access and that the local baseline matches the remote delivery branch.
+Missing checkouts must be made
+available before their work starts. Parent-folder scanning and remote cloning
+remain separate catalog work under #2066.
+
+The Investigator traces the symptom through code. Grounded repository names
+resolve against registered directory, GitHub or package names. A unique match is
+selected automatically; ambiguity or missing access stops for your input.
+Model-supplied paths and URLs do not authorize a checkout. Further discoveries
+join the same coordination, including A → B → C dependencies absent from the
+request. Every member works in an isolated, pinned worktree. Original product
+files remain untouched.
+
+If the set expands after a member finishes, AutoCode reopens completed peers and
+shows a fresh cohort approval with the new member. Earlier approvals cannot
+release implementation against the expanded set.
+
+Read and approve the displayed member plans. AutoCode retains the selected role
+routes, efforts and run limits. A configured money cap is shared across sequential
+launches using the core's known-cost accounting; unknown cost remains unknown.
+After each member passes its checks, a separate
+integration Builder derives a joint regression from the symptom and interfaces.
+Chat displays this plan for approval too; you do not write its test command.
+Corrections discovered in the integration copies return through member follow-ups
+and fresh coordinated approval. A failed independent check also returns its
+diagnostics to a new integration plan, retaining the failed evidence. The limits
+are 12 repositories and three joint attempts.
+
+Independent review and runner execution must establish fail-before/pass-after
+evidence. Integration copies must match the member trees exactly. Missing checks,
+waivers and individual PASS reports cannot authorize publication. AutoCode commits
+the checked files, pushes reserved branches and creates linked PRs with exact
+revisions and the joint evidence binding. Reopening the chat reconciles existing
+publications; an uncertain result never authorizes a second PR creation. PRs are
+not merged automatically.
+
+`/pause` cancels further coordination and requests a boundary pause from active
+members, retaining files and existing PRs. The TUI consumes the public
+[coordination contract](task-run.md#automatic-coordination-from-chat).
+
+## Manual change sets
 
 - **Requirements and the Investigator notice the other repository.** When the request or the code they
   read shows that part of the work belongs elsewhere, the report
@@ -71,12 +130,8 @@ deliver only the API half.
 
 ## Walkthrough: a bug reveals another repository
 
-This is the **current manual fallback**, not the intended everyday chat flow.
-The owner-approved target in [#2155](https://github.com/charlieanna/autocode/issues/2155)
-is automatic discovery, coordinated fixes, a combined regression and linked PRs
-from the original TUI bug request. The person should answer genuine ambiguities
-and required approvals, not supply repository topology or an integration command.
-That full workflow remains unimplemented and unverified.
+This walkthrough describes explicit `changeset` commands for callers that manage
+their own integration check. Terminal bug chats use the automatic flow above.
 
 Suppose you report “Submitting an order records the wrong total” in `order-api`.
 The Investigator finds a call to `history-service` and reports that its consumer
@@ -201,6 +256,9 @@ discover an arbitrary service dependency.
 
 | Case | Coverage |
 | --- | --- |
+| TUI symptom → A → B → C discovery → fixes → joint regression → three PRs | `tests/test_coordination_tui_e2e.py`: public chat actions, real Git repositories and actual producer/consumer calls, independent fail-before/pass-after proof, offline GitHub publication and cross-links |
+| Locally passing but incompatible member; lost PR response and reopened chat | The same full-flow test requires a revised coordinated plan, a second joint regression, no publication before correction and exactly one PR per repository; changed joint-test bytes withdraw completion |
+| Missing or ambiguous repository, missing credentials/access, stale approval, cancellation, changed source/remote, exhausted joint retries | `tests/test_coordinate.py`: refusal or bounded correction before launching/publishing; `tests/test_control_tokens.py` keeps coordination approval tokens out of provider environments |
 | Initial bug request omits the other repository; Investigator cites a local service client | `tests/test_bug_questions.py`: pause before planning, public registration of a fresh checkout, linked start, reciprocal links, no Builder, explicit local-only answer |
 | New external work during a follow-up with an existing plan | `tests/test_scope_question_cli.py`: asks again and invalidates earlier authority |
 | Invalid target or unregistered checkout; stale or interrupted set approval | `tests/test_changeset_cli.py`: rejects unknown members, stale tokens and Builder dispatch after partial approval; retry and explicit standalone release |
@@ -214,9 +272,18 @@ limits:
 
 - Discovery depends on the model reporting grounded external work; it does not
   crawl every repository or automatically clone a missing one.
-- The person selects and links checkouts and supplies the joint check. A parent
-  folder containing sibling repositories is still unsupported.
-- Without a named integration command, `verification.done` means all individual
+- Automatic coordination currently supports owned terminal chats on Linux and
+  local Git repositories containing ordinary files. Symlinks, submodules and
+  `durable_local` coordination are refused explicitly; saved execution policies
+  are never silently changed.
+- Independent verification also requires preservation evidence from the original
+  combined suite. If that suite cannot collect or supplies no complete passing
+  test evidence, the result remains unverified and bounded retries stop with
+  diagnostics.
+- The manual change-set API leaves linking and the check command to its caller.
+  Automatic TUI coordination supplies them and requires its separate joint gate.
+  A parent folder containing sibling repositories is still unsupported.
+- In the manual change-set API, without a named integration command, `verification.done` means all individual
   runs completed. It does **not** prove the producer and consumer agree. Name the
   check before treating the overall bug as resolved.
 - Set approval binds member plans; a separately versioned shared-interface

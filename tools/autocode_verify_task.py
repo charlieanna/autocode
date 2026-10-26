@@ -180,12 +180,27 @@ def verify(args, contract):
         "--evidence-provenance",
         args.evidence_provenance,
     ]
-    if args.provider:
+    if getattr(args, "related_profile", None):
+        options = [
+            "--workflow",
+            "review",
+            "--related-profile",
+            str(args.related_profile),
+            "--related-profile-sha256",
+            args.related_profile_sha256,
+            "--max-seconds",
+            str(args.max_seconds),
+            "--max-stage-seconds",
+            str(args.max_stage_seconds),
+        ]
+    if args.provider and not getattr(args, "related_profile", None):
         options += ["--provider", args.provider]
-    if args.model:
+    if args.model and not getattr(args, "related_profile", None):
         options += ["--sol-model", args.model]
-    if args.reasoning_effort:
+    if args.reasoning_effort and not getattr(args, "related_profile", None):
         options += ["--sol-reasoning-effort", args.reasoning_effort]
+    if getattr(args, "max_cost_usd", None) is not None:
+        options += ["--max-cost-usd", str(args.max_cost_usd)]
     try:
         child_run = TaskRun.start(
             review_workspace,
@@ -304,13 +319,16 @@ def parser():
     )
     result.add_argument("--engine", choices=("codex", "opencode"), default="opencode")
     result.add_argument("--provider", help="Configured provider for the independent review")
+    result.add_argument("--related-profile", type=Path, help="Pinned role routing and limits from a coordinating run")
+    result.add_argument("--related-profile-sha256", help="Exact SHA-256 of --related-profile")
     result.add_argument("--model", help="Independent Code Reviewer model")
-    result.add_argument("--reasoning-effort", choices=("low", "medium", "high"), default="medium")
+    result.add_argument("--reasoning-effort", choices=("low", "medium", "high", "xhigh", "max"), default="medium")
     result.add_argument("--evidence-provenance", choices=("fake", "live", "unknown"), default="unknown")
     result.add_argument("--suite-command", help="Project suite command for external-change proof")
     result.add_argument("--check-timeout", type=int, default=900, help="Seconds per independent proof/check command")
     result.add_argument("--max-seconds", type=int, default=900, help="Total review provider time limit")
     result.add_argument("--max-stage-seconds", type=int, default=600, help="Review stage time limit")
+    result.add_argument("--max-cost-usd", type=float, help="Cost cap for the independent review")
     result.add_argument("--json", action="store_true", help="Print the verdict and canonical report as JSON")
     return result
 

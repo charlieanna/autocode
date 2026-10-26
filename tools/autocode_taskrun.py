@@ -601,6 +601,10 @@ class TaskRun:
     def bind_dependency(self, specification: Path) -> dict:
         return self._act("bind dependency", "--bind-dependency", str(specification))
 
+    def assign_linked_scope(self, identity: str) -> dict:
+        """Accept the core's exact repository assignment, never a plan approval."""
+        return self._act("assign linked scope", "--assign-linked-scope", identity)
+
     def receive_dependency(self, manifest: Path) -> dict:
         return self._act("receive dependency", "--receive-dependency", str(manifest))
 

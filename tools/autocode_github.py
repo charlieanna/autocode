@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 try:
     from . import autocode_util as util
@@ -131,6 +131,24 @@ class Client:
         self.token = token if token is not None else (os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN"))
         self.api = (api or os.environ.get("AUTOCODE_GITHUB_API") or API).rstrip("/")
         self.transport = transport
+
+    def pulls_for_branch(self, owner: str, repo: str, *, head: str, base: str) -> list[dict]:
+        query = urlencode({"state": "all", "head": f"{owner}:{head}", "base": base, "per_page": 100})
+        result = self._call("GET", f"/repos/{owner}/{repo}/pulls?{query}")
+        if not isinstance(result, list) or len(result) >= 100 or any(not isinstance(row, dict) for row in result):
+            raise GitHubError("Cannot reconcile pull-request identity for this branch")
+        return result
+
+    def repository(self, owner: str, repo: str) -> dict:
+        result = self._call("GET", f"/repos/{owner}/{repo}")
+        if not isinstance(result, dict):
+            raise GitHubError("Cannot inspect repository access")
+        return result
+
+    def update_pull_body(self, owner: str, repo: str, number: int, body: str) -> dict:
+        if not self.token:
+            raise GitHubError("updating a pull request needs GITHUB_TOKEN or GH_TOKEN")
+        return self._call("PATCH", f"/repos/{owner}/{repo}/pulls/{number}", {"body": util.redact(body)})
 
     def issue(self, ref: IssueRef, max_comments: int = 30) -> dict:
         """The issue with up to max_comments of its most recent comments under "comments_list"."""
