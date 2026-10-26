@@ -1,6 +1,14 @@
 {
-  "as_of": "2026-10-20",
+  "as_of": "2026-10-25",
   "basis": "The minimum standard per role (#1426): automatic selection never chooses a model this table does not list for the role. An entry is qualified by AutoCode's own runs (a shipped default route, or a live qualification profile in scenarios/harness/profiles.py); a public benchmark admits a model only provisionally until such a run confirms it, and selection treats both alike until then. Every entry names its evidence. Routes list the spellings the tools record for the same weights, so one entry covers every tool that serves the model. Updated by pull request, like the price table.",
+  "excluded": {
+    "plan_reviewer": [
+      {
+        "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+        "evidence": "Owner decision 2026-10-20 (#1723): never choose MiMo to review a plan - GPT-6 Sol first, then Claude Opus. On ladder-07 MiMo spent 32-45k reasoning tokens and up to 15 minutes per review and twice ran out of output. The stock glm-mimo-kilo profile still pins it as reviewer, so a live run can reach it; that run qualifies the other roles and leaves this one unqualified."
+      }
+    ]
+  },
   "roles": {
     "requirements": [
       {

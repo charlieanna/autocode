@@ -90,7 +90,8 @@ def parse(document):
             raise ValueError(f"bad qualification role {role!r}")
         for entry in entries:
             _validate_entry(role, entry)
-    return {"as_of": document["as_of"], "roles": document["roles"]}
+    excluded = _validate_excluded(document, document["roles"])
+    return {"as_of": document["as_of"], "roles": document["roles"], "excluded": excluded}
 
 
 def _validate_entry(role, entry):
@@ -118,6 +119,38 @@ def _validate_entry(role, entry):
         or not benchmark["source"]
     ):
         raise ValueError(f"{where}: benchmark needs a name and a source")
+
+
+def _validate_excluded(document, roles):
+    """The models a role must never auto-select, with the decision that says so.
+
+    A profile can pin a route the owner ruled out for automatic selection, so a live run still
+    reaches it; recording the exclusion here keeps the qualification script from re-admitting it
+    and keeps selection from choosing it (#2121)."""
+    excluded = document.get("excluded")
+    if excluded is None:
+        return {}
+    if not isinstance(excluded, dict):
+        raise ValueError("the qualification table's excluded list must be an object of roles")
+    for role, entries in excluded.items():
+        if not isinstance(role, str) or role not in roles:
+            raise ValueError(f"bad excluded role {role!r}")
+        if not isinstance(entries, list) or not entries:
+            raise ValueError(f"excluded {role} needs a nonempty list")
+        listed = {
+            model_identity.identity(route_id)
+            for entry in roles[role]
+            for route_id in entry.get("routes") or [entry["model"]]
+        }
+        for entry in entries:
+            if not isinstance(entry, dict) or not isinstance(entry.get("model"), str) or not entry["model"]:
+                raise ValueError(f"bad excluded entry in {role}: needs a model")
+            where = f"excluded {role}.{entry['model']}"
+            if not isinstance(entry.get("evidence"), str) or not entry["evidence"]:
+                raise ValueError(f"{where}: evidence is required")
+            if model_identity.identity(entry["model"]) in listed:
+                raise ValueError(f"{where}: excluded and also listed as a qualified model")
+    return excluded
 
 
 @lru_cache(maxsize=1)
