@@ -40,6 +40,8 @@ except ImportError:  # executed as a script, with tools/ on sys.path
     import autocode_usage as usage
 
 TABLE = Path(__file__).with_name("autocode_route_qualification.json")
+# Accounting flags that mean an attempt proves nothing about its route (autocode_usage.accounting).
+FAILED = ("runner_owned", "rejected", "timed_out", "interrupted", "active", "report_only")
 
 
 class NotEvidence(ValueError):
@@ -76,14 +78,20 @@ def reached(state: RunState) -> dict:
 
     A stage's unit role is not always the slot whose route it launched (``astra`` runs the
     Plan Reviewer and Completion Reviewer stages), so an attempt counts for its route slot
-    first and its unit role only when no other slot was named (#2114)."""
+    first and its unit role only when no other slot was named (#2114). A reviewer fallback
+    launches on another slot's route, so its attempt counts for that slot.
+
+    Only an attempt that finished with accepted output proves its route. A rejected, timed-out,
+    interrupted, still-active or report-repair attempt does not: a reviewer route that went
+    silent and was replaced by a fallback must not read as qualified because the run completed."""
     rows = (usage.accounting(state) or {}).get("attempts") or []
     seen: dict[str, list[str]] = {}
     for row in rows:
         role = row.get("route_role") or row.get("role")
         model = row.get("model")
-        if role and model and not row.get("runner_owned"):
-            seen.setdefault(role, []).append(model)
+        if not role or not model or any(row.get(flag) for flag in FAILED):
+            continue
+        seen.setdefault(role, []).append(model)
     return seen
 
 
