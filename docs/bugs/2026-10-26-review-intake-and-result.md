@@ -36,3 +36,33 @@ of the merged revision. Deterministic overhead reduction does not establish
 faster model completion. Preserve the prior comparison and failed attempts;
 original public bundle manifest:
 `320462e1c64168c107df4d78c824743e30cc1bbcd961ece021caa57bab286175`.
+
+## Follow-on cause exposed by the matched live review
+
+The first narrowed-intake TUI review completed without retries in 329.710 seconds
+plus a 25.207-second reached-model probe (370.943 seconds observed start to result).
+It made 23 requests and 30 tool calls; reported request intervals covered 193.934
+seconds and tool execution 28.499 seconds. Direct Kilo on byte-identical inputs
+finished in 97.243 seconds, with 12 requests and 14 tool calls. Both passed the
+same external 210 checks with all 3,962 source hashes intact. This remains a slow
+review and the difference is not all attributed to one mechanism.
+
+One concrete mismatch is in provider framing: standalone Reviewer's schema has
+`tests_run` and findings, but no build acceptance checks, criterion evidence or
+receipt fields. It nevertheless received the Validator's capture/receipt and
+PASS-report instructions, and made extra capture invocations. OpenCode/Kilo now
+select a review-only output contract from the actual report capabilities; any
+schema declaring build evidence retains the full capture contract. The complete
+review schema, filesystem/event-log boundary and core-run blocking-finding
+proofs remain. No time cap, effort, model, approval or completion gate changes.
+The original 192 prompt fingerprints remain byte-identical; a new compiled
+review case pins this narrow branch. Compiling the real Review schema proves the formatter selects this branch;
+existing public fake-provider CLI checks preserve patch attribution and
+source/report tampering refusals. A new real-provider qualification must establish
+the observed effect; removing irrelevant instructions cannot guarantee fewer
+model requests or faster service responses.
+
+The wider suite also exposed a terminal-test race: it sampled as soon as an old
+entry label appeared, before curses finished drawing the new list footer. The
+check now waits for both intended list content and its footer, retaining every
+open-tab/key/help/quit assertion and adding no fixed sleep.

@@ -95,7 +95,9 @@ raise SystemExit(code)
                 self.assertIn("Public entry 24", initial, "the first requested list appears without a second command")
                 screen.type("/runs")
                 screen.keys("Enter")
-                shown = screen.wait_for("Public entry 24", 10)
+                shown = screen.wait_for(
+                    lambda frame: "Public entry 24" in frame and "Listed chats are not opened tabs" in frame, 10
+                )
                 self.assertIn("Public entry 00", shown)
                 self.assertIn("Listed chats are not opened tabs", shown)
                 calls = self.calls(root)

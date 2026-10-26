@@ -6,10 +6,38 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from providers import opencode
+from providers import command, opencode
 
 
 class CompactSchemaPromptTests(unittest.TestCase):
+    def test_standalone_review_keeps_its_schema_and_boundary_without_build_receipt_work(self):
+        import autocode_review_job as review
+
+        original, _ = review.prompt({"task": "Review greeting.patch", "workspace": "/project"})
+        packet = original.split("\nCURRENT HANDOFF DATA\n", 1)[1]
+        rendered = opencode.prompt_for_schema(original, review.SCHEMA, Path("/run/events.jsonl"))
+        configured = command.CommandProvider(
+            {"name": "fixture-kilo", "roles": {}, "output": "opencode_events"}, Path("unused.toml")
+        )
+        self.assertEqual(rendered, configured.prompt_for_schema(original, review.SCHEMA, Path("/run/events.jsonl")))
+        self.assertIn("Review report only.", rendered)
+        self.assertIn(json.dumps(review.SCHEMA, separators=(",", ":")), rendered)
+        self.assertEqual(packet, rendered.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+        self.assertIn("runner independently proves", rendered)
+        self.assertIn("strict\nfilesystem boundary", rendered)
+        self.assertIn("Never write, truncate", rendered)
+        self.assertIn("/run/events.jsonl", rendered)
+        self.assertNotIn("For a captured Validator check", rendered)
+        self.assertNotIn("A PASS report", rendered)
+        self.assertNotIn("capture_command", rendered)
+        self.assertIn("every blocking finding", rendered)
+        # A report that actually declares build evidence must retain its protocol,
+        # even when it has all the review fields too.
+        schema = {**review.SCHEMA, "properties": {**review.SCHEMA["properties"], "checks": {"type": "array"}}}
+        mixed = opencode.prompt_for_schema(original, schema, Path("/run/events.jsonl"))
+        self.assertIn("For a captured Validator check", mixed)
+        self.assertIn("capture_command", mixed)
+
     def test_compiled_validator_prefers_receipt_fields_without_retyping_commands(self):
         import autocode_support as support
         from units import common

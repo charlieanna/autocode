@@ -495,6 +495,10 @@
     "bytes": 5040,
     "sha256": "f528c25e617f556a6b69928ed43ddeba208899dd9bfdeda3629b4183148b53ef"
   },
+  "provider/opencode-review-output-contract": {
+    "bytes": 7602,
+    "sha256": "2319d40dfff05c2c3e51382de59369ed930023f442fbb28eb4da9d656d90da46"
+  },
   "repair/baseline/astra_challenge": {
     "bytes": 1495,
     "sha256": "365e556df84772be81b7a934a4239962031b8b68437b0e96b21bd17fa639f511"
