@@ -656,6 +656,7 @@ def evidence(state: RunState) -> dict:
                 "follow_up_baseline",
                 "unstable",
             )
+            if key != "follow_up_baseline" or proof.get(key) is not None
         }
         if isinstance(proof, dict)
         else None,

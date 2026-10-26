@@ -507,6 +507,20 @@ class RunViewTests(unittest.TestCase):
             evidence["regression_proof"],
         )
 
+    def test_follow_up_baseline_metadata_is_present_only_when_recorded(self):
+        proof = {"verdict": "PASS", "case_tests": {"C1": ["test_old"]}}
+        legacy = run_view.evidence({"regression_proof": proof})["regression_proof"]
+        self.assertNotIn("follow_up_baseline", legacy)
+        self.assertEqual(
+            legacy,
+            run_view.evidence({"regression_proof": {**proof, "follow_up_baseline": None}})["regression_proof"],
+        )
+        baseline = {"previous_contract": "r6:approved", "commit": "completed-source", "source_revision": "before"}
+        self.assertEqual(
+            {**legacy, "follow_up_baseline": baseline},
+            run_view.evidence({"regression_proof": {**proof, "follow_up_baseline": baseline}})["regression_proof"],
+        )
+
     def test_workflow_is_none_until_recognized(self):
         self.assertIsNone(run_view.view({"status": "RUNNING"})["workflow"])
         self.assertIsNone(run_view.view({"status": "RUNNING", "workflow": {"kind": None, "then": "x"}})["workflow"])
