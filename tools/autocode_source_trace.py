@@ -243,12 +243,13 @@ def _survival_errors(body, records, waivers):
     criteria = body.get("acceptance_criteria") or []
     source_ids = [record["id"] for record in records]
     for record in records:
+        protected_locations = source_metadata.output_locations(record["text"])
         for sentence in cues.sentences(record["text"]):
             citing = _citing(criteria, sentence, record["id"])
             if not citing:
                 continue
             corpus = _corpus(body, citing)
-            value_text = source_metadata.value_text(sentence, source_ids)
+            value_text = source_metadata.value_text(sentence, source_ids, protected_locations=protected_locations)
             numbers = _NUMBER.findall(_REFERENCE.sub(" ", _STANDARD.sub(" ", value_text)))
             lost = [number for number in dict.fromkeys(numbers) if not _number_in(number, corpus)]
             if lost:
@@ -260,7 +261,9 @@ def _survival_errors(body, records, waivers):
             pseudo = {"acceptance_criteria": stripped, "corpus": corpus}
             lost_literals = [
                 literal
-                for literal in brief_literals.missing(brief_literals.literals([sentence]), pseudo)
+                for literal in brief_literals.missing(
+                    brief_literals.literals([sentence], protected_locations=protected_locations), pseudo
+                )
                 if literal not in bound
             ]
             if lost_literals:

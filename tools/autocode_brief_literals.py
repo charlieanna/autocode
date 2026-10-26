@@ -40,11 +40,14 @@ TOKEN = re.compile(
 )
 
 
-def literals(texts) -> list[str]:
+def literals(texts, *, protected_locations=()) -> list[str]:
     """The inline code spans in ``texts``, in order, without repeats."""
     found = []
     for text in texts:
-        for span in SPAN.findall(source_metadata.without_location_labels(FENCE.sub(" ", text or ""))):
+        content = source_metadata.without_location_labels(
+            FENCE.sub(" ", text or ""), protected_locations=protected_locations
+        )
+        for span in SPAN.findall(content):
             span = " ".join(span.split())
             if span and span not in found:
                 found.append(span)

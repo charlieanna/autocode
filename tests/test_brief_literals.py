@@ -42,6 +42,10 @@ class LiteralsTests(unittest.TestCase):
         text = "- `tools/parser.py:292–363`: reject `event:`.\nPrint `tools/parser.py:292–363` exactly."
         self.assertEqual(["event:", "tools/parser.py:292–363"], literals.literals([text]))
         self.assertEqual(["tools/parser.py"], literals.literals(["Change only `tools/parser.py`."]))
+        self.assertEqual(
+            ["tools/parser.py:292–363"],
+            literals.literals(["Expected output:\n\n- `tools/parser.py:292–363`: location."]),
+        )
 
     def test_inline_spans_in_order_without_repeats_or_fenced_blocks(self):
         text = "Run `a  b`, then `c` and `a b`.\n```\n`not a literal`\n```\nAlso `d`.\n```unterminated `e`"
@@ -111,7 +115,7 @@ class PlannerDraftTests(unittest.TestCase):
         goals.check_requirement_trace(self.state(), {}, todo_contract())
 
     def test_a_documentary_source_label_does_not_block_the_planner_draft(self):
-        task = TODO_BRIEF + "\n- `tools/parser.py:292–363`: existing list parsing lives here."
+        task = TODO_BRIEF + "\nSource locations:\n- `tools/parser.py:292–363`: existing list parsing lives here."
         goals.check_requirement_trace(self.state(task=task), {}, todo_contract())
         with self.assertRaisesRegex(ValueError, "tools/parser.py:292"):
             goals.check_requirement_trace(

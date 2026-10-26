@@ -233,6 +233,7 @@ class ReadyGateTests(unittest.TestCase):
 
     def test_location_outputs_unknown_source_ids_and_real_examples_remain_protected(self):
         cases = (
+            ("Print exactly:\n- `tools/parser.py:292–363`: location.", "Print a location.", "changed a number"),
             ("Print `tools/parser.py:292–363` exactly.", "Print a source location.", "changed a number"),
             ("Print original task:0 exactly.", "Print a source identifier.", "changed a number"),
             (

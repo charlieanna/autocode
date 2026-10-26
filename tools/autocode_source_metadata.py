@@ -11,21 +11,40 @@ from __future__ import annotations
 import re
 
 _LOCATION_LABEL = re.compile(
-    r"^[ \t]*(?:[-*+]\s+)?`(?:[\w.-]+/)*[\w.-]+\.[A-Za-z][\w-]*:[1-9]\d*(?:[-–][1-9]\d*)?`:(?=\s)",
+    r"^[ \t]*(?:[-*+]\s+)?`(?P<location>(?:[\w.-]+/)*[\w.-]+\.[A-Za-z][\w-]*:[1-9]\d*(?:[-–][1-9]\d*)?)`:(?=\s)",
     re.M,
 )
 _INLINE_CODE = re.compile(r"(`[^`\n]*`)")
 _OUTPUT = re.compile(r"\b(?:print|emit|output|return|literal|exactly)\b", re.I)
 
 
-def without_location_labels(text: str) -> str:
+def output_locations(text: str) -> set[str]:
+    """Keep labels introduced as output, including a list under an output heading.
+
+    Ambiguity is conservative: an output use anywhere protects the same location
+    throughout this source record. Blank lines and sibling labels keep that context.
+    """
+    protected = set()
+    output_context = False
+    for line in text.splitlines():
+        label = _LOCATION_LABEL.match(line)
+        if label:
+            if output_context or _OUTPUT.search(line[label.end() :]):
+                protected.add(label["location"])
+        elif line.strip():
+            output_context = bool(_OUTPUT.search(line))
+    return protected
+
+
+def without_location_labels(text: str, *, protected_locations=()) -> str:
     """Remove only documentary labels for the obligation scan, retaining their prose."""
-    return _LOCATION_LABEL.sub(" ", text)
+    protected = output_locations(text) | set(protected_locations)
+    return _LOCATION_LABEL.sub(lambda match: match.group() if match["location"] in protected else " ", text)
 
 
-def value_text(text: str, source_ids) -> str:
+def value_text(text: str, source_ids, *, protected_locations=()) -> str:
     """Text whose numbers denote values, with known source-reference metadata removed."""
-    text = without_location_labels(text)
+    text = without_location_labels(text, protected_locations=protected_locations)
     ids = "|".join(re.escape(value) for value in sorted(set(source_ids), key=len, reverse=True))
     if not ids:
         return text
