@@ -225,10 +225,12 @@ def _validate(document):
     if "effort_origins" in settings:
         origins = settings["effort_origins"]
         if not isinstance(origins, dict) or any(
-            role not in ("plan_reviewer", "terra") or origin not in ("user_explicit", "runner_default", "auto_selected")
+            role not in roles
+            or origin
+            not in ("user_explicit", "single_model", "runner_default", "catalogue_replacement", "auto_selected")
             for role, origin in origins.items()
         ):
-            raise RecordingError("Recording reviewer or builder effort origin is invalid")
+            raise RecordingError("Recording effort origin is invalid")
     for name in ("blobs", "snapshots", "artifacts"):
         if not isinstance(document[name], dict) or len(document[name]) > MAX_FILES:
             raise RecordingError("Recording inventory is invalid or too large")

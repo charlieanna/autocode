@@ -16,9 +16,10 @@ holds, so it stays None. Whether that account is connected, and whether it may b
 the model preflight's answer (autocode_model_preflight), never this record's.
 
 ``reasoning_effort`` is the level a launch passes; None means the model's own default.
-The separate ``settings.effort_origins.<role>`` (the Plan Reviewer and the Builder) records an
-explicit effort choice versus the runner/selector default. Configure owns this map; the planning
-policy reads it. Unknown legacy effort provenance never means a default.
+The separate ``settings.effort_origins.<role>`` (every role of a new run) records an
+explicit effort choice versus the runner/selector default. Configure owns this map; the
+planning policy and the launch-boundary effort fit read it. Unknown legacy effort
+provenance never means a default.
 
 ``origin`` is why the route is what it is, read from the record that moved it, the newest
 cause first: a model named at a quota stop, the Builder's stronger attempt, a ladder climb,
@@ -235,19 +236,15 @@ def _named(args, role, models) -> bool:
     )
 
 
-def record_reviewer_effort(args, settings, *, fresh):
-    """Record effort choice independently of model pins; a resume preserves unknown history.
+def record_efforts(args, settings, *, fresh):
+    """Every configured role's effort provenance, for the launch-boundary fit (#2057).
 
-    Project effort settings arrive on args like their CLI flags. A global effort
-    counts only when the reviewer actually uses it. Old saved routes keep no
-    inferred provenance: their existing effort must survive an upgrade.
+    A role's own flag names it, the global flag names every role that uses it, and a fresh
+    run's remaining roles were the runner's or selector's choice. A saved run keeps unknown
+    provenance, so its existing effort is never moved.
     """
-    _record_effort(args, settings, "plan_reviewer", fresh=fresh)
-
-
-def record_builder_effort(args, settings, *, fresh):
-    """The Builder's effort provenance, so the light first attempt (#1710) never overrides a chosen level."""
-    _record_effort(args, settings, "terra", fresh=fresh)
+    for role in sorted((settings or {}).get("roles") or {}):
+        _record_effort(args, settings, role, fresh=fresh)
 
 
 def _record_effort(args, settings, role, *, fresh):

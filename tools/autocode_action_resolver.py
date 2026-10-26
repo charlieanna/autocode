@@ -24,6 +24,7 @@ import copy
 try:
     from . import autocode_conversation_policy as conversation_policy
     from . import autocode_dispatch as dispatch
+    from . import autocode_effort_question as effort_question
     from . import autocode_follow_up as follow_up
     from . import autocode_interventions as interventions
     from . import autocode_member_stop as member_stop
@@ -39,6 +40,7 @@ try:
 except ImportError:
     import autocode_conversation_policy as conversation_policy
     import autocode_dispatch as dispatch
+    import autocode_effort_question as effort_question
     import autocode_follow_up as follow_up
     import autocode_interventions as interventions
     import autocode_member_stop as member_stop
@@ -63,6 +65,9 @@ OPERATIONAL_NOT_ANSWER = (
 
 def answer(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Apply a model answer to a quota stop or a --resolver-response, saving without launching anything."""
+    fitted = answer_effort_question(runner, args, state, run_dir, workspace)
+    if fitted is not None:
+        return fitted
     routed = answer_quota_question(runner, args, state, run_dir, workspace)
     if routed is not None:
         return routed
@@ -399,6 +404,41 @@ def answer_cross_model_question(runner, args, state: RunState, run_dir, workspac
         )
         candidate["stop_reason"] = (
             f"The {record['job']} now runs on {model} (was {record['from']}). Continue with --resume-paused."
+        )
+        runner.commit_user_action(state, candidate, run_dir)
+    except (ValueError, KeyError) as error:
+        return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
+    print(f"{state['status']}: {state['stop_reason']} Saved; no agent launched.")
+    return 0
+
+
+def answer_effort_question(runner, args, state: RunState, run_dir, workspace):
+    """--answer effort-ROLE=EFFORT at PAUSED_EFFORT_UNSUPPORTED (#2057); None when this invocation answers
+    something else.
+
+    Like the cross-model stop it has no attempt or issued token: the question is the saved route
+    whose person-named level its model does not declare. A declared level is saved as the person's
+    own choice; the person then continues with --resume-paused, as after a cross-model answer.
+    """
+    if state.get("status") != effort_question.STATUS or not (args.answer or args.delegate):
+        return None
+    if not any(item.partition("=")[0].startswith(effort_question.PREFIX) for item in [*args.answer, *args.delegate]):
+        return None
+    candidate = copy.deepcopy(state)
+    try:
+        asked = effort_question.question(candidate)
+        if not asked:
+            raise ValueError("Every named effort is one its model declares now; --resume-paused continues")
+        if args.delegate or args.delegate_all:
+            raise ValueError("An effort question has no default to delegate; choose the level yourself")
+        effort = effort_question.parse_answer(args.answer, asked)
+        if runner.interventions.pending(run_dir):
+            raise ValueError("Apply the queued intervention before answering")
+        record = effort_question.assign(candidate, asked, effort, at=runner.now())
+        following = effort_question.question(candidate)
+        candidate["stop_reason"] = (
+            f"The {record['job']} now runs at {effort} on {record['model']} (was {record['from']}). "
+            + (f"Next: {following['question']}." if following else "Continue with --resume-paused.")
         )
         runner.commit_user_action(state, candidate, run_dir)
     except (ValueError, KeyError) as error:

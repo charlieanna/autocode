@@ -28,6 +28,8 @@ def change(state: RunState, previous_settings):
     after = (state.get("settings", {}).get("roles") or {}).get("resolver")
     origins = previous_settings.get("route_origins") or {}
     selected_origins = state.get("settings", {}).get("route_origins") or {}
+    efforts = previous_settings.get("effort_origins") or {}
+    selected_efforts = state.get("settings", {}).get("effort_origins") or {}
     if not isinstance(effective, dict) or not isinstance(after, dict):
         return None
     if effective == after and origins.get("resolver") == selected_origins.get("resolver"):
@@ -47,6 +49,12 @@ def change(state: RunState, previous_settings):
         "origin_after": selected_origins.get("resolver"),
         "origin_present": "resolver" in origins,
         "origins_present": "route_origins" in previous_settings,
+        # The retry's own effort flag rewrites the effort's provenance (#2057); it is the
+        # same deliberate route change, not independent new evidence.
+        "effort_origin_before": efforts.get("resolver"),
+        "effort_origin_after": selected_efforts.get("resolver"),
+        "effort_origin_present": "resolver" in efforts,
+        "effort_origins_present": "effort_origins" in previous_settings,
     }
 
 
@@ -87,6 +95,14 @@ def unassigned(state: RunState, settings):
                 origins.pop("resolver", None)
             if not origins and not assignment["origins_present"]:
                 settings.pop("route_origins", None)
+            if "effort_origin_after" in assignment:
+                efforts = settings.get("effort_origins") or {}
+                if assignment["effort_origin_present"]:
+                    efforts["resolver"] = assignment["effort_origin_before"]
+                else:
+                    efforts.pop("resolver", None)
+                if not efforts and not assignment["effort_origins_present"]:
+                    settings.pop("effort_origins", None)
         settings = escalation.unclimbed(state, quota_route.unassigned(state, settings), "resolver")
         if settings == before_pass and len(pending) == pending_count:
             break

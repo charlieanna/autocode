@@ -17,8 +17,10 @@ reported and the run continues: the probe proves access, not model obedience.
 
 Writes ``run_dir/model-preflight.json`` and one evidence directory per probe. The
 marker keeps one receipt set per tool identity (provider name plus saved transport
-digest), with reasoning effort included for automatic routes, so a later invocation
-re-probes only model/level pairs that have not yet passed on that same tool. Imports nothing from the controller; the runner is passed in.
+digest), with the route's reasoning effort included when it names one, so a later
+invocation re-probes only model/level pairs that have not yet passed on that same
+tool and a passed level is certified for later fits (#2057). Imports nothing from
+the controller; the runner is passed in.
 
 The automatic selector's access check (#1426 step 8) is the same machinery with a
 different source of routes: pass ``check(..., selection=...)`` the selector's result
@@ -52,6 +54,7 @@ try:
     from . import autocode_provider_auth as provider_auth
     from . import autocode_provider_env as provider_env
     from . import autocode_role_transport as role_transport
+    from . import autocode_route_fit as route_fit
     from . import autocode_support as support
     from . import provider_conformance_transport as transport
 except ImportError:
@@ -62,6 +65,7 @@ except ImportError:
     import autocode_provider_auth as provider_auth
     import autocode_provider_env as provider_env
     import autocode_role_transport as role_transport
+    import autocode_route_fit as route_fit
     import autocode_support as support
     import provider_conformance_transport as transport
 
@@ -216,10 +220,10 @@ def probe(
 ) -> dict:
     """One tiny read-only call for ``model``; returns its recorded outcome.
 
-    A saved route probes at ``low``, the cheapest proof of access. A route the
-    automatic selector chose probes at the role's own reasoning level, because the
-    level is part of the route: a variant that does not exist fails there, not three
-    stages in (#1426 step 8). ``None`` sends no level and the model uses its default.
+    Every route probes at the role's own reasoning level, saved or selected, because
+    the level is part of the route: a variant that does not exist fails at the probe,
+    not three stages in (#1426 step 8, #2057). A passed probe certifies that level for
+    later fits. ``None`` sends no level and the model uses its default.
     """
     directory = directory or run_dir / "model-preflight" / model.replace("/", "__") / f"attempt-{uuid.uuid4().hex}"
     started = time.monotonic()
@@ -356,6 +360,26 @@ def _selected_efforts(routes) -> dict:
     return efforts
 
 
+def certify(state: RunState, model, effort, outcome, checkpoint) -> None:
+    """A probe that passed proves this model serves this level: record it for later fits (#2057).
+
+    The fit reads these levels before a launch; a probe is evidence, never a guess. They are kept
+    apart from the tool's listing: one passed level says nothing about the levels no probe tried.
+    Nothing is recorded for a level-less route or an uncertain outcome.
+    """
+    if not effort or not isinstance(model, str) or (outcome or {}).get("status") != "ok":
+        return
+    settings = state.get("settings")
+    if not isinstance(settings, dict):
+        return
+    recorded = settings.setdefault(route_fit.CERTIFIED, {}).setdefault(model, [])
+    if effort in recorded:
+        return
+    recorded.append(effort)
+    recorded.sort(key=lambda level: route_fit.SCALE.index(level) if level in route_fit.SCALE else len(route_fit.SCALE))
+    checkpoint()
+
+
 def check(
     runner,
     state: RunState,
@@ -392,22 +416,25 @@ def check(
         if selection is not None
         else _billing_groups(runner, state.get("settings") or {}, workspace)
     )
-    if selection is not None:
-        # A successful low-level probe cannot certify another role's higher level.
-        # Bind the durable receipt (and charged attempt) to the exact effort too.
-        split: list[tuple] = []
-        for facade, routes, identity in groups:
-            by_effort: dict[str | None, dict] = {}
-            for role, route in routes.items():
-                by_effort.setdefault(route.get("reasoning_effort"), {})[role] = route
-            for effort, same_level in by_effort.items():
-                bound = {**identity, "reasoning_effort": effort} if identity is not None else None
-                existing = next((group for group in split if bound is not None and group[2] == bound), None)
-                if existing is None:
-                    split.append((facade, dict(same_level), bound))
-                else:
-                    existing[1].update(same_level)
-        groups = split
+    # A successful low-level probe cannot certify another role's higher level. Bind the
+    # durable receipt (and charged attempt) to the exact effort too, for a saved route
+    # (#2057) as for a selection's: the same model at two levels is two route pairs.
+    # A level-less route keeps the older identity, so its saved receipts stay valid.
+    split: list[tuple] = []
+    for facade, routes, identity in groups:
+        by_effort: dict[str | None, dict] = {}
+        for role, route in routes.items():
+            by_effort.setdefault(route.get("reasoning_effort"), {})[role] = route
+        for effort, same_level in by_effort.items():
+            bound = (
+                {**identity, "reasoning_effort": effort} if identity is not None and effort is not None else identity
+            )
+            existing = next((group for group in split if bound is not None and group[2] == bound), None)
+            if existing is None:
+                split.append((facade, dict(same_level), bound))
+            else:
+                existing[1].update(same_level)
+    groups = split
     groups = [(facade, due(routes, state.get("next_stage")), identity) for facade, routes, identity in groups]
     groups = [group for group in groups if group[1]]
     if not groups:
@@ -444,7 +471,10 @@ def check(
             for model in distinct_models({"roles": routes})
             if (probed.get(model) or {}).get("status") != "ok" and (unknown is None or model in unknown)
         ]
-        efforts = _selected_efforts(routes) if selection is not None else {}
+        efforts = _selected_efforts(routes)
+        # Evidence a prior invocation already paid for still proves the level (#2057).
+        for model, outcome in probed.items():
+            certify(state, model, efforts.get(model), outcome, checkpoint)
         receipts.append((facade, routes, identity, probed, wanted, efforts))
     if not any(wanted for *_front, wanted, _efforts in receipts):
         return False
@@ -470,7 +500,7 @@ def check(
         atomic_json(marker, {"version": MARKER_VERSION, "receipts": rows})
 
     pending = [
-        (adapter, identity, probed, model, efforts.get(model, "low"))
+        (adapter, identity, probed, model, efforts.get(model))
         for adapter, _routes, identity, probed, wanted, efforts in receipts
         for model in wanted
     ]
@@ -514,6 +544,7 @@ def check(
             raise
         outcome = attempt.finish(outcome)
         probed[model] = outcome
+        certify(state, model, effort, outcome, checkpoint)
         publish()
         # Stop wins over budget and must also apply after the final probe.
         before_probe()

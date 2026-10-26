@@ -576,6 +576,32 @@ class ArchitectureTests(unittest.TestCase):
         # autocode_util is the bottom layer; one AutoCode import would drag its 18 users back into the cycle.
         self.assertEqual(set(), import_graph()["autocode_util"])
 
+    def test_the_effort_fit_rule_lives_in_one_module(self):
+        # #2057: every derived effort is fitted by one function, so a new tier is not a new place to forget.
+        definitions = {
+            name
+            for name, path in source_modules().items()
+            if any(
+                isinstance(node, ast.FunctionDef) and node.name == "nearest"
+                for node in ast.parse(path.read_text(encoding="utf-8")).body
+            )
+        }
+        self.assertEqual({"autocode_route_fit"}, definitions)
+
+    def test_every_stage_launch_fits_its_effort_at_the_one_boundary(self):
+        # #2057: the fit is called in run_role, before the request is built, for every path.
+        tree = ast.parse((TOOLS / "autocode.py").read_text(encoding="utf-8"))
+        run_role = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "run_role")
+        calls = [
+            node.func.attr
+            for node in ast.walk(run_role)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "route_fit"
+        ]
+        self.assertIn("launch", calls, "run_role must fit the effort it launches")
+
     def test_star_import_shims_preserve_consumer_compatibility_exports(self):
         for prefix in ("", "autocode_cli."):
             for shim_name, (source_name, names) in COMPATIBILITY_EXPORTS.items():

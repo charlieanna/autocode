@@ -35,7 +35,6 @@ try:
     from .. import autocode_compact_planning as compact_planning
     from .. import autocode_design_plan as design_plan
     from .. import autocode_draft_examples as examples
-    from .. import autocode_effort_variants as effort_variants
     from .. import autocode_failures as failures
     from .. import autocode_follow_up as follow_up
     from .. import autocode_goals as goals
@@ -50,6 +49,7 @@ try:
     from .. import autocode_risk_obligations as risk_obligations
     from .. import autocode_role_route as role_route
     from .. import autocode_roles as role_names
+    from .. import autocode_route_fit as route_fit
     from .. import autocode_source_trace as source_trace
     from .. import autocode_stage_context as stage_context
     from .. import autocode_support as s
@@ -70,7 +70,6 @@ except ImportError:
     import autocode_compact_planning as compact_planning
     import autocode_design_plan as design_plan
     import autocode_draft_examples as examples
-    import autocode_effort_variants as effort_variants
     import autocode_failures as failures
     import autocode_follow_up as follow_up
     import autocode_goals as goals
@@ -85,6 +84,7 @@ except ImportError:
     import autocode_risk_obligations as risk_obligations
     import autocode_role_route as role_route
     import autocode_roles as role_names
+    import autocode_route_fit as route_fit
     import autocode_source_trace as source_trace
     import autocode_stage_context as stage_context
     import autocode_support as s
@@ -818,15 +818,14 @@ def apply_reviewer_effort_tier(state: RunState):
     if tier is None:
         return
     # The rung below may be one the model does not declare (GLM 5.3 declares low, high and max: a step from high
-    # lands on medium). Fit it to the declared variants as the profile efforts are (#2015), and record the move;
-    # with no listing the launch check decides, as before (#2020).
+    # lands on medium). Fit it at the one boundary rule (#2015, #2057), and record the move; with no listing the
+    # launch records the plain rung as unverified, as before (#2020).
     model = route.get("model")
-    declared = effort_variants.declared_for(settings, model) if isinstance(model, str) else None
-    fitted = effort_variants.nearest(tier, declared) if declared else None
-    if fitted is not None and fitted != tier:
-        settings.setdefault("effort_fits", {})["plan_reviewer"] = {"from": tier, "to": fitted, "reason": "review_depth"}
-        tier = fitted
-    route["reasoning_effort"] = tier
+    declared = route_fit.declared_for(settings, model) if isinstance(model, str) else None
+    fitted = route_fit.fit(settings, "plan_reviewer", effort=tier, declared=declared)
+    if fitted.reason == "fitted":
+        route_fit.record(settings, "plan_reviewer", fitted, cause="review_depth")
+    route["reasoning_effort"] = fitted.effort
 
 
 def apply_review_depth_policy(state: RunState):

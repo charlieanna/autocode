@@ -371,6 +371,20 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(0, client.converse())
         self.assertEqual([["--feedback", correction]], client.taken)
 
+    def test_an_unsupported_named_effort_is_typed_as_one_of_the_declared_levels(self):
+        """#2039: the chat offered only Continue? [y/N] here, and continuing stopped at the same launch."""
+        from tests.test_effort_question import paused
+
+        view = run_view.view(paused("plan_reviewer"), workspace=WORKSPACE, run_dir=RUN)
+        client = ScriptedChat(view, DONE, replies=["medium", "2"])
+        self.assertEqual(0, client.converse())
+        out = client.text()
+        self.assertIn("does not offer 'medium' effort for the Plan Reviewer", out)
+        self.assertIn("Which effort should the Plan Reviewer run at?", out)
+        self.assertIn("Choose one of low, high, max", out)  # the undeclared level is refused in the client
+        self.assertNotIn("[y/N]", out)
+        self.assertEqual([["--answer", "effort-plan_reviewer=high"]], client.taken)
+
     def test_option_labels_defaults_and_numbers_stay_answers(self):
         for text, expected in (("A", "A"), ("B", "B"), ("1", "A"), ("", "A"), ("3", "3"), ("-1", "-1")):
             with self.subTest(text=text):

@@ -13,12 +13,12 @@ from pathlib import Path
 from . import command, kilocode_policy
 
 try:
-    from .. import autocode_effort_variants as effort_variants
     from .. import autocode_output_cap as output_cap
+    from .. import autocode_route_fit as route_fit
     from .. import autocode_route_levels as route_levels
 except ImportError:
-    import autocode_effort_variants as effort_variants
     import autocode_output_cap as output_cap
+    import autocode_route_fit as route_fit
     import autocode_route_levels as route_levels
 
 # The qualified Kilo release. On Linux, restricted stages already refuse another
@@ -173,9 +173,9 @@ class KiloProvider(command.CommandProvider):
             raise KiloEffortError(f"Cannot verify Kilo reasoning variants for {model}; no model request was launched")
         if effort not in levels[model]:
             supported = ", ".join(levels[model]) or "none (omit the explicit effort)"
-            fit = effort_variants.nearest(effort, levels[model])
+            fit = route_fit.nearest(effort, levels[model])
             advice = (
-                f"Name one of them with {effort_variants.flag(role)} {fit}"
+                f"Name one of them with {route_fit.flag(role)} {fit}"
                 if role and fit
                 else "Choose a supported variant explicitly"
             )

@@ -11,6 +11,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- A reasoning effort you named that the role's model does not declare is now a pause you can answer
+  (#2057). The run stops as `PAUSED_EFFORT_UNSUPPORTED` before any stage launches, and the status view
+  names `--answer effort-ROLE=EFFORT` with the model's declared levels (`needs.effort.declared`) as the
+  only options. The terminal chat, the VS Code client and the headless conformance client offer those
+  levels and refuse any other; the answer saves the level as your choice and the run resumes. Before, the
+  refusal was prose, and the chat could offer only `Continue? [y/N]`, which stopped at the same launch
+  again (#2020, #2039). `TaskRun.assign_effort(role, effort)` gives the same answer.
+
 - The bug Investigator now has a reproduction-first budget (#1902). After 30 completed source-reading or
   searching calls with no attempt to reproduce (`limits.investigation_exploration_budget`; `0` disables;
   no flag yet), the runner stops the stage early instead of letting it read until the stage deadline. It
@@ -354,6 +362,15 @@ PR template asks for an entry here; a change without one is incomplete.
   feedback action with its existing fresh-context checks. Exact/default/numeric choices remain answers;
   no feedback action is invented when the view offers none. Corrections no longer require leaving the
   TUI for `--feedback` (#2078).
+
+- Every role's stage launch fits its reasoning effort to the variants its model declares through one rule
+  (`autocode_route_fit`), so a derived tier — the Plan Reviewer's reduced depth, the Builder's light first
+  attempt, an escalation rung, a route answer or `--single-model` — no longer reaches a variant the model
+  does not serve (GLM 5.3 declares low, high and max, not medium). A runner-chosen level moves to the
+  nearest declared variant and the move is recorded in `effort_fits`; a level a person named is refused at
+  the launch with the flag that changes it; a model with no listing is recorded as `unverified` instead of
+  guessed. The access preflight now probes every billing-routed saved role at its own level, not only
+  automatic routes, and a passing probe certifies that level for later fits (#2057).
 
 - An approval from an earlier turn no longer makes new criterion IDs in the current draft count as
   approved. The Planner can correct its new examples while retaining their source quotes; criteria

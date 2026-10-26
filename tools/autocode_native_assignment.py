@@ -18,8 +18,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_route_fit as route_fit
     from . import autocode_util as util
 except ImportError:
+    import autocode_route_fit as route_fit
     import autocode_util as util
 
 
@@ -174,7 +176,7 @@ def check_candidate(body, candidate, snapshot):
     bound = body["binding"]
     require(
         candidate["goal_contract"] == bound["contract"]
-        and candidate["settings"] == bound["settings"]
+        and route_fit.same(candidate["settings"], bound["settings"])
         and candidate["current_task"] == body["new_task"]
         and snapshot == bound["source"]
         and candidate.get("task_archive", []) == body["task_archive"]
@@ -200,7 +202,7 @@ def committed_chain(rows, binding, *, historical=False):
         for row in rows
         if row["kind"] == "approval-committed"
         and row["body"]["contract"] == binding["contract"]
-        and row["body"]["settings"] == binding["settings"]
+        and route_fit.same(row["body"]["settings"], binding["settings"])
         and row["body"]["runtime_sha256"] == binding["runtime_sha256"]
     ]
     require(len(original) == 1, "missing exact original committed operator approval")
@@ -217,7 +219,7 @@ def committed_chain(rows, binding, *, historical=False):
             require(
                 not pending
                 and body["binding"]["contract"] == binding["contract"]
-                and body["binding"]["settings"] == binding["settings"]
+                and route_fit.same(body["binding"]["settings"], binding["settings"])
                 and body["binding"]["runtime_sha256"] == binding["runtime_sha256"]
                 and body["binding"]["task"] == current
                 and body["binding"]["source"] == source,
@@ -227,7 +229,7 @@ def committed_chain(rows, binding, *, historical=False):
         elif kind == "assignment-committed":
             require(
                 body["binding"]["contract"] == binding["contract"]
-                and body["binding"]["settings"] == binding["settings"]
+                and route_fit.same(body["binding"]["settings"], binding["settings"])
                 and body["binding"]["runtime_sha256"] == binding["runtime_sha256"]
                 and body["binding"]["task"] == current
                 and body["binding"]["source"] == source,
@@ -257,7 +259,10 @@ def committed_chain(rows, binding, *, historical=False):
                 and ack["body"]["task"] == body["new_task"]
                 and ack["body"]["source"] == source
                 and ack["body"]["contract"] == binding["contract"]
-                and ack["body"]["settings_sha256"] == util.digest(binding["settings"])
+                # The ACK hashed the approval's own settings, which may already have carried fit
+                # evidence a later launch then extended (#2057); both readings are the same routes.
+                and ack["body"]["settings_sha256"]
+                in (*route_fit.digests(binding["settings"]), util.digest(origin["body"]["settings"]))
                 and ack["body"]["runtime_sha256"] == binding["runtime_sha256"]
                 and not any(
                     item["kind"] == "parent-commit-invalidated" and item["body"]["parent_commit_id"] == ack["id"]

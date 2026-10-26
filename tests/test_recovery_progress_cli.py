@@ -4,6 +4,7 @@ import json
 import unittest
 
 import autocode as runner
+import autocode_route_fit as route_fit
 import autocode_support as support
 
 from . import test_planning, test_subprocess
@@ -53,7 +54,7 @@ class PlanningRecoveryCLITests(unittest.TestCase):
         self.assertTrue((self.project / "greet.py").is_file())
         after = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
         self.assertEqual("PAUSED_REQUESTED", after["view"]["status"])
-        self.assertEqual(before["settings"], after["settings"])
+        self.assertEqual(route_fit.identity(before["settings"]), route_fit.identity(after["settings"]))
         self.assertEqual(before["view"]["routes"], after["view"]["routes"])
         attempts = lambda view: {row["identity"] for row in view["usage"]["accounting"]["attempts"]}
         self.assertLess(attempts(before["view"]), attempts(after["view"]))

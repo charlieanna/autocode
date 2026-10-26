@@ -1151,6 +1151,32 @@ class RecoveryPacketTests(unittest.TestCase):
                 self.assertEqual("repair", attempt["recovery_novelty"]["action"])
                 self.assertEqual(pointer, attempt["recovery_novelty"]["packet"])
 
+    def test_a_launch_boundary_fit_does_not_stale_the_packets_settings_binding(self):
+        # #2057: the fit records its derivation in settings when each role first launches. That
+        # evidence is not a changed route, so another role's launch must not stale a held packet.
+        def admit(change):
+            state = self.milestone_budget_failure({})
+            plan = {"tasks": [copy.deepcopy(state["current_task"])]}
+            recovery.finish_resolution_packet(state, state.pop("resolution_request"), plan)
+            state.update(repair_plan=plan, next_stage="terra")
+            change(state["settings"])
+            attempt = {"stage": "terra", "output": str(self.run / "repair-builder.json")}
+            recovery.admit_dispatch(state, attempt, self.root, self.run)
+            return attempt
+
+        def fitted(settings):
+            settings["effort_fits"] = {"resolver": {"from": "medium", "to": "high", "reason": "route_fit"}}
+            settings["declared_variants"] = {"zai-coding-plan/glm-5.3": ["low", "high"]}
+
+        self.assertEqual("repair", admit(fitted)["recovery_novelty"]["action"])
+
+        def rerouted(settings):
+            settings["roles"]["terra"] = {**settings["roles"]["terra"], "reasoning_effort": "max"}
+
+        with self.assertRaisesRegex(util.Paused, "settings, contract or scope changed") as caught:
+            admit(rerouted)
+        self.assertEqual("PAUSED_STALE_HANDOFF", caught.exception.status)
+
     def test_a_packet_saved_before_the_milestone_budget_left_its_binding_still_binds(self):
         # Saved-run compatibility (#611): an earlier version hashed the milestone budget with the other settings.
         # Its packet still admits a dispatch while those settings are unchanged; for the packet's own binding, a

@@ -28,6 +28,7 @@ try:
     from . import autocode_design_manifest as design
     from . import autocode_image_delivery as delivery
     from . import autocode_protected_blob_read as protected_blobs
+    from . import autocode_route_fit as route_fit
     from . import autocode_source_scope as source_scope
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_util as util
@@ -43,6 +44,7 @@ except ImportError:
     import autocode_design_manifest as design
     import autocode_image_delivery as delivery
     import autocode_protected_blob_read as protected_blobs
+    import autocode_route_fit as route_fit
     import autocode_source_scope as source_scope
     import autocode_source_snapshot as source_snapshot
     import autocode_util as util
@@ -1552,7 +1554,7 @@ class NativeReviewHistory:
             own["binding"]["task"] == state["current_task"]
             and own["binding"]["source"] == snapshot
             and own["binding"]["contract"] == state["goal_contract"]
-            and own["binding"]["settings"] == state["settings"]
+            and route_fit.same(own["binding"]["settings"], state["settings"])
             and own["binding"]["runtime_sha256"] == util.digest(runtime_files(self.runtime_root))
             and own["receipt"]["scope_verdict"] == "PASS",
             "Checkpoint needs its own exact current accepted native image/functional review",

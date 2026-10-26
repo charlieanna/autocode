@@ -42,6 +42,7 @@ try:
     from . import autocode_criterion_changes as criterion_changes
     from . import autocode_design_coverage as design_coverage
     from . import autocode_efficiency, autocode_usage
+    from . import autocode_effort_question as effort_question
     from . import autocode_escalation_view as escalation_view
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_liveness as liveness_policy
@@ -89,6 +90,7 @@ except ImportError:
     import autocode_criterion_changes as criterion_changes
     import autocode_design_coverage as design_coverage
     import autocode_efficiency
+    import autocode_effort_question as effort_question
     import autocode_escalation_view as escalation_view
     import autocode_finding_rescope as finding_rescope
     import autocode_liveness as liveness_policy
@@ -1093,6 +1095,18 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                 "reason": state.get("stop_reason") or status,
                 "questions": [{field: asked.get(field) for field in QUESTION_FIELDS}],
                 "route": _route(asked),
+            }
+    if status == effort_question.STATUS:
+        # A level a person named that the model does not declare (#2057): the question is derived
+        # from the saved routes, its options are the declared levels, and --answer effort-ROLE=EFFORT
+        # saves one; --resume-paused continues. Once answered, the plain resume below applies.
+        asked = effort_question.question(state)
+        if asked:
+            return {
+                "kind": "answer",
+                "reason": state.get("stop_reason") or status,
+                "questions": [{field: asked.get(field) for field in QUESTION_FIELDS}],
+                "effort": effort_question.need(asked),
             }
     if status == "PAUSED_PERMISSION_LOOP":
         disposition = (state.get("resolver") or {}).get("human_disposition") or {}

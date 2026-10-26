@@ -99,6 +99,7 @@ class RecordingValidationTests(unittest.TestCase):
         self.assertNotIn("effort_origins", recording.load(self.manifest).document["launch"]["settings"])
         document = copy.deepcopy(self.document)
         settings = document["launch"]["settings"]
+        settings["roles"]["plan_reviewer"] = {"model": "fixture-model"}
         for origin in ("user_explicit", "runner_default", "auto_selected"):
             settings["effort_origins"] = {"plan_reviewer": origin, "terra": origin}
             self.save(document)

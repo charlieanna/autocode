@@ -256,6 +256,54 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertFalse(self.check(events))
         self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
 
+    def test_a_saved_route_probes_at_its_roles_effort_and_certifies_the_level(self):
+        # #2057: every route, saved or selected, proves the level it will launch at.
+        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "high"}
+        probed = []
+        execute = self.fake_execute({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS})
+
+        def spy(**kwargs):
+            probed.append((kwargs["model"], kwargs.get("effort")))
+            return execute(**kwargs)
+
+        with patch.object(preflight.transport, "execute", side_effect=spy):
+            runner = types.SimpleNamespace(opencode=self.adapter)
+            self.assertTrue(preflight.check(runner, self.state, self.run_dir, self.root))
+        self.assertEqual({("plan/glm", "high"), ("plan/glm", None), ("plan/mimo", None)}, set(probed))
+        levels = {
+            entry["identity"].get("reasoning_effort"): set(entry["probed"]) for entry in receipt_sets(self.run_dir)
+        }
+        self.assertEqual({None: {"plan/glm", "plan/mimo"}, "high": {"plan/glm"}}, levels)
+        self.assertEqual({"plan/glm": ["high"]}, self.state["settings"]["certified_variants"])
+        self.assertFalse(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}), "both receipts are reused")
+
+    def test_a_saved_receipt_certifies_its_level_without_another_probe(self):
+        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "high"}
+        events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}
+        self.assertTrue(self.check(events))
+        self.state["settings"].pop("certified_variants")
+        self.assertFalse(self.check(events))
+        self.assertEqual({"plan/glm": ["high"]}, self.state["settings"]["certified_variants"])
+        self.assertEqual(3, len(self.calls), "the receipt is evidence; no new request")
+
+    def test_an_uncertain_probe_does_not_certify_its_level(self):
+        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "high"}
+        self.state["settings"]["roles"]["completion"] = {"model": "plan/mimo", "reasoning_effort": "medium"}
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": GARBLED_EVENTS}))
+        self.assertEqual({"plan/glm": ["high"]}, self.state["settings"]["certified_variants"])
+
+    def test_one_model_at_two_saved_levels_is_probed_and_certified_twice(self):
+        del self.state["settings"]["roles"]["astra"]
+        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "high"}
+        self.state["settings"]["roles"]["completion"] = {"model": "plan/glm", "reasoning_effort": "medium"}
+        events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}
+        self.assertTrue(self.check(events))
+        self.assertEqual(["plan/glm", "plan/glm", "plan/mimo"], sorted(self.calls))
+        self.assertEqual(["medium", "high"], self.state["settings"]["certified_variants"]["plan/glm"])
+        self.assertFalse(self.check(events))
+        self.assertEqual(3, len(self.calls), "each level's receipt is reused")
+
     def test_non_billing_adapters_make_no_probe_calls(self):
         runner = types.SimpleNamespace(opencode=types.SimpleNamespace(_config={"command": ["fake"]}))
         self.assertFalse(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}, runner=runner))
@@ -721,8 +769,7 @@ class SelectionPreflightTests(unittest.TestCase):
             self.check(events, self.selection())
         self.assertEqual("PAUSED_BUDGET", caught.exception.status)
 
-    def test_saved_route_probes_still_run_at_low_and_skip_non_billing_tools(self):
-        # The legacy path is unchanged: low effort, and an adapter without [auth] is not probed.
+    def test_saved_routes_skip_a_non_billing_tool(self):
         runner = types.SimpleNamespace(opencode=self.adapter)
         state = {"settings": {"engine": "opencode", "roles": {"terra": {"model": "zai-coding-plan/glm-5.3"}}}}
         events = {"zai-coding-plan/glm-5.3": OK_EVENTS}

@@ -40,6 +40,7 @@ try:
     from . import autocode_output_cap as output_cap
     from . import autocode_process as processes
     from . import autocode_roles as roles
+    from . import autocode_route_fit as route_fit
     from . import autocode_source_scope as source_scope
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_supervision as supervision
@@ -67,6 +68,7 @@ except ImportError:
     import autocode_output_cap as output_cap
     import autocode_process as processes
     import autocode_roles as roles
+    import autocode_route_fit as route_fit
     import autocode_source_scope as source_scope
     import autocode_source_snapshot as source_snapshot
     import autocode_supervision as supervision
@@ -2464,7 +2466,7 @@ class NativeProtection:
             for row in rows
             if row["kind"] == "approval-committed"
             and row["body"]["contract"] == binding["contract"]
-            and row["body"]["settings"] == binding["settings"]
+            and route_fit.same(row["body"]["settings"], binding["settings"])
             and row["body"]["runtime_sha256"] == binding["runtime_sha256"]
         ]
         _require(
@@ -2728,7 +2730,7 @@ class NativeProtection:
         for original, stopped in writers:
             old = original["body"]["binding"]
             _require(
-                old["settings"] == binding["settings"]
+                route_fit.same(old["settings"], binding["settings"])
                 and old["runtime_sha256"] == binding["runtime_sha256"]
                 and old["task"]["milestone_id"] == binding["task"]["milestone_id"],
                 "writer chain changed routes, limits, runtime or owner",
@@ -2794,7 +2796,7 @@ class NativeProtection:
                 )
                 and body["binding"]["task"] == query["producer_task"]
                 and body["binding"]["contract"] == binding["contract"]
-                and body["binding"]["settings"] == binding["settings"]
+                and route_fit.same(body["binding"]["settings"], binding["settings"])
                 and body["binding"]["runtime_sha256"] == binding["runtime_sha256"]
                 and body["boundary"]["allow_write"] is True
                 and body["grants"]
@@ -3256,7 +3258,7 @@ class NativeProtection:
         _require(
             original["body"]["grants"] == []
             and original["body"]["binding"]["source"] == snapshot == stopped["body"]["after"]
-            and original["body"]["binding"]["settings"] == candidate["settings"],
+            and route_fit.same(original["body"]["binding"]["settings"], candidate["settings"]),
             "final native planning stage lost original readonly source/settings",
         )
         if is_repair:
@@ -3381,7 +3383,7 @@ class NativeProtection:
             for row in rows
             if row["kind"] == "planning-committed"
             and row["body"]["contract"] == goal
-            and row["body"]["settings"] == draft_state["settings"]
+            and route_fit.same(row["body"]["settings"], draft_state["settings"])
             and row["body"]["source"] == snapshot
             and row["body"]["token"] == selected
         ]
@@ -3426,7 +3428,7 @@ class NativeProtection:
             and goal["approval_event"]["token"] == body["selected"]
             and goal["approval_event"]["kind"] == "goal_approval"
             and goal["approval_event"]["actor"] == "user_cli"
-            and state["settings"] == body["settings"]
+            and route_fit.same(state["settings"], body["settings"])
             and body["snapshot"] == util.snapshot(self.workspace)
             and snapshot
             == source_transition.selected(body["selected_snapshot"], draft["body"])
