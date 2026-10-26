@@ -153,6 +153,42 @@ def register_run(workspace: Path, run_dir: Path, state: RunState) -> dict[str, s
     return {"workspace_id": workspace_id, "run_id": run_id, "task_id": task_id}
 
 
+def add_project(selected: Path) -> dict[str, Any]:
+    """Register an operator-selected committed Git root without creating a task."""
+    try:
+        workspace = selected.expanduser().resolve(strict=True)
+        if not workspace.is_dir() or not (workspace / ".git").exists():
+            raise ValueError("select the root of an existing Git checkout or worktree")
+        # Ambient Git overrides must not make a different repository qualify this path.
+        environ = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        top = util.git(workspace, "rev-parse", "--show-toplevel", env=environ, timeout=10)
+        if Path(top).resolve() != workspace:
+            raise ValueError("select the Git repository root, not a subdirectory")
+        util.git(workspace, "rev-parse", "--verify", "HEAD^{commit}", env=environ, timeout=10)
+    except (OSError, RuntimeError, ValueError) as error:
+        raise RegistryError("invalid_workspace", f"Cannot register {selected}: {error}") from error
+    workspace_id = _identity("workspace", workspace)
+    record = {"id": workspace_id, "workspace": str(workspace)}
+    with _locked_registry() as path:
+        document = _read_registry(path)
+        existing = document["workspaces"].get(workspace_id)
+        if existing is not None and existing != record:
+            raise RegistryError("record_conflict", "Registry has a conflicting record for this canonical project")
+        if existing is None:
+            document["workspaces"][workspace_id] = record
+            try:
+                util.atomic_json(path, document)
+            except OSError as error:
+                raise RegistryError("write_failed", f"Registry update failed: {error}") from error
+    return {
+        "registry_version": REGISTRY_VERSION,
+        "operation": "add",
+        "workspace_id": workspace_id,
+        "workspace": str(workspace),
+        "already_registered": existing is not None,
+    }
+
+
 def _register_imported_run(workspace: Path, run_dir: Path, state: RunState) -> tuple[dict[str, str | None], bool]:
     """Register an import candidate without silently repairing a conflicting record."""
     workspace, run_dir = _validate_registration(workspace, run_dir, state)
@@ -574,6 +610,9 @@ def cli(argv: list[str]) -> int:
         command.add_argument(
             "--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted"
         )
+    command = subcommands.add_parser("add", help="Register a committed local Git project without starting a task")
+    command.add_argument("workspace", type=Path)
+    command.add_argument("--json", action="store_true")
     command = subcommands.add_parser("import")
     command.add_argument("selected_root", type=Path)
     command.add_argument("--max-depth", type=int, default=DEFAULT_IMPORT_MAX_DEPTH)
@@ -591,6 +630,8 @@ def cli(argv: list[str]) -> int:
             result = location()
         elif args.operation == "list":
             result = listing()
+        elif args.operation == "add":
+            result = add_project(args.workspace)
         elif args.operation == "forget-deleted":
             result = forget_deleted(args.workspace, args.run_dir)
         else:

@@ -2,33 +2,47 @@
 
 [← Back to README](../README.md)
 
-## Ten-minute quickstart
+## Quickstart
 
 You need macOS or Linux (Windows through WSL), Python 3.11 or newer, Git,
 [pipx](https://pipx.pypa.io/), and npm (Node.js) to install the engine.
 
-Supervised task-stage execution requires the
-[supported Linux provider boundary](providers.md#provider-process-ownership).
-macOS can be used for installation, editing, static checks and tests that do
-not launch those providers, but supervised tasks refuse before provider spawn
-there, with either scripted or real providers. See [test host guidance](testing.md#host-requirements-for-tests)
-for the Linux development workflow.
+Linux provides the [kernel provider boundary](providers.md#provider-process-ownership).
+macOS can run tasks with portable supervision, which cannot prove that every
+detached provider descendant exited. Use supported Linux for the stronger
+process-ownership guarantee and for the provider-backed regression checks in
+this guide. WSL must meet the same Linux kernel requirements.
+
+If prerequisites are missing, on Ubuntu install `python3-venv`, `pipx` and `git`
+with your package manager; on macOS install Python 3.11+, Git and pipx. Node.js/npm
+is needed only when installing an external engine with npm. The built-in
+[API-key connection](providers.md#autocode-direct-connections-issue-1493) does not need it.
 
 **1. Install AutoCode.**
 
 ```sh
 pipx install git+https://github.com/charlieanna/autocode
+pipx ensurepath
+# Open a new terminal so PATH includes pipx's executables.
+autocode --version
+autocode demo
 ```
 
 AutoCode is not on PyPI yet. After the first release this step becomes
 `pipx install autocode-supervisor`, or `brew install charlieanna/tap/autocode`
 with Homebrew ([Releasing](releasing.md#homebrew)). If pipx's Python is older than 3.11, add
-`--python python3.11`.
+`--python python3.11`. The demo is offline: no sign-in or model spend. Once
+installed, you do not need to activate a virtual environment in every shell.
+
+**Already have an engine signed in?** Reuse it. With Codex, run
+`autocode doctor --engine codex` and add `--engine codex` to your first task.
+With Claude Code use `--engine claude` on both commands. Skip step 2 and go to
+the project setup in step 3. These flags select a route explicitly; they do not
+change your saved defaults or existing runs.
 
 **2. Install the engine and sign in.** The default engine is OpenCode. The terminal
 adapter accepts 1.x and 2.x; this quickstart pins **1.18.33**, the version with
-historical macOS native-tool qualification. That qualification does not enable
-current macOS task-stage launches. Its default routes use two accounts: the
+historical macOS native-tool qualification. Its default routes use two accounts: the
 Requirements Gatherer, Planner and Builder run GLM 5.3 on a **Z.ai Coding Plan**,
 and the Plan Reviewer, Tester and Completion Reviewer run GPT-6 Sol through
 **ChatGPT** ([Models](models.md#default-models)).
@@ -87,12 +101,12 @@ run would be refused without one ([native tool containment](execution.md#native-
 autocode "Write hello.py that prints a greeting, with a unittest test for it"
 ```
 
-The Linux provider-ownership requirement above applies to every task-stage
+On Linux the provider-ownership requirement applies to every task-stage
 engine. OpenCode's separate tool policy also needs an explicit choice: see
 [native tool containment](execution.md#native-tool-containment) for the explicit
 choice to use OpenCode's own permission checks on Linux. That choice concerns
-tool access; it does not bypass mandatory provider process ownership or allow
-macOS task-stage launches.
+tool access; it does not bypass Linux provider process ownership. The macOS
+portable supervision limitation remains as described above.
 
 In a terminal this is a chat. AutoCode may ask a question or two (type the answer),
 then shows the plan: what will be built and how each requirement will be checked.
@@ -115,12 +129,23 @@ If you closed the chat, `autocode status` shows where the run is and `autocode r
 continues it. [Workflow](workflow.md) explains each stage; [CLI](cli.md) lists every
 command.
 
+## If setup stops
+
+| What you see | What to do |
+| --- | --- |
+| `autocode: command not found` | Run `pipx ensurepath`, open a new terminal, then `autocode --version`. For a venv install, activate that venv or use its `bin/autocode`. |
+| Missing engine or login in `doctor` | Select the engine you actually connected. Use the same `--engine codex` or `--engine claude` for doctor and the task; the unqualified command uses the configured/default route. |
+| Missing Git project or HEAD | Run in the project root and make its first commit. Starting in a folder of sibling repositories does not select them as a set. |
+| A missing model route | Follow the named route/login fix. An installed CLI alone does not establish access to every selected role's model. |
+| Provider session boundary unavailable on Linux | Use the supported Linux host described in [provider ownership](providers.md#provider-process-ownership). Installation and `doctor` are not a complete kernel-admission test. |
+| Another repository is not registered | Set the same `AUTOCODE_HOME` in each terminal and use `autocode registry add /path/to/committed/checkout`; see the [multi-repository walkthrough](multi-repo.md#walkthrough-a-bug-reveals-another-repository). |
+
 ## Prerequisites
 
 - **Python 3.11+**
 - **Git**
 - **OpenCode 1.x or 2.x** connected to ChatGPT and Z.ai (the default engine). Live-checked with OpenCode **1.18.31**. OpenCode 2.x uses `--standalone` and a `provider/model#effort` model id. Strict tool containment and verified visual delivery stay qualified only for OpenCode **1.18.33**.
-- **Supported Linux for supervised task-stage execution**, including fake providers; see [provider process ownership](providers.md#provider-process-ownership). macOS remains usable for development checks that do not launch those providers. Windows needs WSL with the same Linux kernel requirements. Native Windows support is not planned; [Native Windows](windows.md) records what was audited and what remains.
+- **Linux or macOS**, with different provider cleanup guarantees; see [provider process ownership](providers.md#provider-process-ownership). Supported Linux is used for provider-backed qualification. Windows needs WSL with the same Linux kernel requirements. Native Windows support is not planned; [Native Windows](windows.md) records what was audited and what remains.
 - Optional: Codex CLI for `--engine codex` (one ChatGPT login) and the Figma path; Claude Code for `--engine claude` (one Claude subscription login). Installation does not change Codex, OpenCode or Claude Code settings.
 
 Native process supervision uses the `psutil` runtime dependency, which `pipx` and `pip`

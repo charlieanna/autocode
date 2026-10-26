@@ -94,12 +94,13 @@ def plan_markdown(plan: dict) -> str:
     for title, rows in (
         ("Constraints", plan.get("constraints")),
         ("Permission boundaries", plan.get("permission_boundaries")),
+        ("Not covered", plan.get("scope_exclusions")),
     ):
         if rows:
             lines += ["", f"**{title}**", *(f"- {row}" for row in rows)]
     delivery = plan.get("git_delivery")
-    if isinstance(delivery, dict) and delivery:
-        lines += ["", "**Delivery**", f"- branch: {delivery.get('branch') or 'the task worktree branch'}"]
+    if isinstance(delivery, dict) and delivery.get("kind") == "atomic_commit":
+        lines += ["", "**Delivery**", "- Create one local atomic commit: " + delivery["message"]]
     return "\n".join(lines)
 
 

@@ -10,7 +10,7 @@ cause, and returns a diagnosis. The runner then:
   reproduced bug whose affected or test paths are outside the package (#711),
 - writes the diagnosis note (``note_path``, under ``docs/bugs/``) from the
   validated report, before any fix exists,
-- waits for the reporter when an unreproduced report has unanswered questions,
+- waits for the reporter when any diagnosis has unanswered questions or grounded external work,
   ends a negative diagnosis with no questions, or hands a reproduced bug to the build
   pipeline: it goes to the Planner with the diagnosis as its brief
   (``large_correction``), skipping requirements gathering but keeping plan review
@@ -66,10 +66,12 @@ try:
     from . import autocode_investigation_progress as investigation_progress
     from . import autocode_investigation_retry as investigation_retry
     from . import autocode_package_scope as package_scope
+    from . import autocode_requirement_cues as requirement_cues
     from . import autocode_stage_access as stage_access
     from . import autocode_stray_writes as stray_writes
     from . import autocode_util as util
     from . import autocode_workflows as workflows
+    from . import autocode_workspace_scope as workspace_scope
     from .autocode_test_cases import (  # noqa: F401 (used by callers)
         COUNTEREXAMPLE,
         case_test_name,
@@ -84,10 +86,12 @@ except ImportError:
     import autocode_investigation_progress as investigation_progress
     import autocode_investigation_retry as investigation_retry
     import autocode_package_scope as package_scope
+    import autocode_requirement_cues as requirement_cues
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_util as util
     import autocode_workflows as workflows
+    import autocode_workspace_scope as workspace_scope
     from autocode_test_cases import (  # noqa: F401
         COUNTEREXAMPLE,
         case_test_name,
@@ -154,6 +158,8 @@ SCHEMA: dict[str, Any] = {
         "fix_size": {"type": "string", "enum": ["small", "large", "none"]},
         "fix_plan": TEXTS,
         "questions": TEXTS,
+        # Optional on saved reports; strict generation asks for the current scope.
+        "workspace_scope": workspace_scope.SCHEMA,
         "tests_run": TEXTS,
         "plan_approval_requested": {"type": "boolean"},
         # probe: a shell command, run from the repository root, that exits 0 exactly when the bug is
@@ -383,14 +389,8 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None,
     rather than trusted."""
     # The diagnosis note itself stays under docs/bugs/ at the repository root, inside or outside a package.
     check(value, record.get("changed_files"), package_scope.of(state.get("settings")))
-    if (
-        value["outcome"] == "not_reproduced"
-        and value["questions"]
-        and (state.get("goal_contract") or state.get("current_task"))
-    ):
-        raise ValueError("Investigator questions require initial diagnosis before a build contract or task")
     repeated = bug_questions.repeated_answers(state, value["questions"])
-    if value["outcome"] == "not_reproduced" and repeated:
+    if repeated:
         raise ValueError(
             "The Investigator must use saved user answers instead of repeating answered questions: "
             + "; ".join(repeated)
@@ -415,6 +415,14 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None,
         if probe
         else []
     )
+    scope, dropped = workspace_scope.validated(
+        value.get("workspace_scope"),
+        sources=requirement_cues.source_texts(state),
+        source_refs=[part.get("evidence") for part in (value.get("workspace_scope") or {}).get("external_parts", [])],
+        workspace=workspace,
+    )
+    # Keep the exact accepted report for diagnosis-artifact identity. Only the
+    # runner-owned scope record contains normalized, grounded obligations.
     target = Path(workspace) / value["note_path"]
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({**note(value), "proven_by": probe if shown else ""}, indent=2) + "\n")
@@ -426,18 +434,19 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None,
         "source_revision": record.get("source_revision"),
         "probe_result": shown[0] if shown else None,
     }
+    workspace_scope.record(state, scope, record, stage=STAGE, dropped=dropped)
+    if bug_questions.has_questions(state):
+        state.pop("completed_at", None)
+        state.update(
+            {
+                "status": "WAITING_FOR_USER",
+                "phase": "INVESTIGATING",
+                "next_stage": STAGE,
+                "pending_questions": bug_questions.questions(state),
+            }
+        )
+        return
     if value["outcome"] == "not_reproduced":
-        if value["questions"]:
-            state.pop("completed_at", None)
-            state.update(
-                {
-                    "status": "WAITING_FOR_USER",
-                    "phase": "INVESTIGATING",
-                    "next_stage": STAGE,
-                    "pending_questions": bug_questions.questions(state),
-                }
-            )
-            return
         state.update(
             {
                 "status": "TASK_COMPLETE",
@@ -470,6 +479,8 @@ def large_correction(state: RunState) -> dict | None:
                 "test_paths",
                 "invariant",
                 "fix_plan",
+                "questions",
+                "conclusion",
             )
         },
     }

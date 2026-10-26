@@ -1485,10 +1485,17 @@ def render_plan(plan: dict) -> str:
         lines.append(f"      Checked by: {row['verification_method']}")
         if row["human_review"]:
             lines.append("      You check this one yourself.")
-    for title, rows in (("Constraints", plan["constraints"]), ("What it may do", plan["permission_boundaries"])):
+    for title, rows in (
+        ("Constraints", plan["constraints"]),
+        ("What it may do", plan["permission_boundaries"]),
+        ("Not covered", plan.get("scope_exclusions") or []),
+    ):
         if rows:
             lines.append(f"{title}:")
             lines.extend(f"  - {text}" for text in rows)
+    delivery = plan.get("git_delivery")
+    if isinstance(delivery, dict) and delivery.get("kind") == "atomic_commit":
+        lines.append("Create one local atomic commit: " + delivery["message"])
     return "\n".join(lines)
 
 

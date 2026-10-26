@@ -35,6 +35,7 @@ class ControlTokenTests(unittest.TestCase):
             "AUTOCODE_JOB_RETRY_TOKEN",
             "AUTOCODE_RECOVER_JOB_REPORT",
             "AUTOCODE_APPROVE_GOAL_TOKEN",
+            "AUTOCODE_CHANGESET_TOKEN",
             "AUTOCODE_REVIEW_TOKEN",
             "AUTOCODE_EXPECTED_GOAL_TOKEN",
             "AUTOCODE_EXPECTED_RECOVERY_TOKEN",

@@ -51,6 +51,14 @@ TABLE: dict[str, tuple[str, str]] = {
         "--answer or --delegate replies to the question.",
     ),
     "PAUSED_GOAL_UNAPPROVED": ("Work cannot start until the plan is approved.", "--approve-goal accepts the plan."),
+    "PAUSED_CHANGESET_APPROVAL": (
+        "This run's plan is approved, but its change set has not released every member for execution.",
+        "Inspect changeset status and approve the current set, or explicitly approve this run alone.",
+    ),
+    "PAUSED_SCOPE_DECISION": (
+        "Work in another repository still needs a person's decision about the current scope.",
+        "Answer the current scope question; the revised plan still needs explicit approval.",
+    ),
     "PAUSED_WORKFLOW_APPROVAL": (
         "A workflow change needs a person's approval before it is applied.",
         "--approve-goal or --feedback records the decision.",

@@ -35,6 +35,7 @@ try:
     from . import autocode_answer_options as answer_options
     from . import autocode_brief_literals as brief_literals
     from . import autocode_bug_questions as bug_questions
+    from . import autocode_changeset_barrier as changeset_barrier
     from . import autocode_component_plan as component_plan
     from . import autocode_finding_cause as finding_cause
     from . import autocode_human_review_artifact as human_review_artifact
@@ -62,6 +63,7 @@ except ImportError:
     import autocode_answer_options as answer_options
     import autocode_brief_literals as brief_literals
     import autocode_bug_questions as bug_questions
+    import autocode_changeset_barrier as changeset_barrier
     import autocode_component_plan as component_plan
     import autocode_finding_cause as finding_cause
     import autocode_human_review_artifact as human_review_artifact
@@ -823,6 +825,7 @@ def answer(state: RunState, question_id, text, *, delegated=False, source=None, 
     if len(matches) != 1 or question_id in state.get("answers", {}) or not text.strip():
         raise ValueError("Answer must address one unresolved question with nonempty text")
     q = matches[0]
+    scope_question.check_answer(state, q)
     text = text if delegated else answer_options.offered(q, text)
     if delegated and not q["proposed_default"].strip():
         raise ValueError("This question has no proposed default to delegate")
@@ -1061,6 +1064,8 @@ def resolve_permission(state: RunState, question_id, text):
 
 
 def execution_guard(state: RunState, value=None):
+    changeset_barrier.execution_guard(state)
+    scope_question.execution_guard(state)
     if not approved(state):
         raise s.Paused("PAUSED_GOAL_UNAPPROVED", "Current goal revision has no valid explicit approval")
     contract = cast(dict, state["goal_contract"])
@@ -1162,8 +1167,7 @@ def render_completion(state: RunState):
     return "\n".join(lines)
 
 
-def review_token(state: RunState):
-    return human_review_artifact.token(state)
+review_token = human_review_artifact.token
 
 
 def missing_human_reviews(state: RunState):
@@ -1348,9 +1352,7 @@ def human_only_pending_validation(state: RunState, validation, criterion):
     )
 
 
-def flow_awaits_only(flow, human):
-    """Compatibility wrapper for the pure technical-flow readiness check."""
-    return human_review_flow.flow_awaits_only(flow, human)
+flow_awaits_only = human_review_flow.flow_awaits_only
 
 
 def approve_review(state: RunState, criterion, selected, current):

@@ -9,15 +9,18 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from autocode_taskrun import TaskRun, TaskRunError
 
+from .test_changeset_cli import register_project
+
 QUESTIONS = ["Which application version failed?", "Which input caused the failure?"]
 PROVIDER = r"""#!/usr/bin/env python3
-import json,os,sys,subprocess,uuid
+import json,os,sys,subprocess,uuid,shlex
 from pathlib import Path
 if sys.argv[1:3]==['sandbox','--help']:
  print('--config -- macos linux');raise SystemExit(0)
@@ -43,7 +46,18 @@ report={'outcome':'not_reproduced','note_path':'docs/bugs/reporter-input.json',
  'root_cause':'','affected_paths':[],'test_paths':[],'invariant':'','test_cases':[],
  'conclusion':'The failure is not reproduced in the provided example. Reporter details are needed before diagnosing it.',
  'fix_size':'none','fix_plan':[],'questions':questions,'tests_run':[],
- 'plan_approval_requested':False,'probe':'','untestable':''}
+ 'plan_approval_requested':False,'probe':'','untestable':'',
+ 'counterexample':{'file':'','find':'','replace':''},
+ 'workspace_scope':{'spans_repositories':False,'external_parts':[]}}
+if os.environ.get('INVESTIGATION_LATE_SCOPE'):
+ report.update(outcome='reproduced', root_cause='The local calculation uses the old multiplier.',
+  affected_paths=['calc.py'],test_paths=['tests/test_calc.py'],invariant='The new protocol triples the input.',
+  test_cases=[{'id':'T1','given':'value 2','when':'double(2)','then':'returns 6','kind':'restore'}],
+  fix_size='small',fix_plan=['Update the local calculation and test the changed contract'],questions=[],
+  probe=shlex.quote(sys.executable)+" -c 'from calc import double; assert double(2) == 4'",
+  counterexample={'file':'calc.py','find':'return value * 2','replace':'return value * 3'},
+  workspace_scope={'spans_repositories':True,'external_parts':[
+   {'target':'history-service','work':'Accept the new calculation contract','source_quote':'','evidence':'history_client.py:1'}]})
 Path(sys.argv[sys.argv.index('-o')+1]).write_text(json.dumps(report))
 session=sys.argv[sys.argv.index('resume')+1] if 'resume' in sys.argv else str(uuid.uuid4())
 print(json.dumps({'type':'thread.started','thread_id':session}),flush=True)
@@ -59,6 +73,7 @@ class InvestigatorQuestionTaskRunTests(unittest.TestCase):
         cls.seed.mkdir()
         (cls.seed / ".gitignore").write_text(".autocode/\n__pycache__/\n")
         (cls.seed / "calc.py").write_text("def double(value):\n    return value * 2\n")
+        (cls.seed / "history_client.py").write_text("HISTORY_SERVICE = 'https://history-service/results'\n")
         for command in (
             ["init", "-q"],
             ["config", "maintenance.auto", "false"],
@@ -120,12 +135,86 @@ class InvestigatorQuestionTaskRunTests(unittest.TestCase):
     def handoffs(self):
         return [json.loads(line) for line in self.calls.read_text().splitlines()]
 
+    def diagnostics(self, run, view):
+        """Compact retained failure evidence; state is never changed by a test."""
+        saved = json.loads((run.run_dir / "state.json").read_text())
+        return {
+            **{key: view.get(key) for key in ("status", "phase", "next_stage", "stop_reason")},
+            "failures": [
+                {key: row.get(key) for key in ("last_error", "error_class", "reason")}
+                for row in (saved.get("failure_history") or {}).values()
+            ],
+        }
+
+    def test_reproduced_late_scope_absent_from_the_brief_stops_before_planning(self):
+        self.env["INVESTIGATION_LATE_SCOPE"] = "1"
+        run = self.start()
+        view = run.advance_until_input()
+        self.assertEqual("answer", view["needs"]["kind"], self.diagnostics(run, view))
+        [question] = view["needs"]["questions"]
+        self.assertTrue(question["id"].startswith("workspace-scope-"))
+        self.assertIn("history-service", question["question"])
+        self.assertEqual(["This repository only"], question["options"])
+        self.assertEqual("", question["proposed_default"])
+        self.assertEqual(
+            [{"target": "history-service", "work": "Accept the new calculation contract"}],
+            view["scope"]["external_parts"],
+        )
+        self.assertIn("history-service", [row["repository"] for row in view["scope"]["briefs"]])
+        self.assertEqual(1, len(self.handoffs()), "no Planner or Builder starts before the scope choice")
+        member = self.workspace.parent / "history-service"
+        shutil.copytree(self.seed, member)
+        register_project(Path(self.env["AUTOCODE_HOME"]), member)
+        linked_env = {**os.environ, **self.env, "INVESTIGATION_CALLS": str(member / ".autocode/calls.jsonl")}
+        linked_env.pop("INVESTIGATION_LATE_SCOPE")
+        command = [sys.executable, str(Path(__file__).resolve().parents[1] / "tools/autocode.py")]
+        linked = subprocess.run(
+            [
+                *command,
+                "changeset",
+                "link",
+                "--run-dir",
+                str(run.run_dir),
+                "--target",
+                "history-service",
+                "--workspace",
+                str(member),
+                "--json",
+                "--",
+                *self.options,
+                "--workflow",
+                "bugfix",
+            ],
+            env=linked_env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(0, linked.returncode, linked.stdout + linked.stderr)
+        summary = json.loads(linked.stdout)
+        self.assertEqual(["source", "member"], [row["role"] for row in summary["runs"]])
+        self.assertIsNone(summary["approval"]["set_token"], "linking never approves or answers the scope choice")
+        member_row = summary["runs"][1]
+        self.assertEqual(str(member.resolve()), member_row["workspace"])
+        member_run = TaskRun(member, Path(member_row["run_dir"]), env=linked_env)
+        self.assertEqual(str(run.run_dir), member_run.status()["scope"]["linked"][0]["run_dir"])
+        view = run.status()
+        self.assertEqual(question["id"], view["needs"]["questions"][0]["id"])
+        self.assertEqual("history-service", view["scope"]["linked"][0]["target"])
+        self.assertIsNone(view["interaction_timing"]["first_builder_at"])
+        self.assertIsNone(member_run.status()["interaction_timing"]["first_builder_at"])
+        self.assertEqual(1, len(self.handoffs()), "linking cannot dispatch the source Investigator again")
+        answered = run.answer(question["id"], "This repository only", resolver_token=view["needs"]["resolver_token"])
+        self.assertEqual("this_repository", answered["scope"]["decision"])
+        self.assertEqual(["history-service"], answered["scope"]["uncovered"])
+        self.assertFalse(answered["done"])
+
     def waiting(self, run, count=2):
         view = run.status()
         self.assertEqual(
             ("WAITING_FOR_USER", "INVESTIGATING", "investigate_bug"),
             (view["status"], view["phase"], view["next_stage"]),
-            view,
+            self.diagnostics(run, view),
         )
         self.assertFalse(view["done"])
         self.assertEqual("bugfix", view["workflow"])

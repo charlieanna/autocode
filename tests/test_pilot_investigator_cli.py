@@ -41,7 +41,8 @@ report = {"outcome": "not_reproduced", "note_path": "docs/bugs/public-input-acce
     "test_cases": [], "conclusion": "The supplied inputs were read in the prepared copy.",
     "fix_size": "none", "fix_plan": [], "questions": [],
     "tests_run": ["python3 -B check_inputs.py"], "plan_approval_requested": True,
-    "probe": "", "untestable": ""}
+    "probe": "", "untestable": "", "counterexample": {"file": "", "find": "", "replace": ""},
+    "workspace_scope": {"spans_repositories": False, "external_parts": []}}
 Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(report))
 print(json.dumps({"type": "turn.completed", "usage": {
     "input_tokens": 1, "cached_input_tokens": 0, "output_tokens": 1}}), flush=True)

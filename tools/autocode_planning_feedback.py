@@ -19,7 +19,7 @@ except ImportError:
     import autocode_run_status as run_status
 
 
-def invalid_report(state: RunState):
+def invalid_report(state: RunState) -> bool:
     return (
         state.get("status") == "PAUSED_INVALID_OUTPUT"
         and state.get("next_stage") in roles.ALL_PLANNING_STAGES
@@ -27,7 +27,7 @@ def invalid_report(state: RunState):
     )
 
 
-def admitted(state: RunState):
+def admitted(state: RunState) -> bool:
     """Existing conversation checkpoints plus a malformed planning report.
 
     Callers still enforce pause authority and human artifact-review decisions.

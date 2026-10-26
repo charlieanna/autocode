@@ -14,13 +14,21 @@ def state(*parts, answers=None):
     }
 
 
+def answered_state(*parts):
+    result = state(*parts)
+    question = scope.question(result)
+    event = {"actor": "user_cli", "question": question, "text": scope.THIS_REPOSITORY}
+    result.update(answers={question["id"]: event}, user_events=[event])
+    return result
+
+
 HISTORY = {"target": "epp-history", "work": "Store the delivery window", "source_quote": "q", "evidence": ""}
 
 
 class ScopeQuestionTests(unittest.TestCase):
     def test_a_spanning_request_gets_one_nondelegable_question_naming_each_part(self):
         question = scope.question(state(HISTORY))
-        self.assertEqual("workspace-scope-1", question["id"])
+        self.assertTrue(question["id"].startswith(scope.PREFIX))
         self.assertIn("epp-history: Store the delivery window", question["question"])
         self.assertEqual([scope.THIS_REPOSITORY], question["options"])
         self.assertFalse(question["delegable"])
@@ -32,20 +40,21 @@ class ScopeQuestionTests(unittest.TestCase):
         self.assertEqual([], scope.uncovered(state()))
 
     def test_choosing_this_repository_ends_the_question_and_leaves_the_part_uncovered(self):
-        answered = state(HISTORY, answers={"workspace-scope-1": {"text": "This repository only"}})
+        answered = answered_state(HISTORY)
         self.assertIsNone(scope.question(answered))
         self.assertEqual("this_repository", scope.decision(answered))
         self.assertEqual([{"target": "epp-history", "work": "Store the delivery window"}], scope.uncovered(answered))
 
     def test_the_plan_must_record_each_uncovered_part(self):
-        answered = state(HISTORY, answers={"workspace-scope-1": {"text": "This repository only"}})
+        answered = answered_state(HISTORY)
         with self.assertRaisesRegex(ValueError, "does not cover epp-history"):
             scope.check(answered, {"scope_exclusions": ["Deployment"]})
         scope.check(answered, {"scope_exclusions": ["Not covered: changes in epp-history: Store the delivery window"]})
-        scope.check(state(HISTORY), {"scope_exclusions": []})  # nothing is left out until the person chooses
+        with self.assertRaisesRegex(ValueError, "current scope decision"):
+            scope.check(state(HISTORY), {"scope_exclusions": []})
 
     def test_the_view_reports_parts_decision_and_dropped_targets(self):
-        answered = state(HISTORY, answers={"workspace-scope-1": {"text": "This repository only"}})
+        answered = answered_state(HISTORY)
         self.assertEqual(
             {
                 "spans_repositories": True,

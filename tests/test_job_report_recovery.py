@@ -77,6 +77,7 @@ class InvestigatorReportRecoveryTests(JobHarness):
             invariant="double(5) returns 15",
             fix_size="large",
             probe=f'{sys.executable} -B -c "from calc import double; assert double(5) == 10"',
+            counterexample={"file": "calc.py", "find": "return n * 2", "replace": "return n * 3"},
             untestable="",
             test_cases=[{"id": "T1", "given": "n=5", "when": "double(5)", "then": "returns 15", "kind": "restore"}],
         )

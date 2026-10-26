@@ -101,6 +101,10 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
     if local_refs or (builds_code and not intent_only):
         check_code_refs(state, local_refs, "source_refs")
     state["requirements_handoff"] = {"report": copy.deepcopy(value), "output": record["output"]}
+    if "workspace_scope" in value:
+        workspace_scope.record(
+            state, value["workspace_scope"], record, stage="requirements_gather", dropped=dropped or []
+        )
     if dropped:
         state["requirements_handoff"]["dropped_external_parts"] = dropped
     project_memory.capture(state, value)

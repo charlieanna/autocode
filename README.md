@@ -17,38 +17,63 @@ The site has search, deeper guides and a version selector; `latest` follows mast
 
 ## Install and start
 
-Requires Python 3.11+, Git, and macOS or Linux (Windows through WSL). Install
-from this checkout into a virtual environment:
+Requires Python 3.11+, Git and [pipx](https://pipx.pypa.io/). Linux provides
+kernel-enforced provider process ownership. macOS uses portable supervision
+with reduced cleanup guarantees; Windows uses WSL. See the
+[host and installation guide](docs/install.md) before the first task.
+
+Install once, then use AutoCode from any project:
 
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install --editable .
-source .venv/bin/activate
+pipx install git+https://github.com/charlieanna/autocode
+pipx ensurepath
+# Open a new terminal after ensurepath.
 autocode --version
-autocode doctor --workspace /path/to/project
-autocode "Build a greeting CLI" --workspace /path/to/project
+autocode demo
 ```
 
-`source .venv/bin/activate` puts `autocode` on `PATH` for that shell only; a new
-shell answers `command not found` until you activate it again. To type `autocode`
-from any shell, install it once with `pipx install --editable .` (or add the
-venv's `bin` directory to `PATH` in your shell profile). `autocode doctor` warns
-when `autocode` is not on `PATH`.
+The demo uses no account or model spend. It shows rejected evidence, a
+completion refusal and a verified result. AutoCode is not on PyPI yet; the Git
+install above follows master. For a development checkout, use
+[`pipx install --editable .`](docs/install.md#advanced-install-from-a-checkout).
 
-On WSL, run these commands in the Linux terminal with Linux Python. An existing
-Windows-created `.venv` cannot be reused there; see the
-[WSL checkout and environment notes](docs/install.md#windows-through-wsl).
+Choose an engine you have connected. For example, with a logged-in Codex CLI:
 
-Try the workflow without an account or model spend: `autocode demo` creates an
-offline sample, shows rejected evidence and a completion refusal, then completes
-with independently reproduced checks and demo acceptance. It prints the retained
-run and evidence paths. See the [offline demo](docs/cli.md#offline-demo).
+```sh
+cd /path/to/your/committed-git-project
+autocode doctor --engine codex
+autocode "Fix the incorrect result when submitting an order" --engine codex
+```
 
-OpenCode 1.x is the default engine. To use a logged-in Codex CLI instead, add
-`--engine codex`, or `--engine claude` for a logged-in Claude Code. See [installation](docs/install.md),
-[provider setup](docs/providers.md) and [model selection](docs/models.md).
-If your account serves only one model, start with `--single-model MODEL` to run
-every role on it (per-role reasoning flags still apply).
+Answer the questions, read the plan and its exclusions, then approve it. AutoCode
+builds and checks the change, and stops when it needs your decision. Reopen the
+same project with `autocode resume`; use `autocode --status` to see what it needs.
+
+For Claude Code use `--engine claude`. Without an explicit choice, the existing
+configured/default route applies (OpenCode on a fresh install). For API keys,
+`autocode connections setup` configures the built-in runtime; start its tasks
+with `--provider autocode`. The [installation guide](docs/install.md) covers
+sign-in, a new Git project, route checks and common setup errors.
+
+## A bug that turns out to span repositories
+
+You can start with just the symptom in one repository. If Requirements or the
+Investigator reports evidence that another repository needs work, AutoCode asks
+before planning or building that work. It does not assume the first request
+listed every repository.
+
+Each repository gets its own run. The current implementation requires explicit
+linking and a named integration check. A partial set
+approval cannot release a Builder; changing a plan requires fresh approval.
+Changing code or the integration command makes old check results stale.
+
+The intended TUI workflow is one bug request through automatic repository
+discovery, coordinated fixes, combined regression testing and linked PR creation.
+That complete workflow is **not implemented yet**; [#2155](https://github.com/charlieanna/autocode/issues/2155)
+tracks its acceptance criteria. The [current manual walkthrough](docs/multi-repo.md#walkthrough-a-bug-reveals-another-repository)
+documents the existing fallback. Discovery still depends on what the Investigator finds; the
+[coverage and limitations](docs/multi-repo.md#verification-and-current-limits)
+distinguish deterministic tests from real-model discovery.
 
 To check a change made by another coding tool, supply its comparison base and
 your acceptance criteria to `autocode verify`. It checks the existing change

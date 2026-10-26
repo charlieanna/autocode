@@ -352,6 +352,8 @@ def finish_preparation(state: RunState, workspace, run_dir, batch):
                 "task",
                 "task_id",
                 "goal_contract",
+                "changeset_approval",
+                "turns",
                 "user_events",
                 "settings",
                 "acceptance_criteria",

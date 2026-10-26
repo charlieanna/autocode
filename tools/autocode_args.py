@@ -28,6 +28,7 @@ try:
     from . import autocode_compact_planning as compact_planning
     from . import autocode_conversation_args as conversation_args
     from . import autocode_design_args as design_args
+    from . import autocode_goal_approval_args as goal_approval_args
     from . import autocode_job_args as job_args
     from . import autocode_package_scope as package_scope
     from . import autocode_project_config as project_config
@@ -51,6 +52,7 @@ except ImportError:
     import autocode_compact_planning as compact_planning
     import autocode_conversation_args as conversation_args
     import autocode_design_args as design_args
+    import autocode_goal_approval_args as goal_approval_args
     import autocode_job_args as job_args
     import autocode_package_scope as package_scope
     import autocode_project_config as project_config
@@ -622,12 +624,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="Reject a structured assumption from the current requirements handoff; "
         "never grants approval and invalidates any existing one",
     )
-    parser.add_argument(
-        "--approve-goal",
-        metavar="TOKEN",
-        help="Approve exactly a previously displayed revision; `-` reads AUTOCODE_APPROVE_GOAL_TOKEN "
-        "so the secret stays out of argv and shell history",
-    )
+    goal_approval_args.add_arguments(parser)
     parser.add_argument("--edit-goal", type=Path, help="Load a revised contract body JSON; invalidates approval")
     parser.add_argument(
         "--goal-file", type=Path, metavar="PATH", help="Load a reviewed `autocode plan --export` file as the next plan"
@@ -757,6 +754,7 @@ def parse(unit, argv, default_models):
     if args.inspect_evidence and (not args.run_dir or not args.status):
         parser.error("--inspect-evidence requires --run-dir and --status")
     validate_recovery_selector(args, parser)
+    goal_approval_args.validate(args, parser)
     if args.max_parallel_builders is not None and args.max_parallel_builders < 1:
         parser.error("--max-parallel-builders must be positive")
     if args.retry_builder:

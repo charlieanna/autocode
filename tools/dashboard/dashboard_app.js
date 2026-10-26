@@ -2231,6 +2231,7 @@ function renderInlineTaskAction(run){
   const ready=statusInfo(run).label==='Approve plan',approved=run.goal?.approval_status==='approved',busy=taskActionBusy(run)||approveBuildState.has(run.run)||taskReadError;
   if(ready&&run.goal_token){
     host.append(n('strong','Plan ready · revision '+run.goal.revision),n('p','Independent plan review accepted this revision. Review the plan, then approve and build.'));
+    if(run.goal.body?.scope_exclusions?.length)host.append(planDocumentSection('Not covered',run.goal.body.scope_exclusions));
     const actions=card('','lifecycle-actions');
     const request=button('Request changes',()=>{$('#change-text').focus();$('#change-text').scrollIntoView({block:'center',behavior:'smooth'});});
     const approve=focusKey(button('Approve plan revision '+run.goal.revision,()=>submitTaskAction(run,'approve_goal',{token:run.goal_token,confirmation:run.goal_token})),'approve:'+run.run+':'+run.goal_token);
@@ -2391,6 +2392,7 @@ function renderBrief(run) {
   body.append(planDocumentSection('Intended outcome',[brief.intended_outcome||'No intended outcome recorded.']));
   body.append(planDocumentSection('Requirements',brief.requirements||brief.required_behaviors||brief.acceptance_criteria));
   body.append(planDocumentSection('Constraints',brief.constraints));
+  body.append(planDocumentSection('Not covered',brief.scope_exclusions));
   body.append(planDocumentSection('Implementation sequence',brief.implementation_sequence||brief.technical_approach||brief.milestones||brief.plan,true));
   body.append(planDocumentSection('Verification criteria',brief.acceptance_criteria));
   body.append(planDocumentSection('Assumptions',brief.accepted_assumptions||brief.assumptions));
@@ -2429,6 +2431,7 @@ function renderBrief(run) {
   // itself stays in the conversation transcript.
   if(ready&&!approved){
     box.append(planDocumentSection('Constraints',brief.constraints),
+               planDocumentSection('Not covered',brief.scope_exclusions),
                planDocumentSection('Implementation sequence',brief.implementation_sequence||brief.technical_approach||brief.milestones||brief.plan,true));
   }
   box.append(disclosure('Requirements and verification','plan-requirements:'+run.goal_token,[checklist],run.run),disclosure('Saved plan details','saved-plan-details:'+run.goal_token,[provenance,body],run.run));

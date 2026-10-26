@@ -12,6 +12,7 @@ TOKEN_ENV_VARS = {
     "job_retry_token": "AUTOCODE_JOB_RETRY_TOKEN",
     "recover_job_report": "AUTOCODE_RECOVER_JOB_REPORT",
     "approve_goal": "AUTOCODE_APPROVE_GOAL_TOKEN",
+    "changeset_token": "AUTOCODE_CHANGESET_TOKEN",
     "review_token": "AUTOCODE_REVIEW_TOKEN",
     "expected_goal_token": "AUTOCODE_EXPECTED_GOAL_TOKEN",
     "expected_recovery_token": "AUTOCODE_EXPECTED_RECOVERY_TOKEN",

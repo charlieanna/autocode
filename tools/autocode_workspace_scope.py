@@ -15,7 +15,7 @@ parts it can ground, so a model's claim never acts on its own:
 
 The validated value replaces the report's own in the saved handoff. Asking the person what to do
 about it (this repository only, link a run, stop) is step 3 and is not decided here.
-Pure functions: imports only autocode_requirement_quotes.
+Depends only on requirement quoting and shared utilities.
 """
 
 from __future__ import annotations
@@ -24,8 +24,16 @@ from pathlib import Path
 
 try:
     from . import autocode_requirement_quotes as requirement_quotes
+    from .autocode_workspace_scope_state import current as current
+    from .autocode_workspace_scope_state import identity as identity
+    from .autocode_workspace_scope_state import intent as intent
+    from .autocode_workspace_scope_state import record as record
 except ImportError:
     import autocode_requirement_quotes as requirement_quotes
+    from autocode_workspace_scope_state import current as current
+    from autocode_workspace_scope_state import identity as identity
+    from autocode_workspace_scope_state import intent as intent
+    from autocode_workspace_scope_state import record as record
 
 STRING = {"type": "string"}
 PART = {

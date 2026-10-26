@@ -37,7 +37,7 @@ class ChangesetDeliveryCliTests(base.ChangesetCliTests):
         )
         self.member_run.env.pop("AUTOCODE_FIXTURE_EXTERNAL_PART")
         self.member_run.advance_until_input()
-        self.run.answer("workspace-scope-1", "This repository only")
+        self.run.answer(self.run.status()["needs"]["questions"][0]["id"], "This repository only")
         self.run.advance_until_input()
         _, shown = self.json("status", "--run-dir", str(self.run.run_dir))
         code, _ = self.json(
@@ -87,9 +87,12 @@ class ChangesetDeliveryCliTests(base.ChangesetCliTests):
         code, summary = self.json("order", "--run-dir", here, "project", "greet-history")
         self.assertEqual(["project", "greet-history"], summary["verification"]["merge_order"])
 
-        self.json(
+        code, summary = self.json(
             "check-command", "--run-dir", here, "--in", "greet-history", "--", sys.executable, "-c", CHECK, "Hello, Ada"
         )
+        self.assertEqual(0, code, summary)
+        self.assertFalse(summary["verification"]["done"], "the previous waiver cannot accept a replacement check")
+        self.assertIsNone(summary["verification"]["waiver"])
         code, summary = self.json("verify", "--run-dir", here)
         self.assertTrue(summary["verification"]["result"]["passed"], summary["verification"]["result"])
         self.assertTrue(summary["verification"]["done"])
@@ -102,7 +105,7 @@ class ChangesetDeliveryCliTests(base.ChangesetCliTests):
         _, summary = self.json("status", "--run-dir", here)
         self.assertFalse(summary["verification"]["result"]["current"], "a later change makes the check stale")
         self.assertFalse(summary["verification"]["done"])
-        self.assertFalse(summary["verification"]["waiver"]["current"], "and the waiver too")
+        self.assertIsNone(summary["verification"]["waiver"], "the replaced check's waiver stays withdrawn")
         self.assertIsNotNone(summary["verification"]["next_command"])
 
     def test_a_failed_check_reopens_the_run_that_diverged(self):
@@ -121,6 +124,7 @@ class ChangesetDeliveryCliTests(base.ChangesetCliTests):
     test_a_linked_run_starts_in_the_registered_project_with_the_ready_brief = None
     test_only_a_registered_project_and_a_found_target_can_be_linked = None
     test_one_set_token_approves_every_shown_plan_and_a_revision_withdraws_it = None
+    test_partial_set_approval_blocks_dispatch_and_can_retry_or_release_one_run = None
 
 
 if __name__ == "__main__":

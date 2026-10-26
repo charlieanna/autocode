@@ -818,6 +818,25 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
     uncertain attempt's abandon step in the need instead of promising a resume that
     would discard it.
     """
+    try:
+        from . import autocode_changeset_barrier as changeset_barrier
+    except ImportError:
+        import autocode_changeset_barrier as changeset_barrier
+    if changeset_barrier.held_approval(state):
+        held_need = {
+            "kind": "approve_plan",
+            "token": contract_identity.token(state["goal_contract"]),
+            "reason": changeset_barrier.refusal(state),
+            "changeset_held": True,
+        }
+        return {
+            "needs": held_need,
+            "pause_category": "your_decision",
+            "pause_category_label": "Your decision",
+            "next_command": pause_command.command(
+                held_need, run_dir=run_dir or state.get("run_dir"), workspace=workspace or state.get("workspace")
+            ),
+        }
     status = state.get("status", "")
     need = needs(state, stale_report_repair=stale_report_repair)
     category = pause_category.category(status, need)

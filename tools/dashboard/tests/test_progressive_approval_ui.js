@@ -38,7 +38,7 @@ const run=projectedRun('goal_approval',{workspace:'/fixture/project',run:'/fixtu
   model_settings:{joint_planning:true},goal:{revision:1,origin:'astra_finalize',body:{
     intended_outcome:'Deliver lessons, exercises, recommendations and authoring.',
     constraints:['Keep the existing storage.',...generated.fields.constraints,retirement],
-    scope_exclusions:[retirement],
+    scope_exclusions:[retirement,'billing-api: server changes and end-to-end billing are excluded'],
     technical_approach:generated.fields.technical_approach,
     acceptance_criteria:[{id:'C1',criterion:'Lessons and exercises persist progress'},
       {id:'C2',criterion:'Recommendations use progress'},{id:'C3',criterion:'Authors publish lessons'}],
@@ -100,6 +100,12 @@ function approvedRun(){return {...run,status:'READY',human_request_authorized:fa
 async function tests(){
   const h=harness(),shown=visible(h.planHost);
   assert.equal(h.calls.length,0,'Rendering never submits approval');
+  for(const surface of [h.planHost,h.host]){
+    const text=visible(surface).map(row=>row.textContent).join('\n');
+    assert.ok(text.includes('Not covered'),'Exclusions have a visible heading before approval');
+    assert.ok(text.includes('billing-api: server changes and end-to-end billing are excluded'),
+      'Excluded repositories are shown without opening a disclosure');
+  }
   assert.ok(flatten(h.planHost).some(row=>row.tagName==='DETAILS'),'Exercise the real collapsed detail panels');
   assert.ok(flatten(h.planHost).filter(row=>row.tagName==='DETAILS').every(row=>row.open===false),'Fresh state has no open details');
   assert.equal(run.goal.body.implementation_sequence,undefined);

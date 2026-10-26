@@ -1827,7 +1827,10 @@ a saved answer, or when it cites a file in this workspace that shows it.
   spans, this one first, for a person who stops here and runs them separately.
 
 A kept part stops the run before any plan, with one nondelegable question
-(`workspace-scope-1`, kind `answer`). Its only option is `This repository only`. Other
+(`workspace-scope-<identity>`, kind `answer`). The question binds the current human
+turn and feedback to the exact external work; clients use its offered ID. The same
+gate applies to a reproduced Investigator diagnosis and a follow-up with an existing
+goal. Its only option is `This repository only`. Other
 text is refused, and `--feedback TEXT` changes the request instead. After that answer the
 plan must record each uncovered part in `scope_exclusions` as
 `Not covered: changes in TARGET: WORK`, and `displayed_plan.scope_exclusions` shows it on
@@ -1844,34 +1847,55 @@ linked run with `TaskRun.start`, nothing else.
 - `TARGET` must be a target in the source run's `scope.external_parts`.
 - `PROJECT` must be an available project in the AutoCode registry (`autocode registry
   list`), named by its path or registry id. A path from the task text or a model's report
-  is never used.
+  is never used. An operator can register a fresh committed local checkout with
+  `autocode registry add PATH`, without starting a task. Linking runs directly in
+  that selected checkout; choose a dedicated Git worktree if needed.
 - The linked run's brief is the source run's `scope.briefs` entry for `TARGET`. Arguments
   after `--` are the linked run's run options, such as its engine and models.
 - The link is recorded in `changesets.json` beside the registry, so both commands need
   the same `AUTOCODE_HOME`. A target is linked once. A link whose run never started is
-  dropped, so it can be made again.
+  dropped, so it can be made again. Linking from an existing member extends its canonical
+  set, preserving the original source. The same target or workspace cannot be added twice.
+  Ambiguous overlapping records from older versions are refused rather than choosing a
+  different set for status and inventory.
 - `autocode changeset status --run-dir RUN [--json]` shows the change set of any of its
   runs, each with the status, `needs` kind and `next_command` of its own status view.
   `autocode changeset list [--json]` lists every change set.
 
-Linking changes nothing in the source run. It still asks its scope question, and its plan
-still records the linked target as not covered there.
+Linking does not answer the source run's scope question: its plan still records the linked
+target as not covered there. Adding a member withdraws any shared execution release, so
+the enlarged set needs a fresh approval of all current plans.
 
 #### Approving the set
 
 `changeset status` shows each run's plan (`runs[].plan`, the complete `displayed_plan` its
 token approves) and `approval`:
 
-- `set_token` is a digest of every run's own plan token. It is `null` until every run waits
-  for plan approval with a complete plan, and `waiting_on` names the runs that do not.
+- `set_token` is a digest of every run's identity and own plan token. It is `null` until
+  every run offers a complete plan for approval, including a previously approved plan
+  still held after an interrupted set approval. `waiting_on` names runs without an offer.
 - `next_command` is the argument array that approves the set, or `null`.
 
 `autocode changeset approve --run-dir RUN --set-token TOKEN` reads every run's view again.
-It refuses a token that no longer matches, so a plan revision in any run withdraws the set
-approval the person was shown. Otherwise it approves each run with its own plan token, the
-source run first. No run builds before its plan is approved, so approving through the set
-keeps every run out of the Builder until all are approved. Approving one run alone with its
-own `--approve-goal` stays possible as an explicit person action that releases that run.
+It refuses a token that no longer matches, then records a durable hold for the exact
+membership before approving any member. Each approval uses the public
+`TaskRun.approve_plan(plan_token, changeset_token=set_token)` operation, transported as
+`--approve-goal - --changeset-token -` with `AUTOCODE_APPROVE_GOAL_TOKEN` and
+`AUTOCODE_CHANGESET_TOKEN`. Each core publishes only its own exact approval at its durable
+checkpoint; the coordinator never reads another run's private state.
+
+The shared release is committed only after every member checkpoint has accepted the
+same set. A failed/interrupted approval leaves all members held; inspect the current
+plans and repeat the offered set approval to finish it. A later plan, task turn or
+membership change withdraws the release before that changed checkpoint can commit.
+The core checks the receipt before execution, including resumed and parallel Builder
+work; an already dispatched attempt retains its normal safe-boundary lifecycle.
+
+An explicit individual `--approve-goal` remains available and releases only that exact
+run plan and turn. Reapproval after a held set uses the ordinary AutoResolver plan
+request boundary and cannot clear a different pause, pending question or uncertain
+attempt. An ordinary resume cannot release a held set. `changeset status.record_revision`
+is the monotonic coordination-record revision used to reject stale record mutations.
 
 #### Checking the set together and delivering it
 
@@ -1879,22 +1903,32 @@ Each run still passes its own completion gate. `changeset status` adds `verifica
 
 - `waiting_on` lists the runs not yet `TASK_COMPLETE`. Nothing is checked together before then.
 - `check` is the integration command the person named, `result` its last run and `waiver` the
-  person's reason to accept the set without it. Each carries `current`, which is true only while
-  every run's status and every workspace's code (commit, diff and untracked files, AutoCode's own
-  excluded) match what it was recorded against.
+  person's reason to accept the set without it. A result or waiver carries `check_identity` and
+  `current`. It is current only while the named command and execution target, member run/workspace
+  identities, every run's status and every workspace's code (commit, diff and untracked files,
+  AutoCode's own excluded) match the recorded evidence. Historical results and waivers without
+  the check identity remain readable but are not current; run the check again or record a fresh
+  explicit waiver rather than inferring approval for an unknown command.
 - `done` is true once every run is complete and either no command was named, a current result
   passed, or a current waiver exists.
 - `merge_order` and `next_command` (the `verify` argument array, while a check is due).
+
+The summary's additive `record_revision` identifies the inspected change-set record. Changing
+the check, verifying and waiving use a conditional write against that revision. If a command,
+membership, waiver or competing check result changes the record while verification runs, its old
+result cannot overwrite the new record or certify a replacement command. The action refuses and
+asks for fresh inspection.
 
 The actions:
 
 - `changeset check-command --run-dir RUN --in TARGET -- COMMAND...` names the command, run
   with no shell in that run's workspace. `AUTOCODE_CHANGESET_WORKSPACES` holds a JSON object
   from each run's repository name to its workspace, so the consumer's tests can run against
-  the producer's checkout. This is where the shared interface is checked. A new command
-  clears the old result.
+  the producer's checkout. This is where the shared interface is checked. Naming a command
+  clears both the previous result and its waiver, including when changing only the target.
 - `changeset verify --run-dir RUN` runs it. A check that changes a workspace does not pass.
-- `changeset waive --run-dir RUN --reason TEXT` records a waiver for the code as it is now.
+- `changeset waive --run-dir RUN --reason TEXT` records a waiver for the named check, current
+  member runs and code. It grants no waiver for a replacement check.
 - `changeset reopen --run-dir RUN --target TARGET [--message TEXT]` sends that run a
   follow-up, by default the failed check's command and output.
 - `changeset order --run-dir RUN TARGET...` sets the merge order. By default the source
@@ -1913,6 +1947,11 @@ it names, after showing what they act on:
 - `approval.next_command`, after showing every run's `plan`. It carries the `set_token` of those
   plans, so a revision in any run makes the core refuse it.
 - `verification.next_command`, the joint check.
+
+Approval displays include each plan's `scope_exclusions` under **Not covered**, including work
+left to another repository. The terminal, GitHub bridge, dashboard and VS Code show these terms
+before approval; a set approval shows them for every member. Recorded replay approval matching
+also includes exclusions and Git delivery, so changing only those terms still requires a new match.
 
 The shared rule is `autocode_client_actions.changeset_action`, mirrored by
 `vscode-extension/src/core/next-command.ts`. The terminal chat's side panel lists the linked

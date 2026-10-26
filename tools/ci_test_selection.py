@@ -74,6 +74,11 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     ("scenarios/harness/conformance.py", ("tests.test_planning_allowance_cli",)),
     ("scenarios/harness/fake_codex.py", ("tests.test_brief_cli", "tests.test_requirements_job_cli")),
+    ("tools/fake_codex.py", ("tests.test_subprocess",)),
+    (
+        "tests/failure_routing_provider.py",
+        ("tests.test_failure_routing_cli", "tests.test_classification_recovery"),
+    ),
     ("scenarios/harness/clarifying_requirements_provider.py", ("tests.test_requirements_review",)),
     ("scripts/homebrew_formula.py", ("tests.test_homebrew_formula",)),
     ("scenarios/catalog/review-clean-pr/broken/blocks-on-a-nit/", ("tests.test_review_attribution_cli",)),
@@ -431,6 +436,26 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_bridge_cli", "tests.test_bridge_end_to_end"),
     ),
     # `autocode changeset` drives runs as subprocesses, so imports cannot select its CLI test.
+    (
+        ("tools/autocode_registry.py",),
+        (
+            "tests.test_registry_project_cli",
+            "tests.test_changeset_cli",
+            "tests.test_changeset_delivery_cli",
+            "tests.test_bug_questions",
+        ),
+    ),
+    (
+        (
+            "tools/autocode_workspace_scope",
+            "tools/autocode_scope_question.py",
+            "tools/autocode_bug_questions.py",
+            "tools/autocode_bug_job.py",
+            "tools/autocode_requirements_handoff.py",
+            "tools/autocode_requirements_review.py",
+        ),
+        ("tests.test_scope_question_cli", "tests.test_bug_questions"),
+    ),
     (
         (
             "tools/autocode_changeset",

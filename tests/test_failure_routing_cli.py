@@ -629,7 +629,11 @@ class FailureRoutingCLI(unittest.TestCase):
         self.assertEqual(2, len(self.trace("terra")), self.call_order("terra"))
         self.drive("--resume-paused", "--retry-failed-stage", codes=(2,))
         status = self.status()
-        self.assertEqual(["gpt-6-luna", "gpt-6-luna", "gpt-5.4"], [row["model"] for row in self.trace("terra")])
+        self.assertEqual(
+            ["gpt-6-luna", "gpt-6-luna", "gpt-5.4"],
+            [row["model"] for row in self.trace("terra")],
+            status["view"]["stop_reason"],
+        )
         self.assertEqual(3, status["milestone_checkpoint"]["limits"]["stalled_reviews"])
         self.assertTrue(status["milestone_checkpoint"]["current"]["needs_replan"])
         self.assertEqual(3, status["milestone_checkpoint"]["current"]["reviews_without_progress"])

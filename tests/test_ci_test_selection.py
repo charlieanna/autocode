@@ -8,6 +8,19 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_copied_recovery_providers_keep_their_public_consumers(self):
+        for path, consumers in (
+            ("tools/fake_codex.py", {"tests.test_subprocess"}),
+            (
+                "tests/failure_routing_provider.py",
+                {"tests.test_failure_routing_cli", "tests.test_classification_recovery"},
+            ),
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {module: "" for module in consumers})
+                kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+                self.assertEqual(consumers, set(kept))
+
     def test_review_handoffs_keep_the_public_followup_and_state_contract_consumers(self):
         consumers = {"tests.test_run_state", "tests.test_follow_up_acceptance_cli"}
         for path in (

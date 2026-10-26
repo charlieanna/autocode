@@ -241,6 +241,7 @@ class GoReproductionTests(unittest.TestCase):
                     "questions": [],
                     "tests_run": [],
                     "plan_approval_requested": False,
+                    "workspace_scope": {"spans_repositories": False, "external_parts": []},
                 }
             )
         )

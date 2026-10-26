@@ -27,6 +27,7 @@ try:
     from . import autocode_acceptance_tests as acceptance
     from . import autocode_answer_output as answer_output
     from . import autocode_approval_provenance as approval_provenance
+    from . import autocode_changeset_barrier as changeset_barrier
     from . import autocode_conversation_policy as conversation_policy
     from . import autocode_finding_close as finding_close
     from . import autocode_follow_up as follow_up
@@ -52,6 +53,7 @@ except ImportError:
     import autocode_acceptance_tests as acceptance
     import autocode_answer_output as answer_output
     import autocode_approval_provenance as approval_provenance
+    import autocode_changeset_barrier as changeset_barrier
     import autocode_conversation_policy as conversation_policy
     import autocode_finding_close as finding_close
     import autocode_follow_up as follow_up
@@ -141,7 +143,11 @@ def revalidate_on_resume(state: RunState, workspace, *, review_stage):
 
 def preflight(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Reject an ineligible approval before recovery can consume a retained report."""
-    if getattr(args, "approve_goal", None) and (reason := lifecycle.approval_boundary_refusal(state)):
+    if (
+        getattr(args, "approve_goal", None)
+        and not changeset_barrier.held_approval(state)
+        and (reason := lifecycle.approval_boundary_refusal(state))
+    ):
         try:
             action = conversation_policy.load_action(state, run_dir, args)
         except (ValueError, OSError) as error:
@@ -220,6 +226,23 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         try:
             if require_current_inputs:
                 runner.launch_inputs.guard(candidate, workspace, run_dir)
+            if (
+                args.approve_goal
+                and changeset_barrier.held_approval(candidate)
+                and args.approve_goal == goals.token(candidate["goal_contract"])
+                and not resolver_human.current(candidate)
+            ):
+                # The earlier per-run approval consumed its request, but the set
+                # never released (or was invalidated). Issue the ordinary exact-plan
+                # boundary again; do not bypass AutoResolver authority for retries.
+                resolver_human.queue(
+                    candidate,
+                    "goal_approval",
+                    changeset_barrier.reapproval_origin(candidate),
+                    status="AWAITING_GOAL_APPROVAL",
+                    next_stage=candidate.get("next_stage"),
+                )
+                runner.normalize_human_boundary(candidate, run_dir)
             published = resolver_human.current(candidate)
             if not published and candidate.get("status") == "TASK_COMPLETE":
                 follow_up.refuse_on_finished(args)  # only --follow-up reopens a finished run
@@ -315,7 +338,9 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
                 goal_file.record(candidate, args.goal_file, plan)
                 planning_artifacts.prepare_user_cli_edit(candidate, run_dir=run_dir, label="--goal-file")
             if args.approve_goal:
-                getattr(runner, "approve_goal", lifecycle.approve)(candidate, args.approve_goal)
+                if not changeset_barrier.held_approval(candidate):
+                    getattr(runner, "approve_goal", lifecycle.approve)(candidate, args.approve_goal)
+                changeset_barrier.approve(candidate, args.approve_goal, getattr(args, "changeset_token", None))
             for criterion in args.approve_review:
                 goals.approve_review(
                     candidate,

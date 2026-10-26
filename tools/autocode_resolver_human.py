@@ -300,6 +300,14 @@ def _decision(state: RunState, proposal):
     contract = state.get("goal_contract") or {}
     body = contract.get("body") or state.get("requirements_body") or {}
     if scope == "goal_approval":
+        try:
+            from . import autocode_changeset_barrier as changeset_barrier
+        except ImportError:
+            import autocode_changeset_barrier as changeset_barrier
+        if (proposal.get("origin") or {}).get("stage") == "changeset_reapproval" and changeset_barrier.held_approval(
+            state, queued_from=proposal.get("previous_status")
+        ):
+            return "escalate", "Only the user can release this exact approved plan from its change-set hold"
         token = f"r{contract.get('revision')}:{contract.get('hash')}"
         planning = state.get("planning") or {}
         if not contract or body.get("open_blocking_questions"):

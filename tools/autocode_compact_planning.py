@@ -42,6 +42,7 @@ try:
     from . import autocode_planning_cycle as planning_cycle
     from . import autocode_prompts as prompts
     from . import autocode_run_status as run_status
+    from . import autocode_scope_question as scope_question
     from . import autocode_sensitive_paths as sensitive_paths
     from . import autocode_stage_policy as stage_policy
     from . import autocode_test_cases as test_cases
@@ -53,6 +54,7 @@ except ImportError:
     import autocode_planning_cycle as planning_cycle
     import autocode_prompts as prompts
     import autocode_run_status as run_status
+    import autocode_scope_question as scope_question
     import autocode_sensitive_paths as sensitive_paths
     import autocode_stage_policy as stage_policy
     import autocode_test_cases as test_cases
@@ -111,6 +113,8 @@ def decide(state: RunState) -> dict:
     found = test_cases.current_diagnosis(state)
     handoff = state.get("requirements_handoff") or {}
     reasons = []
+    if found.get("questions") or state.get("pending_questions") or scope_question.question(state):
+        reasons.append("the diagnosis still needs a human decision")
     if not enabled(state):
         reasons.append(f"the run did not opt in ({FLAG})")
     if not adaptive.enabled(state):

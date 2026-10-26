@@ -11,8 +11,8 @@ nondelegable question before any plan, and reads the person's answer back:
   scope_exclusions (``exclusion_errors``) and the status view shows (``view``).
 
 A run in the other repository is linked outside this run (``autocode changeset link``,
-autocode_changeset); this run still records that part as not covered here. Imports nothing from AutoCode, so the question gate
-(autocode_requirements_review) and the contract checks (autocode_goals) can both use it.
+autocode_changeset); this run still records that part as not covered here. Depends only on
+workspace-scope policy, so the question gate and contract checks can both use it.
 """
 
 from __future__ import annotations
@@ -24,15 +24,20 @@ if TYPE_CHECKING:
 
 from pathlib import Path
 
+try:
+    from . import autocode_util as util
+    from . import autocode_workspace_scope_state as workspace_scope
+except ImportError:
+    import autocode_util as util
+    import autocode_workspace_scope_state as workspace_scope
+
 PREFIX = "workspace-scope-"
 THIS_REPOSITORY = "This repository only"
 EXCLUSION_PREFIX = "Not covered: changes in "
 
 
 def _scope(state: RunState) -> dict:
-    report = (state.get("requirements_handoff") or {}).get("report") or {}
-    scope = report.get("workspace_scope")
-    return scope if isinstance(scope, dict) else {}
+    return workspace_scope.current(state)
 
 
 def parts(state: RunState) -> list[dict]:
@@ -43,31 +48,73 @@ def parts(state: RunState) -> list[dict]:
     return [part for part in scope.get("external_parts") or [] if isinstance(part, dict) and part.get("target")]
 
 
-def _answers(state: RunState) -> list[tuple[str, str]]:
-    """The saved answers to scope questions, oldest first, as (question id, text)."""
-    rows = []
-    for key, answer in (state.get("answers") or {}).items():
-        if not str(key).startswith(PREFIX):
-            continue
-        text = answer.get("text") if isinstance(answer, dict) else answer
-        rows.append((str(key), str(text or "")))
-    return sorted(rows, key=lambda row: int(row[0][len(PREFIX) :]) if row[0][len(PREFIX) :].isdigit() else 0)
-
-
 def decision(state: RunState) -> str | None:
     """The person's choice for this run's scope, or None while no answer names one."""
-    chosen = {" ".join(text.split()).casefold() for _, text in _answers(state)}
-    return "this_repository" if THIS_REPOSITORY.casefold() in chosen else None
+    offered = _question(state)
+    if not offered:
+        return None
+    for answer in (state.get("answers") or {}).values():
+        if (
+            not isinstance(answer, dict)
+            or answer.get("actor") != "user_cli"
+            or answer not in state.get("user_events", [])
+        ):
+            continue
+        question = answer.get("question") or {}
+        same = question == offered
+        # An authenticated old receipt remains valid for the exact same displayed
+        # work, before any follow-up. It never accepts an unbound text-only answer.
+        legacy = (
+            not state.get("turns")
+            and not workspace_scope.intent(state)["feedback"]
+            and str(question.get("id", "")).removeprefix(PREFIX).isdigit()
+        )
+        if legacy:
+            same = {**question, "id": offered["id"]} == offered
+        if same and " ".join(str(answer.get("text") or "").split()).casefold() == THIS_REPOSITORY.casefold():
+            return "this_repository"
+    return None
 
 
 def question(state: RunState) -> dict | None:
     """The scope question the person has not answered yet, or None."""
+    return None if decision(state) else _question(state)
+
+
+def matches(state: RunState, offered: dict) -> bool:
+    """Only the current scope's exact question may receive an answer."""
+    current = _question(state)
+    if not current:
+        return False
+    if offered == current:
+        return True
+    legacy = (
+        not state.get("turns")
+        and not workspace_scope.intent(state)["feedback"]
+        and str(offered.get("id", "")).removeprefix(PREFIX).isdigit()
+    )
+    return bool(legacy and {**offered, "id": current["id"]} == current)
+
+
+def check_answer(state: RunState, offered: dict) -> None:
+    if str(offered.get("id", "")).startswith(PREFIX) and not matches(state, offered):
+        raise ValueError("The scope changed after this question was shown; answer the current scope question")
+
+
+def execution_guard(state: RunState) -> None:
+    if question(state):
+        raise util.Paused(
+            "PAUSED_SCOPE_DECISION", "Work in another repository still needs the person's current scope decision"
+        )
+
+
+def _question(state: RunState) -> dict | None:
     found = parts(state)
-    if not found or decision(state):
+    if not found:
         return None
     lines = [f"- {part['target']}: {part.get('work', '')}" for part in found]
     return {
-        "id": f"{PREFIX}{len(_answers(state)) + 1}",
+        "id": PREFIX + workspace_scope.identity(state),
         "question": (
             "Part of this request belongs to another repository, and this run can change only this one:\n"
             + "\n".join(lines)
@@ -98,16 +145,18 @@ def exclusion(part: dict) -> str:
 
 def exclusion_errors(state: RunState, contract: dict) -> list[str]:
     """One error per uncovered part the contract's scope_exclusions do not name."""
-    listed = " ".join(str(row) for row in (contract or {}).get("scope_exclusions") or [])
+    listed = set(str(row) for row in (contract or {}).get("scope_exclusions") or [])
     return [
         f"scope_exclusions must record that this run does not cover {part['target']}; add {exclusion(part)!r}"
         for part in uncovered(state)
-        if f"{EXCLUSION_PREFIX}{part['target']}" not in listed
+        if exclusion(part) not in listed
     ]
 
 
 def check(state: RunState, contract: dict) -> None:
     """Refuse a plan that does not record each part the person left out of this run."""
+    if question(state):
+        raise ValueError("Work in another repository needs the person's current scope decision before planning")
     errors = exclusion_errors(state, contract)
     if errors:
         raise ValueError("; ".join(errors))
@@ -130,13 +179,16 @@ def briefs(state: RunState) -> list[dict]:
             "brief": f"{task}\n\nNot covered here, a separate run in each repository: {elsewhere}.",
         }
     ]
+    grouped: dict[str, list[str]] = {}
     for part in found:
+        grouped.setdefault(part["target"], []).append(part.get("work", ""))
+    for target, work in grouped.items():
         rows.append(
             {
-                "repository": part["target"],
+                "repository": target,
                 "brief": (
-                    f"In {part['target']}: {part.get('work', '')}.\n\nThis is the {part['target']} side of a request "
-                    f"made in {here}: {task}\n\nThis run owns only {part['target']}'s side. Keep the interface the "
+                    f"In {target}: {'; '.join(work)}.\n\nThis is the {target} side of a request "
+                    f"made in {here}: {task}\n\nThis run owns only {target}'s side. Keep the interface the "
                     f"two sides share (field names, payloads, schemas) as the {here} run expects it."
                 ),
             }
@@ -152,7 +204,7 @@ def view(state: RunState, dropped=None) -> dict:
         "external_parts": [{"target": part["target"], "work": part.get("work", "")} for part in found],
         "uncovered": [part["target"] for part in uncovered(state)],
         "decision": decision(state),
-        "dropped": list(dropped or []),
+        "dropped": list(dict.fromkeys([*(_scope(state).get("dropped") or []), *(dropped or [])])),
         "linked": [],
         "briefs": briefs(state),
     }

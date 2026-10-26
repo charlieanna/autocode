@@ -127,6 +127,7 @@ export interface DisplayedPlan {
   acceptance_criteria?: AcceptanceCriterion[];
   constraints?: string[];
   permission_boundaries?: string[];
+  scope_exclusions?: string[];
   git_delivery?: { kind: "atomic_commit"; message: string } | null;
 }
 
@@ -445,7 +446,7 @@ export function planForApproval(view: StatusView): DisplayedPlan | null {
     row && typeof row.id === "string" && typeof row.criterion === "string"
       && typeof row.verification_method === "string" && typeof row.human_review === "boolean"
   )) return null;
-  if (![plan.constraints, plan.permission_boundaries].every((rows) =>
+  if (![plan.constraints, plan.permission_boundaries, plan.scope_exclusions === undefined ? [] : plan.scope_exclusions].every((rows) =>
     Array.isArray(rows) && rows.every((row) => typeof row === "string")
   )) return null;
   return plan;

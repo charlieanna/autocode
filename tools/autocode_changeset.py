@@ -19,9 +19,10 @@ A layer above the task-run interface (AGENTS.md rule 5): it reads runs only thro
   run's view again, refuses a token that no longer matches, and then approves each run with its own
   plan token, the source run first. An approval therefore still binds to plans the person was shown.
 
-No run builds before its own plan is approved, so approving through the set keeps every run out of
-the Builder until all of them are approved. Approving one run alone (its own ``--approve-goal``)
-stays an explicit person action that releases that run by itself.
+Set approval first establishes a durable hold, then approves each member through TaskRun, and
+releases the hold only after every core checkpoint acknowledges the same plans. Interrupted or
+stale approvals remain held and can be retried with the current set token. Approving one run alone
+(its own ``--approve-goal``) stays an explicit person action that releases that run by itself.
 
 Linking changes nothing in the source run: it still asks its scope question, and its plan still
 records the linked target as not covered there.
@@ -166,15 +167,15 @@ def status(run_dir, *, command=taskrun.AUTOCODE) -> dict:
     record = store.find(run_dir)
     if record is None:
         raise LinkRefused(f"{Path(run_dir).resolve()} is in no change set")
-    source = record["source"]
-    runs = [{"role": "source", "target": Path(source["workspace"]).name, **source}]
-    runs += [
-        {"role": "member", "target": row["target"], "workspace": row["workspace"], "run_dir": row.get("run_dir")}
-        for row in record["members"]
-    ]
+    runs = store.members(record)
     for row in runs:
         row.update(_member_status(row["workspace"], row["run_dir"], command))
-    summary = {"changeset": record["id"], "created_at": record.get("created_at"), "runs": runs}
+    summary = {
+        "changeset": record["id"],
+        "record_revision": int(record.get("revision", 0)),
+        "created_at": record.get("created_at"),
+        "runs": runs,
+    }
     summary["approval"] = _approval(summary)
     summary["verification"] = delivery.view(summary, record)
     return summary
@@ -220,15 +221,18 @@ def approve(run_dir, token: str, *, command=taskrun.AUTOCODE) -> dict:
         raise LinkRefused(f"the change set cannot be approved yet: waiting on {waiting}")
     if token != current:
         raise LinkRefused("a plan in the change set changed since it was shown; read `changeset status` again")
+    members = [{key: row[key] for key in ("role", "target", "workspace", "run_dir")} for row in fresh["runs"]]
+    store.begin_approval(run_dir, token, {row["run_dir"]: row["plan_token"] for row in fresh["runs"]}, members)
     approved: list[str] = []
     for row in fresh["runs"]:
         run = taskrun.TaskRun(Path(row["workspace"]), Path(row["run_dir"]), command=tuple(command))
         try:
-            run.approve_plan(row["plan_token"])
+            run.approve_plan(row["plan_token"], changeset_token=token)
         except taskrun.TaskRunError as error:
             done = ", ".join(approved) or "none"
             raise LinkRefused(f"approving {row['target']} failed after approving {done}: {error}") from error
         approved.append(row["target"])
+    store.release_approval(run_dir, token)
     return status(run_dir, command=command)
 
 
@@ -287,8 +291,23 @@ def _render(summary: dict) -> str:
     for row in summary["runs"]:
         needs = f", needs {row['needs']}" if row.get("needs") else ""
         lines.append(f"  {row['target']} ({row['role']}): {row['status']}{needs}  {row.get('run_dir') or ''}")
-        for criterion in (row.get("plan") or {}).get("acceptance_criteria") or []:
+        plan = row.get("plan") or {}
+        for criterion in plan.get("acceptance_criteria") or []:
             lines.append(f"    {criterion['id']}: {criterion['criterion']}")
+            lines.append(f"      Checked by: {criterion['verification_method']}")
+            if criterion["human_review"]:
+                lines.append("      You check this one yourself.")
+        for title, field in (
+            ("Constraints", "constraints"),
+            ("What it may do", "permission_boundaries"),
+            ("Not covered", "scope_exclusions"),
+        ):
+            if plan.get(field):
+                lines.append(f"    {title}:")
+                lines.extend(f"      - {text}" for text in plan[field])
+        delivery_plan = plan.get("git_delivery")
+        if isinstance(delivery_plan, dict) and delivery_plan.get("kind") == "atomic_commit":
+            lines.append("    Create one local atomic commit: " + delivery_plan["message"])
     approval = summary.get("approval") or {}
     if approval.get("next_command"):
         lines.append("Approve every plan above at once: " + " ".join(approval["next_command"]))

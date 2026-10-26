@@ -49,9 +49,23 @@ read/update/write, releases it, and only then proceeds toward a provider stage.
 Registration failures pause the preserved run as `PAUSED_REGISTRY`; fix storage
 and explicitly resume the same `--run-dir` to retry its stable identity.
 
+## registry add
+
+`autocode registry add /path/to/project [--json]` registers an explicitly selected,
+existing Git checkout or worktree with at least one commit. It accepts the root,
+not a subdirectory or a bare repository, and canonicalizes aliases. It creates
+no run, launches no provider and changes no project files. Repeating it returns
+`already_registered: true`. Invalid roots or corrupt/conflicting registry data
+return an `error` object and exit 2 without replacing existing records.
+
+Use this to make a fresh local checkout available to `changeset link` without a
+dummy task. Use one explicit `AUTOCODE_HOME` for registration, source runs,
+linked runs and change-set commands. Task text and model output never invoke
+registration, and clients' named-action contracts are unchanged.
+
 ## registry import
 
-`registry import` is the only registry discovery operation that writes. It requires an
+`registry import` discovers and registers existing runs. It requires an
 explicit selected directory, resolves that root canonically, and searches the root at
 depth zero through depth 3 by default. `--max-depth` must be a nonnegative integer;
 `--directory-budget` must be a positive integer and defaults to 10000. The budget counts

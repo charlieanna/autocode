@@ -557,6 +557,7 @@ function approvalView() {
       ],
       constraints: ['Never delete the original data'],
       permission_boundaries: ['Only edit app.py'],
+      scope_exclusions: ['billing-api: the server response is not covered <script>excluded()</script>'],
     },
     next_command: `AUTOCODE_APPROVE_GOAL_TOKEN=r1:abc autocode --workspace ${run.workspace} --run-dir ${run.runDir} --approve-goal -`,
   };
@@ -618,6 +619,13 @@ test('approval renders structured criteria, verification, human review, constrai
 });
 
 for (const surface of ['chat', 'Run details']) {
+  test(`excluded repositories are visible before approval in ${surface}`, async (t) => {
+    const view = approvalView();
+    const ui = surface === 'chat' ? await openChat(t, chatView(view)) : await openPanel(t, view);
+    assert.ok(ui.document.body.textContent.includes('Not covered'));
+    assert.ok(ui.document.body.textContent.includes(view.displayed_plan.scope_exclusions[0]));
+    assert.equal(ui.document.querySelectorAll('script').length, 1, 'excluded work stays text');
+  });
   test(`the approved local commit is visible in ${surface}`, async (t) => {
     const view = approvalView();
     view.displayed_plan.git_delivery = { kind: 'atomic_commit', message: 'Add JSON export' };
@@ -633,6 +641,8 @@ test('approval stays disabled for missing, malformed or stale displayed plans', 
   await ui.poll({ ...base, displayed_plan: { ...base.displayed_plan, acceptance_criteria: ['not a structured criterion'] } });
   assert.equal(ui.take().disabled, true);
   await ui.poll({ ...base, displayed_plan: { ...base.displayed_plan, constraints: undefined } });
+  assert.equal(ui.take().disabled, true);
+  await ui.poll({ ...base, displayed_plan: { ...base.displayed_plan, scope_exclusions: 'unshowable' } });
   assert.equal(ui.take().disabled, true);
   await ui.poll({ ...base, needs: { kind: 'approve_plan', token: 'r2:def' } });
   assert.equal(ui.take().disabled, true);
@@ -3654,7 +3664,7 @@ test('cap-counted cost renders above historical cost and polling retains its unk
 });
 
 function changesetSummary(token) {
-  const plan = (id) => ({ revision: 1, acceptance_criteria: [{ id, criterion: `criterion ${id}`, verification_method: 'test', human_review: false }], constraints: [], permission_boundaries: [] });
+  const plan = (id) => ({ revision: 1, acceptance_criteria: [{ id, criterion: `criterion ${id}`, verification_method: 'test', human_review: false }], constraints: [], permission_boundaries: [], scope_exclusions: [`${id}: billing-api integration is excluded`] });
   return {
     changeset: 'changeset-1',
     runs: [
@@ -3676,7 +3686,7 @@ test('Run details shows the change set and approves only the set token it showed
     scope: { linked: [{ changeset: 'changeset-1', target: 'b', role: 'member', workspace: '/b', run_dir: '/b/.autocode/runs/m' }] } };
   const ui = await openPanel(t, view, undefined, ownController);
   const text = ui.document.body.textContent;
-  for (const expected of ['Change set changeset-1', 'b (linked run): AWAITING_GOAL_APPROVAL', 'AC1: criterion AC1', 'BC1: criterion BC1']) {
+  for (const expected of ['Change set changeset-1', 'b (linked run): AWAITING_GOAL_APPROVAL', 'AC1: criterion AC1', 'BC1: criterion BC1', 'AC1: billing-api integration is excluded', 'BC1: billing-api integration is excluded']) {
     assert.ok(text.includes(expected), expected);
   }
   const action = () => ui.document.querySelector('#changeset-action');

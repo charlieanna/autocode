@@ -112,7 +112,7 @@ AutoCode can install its own listener; it never uses `--privileged` or adds a
 capability. A preflight exercises the real session listener and bubblewrap and
 fails before the selected check if Docker Desktop's Linux VM cannot provide
 them. This is execution inside supported Linux, not a macOS admission bypass;
-macOS provider launches remain refused.
+this exercises the Linux boundary rather than macOS portable supervision.
 
 This path intentionally does not run discovery, the full suite or the full
 scenario catalog. The image covers the CI Python/Node/Go toolchains, not Java,
