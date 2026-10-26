@@ -507,8 +507,9 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
     # The stop an explicit resume finds holding the run, for the build loop to record who resumed it (#722).
     args._resumed_pause = resumed_pause(state) if args.resume_paused else None
     recovering_report = getattr(args, "recover_job_report", None) is not None
+    changing_job_caps = getattr(args, "_job_cap_change", False)
     try:
-        settings = runner.configure(args, copy.deepcopy(state) if recovering_report else state)
+        settings = runner.configure(args, copy.deepcopy(state) if recovering_report or changing_job_caps else state)
     except ValueError as error:
         raise SettingRefused(
             runner.status_command.rejection_message(runner, state, workspace, run_dir, error)
@@ -517,6 +518,10 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
         if settings != state.get("settings"):
             parser.error("Provider configuration or limits changed; report recovery requires unchanged saved settings")
         return state  # Standalone adoption must not save configuration, migrations or other actions first.
+    if changing_job_caps:
+        # The recovery action validates the exact stop before committing these settings.
+        args._job_cap_settings = settings
+        return state
     # Before any stage: refuse a run whose built-in OpenCode stages cannot be kernel-contained, or save
     # the explicit --allow-uncontained-tools opt-out (#413). That refusal is a refused setting too, with
     # its own text (#714).

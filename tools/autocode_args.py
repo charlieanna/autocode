@@ -29,6 +29,7 @@ try:
     from . import autocode_conversation_args as conversation_args
     from . import autocode_design_args as design_args
     from . import autocode_goal_approval_args as goal_approval_args
+    from . import autocode_job_args as job_args
     from . import autocode_package_scope as package_scope
     from . import autocode_project_config as project_config
     from . import autocode_resolver_human as resolver_human
@@ -52,6 +53,7 @@ except ImportError:
     import autocode_conversation_args as conversation_args
     import autocode_design_args as design_args
     import autocode_goal_approval_args as goal_approval_args
+    import autocode_job_args as job_args
     import autocode_package_scope as package_scope
     import autocode_project_config as project_config
     import autocode_resolver_human as resolver_human
@@ -790,32 +792,7 @@ def parse(unit, argv, default_models):
         )
     if args.retry_report:
         _requires_resume(parser, args, "--retry-report")
-    # The token also binds a stopped job's model answer to the stop a person inspected (#463).
-    names_job_model = (
-        bool(args.answer)
-        and all(item.startswith("route-") for item in args.answer)
-        and not (args.resume_paused or args.retry_failed_stage)
-    )
-    if args.job_retry_token and not args.run_dir:
-        parser.error("--job-retry-token requires --run-dir --resume-paused --retry-failed-stage")
-    if args.job_retry_token and not names_job_model and not (args.retry_failed_stage and args.resume_paused):
-        parser.error(
-            "--job-retry-token requires --resume-paused --retry-failed-stage, "
-            "or --answer route-ROLE=MODEL alone to name a stopped job's model"
-        )
-    # The answer issues a new token, so it never retries in the same invocation; refusing that
-    # form here also keeps any other setting given with it from being saved (#463 review).
-    if (
-        args.job_retry_token
-        and args.resume_paused
-        and args.retry_failed_stage
-        and any(item.partition("=")[0].startswith("route-") for item in [*args.answer, *args.delegate])
-    ):
-        parser.error(
-            "--answer route-ROLE=MODEL --job-retry-token TOKEN names a stopped job's model on its own "
-            "and issues a new token; then retry with --resume-paused --retry-failed-stage "
-            "--job-retry-token NEW_TOKEN"
-        )
+    job_args.validate(args, parser, explicit)
     if args.retry_failed_stage:
         _requires_resume(parser, args, "--retry-failed-stage")
     if args.diagnose_failed_stage:

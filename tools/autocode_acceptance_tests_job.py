@@ -42,6 +42,7 @@ from pathlib import Path
 try:
     from . import autocode_acceptance_provenance as provenance
     from . import autocode_acceptance_tests as acceptance
+    from . import autocode_handoff_dedup as handoff
     from . import autocode_run_status as run_status
     from . import autocode_stray_writes as stray_writes
     from . import autocode_test_cases as test_cases
@@ -50,6 +51,7 @@ try:
 except ImportError:
     import autocode_acceptance_provenance as provenance
     import autocode_acceptance_tests as acceptance
+    import autocode_handoff_dedup as handoff
     import autocode_run_status as run_status
     import autocode_stray_writes as stray_writes
     import autocode_test_cases as test_cases
@@ -128,7 +130,11 @@ def packet(state: RunState, inventory: dict | None = None, engine: str | None = 
 def prompt(
     state: RunState, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
 ) -> tuple[str, dict]:
-    text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, inventory, engine), indent=2)
+    text = (
+        PROMPT
+        + "\nCURRENT HANDOFF DATA\n"
+        + json.dumps(handoff.deduplicate(packet(state, inventory, engine)), indent=2)
+    )
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
 
 
