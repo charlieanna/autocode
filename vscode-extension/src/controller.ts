@@ -13,6 +13,8 @@ import { realpath } from "node:fs/promises";
 import { invoke, readStatus, stream, tail, type CliResult } from "./core/cli";
 import {
   applyDecisions,
+  changesetAction,
+  changesetStatusArgs,
   commandInputs,
   findUnsupplied,
   isAdvancing,
@@ -21,7 +23,7 @@ import {
   ClientGap,
   type OpenDecision,
 } from "./core/next-command";
-import { readRegistryList, readStatusPayload, approvalToken, planForApproval, type CheckpointAction, type RegistryList, type StatusView } from "./core/view";
+import { readChangesetSummary, readRegistryList, readStatusPayload, approvalToken, planForApproval, type ChangesetSummary, type CheckpointAction, type RegistryList, type StatusView } from "./core/view";
 import { FULL_START_ARGS, readRunModes, type RunModes } from "./core/modes";
 import { readSettings, type Settings } from "./settings";
 
@@ -232,6 +234,45 @@ export class RunController {
     this.log.appendLine(`[autocode exited ${result.code}]`);
     if (result.rejected) throw new Error(`AutoCode rejected the command:\n${tail(result)}`);
     if (result.code !== 0 && result.code !== 2) throw new Error(tail(result));
+    return result;
+  }
+
+  /**
+   * `changeset status --json` for a run whose view lists linked runs; null when it is in no change
+   * set. Read-only: it reads each run's status view and changes nothing (#2066).
+   */
+  async changeset(view: StatusView, run: RunRef): Promise<ChangesetSummary | null> {
+    const args = changesetStatusArgs(view, effective(view, run));
+    if (!args) return null;
+    const result = await invoke(this.settings, args);
+    if (result.code !== 0) {
+      try {
+        readChangesetSummary(result.stdout);
+      } catch (error) {
+        throw new Error(error instanceof Error ? error.message : tail(result));
+      }
+      throw new Error(tail(result));
+    }
+    return readChangesetSummary(result.stdout);
+  }
+
+  /**
+   * Take the change set's named set approval or joint check. The set approval is bound to the
+   * set token a person was shown with every run's plan: a plan revised since has a new token, and
+   * the client refuses before the core would.
+   */
+  async takeChangeset(view: StatusView, run: RunRef, key: "approval" | "verification", shownToken?: string | null): Promise<CliResult> {
+    const summary = await this.changeset(view, run);
+    if (!summary) throw new ClientGap("this run is in no change set");
+    if (key === "approval" && summary.approval.set_token !== shownToken) {
+      throw new ClientGap("a plan in the change set changed since it was displayed; review the plans again");
+    }
+    const args = changesetAction(summary, key);
+    this.log.appendLine(`$ autocode ${args.join(" ")}`);
+    const runs = summary.runs.map((row) => ({ workspace: row.workspace, runDir: row.run_dir }));
+    const result = await this.mutating([run, ...runs], () => stream(this.settings, args, {}, (chunk) => this.log.append(chunk)));
+    this.log.appendLine(`[autocode exited ${result.code}]`);
+    if (result.rejected || result.code !== 0) throw new Error(tail(result));
     return result;
   }
 

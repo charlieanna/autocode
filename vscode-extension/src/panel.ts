@@ -8,7 +8,7 @@
 
 import * as vscode from "vscode";
 import { ClientGap, integerValue, leavesForPerson, requiresConfirmation, type OpenDecision } from "./core/next-command";
-import type { AcceptanceCriterion, IntegerCommandInput, Question, StatusView } from "./core/view";
+import type { AcceptanceCriterion, ChangesetSummary, DisplayedPlan, IntegerCommandInput, Question, StatusView } from "./core/view";
 import { approvalToken, isWorking, needsSummary, pauseLabel, planForApproval, progressLine, usageLine } from "./core/view";
 import type { RunController, RunRef } from "./controller";
 import { markdown, type TextNode } from "./chat-markdown";
@@ -80,6 +80,42 @@ export interface PanelState {
   token: string | null;
   /** False when the action would be an approval of a plan this client never displayed. */
   canApprove: boolean;
+  /** This run's change set (`changeset status --json`, #2066), or null when it is in none. */
+  changeset?: ChangesetState | null;
+}
+
+/** A change set as the panel shows it: every run, and the one action `changeset status` names now. */
+export interface ChangesetState {
+  id: string;
+  runs: { target: string; role: string; status: string; needs: string | null }[];
+  /** Each run's plan, shown only while the set approval is offered: that approval approves them. */
+  plans: { target: string; plan: NonNullable<PanelState["plan"]> }[];
+  offer: { key: "approval" | "verification"; label: string; effect: string } | null;
+  /** The set token the shown plans make; the webview echoes it back so a stale click approves nothing. */
+  token: string | null;
+  note: string | null;
+}
+
+/** The panel's change-set card for a `changeset status --json` summary. */
+export function changesetState(summary: ChangesetSummary): ChangesetState {
+  const { approval, verification } = summary;
+  const approving = Boolean(approval.next_command?.length);
+  let note: string | null = null;
+  if (verification.done) note = "Checked together: done. Merge order: " + verification.merge_order.join(", then ");
+  else if (!approving && approval.waiting_on.length && verification.waiting_on.length) note = "A set approval waits for a complete plan from: " + approval.waiting_on.join(", ");
+  else if (verification.result?.current && !verification.result.passed) note = "The integration check failed. Reopen the run that diverged (autocode changeset reopen) or waive it with a reason (autocode changeset waive).";
+  return {
+    id: summary.changeset,
+    runs: summary.runs.map((row) => ({ target: row.target, role: row.role, status: row.status, needs: row.needs ?? null })),
+    plans: approving ? summary.runs.map((row) => ({ target: row.target, plan: planOf(row.plan ?? {}) })) : [],
+    offer: approving
+      ? { key: "approval", label: `Approve all ${summary.runs.length} plans`, effect: "Approves every plan shown here together, the source run first. A plan revised in any run withdraws this approval." }
+      : verification.next_command?.length
+        ? { key: "verification", label: "Run the set's check", effect: `Runs ${(verification.check?.command ?? []).join(" ")} in ${verification.check?.in ?? "the named run"}'s workspace, with no shell.` }
+        : null,
+    token: approving ? approval.set_token : null,
+    note,
+  };
 }
 
 export class RunPanel {
@@ -180,7 +216,40 @@ export class RunPanel {
       this.post({ ...emptyState(this.run), gap: messageOf(error) });
       return;
     }
-    this.post(stateFor(view, this.run, this.controller, this.taking));
+    this.post({ ...stateFor(view, this.run, this.controller, this.taking), changeset: await this.changesetCard(view) });
+  }
+
+  /** The change-set card, or null when the run is in none; a failed read is shown, never guessed at. */
+  private async changesetCard(view: StatusView): Promise<ChangesetState | null> {
+    try {
+      const summary = await this.controller.changeset(view, this.run);
+      return summary ? changesetState(summary) : null;
+    } catch (error) {
+      return { id: "", runs: [], plans: [], offer: null, token: null, note: `The change set could not be read: ${messageOf(error)}` };
+    }
+  }
+
+  /** The change set's named action, confirmed first, bound to the set token the card showed. */
+  private async takeChangeset(key: "approval" | "verification", token: string | null): Promise<void> {
+    if (this.taking) return;
+    this.taking = true;
+    try {
+      const view = await this.controller.status(this.run);
+      const question = key === "approval" ? "Approve every plan of the change set together?" : "Run the change set's integration check now?";
+      const button = key === "approval" ? "Approve all" : "Run the check";
+      if ((await vscode.window.showWarningMessage(question, { modal: true }, button)) !== button) return;
+      await this.controller.takeChangeset(view, this.run, key, token);
+    } catch (error) {
+      void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
+    } finally {
+      this.taking = false;
+      await this.update();
+      try {
+        await this.onAction?.();
+      } catch {
+        // Ignored
+      }
+    }
   }
 
   private post(state: PanelState): void {
@@ -193,7 +262,12 @@ export class RunPanel {
     answers?: Record<string, string>;
     token?: string | null;
     decisionContext?: string;
+    key?: string;
   }): Promise<void> {
+    if (message.type === "changeset" && (message.key === "approval" || message.key === "verification")) {
+      await this.takeChangeset(message.key, message.token ?? null);
+      return;
+    }
     if (message.type === "chat") {
       await vscode.commands.executeCommand("autocode.openRun", this.run);
       return;
@@ -394,7 +468,10 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
 /** The plan the token asks to approve, only when the view still shows that plan. */
 function planShape(view: StatusView): PanelState["plan"] {
   const plan = planForApproval(view);
-  if (!plan) return null;
+  return plan ? planOf(plan) : null;
+}
+
+function planOf(plan: DisplayedPlan): NonNullable<PanelState["plan"]> {
   return {
     revision: plan.revision ?? null,
     criteria: plan.acceptance_criteria ?? [],
@@ -1054,6 +1131,8 @@ function render(state) {
     }
   }
 
+  if (state.changeset) renderChangeset(state.changeset, state);
+
   if (!state.done && !state.stopped) {
     app.appendChild(el('h2', null, 'Waiting for'));
     app.appendChild(el('div', 'line', state.needsYou || state.needSummary || state.needKind || '—'));
@@ -1154,6 +1233,25 @@ function render(state) {
       input.focus();
       if (selection && input.tagName === 'INPUT') input.setSelectionRange(...selection);
     }
+  }
+}
+
+function renderChangeset(set, state) {
+  app.appendChild(el('h2', null, set.id ? 'Change set ' + set.id : 'Change set'));
+  set.runs.forEach((row) => app.appendChild(el('div', 'row',
+    row.target + ' (' + (row.role === 'source' ? 'source run' : 'linked run') + '): ' + row.status + (row.needs ? ', needs ' + row.needs : ''))));
+  set.plans.forEach((entry) => {
+    app.appendChild(el('div', 'why', entry.target + ': plan revision ' + (entry.plan.revision === null ? '?' : entry.plan.revision)));
+    entry.plan.criteria.forEach((criterion) => app.appendChild(el('div', 'row', criterion.id + ': ' + criterion.criterion)));
+  });
+  if (set.note) app.appendChild(el('div', 'notice', set.note));
+  if (set.offer) {
+    app.appendChild(el('div', 'why', set.offer.effect));
+    const take = el('button', null, set.offer.label);
+    take.id = 'changeset-action';
+    take.disabled = state.taking || Boolean(state.unreadable);
+    take.addEventListener('click', () => vscode.postMessage({ type: 'changeset', key: set.offer.key, token: set.token }));
+    app.appendChild(take);
   }
 }
 
