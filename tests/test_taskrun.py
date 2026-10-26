@@ -504,6 +504,7 @@ class RunViewTests(unittest.TestCase):
                 "source_revision": "r9",
                 "case_tests": None,
                 "unstable": None,
+                "follow_up_baseline": None,
             },
             evidence["regression_proof"],
         )
