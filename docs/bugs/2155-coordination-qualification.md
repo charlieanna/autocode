@@ -134,3 +134,8 @@ now declare `RunState | None`. The exact CI type command (`mypy tools/`) passes
 all 674 source files, and the report-identity/run-state regressions pass all 25
 tests. This changes annotations only, so the behavioral flow evidence above
 remains applicable.
+
+The retained Ubuntu log also exposed `RunViewTests.test_contract_fields`: its
+exact public-field inventory omitted the new `coordination` and `related_profile`
+fields. The regression failed locally before updating that inventory; all 27
+public status-view tests pass afterward. No runtime behavior changed.
