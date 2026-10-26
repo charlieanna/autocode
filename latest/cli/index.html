@@ -2460,7 +2460,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/46b2eaae88d52182026047ea39bc283739852fc5/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/00e6d67a32dbac3c820a4fe3b794f2368e546f0f/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2542,6 +2542,10 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 <tr>
 <td><code>autocode bridge run\|check\|status</code></td>
 <td>The channel bridge daemon: take labeled GitHub issues, start durable runs, relay questions, plan approvals and pauses to the issue, and take an allowlisted actor's reply as the exact action the status view names (see <a href="../channels/">Channel bridge</a>).</td>
+</tr>
+<tr>
+<td><code>autocode changeset link\|status\|list</code></td>
+<td>Start a run in another registered project for work a run's request places there, and show the change set the linked runs form (see <a href="../task-run/#linked-runs">Linked runs</a>).</td>
 </tr>
 <tr>
 <td><code>autocode arena init\|ingest\|cases\|run\|report\|propose\|annotate\|compare</code></td>
@@ -2668,7 +2672,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/46b2eaae88d52182026047ea39bc283739852fc5/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/00e6d67a32dbac3c820a4fe3b794f2368e546f0f/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3242,7 +3246,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/46b2eaae88d52182026047ea39bc283739852fc5/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/00e6d67a32dbac3c820a4fe3b794f2368e546f0f/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3869,6 +3873,11 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 <td>Repeated projects and discovery roots, discovery depth (3), CLI runner, local port (8765) and provider for new runs.</td>
 </tr>
 <tr>
+<td><code>autocode changeset</code></td>
+<td><code>--run-dir</code>, <code>--target</code>, <code>--workspace</code>, <code>--json</code></td>
+<td>The source run (with <code>status</code>: any run of the change set), the repository as its <code>scope.external_parts</code> names it, the registered project to start the linked run in, and JSON output. Arguments after <code>--</code> are the linked run's run options.</td>
+</tr>
+<tr>
 <td><code>autocode bridge</code></td>
 <td><code>--once</code>, <code>--project</code>, <code>--poll-seconds</code>, <code>--json</code></td>
 <td>With <code>run</code>: one poll then exit (for tests and cron-style operation), the persistent checkout to build in (default: <code>AUTOCODE_BRIDGE_PROJECT</code> or the daemon's directory) and seconds between polls (default 10, or <code>AUTOCODE_BRIDGE_POLL_SECONDS</code>); with <code>status</code>, JSON output. See <a href="../channels/">Channel bridge</a>.</td>
@@ -4127,7 +4136,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/46b2eaae88d52182026047ea39bc283739852fc5/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/00e6d67a32dbac3c820a4fe3b794f2368e546f0f/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
