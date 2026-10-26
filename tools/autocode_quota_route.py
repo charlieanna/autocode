@@ -232,7 +232,9 @@ def job_question(state: RunState) -> dict | None:
         return failure["route"]
     row = _job_row(state)
     timeout_role = (
-        {"investigate_bug": "investigator", "write_acceptance_tests": "acceptance_tester"}.get(failure.get("stage"))
+        {"investigate_bug": "investigator", "write_acceptance_tests": "acceptance_tester"}.get(
+            str(failure.get("stage") or "")
+        )
         if failure.get("kind") == "timeout"
         else None
     )
