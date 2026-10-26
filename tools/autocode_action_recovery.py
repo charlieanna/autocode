@@ -49,6 +49,16 @@ except ImportError:
 
 def gate_failures(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Settle a classification or job failure before any pause authority is weighed."""
+    if getattr(args, "_job_cap_change", False):
+        try:
+            job_failure.change_total_caps(runner, state, run_dir, workspace, args)
+        except ValueError as error:
+            print(f"Input rejected: {error}", file=sys.stderr)
+            return 2
+        print(
+            "Total caps saved; job remains paused. Inspect the fresh retry token before authorizing a retry. No provider launched."
+        )
+        return 0
     classification_gate = classification_recovery.gate(
         state,
         resume=bool(args.resume_paused),

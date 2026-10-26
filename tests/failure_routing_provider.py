@@ -105,6 +105,19 @@ def main():
         )
         needs_user = bool(os.environ.get("FAILURE_ROUTING_NEEDS_USER"))
         routable = choice in ("execution", "plan", "stale") and not needs_user
+        counterexample = {"file": "", "find": "", "replace": ""}
+        if probe:
+            original_report = report.read_text()
+            opposite = json.loads(original_report)
+            if retained_rework and failure["record"].get("stage") == "astra_review":
+                opposite["status"] = "COMPLETE"
+            else:
+                opposite["results"] = ["check exit=1" if choice == "plan" else "check exit=0"]
+            counterexample = {
+                "file": "run/" + report.name,
+                "find": original_report,
+                "replace": json.dumps(opposite),
+            }
         result = dict(
             diagnosis=diagnosis,
             cause="needs_user" if needs_user else "other",
@@ -114,6 +127,7 @@ def main():
             evidence_refs=[str(report)],
             example=diagnosis,
             probe=probe,
+            counterexample=counterexample,
             untestable="" if probe else "An empty source diff cannot distinguish the cause.",
             failure_class="execution" if choice == "stale" else choice,
             failure_id="stale-incident" if choice == "stale" else failure["failure_id"],

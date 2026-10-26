@@ -381,6 +381,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A person can now change a failed job's total time/accounting caps using its exact retry token
+  (#2156). The job stays paused, usage stays recorded and a fresh token is required for a separate
+  retry. Stale source, mixed settings and changes to other limits remain refused.
+
 - Acceptance-test prompts reference exact duplicate case text inside their complete inline approved
   contract (#2153). Case IDs, test names, proof kinds, source quotes and all permissions are retained;
   repair inputs remain self-contained. This reduces prompt size without skipping tests or stages.

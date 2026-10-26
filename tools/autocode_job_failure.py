@@ -352,7 +352,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
     return True
 
 
-def authorize(runtime, state: RunState, run_dir, workspace, token):
+def _validate_retry(state: RunState, workspace, token):
     failure = state.get("job_failure") or {}
     if not quota_route.job_pause_current(state):
         raise ValueError("Exact job retry requires a paused failed workflow job")
@@ -372,6 +372,64 @@ def authorize(runtime, state: RunState, run_dir, workspace, token):
         raise ValueError("Source changed since the failed attempt; retry is stale")
     if configuration(state) != failure["configuration"]:
         raise ValueError("Provider configuration or limits changed; retry is stale")
+    return failure
+
+
+def change_total_caps(runtime, state: RunState, run_dir, workspace, args):
+    """Save only explicitly chosen total caps; retain the stop and require a fresh retry (#2156)."""
+    failure = _validate_retry(state, workspace, args.job_retry_token)
+    previous_settings = copy.deepcopy(state["settings"])
+    expected = copy.deepcopy(previous_settings)
+    changes = {}
+    for name in ("max_seconds", "max_cost_usd"):
+        chosen = getattr(args, name, None)
+        if chosen is not None:
+            old = expected.setdefault("limits", {}).get(name)
+            expected["limits"][name] = chosen
+            expected.setdefault("budget_origins", {})[name] = "user_explicit"
+            if old != chosen:
+                changes[name] = {"from": old, "to": chosen}
+    if expected != args._job_cap_settings or not changes:
+        raise ValueError(
+            "Name changed total time/cost caps only; other settings and retry authority must stay unchanged"
+        )
+    previous_token = failure["job_retry_token"]
+    state["settings"] = expected
+    failure["configuration"] = configuration(state)
+    failure["job_retry_token"] = "jr:" + util.digest(
+        {
+            "run": str(run_dir),
+            "attempt": failure["attempt_id"],
+            "previous": previous_token,
+            "source": failure["source_identity"],
+            "configuration": failure["configuration"],
+        }
+    )
+    state.pop("job_retry_authorization", None)
+    state.setdefault("configuration_changes", []).append(
+        {
+            "at": util.now(),
+            "previous": previous_settings,
+            "selected": copy.deepcopy(expected),
+            "reason": "Explicit total caps changed at an exact failed-job boundary; no retry authorized",
+        }
+    )
+    state.setdefault("user_events", []).append(
+        {
+            "kind": "job_total_caps_changed",
+            "actor": "user_cli",
+            "at": util.now(),
+            "attempt_id": failure["attempt_id"],
+            "previous_token": previous_token,
+            "token": failure["job_retry_token"],
+            "changes": changes,
+        }
+    )
+    runtime.write_json(Path(run_dir) / "state.json", state)
+
+
+def authorize(runtime, state: RunState, run_dir, workspace, token):
+    failure = _validate_retry(state, workspace, token)
     state["job_retry_authorization"] = {"token": token, "stage": failure["stage"], "consumed": False}
     state.setdefault("user_events", []).append(
         {
