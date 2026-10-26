@@ -188,7 +188,9 @@ class AcceptanceRecoveryCliTests(AcceptanceRecoveryFixture, unittest.TestCase):
     def test_named_resume_restores_exact_approved_r12_without_new_authority_or_dispatch(self):
         checkpoint = (self.run_dir / "state.json").read_bytes()
         before = self.run.status()
-        self.assertEqual(checkpoint, (self.run_dir / "state.json").read_bytes(), "Status must not reconcile saved state")
+        self.assertEqual(
+            checkpoint, (self.run_dir / "state.json").read_bytes(), "Status must not reconcile saved state"
+        )
         self.assertEqual("resume", before["needs"]["kind"])
         self.assertIn("--resume-paused", before["next_command"])
         after = self.run.resume_paused()
