@@ -2172,7 +2172,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/90418efb8468893f8e0fdd97ed47931281fd12fc/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/5e86241af28b8e0b8c1d8e4aaf42aebb3ad17fb8/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2342,7 +2342,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/90418efb8468893f8e0fdd97ed47931281fd12fc/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/5e86241af28b8e0b8c1d8e4aaf42aebb3ad17fb8/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2475,6 +2475,9 @@ is never silently added.</p>
   login is connected, then Claude Opus, and MiMo is not used for review (owner decision,
   2026-10-20: MiMo spent 32-45k reasoning tokens and up to 15 minutes per plan review).
   With neither connected, the run stops before any work and offers those two logins.
+  A model the table marks <code>excluded</code> for a role is never chosen for it, even when a profile
+  pinned it and a live run completed on it; <code>tools/qualify_routes.py</code> names the exclusion
+  instead of adding an entry, so the Plan Reviewer's MiMo v2.6 Pro exclusion is that record.
   The Builder likewise prefers GPT-6 Luna at medium effort (owner decision, 2026-10-21), then GPT-6 Sol, then MiMo v2.6
   Flash, then Claude Opus, then the cheapest of GLM 5.3, MiMo v2.6 Pro and DeepSeek (owner
   decision, 2026-10-20: on ladder-07 a Luna Builder took 36-66 s and a Sol Builder 66 s
