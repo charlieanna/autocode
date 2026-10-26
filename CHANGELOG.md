@@ -56,6 +56,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The qualification table records the 2026-10-25 `bugfix-trivial` live run on `glm-mimo-kilo`:
+  Requirements, Planner, Builder, Tester and Completion Reviewer reached `TASK_COMPLETE` on their
+  routes, while the per-task Planner route `astra` stayed unqualified because the run never launched
+  it and the Plan Reviewer's MiMo route stays excluded by the owner decision (#2057 E).
+
 - The terminal's `/runs` and an uncached `/open` now read project and global
   listings asynchronously in the existing bounded read pool. Keyboard input
   stays available during slow discovery, and numbered `/open` choices stay
