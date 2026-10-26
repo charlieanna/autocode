@@ -1918,7 +1918,7 @@
 
 
 <h1 id="work-that-spans-several-repositories">Work that spans several repositories<a class="headerlink" href="#work-that-spans-several-repositories" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/da9ac6646152fc96a93762e6aff4bb3fcc70edb8/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/0be1ae02756dbd51c7ff7108997e8ead4af988c9/README.md">← Back to README</a></p>
 <p>One AutoCode run changes one repository. Its workspace is one Git tree. The
 checkpoints, diffs, protected tests and the Builder's declared changes are all
 bounded to that tree, and a Builder write outside it is treated as a fault.</p>
@@ -1949,8 +1949,16 @@ deliver only the API half.</p>
 <li><strong>You can approve the linked plans together.</strong> <code>autocode changeset status</code> shows every
   run's plan and one set token, and <code>autocode changeset approve</code> approves them all at
   once. A plan that changes in any run withdraws the token
-  (<a href="../task-run/#approving-the-set">Approving the set</a>). Checking that the two sides agree
-  is a later step of <a href="https://github.com/charlieanna/autocode/issues/2066">#2066</a>.</li>
+  (<a href="../task-run/#approving-the-set">Approving the set</a>).</li>
+<li><strong>You can check the linked runs together.</strong> Name an integration command, such as the
+  consumer's tests against the producer's checkout, with <code>autocode changeset check-command</code>.
+  <code>autocode changeset verify</code> runs it once every run is complete, and a later code change in
+  either repository makes its result stale. A failed check can reopen the run that diverged,
+  or you can waive it with a reason. <code>autocode changeset pr-body</code> writes the section each
+  pull request carries, with the merge order
+  (<a href="../task-run/#checking-the-set-together-and-delivering-it">Checking the set together</a>).
+  Showing all this in the terminal chat, VS Code and the channel bridge is a later step of
+  <a href="https://github.com/charlieanna/autocode/issues/2066">#2066</a>.</li>
 <li><strong>Component builds stay inside one repository.</strong> <code>autocode components</code> builds
   several components in parallel, but every component worktree comes from the
   same repository's HEAD, and integration applies their changes to a worktree of
@@ -1964,7 +1972,7 @@ deliver only the API half.</p>
   checks do not see them. Treat both as unsupported.</li>
 </ul>
 <h2 id="the-manual-workflow">The manual workflow<a class="headerlink" href="#the-manual-workflow" title="Permanent link">&para;</a></h2>
-<p>Until linked runs are checked together, coordinate the repositories yourself:</p>
+<p>Without a change set, coordinate the repositories yourself:</p>
 <ol>
 <li>Write one brief per repository. Each brief states the shared requirement,
    the interface both sides agree on (field names, payload examples, an API
@@ -1979,7 +1987,7 @@ deliver only the API half.</p>
 <li>Before merging, run the consumer's tests against the producer's branch, and
    link the two pull requests to each other with the merge order.</li>
 </ol>
-<p>Nothing checks that the two halves agree yet. That is the gap the later steps close.</p>
+<p>Without a change set, nothing checks that the two halves agree.</p>
 
 
 
