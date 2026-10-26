@@ -24,6 +24,7 @@ import autocode_configure
 import autocode_run_view as run_view
 import autocode_support as support
 
+from dashboard import dashboard_recovery
 from scenarios.harness import conformance, needs_command
 from tests import test_needs_contract
 from tests.test_stop_explanations import named_pause_states
@@ -120,7 +121,15 @@ class EveryPauseNumberIsDescribed(unittest.TestCase):
                     filled = actions.fill(view, command, {row["id"]: str(row["minimum"])})
                 args = parses(filled)
                 self.assertEqual(view["recovery"]["token"], args.expected_recovery_token)
+                # The browser dashboard types the number into the same command, with the token moved back
+                # into argv for its launcher's private channel (dashboard_recovery.number_command).
+                extra, taken = dashboard_recovery.number_command(view, WORKSPACE, RUN, row["id"], str(row["minimum"]))
+                self.assertEqual(row, taken)
+                token_at = filled.argv.index("--expected-recovery-token") + 1
+                self.assertEqual(["--no-chat", *filled.argv[:token_at], view["recovery"]["token"]], extra)
                 self.assertEqual(row["minimum"], round(getattr(args, row["flag"][2:].replace("-", "_"))))
+                with self.assertRaisesRegex(ValueError, "whole number"):
+                    dashboard_recovery.number_command(view, WORKSPACE, RUN, row["id"], str(row["minimum"] - 1))
                 with self.assertRaises(actions.ClientGap):  # one below the minimum grants nothing
                     if "command" in row:
                         actions.fill_offer(view, row, command, str(row["minimum"] - 1))
@@ -209,6 +218,12 @@ class ClientTablesMatchTheCore(unittest.TestCase):
         for flag, (identity, label, used, fractional) in actions.INTEGER_INPUTS.items():
             row = f'"{flag}": ["{identity}", "{label}", "{used}", {str(fractional).lower()}]'
             self.assertIn(row, typescript, "vscode-extension's INTEGER_INPUTS drifted from the core")
+
+    def test_the_vscode_panel_names_every_bound_it_may_raise(self):
+        # Its confirmation says which limit a typed number changes; an unnamed bound would fall back to the label.
+        panel = (ROOT / "vscode-extension/src/panel.ts").read_text()
+        for identity, *_rest in command_inputs.BOUNDS.values():
+            self.assertRegex(panel, rf"\n  {identity}: \[\(total\) =>", f"panel.ts BOUND_WORDING has no {identity}")
 
     def test_every_placeholder_filler_fills_every_person_number(self):
         for table in (needs_command._PERSON_INT, test_needs_contract._PERSON_INT):

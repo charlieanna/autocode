@@ -187,6 +187,94 @@ class RecoveryActionTests(unittest.TestCase):
         self.assertNotIn("M999", result["command"])
         self.assertNotIn("--approve-goal", result["command"])
 
+    def bound_pause(self, held=False):
+        """A run stopped at its cost cap, published as the CLI's public status view (#2044).
+
+        ``held``: AutoResolver's operational request holds it, so next_command is a plain resume and
+        the command_inputs row names the raise as its own command.
+        """
+        import autocode as runner
+        import autocode_run_view as run_view
+        import autocode_support as support
+
+        self.state.update(
+            status="PAUSED_COST_LIMIT",
+            stop_reason="Saved limit reached",
+            run_dir=str(self.run),
+            stages=[],
+            history=[],
+            iteration=2,
+            next_stage="terra",
+            phase="EXECUTING",
+            settings={"limits": {"max_cost_usd": 2.0}, "budget_origins": {"max_cost_usd": "user_explicit"}, "roles": {}},
+            resolver={},
+        )
+        if held:
+            error = support.Paused("PAUSED_COST_LIMIT", self.state["stop_reason"])
+            self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, self.state, self.run, error))
+        self.write_state()
+        public = run_view.view(self.state, run_dir=self.run, workspace=self.workspace)
+        self.status.update(status=public["status"], view=public)
+        self.save("status.json", self.status)
+        return public
+
+    def test_a_number_typed_at_a_bound_pause_takes_the_command_the_view_names_for_it(self):
+        for held in (False, True):
+            with self.subTest(held=held):
+                self.console.pending.clear()
+                self.console.workspace_busy.clear()
+                public = self.bound_pause(held)
+                row = public["needs"]["command_inputs"][0]
+                self.assertEqual(held, "command" in row)
+                token = public["recovery"]["token"]
+                before = (self.run / "state.json").read_bytes()
+                with patch.object(self.console.pool, "submit") as submit:
+                    result = self.action(
+                        "set_pause_number",
+                        recovery_token=token,
+                        input_id="max_cost_usd",
+                        value="5",
+                        args=["--approve-goal", "injected"],
+                    )
+                expected = ["--no-chat", "--resume-paused", "--max-cost-usd", "5", "--expected-recovery-token", "-"]
+                self.assertEqual(expected, result["command"][-len(expected) :])
+                self.assertEqual({"AUTOCODE_EXPECTED_RECOVERY_TOKEN": token}, submit.call_args.args[-1])
+                self.assertNotIn(token, result["command"])
+                self.assertNotIn("--approve-goal", result["command"])
+                self.assertEqual(before, (self.run / "state.json").read_bytes())
+
+    def test_a_pause_number_out_of_bounds_stale_or_unoffered_runs_nothing(self):
+        public = self.bound_pause(held=True)
+        token = public["recovery"]["token"]
+        for fields, message in (
+            ({"value": "2"}, "whole number from 3"),
+            ({"value": "3.5"}, "whole number from 3"),
+            ({"value": ""}, "whole number from 3"),
+            ({"value": 5}, "whole number"),
+            ({"input_id": "max_seconds"}, "limit this pause offers changed"),
+            ({"recovery_token": "old"}, "pause changed"),
+        ):
+            with self.subTest(fields=fields):
+                payload = {"recovery_token": token, "input_id": "max_cost_usd", "value": "5", **fields}
+                with self.assertRaisesRegex(ValueError, message):
+                    self.action("set_pause_number", **payload)
+        moved = dict(public)
+        moved["needs"] = {**public["needs"]}
+        moved["needs"]["command_inputs"] = [
+            {**public["needs"]["command_inputs"][0], "command": public["needs"]["command_inputs"][0]["command"].replace(
+                str(self.run), "/elsewhere/run"
+            )}
+        ]
+        self.status.update(view=moved)
+        self.save("status.json", self.status)
+        with self.assertRaisesRegex(ValueError, "not this run"):
+            self.action("set_pause_number", recovery_token=token, input_id="max_cost_usd", value="5")
+        del moved["needs"]["command_inputs"]
+        self.save("status.json", self.status)
+        with self.assertRaisesRegex(ValueError, "offers no number"):
+            self.action("set_pause_number", recovery_token=token, input_id="max_cost_usd", value="5")
+        self.assertEqual([], self.console.action_log(self.workspace, self.run))
+
     def test_stale_running_worker_gets_inspection_but_no_execution_token(self):
         from dashboard_recovery import projection
 

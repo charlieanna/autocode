@@ -26,6 +26,23 @@ export interface Decision {
 
 export const NUMERIC_RECOVERY_EFFECT = "This changes only the total active time. Other saved limits and model routes stay the same. It does not approve a plan.";
 
+/** The button that takes a bound's separately named raise (#2044). */
+export const RAISE_LABEL = "Raise limit and continue";
+
+/**
+ * How a confirmation names each bound a person may raise: the question for a typed total, and what
+ * taking it changes. Keyed by the core's row id (autocode_command_inputs); the rows themselves are
+ * validated against the core's table in core/next-command.ts.
+ */
+const BOUND_WORDING: Record<string, [(total: string) => string, string]> = {
+  max_seconds: [(total) => `Set total active time to ${total} seconds and continue?`, "the total active time"],
+  max_cost_usd: [(total) => `Set the cost cap to $${total} and continue?`, "the cost cap"],
+  max_iterations: [(total) => `Set total iterations to ${total} and continue?`, "the iteration ceiling"],
+  max_milestone_seconds: [(total) => `Set the milestone's active time to ${total} seconds and continue?`, "the milestone's active time"],
+  max_milestone_replans: [(total) => `Allow ${total} milestone replans and continue?`, "the milestone replan limit"],
+  no_progress_limit: [(total) => `Allow ${total} unchanged implementation batches and continue?`, "the unchanged-batch limit"],
+};
+
 export interface PanelState {
   numericActionLabel?: string;
   chat?: StatusView["chat"];
@@ -82,6 +99,8 @@ export interface PanelState {
   canApprove: boolean;
   /** This run's change set (`changeset status --json`, #2066), or null when it is in none. */
   changeset?: ChangesetState | null;
+  /** The raise the view names apart from next_command for the bound holding the run (#2044), or null. */
+  boundRaise: IntegerCommandInput | null;
 }
 
 /** A change set as the panel shows it: every run, and the one action `changeset status` names now. */
@@ -252,6 +271,28 @@ export class RunPanel {
     }
   }
 
+  /** The bound's separately named raise with the typed number, confirmed against the offer shown (#2044). */
+  private async raise(value: string, decisionContext: string | undefined): Promise<void> {
+    if (this.taking) return;
+    this.taking = true;
+    try {
+      const view = await this.controller.status(this.run);
+      if (!(await confirmRaise(stateFor(view, this.run, this.controller, true), decisionContext, value))) return;
+      this.post(stateFor(view, this.run, this.controller, true));
+      await this.controller.raise(view, this.run, value);
+    } catch (error) {
+      void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
+    } finally {
+      this.taking = false;
+      await this.update();
+      try {
+        await this.onAction?.();
+      } catch {
+        // Ignored
+      }
+    }
+  }
+
   private post(state: PanelState): void {
     this.panel.title = titleOf(this.run, state);
     void this.panel.webview.postMessage({ type: "state", state });
@@ -263,6 +304,7 @@ export class RunPanel {
     token?: string | null;
     decisionContext?: string;
     key?: string;
+    value?: string;
   }): Promise<void> {
     if (message.type === "changeset" && (message.key === "approval" || message.key === "verification")) {
       await this.takeChangeset(message.key, message.token ?? null);
@@ -278,6 +320,10 @@ export class RunPanel {
     }
     if (message.type === "refresh") {
       await this.update();
+      return;
+    }
+    if (message.type === "raise") {
+      await this.raise(message.value ?? "", message.decisionContext);
       return;
     }
     if (message.type !== "take") return;
@@ -366,6 +412,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
       gap = error instanceof ClientGap ? error.message : messageOf(error);
     }
   }
+  const boundRaise = view.done || stopped ? null : controller.boundRaise(view, run);
   const requirements = progress?.requirements;
   const working = taking || isWorking(view);
   return {
@@ -433,6 +480,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
       need?.route,
       decisions,
       view.next_command ?? "",
+      boundRaise,
     ]),
     gap,
     actionLabel,
@@ -462,6 +510,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     plan,
     token: approvalToken(view),
     canApprove: need?.kind !== "approve_plan" || plan !== null,
+    boundRaise,
   };
 }
 
@@ -530,23 +579,51 @@ export function numericConfirmation(state: PanelState, answers: Record<string, s
   if (input.id === "planning_review_call_limit") {
     return `Set the total plan-review allowance to ${total} calls?`;
   }
-  return `Set total active time to ${total} seconds and continue?`;
+  return boundQuestion(input, total);
+}
+
+/** The confirmation for a bound's separate raise with the typed number; a number out of bounds is a gap. */
+export function raiseConfirmation(input: IntegerCommandInput, text: string): string {
+  return boundQuestion(input, integerValue(text, input));
+}
+
+function boundQuestion(input: IntegerCommandInput, total: string): string {
+  const wording = BOUND_WORDING[input.id];
+  return wording ? wording[0](total) : `Set ${input.label} to ${total} and continue?`;
 }
 
 export function numericActionLabel(state: Pick<PanelState, "decisions">): string {
   const input = state.decisions.find((row) => row.kind === "integer")?.input;
   if (input?.id === "grant_recovery") return "Grant and continue";
-  return input?.id === "planning_review_call_limit"
-    ? "Set review allowance"
-    : "Set total and continue";
+  if (input?.id === "planning_review_call_limit") return "Set review allowance";
+  return input?.id === "max_seconds" || !input ? "Set total and continue" : RAISE_LABEL;
 }
 
 export function numericRecoveryEffect(state: PanelState): string {
   const input = state.decisions.find((row) => row.kind === "integer")?.input;
   if (input?.id === "grant_recovery") return "This replenishes spent recovery slots under the existing fixed allowance. Recovery history is retained; excess is not banked. Other saved limits and model routes stay the same. It does not approve a plan.";
-  return input?.id === "planning_review_call_limit"
-    ? "This changes only the plan-review allowance. Used calls stay counted. Inspect the next action after saving; continuing can require a separate Resume. Other saved limits and model routes stay the same. It does not approve a plan."
-    : NUMERIC_RECOVERY_EFFECT;
+  if (input?.id === "planning_review_call_limit") return "This changes only the plan-review allowance. Used calls stay counted. Inspect the next action after saving; continuing can require a separate Resume. Other saved limits and model routes stay the same. It does not approve a plan.";
+  return input ? boundEffect(input) : NUMERIC_RECOVERY_EFFECT;
+}
+
+/**
+ * Ask the person to confirm a typed raise of the bound the view names now; false when declined.
+ * An offer that changed since it was shown, or a number out of its bounds, is refused before asking.
+ */
+export async function confirmRaise(state: PanelState, decisionContext: string | undefined, value: string): Promise<boolean> {
+  const input = state.boundRaise;
+  if (!input || decisionContext !== state.decisionContext) {
+    throw new ClientGap("The requested action changed; review it before continuing");
+  }
+  const title = raiseConfirmation(input, value);
+  return (await vscode.window.showWarningMessage(title, { modal: true, detail: boundEffect(input) }, RAISE_LABEL)) === RAISE_LABEL;
+}
+
+/** What raising a bound changes, and what it leaves alone. */
+export function boundEffect(input: IntegerCommandInput): string {
+  if (input.id === "max_seconds") return NUMERIC_RECOVERY_EFFECT;
+  const noun = BOUND_WORDING[input.id]?.[1] ?? input.label;
+  return `This changes only ${noun}, then resumes the run. Other saved limits and model routes stay the same. It does not approve a plan.`;
 }
 
 function safeCommandText(view: StatusView, run: RunRef, controller: RunController): string {
@@ -597,6 +674,7 @@ function emptyState(run: RunRef): PanelState {
     workingDiff: null,
     checkpointsBlocked: null,
     plan: null,
+    boundRaise: null,
     token: null,
     canApprove: true,
   } satisfies Omit<PanelState, "gap">;
@@ -701,6 +779,7 @@ ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messag
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
 const chatMode = ${chat};
+const RAISE_LABEL = ${JSON.stringify(RAISE_LABEL)};
 const initialWebviewState = vscode.getState?.() || {};
 let chatEnvelope = null;
 const chatBehavior = chatMode ? (${installChatBehavior.toString()})() : null;
@@ -820,7 +899,7 @@ function render(state) {
     state.taking, state.working, state.plan, state.criteria, state.decisions, state.decisionContext,
     state.actionLabel, state.actionEffect, state.stopped, state.unreadable,
     state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.log, state.chat.review, state.chat.input && state.chat.input.kind],
-    state.workingDiff,
+    state.workingDiff, state.boundRaise,
   ] : state;
   const serialized = JSON.stringify(chatSlice);
   if (serialized === renderedState) return;
@@ -853,6 +932,7 @@ function render(state) {
 
     if (state.chat && state.chat.input && state.chat.input.kind === 'resolver_response') {
       cardContent.appendChild(el('div', 'notice', 'Reply with what changed or how you want to proceed. Recovery is reviewed before the run can continue.'));
+      if (state.boundRaise) renderBoundRaise(cardContent, state);
       app.appendChild(card);
       return;
     }
@@ -968,6 +1048,7 @@ function render(state) {
         });
         cardContent.appendChild(form);
       }
+      if (state.boundRaise) renderBoundRaise(cardContent, state);
 
       var approving = state.needKind === 'approve_plan';
       var label = (state.taking || state.working) ? 'Working…' : (approving ? 'Approve and build'
@@ -1145,6 +1226,7 @@ function render(state) {
     chat.id = 'open-recovery-conversation';
     chat.addEventListener('click', () => vscode.postMessage({ type: 'chat' }));
     app.appendChild(chat);
+    if (state.boundRaise) renderBoundRaise(app, state);
   } else if (state.gap) {
     app.appendChild(el('h2', null, 'No action the client can take'));
     const box = el('div', 'gap');
@@ -1207,6 +1289,7 @@ function render(state) {
     actions.appendChild(again);
     app.appendChild(actions);
     updateActionButton();
+    if (state.boundRaise) renderBoundRaise(app, state);
 
     if (!state.canApprove && state.needKind === 'approve_plan') {
       const notice = el('div', 'notice');
@@ -1267,12 +1350,60 @@ function updateActionButton() {
   take.disabled = current.taking || current.working || Boolean(current.unreadable) || missing || !current.canApprove;
 }
 
+// The raise the view names apart from next_command for the bound holding the run (#2044): its own
+// number and button, so a typed limit goes only into that command.
+function renderBoundRaise(container, state) {
+  const input = state.boundRaise;
+  const name = 'raise:' + input.id;
+  const box = el('div', 'decision');
+  box.id = 'bound-raise';
+  box.appendChild(el('div', 'q', 'Or raise the limit instead: ' + input.label));
+  box.appendChild(el('div', 'why', numericHelp(input)));
+  const field = document.createElement('input');
+  field.type = 'text'; field.inputMode = 'numeric'; field.pattern = '[0-9]*';
+  field.setAttribute('aria-label', input.label);
+  field.dataset.question = name;
+  if (answers[name]) field.value = answers[name];
+  const save = () => { answers[name] = field.value; updateRaiseButton(); };
+  field.addEventListener('change', save);
+  field.addEventListener('input', save);
+  box.appendChild(field);
+  const raise = el('button', null, (state.taking || state.working) ? 'Working…' : RAISE_LABEL);
+  raise.id = 'raise-bound';
+  raise.addEventListener('click', () => vscode.postMessage({ type: 'raise', value: answers[name] || '',
+    runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
+  box.appendChild(raise);
+  container.appendChild(box);
+  updateRaiseButton(raise);
+}
+
+// The chat card is built before it joins the document, so the first update is given its button.
+function updateRaiseButton(button) {
+  const raise = button || document.getElementById('raise-bound');
+  if (!raise || !current || !current.boundRaise) return;
+  const input = current.boundRaise;
+  const value = answers['raise:' + input.id] || '';
+  const number = /^[0-9]+$/.test(value) ? Number(value) : NaN;
+  const valid = Number.isSafeInteger(number) && number >= input.minimum && number <= input.maximum;
+  raise.disabled = current.taking || current.working || Boolean(current.unreadable) || !valid;
+}
+
 function numericHelp(input) {
   if (input.id === 'grant_recovery') return 'Automatic recovery allowance: ' + input.current
     + '. Counted recoveries used: ' + input.used + '. Enter 1 to ' + input.maximum
     + ' additional recoveries. A grant replenishes spent slots; history is kept.';
   if (input.id === 'planning_review_call_limit') return 'Saved allowance: ' + input.current
     + ' calls. Plan-review calls used: ' + input.used + '. Enter a total of at least ' + input.minimum + ' calls.';
+  if (input.id === 'max_cost_usd') return 'Saved cost cap: $' + input.current + '. Known spend: $' + input.used
+    + '. Enter a whole-dollar cap of at least $' + input.minimum + '.';
+  if (input.id === 'max_iterations') return 'Saved ceiling: ' + input.current + ' iterations. Current iteration: '
+    + input.used + '. Enter a total of at least ' + input.minimum + ' iterations.';
+  if (input.id === 'max_milestone_seconds') return 'Saved milestone time: ' + input.current + ' seconds. Counted: '
+    + input.used + ' seconds. Enter at least ' + input.minimum + ' seconds.';
+  if (input.id === 'max_milestone_replans') return 'Replans allowed: ' + input.current + '. Replans used: '
+    + input.used + '. Enter at least ' + input.minimum + '.';
+  if (input.id === 'no_progress_limit') return 'Unchanged batches allowed: ' + input.current + '. Counted: '
+    + input.used + '. Enter at least ' + input.minimum + '.';
   return 'Saved total: ' + input.current + ' seconds. Active time used: ' + input.elapsed
     + ' seconds. Enter a total of at least ' + input.minimum + ' seconds.';
 }

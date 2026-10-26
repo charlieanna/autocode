@@ -1145,8 +1145,15 @@ the need is a plain `--resume-paused` or AutoResolver's operational response, th
 row also carries `command`: the raise itself, a complete command with the run's
 paths and the private token channel. A client fills the row's `arg_index` in
 that command and takes it, never in `next_command` or in a reply. The terminal
-chat offers it at the pause's yes/no and at the operational reply; the headless
-conformance client and the VS Code client validate it the same way
+chat offers it at the pause's yes/no and at the operational reply. The VS Code
+run details and sidebar chat show it as its own number and **Raise limit and
+continue** button beside the plain resume or the recovery reply, confirmed with
+the bound it changes. The browser dashboard's recovery card shows the one row
+`needs.command_inputs` describes, attached or separate, as a number entry once
+the saved pause is inspected; its backend re-reads the status, checks the
+recovery token the card showed and types the number only into the command the
+view names for it. The headless conformance client, the VS Code client and the
+dashboard validate the row the same way
 (`tools/autocode_client_actions.check_input`).
 
 For the finite total-time recovery, for example:
