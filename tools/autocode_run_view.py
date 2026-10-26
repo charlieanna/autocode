@@ -743,6 +743,7 @@ def workflow_result(state: RunState):
             "outcome": row.get("verdict"),
             "artifact": row.get("report_path"),
             "artifact_sha256": row.get("report_sha256"),
+            **({"source_revision": row["source_revision"]} if row.get("source_revision") else {}),
             "summary": f"{row.get('blocking', 0)} blocking, {row.get('advisory', 0)} advisory findings"
             + (
                 f"; {row.get('pre_existing', 0)} pre-existing observations, "

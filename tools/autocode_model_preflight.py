@@ -349,6 +349,10 @@ def due(routes: dict, next_stage) -> dict:
     With no next stage known (a standalone caller), every route is due."""
     if not next_stage:
         return dict(routes)
+    # A standalone review runs only on sol. Probing a configured Builder or
+    # Planner adds paid latency and can block a review on an unused account.
+    if next_stage == "review_change":
+        return {role: route for role, route in routes.items() if role == "sol"}
     return {role: route for role, route in routes.items() if next_stage in DEFERRED.get(role, (next_stage,))}
 
 

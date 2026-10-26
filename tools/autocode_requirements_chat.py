@@ -47,8 +47,13 @@ def _first_conversation(state: RunState):
 
 
 def gather_first(state: RunState):
-    """A new chat run talks with Requirements before the job is recognized, whatever its first message says."""
+    """Gather an unpinned chat brief; an explicitly selected review starts its named job."""
     if not _first_conversation(state) or state.get("stages"):
+        return False
+    # An explicit review already names the job and supplies its brief. It has no
+    # implementation plan to approve; ambiguous/unpinned chats still use intake.
+    workflow = state.get("workflow") or {}
+    if workflow.get("kind") == "review" and workflow.get("source") == "user":
         return False
     intake = state.get("design_intake") or {}
     if intake.get("status") == "PENDING":

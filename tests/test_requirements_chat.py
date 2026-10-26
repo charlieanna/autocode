@@ -62,8 +62,13 @@ class RequirementsChatTests(unittest.TestCase):
         pinned = {"task": "Look over my change", "settings": {"spec_first": True}}
         workflows.begin(pinned, chat.STAGE)
         workflows.pin(pinned, "review")
-        self.assertTrue(chat.gather_first(pinned))
-        self.assertEqual((chat.STAGE, "review"), (pinned["next_stage"], pinned["workflow"]["kind"]))
+        self.assertFalse(chat.gather_first(pinned))
+        self.assertEqual(("review_change", "review"), (pinned["next_stage"], pinned["workflow"]["kind"]))
+        for kind in ("build", "discuss", "design"):
+            state = {"task": "Work on this", "settings": {"spec_first": True}}
+            workflows.begin(state, chat.STAGE)
+            workflows.pin(state, kind)
+            self.assertTrue(chat.gather_first(state), kind)
         for state in (
             {"task": "hi", "settings": {}},
             {"task": "hi", "settings": {"spec_first": True}, "turns": [{"say": "hi"}]},
