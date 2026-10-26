@@ -197,7 +197,11 @@ def main(argv=None) -> int:
     evidence = (
         f"Live {when} ({subject} on {profile}, run {Path(options.run_dir).name}) reached TASK_COMPLETE on this route."
     )
-    document = {"as_of": table["as_of"], "roles": json.loads(json.dumps(table["roles"]))}
+    # Keep every top-level field the selector does not own (the table's basis text), or a write
+    # would delete it (#2117).
+    document = {"as_of": table["as_of"]}
+    document.update({key: value for key, value in raw.items() if key not in ("as_of", "roles")})
+    document["roles"] = json.loads(json.dumps(table["roles"]))
     lines = qualify(state, document, evidence=evidence, only=set(options.role))
     changed = document["roles"] != table["roles"]
     if changed:

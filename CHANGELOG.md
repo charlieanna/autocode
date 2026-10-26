@@ -353,6 +353,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `tools/qualify_routes.py` keeps the qualification table's top-level fields when it writes, so a
+  merge no longer deletes the table's `basis` policy text: it rebuilt the file from the parsed
+  `as_of` and `roles` alone, and only a real write (not `--dry-run`) showed the loss (#2117, #2057).
+
 - `tools/qualify_routes.py` counts only attempts that finished with accepted output: a rejected,
   timed-out, interrupted, still-active or report-repair attempt no longer qualifies its route, so a
   reviewer route that went silent and was replaced by a fallback is not written as qualified (#2114).

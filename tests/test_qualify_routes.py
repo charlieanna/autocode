@@ -102,6 +102,13 @@ class QualifyRoutesTests(unittest.TestCase):
     def written(self):
         return json.loads(self.table.read_text(encoding="utf-8"))
 
+    def test_a_write_keeps_the_table_fields_the_selector_does_not_own(self):
+        # #2117: the shipped table carries its policy as a top-level `basis`; a write that rebuilt
+        # the document from the parsed as_of/roles deleted it.
+        code, output = self.run_script("--date", "2026-10-25")
+        self.assertEqual(0, code, output)
+        self.assertEqual("test table", self.written()["basis"])
+
     def test_a_provisional_route_becomes_qualified_with_its_evidence(self):
         code, output = self.run_script("--profile", "glm-mimo-kilo", "--date", "2026-10-25")
         self.assertEqual(0, code, output)
