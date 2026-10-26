@@ -18,6 +18,13 @@ import autocode_util as util
 
 
 class ChangesetBarrierTests(unittest.TestCase):
+    def test_approval_outside_a_change_set_preserves_the_original_lifecycle(self):
+        state = copy.deepcopy(self.a)
+        state.update(run_dir=str(self.root / "unlinked"), status="READY")
+        before = copy.deepcopy(state)
+        barrier.approve(state, identity.token(state["goal_contract"]), None)
+        self.assertEqual(before, state)
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="changeset-barrier-")
         self.addCleanup(temp.cleanup)

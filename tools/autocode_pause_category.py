@@ -50,6 +50,7 @@ STATUS_GROUPS = MappingProxyType(
                 "PAUSED_MILESTONE_HUMAN_REVIEW",
                 "PAUSED_PERMISSION",
                 "PAUSED_REQUESTED",
+                "PAUSED_SCOPE_DECISION",
                 "PAUSED_UNANSWERED_QUESTION",
                 "PAUSED_WORKFLOW_APPROVAL",
                 "PAUSED_WORKFLOW_CONFLICT",

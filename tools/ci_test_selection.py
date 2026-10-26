@@ -71,6 +71,11 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     ("scenarios/harness/conformance.py", ("tests.test_planning_allowance_cli",)),
     ("scenarios/harness/fake_codex.py", ("tests.test_brief_cli", "tests.test_requirements_job_cli")),
+    ("tools/fake_codex.py", ("tests.test_subprocess",)),
+    (
+        "tests/failure_routing_provider.py",
+        ("tests.test_failure_routing_cli", "tests.test_classification_recovery"),
+    ),
     ("scenarios/harness/clarifying_requirements_provider.py", ("tests.test_requirements_review",)),
     ("scripts/homebrew_formula.py", ("tests.test_homebrew_formula",)),
     ("scenarios/catalog/review-clean-pr/broken/blocks-on-a-nit/", ("tests.test_review_attribution_cli",)),

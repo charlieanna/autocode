@@ -345,7 +345,13 @@ class DirectCliTests(unittest.TestCase):
                 report = {
                     "answer": "README contains DIRECT_TOOL_EVIDENCE.",
                     "evidence": [
-                        {"claim": "README contains the marker", "source": "README.md", "example": "", "probe": ""}
+                        {
+                            "claim": "README contains the marker",
+                            "source": "README.md",
+                            "example": "",
+                            "probe": "",
+                            "counterexample": {"file": "", "find": "", "replace": ""},
+                        }
                     ],
                     "questions": [],
                     "note_path": "",

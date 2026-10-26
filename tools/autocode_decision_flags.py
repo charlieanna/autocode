@@ -19,6 +19,7 @@ DECISION_FLAGS = (
     "--delegate-all",
     "--reject-assumption",
     "--approve-goal",
+    "--changeset-token",
     "--edit-goal",
     "--goal-file",
     "--approve-review",

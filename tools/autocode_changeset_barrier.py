@@ -121,13 +121,15 @@ def execution_guard(state: RunState) -> None:
 
 def approve(state: RunState, selected: str, set_token: str | None) -> None:
     """Bind the person's exact plan approval to a set preparation, or release this run alone."""
-    own = observation(state)
-    if own["plan_token"] != selected or not own["approved"]:
-        raise ValueError("Change-set approval needs the exact approved current plan")
     try:
         record = store.find(state.get("run_dir")) if state.get("run_dir") else None
     except (store.ChangesetError, OSError) as error:
         raise ValueError(str(error)) from error
+    if not set_token and record is None and not state.get("changeset_approval"):
+        return
+    own = observation(state)
+    if own["plan_token"] != selected or not own["approved"]:
+        raise ValueError("Change-set approval needs the exact approved current plan")
     if set_token:
         preparation = (record or {}).get("approval") or {}
         if preparation.get("token") != set_token or preparation.get("plans", {}).get(state.get("run_dir")) != selected:
