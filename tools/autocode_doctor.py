@@ -51,6 +51,7 @@ import shutil
 import subprocess
 import sys
 import sysconfig
+import tomllib
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -206,6 +207,7 @@ def engine_checks(which=shutil.which, runner=run, opencode_version=None) -> list
             if login.returncode == 0
             else Check("engine:codex", MISSING, "Codex found but not logged in", "run `codex login`")
         )
+        checks.append(codex_billing_check())
     else:
         checks.append(
             Check(
@@ -216,6 +218,41 @@ def engine_checks(which=shutil.which, runner=run, opencode_version=None) -> list
             )
         )
     return checks
+
+
+def codex_billing_check(*, environ=None, config_path=None) -> Check:
+    """The billing-route gate a Codex joint-planning run applies before any launch (#2055): ambient
+    API-key or endpoint overrides, or another provider named in Codex's own config, pause with
+    PAUSED_BILLING_ROUTE. Doctor names the exact command instead of letting the run discover it."""
+    environ = os.environ if environ is None else environ
+    if config_path is None:
+        config_path = Path(environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml"
+    ambient = [name for name in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL") if name in environ]
+    overrides = []
+    if config_path.is_file():
+        try:
+            config = tomllib.loads(config_path.read_text())
+        except (OSError, tomllib.TOMLDecodeError):
+            config = {}
+        if config.get("model_provider") not in (None, "openai"):
+            overrides.append(f"model_provider = {config['model_provider']!r}")
+        if config.get("openai_base_url"):
+            overrides.append(f"openai_base_url = {config['openai_base_url']!r}")
+    if not ambient and not overrides:
+        return Check("billing:codex", OK, "no API-key or endpoint override would reach a Codex run")
+    gaps, fixes = [], []
+    if ambient:
+        gaps.append("this shell exports " + ", ".join(ambient))
+        fixes.append("unset " + " ".join(ambient) + " (also remove them from the shell profile that sets them)")
+    if overrides:
+        gaps.append(f"{config_path} sets " + " and ".join(overrides))
+        fixes.append(f"remove those lines from {config_path}")
+    return Check(
+        "billing:codex",
+        MISSING,
+        "; ".join(gaps) + "; a Codex joint-planning run pauses (PAUSED_BILLING_ROUTE) rather than bill another route",
+        "; ".join(fixes) + "; to run on API keys instead: `autocode connections setup`",
+    )
 
 
 def default_provider() -> str:
