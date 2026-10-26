@@ -37,7 +37,10 @@ a command that exits 0 exactly when the files it cites in ``evidence_refs`` show
 cause. Every cited file must exist (in the repository or this run's directory). The runner
 copies only the cited run files into a scratch tree, under ``run/``, and runs the probe
 there (autocode_test_cases.run_probes); a probe that does not exit 0, or that needs an
-uncited file, rejects the report and the original pause is restored.
+uncited file, rejects the report and the original pause is restored. A retry's probe also
+names its ``counterexample``, one edit to a cited file after which that file no longer shows
+the cause; the runner makes it in another scratch tree and the probe must fail there, so a
+probe that passes whatever the files say cannot send a stage back as diagnosed (#1769).
 
 Pure module: prompt, schema, transitions and the drive loop. Imports nothing from the
 runner; the runner passes its pause exception type in, and the unit passes the function
@@ -75,7 +78,7 @@ try:
     from . import autocode_stray_writes as stray_writes
     from .autocode_investigation_policy import MAX_CALLS as MAX_CALLS
     from .autocode_investigation_policy import enabled, max_calls
-    from .autocode_test_cases import run_probes
+    from .autocode_test_cases import COUNTEREXAMPLE, run_probes
 except ImportError:
     import autocode_model_identity as model_identity
     import autocode_progressive_state as progressive
@@ -85,7 +88,7 @@ except ImportError:
     import autocode_stray_writes as stray_writes
     from autocode_investigation_policy import MAX_CALLS as MAX_CALLS
     from autocode_investigation_policy import enabled, max_calls
-    from autocode_test_cases import run_probes
+    from autocode_test_cases import COUNTEREXAMPLE, run_probes
 
 STAGE = "investigate_stuck"
 ROUTE = "stuck_investigator"
@@ -133,10 +136,13 @@ SCHEMA = {
     "properties": {
         "diagnosis": TEXT,
         # example: the diagnosed cause as one concrete case in plain English; probe: a shell command
-        # that exits 0 exactly when the cited files show it; untestable: why no command can. A retry
-        # needs the example and exactly one of probe / untestable.
+        # that exits 0 exactly when the cited files show it; counterexample: the edit to one cited file
+        # after which it no longer does, where the probe must fail (#1769); untestable: why no command
+        # can. A retry needs the example and exactly one of probe / untestable. counterexample is not
+        # required here, so reports saved before it still load.
         "example": TEXT,
         "probe": TEXT,
+        "counterexample": COUNTEREXAMPLE,
         "untestable": TEXT,
         "cause": {
             "type": "string",
@@ -484,9 +490,13 @@ def release_route(state: RunState) -> dict:
     return (state.get("settings") or {}).get("roles", {}).pop(ROUTE, None) or {}
 
 
-def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None) -> dict | None:
+def apply(
+    state: RunState, value: dict, record: dict, workspace, run_probe=None, run_counterexample=None
+) -> dict | None:
     """``run_probe(command, files)`` runs the probe in a scratch tree with ``files`` copied in (the unit
-    passes autocode_verify.scratch_run); without it a probed diagnosis is rejected rather than trusted."""
+    passes autocode_verify.scratch_run), and ``run_counterexample(command, counterexample, files)`` runs
+    it there with the counterexample made (autocode_counterexample.runner); without them a probed
+    diagnosis is rejected rather than trusted."""
     request = state["stuck_investigation"]
     if request.get("mode") == "builder_failure":
         try:
@@ -523,12 +533,25 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None)
         if run_probe
         else (lambda command: {"error": "no probe runner was given"})
     )
+    against = (
+        (lambda command, edit: run_counterexample(command, edit, cited))
+        if run_counterexample
+        else (lambda command, edit: {"error": "no counterexample runner was given"})
+    )
     shown = (
         run_probes(
-            [{"id": "the diagnosed cause", "example": value.get("example", ""), "probe": probe}],
+            [
+                {
+                    "id": "the diagnosed cause",
+                    "example": value.get("example", ""),
+                    "probe": probe,
+                    "counterexample": value.get("counterexample"),
+                }
+            ],
             runner,
             what="diagnosed cause",
             key="id",
+            run_counterexample=against,
         )
         if probe
         else []

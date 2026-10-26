@@ -1615,7 +1615,7 @@ class RepairTests(unittest.TestCase):
     def test_an_analyst_repair_is_told_its_probe_must_fail_on_a_counterexample(self):
         # Live run 20261021-001305-chat-25ca74: the second repair's probe was `python3 -c 'assert 2 + 2 == 4'`,
         # which the runner accepted; a repair that is now refused for it must be told why (#1769).
-        for stage in ("answer_question", "review_design", "check_design"):
+        for stage in ("answer_question", "review_design", "check_design", "investigate_bug"):
             with self.subTest(stage=stage):
                 rules = runner.jobs.repair_rules(stage)
                 self.assertIn("A probed row also needs counterexample", rules)

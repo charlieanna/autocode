@@ -81,6 +81,13 @@ def probe_command(path):
     return shlex.join([sys.executable, "-c", script])
 
 
+def with_decisions(source, scratch_path):
+    """The counterexample the probe must fail on (#1769): the cited report with one decision recorded."""
+    text = Path(source).read_text()
+    report = json.loads(text)
+    return {"file": scratch_path, "find": text, "replace": json.dumps({**report, "decisions": ["P1"]})}
+
+
 def investigator_report(source):
     source = Path(source)
     return {
@@ -94,6 +101,7 @@ def investigator_report(source):
         # The live report guessed an archive-prefixed scratch name. The actual
         # scratch contract copies an archived file under its unchanged basename.
         "probe": probe_command("run/" + source.parent.name + "-" + source.name),
+        "counterexample": with_decisions(source, "run/" + source.parent.name + "-" + source.name),
         "untestable": "",
     }
 
@@ -107,6 +115,7 @@ def repair_investigator(prompt, data, value):
     mapping = next((row for row in files if row["evidence_ref"] in result["evidence_refs"]), None)
     if mapping:
         result["probe"] = probe_command(mapping["probe_path"])
+        result["counterexample"] = with_decisions(mapping["evidence_ref"], mapping["probe_path"])
     else:
         # This was the other observed repair error: a live absolute path rather
         # than the runner's copied scratch path.

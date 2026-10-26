@@ -83,6 +83,12 @@ What to do:
      reproduced outcome whose probe does not exit 0, so only claim what you have run. When no command
      can show the bug here (it needs a live registry, a race, a device), leave probe "" and say why in
      untestable; otherwise untestable is "".
+   - counterexample: with a probe, the smallest edit to one repository file that removes the bug, as
+     file, find (text copied exactly from that file, occurring once) and replace (for example: file
+     "pager.py", find "return total // size", replace "return -(-total // size)"). The runner makes that
+     edit in another scratch copy and the probe must fail there, so a probe that passes whatever the
+     code says (python3 -c 'assert 2 + 2 == 4') is not a reproduction and rejects the report. Without a
+     probe, file, find and replace are "".
    - plan_approval_requested: true when the request asks to see, review or approve the plan or the fix
      before code changes; the fix is then planned and put to the user whatever its size. Otherwise false.
 4. If it does NOT reproduce (outcome not_reproduced): say so plainly. Do not invent a cause and do not
@@ -93,7 +99,7 @@ What to do:
    Read both before investigating again; use the saved answers and do not repeat answered questions.
    A failed tool or unavailable environment is not evidence that the code works; explain the blocker
    and ask for the missing access or reproduction context. fix_size is none; fix_plan, affected_paths,
-   test_paths and test_cases are empty; probe and untestable are "".
+   test_paths and test_cases are empty; probe and untestable are "", and so are counterexample's fields.
 5. conclusion: two or three sentences a person can act on.
 6. note_path: where the runner saves your diagnosis. Use the path the request names if it names one under
    docs/bugs/, otherwise docs/bugs/<short-kebab-name>.json.

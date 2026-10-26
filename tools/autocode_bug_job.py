@@ -27,7 +27,10 @@ code and passes after the fix (autocode_test_cases.match_cases).
 "Reproduced" is checked, not trusted: a reproduced bug carries a ``probe``, a
 command that exits 0 exactly when the bug is present on today's code. The runner
 runs it in a scratch copy (autocode_test_cases.run_probes) and rejects the
-report if it does not exit 0. A bug no command can show here (a live registry, a
+report if it does not exit 0. Its ``counterexample`` is the one edit that removes
+the bug: the runner makes it in another scratch copy and the probe must fail
+there, so a probe that passes whatever the code says is not a reproduction
+(#1769). A bug no command can show here (a live registry, a
 race, a device) says why in ``untestable`` instead; the regression proof at the
 end still applies.
 
@@ -68,6 +71,7 @@ try:
     from . import autocode_util as util
     from . import autocode_workflows as workflows
     from .autocode_test_cases import (  # noqa: F401 (used by callers)
+        COUNTEREXAMPLE,
         case_test_name,
         case_text,
         current_diagnosis,
@@ -85,6 +89,7 @@ except ImportError:
     import autocode_util as util
     import autocode_workflows as workflows
     from autocode_test_cases import (  # noqa: F401
+        COUNTEREXAMPLE,
         case_test_name,
         case_text,
         current_diagnosis,
@@ -154,6 +159,9 @@ SCHEMA: dict[str, Any] = {
         # probe: a shell command, run from the repository root, that exits 0 exactly when the bug is
         # present; untestable: why no command can show it here. A reproduced bug has exactly one.
         "probe": TEXT,
+        # counterexample: the edit to one file that removes the bug, where the probe must fail (#1769).
+        # Not in required, so reports saved before it still load.
+        "counterexample": COUNTEREXAMPLE,
         "untestable": TEXT,
     },
 }
@@ -339,7 +347,7 @@ def diagnosis_artifact(state: RunState, workspace) -> dict | None:
         if hashlib.sha256(raw).hexdigest() != found["output_hash"]:
             return None
         report = json.loads(raw)
-        if report != {key: found.get(key) for key in SCHEMA["properties"]}:
+        if report != {key: found.get(key) for key in SCHEMA["properties"] if key in found or key in report}:
             return None
         check(report, [])
         root = Path(workspace).resolve()
@@ -368,9 +376,11 @@ def diagnosis_artifact(state: RunState, workspace) -> dict | None:
         return None
 
 
-def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None) -> None:
-    """``run_probe(command)`` runs the probe in a scratch copy (the unit passes autocode_verify.scratch_run);
-    without it a probed reproduction is rejected rather than trusted."""
+def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None, run_counterexample=None) -> None:
+    """``run_probe(command)`` runs the probe in a scratch copy (the unit passes autocode_verify.scratch_run)
+    and ``run_counterexample(command, counterexample)`` runs it with the counterexample made, which
+    removes the bug (autocode_counterexample.runner); without them a probed reproduction is rejected
+    rather than trusted."""
     # The diagnosis note itself stays under docs/bugs/ at the repository root, inside or outside a package.
     check(value, record.get("changed_files"), package_scope.of(state.get("settings")))
     if (
@@ -388,10 +398,19 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None)
     probe = value.get("probe", "").strip()
     shown = (
         run_probes(
-            [{"id": "the reported bug", "example": value["observed"] or value["reproduction"], "probe": probe}],
+            [
+                {
+                    "id": "the reported bug",
+                    "example": value["observed"] or value["reproduction"],
+                    "probe": probe,
+                    "counterexample": value.get("counterexample"),
+                }
+            ],
             run_probe or (lambda command: {"error": "no probe runner was given"}),
             what="reproduction claim",
             key="id",
+            run_counterexample=run_counterexample
+            or (lambda command, edit: {"error": "no counterexample runner was given"}),
         )
         if probe
         else []

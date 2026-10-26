@@ -1020,6 +1020,8 @@ class ReproductionProbeTests(unittest.TestCase):
 
     BUGGY = "def page_count(total, size):\n    return total // size\n"
     SHOWS_BUG = "python3 -c 'from pager import page_count; assert page_count(5, 2) == 2'"
+    # The bug removed: the probe must fail here (#1769).
+    FIXED = {"file": "pager/__init__.py", "find": "return total // size", "replace": "return -(-total // size)"}
 
     def apply(self, **overrides):
         root = Path(tempfile.mkdtemp(prefix="bug-probe-"))
@@ -1035,7 +1037,7 @@ class ReproductionProbeTests(unittest.TestCase):
             affected_paths=["pager/__init__.py"],
             test_paths=["tests/test_pager.py"],
             note_path="docs/bugs/page-count.json",
-            **overrides,
+            **{"counterexample": self.FIXED, **overrides},
         )
         autoresolver.apply_job(
             bug_job.STAGE, state, value, {"changed_files": [], "output": str(root / "o.json")}, str(root)
@@ -1048,6 +1050,17 @@ class ReproductionProbeTests(unittest.TestCase):
         self.assertEqual(self.SHOWS_BUG, json.loads((root / "docs/bugs/page-count.json").read_text())["proven_by"])
         self.assertEqual(("RUNNING", "astra_discovery"), (state["status"], state["next_stage"]))
         self.assertEqual(self.BUGGY, (root / "pager" / "__init__.py").read_text())  # the workspace is untouched
+        self.assertNotEqual(0, state["investigation"]["probe_result"]["counterexample"]["exit_code"])
+
+    def test_a_probe_that_passes_with_the_bug_removed_is_not_a_reproduction(self):
+        # #1769: `assert 2 + 2 == 4` exits 0 whatever the code says, so it cannot show the bug is present.
+        for probe, counterexample in (
+            ("python3 -c 'assert 2 + 2 == 4'", self.FIXED),
+            ("python3 -c 'import pager'", self.FIXED),
+            (self.SHOWS_BUG, {"file": "", "find": "", "replace": ""}),
+        ):
+            with self.subTest(probe=probe), self.assertRaisesRegex(ValueError, "counterexample"):
+                self.apply(probe=probe, untestable="", counterexample=counterexample)
 
     def test_a_probe_that_does_not_show_the_bug_rejects_the_reproduction(self):
         with self.assertRaisesRegex(ValueError, "reproduction claims' probes did not exit 0"):
@@ -1142,6 +1155,7 @@ if result.returncode:
     raise SystemExit(3)
 value=json.loads(Path(sys.argv[3]).read_text())
 value['probe']=shlex.join(command)
+value['counterexample']={'file':'pager.py','find':'return total // size','replace':'return -(-total // size)'}
 value['tests_run']=[value['probe']+' exited 0 in the prepared source copy']
 Path(sys.argv[1]).write_text(json.dumps(value))
 print(json.dumps({'type':'turn.completed','usage':{'input_tokens':1,'output_tokens':1}}))

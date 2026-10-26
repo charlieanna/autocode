@@ -1312,12 +1312,29 @@ def investigate(data: dict) -> dict:
         # The runner checks the reproduction: [fake] probe in scenario.toml exits 0 while the seed's
         # bug is present; a scenario without one takes the untestable path.
         "probe": (CONFIG.get("probe") or "") if reproduced else "",
+        "counterexample": fix_counterexample(data) if reproduced and CONFIG.get("probe") else BLANK_COUNTEREXAMPLE,
         "untestable": (
             "" if CONFIG.get("probe") else "Scripted investigation: this scenario configures no reproduction probe"
         )
         if reproduced
         else "",
     }
+
+
+BLANK_COUNTEREXAMPLE = {"file": "", "find": "", "replace": ""}
+
+
+def fix_counterexample(data: dict) -> dict:
+    """The edit that removes the seed's bug, where the runner requires the probe to fail (#1769): the
+    solution's version of the one source file it changes, in place of today's text."""
+    workspace = Path(data.get("workspace") or Path.cwd())
+    for path in PATHS:
+        if Path(path).suffix not in {".py", ".go", ".js", ".cjs", ".mjs", ".ts", ".tsx"} or "test" in path:
+            continue
+        current, solved = workspace / path, Path(CONFIG["reference"]) / path
+        if current.is_file() and solved.is_file() and current.read_text() != solved.read_text():
+            return {"file": path, "find": current.read_text(), "replace": solved.read_text()}
+    return BLANK_COUNTEREXAMPLE
 
 
 def scripted_cases() -> list[dict]:
@@ -1654,6 +1671,12 @@ assert {SCOPED_NOTE!r} not in Path('lessons.py').read_text()
         "evidence_refs": refs,
         "example": "Given the saved answer, the checks pass but lessons.py lacks the permitted note.",
         "probe": shlex.join([sys.executable, "-B", "-c", code]),
+        # The probe must fail once the cited report is no longer a REWORK (#1769).
+        "counterexample": {
+            "file": "run/" + Path(refs[0]).name,
+            "find": (text := Path(refs[0]).read_text()),
+            "replace": json.dumps({**json.loads(text), "status": "PASS"}),
+        },
         "untestable": "",
         "failure_class": "execution",
         "failure_id": failure["failure_id"],
@@ -1712,6 +1735,12 @@ assert p.returncode == 2 and p.stderr.startswith('stock.py: ') and 'invalid choi
         "example": "Given the current vacuous refusal tests, the project check passes but the runner "
         "rejects their regression proof because the named tests also pass without move/remove.",
         "probe": shlex.join([sys.executable, "-B", "-c", code]),
+        # The probe must fail once the cited report is no longer a REWORK (#1769).
+        "counterexample": {
+            "file": "run/" + Path(refs[0]).name,
+            "find": (text := Path(refs[0]).read_text()),
+            "replace": json.dumps({**json.loads(text), "status": "PASS"}),
+        },
         "untestable": "",
         "failure_class": "execution",
         "failure_id": failure["failure_id"],
