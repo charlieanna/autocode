@@ -19,9 +19,10 @@ REFERENCE_POLICY = (
 def deduplicate(base):
     """Copy a packet, replacing only exact duplicates when the whole packet shrinks."""
     result = copy.deepcopy(base)
-    if result.get("stage") not in ("terra", "sol", "astra_review", "astra_checkpoint"):
+    if result.get("stage") not in ("terra", "sol", "astra_review", "astra_checkpoint", "write_acceptance_tests"):
         return result
     changed = False
+    case_references = False
     contract = result.get("goal_contract") or {}
     body = contract.get("body") if isinstance(contract, dict) else None
     criteria = body.get("acceptance_criteria") if isinstance(body, dict) else None
@@ -38,6 +39,28 @@ def deduplicate(base):
                 "fields": ["id", "criterion"],
             }
             changed = True
+        if result.get("stage") == "write_acceptance_tests":
+            for row in result.get("cases") or []:
+                if not isinstance(row, dict) or not isinstance(row.get("id"), str) or "criterion_ref" in row:
+                    continue
+                matches = [(i, c) for i, c in enumerate(criteria) if c["id"] == row.get("id")]
+                if len(matches) != 1:
+                    continue
+                index, criterion = matches[0]
+                text = criterion["criterion"]
+                if not isinstance(text, str) or not text:
+                    continue
+                prefix = f"{row['id']}: "
+                if row.get("criterion") == text:
+                    prefix = ""
+                elif row.get("criterion") != prefix + text:
+                    continue
+                row["criterion_ref"] = {
+                    "path": f"#/goal_contract/body/acceptance_criteria/{index}/criterion",
+                    "prefix": prefix,
+                }
+                del row["criterion"]
+                changed = case_references = True
     validation = result.get("validation")
     if isinstance(validation, dict):
         checks = validation.get("checks")
@@ -59,6 +82,11 @@ def deduplicate(base):
                     changed = True
     if changed:
         result["handoff_reference_policy"] = REFERENCE_POLICY
+        if case_references:
+            result["handoff_reference_policy"] += (
+                " Each cases[].criterion_ref supplies the case text: concatenate its prefix with the string "
+                "at its path in this handoff. Keep every case ID, test name and kind, including shared test names."
+            )
         if len(json.dumps(result).encode()) >= len(json.dumps(base).encode()):
             return copy.deepcopy(base)
     return result

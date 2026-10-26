@@ -898,7 +898,11 @@ class AcceptanceTestsCliTests(unittest.TestCase):
     def test_the_tester_writes_failing_tests_before_the_builder_and_the_run_completes(self):
         # C0 guards behavior the seed already has: its test must pass before the Builder starts.
         guard = {"C0": "guard: test_receive_adds_units"}
-        self.scenario = dataclasses.replace(self.scenario, fake_criteria={**guard, **CASES})
+        # Long case wording exercises lossless references in the actual dispatched prompt (#2153).
+        cases = {
+            cid: text + " Preserve the stock command behavior and rejection checks." * 12 for cid, text in CASES.items()
+        }
+        self.scenario = dataclasses.replace(self.scenario, fake_criteria={**guard, **cases})
         run, project, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--spec-first")
         self.assertTrue(view["done"], self.details(view))
         order = self.stage_order(run)
@@ -909,6 +913,17 @@ class AcceptanceTestsCliTests(unittest.TestCase):
         self.assertEqual(sorted(["C0", *CASES]), sorted(seen["case_ids"]))
         self.assertEqual("passes", seen["results"]["C0"])
         self.assertTrue({seen["results"][cid] for cid in CASES} <= {"fails", "cannot load"}, seen["results"])
+        prompts = list(Path(run.run_dir).glob("iterations/*/acceptance-tests-*.prompt.md"))
+        self.assertEqual(1, len(prompts))
+        packet = json.loads(prompts[0].read_text().split("CURRENT HANDOFF DATA\n", 1)[1])
+        criteria = packet["goal_contract"]["body"]["acceptance_criteria"]
+        self.assertEqual(sorted(["C0", *CASES]), sorted(row["id"] for row in packet["cases"]))
+        for case in packet["cases"]:
+            reference = case["criterion_ref"]
+            index = int(reference["path"].split("/")[-2])
+            self.assertEqual(case["id"], criteria[index]["id"])
+            self.assertEqual(f"{case['id']}: ", reference["prefix"])
+            self.assertEqual({**guard, **cases}[case["id"]], criteria[index]["criterion"])
 
     def test_blind_tests_cli_runs_tester_isolates_workspace_and_completes(self):
         # With --blind-tests, Tester writes tests before Builder, but files are archived and isolated

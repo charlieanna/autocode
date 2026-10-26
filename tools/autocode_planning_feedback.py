@@ -6,6 +6,11 @@ apply the shared pause-authority guard; a correction grants no retry or approval
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
@@ -14,7 +19,7 @@ except ImportError:
     import autocode_run_status as run_status
 
 
-def invalid_report(state):
+def invalid_report(state: RunState):
     return (
         state.get("status") == "PAUSED_INVALID_OUTPUT"
         and state.get("next_stage") in roles.ALL_PLANNING_STAGES
@@ -22,7 +27,7 @@ def invalid_report(state):
     )
 
 
-def admitted(state):
+def admitted(state: RunState):
     """Existing conversation checkpoints plus a malformed planning report.
 
     Callers still enforce pause authority and human artifact-review decisions.
