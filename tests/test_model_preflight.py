@@ -341,6 +341,29 @@ class PreflightCheckTests(unittest.TestCase):
             "medium", self.state["settings"]["roles"]["sol"]["reasoning_effort"], "the saved route is untouched"
         )
 
+    def test_a_tool_refusing_the_probed_level_names_its_roles_flag(self):
+        # #2108: with no declared listing the fit cannot decide, so the tool's own refusal at the
+        # probe is the evidence; it must reach the run as the pause its stage launch would.
+        from providers.kilocode import KiloEffortError
+
+        self.state["settings"]["roles"] = {"glm": {"model": "plan/glm", "reasoning_effort": "medium"}}
+        seen = []
+
+        def launch(role, *args, **kwargs):
+            seen.append(role)
+            raise KiloEffortError(
+                "Kilo model plan/glm does not support reasoning variant 'medium'; supported variants: high, low, max. "
+                "Name one of them with --glm-reasoning-effort high; no model request was launched"
+            )
+
+        self.adapter.launch = launch
+        runner = types.SimpleNamespace(opencode=self.adapter)
+        with self.assertRaises(support.Paused) as caught:
+            preflight.check(runner, self.state, self.run_dir, self.root)
+        self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", caught.exception.status)
+        self.assertIn("--glm-reasoning-effort high", str(caught.exception))
+        self.assertEqual(["glm"], seen, "the probe launch carries the role it proves")
+
     def test_non_billing_adapters_make_no_probe_calls(self):
         runner = types.SimpleNamespace(opencode=types.SimpleNamespace(_config={"command": ["fake"]}))
         self.assertFalse(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}, runner=runner))
