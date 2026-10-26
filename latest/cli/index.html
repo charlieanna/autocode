@@ -2460,7 +2460,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/6bc780008ca6f4c365f1779290ac1f481e660c3a/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/2f10546900dd6942fba32db72c0c95749072a494/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2668,7 +2668,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/6bc780008ca6f4c365f1779290ac1f481e660c3a/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/2f10546900dd6942fba32db72c0c95749072a494/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -2914,7 +2914,11 @@ not approve a plan or start a model.</p>
 </tr>
 <tr>
 <td><code>--answer route-sol=MODEL</code></td>
-<td>At a quota stop (<code>PAUSED_BUDGET</code>), a content-filter refusal (<code>PAUSED_CONTENT_FILTER</code>), an authenticated output-limit stop (<code>PAUSED_OUTPUT_CAP</code>) or a context-window stop (<code>PAUSED_CONTEXT_WINDOW</code>: the request no longer fit, or the provider compacted the conversation), name the model the stopped role continues on; the only operational question <code>--answer</code> takes. Requires the current <code>--resolver-token</code>. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as <code>--abandon-stage</code> does and records a <code>route_assignment</code>; continue with <code>--resume-paused</code>. The resume-flag form is <code>--abandon-stage ATTEMPT</code>, then <code>--resume-paused --sol-model MODEL</code>. A stopped workflow job (<code>needs.kind</code> <code>retry_job</code> with <code>needs.route</code>) takes <code>--answer route-ROLE=MODEL --job-retry-token TOKEN</code> instead: no resolver token, no <code>--abandon-stage</code>, no <code>--ROLE-model</code> flag; it issues a new job retry token, so continue with <code>--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN</code> (<a href="#waiting-or-finished">Waiting or finished</a>). See <a href="../models/#when-a-roles-quota-runs-out">Models</a>.</td>
+<td>At a quota stop (<code>PAUSED_BUDGET</code>), a content-filter refusal (<code>PAUSED_CONTENT_FILTER</code>), an authenticated output-limit stop (<code>PAUSED_OUTPUT_CAP</code>) or a context-window stop (<code>PAUSED_CONTEXT_WINDOW</code>: the request no longer fit, or the provider compacted the conversation), name the model the stopped role continues on. Requires the current <code>--resolver-token</code>. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as <code>--abandon-stage</code> does and records a <code>route_assignment</code>; continue with <code>--resume-paused</code>. The resume-flag form is <code>--abandon-stage ATTEMPT</code>, then <code>--resume-paused --sol-model MODEL</code>. A stopped workflow job (<code>needs.kind</code> <code>retry_job</code> with <code>needs.route</code>) takes <code>--answer route-ROLE=MODEL --job-retry-token TOKEN</code> instead: no resolver token, no <code>--abandon-stage</code>, no <code>--ROLE-model</code> flag; it issues a new job retry token, so continue with <code>--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN</code> (<a href="#waiting-or-finished">Waiting or finished</a>). See <a href="../models/#when-a-roles-quota-runs-out">Models</a>.</td>
+</tr>
+<tr>
+<td><code>--answer effort-ROLE=EFFORT</code></td>
+<td>At <code>PAUSED_EFFORT_UNSUPPORTED</code>, a reasoning effort you named that the role's model does not declare: name one of the variants the stop lists (the status view's <code>needs.effort.declared</code>). No attempt or issued token is involved, as for a cross-model stop. Saves the level as your own choice (origin <code>user_explicit</code>) and records an <code>effort_assignment</code>; the run waits at the same pause, and <code>--resume-paused</code> then continues. A variant the model does not declare is refused with nothing saved. See <a href="../models/#reasoning-effort">Reasoning effort</a>.</td>
 </tr>
 <tr>
 <td><code>--feedback '…'</code></td>
@@ -3238,7 +3242,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/6bc780008ca6f4c365f1779290ac1f481e660c3a/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/2f10546900dd6942fba32db72c0c95749072a494/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3295,7 +3299,7 @@ spent time and recovery allowances remain intact.</p>
 </tr>
 <tr>
 <td><code>--single-model MODEL</code></td>
-<td>New run: use one model for every role, including reviewers; explicitly relaxes cross-model verification for single-subscription accounts and implies joint planning.  With a tool that lists its models' reasoning variants (Kilo, OpenCode), a role effort the model does not declare moves to its nearest declared variant before anything launches (said once, recorded as <code>effort_fits</code>); an effort you named with <code>--reasoning-effort</code> or a role's flag is never moved: the run refuses and names the flag (#2006)</td>
+<td>New run: use one model for every role, including reviewers; explicitly relaxes cross-model verification for single-subscription accounts and implies joint planning.  With a tool that lists its models' reasoning variants (Kilo, OpenCode), a role effort the model does not declare moves to its nearest declared variant before anything launches (said once, recorded as <code>effort_fits</code>); an effort you named with <code>--reasoning-effort</code> or a role's flag is never moved: the run pauses as <code>PAUSED_EFFORT_UNSUPPORTED</code> and names the variants the model declares, which <code>--answer effort-ROLE=EFFORT</code> takes (#2057). See <a href="../models/#reasoning-effort">Reasoning effort</a></td>
 </tr>
 <tr>
 <td><code>--auto-select</code> / <code>--no-auto-select</code></td>
@@ -3626,8 +3630,8 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 <tbody>
 <tr>
 <td><code>autocode connections</code></td>
-<td><code>--json</code>, <code>--provider</code></td>
-<td>List installed/registered backends, check local credentials without inference, delegate sign-in, or configure AutoCode’s direct connection with <code>setup</code>. See <a href="../task-run/#connections-for-clients">Connections for clients</a>.</td>
+<td><code>--json</code>, <code>--provider</code>, <code>--routes</code></td>
+<td>List installed/registered backends, check local credentials without inference, delegate sign-in, or configure AutoCode’s direct connection with <code>setup</code>. <code>list --routes</code> adds the route each role would use, from the connected tool's own model listing (<code>routes[]</code> and <code>routes_lines</code>, or <code>routes_stop</code>), and launches no model; the plain listing names it as <code>routes_next_command</code>. See <a href="../task-run/#connections-for-clients">Connections for clients</a>.</td>
 </tr>
 <tr>
 <td><code>autocode modes</code></td>
@@ -4123,7 +4127,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/6bc780008ca6f4c365f1779290ac1f481e660c3a/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/2f10546900dd6942fba32db72c0c95749072a494/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
@@ -4348,7 +4352,7 @@ command. <code>--json</code> emits the verdict and evidence metadata. See
 <a href="../verify/">Standalone verification</a> for the criteria format, proof modes and
 exit codes.</p>
 <p><code>autocode modes list</code> lists the run modes a client may offer for a new run (<code>--json</code> for the version-1 list). See <a href="../task-run/#run-modes-for-clients">Run modes for clients</a>.</p>
-<p><code>autocode connections list|check|login|setup</code> manages backend setup; list and check return status without inference, and login delegates to the backend in a terminal. See <a href="../task-run/#connections-for-clients">Connections for clients</a>.</p>
+<p><code>autocode connections list|check|login|setup</code> manages backend setup; list and check return status without inference, and login delegates to the backend in a terminal. <code>connections setup</code> ends by naming the route each role will use, and <code>connections list --routes --json</code> returns the same choice as <code>routes[]</code> — both read the connected tool's own model listing and launch no model. See <a href="../task-run/#connections-for-clients">Connections for clients</a>.</p>
 
 
 

@@ -428,6 +428,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#you-do-not-need-to-choose-a-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        You do not need to choose a model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#provider-process-ownership" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2109,6 +2120,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#you-do-not-need-to-choose-a-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        You do not need to choose a model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#provider-process-ownership" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2384,9 +2406,30 @@
 
 
 <h1 id="providers-and-adapters">Providers and adapters<a class="headerlink" href="#providers-and-adapters" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/6bc780008ca6f4c365f1779290ac1f481e660c3a/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/2f10546900dd6942fba32db72c0c95749072a494/README.md">← Back to README</a></p>
 <p>OpenCode is the default engine. Codex: <code>--engine codex</code>. Claude Code: <code>--engine claude</code>
 (<a href="#claude-code-provider">built in</a>). Any other tool registers with one TOML file.</p>
+<h2 id="you-do-not-need-to-choose-a-model">You do not need to choose a model<a class="headerlink" href="#you-do-not-need-to-choose-a-model" title="Permanent link">&para;</a></h2>
+<p>Connecting one account is enough. Automatic selection reads the tool's own model and
+login listings, prefers subscriptions, and keeps the producer and checker roles on
+independent models (<a href="../models/#choosing-models-automatically">automatic model selection</a>).</p>
+<p><code>autocode connections setup</code> ends by naming the route each role will use, from that
+local listing and without launching anything:</p>
+<pre><code class="language-text">Routes for a new run, from kilocode's local listing:
+  Requirements: zai-coding-plan/glm-5.3 at medium (Z.AI Coding Plan subscription; qualified for Requirements)
+  Planner: openai/gpt-6-sol at high (OpenAI subscription; qualified for Planner)
+  Builder: openai/gpt-6-sol at medium (OpenAI subscription; qualified for Builder)
+</code></pre>
+<p>A new run with no model flag prints the same lines for its roles before it spends
+anything. A client reads them from <code>autocode connections list --routes --json</code> as
+<code>routes[]</code> and <code>routes_lines</code>; <code>autocode models --selection</code> shows the same choice with
+the alternatives it rejected and why. When no connected account can field a qualified
+route for a role, <code>routes_stop</code> and that preview say which role and which accounts would.</p>
+<p>Every <code>--&lt;role&gt;-model</code>, <code>--single-model</code> and <code>--&lt;role&gt;-reasoning-effort</code> flag is an
+override on top of that choice, not a required setup step. An override is checked at the
+same launch boundary as an automatic route: an effort the model does not declare pauses
+as <code>PAUSED_EFFORT_UNSUPPORTED</code> and names the variants it does
+(<a href="../models/#reasoning-effort">Reasoning effort</a>).</p>
 <h2 id="provider-process-ownership">Provider process ownership<a class="headerlink" href="#provider-process-ownership" title="Permanent link">&para;</a></h2>
 <p>Supervised task-stage providers, including core TaskRun conversations and
 <code>autocode ui</code>, require a native little-endian Linux x86_64 or aarch64
@@ -2879,7 +2922,7 @@ ids. <code>components</code> and <code>verify</code> take <code>--provider claud
 <code>tasks</code> has neither and runs its lanes on Claude Code through <code>AUTOCODE_PROVIDER=claude</code>,
 <code>default_provider = "claude"</code> or the project's <code>engine = "claude"</code>. Claude Code loads <code>CLAUDE.md</code> files of the workspace and its ancestors, so keep a
 scenario's <code>--out</code> outside this repository. In a root cloud container, prefix runs with
-<code>setpriv --bounding-set=-sys_admin,-sys_ptrace</code> (<a href="https://github.com/charlieanna/autocode/blob/6bc780008ca6f4c365f1779290ac1f481e660c3a/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
+<code>setpriv --bounding-set=-sys_admin,-sys_ptrace</code> (<a href="https://github.com/charlieanna/autocode/blob/2f10546900dd6942fba32db72c0c95749072a494/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
 <h2 id="add-a-tool">Add a tool<a class="headerlink" href="#add-a-tool" title="Permanent link">&para;</a></h2>
 <p>OpenCode and Claude Code are built in. Any other tool registers with one TOML file, not a Python
 package. <code>--provider &lt;name&gt;</code> loads <code>~/.config/autocode/providers/&lt;name&gt;.toml</code> and,
@@ -3310,7 +3353,7 @@ dashboard; its model pickers list that tool's models.</p>
 <!-- BEGIN provider conformance matrix -->
 
 <p>Generated by <code>python tools/provider_matrix.py --write</code> from
-<a href="https://github.com/charlieanna/autocode/blob/6bc780008ca6f4c365f1779290ac1f481e660c3a/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
+<a href="https://github.com/charlieanna/autocode/blob/2f10546900dd6942fba32db72c0c95749072a494/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
 A version the offline conformance suite has not been run against is
 <code>untested</code> — never guess. Run the suite with
 <code>python tools/provider_conformance.py --fake</code> (no model calls).</p>

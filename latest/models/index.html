@@ -533,6 +533,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#reasoning-effort" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reasoning effort
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#when-a-roles-quota-runs-out" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2069,6 +2080,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#reasoning-effort" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reasoning effort
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#when-a-roles-quota-runs-out" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2150,7 +2172,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/6bc780008ca6f4c365f1779290ac1f481e660c3a/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/2f10546900dd6942fba32db72c0c95749072a494/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2320,7 +2342,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/6bc780008ca6f4c365f1779290ac1f481e660c3a/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/2f10546900dd6942fba32db72c0c95749072a494/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2440,7 +2462,10 @@ is never silently added.</p>
   that role, with the evidence that admitted it: AutoCode's own runs qualify a model,
   and a public benchmark admits it only provisionally until such a run confirms it.
   The table changes by pull request, like the price table it is priced from. A model
-  not in the table is never chosen automatically, however cheap.</li>
+  not in the table is never chosen automatically, however cheap. After a live run proves
+  a route, <code>tools/qualify_routes.py --run-dir RUN --scenario NAME --profile PROFILE</code>
+  merges that run into the table, refusing anything that did not declare
+  <code>--evidence-provenance live</code> and finish <code>TASK_COMPLETE</code>; it launches no model.</li>
 <li><strong>Within a role's qualified models, the cheapest route wins.</strong> A subscription route
   counts as cheaper than any pay-per-token one, then the price-table cost orders them,
   and a route whose access is already proven beats one that would need a probe. The
@@ -2662,6 +2687,25 @@ tokens cost instead: the dated price table <code>tools/autocode_prices.json</cod
 pull request) and the rate each default route is priced at, or "no rate" for a model
 without a row, whose cost is then unknown rather than zero. The money cap
 (<code>--max-cost-usd</code>, <a href="../execution/#money-cap">Money cap</a>) counts spend at these rates.</p>
+<h2 id="reasoning-effort">Reasoning effort<a class="headerlink" href="#reasoning-effort" title="Permanent link">&para;</a></h2>
+<p>A role runs at one reasoning effort, chosen from the variants its model declares. Kilo
+and OpenCode report those variants in their local model listings; when a tool reports
+none, AutoCode records the effort as unverified and the tool's own check decides. The
+flags are <code>--reasoning-effort LEVEL</code> for every role and <code>--&lt;role&gt;-reasoning-effort LEVEL</code>
+for one (<code>--glm-reasoning-effort</code>, <code>--astra-reasoning-effort</code>, <code>--terra-reasoning-effort</code>,
+<code>--sol-reasoning-effort</code>, and the matching flag for the other jobs).</p>
+<p>An effort AutoCode derives itself — a reduced Builder tier, a climb on the effort ladder,
+a single-model run — moves to the nearest declared variant and records the move as
+<code>effort_fits</code>. An effort a person named never moves. When the model does not declare it,
+the run pauses as <code>PAUSED_EFFORT_UNSUPPORTED</code> before the stage launches, naming the model,
+the level you chose and the levels it does declare. Answer with one of those and continue:</p>
+<pre><code class="language-sh">autocode --answer effort-glm=high
+autocode --resume-paused
+</code></pre>
+<p>The status view's <code>needs</code> carries the same question as <code>needs.effort</code> (<code>question_id</code>
+<code>effort-ROLE</code>, <code>role</code>, <code>job</code>, <code>model</code>, <code>requested</code>, <code>declared</code>, <code>nearest</code>), and
+<code>--answer</code> records the level you name as your own choice. A level the model does not
+declare is refused with nothing saved. See <a href="../providers/#kilocode">KiloCode</a>.</p>
 <h2 id="when-a-roles-quota-runs-out">When a role's quota runs out<a class="headerlink" href="#when-a-roles-quota-runs-out" title="Permanent link">&para;</a></h2>
 <p>A provider that reports a used-up quota, usage limit or credits stops the stage with
 <code>PAUSED_BUDGET</code>, and so does a used-up daily, weekly or monthly plan limit sent as an
