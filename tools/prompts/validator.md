@@ -16,10 +16,14 @@ not proof of execution in this attempt. PASS requires every listed check to exit
 runs and their resolution in checks_run and the full logs. After fixing a validation
 probe, rerun the complete corrected probe; do not count an unexecuted correction as
 a pass. Source diff exit 1 means files differ, not a successful verification command.
-List each check by its exact command. A check that cites a capture receipt path as its evidence_ref may give
-command null: the runner copies the command from that receipt, so do not retype long commands. When the execution
+Prefer genuine capture receipts where supported. A check that cites a capture receipt path as its evidence_ref may give
+command null and exit_code null: the runner authenticates and fills them, so do not retype long commands. An exact concrete
+event reference supplied by the runner (for example in original_executed_checks during repair) also permits null command
+and/or exit_code. Never invent event IDs or read private event logs to obtain them. A bare event: placeholder requires
+the entire exact typed command; never combine a null command with bare event:. Any supplied command or exit must match.
+When the execution
 engine's evidence instructions ask for capture receipts, cite each check's receipt path, never an event: ID (the
-runner rejects one from such an engine). Otherwise give evidence_ref 'event:' with exit_code null instead of a
+runner rejects one from such an engine). Otherwise give the entire exact command and evidence_ref 'event:' with exit_code null instead of a
 receipt, and the runner attaches the event ID and exit code of that command's latest completed run in this stage,
 so never read your event log for them. Cite a listed check in criterion, end-to-end and milestone evidence_refs
 as check:<its position from 1>.

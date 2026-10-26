@@ -9,6 +9,7 @@ nothing from AutoCode.
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 from pathlib import Path
@@ -79,3 +80,47 @@ def workspace_wrapped_command(executed, reported, workspace):
     if body.endswith(" 2>&1"):
         body = body[:-5]
     return body == reported
+
+
+def ambiguous_native_command_ids(text):
+    """IDs with conflicting completed native commands; repeated updates are one part.
+
+    Normalization keeps the final update for each part. Hydrating an omitted
+    command must not let that hide conflicting execution facts under the same ID.
+    """
+    identities = {}
+    ambiguous = set()
+    for line in text.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict) or row.get("type") != "tool_use":
+            continue
+        part = row.get("part")
+        if not isinstance(part, dict) or not isinstance(part.get("id"), str):
+            continue
+        key = part["id"]
+        if part.get("sessionID") not in (None, row.get("sessionID")):
+            ambiguous.add(key)
+        state = part.get("state")
+        if (
+            not isinstance(state, dict)
+            or state.get("status") != "completed"
+            or part.get("tool") not in ("bash", "shell")
+        ):
+            continue
+        inputs, metadata = state.get("input"), state.get("metadata")
+        if not isinstance(inputs, dict) or not isinstance(metadata, dict):
+            continue
+        command = inputs.get("command")
+        code = metadata.get("exit")
+        if "exit" not in metadata and isinstance(metadata.get("metadata"), dict):
+            code = metadata["metadata"].get("exit")
+        if not isinstance(command, str) or type(code) is not int:
+            continue
+        identity = (row.get("sessionID"), part.get("messageID"), command, code)
+        previous = identities.setdefault(key, identity)
+        if previous != identity:
+            ambiguous.add(key)
+    return ambiguous

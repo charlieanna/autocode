@@ -24,6 +24,69 @@ runner, support = base.runner, base.s
 class RepairTests(unittest.TestCase):
     setUp = base.RetrofitTest.setUp
 
+    def test_ac13_guidance_distinguishes_receipts_event_ids_placeholders(self):
+        from providers import opencode
+        from providers.command import CommandProvider
+        from providers.kilocode import KiloProvider
+        from units import common
+
+        self.state["next_stage"] = "sol"
+        self.queue(
+            stage="sol",
+            role="sol",
+            engine="opencode",
+            schema=str(runner.SCHEMA_DIR / "v2/sol-report.schema.json"),
+            error=ValueError("Check is not supported by an exact executed Validator event"),
+            event_rows=[
+                event(
+                    "tool_use",
+                    tool="bash",
+                    state={
+                        "status": "completed",
+                        "input": {"command": "python3 -m unittest -q"},
+                        "metadata": {"exit": 0},
+                        "output": "synthetic observation",
+                    },
+                ),
+                terminal(),
+            ],
+        )
+        repair = self.repair_request()["prompt"]
+        handoff = json.loads(repair.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(
+            [{"command": "python3 -m unittest -q", "exit_code": 0, "evidence_ref": "event:prt_tool_use"}],
+            handoff["original_executed_checks"],
+        )
+        with patch.object(common.goals, "execution_guard"):
+            request = common.execution_request(self.state, "sol", self.run / "state.json", runner.SCHEMA_DIR)
+        config = {"name": "synthetic", "command": ["fixture"], "roles": {}, "output": "opencode_events"}
+        facades = [
+            opencode,
+            CommandProvider(config, self.root / "provider.toml"),
+            KiloProvider(config, self.root / "kilo.toml"),
+        ]
+        for purpose, raw in (("tester", request.prompt), ("full_repair", repair)):
+            for facade in facades:
+                with self.subTest(purpose=purpose, facade=type(facade).__name__):
+                    prompt = facade.prompt_for_schema(raw, request.schema, self.run / "events.jsonl")
+                    self.assertEqual(opencode.prompt_for_schema(raw, request.schema, self.run / "events.jsonl"), prompt)
+                    text = prompt.split("CURRENT HANDOFF DATA\n", 1)[0].lower()
+                    if purpose == "full_repair":
+                        text += "\n" + handoff["finding_identity_policy"].lower()
+                    self.assertRegex(text, r"(?s)prefer.{0,160}(?:capture|receipt)")
+                    self.assertIn("event:", text)
+                    self.assertRegex(text, r"(?s)(?:concrete|exact|nonempty|non-empty).{0,180}(?:event|reference|id)")
+                    self.assertRegex(text, r"(?s)(?:null.{0,180}(?:bare|placeholder)|(?:bare|placeholder).{0,180}null)")
+                    self.assertRegex(
+                        text, r"(?s)(?:never|do not|must not).{0,180}(?:invent|private|read.{0,30}(?:log|id))"
+                    )
+                    if purpose == "full_repair":
+                        self.assertRegex(
+                            text,
+                            r"(?s)(?:original_executed_checks.{0,400}(?:null|omit)|"
+                            r"(?:null|omit).{0,400}original_executed_checks)",
+                        )
+
     def test_repair_launch_keeps_the_original_pre_upgrade_schema_bytes(self):
         self.state["next_stage"] = "astra_review"
         schema = self.run / "legacy-review.schema.json"
@@ -2301,7 +2364,14 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
         ]
         roles = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
         config.write_text(
-            'name = "receipt_repair_fixture"\noutput = "report_file"\nprompt = "stdin"\n'
+            'name = "receipt_repair_fixture"\noutput = '
+            + json.dumps(getattr(self, "PROVIDER_OUTPUT", "report_file"))
+            + '\nprompt = "stdin"\n'
+            + (
+                'resume = ["--session", "{session}"]\n'
+                if getattr(self, "PROVIDER_OUTPUT", "report_file") == "opencode_events"
+                else ""
+            )
             + "command = "
             + json.dumps(command)
             + "\n"
@@ -2387,6 +2457,214 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
         reopened = run.status()
         self.assertFalse(reopened["done"], reopened)
         self.assertEqual(observed, self.probe.read_bytes())
+
+
+class ExactEventRepairPublicCliTests(unittest.TestCase):
+    """Real TaskRun gates with native event evidence, not a report-file transport."""
+
+    setUp = test_subprocess.SubprocessFlow.setUp
+    start_receipt_fixture = ReceiptRepairPublicCliTests.start_receipt_fixture
+    observations = ReceiptRepairPublicCliTests.observations
+    PROVIDER_OUTPUT = "opencode_events"
+
+    PROVIDER_SOURCE = textwrap.dedent(r"""
+        import argparse
+        import json
+        import shlex
+        import subprocess
+        import sys
+        import uuid
+        from pathlib import Path
+
+        parser = argparse.ArgumentParser()
+        for name in ('report', 'runtime', 'base-fixture', 'probe'):
+            parser.add_argument('--' + name, type=Path, required=True)
+        parser.add_argument('--fault', required=True)
+        parser.add_argument('--sandbox', required=True)
+        parser.add_argument('--session')
+        args = parser.parse_args()
+        prompt = sys.stdin.read()
+        data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+        repairing = bool(data.get('report_repair'))
+        stage = data['original']['stage'] if repairing else data.get('stage', '')
+        session = 'synthetic-' + uuid.uuid4().hex
+        session = args.session or session
+
+        def emit(kind, **part):
+            print(json.dumps({'type': kind, 'sessionID': session, 'part': {
+                'id': 'synthetic-' + kind, 'sessionID': session, 'messageID': 'synthetic-message', **part,
+            }}), flush=True)
+
+        def observe(kind, **values):
+            with args.probe.open('a') as handle:
+                handle.write(json.dumps({'kind': kind, 'stage': stage, 'repairing': repairing, **values}) + '\n')
+
+        def execute(event_id):
+            argv = [sys.executable, '-m', 'unittest', '-v', 'test_greet.py']
+            if not Path('test_greet.py').is_file():
+                argv = [sys.executable, '-c', 'print("synthetic planning observation")']
+            result = subprocess.run(argv, text=True, capture_output=True)
+            command = shlex.join(argv)
+            if stage == 'sol' and args.fault == 'old_verdict' and not repairing:
+                # A saved verdict is display data, not a fresh authoritative command event.
+                emit('tool_use', id='synthetic-old-proof', tool='read', state={
+                    'status': 'completed', 'input': {'filePath': 'prior-report.json'},
+                    'output': json.dumps({
+                        'verdict': 'PASS', 'source_revision': 'synthetic-old-source',
+                        'checks': [{'command': command, 'exit_code': 0, 'evidence_ref': 'event:' + event_id}],
+                    }),
+                })
+            else:
+                emit('tool_use', id=event_id, tool='bash', state={
+                    'status': 'completed', 'input': {'command': command},
+                    'metadata': {'exit': result.returncode}, 'output': result.stdout + result.stderr,
+                })
+            observe('execution', event_id=event_id, command=command, exit_code=result.returncode)
+            assert result.returncode == 0, result.stdout + result.stderr
+            return command
+
+        def replace_refs(value, reference):
+            if isinstance(value, dict):
+                return {key: replace_refs(item, reference) for key, item in value.items()}
+            if isinstance(value, list):
+                return [replace_refs(item, reference) for item in value]
+            return reference if value == 'event:check' else value
+
+        observe('provider', sandbox=args.sandbox)
+        emit('step_start')
+        if stage == 'sol' and repairing:
+            assert args.sandbox == 'read-only'
+            originals = data['original_executed_checks']
+            if args.fault == 'old_verdict':
+                assert originals == [], 'A saved PASS must not supply execution authority'
+            else:
+                assert len(originals) == 1 and originals[0]['evidence_ref'].startswith('event:synthetic-original-')
+                assert originals[0]['exit_code'] == 0
+            report = data['rejected_report']['content']
+            reference = originals[0]['evidence_ref'] if originals else 'event:synthetic-original-sol'
+            if args.fault == 'unknown':
+                reference = 'event:synthetic-unknown'
+            elif args.fault == 'repair_only':
+                execute('synthetic-repair-only')
+                reference = 'event:synthetic-repair-only'
+            elif args.fault == 'foreign_attempt':
+                # This ID exists in the Builder attempt, never in the original Tester.
+                reference = 'event:synthetic-original-terra'
+            report['checks'] = [{'command': None, 'exit_code': None, 'evidence_ref': reference}]
+            report['criterion_results'][0]['evidence_refs'] = [reference]
+            observe('repair', original_executed_checks=originals, selected_reference=reference,
+                    verdict=report['verdict'], checks=report['checks'])
+        else:
+            delegated = subprocess.run(
+                [sys.executable, str(args.base_fixture), 'exec', '-', '--json', '-o', str(args.report)],
+                input=prompt, text=True, capture_output=True, check=True,
+            )
+            report = json.loads(args.report.read_text())
+            event_id = 'synthetic-original-' + stage
+            command = execute(event_id)
+            reference = 'event:' + event_id
+            if args.fault == 'report_file' and stage != 'sol':
+                # Preserve the existing receipt-only provider policy for every other stage.
+                reference = '.autocode/evidence/synthetic-' + uuid.uuid4().hex + '.json'
+                captured = subprocess.run(
+                    [*shlex.split(data['capture_command']), '--output', reference, '--', *shlex.split(command)],
+                    text=True, capture_output=True, check=True,
+                )
+                emit('tool_use', id='synthetic-capture-' + stage, tool='bash', state={
+                    'status': 'completed', 'input': {'command': shlex.join([
+                        *shlex.split(data['capture_command']), '--output', reference, '--', *shlex.split(command),
+                    ])}, 'metadata': {'exit': 0}, 'output': captured.stdout,
+                })
+            report = replace_refs(report, reference)
+            if report.get('commands_run'):
+                report['commands_run'] = [command]
+            if report.get('checks_run'):
+                report['checks_run'] = [command]
+            for check in report.get('checks', []):
+                check.update(command=command, exit_code=0, evidence_ref=reference)
+            if stage == 'sol':
+                assert len(report['checks']) == 1
+                # Only this metadata error requires repair; the executed check is genuine.
+                report['checks'][0]['command'] = 'python3 -m unittest -q'
+                if args.fault == 'fail_report':
+                    report['verdict'] = 'FAIL'
+                    report['criterion_results'][0]['status'] = 'FAIL'
+        args.report.write_text(json.dumps(report))
+        emit('text', text=json.dumps(report))
+        emit('step_finish', reason='stop', tokens={
+            'input': 10, 'output': 10, 'reasoning': 0, 'cache': {'read': 0, 'write': 0},
+        })
+    """)
+
+    def test_ac14_fake_repair_completes_clean_replay(self):
+        # Each subtest owns an isolated public run, including its negative-control evidence.
+        for fault in (
+            "valid",
+            "unknown",
+            "repair_only",
+            "foreign_attempt",
+            "old_verdict",
+            "fail_report",
+            "report_file",
+        ):
+            with self.subTest(fault=fault):
+                with contextlib.ExitStack() as cleanup:
+                    fixture = ExactEventRepairPublicCliTests(methodName="test_ac14_fake_repair_completes_clean_replay")
+                    fixture.setUp()
+                    cleanup.callback(fixture.doCleanups)
+                    if fault == "report_file":
+                        fixture.PROVIDER_OUTPUT = "report_file"
+                    run = fixture.start_receipt_fixture(fault)
+                    view = run.advance_until_input()
+                    status_summary = {key: view.get(key) for key in ("status", "done", "stop_reason")}
+                    rows = fixture.observations()
+                    providers = [row for row in rows if row["kind"] == "provider"]
+                    repairs = [row for row in rows if row["kind"] == "repair"]
+                    self.assertTrue(repairs, rows)
+                    self.assertTrue(
+                        all(
+                            row["checks"][0]["command"] is None and row["checks"][0]["exit_code"] is None
+                            for row in repairs
+                        )
+                    )
+                    if fault == "valid":
+                        self.assertEqual("TASK_COMPLETE", view["status"], status_summary)
+                        self.assertTrue(view["done"], status_summary)
+                        self.assertEqual(1, view["efficiency"]["by_category"]["report_repair"]["attempts"])
+                        self.assertEqual(1, sum(row["stage"] == "sol" and not row["repairing"] for row in providers))
+                        self.assertEqual(1, len(repairs))
+                        self.assertTrue(
+                            any(row["stage"] == "astra_review" and not row["repairing"] for row in providers)
+                        )
+                        self.assertFalse(any(row["stage"] == "investigate_stuck" for row in providers))
+                        self.assertFalse(any(row["repairing"] for row in rows if row["kind"] == "execution"))
+                        self.assertEqual(
+                            repairs[0]["original_executed_checks"][0]["evidence_ref"], repairs[0]["selected_reference"]
+                        )
+                        replay = view["evidence"]["check_replay"]
+                        self.assertEqual("PASS", replay["verdict"], replay)
+                        self.assertEqual(view["evidence"]["validator_source_revision"], replay["source_revision"])
+                        self.assertTrue(replay["checks"], replay)
+                        self.assertTrue(all(row["exit_code"] == 0 for row in replay["checks"]))
+                    else:
+                        self.assertFalse(view["done"], status_summary)
+                        self.assertNotEqual("TASK_COMPLETE", view["status"], status_summary)
+                        # A preserved FAIL can be inspected by Completion Reviewer;
+                        # rejected evidence must never reach that accepted-report boundary.
+                        if fault != "fail_report":
+                            self.assertFalse(
+                                any(row["stage"] == "astra_review" and not row["repairing"] for row in providers)
+                            )
+                        if fault in ("unknown", "repair_only", "foreign_attempt", "old_verdict"):
+                            self.assertTrue(
+                                all(
+                                    row["selected_reference"]
+                                    not in {check["evidence_ref"] for check in row["original_executed_checks"]}
+                                    for row in repairs
+                                )
+                            )
+                        if fault == "fail_report":
+                            self.assertTrue(all(row["verdict"] == "FAIL" for row in repairs))
 
 
 if __name__ == "__main__":

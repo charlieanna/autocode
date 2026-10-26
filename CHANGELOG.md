@@ -392,6 +392,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- An exact runner-supplied command event can now fill omitted check command and exit fields during
+  report repair (#2113). Conflicting native event identities, unknown references, bare placeholders
+  without a command and mismatched exits still refuse; repeated updates of one native operation remain
+  usable. Tester and repair guidance now describe the same evidence rules.
+
 - Acceptance writers now hand provider-local blocked integration tests to the existing core scratch runner instead of calling the requirement untestable; per-test red/guard qualification remains mandatory (#2161).
 - Kilo write stages now use a single-session tool policy, preventing subagent delegation that would invalidate the stage's evidence while retaining operator restrictions on coding tools (#2163).
 
