@@ -41,6 +41,7 @@ try:
     from . import autocode_human_review_artifact as human_review_artifact
     from . import autocode_human_review_flow as human_review_flow
     from . import autocode_operational_change as operational_change
+    from . import autocode_planning_feedback as planning_feedback
     from . import autocode_requirement_quotes as requirement_quotes
     from . import autocode_run_status as run_status
     from . import autocode_scope_question as scope_question
@@ -68,6 +69,7 @@ except ImportError:
     import autocode_human_review_artifact as human_review_artifact
     import autocode_human_review_flow as human_review_flow
     import autocode_operational_change as operational_change
+    import autocode_planning_feedback as planning_feedback
     import autocode_requirement_quotes as requirement_quotes
     import autocode_run_status as run_status
     import autocode_scope_question as scope_question
@@ -718,11 +720,7 @@ def feedback(state: RunState, text, *, interpret=True):
         )
         if need.get("new_run_required"):
             raise ValueError(need["recovery_hint"])
-    no_contract_v2 = not state.get("goal_contract") and roles.planning_flow(state) == "v2"
-    if (
-        state["status"] not in ("AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER", *run_status.PLAN_FEEDBACK_PAUSES)
-        and not no_contract_v2
-    ) or not text.strip():
+    if not planning_feedback.admitted(state) or not text.strip():
         raise ValueError("Brief feedback needs nonempty text at a conversation checkpoint")
     if cast(dict, state.get("user_request", {})).get("kind") == "human_review":
         raise ValueError("Record the artifact review with --approve-review or --reject-review, not brief feedback")

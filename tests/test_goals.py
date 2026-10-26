@@ -378,6 +378,48 @@ class GoalTests(unittest.TestCase):
         self.assertFalse(g.approved(self.state))
         self.assertEqual("RUNNING", self.state["status"])
 
+    def test_invalid_planning_report_accepts_named_feedback_without_dispatch(self):
+        self.approve()
+        self.state["settings"]["roles"]["completion"] = {"model": "sol", "reasoning_effort": "high"}
+        self.state["settings"]["limits"].update(idle_timeout_seconds=300, tool_timeout_seconds=600, max_seconds=3600)
+        old_token = g.token(self.state["goal_contract"])
+        self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage="astra_finalize")
+        message = "Retain the original source quotes while correcting the report."
+        self.assertEqual(0, self.invoke("--status", "--json"))
+        before = json.loads(self.stdout)
+        offered = shlex.split(before["view"]["chat"]["input"]["next_command"])
+        self.assertEqual(["--feedback", "MESSAGE"], offered[-2:])
+        self.assertEqual(0, self.invoke("--feedback", message), self.stdout + self.stderr)
+        self.assertEqual(0, self.invoke("--status", "--json"))
+        after = json.loads(self.stdout)
+        self.assertIn(message, [row["text"] for row in after["view"]["chat"]["messages"]])
+        self.assertFalse(after["view"]["done"])
+        for key in ("roles", "limits"):
+            self.assertEqual(before["settings"][key], after["settings"][key])
+        self.assertEqual(2, self.invoke("--approve-goal", old_token))
+
+    def test_invalid_execution_reports_cannot_take_planning_feedback(self):
+        self.approve()
+        for stage in ("terra", "sol", "astra_review", None, "unknown"):
+            with self.subTest(stage=stage):
+                self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage=stage)
+                self.assertEqual(2, self.invoke("--feedback", "Correct the report"))
+                self.assertIn("conversation checkpoint", self.stderr + self.stdout)
+
+    def test_invalid_planning_feedback_cannot_release_an_operational_hold(self):
+        self.approve()
+        self.state["settings"]["limits"]["max_seconds"] = 1
+        self.state["settings"]["budget_origins"] = {"max_seconds": "user_explicit"}
+        self.state.update(status="PAUSED_TIME_LIMIT", active_seconds=2, stop_reason="Explicit total time exhausted")
+        self.assertTrue(
+            runner.resolver_runtime.record_operational_exhaustion(
+                runner, self.state, self.run, s.Paused("PAUSED_TIME_LIMIT", self.state["stop_reason"])
+            )
+        )
+        self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage="astra_finalize")
+        self.assertEqual(2, self.invoke("--feedback", "Correct the report"))
+        self.assertIn("does not acknowledge PAUSED_TIME_LIMIT", self.stderr + self.stdout)
+
     def test_existing_answers_persist_and_cannot_be_asked_again(self):
         self.draft(questions=True)
         self.assertEqual(0, self.invoke("--answer", "Q1=CLI"))

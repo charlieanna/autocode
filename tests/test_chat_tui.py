@@ -290,6 +290,27 @@ def screen_ui(*keys):
     return ui
 
 
+class PlanningCorrectionTests(unittest.TestCase):
+    def test_the_full_screen_composer_sends_a_named_planning_correction(self):
+        from autocode_run_view import view
+
+        from tests.test_chat_client import DONE, RUN, WORKSPACE, ScriptedChat
+
+        held = view(
+            {"status": "PAUSED_INVALID_OUTPUT", "next_stage": "astra_finalize", "task": "Fix it"},
+            workspace=WORKSPACE,
+            run_dir=RUN,
+        )
+        correction = "Keep the exact original citations."
+        ui = screen_ui(*correction, "\n", "\n")
+        client = ScriptedChat(held, DONE)
+        client._ask, client._say, client._observe = ui.ask, ui.say, ui.observe
+        ui.bind(client.slash)
+        with mock.patch.object(tui.curses, "curs_set"), mock.patch.object(tui.curses, "flushinp"):
+            self.assertEqual(0, client.converse())
+        self.assertEqual([["--feedback", correction]], client.taken)
+
+
 class HistoryFileTests(unittest.TestCase):
     """The composer's ↑/↓ history, kept per project in .autocode between chats."""
 

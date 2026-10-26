@@ -365,6 +365,26 @@ class ScriptedChat(chat.ChatClient):
 class ConversationTests(unittest.TestCase):
     """What the chat shows and takes at each kind of stop, without a run."""
 
+    def test_a_named_correction_at_a_planning_resume_is_sent_as_a_message(self):
+        state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": "astra_finalize", "task": "Fix it"}
+        view = run_view.view(state, workspace=WORKSPACE, run_dir=RUN)
+        correction = "Retain the exact original source quotes; add new citations separately."
+        client = ScriptedChat(view, DONE, replies=[correction])
+        self.assertEqual(0, client.converse())
+        self.assertEqual([["--feedback", correction]], client.taken)
+        self.assertIn("or type what to change", client.text())
+
+    def test_a_resume_without_a_message_offer_does_not_send_free_text(self):
+        view = {
+            "status": "PAUSED_INVALID_OUTPUT",
+            "next_stage": "terra",
+            "needs": {"kind": "resume"},
+            "next_command": f"autocode {PLACE} --resume-paused",
+        }
+        client = ScriptedChat(view, DONE, replies=["Change the report"])
+        self.assertEqual(2, client.converse())
+        self.assertEqual([], client.taken)
+
     def test_a_correction_at_one_option_question_uses_its_offered_feedback_action(self):
         correction = "These examples were added in the current unapproved draft."
         client = ScriptedChat(answer_view(), DONE, replies=[correction])

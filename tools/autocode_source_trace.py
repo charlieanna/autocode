@@ -49,6 +49,7 @@ try:
     from . import autocode_control_replies as control_replies
     from . import autocode_prompts as prompts
     from . import autocode_requirement_cues as cues
+    from . import autocode_source_metadata as source_metadata
     from . import autocode_util as util
     from .autocode_requirement_coverage import requirement_coverage_text
 except ImportError:
@@ -57,6 +58,7 @@ except ImportError:
     import autocode_control_replies as control_replies
     import autocode_prompts as prompts
     import autocode_requirement_cues as cues
+    import autocode_source_metadata as source_metadata
     import autocode_util as util
     from autocode_requirement_coverage import requirement_coverage_text
 
@@ -239,13 +241,16 @@ def _inactive_literals(body, records, source_id):
 def _survival_errors(body, records, waivers):
     errors = []
     criteria = body.get("acceptance_criteria") or []
+    source_ids = [record["id"] for record in records]
     for record in records:
+        protected_locations = source_metadata.output_locations(record["text"])
         for sentence in cues.sentences(record["text"]):
             citing = _citing(criteria, sentence, record["id"])
             if not citing:
                 continue
             corpus = _corpus(body, citing)
-            numbers = _NUMBER.findall(_REFERENCE.sub(" ", _STANDARD.sub(" ", sentence)))
+            value_text = source_metadata.value_text(sentence, source_ids, protected_locations=protected_locations)
+            numbers = _NUMBER.findall(_REFERENCE.sub(" ", _STANDARD.sub(" ", value_text)))
             lost = [number for number in dict.fromkeys(numbers) if not _number_in(number, corpus)]
             if lost:
                 errors.append(f"Criteria citing {record['id']} changed a number the source states: " + ", ".join(lost))
@@ -256,7 +261,9 @@ def _survival_errors(body, records, waivers):
             pseudo = {"acceptance_criteria": stripped, "corpus": corpus}
             lost_literals = [
                 literal
-                for literal in brief_literals.missing(brief_literals.literals([sentence]), pseudo)
+                for literal in brief_literals.missing(
+                    brief_literals.literals([sentence], protected_locations=protected_locations), pseudo
+                )
                 if literal not in bound
             ]
             if lost_literals:

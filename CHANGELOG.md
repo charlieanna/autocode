@@ -381,6 +381,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Planning no longer treats documentary `file:line` labels or prose references to known source
+  records as product values that acceptance criteria must repeat (#2150). Source quotes stay
+  intact; actual numeric limits, output literals, file-scope constraints and negations remain checked.
+
+- Malformed planning reports now admit and name corrective chat input. Terminal and full-screen
+  chat accept that text at the Resume prompt instead of treating it as a decline (#2147).
+  Corrections still require a fresh plan approval and cannot release operational or execution holds.
+
 - A probe that passes whatever the code says no longer counts as evidence (#1769). A probed claim
   from the Analyst, a probed concern from the Designer and a probed conflict from the Design Reviewer
   now carry a `counterexample`: one edit (`file`, `find`, `replace`) that makes the claim false. The
