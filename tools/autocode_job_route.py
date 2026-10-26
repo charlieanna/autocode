@@ -7,6 +7,9 @@ failure instead of publishing it. This module answers that question:
 
     --answer route-ROLE=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)
 
+``MODEL@LEVEL`` also names the reasoning effort, which the model must declare (#1902): at a time-limit
+stop the question offers the same model at its next lower declared variant first.
+
 The token is the one the stop shows, so the answer applies only to the failure a person
 inspected. The model must pass the rules a launch applies (engine format, OpenCode
 availability, cross-model; never the model that was just refused or the one already set).
@@ -235,6 +238,11 @@ def answer(runner, args, state: RunState, run_dir, workspace):
             args.answer, [route], {"pause_status": quota_route.job_stop_status(failure)}
         )
         role = asked["route_role"]
+        # MODEL@LEVEL also names the effort (#1902): the same model at a lighter variant is a change.
+        model, effort = quota_route.split_effort(model)
+        bound = ((failure.get("configuration") or {}).get("roles") or {}).get(role) or {}
+        if effort == bound.get("reasoning_effort"):
+            effort = None
         if failure.get("pause_status") in (
             quota_route.REFUSAL_STATUS,
             quota_route.OUTPUT_STATUS,
@@ -254,8 +262,10 @@ def answer(runner, args, state: RunState, run_dir, workspace):
             configured_tool=getattr(runner.opencode, "CONFIGURED", False),
             cross_check=runner.dispatch.enforce_cross_model_verification,
             job=asked.get("job"),
-            allow_unchanged=quota_route.job_stop_status(failure) == quota_route.TIMEOUT_STATUS,
+            allow_unchanged=effort is not None or quota_route.job_stop_status(failure) == quota_route.TIMEOUT_STATUS,
         )
+        if effort is not None:
+            quota_route.check_effort(candidate, role, model, effort, job=asked.get("job"))
         if quota_route.engine(candidate["settings"], role) == "opencode":
             try:
                 facade = role_transport.adapter(candidate["settings"], role, runner.opencode, workspace)
@@ -267,14 +277,18 @@ def answer(runner, args, state: RunState, run_dir, workspace):
         attempt = quota_route.stopped_attempt(candidate, failure_status=runner.support.failure_status)
         if not attempt or attempt["kind"] != "job" or attempt["role"] != role:
             raise ValueError("The stopped job attempt is no longer current; run with --status to see it")
-        record = quota_route.assign(candidate, role, model, at=runner.now(), via="answer", attempt=attempt)
+        record = quota_route.assign(
+            candidate, role, model, at=runner.now(), via="answer", attempt=attempt, effort=effort
+        )
         token = job_failure.reroute(runner, candidate, run_dir, workspace, record)
     except (ValueError, KeyError) as error:
         print(f"Input rejected: {error}", file=sys.stderr)
         return 2
     runner.commit_user_action(state, candidate, run_dir)
+    named = record.get("effort") or {}
+    effort_note = f" at {named['to']} effort (was {named['from']})" if named.get("named") else ""
     print(
-        f"{state['status']}: The {record['job']} now runs on {model} (was {record['from']}). Retry it with "
+        f"{state['status']}: The {record['job']} now runs on {model}{effort_note} (was {record['from']}). Retry it with "
         f"--resume-paused --retry-failed-stage --job-retry-token {token}. Saved; no agent launched."
     )
     return 0

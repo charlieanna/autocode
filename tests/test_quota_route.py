@@ -632,5 +632,66 @@ class QuotaRouteTests(unittest.TestCase):
         )
 
 
+class LowerEffortTests(unittest.TestCase):
+    """#1902: a time-limit stop offers the same model at its next lower declared variant, never an unlisted one."""
+
+    def state(self, effort="high", **settings):
+        route = {"engine": "codex", "model": "gpt-6-sol", "reasoning_effort": effort}
+        return {"settings": {"engine": "codex", "roles": {"investigator": route}, **settings}}
+
+    def test_the_next_lower_declared_level_below_the_fitted_launch_level(self):
+        state = self.state("medium", declared_variants={"gpt-6-sol": ["low", "high", "max"]})
+        # medium launched as high (the nearest declared); the next lower declared level is low.
+        self.assertEqual(
+            {"model": "gpt-6-sol", "from": "high", "to": "low", "answer": "gpt-6-sol@low"},
+            quota_route.lower_effort(state, "investigator", "gpt-6-sol"),
+        )
+        state = self.state("max", declared_variants={"gpt-6-sol": ["low", "high", "max"]})
+        self.assertEqual("high", quota_route.lower_effort(state, "investigator", "gpt-6-sol")["to"])
+
+    def test_no_listing_the_lowest_level_or_no_effort_offers_nothing(self):
+        self.assertIsNone(quota_route.lower_effort(self.state(), "investigator", "gpt-6-sol"))
+        lowest = self.state("low", declared_variants={"gpt-6-sol": ["low", "high"]})
+        self.assertIsNone(quota_route.lower_effort(lowest, "investigator", "gpt-6-sol"))
+        unset = self.state(None, declared_variants={"gpt-6-sol": ["low", "high"]})
+        self.assertIsNone(quota_route.lower_effort(unset, "investigator", "gpt-6-sol"))
+
+    def test_a_probe_certified_level_counts_when_the_tool_lists_none(self):
+        state = self.state("high", certified_variants={"gpt-6-sol": ["medium", "high"]})
+        self.assertEqual("medium", quota_route.lower_effort(state, "investigator", "gpt-6-sol")["to"])
+
+    def test_the_timeout_question_offers_it_first_and_other_stops_do_not(self):
+        state = self.state(declared_variants={"gpt-6-sol": ["low", "high"]})
+        attempt = {"role": "investigator", "stage": "investigate_bug", "model": "gpt-6-sol"}
+        asked = quota_route.question(state, {**attempt, "pause_status": quota_route.TIMEOUT_STATUS})
+        self.assertEqual(["gpt-6-sol@low"], asked["candidates"])
+        self.assertIn("retry gpt-6-sol at low effort", asked["question"])
+        self.assertIn("--answer route-investigator=gpt-6-sol@low", asked["recommendation"])
+        for status in (quota_route.QUOTA_STATUS, quota_route.AUTH_STATUS):
+            self.assertNotIn("lower_effort", quota_route.question(state, {**attempt, "pause_status": status}))
+
+    def test_a_model_answer_names_an_effort_only_with_a_known_level(self):
+        self.assertEqual(("gpt-6-sol", "low"), quota_route.split_effort("gpt-6-sol@LOW"))
+        self.assertEqual(("gpt-6-sol", None), quota_route.split_effort("gpt-6-sol"))
+        self.assertEqual(("vendor/model@2026", None), quota_route.split_effort("vendor/model@2026"))
+        self.assertEqual(("@low", None), quota_route.split_effort("@low"))
+
+    def test_a_named_effort_the_listing_omits_is_refused_and_an_unlisted_model_is_left_to_the_launch(self):
+        state = self.state(declared_variants={"gpt-6-sol": ["low", "high"]})
+        with self.assertRaisesRegex(ValueError, "does not declare reasoning variant 'medium'.*low, high"):
+            quota_route.check_effort(state, "investigator", "gpt-6-sol", "medium", job="Investigator")
+        quota_route.check_effort(state, "investigator", "gpt-6-sol", "low", job="Investigator")
+        quota_route.check_effort(self.state(), "investigator", "gpt-6-sol", "medium", job="Investigator")
+
+    def test_assign_saves_a_named_effort_as_the_persons(self):
+        state = self.state(declared_variants={"gpt-6-sol": ["low", "high"]}, effort_fits={"investigator": {}})
+        record = quota_route.assign(state, "investigator", "gpt-6-sol", at="now", via="answer", effort="low")
+        settings = state["settings"]
+        self.assertEqual({"from": "high", "to": "low", "named": True}, record["effort"])
+        self.assertEqual("low", settings["roles"]["investigator"]["reasoning_effort"])
+        self.assertEqual("user_explicit", settings["effort_origins"]["investigator"])
+        self.assertNotIn("effort_fits", settings)
+
+
 if __name__ == "__main__":
     unittest.main()

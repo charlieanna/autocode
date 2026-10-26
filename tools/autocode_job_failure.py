@@ -190,8 +190,10 @@ def _route_reason(failure):
         if quota_route.job_stop_status(failure) == quota_route.TIMEOUT_STATUS
         else f"the provider reported its quota used up on {route.get('stopped_model')}"
     )
+    named = assignment.get("effort") or {}
+    effort = f" at {named['to']} effort (was {named['from']})" if named.get("named") else ""
     return (
-        f"{job}: {stopped}. The {job} now runs on {assignment['to']} (was {assignment['from']}); the stopped "
+        f"{job}: {stopped}. The {job} now runs on {assignment['to']}{effort} (was {assignment['from']}); the stopped "
         "attempt was set aside without replay. Retry it once with --resume-paused --retry-failed-stage "
         "--job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN), using the new token."
     )
@@ -230,8 +232,11 @@ def _reasked(runtime, state: RunState, failure):
             },
         )
     route = dict(route, current_model=model)
+    route.pop("lower_effort", None)  # the answer took it, or named another route
     if "candidates" in route:
-        route["candidates"] = [candidate for candidate in route["candidates"] if candidate != model]
+        route["candidates"] = [
+            candidate for candidate in route["candidates"] if quota_route.split_effort(candidate)[0] != model
+        ]
         route.pop("recommendation", None)
     return route
 
@@ -308,7 +313,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
     if kind in _ROUTE_STOPS:
         failure["pause_status"] = _ROUTE_STOPS[kind]
     state.pop("job_retry_authorization", None)
-    state["recovery_context"] = {
+    recovery = {
         "kind": "job_failure",
         "stage": stage,
         "attempt_id": original_attempt,
@@ -316,6 +321,10 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
         "reason": reason,
         "write_diagnosis": restoration,
     }
+    if record.get("timed_out") and record.get("timeout_kind"):
+        # Which limit stopped it (the deadline, or the exploration budget's ``progress``): the retry handoff says so.
+        recovery["timeout_kind"] = record["timeout_kind"]
+    state["recovery_context"] = recovery
     run_status.pause(
         state,
         "PAUSED_STAGE_ABANDONED" if abandoned else "PAUSED_JOB_FAILURE",
