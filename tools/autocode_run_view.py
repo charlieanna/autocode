@@ -152,10 +152,12 @@ def view(
     try:
         from . import autocode_attention as attention
         from . import autocode_replay_view as replay_view
+        from . import autocode_scope_question as scope_question
         from . import autocode_worker_view as worker_view
     except ImportError:
         import autocode_attention as attention
         import autocode_replay_view as replay_view
+        import autocode_scope_question as scope_question
         import autocode_worker_view as worker_view
     replay = replay_view.completion_policy(state)
     replay_progress, invalid_replay, simulated = replay["progress"], replay["invalid"], replay["simulated"]
@@ -298,6 +300,10 @@ def view(
         # The pause a client may request while the run works (autocode_pause_offer, #1598); status supplies it.
         "pause": None,
     }
+    # Work that belongs to another repository, and what the person left out of this run (#2066).
+    result["scope"] = scope_question.view(
+        state, (state.get("requirements_handoff") or {}).get("dropped_external_parts")
+    )
     result["chat"] = chat_view.project(state, result, run_dir=run_dir, workspace=workspace)
     result["attention"] = attention.project(
         state, result, workspace=workspace, run_dir=run_dir, context=result["chat"]["context"]
@@ -326,7 +332,13 @@ def view(
                     "token": state["displayed_goal"],
                     **{
                         key: deepcopy(contract["body"].get(key))
-                        for key in ("acceptance_criteria", "constraints", "permission_boundaries", "git_delivery")
+                        for key in (
+                            "acceptance_criteria",
+                            "constraints",
+                            "permission_boundaries",
+                            "git_delivery",
+                            "scope_exclusions",
+                        )
                     },
                 }
         except (KeyError, TypeError, ValueError):

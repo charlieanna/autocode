@@ -1787,6 +1787,26 @@ controller makes the checkpoint `stale`; an inaccessible process is unknown,
 not assumed dead. Inspect retained test output before restarting a stale check.
 The check activity never substitutes for a passing proof or independent review.
 
+## Work in another repository
+
+`view.scope` reports work the request places in another repository (#2066). Requirements
+names each part, and the runner keeps it only when its quote is verbatim in the request or
+a saved answer, or when it cites a file in this workspace that shows it.
+
+- `spans_repositories` and `external_parts` (`target`, `work`) list the kept parts.
+- `dropped` names the targets of the parts the runner refused.
+- `decision` is `this_repository` once the person chose it, else `null`.
+- `uncovered` lists the targets this run leaves out.
+- `linked` is `[]` until runs can be linked.
+
+A kept part stops the run before any plan, with one nondelegable question
+(`workspace-scope-1`, kind `answer`). Its only option is `This repository only`. Other
+text is refused, and `--feedback TEXT` changes the request instead. After that answer the
+plan must record each uncovered part in `scope_exclusions` as
+`Not covered: changes in TARGET: WORK`, and `displayed_plan.scope_exclusions` shows it on
+the approval screen. The Planner's packet names the exact entries
+(`scope_exclusions_required`).
+
 ## Dependencies between existing runs
 
 An already authorized delivery should not become a request for a person to assemble

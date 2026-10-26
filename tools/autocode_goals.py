@@ -42,6 +42,7 @@ try:
     from . import autocode_operational_change as operational_change
     from . import autocode_requirement_quotes as requirement_quotes
     from . import autocode_run_status as run_status
+    from . import autocode_scope_question as scope_question
     from . import autocode_source_log as source_log
     from . import autocode_util as s
     from . import autocode_workflows as workflows
@@ -67,6 +68,7 @@ except ImportError:
     import autocode_operational_change as operational_change
     import autocode_requirement_quotes as requirement_quotes
     import autocode_run_status as run_status
+    import autocode_scope_question as scope_question
     import autocode_source_log as source_log
     import autocode_util as s
     import autocode_workflows as workflows  # noqa: F401 - goal compatibility API
@@ -447,6 +449,7 @@ def check_requirement_handoff(state: RunState, report):
 def check_requirement_trace(state: RunState, report, contract, *, coverage=True):
     if coverage:
         brief_literals.check(scan_texts(state), contract)
+        scope_question.check(state, contract)  # the plan lists what the person left out of this run (#2066)
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
     requirements = (handoff.get("requirements") or []) + adaptive.feedback_requirements(state)
     if not requirements:

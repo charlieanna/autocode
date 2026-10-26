@@ -170,6 +170,7 @@ class RunViewTests(unittest.TestCase):
                 "stage_policy",
                 "changes_by_criterion",
                 "dev_server",
+                "scope",
             },
             set(run_view.view({"status": "RUNNING"})),
         )

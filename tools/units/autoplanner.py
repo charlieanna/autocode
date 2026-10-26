@@ -50,6 +50,7 @@ try:
     from .. import autocode_role_route as role_route
     from .. import autocode_roles as role_names
     from .. import autocode_route_fit as route_fit
+    from .. import autocode_scope_question as scope_question
     from .. import autocode_source_trace as source_trace
     from .. import autocode_stage_context as stage_context
     from .. import autocode_support as s
@@ -86,6 +87,7 @@ except ImportError:
     import autocode_role_route as role_route
     import autocode_roles as role_names
     import autocode_route_fit as route_fit
+    import autocode_scope_question as scope_question
     import autocode_source_trace as source_trace
     import autocode_stage_context as stage_context
     import autocode_support as s
@@ -1346,6 +1348,10 @@ def context(state: RunState, stage, state_path):
     rows = trace_rows(state, stage)
     if rows:
         packet["requirement_trace_rows"] = rows
+    left_out = [scope_question.exclusion(part) for part in scope_question.uncovered(state)]
+    if left_out and stage in TRACE_STAGES:
+        # The person kept this run to this repository (#2066): each entry goes in scope_exclusions verbatim.
+        packet["scope_exclusions_required"] = left_out
     earlier = previous_review(state) if stage == "astra_challenge" else None
     if earlier:
         packet["previous_review"] = earlier
