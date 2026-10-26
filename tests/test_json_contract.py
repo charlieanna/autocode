@@ -24,6 +24,7 @@ import shlex
 import subprocess
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_util as util
 
@@ -181,6 +182,28 @@ class JsonContractTests(unittest.TestCase):
 
 
 class SchemaCoverageTests(unittest.TestCase):
+    def test_coordination_and_inherited_routes_match_the_public_schema(self):
+        import autocode_coordination_store as coordination
+        import autocode_run_view as run_view
+
+        document = {
+            "phase": "fixing",
+            "revision": 4,
+            "active": "history",
+            "members": [{"target": "history", "run_dir": "/runs/history"}],
+            "member_statuses": {"history": "RUNNING"},
+        }
+        state = {
+            "status": "RUNNING",
+            "settings": {"engine": "codex", "roles": {"terra": {"engine": "codex", "model": "gpt-5.6-terra"}}},
+        }
+        with patch.object(coordination, "read", return_value=document):
+            view = run_view.view(state, run_dir=Path("/runs/checkout"))
+        self.assertEqual("history", view["coordination"]["active"])
+        self.assertEqual(state["settings"], view["related_profile"]["settings"])
+        for name in ("coordination", "related_profile", "scope"):
+            util.validate_schema(view[name], SCHEMA["properties"]["view"]["properties"][name])
+
     def test_every_field_the_view_always_returns_is_required_by_the_schema(self):
         # #1905 found eight such fields missing from the schema; required, removing one fails the contract above.
         import autocode_run_view as run_view

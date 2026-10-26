@@ -139,3 +139,28 @@ The retained Ubuntu log also exposed `RunViewTests.test_contract_fields`: its
 exact public-field inventory omitted the new `coordination` and `related_profile`
 fields. The regression failed locally before updating that inventory; all 27
 public status-view tests pass afterward. No runtime behavior changed.
+
+The next Ubuntu gate on `05c560d26` ran 4,093 tests in 238 modules in 923 seconds
+and exposed five remaining failing modules. The status JSON schema now requires
+and describes the coordination/profile fields and scope identity; the scope CLI
+assertion binds that identity to its displayed question. The CLI reference now
+lists every new public option. A populated-view schema regression checks actual
+coordination output, including the active member's string identity.
+
+The terminal resize assertion previously accepted tmux's blank intermediate
+frame before curses redrew it; it now waits for the header and composer as well
+as the new dimensions. The empty-chat resize check passes in a private tmux
+terminal without a provider launch (1.685 seconds).
+
+CI invokes its venv interpreter without activating the venv. The multi-repository
+fixture now puts that interpreter's bin directory on PATH so its actual
+`python3 -m pytest` checks use the installed test dependency. Reproducing CI's
+inactive-venv PATH made the short joint proof fail in 3.053 seconds before the
+correction and pass in 8.559 seconds afterward. The supported Linux status/JSON
+contract (3 tests, 39.076 seconds) and scope-question CLI (3 tests, 28.908 seconds)
+also pass; the CLI-reference tests and changed-file Ruff checks pass locally.
+The same-byte container-local launcher is `/private/tmp/2169-ci-linux.py` and
+adds only the CI-like PATH to the existing Docker boundary. Initial snapshot
+setup attempts omitted harness/schema resources and were unqualified; the
+passing CLI checks use all tracked ordinary files. No runtime or provider gate
+was weakened, and all source corrections were authored directly.

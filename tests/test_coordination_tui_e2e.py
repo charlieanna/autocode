@@ -176,7 +176,9 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
         launcher.chmod(0o755)
         self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
         self.env.update(
-            PATH=str(binary) + os.pathsep + self.env["PATH"],
+            # CI invokes the venv interpreter without activating it. The
+            # fixture's real python3 checks need that interpreter's pytest.
+            PATH=os.pathsep.join((str(binary), str(Path(sys.executable).parent), self.env["PATH"])),
             AUTOCODE_HOME=str(self.root / "registry"),
             CODEX_HOME=str(self.root / "codex-home"),
             XDG_CONFIG_HOME=str(self.root / "config"),

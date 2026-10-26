@@ -28,7 +28,7 @@
         "provider", "route_assignments", "information_review", "tool_containment", "job_report_recovery",
         "efficiency", "conversation", "chat", "workspace", "run_dir", "planning_depth", "stage_policy", "pause", "package",
         "tool_containment_backend", "changes_by_criterion", "dev_server", "execution", "observation", "attention",
-        "scope", "proxied_requirements"
+        "scope", "coordination", "related_profile", "proxied_requirements"
       ],
       "properties": {
         "execution": {
@@ -266,7 +266,110 @@
         "tool_containment_backend": {"type": ["object", "null"], "description": "The kernel boundary the latest contained launch ran in; null until a stage launches contained."},
         "changes_by_criterion": {"type": ["object", "null"], "description": "Saved Builder steps attributed to the approved plan's criteria; null until a plan is approved. Attribution, not proof."},
         "dev_server": {"type": ["object", "null"], "description": "The run's development server: configured, status, url, code_checkpoint, restarts and waiting."},
-        "scope": {"type": "object", "required": ["spans_repositories", "external_parts", "uncovered", "decision", "dropped", "linked", "briefs"], "properties": {"spans_repositories": {"type": "boolean"}, "external_parts": {"type": "array", "items": {"type": "object", "required": ["target", "work"], "properties": {"target": {"type": "string"}, "work": {"type": "string"}}}}, "uncovered": {"type": "array", "items": {"type": "string"}}, "decision": {"type": ["string", "null"]}, "dropped": {"type": "array", "items": {"type": "string"}}, "linked": {"type": "array", "items": {"type": "object", "required": ["changeset", "target", "role", "workspace", "run_dir"], "properties": {"changeset": {"type": "string"}, "target": {"type": "string"}, "role": {"type": "string", "enum": ["source", "member"]}, "workspace": {"type": "string"}, "run_dir": {"type": ["string", "null"]}}}, "description": "The other runs of this run's change set (autocode changeset link): the source run and each linked run, with the repository it covers; run_dir is null while a linked run is starting."}, "briefs": {"type": "array", "items": {"type": "object", "required": ["repository", "brief"], "properties": {"repository": {"type": "string"}, "brief": {"type": "string"}}}, "description": "A ready brief for each repository the request spans, this one first, for a person who stops here and runs them separately."}}, "description": "Work the request places in another repository (#2066): the grounded external parts, the targets the person left out of this run (each recorded in scope_exclusions), the person's decision (this_repository, or null while unanswered), the targets dropped for want of a verbatim quote or a cited file, and the other runs of this run's change set (linked)."},
+        "scope": {"type": "object", "required": ["identity", "spans_repositories", "external_parts", "uncovered", "decision", "dropped", "linked", "briefs"], "properties": {"identity": {"type": "string", "description": "Opaque identity of the current user turn and grounded external work; grants no plan approval."}, "spans_repositories": {"type": "boolean"}, "external_parts": {"type": "array", "items": {"type": "object", "required": ["target", "work"], "properties": {"target": {"type": "string"}, "work": {"type": "string"}}}}, "uncovered": {"type": "array", "items": {"type": "string"}}, "decision": {"type": ["string", "null"]}, "dropped": {"type": "array", "items": {"type": "string"}}, "linked": {"type": "array", "items": {"type": "object", "required": ["changeset", "target", "role", "workspace", "run_dir"], "properties": {"changeset": {"type": "string"}, "target": {"type": "string"}, "role": {"type": "string", "enum": ["source", "member"]}, "workspace": {"type": "string"}, "run_dir": {"type": ["string", "null"]}}}, "description": "The other runs of this run's change set (autocode changeset link): the source run and each linked run, with the repository it covers; run_dir is null while a linked run is starting."}, "briefs": {"type": "array", "items": {"type": "object", "required": ["repository", "brief"], "properties": {"repository": {"type": "string"}, "brief": {"type": "string"}}}, "description": "A ready brief for each repository the request spans, this one first, for a person who stops here and runs them separately."}}, "description": "Work the request places in another repository (#2066): the grounded external parts, the targets the person left out of this run (each recorded in scope_exclusions), the person's decision (this_repository, or null while unanswered), the targets dropped for want of a verbatim quote or a cited file, and the other runs of this run's change set (linked)."},
+        "coordination": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Automatic multi-repository coordination offer; null without an eligible bug or an existing record. Clients read status_command and take only exact named next_command or cancel_command arrays.",
+          "required": [
+            "version",
+            "status_command",
+            "next_command",
+            "phase",
+            "revision",
+            "cancel_command",
+            "active",
+            "members"
+          ],
+          "properties": {
+            "version": {
+              "type": "integer",
+              "enum": [
+                1
+              ]
+            },
+            "status_command": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "next_command": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "cancel_command": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "phase": {
+              "type": "string"
+            },
+            "revision": {
+              "type": "integer"
+            },
+            "active": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "members": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "target",
+                  "run_dir",
+                  "status",
+                  "pr_url"
+                ],
+                "properties": {
+                  "target": {
+                    "type": "string"
+                  },
+                  "run_dir": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "pr_url": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "related_profile": {
+          "type": "object",
+          "description": "Versioned copy of inheritable role routes and limits, excluding credentials, sessions and approvals. Installation still enforces the target project approval policy.",
+          "required": [
+            "version",
+            "settings"
+          ],
+          "properties": {
+            "version": {
+              "type": "integer",
+              "enum": [
+                1
+              ]
+            },
+            "settings": {
+              "type": "object"
+            }
+          }
+        },
         "proxied_requirements": {"type": "array", "items": {"type": "object", "required": ["requirement_id", "evidence", "proxy_reason"], "properties": {"requirement_id": {"type": ["string", "null"]}, "evidence": {"type": ["string", "null"]}, "proxy_reason": {"type": ["string", "null"]}}}, "description": "The requirements the current plan proves only on a stand-in because code outside this checkout renders what the user sees (#2068): the criteria it cites (evidence) and why (proxy_reason); [] when none or no plan yet. Documented in docs/task-run.md."}
       }
     },

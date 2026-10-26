@@ -67,7 +67,17 @@ class ChatScreenTests(unittest.TestCase):
     def test_a_resize_redraws_the_whole_screen(self):
         screen = self.chat(cols=120, rows=34)
         screen.resize(70, 22)
-        shown = screen.wait_for(lambda text: len(text.splitlines()) == 22 and fits(text, 70), what="a 70x22 screen")
+        # tmux changes the pane geometry before curses handles SIGWINCH. A
+        # blank frame already fits; wait for the application to redraw too.
+        shown = screen.wait_for(
+            lambda text: (
+                len(text.splitlines()) == 22
+                and fits(text, 70)
+                and "AutoCode chat" in text.splitlines()[0]
+                and "What do you want done?" in text
+            ),
+            what="the chat redrawn at 70x22",
+        )
         self.assertIn("AutoCode chat", shown.splitlines()[0])
         screen.resize(100, 30)
         shown = screen.wait_for(lambda text: composer_width(text) == 99, what="the composer at 100 columns")

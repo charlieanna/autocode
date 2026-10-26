@@ -40,6 +40,7 @@ class ScopeQuestionCliTests(unittest.TestCase):
         self.assertIn("greet-history: Record each greeting", question["question"])
         self.assertEqual(
             {
+                "identity": question["id"].removeprefix("workspace-scope-"),
                 "spans_repositories": True,
                 "external_parts": [{"target": "greet-history", "work": "Record each greeting"}],
                 "uncovered": [],
