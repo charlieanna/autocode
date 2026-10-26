@@ -127,7 +127,9 @@ def execute(
 ):
     """``prepare(argv, env) -> (argv, env)`` adjusts a tool launch before it runs (the access probe's bare agent)."""
     directory.mkdir(parents=True)
-    event_path, report_path = directory / "events.jsonl", directory / "report.json"
+    # One stem: a report_file adapter reads its report next to the events file the launch
+    # wrote (Path.with_suffix), so the two paths must share it.
+    event_path, report_path = directory / "stage.jsonl", directory / "stage.json"
     schema_path, prompt_path = directory / "schema.json", directory / "prompt.txt"
     atomic_json(schema_path, schema)
     child_env = agent_env.scrubbed(env)
@@ -211,6 +213,10 @@ def execute(
                     raise
                 code, timed_out = child.returncode, True
     rows = support.events(event_path)
+    if adapter is not None and getattr(adapter, "NORMALIZES_EVENTS", False):
+        # The adapter's public event contract (usage totals on the terminal row) differs
+        # from its raw stream; the oracle judges the contract a consumer reads.
+        rows = adapter.normalized_events(rows)
     atomic_json(directory / "normalized-events.json", rows)
     report, report_error = None, None
     try:

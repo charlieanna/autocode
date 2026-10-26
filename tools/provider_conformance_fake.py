@@ -9,7 +9,9 @@ import shlex
 import subprocess
 import sys
 import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 
 FAULTS = (
     "malformed_report",
@@ -23,6 +25,11 @@ FAULTS = (
     "stale_report",
     "process_failure",
 )
+
+DIRECT_MODEL = "fixture/direct-probe"
+
+# Keep the fake model servers alive for the process lifetime; the runs are sequential.
+_DIRECT_SERVERS = []
 
 
 def environment(directory, env, fault=None):
@@ -41,11 +48,128 @@ def environment(directory, env, fault=None):
             f"from provider_conformance_fake import main\nmain({provider!r})\n"
         )
         path.chmod(0o755)
+    env = _direct_environment(directory, env, fault or "")
     return {
         **env,
         "PATH": str(binary) + os.pathsep + env.get("PATH", os.defpath),
         "AUTOCODE_CONFORMANCE_FAULT": fault or "",
     }
+
+
+def _direct_environment(directory, env, fault):
+    """A fixture direct connection whose API endpoint is a local fake model server.
+
+    The runtime, sandbox and event contract stay real; only the model answers from
+    the fixture, so the probe exercises the engine a key-only user actually runs.
+    """
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _FakeModel)
+    server.fault = fault
+    _DIRECT_SERVERS.append(server)
+    Thread(target=server.serve_forever, daemon=True).start()
+    config = directory / "fake-xdg" / "autocode" / "direct"
+    config.mkdir(parents=True, mode=0o700)
+    config.chmod(0o700)
+    endpoint = f"http://127.0.0.1:{server.server_port}/v1"
+    (config / "connection.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "transport": "compatible",
+                "api_provider": "compatible",
+                "endpoint": endpoint,
+                "roles": {
+                    role: DIRECT_MODEL for role in ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
+                },
+            }
+        )
+    )
+    (config / "connection.json").chmod(0o600)
+    (config / "auth.json").write_text(json.dumps({"api_key": "fixture-direct-key", "endpoint": endpoint}))
+    (config / "auth.json").chmod(0o600)
+    return {**env, "XDG_CONFIG_HOME": str(directory / "fake-xdg")}
+
+
+class _FakeModel(BaseHTTPRequestHandler):
+    """Answers the direct runtime's Chat Completions calls with the probe's own plan."""
+
+    def do_POST(self):
+        try:
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            status, value = self._respond(body)
+        except (ValueError, KeyError, IndexError):
+            status, value = 500, {"error": "fixture model could not read the request"}
+        out = json.dumps(value).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(out)
+
+    def _respond(self, body):
+        fault = self.server.fault
+        if fault == "process_failure":
+            return 500, {"error": "fixture process failure"}
+        messages = body["messages"]
+        handoff = next(
+            json.loads(m["content"].rsplit("\nCURRENT HANDOFF DATA\n", 1)[1])
+            for m in reversed(messages)
+            if m["role"] == "user" and "CURRENT HANDOFF DATA" in m.get("content", "")
+        )
+        results = {m["tool_call_id"]: json.loads(m["content"]) for m in messages if m["role"] == "tool"}
+        usage = {"prompt_tokens": 60, "completion_tokens": 20, "prompt_tokens_details": {"cached_tokens": 20}}
+        plan_usage = {**usage, "completion_tokens": 10}
+        if not results:
+            commands = (["cp input.txt output.txt"] if handoff["phase"] == "build" else []) + [
+                "cat input.txt",
+                *handoff["commands"],
+            ]
+            return 200, {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": f"call_{index}",
+                                    "type": "function",
+                                    "function": {"name": "shell", "arguments": json.dumps({"command": command})},
+                                }
+                                for index, command in enumerate(commands)
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+                "usage": plan_usage,
+            }
+        by_command = {
+            command: results[f"call_{index}"]
+            for index, command in enumerate(
+                (["cp input.txt output.txt"] if handoff["phase"] == "build" else [])
+                + ["cat input.txt", *handoff["commands"]]
+            )
+        }
+        report = {
+            "probe_id": handoff["probe_id"],
+            "workspace": handoff["workspace"],
+            "nonce": by_command["cat input.txt"]["output"].strip(),
+            "checks": [
+                {"command": command, "exit_code": by_command[command]["exit_code"]} for command in handoff["commands"]
+            ],
+        }
+        if fault == "wrong_nonce":
+            report["nonce"] = "not-read"
+        if fault == "stale_report":
+            report["probe_id"] = "old-probe"
+        final = "invalid JSON" if fault == "malformed_report" else json.dumps(report)
+        reply_usage = {} if fault == "missing_usage" else usage
+        return 200, {
+            "choices": [{"message": {"role": "assistant", "content": final}, "finish_reason": "stop"}],
+            "usage": reply_usage,
+        }
+
+    def log_message(self, *_args):
+        pass
 
 
 def main(provider):

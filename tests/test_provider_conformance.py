@@ -158,11 +158,15 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             result, summary = self.invoke(directory, "--fake")
             self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-            self.assertEqual(list(cli.PROVIDERS), [r["provider"] for r in summary["routes"]])
+            self.assertEqual(list(cli.fake_providers()), [r["provider"] for r in summary["routes"]])
             for route in summary["routes"]:
-                self.assertEqual(["PASS"] * 3, [p["status"] for p in route["phases"]])
+                # The direct engine keeps no session to resume, so it proves the two
+                # stage boundaries a sessionless launch can; every sessioned tool does three.
+                expected = 2 if route["provider"] == "autocode" else 3
+                self.assertEqual(["PASS"] * expected, [p["status"] for p in route["phases"]])
                 self.assertNotEqual(route["phases"][0]["session"], route["phases"][1]["session"])
-                self.assertEqual(route["phases"][1]["session"], route["phases"][2]["session"])
+                if expected == 3:
+                    self.assertEqual(route["phases"][1]["session"], route["phases"][2]["session"])
                 self.assertTrue(all(p["usage"]["output_tokens"] == 30 for p in route["phases"]))
                 for phase in route["phases"]:
                     prompt = (Path(phase["artifacts"]) / "prompt.txt").read_text()
@@ -186,8 +190,30 @@ class CliTests(unittest.TestCase):
                     failure = route["phases"][-1]
                     if reason:
                         self.assertTrue(any(f.startswith(reason) for f in failure["failures"]), failure)
+                    elif route["provider"] == "autocode":
+                        # The runtime reports its own failure exit, not the fake CLI's 9.
+                        self.assertNotEqual(0, failure["process_exit"])
                     else:
                         self.assertEqual(9, failure["process_exit"])
+
+    @unittest.skipUnless(sys.platform == "linux", "The direct engine's contained shell runs on supported Linux")
+    def test_direct_fixture_runs_the_real_runtime_against_a_local_model(self):
+        """#2055: the direct engine joins the conformance contract through its own runtime,
+        sandbox and event stream; the model alone answers from the loopback fixture."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = fake.environment(root, dict(os.environ))
+            with patch.dict(os.environ, {"XDG_CONFIG_HOME": env["XDG_CONFIG_HOME"]}):
+                result = cli.run_route(
+                    "autocode", fake.DIRECT_MODEL, root / "route", effort="medium", timeout=60, env=env, fake_mode=True
+                )
+            self.assertEqual("PASS", result["status"], result)
+            self.assertEqual(["build", "validate"], [p["phase"] for p in result["phases"]])
+            launch = json.loads((Path(result["phases"][0]["artifacts"]) / "launch.json").read_text())
+            self.assertTrue(launch["argv"][0].endswith("autocode_direct_runtime.py"))
+            self.assertIn("--provider=compatible", launch["argv"])
+            self.assertNotIn("fixture-direct-key", json.dumps(launch))
+            self.assertEqual("autocode", result["identity"]["engine"])
 
     def test_opencode_2_fixture_launches_standalone_and_reads_nested_exit(self):
         with tempfile.TemporaryDirectory() as directory:

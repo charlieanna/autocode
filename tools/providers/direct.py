@@ -16,6 +16,9 @@ from . import command
 
 class DirectProvider(command.CommandProvider):
     RESUME_ACROSS_STAGES = False
+    # Raw events carry per-request usage.partials; the public contract totals them on the
+    # terminal row. Consumers that judge events (the conformance probe) ask for these.
+    NORMALIZES_EVENTS = True
 
     def __init__(self):
         self.settings = connection.load()
