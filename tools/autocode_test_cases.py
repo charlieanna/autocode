@@ -350,16 +350,62 @@ def match_cases(cases: list[dict], test_ids: list[str], *, framework=None) -> di
 # A probe that is a bare `scheme:reference`: an event or tool ID rather than a command (#1769).
 CITATION_PROBE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*:\S+$")
 
+# The deliberately constructed counterexample a probe must tell its claim from (#1769): the smallest
+# edit to one repository file that makes the claim false. The runner makes that edit in a scratch
+# copy and re-runs the probe, which must then fail. Not in a report's required list, so reports
+# saved before it still validate; a probe without one is refused where the job asks for it.
+COUNTEREXAMPLE = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["file", "find", "replace"],
+    "properties": {"file": {"type": "string"}, "find": {"type": "string"}, "replace": {"type": "string"}},
+}
 
-def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "claim") -> list[dict]:
+
+def apply_counterexample(text: str, counterexample: dict) -> str:
+    """``text`` with the counterexample's ``find`` replaced by its ``replace``; ``find`` must occur once."""
+    find = counterexample.get("find") or ""
+    found = text.count(find) if find else 0
+    if found != 1:
+        raise ValueError(
+            f"the counterexample's find text occurs {found} times in {counterexample.get('file')!r}; "
+            "it must be copied exactly from that file and occur once"
+        )
+    return text.replace(find, counterexample.get("replace") or "", 1)
+
+
+def _counterexample_error(row: dict, what: str, key: str) -> str:
+    """Why a probed row's counterexample cannot be run, or "" when it can."""
+    counter = row.get("counterexample") or {}
+    if not isinstance(counter, dict) or not str(counter.get("file") or "").strip() or not counter.get("find"):
+        return (
+            f"A probed {what} needs a counterexample: the smallest edit to one repository file "
+            f"(file, find, replace) that makes it false, so the runner can check that the probe fails "
+            f"there. A probe that passes whatever the code says shows nothing: {row.get(key)!r}"
+        )
+    if counter.get("find") == counter.get("replace"):
+        return f"A {what}'s counterexample must change its file; find and replace are the same: {row.get(key)!r}"
+    return ""
+
+
+def run_probes(
+    rows: list[dict], run_probe, *, what: str = "claim", key: str = "claim", run_counterexample=None
+) -> list[dict]:
     """Run every row's ``probe`` (``run_probe(command)``, a scratch run); each must exit 0.
 
     A probed row needs its ``example`` in plain English. Returns the receipts of the rows shown;
     raises ValueError naming the rows whose probe did not exit 0. ``what`` names the rows in
     messages (claim, concern, conflict) and ``key`` is the field that identifies a row.
+
+    With ``run_counterexample(command, counterexample)`` (a scratch run with the row's
+    ``counterexample`` edit made), every probed row needs a counterexample and its probe must
+    exit non-zero there: a probe that exits 0 whatever the code says, such as
+    ``python3 -c 'assert 2 + 2 == 4'``, does not tell the claim from its opposite and is refused
+    rather than shown as a check that ran (#1769).
     """
     shown: list[Any] = []
     failed: list[Any] = []
+    vacuous: list[Any] = []
     for row in rows:
         probe = str(row.get("probe") or "").strip()
         if not probe:
@@ -374,6 +420,10 @@ def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "
             )
         if not str(row.get("example") or "").strip():
             raise ValueError(f"A probed {what} needs its example in plain English: {row.get(key)!r}")
+        if run_counterexample is not None:
+            error = _counterexample_error(row, what, key)
+            if error:
+                raise ValueError(error)
         run = run_probe(probe)
         receipt = {
             key: row.get(key),
@@ -381,12 +431,38 @@ def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "
             "exit_code": run.get("exit_code"),
             "tail": (run.get("tail") or run.get("error") or "")[-600:],
         }
-        (shown if run.get("exit_code") == 0 and not run.get("error") else failed).append(receipt)
+        if run.get("exit_code") != 0 or run.get("error"):
+            failed.append(receipt)
+            continue
+        if run_counterexample is not None:
+            counter = row["counterexample"]
+            against = run_counterexample(probe, counter)
+            receipt["counterexample"] = {
+                "file": str(counter.get("file") or "").strip(),
+                "exit_code": against.get("exit_code"),
+                "tail": (against.get("tail") or against.get("error") or "")[-600:],
+            }
+            if against.get("error") or against.get("timed_out") or against.get("exit_code") in (0, None):
+                vacuous.append(receipt)
+                continue
+        shown.append(receipt)
     if failed:
         raise ValueError(
             f"These {what}s' probes did not exit 0 on the code as it is, so they are not shown: "
             + "; ".join(
                 f"{row[key]!r} ({row['probe']}: exit {row['exit_code']}) {row['tail'][-200:]}" for row in failed
+            )
+        )
+    if vacuous:
+        raise ValueError(
+            f"These {what}s' probes did not fail on their counterexample, so they do not tell the {what} "
+            f"from its opposite and are not shown as checked. Give a probe that exits 0 on the code and "
+            f"non-zero once the counterexample edit is made, or leave example and probe empty for a {what} "
+            f"shown by its source alone: "
+            + "; ".join(
+                f"{row[key]!r} ({row['probe']} on {row['counterexample']['file']} changed: "
+                f"exit {row['counterexample']['exit_code']}) {row['counterexample']['tail'][-200:]}"
+                for row in vacuous
             )
         )
     return shown

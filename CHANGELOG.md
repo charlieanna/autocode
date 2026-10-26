@@ -368,6 +368,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A probe that passes whatever the code says no longer counts as evidence (#1769). A probed claim
+  from the Analyst, a probed concern from the Designer and a probed conflict from the Design Reviewer
+  now carry a `counterexample`: one edit (`file`, `find`, `replace`) that makes the claim false. The
+  runner makes it in a second scratch copy and the probe must fail there. A probe such as
+  `python3 -c 'assert 2 + 2 == 4'`, which exits 0 either way, is refused and goes to the usual bounded
+  report repair instead of being shown as a check that ran. The Analyst's answer now lists claims
+  without a probe as read from the source, not run.
+
 - A report rejected for its format on a configured Kilo connection (a provider TOML whose command
   runs `kilo`, such as `kilo_glm_mimo`) now goes straight to the full report repair, as on the bundled
   `kilocode` provider. Since #2010 these connections get the Kilo launch, whose read-only boundary

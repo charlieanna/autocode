@@ -10,7 +10,13 @@
    ..."), and probe, a shell command run from the repository root that exits 0 exactly when the claim
    holds (for example: python3 -c "from cache import TTL; assert TTL == 3600"). The runner runs every
    probe in a scratch copy of the code as it is now and rejects the answer if one fails, so only probe
-   what you have checked. A claim shown by its source alone has example and probe "".
+   what you have checked. A probed claim also gives counterexample: the smallest edit to one repository
+   file that makes the claim false, as file, find (text copied exactly from that file, occurring once)
+   and replace (for example: file "cache.py", find "TTL = 3600", replace "TTL = 60"). The runner makes
+   that edit in another scratch copy and the probe must fail there; a probe that passes whatever the
+   code says (python3 -c 'assert 2 + 2 == 4') shows nothing and rejects the answer. A claim shown by
+   its source alone has example and probe "" and counterexample file, find and replace "", and is shown
+   as read from the source, not run.
 4. questions: only facts you could not find in the repository and that would change the answer; at
    most three. A fact the repository states is not a question.
 5. If the request asks for a written note (a file path and its format), put the path in note_path

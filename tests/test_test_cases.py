@@ -117,6 +117,76 @@ class ProbeRowTests(unittest.TestCase):
         self.assertEqual([], calls)
 
 
+class CounterexampleProbeTests(unittest.TestCase):
+    """Where a job asks for it, a probe must also fail on a deliberately constructed counterexample (#1769)."""
+
+    EDIT = {"file": "report.py", "find": "rows = 2", "replace": "rows = 1"}
+
+    def rows(self, probe="python3 -c 'from report import rows; assert rows == 2'", counterexample=EDIT):
+        return [dict(ProbeRowTests.ROW, probe=probe, counterexample=counterexample)]
+
+    def run_with(self, on_code=0, on_counterexample=1):
+        calls = []
+
+        def run(command):
+            calls.append(("code", command))
+            return {"exit_code": on_code, "tail": ""}
+
+        def against(command, counterexample):
+            calls.append(("counterexample", command, counterexample["file"]))
+            return on_counterexample if isinstance(on_counterexample, dict) else {"exit_code": on_counterexample}
+
+        return calls, run, against
+
+    def test_a_probe_that_fails_on_its_counterexample_is_shown_with_both_exit_codes(self):
+        calls, run, against = self.run_with()
+        shown = test_cases.run_probes(self.rows(), run, run_counterexample=against)
+        self.assertEqual(0, shown[0]["exit_code"])
+        self.assertEqual({"file": "report.py", "exit_code": 1, "tail": ""}, shown[0]["counterexample"])
+        self.assertEqual(["code", "counterexample"], [call[0] for call in calls])
+
+    def test_a_probe_that_passes_on_its_counterexample_too_is_refused(self):
+        # The issue's row: `python3 -c 'assert 2 + 2 == 4'` exits 0 whatever the repository holds.
+        _, run, against = self.run_with(on_counterexample=0)
+        with self.assertRaisesRegex(ValueError, "did not fail on their counterexample.*report.py changed: exit 0"):
+            test_cases.run_probes(self.rows("python3 -c 'assert 2 + 2 == 4'"), run, run_counterexample=against)
+
+    def test_a_counterexample_run_that_did_not_complete_shows_nothing(self):
+        for receipt in (
+            {"error": "the counterexample's find text occurs 0 times"},
+            {"exit_code": None, "timed_out": True},
+        ):
+            with self.subTest(receipt=receipt):
+                _, run, against = self.run_with(on_counterexample=receipt)
+                with self.assertRaisesRegex(ValueError, "did not fail on their counterexample"):
+                    test_cases.run_probes(self.rows(), run, run_counterexample=against)
+
+    def test_a_probe_without_a_counterexample_is_refused_before_anything_runs(self):
+        for counterexample in (None, {}, {"file": "report.py", "find": "", "replace": "x"}):
+            with self.subTest(counterexample=counterexample):
+                calls, run, against = self.run_with()
+                with self.assertRaisesRegex(ValueError, "needs a counterexample"):
+                    test_cases.run_probes(self.rows(counterexample=counterexample), run, run_counterexample=against)
+                self.assertEqual([], calls)
+
+    def test_a_probe_that_fails_on_the_code_never_reaches_its_counterexample(self):
+        calls, run, against = self.run_with(on_code=1)
+        with self.assertRaisesRegex(ValueError, "probes did not exit 0"):
+            test_cases.run_probes(self.rows(), run, run_counterexample=against)
+        self.assertEqual(["code"], [call[0] for call in calls])
+
+    def test_source_only_rows_need_no_counterexample(self):
+        calls, run, against = self.run_with()
+        self.assertEqual([], test_cases.run_probes(self.rows("", counterexample=None), run, run_counterexample=against))
+        self.assertEqual([], calls)
+
+    def test_the_edit_replaces_its_one_occurrence(self):
+        self.assertEqual("rows = 1\n", test_cases.apply_counterexample("rows = 2\n", self.EDIT))
+        for text in ("", "rows = 2\nrows = 2\n"):
+            with self.subTest(text=text), self.assertRaisesRegex(ValueError, "must be copied exactly"):
+                test_cases.apply_counterexample(text, self.EDIT)
+
+
 class CurrentDiagnosisTests(unittest.TestCase):
     def state(self):
         return {

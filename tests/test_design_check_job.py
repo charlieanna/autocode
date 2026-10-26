@@ -329,9 +329,13 @@ class ProbeTests(unittest.TestCase):
         )
         return state, root
 
+    RAISES = {"file": "ratelimit/bucket.py", "find": "    return True", "replace": "    raise LookupError(key)"}
+
     def test_a_conflict_whose_probe_exits_0_is_recorded_beside_the_design(self):
         probe = "python3 -c 'from ratelimit.bucket import try_acquire; assert try_acquire(\"k\") is True'"
-        state, root = self.apply([{**CONFLICT, "files": ["README.md", "ratelimit/bucket.py"], "probe": probe}])
+        state, root = self.apply(
+            [{**CONFLICT, "files": ["README.md", "ratelimit/bucket.py"], "probe": probe, "counterexample": self.RAISES}]
+        )
         self.assertEqual(check_job.STOP_STATUS, state["status"])
         self.assertEqual(
             [("try_acquire raises when empty", 0)],
@@ -340,10 +344,16 @@ class ProbeTests(unittest.TestCase):
         blockers = json.loads((root / "docs/design/rate-limiter.blockers.json").read_text())
         self.assertEqual(probe, blockers["conflicts"][0]["proven_by"])
 
+    def test_a_conflict_whose_probe_passes_whatever_the_code_says_stops_nothing(self):
+        # #1769: a conflict stops the run, so its probe must fail once the constraint is gone.
+        for counterexample in (self.RAISES, {}):
+            with self.subTest(counterexample=counterexample), self.assertRaisesRegex(ValueError, "counterexample"):
+                self.apply([{**CONFLICT, "probe": "python3 -c 'assert 2 + 2 == 4'", "counterexample": counterexample}])
+
     def test_a_conflict_whose_probe_fails_rejects_the_report(self):
         probe = "python3 -c 'from ratelimit.bucket import try_acquire; assert try_acquire(\"k\") is False'"
         with self.assertRaisesRegex(ValueError, "conflicts' probes did not exit 0"):
-            self.apply([{**CONFLICT, "probe": probe}])
+            self.apply([{**CONFLICT, "probe": probe, "counterexample": self.RAISES}])
 
     def test_a_conflict_needs_its_example(self):
         with self.assertRaisesRegex(ValueError, "example of what would break"):

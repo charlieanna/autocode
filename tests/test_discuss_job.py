@@ -184,12 +184,17 @@ class ProbeTests(unittest.TestCase):
         )
         return state, root
 
-    def claim(self, probe, example="Given app/metadata.py; when LIMIT_PER_HOUR is read; then it is 60"):
+    LOWER_LIMIT = {"file": "app/metadata.py", "find": "LIMIT_PER_HOUR = 60", "replace": "LIMIT_PER_HOUR = 6"}
+
+    def claim(
+        self, probe, example="Given app/metadata.py; when LIMIT_PER_HOUR is read; then it is 60", counterexample=None
+    ):
         return {
             "claim": "upstream allows 60 requests/hour",
             "source": "app/metadata.py",
             "example": example,
             "probe": probe,
+            "counterexample": self.LOWER_LIMIT if counterexample is None else counterexample,
         }
 
     def test_a_claim_whose_probe_exits_0_is_recorded_as_shown(self):
@@ -205,6 +210,10 @@ class ProbeTests(unittest.TestCase):
             [(row["claim"], row["exit_code"]) for row in state["answer"]["probes"]],
         )
         self.assertIn("shown by running: " + probe, discuss_job.render(state))
+        self.assertIn(
+            "cache lives in-process (app/metadata.py); read from the source, not run", discuss_job.render(state)
+        )
+        self.assertNotEqual(0, state["answer"]["probes"][0]["counterexample"]["exit_code"])
 
     def test_a_claim_whose_probe_fails_rejects_the_answer(self):
         probe = "python3 -c 'from app.metadata import LIMIT_PER_HOUR; assert LIMIT_PER_HOUR == 600'"
@@ -216,7 +225,36 @@ class ProbeTests(unittest.TestCase):
             self.apply([self.claim("true", example=" ")])
 
     def test_a_probe_runs_in_a_scratch_copy_and_cannot_touch_the_workspace(self):
-        state, root = self.apply([self.claim("echo changed > app/metadata.py && touch made-by-probe")])
+        probe = (
+            "grep -q 'LIMIT_PER_HOUR = 60$' app/metadata.py && echo changed > app/metadata.py && touch made-by-probe"
+        )
+        state, root = self.apply([self.claim(probe)])
         self.assertEqual("TTL = 3600\nLIMIT_PER_HOUR = 60\n", (root / "app" / "metadata.py").read_text())
         self.assertFalse((root / "made-by-probe").exists())
         self.assertEqual(1, len(state["answer"]["probes"]))
+
+    def test_a_probe_that_passes_whatever_the_code_says_is_not_evidence(self):
+        # Live run 20261021-001305-chat-25ca74 (#1769): a repair's probe `python3 -c 'assert 2 + 2 == 4'`
+        # exited 0, so a claim README.md does not support was shown to the person as checked.
+        for counterexample in (self.LOWER_LIMIT, {"file": "", "find": "", "replace": ""}, {}):
+            with self.subTest(counterexample=counterexample):
+                with self.assertRaisesRegex(ValueError, "counterexample"):
+                    self.apply([self.claim("python3 -c 'assert 2 + 2 == 4'", counterexample=counterexample)])
+
+    def test_a_probe_must_fail_on_its_counterexample_not_on_any_edit(self):
+        probe = "python3 -c 'from app.metadata import LIMIT_PER_HOUR; assert LIMIT_PER_HOUR == 60'"
+        # Changing TTL leaves the claim true, so the probe still passes there: not a counterexample.
+        ttl = {"file": "app/metadata.py", "find": "TTL = 3600", "replace": "TTL = 1"}
+        with self.assertRaisesRegex(ValueError, "did not fail on their counterexample.*60 requests/hour"):
+            self.apply([self.claim(probe, counterexample=ttl)])
+
+    def test_a_counterexample_that_cannot_be_made_rejects_the_answer(self):
+        probe = "python3 -c 'from app.metadata import LIMIT_PER_HOUR; assert LIMIT_PER_HOUR == 60'"
+        for counterexample, reason in (
+            ({"file": "app/metadata.py", "find": "LIMIT = 60", "replace": "LIMIT = 6"}, "occurs 0 times"),
+            ({"file": "app/missing.py", "find": "x", "replace": "y"}, "not a file in the repository"),
+            ({"file": "../outside.py", "find": "x", "replace": "y"}, "not a repository-relative path"),
+            ({"file": "app/metadata.py", "find": "TTL", "replace": "TTL"}, "find and replace are the same"),
+        ):
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                self.apply([self.claim(probe, counterexample=counterexample)])

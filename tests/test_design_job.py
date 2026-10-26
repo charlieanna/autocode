@@ -469,14 +469,27 @@ class ProbeTests(unittest.TestCase):
             "evidence": "events/processor.py",
             "example": "Given seq 3 was processed; when seq 5 arrives; then the processor rejects it",
             "probe": probe,
+            "counterexample": self.LOOSE_SEQ,
             **overrides,
         }
+
+    LOOSE_SEQ = {"file": "events/processor.py", "find": "STRICT_SEQ = True", "replace": "STRICT_SEQ = False"}
 
     def test_a_concern_whose_probe_exits_0_is_recorded_as_shown(self):
         probe = "python3 -c 'from events.processor import STRICT_SEQ; assert STRICT_SEQ'"
         state, root = self.apply([self.concern(probe)])
         self.assertEqual([("F1", 0)], [(row["id"], row["exit_code"]) for row in state["design_review"]["probes"]])
         self.assertEqual("TASK_COMPLETE", state["status"])
+
+    def test_a_blocking_concern_whose_probe_passes_whatever_the_code_says_is_refused(self):
+        # #1769: a probe that exits 0 regardless of the code cannot block a design as if it were shown.
+        for counterexample in (self.LOOSE_SEQ, {"file": "", "find": "", "replace": ""}):
+            with self.subTest(counterexample=counterexample), self.assertRaisesRegex(ValueError, "counterexample"):
+                self.apply([self.concern("python3 -c 'assert 2 + 2 == 4'", counterexample=counterexample)])
+        # An edit that leaves the concern true is not its counterexample either.
+        unrelated = {"file": "events/processor.py", "find": "True", "replace": "1"}
+        with self.assertRaisesRegex(ValueError, "did not fail on their counterexample.*'F1'"):
+            self.apply([self.concern("grep -q STRICT_SEQ events/processor.py", counterexample=unrelated)])
 
     def test_a_concern_whose_probe_fails_rejects_the_review(self):
         probe = "python3 -c 'from events.processor import STRICT_SEQ; assert not STRICT_SEQ'"

@@ -834,9 +834,17 @@ and the runner, not a model, runs something that shows it.
 - The runner runs every probe in a scratch copy of the code as it is now, with
   a two-minute limit each. A probe that fails rejects the answer. A probe
   cannot change the workspace.
-- Claims without a probe stay grounded by their source file only, as before.
-- Probed claims are recorded in the run state (`answer.probes`) and shown in
-  the answer's evidence list.
+- A probed claim also carries `counterexample`: the smallest edit to one
+  repository file (`file`, `find`, `replace`) that makes the claim false. The
+  runner makes that edit in a second scratch copy and runs the probe again; it
+  must fail there. A probe that exits 0 whatever the code says, such as
+  `python3 -c 'assert 2 + 2 == 4'`, does not tell the claim from its opposite,
+  so the answer is rejected and goes to the usual bounded report repair; it is
+  never shown as a check that ran (#1769).
+- Claims without a probe stay grounded by their source file only, as before,
+  and the answer lists them as read from the source, not run.
+- Probed claims are recorded in the run state (`answer.probes`, each with its
+  counterexample's exit code) and shown in the answer's evidence list.
 
 ### Design: a concern about today's code carries a probe
 
@@ -856,6 +864,11 @@ same probe rule as discussions applies to what it says about the code.
   `probe`; a constraint that lives in prose (a README rule) has none. The
   blockers file written beside the design records each conflict's proving
   probe in `proven_by`.
+- **Counterexamples.** As in a discussion, every probed concern and conflict
+  also carries `counterexample`, the one edit after which the code no longer
+  behaves as it says, and its probe must fail there. A concern or conflict
+  blocks work, so a probe that passes whatever the code says rejects the
+  report (#1769).
 
 The scratch runs are `autocode_verify.scratch_run`. A Python test delivered
 into a project with no test suite of its own still runs under unittest.

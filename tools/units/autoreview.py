@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 try:
     from .. import autocode_acceptance_tests_job as acceptance_tests_job
+    from .. import autocode_counterexample as counterexample
     from .. import autocode_design_check_job as design_check_job
     from .. import autocode_design_intake as design_intake
     from .. import autocode_design_job as design_job
@@ -37,6 +38,7 @@ try:
     from .. import autocode_verify as verify
 except ImportError:
     import autocode_acceptance_tests_job as acceptance_tests_job
+    import autocode_counterexample as counterexample
     import autocode_design_check_job as design_check_job
     import autocode_design_intake as design_intake
     import autocode_design_job as design_job
@@ -256,7 +258,8 @@ def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None)
             ),
         )
         return
-    # The Architect's concerns and conflicts about today's code carry probes the runner runs itself.
+    # The Architect's concerns and conflicts about today's code carry probes the runner runs itself, on the
+    # code and again with each one's counterexample made, where the probe must fail (#1769).
     JOBS[stage].apply(
         state,
         value,
@@ -264,6 +267,9 @@ def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None)
         workspace,
         run_probe=lambda command: clean_run(
             workspace, evidence_dir / "design-probes", command=command, timeout=PROBE_TIMEOUT
+        ),
+        run_counterexample=counterexample.runner(
+            clean_run, workspace, evidence_dir / "design-probes", timeout=PROBE_TIMEOUT
         ),
     )
 
