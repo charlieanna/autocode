@@ -102,6 +102,13 @@ class QualifyRoutesTests(unittest.TestCase):
     def written(self):
         return json.loads(self.table.read_text(encoding="utf-8"))
 
+    def test_a_write_keeps_the_table_fields_the_selector_does_not_own(self):
+        # #2117: the shipped table carries its policy as a top-level `basis`; a write that rebuilt
+        # the document from the parsed as_of/roles deleted it.
+        code, output = self.run_script("--date", "2026-10-25")
+        self.assertEqual(0, code, output)
+        self.assertEqual("test table", self.written()["basis"])
+
     def test_a_provisional_route_becomes_qualified_with_its_evidence(self):
         code, output = self.run_script("--profile", "glm-mimo-kilo", "--date", "2026-10-25")
         self.assertEqual(0, code, output)
@@ -183,6 +190,33 @@ class QualifyRoutesTests(unittest.TestCase):
         self.assertIn("Plan Reviewer: xiaomi-token-plan-sgp/mimo-v2.6-pro at high", output)
         self.assertIn("Completion Reviewer: zai-coding-plan/glm-5.3 at high", output)
         self.assertIn("Planner: not qualified", output)
+
+    def test_a_failed_attempt_qualifies_nothing(self):
+        # A Plan Reviewer route that went silent, replaced by a fallback on the Tester's route,
+        # proves the fallback route only, however the run ended (#2114 review).
+        settings = state()
+        settings["settings"]["roles"]["plan_reviewer"] = {
+            "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "reasoning_effort": "high",
+        }
+        (self.run_dir / "state.json").write_text(json.dumps(settings), encoding="utf-8")
+        failed = {"role": "astra", "route_role": "plan_reviewer", "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"}
+        attempts = {
+            "attempts": [
+                {**failed, "timed_out": True},
+                {**failed, "rejected": True},
+                {**failed, "interrupted": True},
+                {**failed, "report_only": True},
+                {"role": "astra", "route_role": "sol", "model": "zai-coding-plan/glm-5.3"},
+                {"role": "glm", "model": "zai-coding-plan/glm-5.3"},
+            ]
+        }
+        with mock.patch.object(qualify_routes.usage, "accounting", return_value=attempts):
+            code, output = self.run_script("--date", "2026-10-25")
+        self.assertEqual(0, code, output)
+        self.assertNotIn("plan_reviewer", self.written()["roles"])
+        self.assertIn("Plan Reviewer: not qualified", output)
+        self.assertIn("attempts: none", output.split("Plan Reviewer:")[1].splitlines()[0])
 
     def test_an_unreadable_state_is_not_evidence(self):
         (self.run_dir / "state.json").unlink()

@@ -56,10 +56,6 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
-- Independent reviewers receive complete, snapshot-matched source text for small approved file
-  scopes, avoiding repeated source-discovery calls. Larger or uncertain scopes keep ordinary
-  filesystem inspection; checks, approvals and independent completion review remain required (#2113).
-
 - The terminal's `/runs` and an uncached `/open` now read project and global
   listings asynchronously in the existing bounded read pool. Keyboard input
   stays available during slow discovery, and numbered `/open` choices stay
@@ -72,6 +68,10 @@ PR template asks for an entry here; a change without one is incomplete.
   at narrow terminal widths. Integrated qualification also covers three projects
   and two viewers sharing acknowledgement and refusing stale approval (#2070,
   #1886).
+
+- Independent reviewers receive complete, snapshot-matched source text for small approved file
+  scopes, avoiding repeated source-discovery calls. Larger or uncertain scopes keep ordinary
+  filesystem inspection; checks, approvals and independent completion review remain required (#2113).
 
 - A quota switch that moves a role onto another way of paying now says so (#2061). When an automatically
   selected run's stopped model is replaced by one the permitted set says bills differently (a subscription
@@ -357,10 +357,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
-- A feature follow-up no longer inherits an instruction to re-investigate the previous turn's
-  reproduced bug. Current-turn bug invariants still require independent checks. Kilo/OpenCode
-  receipt guidance now agrees with the Tester's supported command/exit-code hydration, avoiding
-  redundant command transcription without relaxing receipt authentication (#2113).
+- `tools/qualify_routes.py` keeps the qualification table's top-level fields when it writes, so a
+  merge no longer deletes the table's `basis` policy text: it rebuilt the file from the parsed
+  `as_of` and `roles` alone, and only a real write (not `--dry-run`) showed the loss (#2117, #2057).
+
+- `tools/qualify_routes.py` counts only attempts that finished with accepted output: a rejected,
+  timed-out, interrupted, still-active or report-repair attempt no longer qualifies its route, so a
+  reviewer route that went silent and was replaced by a fallback is not written as qualified (#2114).
 
 - `tools/qualify_routes.py` now credits each attempt to the route slot its stage launched, so a
   finished live run can qualify its Plan Reviewer and Completion Reviewer routes (#2114, #2057).
@@ -372,6 +375,11 @@ PR template asks for an entry here; a change without one is incomplete.
   unclassified error reported as `PAUSED_INVALID_OUTPUT` with the Tester's flag (#2108, #2057). This
   is the case the pre-fit cannot decide: a manually given level on a model with no declared listing,
   where only the tool's own variant check can answer.
+
+- A feature follow-up no longer inherits an instruction to re-investigate the previous turn's
+  reproduced bug. Current-turn bug invariants still require independent checks. Kilo/OpenCode
+  receipt guidance now agrees with the Tester's supported command/exit-code hydration, avoiding
+  redundant command transcription without relaxing receipt authentication (#2113).
 
 - The model access preflight now fits every role's effort before its first probe, as the launch
   boundary does (#2104, #2057). A person-named level its model does not declare pauses as
