@@ -2272,7 +2272,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/88451934ebec161a05d3aa2dad45529aefdf416f/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/f1fe94dec08625a8394d13fdca499023fde4ca9f/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3054,7 +3054,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/88451934ebec161a05d3aa2dad45529aefdf416f/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/f1fe94dec08625a8394d13fdca499023fde4ca9f/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3674,7 +3674,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/88451934ebec161a05d3aa2dad45529aefdf416f/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/f1fe94dec08625a8394d13fdca499023fde4ca9f/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4122,6 +4122,14 @@ bug-fix run's Investigator has reported (and for every other job); then:</p>
 </table>
 <p>The record reports a decision the core made from trusted inputs; it grants nothing, and a
 client renders it without acting on it.</p>
+<p><code>proxied_requirements</code> lists the requirements the current plan proves only on a stand-in
+(#2068): the user-visible result is rendered by code outside this checkout, so the plan's
+criteria prove an internal value the result is believed to depend on. Each row has
+<code>requirement_id</code>, <code>evidence</code> (the criteria it cites) and <code>proxy_reason</code>. A plan may mark a
+requirement <code>proxied</code> only with the person's word: a saved answer cited in <code>proxy_reason</code>, or
+until then a blocking decision question about that requirement, which the run asks before the
+plan can be approved. It is <code>[]</code> when there are none or no plan yet, and it grants nothing; the
+approval screen lists the same rows under "Proven only on a stand-in".</p>
 <p><code>needs</code> is <code>null</code> when the run is complete. Otherwise its <code>kind</code> says what the
 run is waiting for:</p>
 <table>
