@@ -1,0 +1,110 @@
+"""First-use project registration through the public CLI, without a provider or task."""
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+CLI = Path(__file__).resolve().parents[1] / "tools/autocode.py"
+
+
+class RegistryProjectCliTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="registry-project-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.project = self.root / "project"
+        self.home = self.root / "registry"
+        self.env = {**os.environ, "AUTOCODE_HOME": str(self.home)}
+        subprocess.run(["git", "init", "-q", str(self.project)], check=True)
+
+    def commit(self):
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.project),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "seed",
+            ],
+            check=True,
+        )
+
+    def invoke(self, *args):
+        result = subprocess.run(
+            [sys.executable, str(CLI), "registry", *map(str, args), "--json"],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return result.returncode, json.loads(result.stdout)
+
+    def test_fresh_project_is_available_without_a_task_and_aliases_are_idempotent(self):
+        self.commit()
+        code, first = self.invoke("add", self.project)
+        self.assertEqual(0, code, first)
+        self.assertFalse(first["already_registered"])
+        alias = self.root / "alias"
+        alias.symlink_to(self.project, target_is_directory=True)
+        code, again = self.invoke("add", alias)
+        self.assertEqual(0, code, again)
+        self.assertTrue(again["already_registered"])
+        self.assertEqual(first["workspace_id"], again["workspace_id"])
+        _, listed = self.invoke("list")
+        self.assertEqual([], listed["runs"])
+        [project] = listed["workspaces"]
+        self.assertEqual("available", project["availability"])
+        self.assertEqual(str(self.project), project["workspace"])
+        self.assertFalse((self.project / ".autocode").exists(), "registration creates no task or model work")
+
+    def test_missing_non_git_subdirectory_and_uncommitted_roots_are_refused_without_registration(self):
+        plain = self.root / "plain"
+        plain.mkdir()
+        subdir = self.project / "src"
+        subdir.mkdir()
+        for path in (self.root / "missing", plain, subdir, self.project):
+            with self.subTest(path=path):
+                code, refused = self.invoke("add", path)
+                self.assertEqual(2, code, refused)
+                self.assertEqual("invalid_workspace", refused["error"]["code"])
+                self.assertFalse((self.home / "registry.json").exists())
+
+    def test_git_worktree_root_is_supported(self):
+        self.commit()
+        worktree = self.root / "task-worktree"
+        subprocess.run(["git", "-C", str(self.project), "worktree", "add", "-q", "--detach", str(worktree)], check=True)
+        code, result = self.invoke("add", worktree)
+        self.assertEqual(0, code, result)
+        self.assertEqual(str(worktree), result["workspace"])
+        self.assertFalse((worktree / ".autocode").exists())
+
+    def test_git_environment_cannot_make_an_empty_repo_borrow_another_head(self):
+        self.commit()
+        empty = self.root / "empty"
+        subprocess.run(["git", "init", "-q", str(empty)], check=True)
+        self.env.update(GIT_DIR=str(self.project / ".git"), GIT_WORK_TREE=str(empty))
+        code, result = self.invoke("add", empty)
+        self.assertEqual(2, code, result)
+        self.assertFalse((self.home / "registry.json").exists())
+
+    def test_corrupt_registry_is_preserved(self):
+        self.commit()
+        self.home.mkdir()
+        path = self.home / "registry.json"
+        path.write_text("broken registry\n")
+        code, result = self.invoke("add", self.project)
+        self.assertEqual(2, code, result)
+        self.assertIn("error", result)
+        self.assertEqual("broken registry\n", path.read_text())

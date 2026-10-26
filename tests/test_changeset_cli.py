@@ -4,7 +4,6 @@ Drives the real, offline CLI: the source run through the task-run interface, the
 the `autocode changeset` command, and both runs' status views.
 """
 
-import hashlib
 import json
 import os
 import subprocess
@@ -27,14 +26,15 @@ OPTIONS = (*FIXTURE_OPTIONS, "--joint-planning", "--no-adaptive-planning")
 
 
 def register_project(home: Path, workspace: Path) -> None:
-    """Add ``workspace`` to the registry as a project AutoCode has run in (docs/registry-api.md)."""
-    path = home / "registry.json"
-    document = json.loads(path.read_text()) if path.exists() else {"version": 1, "workspaces": {}, "runs": {}}
-    resolved = str(workspace.resolve())
-    key = f"workspace-{hashlib.sha256(resolved.encode()).hexdigest()[:24]}"
-    document["workspaces"][key] = {"id": key, "workspace": resolved}
-    home.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(document))
+    """Onboard the fresh checkout through the same public command a person uses."""
+    subprocess.run(
+        [sys.executable, str(ROOT / "tools/autocode.py"), "registry", "add", str(workspace), "--json"],
+        env={**os.environ, "AUTOCODE_HOME": str(home)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
 
 
 class ChangesetCliTests(unittest.TestCase):

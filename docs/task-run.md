@@ -1847,7 +1847,9 @@ linked run with `TaskRun.start`, nothing else.
 - `TARGET` must be a target in the source run's `scope.external_parts`.
 - `PROJECT` must be an available project in the AutoCode registry (`autocode registry
   list`), named by its path or registry id. A path from the task text or a model's report
-  is never used.
+  is never used. An operator can register a fresh committed local checkout with
+  `autocode registry add PATH`, without starting a task. Linking runs directly in
+  that selected checkout; choose a dedicated Git worktree if needed.
 - The linked run's brief is the source run's `scope.briefs` entry for `TARGET`. Arguments
   after `--` are the linked run's run options, such as its engine and models.
 - The link is recorded in `changesets.json` beside the registry, so both commands need

@@ -260,6 +260,7 @@ def main():
             "evidence_refs": [],
             "example": "",
             "probe": "",
+            "counterexample": {"file": "", "find": "", "replace": ""},
             "untestable": "",
         }
     elif data["stage"] == "astra_discovery":

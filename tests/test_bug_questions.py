@@ -9,11 +9,14 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from autocode_taskrun import TaskRun, TaskRunError
+
+from .test_changeset_cli import register_project
 
 QUESTIONS = ["Which application version failed?", "Which input caused the failure?"]
 PROVIDER = r"""#!/usr/bin/env python3
@@ -159,6 +162,48 @@ class InvestigatorQuestionTaskRunTests(unittest.TestCase):
         )
         self.assertIn("history-service", [row["repository"] for row in view["scope"]["briefs"]])
         self.assertEqual(1, len(self.handoffs()), "no Planner or Builder starts before the scope choice")
+        member = self.workspace.parent / "history-service"
+        shutil.copytree(self.seed, member)
+        register_project(Path(self.env["AUTOCODE_HOME"]), member)
+        linked_env = {**os.environ, **self.env, "INVESTIGATION_CALLS": str(member / ".autocode/calls.jsonl")}
+        linked_env.pop("INVESTIGATION_LATE_SCOPE")
+        command = [sys.executable, str(Path(__file__).resolve().parents[1] / "tools/autocode.py")]
+        linked = subprocess.run(
+            [
+                *command,
+                "changeset",
+                "link",
+                "--run-dir",
+                str(run.run_dir),
+                "--target",
+                "history-service",
+                "--workspace",
+                str(member),
+                "--json",
+                "--",
+                *self.options,
+                "--workflow",
+                "bugfix",
+            ],
+            env=linked_env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(0, linked.returncode, linked.stdout + linked.stderr)
+        summary = json.loads(linked.stdout)
+        self.assertEqual(["source", "member"], [row["role"] for row in summary["runs"]])
+        self.assertIsNone(summary["approval"]["set_token"], "linking never approves or answers the scope choice")
+        member_row = summary["runs"][1]
+        self.assertEqual(str(member.resolve()), member_row["workspace"])
+        member_run = TaskRun(member, Path(member_row["run_dir"]), env=linked_env)
+        self.assertEqual(str(run.run_dir), member_run.status()["scope"]["linked"][0]["run_dir"])
+        view = run.status()
+        self.assertEqual(question["id"], view["needs"]["questions"][0]["id"])
+        self.assertEqual("history-service", view["scope"]["linked"][0]["target"])
+        self.assertIsNone(view["interaction_timing"]["first_builder_at"])
+        self.assertIsNone(member_run.status()["interaction_timing"]["first_builder_at"])
+        self.assertEqual(1, len(self.handoffs()), "linking cannot dispatch the source Investigator again")
         answered = run.answer(question["id"], "This repository only", resolver_token=view["needs"]["resolver_token"])
         self.assertEqual("this_repository", answered["scope"]["decision"])
         self.assertEqual(["history-service"], answered["scope"]["uncovered"])
