@@ -363,15 +363,16 @@ def _selected_efforts(routes) -> dict:
 def certify(state: RunState, model, effort, outcome, checkpoint) -> None:
     """A probe that passed proves this model serves this level: record it for later fits (#2057).
 
-    The fit reads these levels before a launch; a probe is evidence, never a guess. Nothing is
-    recorded for a level-less route or an uncertain outcome.
+    The fit reads these levels before a launch; a probe is evidence, never a guess. They are kept
+    apart from the tool's listing: one passed level says nothing about the levels no probe tried.
+    Nothing is recorded for a level-less route or an uncertain outcome.
     """
     if not effort or not isinstance(model, str) or (outcome or {}).get("status") != "ok":
         return
     settings = state.get("settings")
     if not isinstance(settings, dict):
         return
-    recorded = settings.setdefault(route_fit.DECLARED, {}).setdefault(model, [])
+    recorded = settings.setdefault(route_fit.CERTIFIED, {}).setdefault(model, [])
     if effort in recorded:
         return
     recorded.append(effort)

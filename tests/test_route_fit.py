@@ -111,6 +111,38 @@ class LaunchTests(unittest.TestCase):
         self.assertNotIn("effort_fits", settings)
 
 
+class CertifiedLevelTests(unittest.TestCase):
+    """A level a probe passed proves itself and nothing about the levels no probe tried (#2057)."""
+
+    def unlisted(self, role, effort, *, origin="runner_default", certified=("high",)):
+        settings = settings_for(role, "m", effort, origin=origin, declared=None)
+        settings[route_fit.CERTIFIED] = {"m": list(certified)}
+        return settings
+
+    def test_a_derived_lower_tier_is_not_moved_up_to_the_one_certified_level(self):
+        settings = self.unlisted("terra", "high")
+        self.assertEqual("low", route_fit.launch(settings, "terra", "low"), "the light first attempt stays light")
+        self.assertEqual("unverified", settings["effort_fits"]["terra"]["reason"])
+
+    def test_an_unprobed_person_named_level_neither_moves_nor_pauses(self):
+        settings = self.unlisted("astra", "xhigh", origin=route_fit.USER_EXPLICIT)
+        settings["roles"]["glm"] = {"model": "m", "reasoning_effort": "high"}
+        route_fit.guard(settings)  # another role's certified level is not a listing
+        result = route_fit.fit(settings, "astra")
+        self.assertEqual(("xhigh", "unverified"), (result.effort, result.reason))
+
+    def test_a_certified_level_is_declared_even_where_the_listing_omits_it(self):
+        settings = settings_for(effort="medium", origin=route_fit.USER_EXPLICIT)
+        settings[route_fit.CERTIFIED] = {"zai-coding-plan/glm-5.3": ["medium"]}
+        self.assertEqual("declared", route_fit.fit(settings, "terra").reason)
+
+    def test_certified_levels_stay_out_of_the_settings_identity(self):
+        settings = settings_for()
+        before = route_fit.identity(settings)
+        settings[route_fit.CERTIFIED] = {"zai-coding-plan/glm-5.3": ["high"]}
+        self.assertEqual(before, route_fit.identity(settings))
+
+
 class ReconcileTests(unittest.TestCase):
     def roles(self):
         return {

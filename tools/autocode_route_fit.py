@@ -29,9 +29,12 @@ SCALE = ("low", "medium", "high", "xhigh", "max")
 # Roles with a --ROLE-reasoning-effort flag of their own (autocode_args); the others take --reasoning-effort.
 FLAGGED_ROLES = frozenset({"astra", "terra", "sol", "completion", "glm", "requirements", "resolver", "plan_reviewer"})
 DECLARED = "declared_variants"  # settings key: {model: [levels]} a run read from the tool's listing
+# settings key: {model: [levels]} a preflight probe passed at. Proof that each level works, never a
+# listing: a level no probe tried is still unknown, so it neither moves nor pauses (#2057).
+CERTIFIED = "certified_variants"
 # Derived evidence about effort, never a route choice: a settings-identity digest leaves it out
 # so a launch-time fit does not look like a person changing what a held recovery acts on (#2057).
-DERIVED = ("effort_fits", DECLARED)
+DERIVED = ("effort_fits", DECLARED, CERTIFIED)
 USER_EXPLICIT = "user_explicit"  # settings.effort_origins value: a person named the effort
 # A person-named effort the model does not declare: a pause with a named answer (autocode_effort_question).
 STATUS = "PAUSED_EFFORT_UNSUPPORTED"
@@ -75,10 +78,10 @@ def flag(role: str) -> str:
 
 
 def declared_for(settings: dict, model: str) -> list | None:
-    """The variants a run knows for ``model``: the listing a new run saved (``DECLARED``), the one it
-    read when it chose its routes (``route_selection.candidates``), and any level a preflight probe
-    passed (#2057). Both listings are evidence about one model, so they are merged rather than one
-    masking the other; None when the run holds no listing for it."""
+    """The variants the tool lists for ``model``: the listing a new run saved (``DECLARED``) and the one
+    it read when it chose its routes (``route_selection.candidates``). Both listings are evidence about
+    one model, so they are merged rather than one masking the other; None when the run holds no listing
+    for it. A level a probe passed is ``certified_for``, not a listing."""
     settings = settings or {}
     recorded = (settings.get(DECLARED) or {}).get(model)
     levels = [level for level in recorded if level in SCALE] if isinstance(recorded, list) else []
@@ -90,6 +93,12 @@ def declared_for(settings: dict, model: str) -> list | None:
     if not levels:
         return list(recorded) if isinstance(recorded, list) else None
     return [level for level in SCALE if level in set(levels)]
+
+
+def certified_for(settings: dict, model: str) -> list:
+    """The levels a preflight probe passed for ``model`` (#2057): each one proven, the rest unknown."""
+    recorded = ((settings or {}).get(CERTIFIED) or {}).get(model)
+    return [level for level in recorded if level in SCALE] if isinstance(recorded, list) else []
 
 
 def person_named(settings: dict, role: str) -> bool:
@@ -113,6 +122,8 @@ def fit(settings: dict, role: str, *, effort=None, model=None, declared=None) ->
     levels = declared if declared is not None else declared_for(settings, model)
     levels = [level for level in levels or () if level in SCALE]
     explicit = person_named(settings, role) and requested == saved
+    if requested is not None and declared is None and requested in certified_for(settings, model):
+        return Fit(model, requested, requested, "declared", explicit)  # a probe proved this level
     if not levels:
         return Fit(model, requested, requested, "unverified", explicit)
     if requested is None or requested in levels:

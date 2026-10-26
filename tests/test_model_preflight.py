@@ -274,16 +274,16 @@ class PreflightCheckTests(unittest.TestCase):
             entry["identity"].get("reasoning_effort"): set(entry["probed"]) for entry in receipt_sets(self.run_dir)
         }
         self.assertEqual({None: {"plan/glm", "plan/mimo"}, "high": {"plan/glm"}}, levels)
-        self.assertEqual({"plan/glm": ["high"]}, self.state["settings"]["declared_variants"])
+        self.assertEqual({"plan/glm": ["high"]}, self.state["settings"]["certified_variants"])
         self.assertFalse(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}), "both receipts are reused")
 
     def test_a_saved_receipt_certifies_its_level_without_another_probe(self):
         self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "high"}
         events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}
         self.assertTrue(self.check(events))
-        self.state["settings"].pop("declared_variants")
+        self.state["settings"].pop("certified_variants")
         self.assertFalse(self.check(events))
-        self.assertEqual({"plan/glm": ["high"]}, self.state["settings"]["declared_variants"])
+        self.assertEqual({"plan/glm": ["high"]}, self.state["settings"]["certified_variants"])
         self.assertEqual(3, len(self.calls), "the receipt is evidence; no new request")
 
     def test_an_uncertain_probe_does_not_certify_its_level(self):
@@ -291,7 +291,7 @@ class PreflightCheckTests(unittest.TestCase):
         self.state["settings"]["roles"]["completion"] = {"model": "plan/mimo", "reasoning_effort": "medium"}
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": GARBLED_EVENTS}))
-        self.assertEqual({"plan/glm": ["high"]}, self.state["settings"]["declared_variants"])
+        self.assertEqual({"plan/glm": ["high"]}, self.state["settings"]["certified_variants"])
 
     def test_one_model_at_two_saved_levels_is_probed_and_certified_twice(self):
         del self.state["settings"]["roles"]["astra"]
@@ -300,7 +300,7 @@ class PreflightCheckTests(unittest.TestCase):
         events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}
         self.assertTrue(self.check(events))
         self.assertEqual(["plan/glm", "plan/glm", "plan/mimo"], sorted(self.calls))
-        self.assertEqual(["medium", "high"], self.state["settings"]["declared_variants"]["plan/glm"])
+        self.assertEqual(["medium", "high"], self.state["settings"]["certified_variants"]["plan/glm"])
         self.assertFalse(self.check(events))
         self.assertEqual(3, len(self.calls), "each level's receipt is reused")
 
