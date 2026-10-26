@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Qualification evidence is structured (#2059). `tools/qualify_routes.py` now appends a `runs` record
+  to each table entry it confirms: date, run, scenario, profile, the role's accepted attempts on that route,
+  and their minutes and cost (null when an attempt did not record one). The selector validates the records,
+  and `autocode models --selection` shows each listed entry's evidence, for example
+  `[provisional: no AutoCode run yet]`. Selection itself is unchanged: provisional entries stay selectable.
 - A plan whose criteria can prove only a stand-in for what you see, because code outside the
   checkout renders it, now says so (#2068): the requirement is traced `proxied` with a
   `proxy_reason`, and the plan asks you a decision question until a saved answer accepts the
@@ -75,6 +80,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A Tester or Completion Reviewer report that mistypes the echoed contract hash, contract revision or
+  task id no longer costs a paid report repair (#2135). On the current, admitted attempt whose launch
+  recorded today's contract and task, the runner adopts that launch identity, keeps the provider's
+  bytes as `reported_output` and records each change in the stage's `identity_corrections`. A
+  contract or task that changed during the stage, an echo of an earlier contract or task, another
+  attempt, or a record without a launch identity is still refused.
 - The qualification table records the 2026-10-25 `bugfix-trivial` live run on `glm-mimo-kilo`:
   Requirements, Planner, Builder, Tester and Completion Reviewer reached `TASK_COMPLETE` on their
   routes, while the per-task Planner route `astra` stayed unqualified because the run never launched

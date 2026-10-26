@@ -74,6 +74,11 @@ def check_live(state: RunState) -> str:
     return kind
 
 
+def accepted(row) -> bool:
+    """Whether an attempt finished with accepted output, so it proves its route."""
+    return bool(row.get("model")) and not any(row.get(flag) for flag in FAILED)
+
+
 def reached(state: RunState) -> dict:
     """The model each role actually sent an attempt to, from the run's own accounting.
 
@@ -90,10 +95,39 @@ def reached(state: RunState) -> dict:
     for row in rows:
         role = row.get("route_role") or row.get("role")
         model = row.get("model")
-        if not role or not model or any(row.get(flag) for flag in FAILED):
+        if not role or not accepted(row):
             continue
         seen.setdefault(role, []).append(model)
     return seen
+
+
+def run_record(state: RunState, role: str, model: str, run: dict) -> dict:
+    """The structured evidence one run adds for ``role`` on ``model`` (#2059).
+
+    ``run`` names the run (date, run, scenario, profile). Minutes and cost sum the role's accepted
+    attempts on that model; either is null when an attempt did not record it, never a guess."""
+    wanted = identity.identity(model)
+    rows = [
+        row
+        for row in (usage.accounting(state) or {}).get("attempts") or []
+        if (row.get("route_role") or row.get("role")) == role
+        and accepted(row)
+        and identity.identity(row["model"]) == wanted
+    ]
+    seconds = [row.get("duration_seconds") for row in rows]
+    costs = [
+        row.get("reported_cost_usd")
+        if row.get("reported_cost_usd") is not None
+        else row.get("historical_estimated_cost_usd")
+        for row in rows
+    ]
+    known = bool(rows)
+    return {
+        **run,
+        "attempts": len(rows),
+        "minutes": round(sum(seconds) / 60, 1) if known and None not in seconds else None,
+        "cost_usd": round(sum(costs), 4) if known and None not in costs else None,
+    }
 
 
 def route_of(state: RunState, role: str) -> dict:
@@ -114,10 +148,16 @@ def entry_for(table: dict, role: str, model: str) -> dict | None:
     return None
 
 
-def merge(table: dict, role: str, record: dict, evidence: str) -> str:
-    """Add or confirm one role's route; returns 'added' or 'confirmed'."""
+def merge(table: dict, role: str, record: dict, evidence: str, run: dict | None = None) -> str:
+    """Add or confirm one role's route; returns 'added' or 'confirmed'.
+
+    ``run`` is the structured record (``run_record``) appended to the entry's ``runs``, once per run."""
     model = record["model"]
     entry = entry_for(table, role, model)
+    if run is not None and entry is not None:
+        runs = entry.setdefault("runs", [])
+        if all(saved.get("run") != run["run"] for saved in runs):
+            runs.append(run)
     if entry is None:
         entry = {
             "model": model,
@@ -125,6 +165,7 @@ def merge(table: dict, role: str, record: dict, evidence: str) -> str:
             "effort": record.get("reasoning_effort"),
             "provenance": "qualified",
             "evidence": evidence,
+            **({"runs": [run]} if run is not None else {}),
         }
         table["roles"].setdefault(role, []).append(entry)
         return "added"
@@ -139,7 +180,7 @@ def merge(table: dict, role: str, record: dict, evidence: str) -> str:
     return "confirmed" if was == "qualified" else f"promoted from {was!r}"
 
 
-def qualify(state: RunState, table: dict, *, evidence: str, only=()) -> list[str]:
+def qualify(state: RunState, table: dict, *, evidence: str, only=(), run: dict | None = None) -> list[str]:
     """Merge every reached role the table covers; returns one line per role.
 
     A model the table excludes for its role is named and skipped: a live run can reach it
@@ -167,7 +208,8 @@ def qualify(state: RunState, table: dict, *, evidence: str, only=()) -> list[str
                 f"(attempts: {', '.join(models) or 'none'})"
             )
             continue
-        outcome = merge(table, role, record, evidence)
+        evidence_run = run_record(state, role, record["model"], run) if run is not None else None
+        outcome = merge(table, role, record, evidence, evidence_run)
         level = record.get("reasoning_effort") or "the model's default"
         lines.append(f"{job}: {record['model']} at {level} — {outcome}")
     return lines
@@ -213,7 +255,13 @@ def main(argv=None) -> int:
     document = {"as_of": table["as_of"]}
     document.update({key: value for key, value in raw.items() if key not in ("as_of", "roles")})
     document["roles"] = json.loads(json.dumps(table["roles"]))
-    lines = qualify(state, document, evidence=evidence, only=set(options.role))
+    run = {
+        "date": when,
+        "run": Path(options.run_dir).name,
+        **({"scenario": options.scenario} if options.scenario else {}),
+        **({"profile": options.profile} if options.profile else {}),
+    }
+    lines = qualify(state, document, evidence=evidence, only=set(options.role), run=run)
     changed = document["roles"] != table["roles"]
     if changed:
         document["as_of"] = max(table["as_of"], when)

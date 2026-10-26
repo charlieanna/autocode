@@ -62,7 +62,7 @@ try:
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_check_refs as check_refs, autocode_planning_metadata as planning_metadata, autocode_preflight_attempts as preflight_attempts, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_json_output as json_output, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_receipt_repair_context as receipt_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
-    from . import autocode_run_status as run_status, autocode_report_repair_queue as report_repair_queue, autocode_rewording_question as rewording, autocode_light_builder as light_builder, autocode_route_fit as route_fit
+    from . import autocode_run_status as run_status, autocode_report_repair_queue as report_repair_queue, autocode_rewording_question as rewording, autocode_light_builder as light_builder, autocode_route_fit as route_fit, autocode_report_identity as report_identity
     from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
     from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output  # noqa: F401 - compatibility API
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy, autocode_approval_provenance as approval_provenance  # noqa: F401 - compatibility API
@@ -109,6 +109,7 @@ except ImportError:
     import autocode_rewording_question as rewording
     import autocode_light_builder as light_builder
     import autocode_route_fit as route_fit
+    import autocode_report_identity as report_identity
     import autocode_status as status_records
     import autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
     import autocode_supervision as supervision
@@ -357,6 +358,7 @@ def load_stage_report(record, workspace=None, evidence_record=None, state: RunSt
         support.verify_checks(checks, workspace, evidence_record["events"], **check_evidence_options(evidence_record))
     # A Tester's extra citation beside a verified check costs a repair; the raw report stays as .reported.json.
     check_refs.tidy_tester_citations(record, validation, workspace, (state or {}).get("settings"))
+    value = report_identity.adopt(value, record, state)  # a mistyped echo on a bound launch is no repair (#2135)
     schema = support.review_validation_schema(read_json(Path(record["schema"])), state, record, value)
     value = support.normalize_absent_authority(value, schema, record)
     # finding_dispositions may be present in reports validated against schemas
