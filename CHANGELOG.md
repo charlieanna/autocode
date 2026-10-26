@@ -75,6 +75,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A Tester or Completion Reviewer report that mistypes the echoed contract hash, contract revision or
+  task id no longer costs a paid report repair (#2135). On the current, admitted attempt whose launch
+  recorded today's contract and task, the runner adopts that launch identity, keeps the provider's
+  bytes as `reported_output` and records each change in the stage's `identity_corrections`. A
+  contract or task that changed during the stage, an echo of an earlier contract or task, another
+  attempt, or a record without a launch identity is still refused.
 - The qualification table records the 2026-10-25 `bugfix-trivial` live run on `glm-mimo-kilo`:
   Requirements, Planner, Builder, Tester and Completion Reviewer reached `TASK_COMPLETE` on their
   routes, while the per-task Planner route `astra` stayed unqualified because the run never launched

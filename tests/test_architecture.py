@@ -56,8 +56,10 @@ TANGLED: frozenset[str] = frozenset()
 # autocode_configure._auto_select.
 # 2026-10-17: stamping open escalations on --accept-completion (#612) added route_ladder import and
 # record_outcome call: autocode.py +3.
+# 2026-10-26: adopting a bound launch's report identity (#2135) lives in autocode_report_identity; its
+# import and one call in load_stage_report raised autocode.py by 1.
 MAX_LINES = {
-    "autocode.py": 2008,
+    "autocode.py": 2009,
     "autocode_goals.py": 1404,
     "autocode_support.py": 620,
     "autopilot.py": 1513,
