@@ -2,6 +2,7 @@
 
 import copy
 import unittest
+from unittest.mock import patch
 
 import autocode_code_checkpoints as checkpoints
 import autocode_contract_identity as identity
@@ -109,6 +110,27 @@ class BaselineIdentity(unittest.TestCase):
     def test_rewording_an_existing_guard_does_not_change_its_reference(self):
         self.state, self.run = fixture(self.project, prior_criteria=[OLD, {**GUARD, "criterion": "Earlier wording"}])
         self.assertIsNone(self.context())
+
+    def test_uncertain_command_ownership_retains_its_source_tree(self):
+        (self.project.root / "test_check.py").write_text("import unittest\n")
+        framework = verify.Framework("unittest", "python3 -m unittest", python="python3")
+        result = {"test_files": ["test_check.py"], "commands": {"regression": "python3 -m unittest"}}
+        with patch.object(verify, "run_suite", side_effect=follow_proof.command_receipt.OwnershipUncertain("held")):
+            with self.assertRaises(follow_proof.command_receipt.OwnershipUncertain):
+                follow_proof.collect(
+                    self.context(),
+                    self.project.root,
+                    self.run,
+                    result,
+                    framework,
+                    verify=verify,
+                    dependencies=self.project.root,
+                    inputs=None,
+                    timeout=30,
+                )
+        tree = self.run / "follow-up-baseline"
+        self.assertTrue(tree.is_dir())
+        verify.remove_tree(self.project.root, tree)
 
 
 class FreshGuardEvidence(unittest.TestCase):

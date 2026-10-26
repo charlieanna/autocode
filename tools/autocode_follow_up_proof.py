@@ -90,6 +90,7 @@ def collect(context, workspace, out, result, framework, *, verify, dependencies,
     if not tests or not command:
         return {"error": "Follow-up preservation has no current targeted tests"}
     tree = Path(out) / "follow-up-baseline"
+    ownership_uncertain = False
     try:
         verify.make_tree(
             workspace,
@@ -101,8 +102,11 @@ def collect(context, workspace, out, result, framework, *, verify, dependencies,
             ignored_inputs=inputs,
         )
         return verify.run_suite(framework, command, tree, out, "follow-up-baseline", timeout=timeout)
+    except command_receipt.OwnershipUncertain:
+        ownership_uncertain = True
+        raise
     finally:
-        if tree.exists():
+        if not ownership_uncertain and tree.exists():
             verify.remove_tree(workspace, tree)
 
 
