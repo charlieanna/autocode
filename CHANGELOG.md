@@ -381,6 +381,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Acceptance-test prompts reference exact duplicate case text inside their complete inline approved
+  contract (#2153). Case IDs, test names, proof kinds, source quotes and all permissions are retained;
+  repair inputs remain self-contained. This reduces prompt size without skipping tests or stages.
+
 - Planning no longer treats documentary `file:line` labels or prose references to known source
   records as product values that acceptance criteria must repeat (#2150). Source quotes stay
   intact; actual numeric limits, output literals, file-scope constraints and negations remain checked.
