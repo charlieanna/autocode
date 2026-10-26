@@ -12,6 +12,7 @@ import sys
 import unittest
 from pathlib import Path
 
+import autocode_changeset as changeset
 import autocode_taskrun as taskrun
 
 from .test_agent_step import fixture_workspace
@@ -19,6 +20,8 @@ from .test_scope_question_cli import ELSEWHERE, PART
 from .test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 ROOT = Path(__file__).resolve().parents[1]
+# The linked brief's own instruction, which the greeting fixture's report does not quote.
+MEMBER_ONLY = "This run owns only greet-history's side."
 OPTIONS = (*FIXTURE_OPTIONS, "--joint-planning", "--no-adaptive-planning")
 
 
@@ -48,6 +51,7 @@ class ChangesetCliTests(unittest.TestCase):
     def changeset(self, *args):
         env = {**os.environ, **self.env}
         env.pop("AUTOCODE_FIXTURE_EXTERNAL_PART")  # the linked run's own request spans nothing
+        env["AUTOCODE_FIXTURE_IGNORED_STATEMENTS"] = MEMBER_ONLY
         return subprocess.run(
             [sys.executable, str(ROOT / "tools" / "autocode.py"), "changeset", *args],
             env=env,
@@ -114,6 +118,55 @@ class ChangesetCliTests(unittest.TestCase):
         self.assertEqual([], taskrun.TaskRun.runs_in(self.member), "nothing started for a refused link")
         listed = self.changeset("list", "--json")
         self.assertEqual({"changesets": []}, json.loads(listed.stdout))
+
+    def test_one_set_token_approves_every_shown_plan_and_a_revision_withdraws_it(self):
+        register_project(self.home, self.member)
+        linked = self.link()
+        self.assertEqual(0, linked.returncode, linked.stdout + linked.stderr)
+        member_dir = Path(json.loads(linked.stdout)["runs"][1]["run_dir"])
+        member = taskrun.TaskRun(
+            self.member.resolve(), member_dir, env={**self.env, "AUTOCODE_FIXTURE_IGNORED_STATEMENTS": MEMBER_ONLY}
+        )
+        member.env.pop("AUTOCODE_FIXTURE_EXTERNAL_PART")
+        member.advance_until_input()
+        shown = json.loads(self.changeset("status", "--run-dir", str(self.run.run_dir), "--json").stdout)
+        self.assertIsNone(shown["approval"]["set_token"], "the source run has not planned yet")
+        self.assertEqual([Path(self.source).name], shown["approval"]["waiting_on"], shown["runs"][1])
+
+        self.run.answer("workspace-scope-1", "This repository only")
+        self.assertEqual("AWAITING_GOAL_APPROVAL", self.run.advance_until_input()["status"])
+        shown = json.loads(self.changeset("status", "--run-dir", str(self.run.run_dir), "--json").stdout)
+        token = shown["approval"]["set_token"]
+        self.assertTrue(token, shown)
+        self.assertEqual(token, shown["approval"]["next_command"][-1])
+        self.assertTrue(all(row["plan"]["acceptance_criteria"] for row in shown["runs"]), "each plan is shown")
+
+        member.feedback("Also log the greeting time.")
+        self.assertEqual("AWAITING_GOAL_APPROVAL", member.advance_until_input()["status"])
+        stale = self.changeset("approve", "--run-dir", str(self.run.run_dir), "--set-token", token, "--json")
+        self.assertEqual(1, stale.returncode)
+        self.assertIn("changed since it was shown", json.loads(stale.stdout)["error"])
+        self.assertIsNone(self.run.status().get("approved_contract"), "a stale set token approves nothing")
+
+        fresh = json.loads(self.changeset("status", "--run-dir", str(member_dir), "--json").stdout)
+        self.env[changeset.SET_TOKEN_ENV] = fresh["approval"]["set_token"]
+        self.assertNotEqual(token, self.env[changeset.SET_TOKEN_ENV])
+        done = self.changeset("approve", "--run-dir", str(member_dir), "--set-token", "-", "--json")
+        self.assertEqual(0, done.returncode, done.stdout + done.stderr)
+        for run in (self.run, member):
+            approved = run.status().get("approved_contract")
+            self.assertIsNotNone(approved)
+        self.assertIsNone(json.loads(done.stdout)["approval"]["set_token"])
+
+
+class SetTokenTests(unittest.TestCase):
+    def test_the_set_token_needs_every_plan_and_follows_each_one(self):
+        runs = [{"run_dir": "/a", "plan_token": "t1"}, {"run_dir": "/b", "plan_token": "t2"}]
+        token = changeset.set_token(runs)
+        self.assertEqual(token, changeset.set_token(list(reversed(runs))))
+        self.assertNotEqual(token, changeset.set_token([runs[0], {"run_dir": "/b", "plan_token": "t3"}]))
+        self.assertIsNone(changeset.set_token([runs[0], {"run_dir": "/b", "plan_token": None}]))
+        self.assertIsNone(changeset.set_token([]))
 
 
 if __name__ == "__main__":

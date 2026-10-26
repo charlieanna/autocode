@@ -362,6 +362,11 @@ PR template asks for an entry here; a change without one is incomplete.
   receipt guidance now agrees with the Tester's supported command/exit-code hydration, avoiding
   redundant command transcription without relaxing receipt authentication (#2113).
 
+- `tools/qualify_routes.py` now credits each attempt to the route slot its stage launched, so a
+  finished live run can qualify its Plan Reviewer and Completion Reviewer routes (#2114, #2057).
+  Those stages run under the `astra` unit; the attempt rows named the unit, so the two slots were
+  reported as never attempted while the Planner route `astra` never launched was added instead.
+
 - The model access preflight now proves each route under the role that owns it, and a tool refusing
   the level there pauses as `PAUSED_TRANSPORT_UNVERIFIED` with that role's own flag instead of an
   unclassified error reported as `PAUSED_INVALID_OUTPUT` with the Tester's flag (#2108, #2057). This

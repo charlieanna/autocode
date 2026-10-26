@@ -474,6 +474,9 @@ def main() -> int:
                 "spans_repositories": True,
                 "external_parts": [{"target": target, "work": work, "source_quote": quote, "evidence": ""}],
             }
+        ignored = os.environ.get("AUTOCODE_FIXTURE_IGNORED_STATEMENTS")
+        if ignored:  # STATEMENT|STATEMENT: request sentences this fixture leaves out (a linked run's brief, #2066)
+            report["ignored_statements"] = ignored.split("|")
         # Requirements names the job it understood in every run (#1846, #1860); this fixture only builds.
         report.update(job="build", design_document="")
         asked = (

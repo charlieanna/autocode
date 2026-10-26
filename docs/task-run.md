@@ -1837,8 +1837,24 @@ linked run with `TaskRun.start`, nothing else.
   `autocode changeset list [--json]` lists every change set.
 
 Linking changes nothing in the source run. It still asks its scope question, and its plan
-still records the linked target as not covered there. Joint plan approval and checking the
-runs together are later steps of #2066.
+still records the linked target as not covered there.
+
+#### Approving the set
+
+`changeset status` shows each run's plan (`runs[].plan`, the complete `displayed_plan` its
+token approves) and `approval`:
+
+- `set_token` is a digest of every run's own plan token. It is `null` until every run waits
+  for plan approval with a complete plan, and `waiting_on` names the runs that do not.
+- `next_command` is the argument array that approves the set, or `null`.
+
+`autocode changeset approve --run-dir RUN --set-token TOKEN` reads every run's view again.
+It refuses a token that no longer matches, so a plan revision in any run withdraws the set
+approval the person was shown. Otherwise it approves each run with its own plan token, the
+source run first. No run builds before its plan is approved, so approving through the set
+keeps every run out of the Builder until all are approved. Approving one run alone with its
+own `--approve-goal` stays possible as an explicit person action that releases that run.
+Checking the runs together before they are done is a later step of #2066.
 
 ## Dependencies between existing runs
 

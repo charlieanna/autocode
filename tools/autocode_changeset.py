@@ -11,28 +11,43 @@ A layer above the task-run interface (AGENTS.md rule 5): it reads runs only thro
   (autocode_changeset_store). Arguments after ``--`` are the run options the linked run starts with;
 - ``status --run-dir RUN``: the run's change set with each member's status, needs and next command,
   read from that member's own status view;
-- ``list``: every change set in the registry's directory.
+- ``list``: every change set in the registry's directory;
+- ``approve --run-dir RUN --set-token TOKEN``: approve every run's plan at once (#2066, step 5).
+  ``status`` offers a ``set_token`` only while every run of the set waits for plan approval with a
+  complete plan it shows (autocode_client_actions.plan_for_approval). The set token is a digest of
+  those runs' own plan tokens, so a plan revision in any run changes it. ``approve`` reads every
+  run's view again, refuses a token that no longer matches, and then approves each run with its own
+  plan token, the source run first. An approval therefore still binds to plans the person was shown.
+
+No run builds before its own plan is approved, so approving through the set keeps every run out of
+the Builder until all of them are approved. Approving one run alone (its own ``--approve-goal``)
+stays an explicit person action that releases that run by itself.
 
 Linking changes nothing in the source run: it still asks its scope question, and its plan still
-records the linked target as not covered there. Joint approval and joint verification are later
-steps of #2066.
+records the linked target as not covered there. Joint verification is a later step of #2066.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
 try:
     from . import autocode_changeset_store as store
+    from . import autocode_client_actions as actions
     from . import autocode_registry as registry
     from . import autocode_taskrun as taskrun
 except ImportError:
     import autocode_changeset_store as store
+    import autocode_client_actions as actions
     import autocode_registry as registry
     import autocode_taskrun as taskrun
+
+SET_TOKEN_ENV = "AUTOCODE_CHANGESET_TOKEN"  # read when --set-token is "-", to keep the token out of argv
 
 
 class LinkRefused(Exception):
@@ -99,16 +114,44 @@ def link(run_dir, target: str, project: str, *, options=(), command=taskrun.AUTO
 
 
 def _member_status(workspace, run_dir, command) -> dict:
+    empty = {"needs": None, "next_command": None, "plan_token": None, "plan": None}
     if not run_dir:
-        return {"status": "STARTING", "needs": None, "next_command": None}
+        return {"status": "STARTING", **empty}
     try:
         view = taskrun.TaskRun(Path(workspace), Path(run_dir), command=tuple(command)).status()
     except taskrun.TaskRunError as error:
-        return {"status": "UNREADABLE", "needs": None, "next_command": None, "error": str(error)}
+        return {"status": "UNREADABLE", **empty, "error": str(error)}
+    need = view.get("needs") or {}
+    plan = actions.plan_for_approval(view) if need.get("kind") == "approve_plan" else None
     return {
         "status": view.get("status"),
-        "needs": (view.get("needs") or {}).get("kind"),
+        "needs": need.get("kind"),
         "next_command": view.get("next_command"),
+        # Only a complete plan the view shows can be approved through the set.
+        "plan_token": plan["token"] if plan else None,
+        "plan": plan,
+    }
+
+
+def set_token(runs: list[dict]) -> str | None:
+    """The token that approves every run's shown plan at once; None unless each run waits for one."""
+    if not runs or not all(row.get("plan_token") for row in runs):
+        return None
+    lines = sorted(f"{row['run_dir']}={row['plan_token']}" for row in runs)
+    return "set-" + hashlib.sha256("\n".join(lines).encode()).hexdigest()[:32]
+
+
+def _approval(summary: dict) -> dict:
+    token = set_token(summary["runs"])
+    waiting = [row["target"] for row in summary["runs"] if not row.get("plan_token")]
+    source = summary["runs"][0]["run_dir"]
+    return {
+        "set_token": token,
+        # The runs whose plan is not yet waiting for approval; the set cannot be approved before them.
+        "waiting_on": waiting,
+        "next_command": ["autocode", "changeset", "approve", "--run-dir", source, "--set-token", token]
+        if token
+        else None,
     }
 
 
@@ -125,7 +168,30 @@ def status(run_dir, *, command=taskrun.AUTOCODE) -> dict:
     ]
     for row in runs:
         row.update(_member_status(row["workspace"], row["run_dir"], command))
-    return {"changeset": record["id"], "created_at": record.get("created_at"), "runs": runs}
+    summary = {"changeset": record["id"], "created_at": record.get("created_at"), "runs": runs}
+    summary["approval"] = _approval(summary)
+    return summary
+
+
+def approve(run_dir, token: str, *, command=taskrun.AUTOCODE) -> dict:
+    """Approve every run's plan with its own token, once ``token`` still matches every shown plan."""
+    fresh = status(run_dir, command=command)
+    current = fresh["approval"]["set_token"]
+    if current is None:
+        waiting = ", ".join(fresh["approval"]["waiting_on"])
+        raise LinkRefused(f"the change set cannot be approved yet: waiting on {waiting}")
+    if token != current:
+        raise LinkRefused("a plan in the change set changed since it was shown; read `changeset status` again")
+    approved: list[str] = []
+    for row in fresh["runs"]:
+        run = taskrun.TaskRun(Path(row["workspace"]), Path(row["run_dir"]), command=tuple(command))
+        try:
+            run.approve_plan(row["plan_token"])
+        except taskrun.TaskRunError as error:
+            done = ", ".join(approved) or "none"
+            raise LinkRefused(f"approving {row['target']} failed after approving {done}: {error}") from error
+        approved.append(row["target"])
+    return status(run_dir, command=command)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -142,6 +208,12 @@ def parser() -> argparse.ArgumentParser:
     showing = commands.add_parser("status", help="the change set a run belongs to, with each run's status")
     showing.add_argument("--run-dir", type=Path, required=True, help="any run of the change set")
     showing.add_argument("--json", action="store_true", help="print the change set as JSON")
+    approving = commands.add_parser("approve", help="approve every run's shown plan at once")
+    approving.add_argument("--run-dir", type=Path, required=True, help="any run of the change set")
+    approving.add_argument(
+        "--set-token", required=True, help=f"the set_token `changeset status` showed; - reads {SET_TOKEN_ENV}"
+    )
+    approving.add_argument("--json", action="store_true", help="print the change set as JSON")
     listing = commands.add_parser("list", help="every change set")
     listing.add_argument("--json", action="store_true", help="print the change sets as JSON")
     return result
@@ -152,6 +224,13 @@ def _render(summary: dict) -> str:
     for row in summary["runs"]:
         needs = f", needs {row['needs']}" if row.get("needs") else ""
         lines.append(f"  {row['target']} ({row['role']}): {row['status']}{needs}  {row.get('run_dir') or ''}")
+        for criterion in (row.get("plan") or {}).get("acceptance_criteria") or []:
+            lines.append(f"    {criterion['id']}: {criterion['criterion']}")
+    approval = summary.get("approval") or {}
+    if approval.get("next_command"):
+        lines.append("Approve every plan above at once: " + " ".join(approval["next_command"]))
+    elif approval.get("waiting_on"):
+        lines.append("Set approval waits for a plan from: " + ", ".join(approval["waiting_on"]))
     return "\n".join(lines)
 
 
@@ -162,6 +241,9 @@ def cli(argv=None) -> int:
             result: dict = {"changesets": store.records()}
         elif args.command == "status":
             result = status(args.run_dir)
+        elif args.command == "approve":
+            token = os.environ.get(SET_TOKEN_ENV, "") if args.set_token == "-" else args.set_token
+            result = approve(args.run_dir, token)
         else:
             options = args.options[1:] if args.options[:1] == ["--"] else args.options
             result = link(args.run_dir, args.target, args.workspace, options=options)

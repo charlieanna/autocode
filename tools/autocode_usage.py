@@ -329,6 +329,8 @@ def accounting(state: RunState):
                 "worker_attempt": record.get("worker_attempt"),
                 "stage": record.get("stage"),
                 "role": record.get("role"),
+                # The slot whose route the stage launched; a unit role can run another slot's job (#2114).
+                "route_role": record.get("route_role"),
                 "job": roles.screen_name(record.get("stage") or "", state),
                 "model": model,
                 **({"prompts_hash": record["prompts_hash"]} if "prompts_hash" in record else {}),

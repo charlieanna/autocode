@@ -118,6 +118,21 @@ class TotalsTests(unittest.TestCase):
         self.assertEqual(["high", "medium"], [row["launch_route"]["reasoning_effort"] for row in attempts])
         self.assertEqual("next-model", view["routes"]["completion"]["model"])
 
+    def test_an_attempt_names_the_route_slot_its_stage_launched(self):
+        # #2114: `astra` runs other slots' stages; qualification must credit the slot that launched.
+        state = {
+            "status": "RUNNING",
+            "stages": [
+                stage("astra_review", "astra", "review-model", route_role="completion"),
+                stage("astra_discovery", "glm", "plan-model"),
+            ],
+        }
+        rows = run_view.view(state)["usage"]["accounting"]["attempts"]
+        self.assertEqual(
+            [("astra", "completion"), ("glm", None)],
+            [(row["role"], row["route_role"]) for row in rows],
+        )
+
 
 class StageMetricsTests(unittest.TestCase):
     def test_a_stage_records_the_cost_its_provider_reported(self):

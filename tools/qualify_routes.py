@@ -72,11 +72,15 @@ def check_live(state: RunState) -> str:
 
 
 def reached(state: RunState) -> dict:
-    """The model each role actually sent an attempt to, from the run's own accounting."""
+    """The model each role actually sent an attempt to, from the run's own accounting.
+
+    A stage's unit role is not always the slot whose route it launched (``astra`` runs the
+    Plan Reviewer and Completion Reviewer stages), so an attempt counts for its route slot
+    first and its unit role only when no other slot was named (#2114)."""
     rows = (usage.accounting(state) or {}).get("attempts") or []
     seen: dict[str, list[str]] = {}
     for row in rows:
-        role = row.get("role")
+        role = row.get("route_role") or row.get("role")
         model = row.get("model")
         if role and model and not row.get("runner_owned"):
             seen.setdefault(role, []).append(model)
