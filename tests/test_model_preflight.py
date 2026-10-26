@@ -13,6 +13,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autocode_model_preflight as preflight
 import autocode_providers
+import autocode_route_fit as route_fit
 import autocode_session_boundary as boundary
 import autocode_supervision as supervision
 import autocode_support as support
@@ -303,6 +304,65 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertEqual(["medium", "high"], self.state["settings"]["certified_variants"]["plan/glm"])
         self.assertFalse(self.check(events))
         self.assertEqual(3, len(self.calls), "each level's receipt is reused")
+
+    def test_a_person_named_level_its_model_does_not_declare_pauses_before_any_probe(self):
+        # #2104: the access preflight is the first launch boundary, so it fits like route_fit.launch.
+        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm", "reasoning_effort": "medium"}
+        self.state["settings"]["effort_origins"] = {"sol": "user_explicit"}
+        self.state["settings"]["route_selection"] = {
+            "candidates": {"sol": [{"model": "plan/glm", "levels": ["high", "low", "max"]}]}
+        }
+        with patch.object(preflight, "probe", side_effect=AssertionError("a probe ran before the fit")):
+            with self.assertRaises(route_fit.EffortUnsupported) as caught:
+                self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS})
+        self.assertEqual(route_fit.STATUS, caught.exception.status)
+        self.assertIn("--sol-reasoning-effort", str(caught.exception))
+        self.assertIn("low, high, max", str(caught.exception))
+        self.assertEqual([], self.calls, "no model was launched")
+
+    def test_a_runner_chosen_level_is_probed_at_the_level_the_model_declares(self):
+        self.state["settings"]["roles"] = {"sol": {"model": "plan/glm", "reasoning_effort": "medium"}}
+        self.state["settings"]["route_selection"] = {
+            "candidates": {"sol": [{"model": "plan/glm", "levels": ["high", "low", "max"]}]}
+        }
+        execute = self.fake_execute({"plan/glm": OK_EVENTS})
+        seen = []
+
+        def spy(**kwargs):
+            seen.append((kwargs["model"], kwargs.get("effort")))
+            return execute(**kwargs)
+
+        with patch.object(preflight.transport, "execute", side_effect=spy):
+            runner = types.SimpleNamespace(opencode=self.adapter)
+            self.assertTrue(preflight.check(runner, self.state, self.run_dir, self.root))
+        self.assertEqual([("plan/glm", "high")], seen)
+        self.assertEqual({"plan/glm": ["high"]}, self.state["settings"]["certified_variants"])
+        self.assertEqual(
+            "medium", self.state["settings"]["roles"]["sol"]["reasoning_effort"], "the saved route is untouched"
+        )
+
+    def test_a_tool_refusing_the_probed_level_names_its_roles_flag(self):
+        # #2108: with no declared listing the fit cannot decide, so the tool's own refusal at the
+        # probe is the evidence; it must reach the run as the pause its stage launch would.
+        from providers.kilocode import KiloEffortError
+
+        self.state["settings"]["roles"] = {"glm": {"model": "plan/glm", "reasoning_effort": "medium"}}
+        seen = []
+
+        def launch(role, *args, **kwargs):
+            seen.append(role)
+            raise KiloEffortError(
+                "Kilo model plan/glm does not support reasoning variant 'medium'; supported variants: high, low, max. "
+                "Name one of them with --glm-reasoning-effort high; no model request was launched"
+            )
+
+        self.adapter.launch = launch
+        runner = types.SimpleNamespace(opencode=self.adapter)
+        with self.assertRaises(support.Paused) as caught:
+            preflight.check(runner, self.state, self.run_dir, self.root)
+        self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", caught.exception.status)
+        self.assertIn("--glm-reasoning-effort high", str(caught.exception))
+        self.assertEqual(["glm"], seen, "the probe launch carries the role it proves")
 
     def test_non_billing_adapters_make_no_probe_calls(self):
         runner = types.SimpleNamespace(opencode=types.SimpleNamespace(_config={"command": ["fake"]}))

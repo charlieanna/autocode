@@ -217,13 +217,15 @@ def probe(
     directory=None,
     checkpoint=None,
     deadline=None,
+    role=None,
 ) -> dict:
     """One tiny read-only call for ``model``; returns its recorded outcome.
 
     Every route probes at the role's own reasoning level, saved or selected, because
     the level is part of the route: a variant that does not exist fails at the probe,
     not three stages in (#1426 step 8, #2057). A passed probe certifies that level for
-    later fits. ``None`` sends no level and the model uses its default.
+    later fits. ``None`` sends no level and the model uses its default. ``role`` carries
+    the role whose route is proven, so a tool refusing the level names its flag (#2108).
     """
     directory = directory or run_dir / "model-preflight" / model.replace("/", "__") / f"attempt-{uuid.uuid4().hex}"
     started = time.monotonic()
@@ -246,6 +248,7 @@ def probe(
             checkpoint=checkpoint,
             deadline=deadline,
             prepare=bare,
+            role=role,
         )
     except (processes.ProcessError, OSError) as error:
         raise support.Paused(
@@ -360,6 +363,35 @@ def _selected_efforts(routes) -> dict:
     return efforts
 
 
+def _selected_roles(routes) -> dict:
+    """model -> the role whose route a probe proves: the first role (in role order) that names it."""
+    roles: dict[str, str] = {}
+    for role in sorted(routes):
+        model = (routes[role] or {}).get("model")
+        if isinstance(model, str) and model and model not in roles:
+            roles[model] = role
+    return roles
+
+
+def fitted_routes(settings, routes) -> dict:
+    """Each route at the level the run's launch boundary will pass (#2104, #2057).
+
+    The access preflight is the first launch boundary of a build. Fitting here means a
+    person-named level its model does not declare pauses with its named answer before any
+    probe spends, and a runner-chosen level is probed at the variant a stage will launch
+    (``autocode_route_fit.launch`` fits the saved level the same way at dispatch). The saved
+    route is left alone: the stage's launch records the fit in ``effort_fits``.
+    """
+    fitted = {}
+    for role, route in routes.items():
+        route = dict(route or {})
+        result = route_fit.fit(settings, role, effort=route.get("reasoning_effort"), model=route.get("model"))
+        if "reasoning_effort" in route or result.effort is not None:
+            route["reasoning_effort"] = result.effort
+        fitted[role] = route
+    return fitted
+
+
 def certify(state: RunState, model, effort, outcome, checkpoint) -> None:
     """A probe that passed proves this model serves this level: record it for later fits (#2057).
 
@@ -398,6 +430,10 @@ def check(
     ``selection`` is an automatic selector's result (#1426 step 8): exactly the
     routes it lists as still unknown are probed, each at its role's own reasoning
     level, through the tool that will run it, within the same cost cap and receipts.
+
+    Every role's saved level is fitted before the first probe (#2104): a person-named
+    level the model does not declare pauses as ``PAUSED_EFFORT_UNSUPPORTED`` with its
+    named answer, and a runner-chosen one is probed at the variant a stage will launch.
     """
     if getattr(runner, "native_calls", None) is not None:
         # Native calls require their original held, accounted launch authority.
@@ -411,11 +447,14 @@ def check(
         # requested model calls. Future execution roles are probed when
         # approved requirements release planning; do not make the user wait.
         return False
+    settings = state.get("settings") or {}
+    route_fit.guard(settings)
     groups = (
-        _selection_groups(runner, selection, workspace, state.get("settings"))
+        _selection_groups(runner, selection, workspace, settings)
         if selection is not None
-        else _billing_groups(runner, state.get("settings") or {}, workspace)
+        else _billing_groups(runner, settings, workspace)
     )
+    groups = [(facade, fitted_routes(settings, routes), identity) for facade, routes, identity in groups]
     # A successful low-level probe cannot certify another role's higher level. Bind the
     # durable receipt (and charged attempt) to the exact effort too, for a saved route
     # (#2057) as for a selection's: the same model at two levels is two route pairs.
@@ -475,13 +514,13 @@ def check(
         # Evidence a prior invocation already paid for still proves the level (#2057).
         for model, outcome in probed.items():
             certify(state, model, efforts.get(model), outcome, checkpoint)
-        receipts.append((facade, routes, identity, probed, wanted, efforts))
-    if not any(wanted for *_front, wanted, _efforts in receipts):
+        receipts.append((facade, routes, identity, probed, wanted, efforts, _selected_roles(routes)))
+    if not any(wanted for *_front, wanted, _efforts, _roles in receipts):
         return False
     before_probe()
     _allowance(runner, state, run_dir, workspace, timeout)
     # Every tool that will receive a request proves its login before the first one.
-    for facade, routes, _identity, _probed, wanted, _efforts in receipts:
+    for facade, routes, _identity, _probed, wanted, _efforts, _roles in receipts:
         if not wanted:
             continue
         try:
@@ -495,16 +534,16 @@ def check(
     def publish():
         rows = [
             {"identity": identity, "probed": probed}
-            for _facade, _routes, identity, probed, _wanted, _efforts in receipts
+            for _facade, _routes, identity, probed, _wanted, _efforts, _roles in receipts
         ]
         atomic_json(marker, {"version": MARKER_VERSION, "receipts": rows})
 
     pending = [
-        (adapter, identity, probed, model, efforts.get(model))
-        for adapter, _routes, identity, probed, wanted, efforts in receipts
+        (adapter, identity, probed, model, efforts.get(model), roles.get(model))
+        for adapter, _routes, identity, probed, wanted, efforts, roles in receipts
         for model in wanted
     ]
-    for adapter, identity, probed, model, effort in pending:
+    for adapter, identity, probed, model, effort, role in pending:
         # A role bound with --role-transport names its tool; the same model may also be on the run's tool.
         where = "" if adapter is getattr(runner, "opencode", None) else f" on {(identity or {}).get('provider')}"
         before_probe()
@@ -527,6 +566,7 @@ def check(
                 workspace,
                 run_dir,
                 effort=effort,
+                role=role,
                 timeout=allowed,
                 directory=attempt.directory,
                 checkpoint=attempt.admit,

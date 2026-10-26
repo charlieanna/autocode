@@ -218,7 +218,10 @@ The rules the choice keeps:
   that role, with the evidence that admitted it: AutoCode's own runs qualify a model,
   and a public benchmark admits it only provisionally until such a run confirms it.
   The table changes by pull request, like the price table it is priced from. A model
-  not in the table is never chosen automatically, however cheap.
+  not in the table is never chosen automatically, however cheap. After a live run proves
+  a route, `tools/qualify_routes.py --run-dir RUN --scenario NAME --profile PROFILE`
+  merges that run into the table, refusing anything that did not declare
+  `--evidence-provenance live` and finish `TASK_COMPLETE`; it launches no model.
 - **Within a role's qualified models, the cheapest route wins.** A subscription route
   counts as cheaper than any pay-per-token one, then the price-table cost orders them,
   and a route whose access is already proven beats one that would need a probe. The
@@ -466,6 +469,31 @@ tokens cost instead: the dated price table `tools/autocode_prices.json` (updated
 pull request) and the rate each default route is priced at, or "no rate" for a model
 without a row, whose cost is then unknown rather than zero. The money cap
 (`--max-cost-usd`, [Money cap](execution.md#money-cap)) counts spend at these rates.
+
+## Reasoning effort
+
+A role runs at one reasoning effort, chosen from the variants its model declares. Kilo
+and OpenCode report those variants in their local model listings; when a tool reports
+none, AutoCode records the effort as unverified and the tool's own check decides. The
+flags are `--reasoning-effort LEVEL` for every role and `--<role>-reasoning-effort LEVEL`
+for one (`--glm-reasoning-effort`, `--astra-reasoning-effort`, `--terra-reasoning-effort`,
+`--sol-reasoning-effort`, and the matching flag for the other jobs).
+
+An effort AutoCode derives itself — a reduced Builder tier, a climb on the effort ladder,
+a single-model run — moves to the nearest declared variant and records the move as
+`effort_fits`. An effort a person named never moves. When the model does not declare it,
+the run pauses as `PAUSED_EFFORT_UNSUPPORTED` before the stage launches, naming the model,
+the level you chose and the levels it does declare. Answer with one of those and continue:
+
+```sh
+autocode --answer effort-glm=high
+autocode --resume-paused
+```
+
+The status view's `needs` carries the same question as `needs.effort` (`question_id`
+`effort-ROLE`, `role`, `job`, `model`, `requested`, `declared`, `nearest`), and
+`--answer` records the level you name as your own choice. A level the model does not
+declare is refused with nothing saved. See [KiloCode](providers.md#kilocode).
 
 ## When a role's quota runs out
 

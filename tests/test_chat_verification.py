@@ -186,6 +186,79 @@ class VerificationHeaderTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name == "posix", "the TUI uses a POSIX curses terminal")
 class VerificationTerminalTests(unittest.TestCase):
+    def test_a_later_completion_with_identical_text_is_visible_after_resume(self):
+        tmux = require_tmux(self)
+        program = """import json,pathlib,sys
+sys.path.insert(0,sys.argv[1])
+from autocode_chat_client import ChatClient
+from autocode_chat_tui import ChatTUI
+control=pathlib.Path(sys.argv[2])
+seen=None
+with ChatTUI() as ui:
+ client=ChatClient('/fixture/project','/fixture/project/.autocode/runs/repeated',say=ui.say)
+ def idle():
+  global seen
+  text=control.read_text()
+  if text==seen:return
+  seen=text
+  view=json.loads(text)
+  ui.observe(view)
+  client.show(view)
+ ui.idle=idle
+ idle()
+ ui.ask('Resume? [y/N]: ')
+ ui.ask('Anything else? ')
+ client.close()
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            control = Path(directory) / "control.json"
+            text = "The requested task is complete."
+            prior = {"id": "feedback-previous-response", "role": "assistant", "text": text}
+
+            def update(view):
+                pending = control.with_suffix(".pending")
+                pending.write_text(json.dumps(view))
+                pending.replace(control)
+
+            update(
+                {
+                    "status": "PAUSED_PLANNING_BUDGET",
+                    "chat": {"messages": [prior], "notice": "I couldn’t finish this step."},
+                }
+            )
+            with TerminalScreen(
+                [sys.executable, "-c", program, str(ROOT / "tools"), str(control)],
+                cwd=ROOT,
+                env=os.environ,
+                cols=100,
+                rows=30,
+                tmux=tmux,
+            ) as screen:
+                screen.wait_for("Resume? [y/N]")
+                update(
+                    {
+                        "status": "RUNNING",
+                        "needs": {"kind": "continue"},
+                        "chat": {"messages": [prior], "notice": "Working on your request…"},
+                    }
+                )
+                screen.wait_for("Working on your request…")
+                screen.type("y")
+                screen.keys("Enter")
+                screen.wait_for("Anything else?")
+                update(
+                    {
+                        **current_view(delivered=True),
+                        "chat": {"messages": [prior, {"id": "response-1", "role": "assistant", "text": text}]},
+                    }
+                )
+                shown = screen.wait_for(lambda body: body.count(text) == 2, what="the new completion reply")
+                self.assertGreater(shown.rfind(text), shown.index("Working on your request…"))
+                self.assertLess(shown.rfind(text), shown.index("Anything else?"))
+                self.assertIn("Complete; current delivery verified", shown)
+                screen.keys("Enter")
+                self.assertEqual(0, screen.exit_status())
+
     def test_current_cue_updates_during_history_reading_and_resize(self):
         tmux = require_tmux(self)
         program = """import json,pathlib,sys

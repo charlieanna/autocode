@@ -686,6 +686,68 @@ def render_selection(result: dict, found: dict) -> str:
     return "\n".join(lines)
 
 
+def preview(workspace=None, provider=None) -> dict:
+    """The routes automatic selection would choose now, from the tool's own local listings (#2057).
+
+    Listing only: discovery reads the tool's model and login lists and the selector is a pure
+    function; nothing launches a model and no credential is returned. ``stop`` explains a
+    selection that cannot field an independent checker; an unreadable listing raises the
+    discovery error.
+    """
+    try:
+        from . import autocode_providers
+        from . import autocode_route_discovery as discovery
+        from . import autocode_route_selector as route_selector
+    except ImportError:
+        import autocode_providers
+        import autocode_route_discovery as discovery
+        import autocode_route_selector as route_selector
+    module = autocode_providers.resolve(provider or autocode_providers.default_name())
+    found = discovery.discover(module, workspace)
+    result = route_selector.select(route_selector.PIPELINE_ROLES, found["candidates"])
+    return {**result, "tool": found["tool"], "accounts": found["accounts"], "candidates": found["candidates"]}
+
+
+def route_rows(result: dict, roles=None) -> list[dict]:
+    """One row per role the selection fills, for `connections` clients (#2057)."""
+    if result.get("stop"):
+        return []
+    connected = {candidate["model"]: candidate for candidate in result.get("candidates") or ()}
+    rows = []
+    for role in route_selector.PIPELINE_ROLES:
+        if roles is not None and role not in roles:
+            continue
+        route = (result.get("routes") or {}).get(role)
+        if not route:
+            continue
+        candidate = connected.get(route["model"]) or {}
+        rows.append(
+            {
+                "role": role,
+                "job": ROLES[role][0],
+                "model": route["model"],
+                "tool": route.get("tool") or result.get("tool"),
+                "account": route.get("account") or candidate.get("account"),
+                "billing": candidate.get("billing"),
+                "reasoning_effort": route.get("reasoning_effort"),
+                "origin": route.get("origin"),
+            }
+        )
+    return rows
+
+
+def route_lines(result: dict, roles=None) -> list[str]:
+    """The per-role line `connections` and a new run print: model, level and why (#2057)."""
+    lines = []
+    for row in route_rows(result, roles):
+        label = row["job"]
+        level = row["reasoning_effort"] or "its own default"
+        account = row["account"] or row["tool"] or "the tool"
+        billing = f" {row['billing']}" if row["billing"] else ""
+        lines.append(f"{label}: {row['model']} at {level} ({account}{billing}; qualified for {label})")
+    return lines
+
+
 def cli(argv: list[str]) -> int:
     """`autocode models`: what your plans offer, and whether the default routes can be used."""
     arguments = parser()
@@ -694,28 +756,17 @@ def cli(argv: list[str]) -> int:
         # Local listings only: discovery reads the tool's model and login lists, and
         # the selector is a pure function; neither launches a model.
         try:
-            try:
-                from . import autocode_providers
-                from . import autocode_route_discovery as discovery
-                from . import autocode_route_selector as route_selector
-            except ImportError:
-                import autocode_providers
-                import autocode_route_discovery as discovery
-                import autocode_route_selector as route_selector
-            name = args.provider or autocode_providers.default_name()
-            provider = autocode_providers.resolve(name)
-            found = discovery.discover(provider, args.workspace)
-            result = route_selector.select(route_selector.PIPELINE_ROLES, found["candidates"])
+            found = preview(args.workspace, args.provider)
         except (RuntimeError, ValueError, OSError) as error:
             print(f"autocode models: {error}", file=sys.stderr)
             return 2
         if args.json:
-            print(json.dumps({**result, "tool": found["tool"], "accounts": found["accounts"]}, indent=2))
-        elif result["stop"]:
-            print(result["stop"])
+            print(json.dumps({key: value for key, value in found.items() if key != "candidates"}, indent=2))
+        elif found["stop"]:
+            print(found["stop"])
         else:
-            print(render_selection(result, found))
-        return 1 if result["stop"] else 0
+            print(render_selection(found, found))
+        return 1 if found["stop"] else 0
     if args.prices:
         # Offline: the table ships with AutoCode, and resolving the provider runs nothing.
         try:

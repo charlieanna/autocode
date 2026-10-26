@@ -1802,6 +1802,8 @@ a saved answer, or when it cites a file in this workspace that shows it.
 - `decision` is `this_repository` once the person chose it, else `null`.
 - `uncovered` lists the targets this run leaves out.
 - `linked` is `[]` until runs can be linked.
+- `briefs` holds a ready brief (`repository`, `brief`) for each repository the request
+  spans, this one first, for a person who stops here and runs them separately.
 
 A kept part stops the run before any plan, with one nondelegable question
 (`workspace-scope-1`, kind `answer`). Its only option is `This repository only`. Other
@@ -2038,7 +2040,16 @@ only, so a client can say what a new chat runs on.
 An action has `id`, `label`, and `next_command`: an argument array following
 `autocode`, not shell text. Clients execute only offered actions. Listing reads
 user-level provider configuration and executable availability; it never launches
-models, reads credential stores, or runs backend commands.
+models, reads credential stores, or runs backend commands. The plain view carries
+`routes: null` and `routes_next_command`
+(`["connections", "list", "--routes", "--json"]`).
+
+That named action adds the route each role would use, chosen from the connected
+tool's own model listing (#2057): `tool`, `routes` (each with `role`, `job`, `model`,
+`tool`, `account`, `billing`, `reasoning_effort`, `origin`), the same text as
+`routes_lines`, and `routes_stop` when no connected account can field a qualified
+route for a role. It reads a listing and never launches a model. A client shows
+`routes_lines` beside the connection; it does not choose a route itself.
 
 `connections check --provider NAME --json` checks the backend without inference.
 Its result is one connection object. `credentials_present` means the backend

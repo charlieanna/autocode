@@ -44,14 +44,12 @@ TaskRun commands/status and actual TUI input, not private task-state edits.
 Failed host output remains in the CI artifact. Ordinary unit-test skips of the
 native-host class are not qualification evidence.
 
-## S01-S15 evidence matrix
+## Initial S01-S15 coverage map
 
-This is the coverage map for the remaining integrated audit. A source test name
-identifies an obligation; the final recorded result must identify its actual
-qualified revision and host. Existing passing slices remain useful without
-claiming that the whole matrix has passed.
+This historical map identifies the original obligations and their boundaries.
+The final scoped results below record their qualified revisions and hosts.
 
-| Scenarios | Public proof and negative controls | Scope still to reconcile |
+| Scenarios | Public proof and negative controls | Initial qualification boundary |
 | --- | --- | --- |
 | S01-S04: approval, external view, slow verification, detach/SSH | `test_worker_host` launches persistent services, exercises quit/Ctrl-D/SIGHUP/SIGKILL/PTY/SSH loss, and checks unchanged attempt and controller identities before completion. `test_chat_polling_cli` keeps input live during held reads. | Final native-host artifact at the recorded qualification head; an owned legacy worker retains its different exit policy. |
 | S05: worker and host loss | Native worker-loss cases retain edits/routes/attempts and refuse false completion. `test_worker_cli` separately injects a changed boot identity and unavailable boot inspection; accepted launch receipts never re-arm dispatch. Literal graceful guest reboot passed in run 40247430778, with three public post-reboot checks and exact-child cleanup. | The disposable `durable_local` fixture does not convert the retained legacy `owned` product run or establish abrupt power-loss behavior. |
@@ -80,8 +78,8 @@ terminal access. The red long-title assertion and failed attempt are retained
 with the ignored qualification output. No paid model was needed for this
 display or host-fixture correction.
 
-#1886 and parent #1877 remain open until the mandatory integrated evidence and
-live-delivery obligations are reconciled or explicitly deferred by the owner.
+#1886 and parent #1877 were held open for the mandatory integrated evidence and
+live-delivery obligations. Their final reconciliation is recorded below.
 
 ## Retained real follow-up after #2071
 
@@ -155,3 +153,100 @@ and fresh original-reference proof. A new follow-up guard additionally needs
 fresh results against authenticated previous-delivery source; historical PASS
 receipts cannot replace either current check. At this checkpoint, the
 follow-up remains incomplete and no faster delivery result is established.
+
+## Final scoped result, 2026-10-26 UTC
+
+The paid same-chat continuation completed on master
+`45c2997ffad16e1ce3b999daa85d0e5f5d1b8f85` (tools tree
+`f76a0eb205a415c64960ae6b9cac7db0df641038`). A clean wheel and all 950
+installed source files were checked byte-for-byte. Ordinary Resume restored
+the exact owner-approved revision 12; its body equals the exported plan hash
+`c14147a7fb3edd065138e26e8223a9a5188e86de117116d1f33e2ad5de72fcd7`.
+The three consumed planning reviews and their saved three-call allowance
+remain recorded. No further planning review, test generation, approval,
+recovery grant or limit increase was needed. Preflight added capability
+certificates for the existing Medium/Low choices; routes and limits stayed.
+
+The core recorded `TASK_COMPLETE` with current delivery at
+`2026-10-26T01:43:19.634824Z`, source
+`72c74b702d066a7b504f1cc5056251c3b8ab8258cbbf6870d474c5c13e2dfc19`.
+All eleven criteria were accepted. The test writer changed only
+`test_totals.py`; Builder changed only `totals.py`. Seven existing test
+functions are unchanged, with exactly four added. Independent verification
+used an offline Linux container, a read-only source mount and no credentials:
+
+| Source with the final tests | Result |
+| --- | --- |
+| Original buggy reference `231f0c1820e82dd6accda4e76954e5032e1c7d9c` | 7 failed, 4 passed |
+| Previous completed checkpoint `7b078185c719c0c265954ca0b3185bff78acad03` | 3 failed, 8 passed |
+| Accepted candidate | 11 passed; 29 additional independent checks passed |
+
+The fresh core proof also passed against both references. Original restore
+cases retain their `test:` obligations; the new preservation guard uses a
+fresh check of the authenticated previous delivery. Tester and Completion
+Reviewer remain separate. Actual reached models are only Codex
+`openai/gpt-6.1-sol` Medium and `zai-coding-plan/glm-5.3` Low through Kilo 7.8.3.
+The public bundle manifest is
+`2fc5b922ad297fd9cbf5271604e073b45617bbbe780624627b2608b578bc6e25`.
+
+### S01-S15 closeout
+
+Each row retains its qualified source and host evidence. Reused component
+results are distinct from the paid run and the final viewer check.
+
+| Scenarios | Scoped result and evidence |
+| --- | --- |
+| S01-S04 | PASS: [#2081 Ubuntu](https://github.com/charlieanna/autocode/actions/runs/40240625702) and [native service/SSH](https://github.com/charlieanna/autocode/actions/runs/40240625692), head `68d4ce7a090e1dd150319a563c47126dbcd95618`: 508 selected tests and all 8 native cases. Viewer/SSH loss, competing ownership and boundary pause retain the core's current authority. |
+| S05 | PASS: literal graceful reboot [40247430778](https://github.com/charlieanna/autocode/actions/runs/40247430778), source `1f8f49d4d266921d3b0baac445971e4dc6fa72c3`, three public post-reboot samples and exact-child cleanup. The earlier failed attempts remain recorded above and in #1881. |
+| S06-S08 | PASS: the same #2081 native/Ubuntu qualifications cover three projects/two viewers, stale approval, reordered reads, unavailable contexts and 25 public inventory entries. Actual listing-held samples were 121.3 ms for a key and 127.4 ms for help. Listing and active subscriptions are separate scopes. |
+| S09 | PASS: public repair/retry cases in [master run 40140418425](https://github.com/charlieanna/autocode/actions/runs/40140418425/job/121014841573), source `76377546fa7a1e56df6e14b2d7807b1f86bd4cfb`, include wrong-command/wrong-exit report correction, retained implementation and exact interrupted-report retry. #2096 adds focused stale-token/one-time recovery controls and the actual same-chat recovery above. Acknowledgement, pause, approval, retry and refusal keep their distinct authority. |
+| S10 | PASS: attention-flow/read-state cases in #2081 plus its native two-viewer journey. Read acknowledgement grants no answer or plan authority. |
+| S11-S12 | PASS: cost coverage remains explicitly incomplete, and core policy/fallback rows are rendered by clients. [#2043 CI](https://github.com/charlieanna/autocode/actions/runs/40163897145), head `d07ea7e90bd2ee0ade510fee532c39bd7af1262f`, includes all 8 stage-policy and 14 chat-cost cases. [M763's verification-schedule checks](https://github.com/charlieanna/autocode/actions/runs/40140418425/job/121014841573) passed 33 cases including identity invalidation and public restart reuse. Automatic policy/savings decisions remain the separate #1867 discussion. |
+| S13 | PASS: the original bug delivery and the exact-r12 same-chat feature are accepted, with fresh proof, preserved tests, independent checks and immutable source/bundle pins above. |
+| S14-S15 | PASS: Unicode, paste, resize, history and stable run/context identity use #2081's real-terminal evidence. #2110/#2111 additionally fixes repeated completion text under distinct public IDs: [302 tests/16 modules](https://github.com/charlieanna/autocode/actions/runs/40257712275/job/121363100207), real terminal regressions and [native service/SSH](https://github.com/charlieanna/autocode/actions/runs/40257712276/job/121363047259), head `7cea2180e7b51ca25f2e101b9a41999f77b4393b`. |
+
+After #2111 merged, master
+`6afbf948fd4ea474d17ba7bcc1a5edc9172c3b9c` (tools tree
+`cf2dee3e9ae87cef53104b1bb80aa6f29d345893`) was cleanly installed and all
+950 files verified. Reopening the actual completed chat visibly showed
+"The requested task is complete" beside current verified delivery and 11/11
+requirements. All 65 attempts, usage, routes, settings, approvals and delivery
+were unchanged; no model call was repeated. The pre-fix screen and pure
+two-view replay are retained with #2110's red/green regression evidence.
+
+This qualification covers supported persistent Linux and graceful reboot.
+The retained product run remains legacy `owned`; the reboot fixture was
+`durable_local`. Abrupt power loss, 25 active workers, a fixed global freshness
+SLA and deployment of Jira/channel adapters are outside this accepted scope.
+
+### Actual timing and cost comparison
+
+| Measurement | Observed result |
+| --- | --- |
+| Resume to recorded core completion | 515.065 s (8m35) |
+| Two preflights / Builder / fresh proof | 45.699 s / 95.115 s / 8.9 s |
+| Tester / separate Completion Reviewer | 239.338 s / 58.888 s |
+| Whole follow-up, including earlier failures and holds | 5h01m30.688s wall; 43 attempt rows, 13 rejected; 36m26.293s known summed execution |
+| Retained original AutoCode bug run | 16m08 known summed attempt time; 51m32 raw wall, including 24m10 engineering/CI/install hold |
+| Retained direct Kilo CLI original-bug sample | 27.891 s wall; 7 tests and 17 independent checks |
+
+The 8m35 recovery slice establishes successful convergence after the planning
+repair. It does not erase the preceding failures or establish an overall
+speed advantage over Kilo. The comparison uses different task slices and
+verification scopes. The final display repair and its CI happened after core
+completion and are outside that 8m35 measurement.
+
+The core records a known estimate of $2.162992; 13 stages remain unpriced and
+the cap remains $3. Historical per-attempt estimates use another pricing basis;
+their sum is not that subtotal. Complete provider billing remains unknown.
+The main remaining performance decision is evidence-aware stage selection
+and reduced duplicated model work, recorded with the actual measurements in
+[#1867](https://github.com/charlieanna/autocode/issues/1867#issuecomment-6406604380).
+
+Failed CI remains part of the record: #2098 first needed a formatting fix and
+then encountered the stale additive-field expectation; #2099 corrected that
+expectation but exposed the separate unqualified fake-version fixture.
+[#2106](https://github.com/charlieanna/autocode/pull/2106) repaired only that
+fixture, with 23 CI tests and required checks green. Product admission and the
+shared unsupported-version control were preserved. No paid baseline or broad
+local reliability sweep was added for these test/documentation corrections.

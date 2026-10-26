@@ -5,6 +5,34 @@
 OpenCode is the default engine. Codex: `--engine codex`. Claude Code: `--engine claude`
 ([built in](#claude-code-provider)). Any other tool registers with one TOML file.
 
+## You do not need to choose a model
+
+Connecting one account is enough. Automatic selection reads the tool's own model and
+login listings, prefers subscriptions, and keeps the producer and checker roles on
+independent models ([automatic model selection](models.md#choosing-models-automatically)).
+
+`autocode connections setup` ends by naming the route each role will use, from that
+local listing and without launching anything:
+
+```text
+Routes for a new run, from kilocode's local listing:
+  Requirements: zai-coding-plan/glm-5.3 at medium (Z.AI Coding Plan subscription; qualified for Requirements)
+  Planner: openai/gpt-6-sol at high (OpenAI subscription; qualified for Planner)
+  Builder: openai/gpt-6-sol at medium (OpenAI subscription; qualified for Builder)
+```
+
+A new run with no model flag prints the same lines for its roles before it spends
+anything. A client reads them from `autocode connections list --routes --json` as
+`routes[]` and `routes_lines`; `autocode models --selection` shows the same choice with
+the alternatives it rejected and why. When no connected account can field a qualified
+route for a role, `routes_stop` and that preview say which role and which accounts would.
+
+Every `--<role>-model`, `--single-model` and `--<role>-reasoning-effort` flag is an
+override on top of that choice, not a required setup step. An override is checked at the
+same launch boundary as an automatic route: an effort the model does not declare pauses
+as `PAUSED_EFFORT_UNSUPPORTED` and names the variants it does
+([Reasoning effort](models.md#reasoning-effort)).
+
 ## Provider process ownership
 
 Supervised task-stage providers, including core TaskRun conversations and

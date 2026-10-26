@@ -124,8 +124,13 @@ def execute(
     checkpoint=None,
     deadline=None,
     prepare=None,
+    role=None,
 ):
-    """``prepare(argv, env) -> (argv, env)`` adjusts a tool launch before it runs (the access probe's bare agent)."""
+    """``prepare(argv, env) -> (argv, env)`` adjusts a tool launch before it runs (the access probe's bare agent).
+
+    ``role`` names the role whose route is being proven when one does; the launch then carries that
+    role, so a tool that refuses the effort names the flag that changes it (#2108). Without it the
+    probe keeps its generic read-only/write role."""
     directory.mkdir(parents=True)
     # One stem: a report_file adapter reads its report next to the events file the launch
     # wrote (Path.with_suffix), so the two paths must share it.
@@ -156,20 +161,30 @@ def execute(
         launch_kwargs = {}
         if hasattr(adapter, "parse_opencode_version"):
             launch_kwargs["opencode_version"] = adapter.local_settings(workspace, env=env)["version"]
-        argv, child_env, _ = adapter.launch(
-            "terra" if allow_write else "sol",
-            workspace,
-            directory,
-            session,
-            model,
-            effort,
-            allow_write,
-            report=report_path,
-            schema=schema_path,
-            prompt_file=prompt_path,
-            env=child_env,
-            **launch_kwargs,
-        )
+        try:
+            from .providers.kilocode import KiloEffortError
+        except ImportError:
+            from providers.kilocode import KiloEffortError
+        try:
+            argv, child_env, _ = adapter.launch(
+                role or ("terra" if allow_write else "sol"),
+                workspace,
+                directory,
+                session,
+                model,
+                effort,
+                allow_write,
+                report=report_path,
+                schema=schema_path,
+                prompt_file=prompt_path,
+                env=child_env,
+                **launch_kwargs,
+            )
+        except KiloEffortError as error:
+            # The tool refused the variant before any request. A probe has no stage wrapper to
+            # classify it, so report the same pause its stage launch would (autocode_provider_launch),
+            # instead of an unclassified RuntimeError (#2108).
+            raise support.Paused("PAUSED_TRANSPORT_UNVERIFIED", str(error)) from error
     if prepare is not None and adapter is not None:
         argv, child_env = prepare(list(argv), dict(child_env))
     prompt_path.write_text(prompt)

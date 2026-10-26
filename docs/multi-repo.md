@@ -23,8 +23,10 @@ deliver only the API half.
   Answer `This repository only` to plan this repository's part. The plan then lists
   each other part in its scope exclusions as `Not covered: changes in TARGET: WORK`,
   so the approval screen shows what this run will not deliver. To change the
-  request instead, give feedback. Linking a run in the other repository and
-  stopping with a brief for each repository are later steps of
+  request instead, give feedback. To stop instead, leave the question
+  unanswered: the run's status (`scope.briefs`) holds a ready brief for each
+  repository, this one first, to start a run with in each. Linking a run in the
+  other repository is a later step of
   [#2066](https://github.com/charlieanna/autocode/issues/2066).
 - **Component builds stay inside one repository.** `autocode components` builds
   several components in parallel, but every component worktree comes from the

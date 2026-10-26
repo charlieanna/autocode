@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
+from pathlib import Path
+
 PREFIX = "workspace-scope-"
 THIS_REPOSITORY = "This repository only"
 EXCLUSION_PREFIX = "Not covered: changes in "
@@ -70,7 +72,8 @@ def question(state: RunState) -> dict | None:
             "Part of this request belongs to another repository, and this run can change only this one:\n"
             + "\n".join(lines)
             + f"\nAnswer '{THIS_REPOSITORY}' to plan and deliver this repository's part, with the rest recorded "
-            "as not covered, or give feedback to change the request."
+            "as not covered, or give feedback to change the request. To stop here instead, leave this unanswered: "
+            "the run's status lists a ready brief for each repository (scope.briefs)."
         ),
         "why": "A run in this repository alone cannot deliver the other repository's part.",
         "options": [THIS_REPOSITORY],
@@ -110,6 +113,37 @@ def check(state: RunState, contract: dict) -> None:
         raise ValueError("; ".join(errors))
 
 
+def briefs(state: RunState) -> list[dict]:
+    """A ready brief for each repository the request spans, this one first; [] when it spans nothing.
+
+    Each is plain text a person can start a run with in that repository. Nothing is started: running
+    them, and keeping the two sides consistent, stays with the person until runs can be linked."""
+    found = parts(state)
+    if not found:
+        return []
+    task = " ".join(str(state.get("task") or "").split())
+    here = Path(str(state.get("workspace") or "")).name or "this repository"
+    elsewhere = "; ".join(f"{part['target']}: {part.get('work', '')}" for part in found)
+    rows = [
+        {
+            "repository": here,
+            "brief": f"{task}\n\nNot covered here, a separate run in each repository: {elsewhere}.",
+        }
+    ]
+    for part in found:
+        rows.append(
+            {
+                "repository": part["target"],
+                "brief": (
+                    f"In {part['target']}: {part.get('work', '')}.\n\nThis is the {part['target']} side of a request "
+                    f"made in {here}: {task}\n\nThis run owns only {part['target']}'s side. Keep the interface the "
+                    f"two sides share (field names, payloads, schemas) as the {here} run expects it."
+                ),
+            }
+        )
+    return rows
+
+
 def view(state: RunState, dropped=None) -> dict:
     """The status view's ``scope``: what the request spans and what this run leaves out."""
     found = parts(state)
@@ -120,4 +154,5 @@ def view(state: RunState, dropped=None) -> dict:
         "decision": decision(state),
         "dropped": list(dropped or []),
         "linked": [],
+        "briefs": briefs(state),
     }
