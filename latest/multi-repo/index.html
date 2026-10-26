@@ -851,10 +851,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-autocode-does-today" class="md-nav__link">
+  <a href="#automatic-bug-fixes-from-terminal-chat" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What AutoCode does today
+        Automatic bug fixes from terminal chat
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manual-change-sets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manual change sets
       
     </span>
   </a>
@@ -1898,10 +1909,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-autocode-does-today" class="md-nav__link">
+  <a href="#automatic-bug-fixes-from-terminal-chat" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What AutoCode does today
+        Automatic bug fixes from terminal chat
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manual-change-sets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manual change sets
       
     </span>
   </a>
@@ -1962,7 +1984,7 @@
 
 
 <h1 id="work-that-spans-several-repositories">Work that spans several repositories<a class="headerlink" href="#work-that-spans-several-repositories" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/0b7c5a73b93f81c3218ca7322fec3228fcaa367e/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/c35c67f917dcb1bed39ea6a3218be727f615b5f9/README.md">← Back to README</a></p>
 <p>One AutoCode run changes one repository. Its workspace is one Git tree. The
 checkpoints, diffs, protected tests and the Builder's declared changes are all
 bounded to that tree, and a Builder write outside it is treated as a fault.</p>
@@ -1970,7 +1992,56 @@ bounded to that tree, and a Builder write outside it is treated as a fault.</p>
 repository. A ticket that adds a field to an API service and records it in a
 history service is two pieces of work. A run started in the API repository can
 deliver only the API half.</p>
-<h2 id="what-autocode-does-today">What AutoCode does today<a class="headerlink" href="#what-autocode-does-today" title="Permanent link">&para;</a></h2>
+<h2 id="automatic-bug-fixes-from-terminal-chat">Automatic bug fixes from terminal chat<a class="headerlink" href="#automatic-bug-fixes-from-terminal-chat" title="Permanent link">&para;</a></h2>
+<p>Start <code>autocode chat</code> in the repository where you see the symptom. On a supported
+Linux host, use an owned chat (the default), set up your coding backend with <code>/connect</code>, then authorize the local
+Git checkouts AutoCode may use:</p>
+<pre><code class="language-text">/repos /path/to/order-api
+/repos /path/to/history-service
+/repos /path/to/tax-service
+Submitting an order records the wrong total.
+</code></pre>
+<p>This catalog is setup, not a list you must add to each bug report. <code>/repos</code> shows
+it. Chat setup and related runs share one registry; <code>AUTOCODE_HOME</code> can select a
+shared registry across projects. Checkouts need committed product code, a branch
+identifying the delivery base, a GitHub <code>origin</code>, Git push authentication, and
+<code>gh auth login</code>, <code>GITHUB_TOKEN</code> or <code>GH_TOKEN</code> for PR creation. <code>/repos</code> shows
+authentication readiness. Before creating a worktree, AutoCode checks repository
+write access and that the local baseline matches the remote delivery branch.
+Missing checkouts must be made
+available before their work starts. Parent-folder scanning and remote cloning
+remain separate catalog work under #2066.</p>
+<p>The Investigator traces the symptom through code. Grounded repository names
+resolve against registered directory, GitHub or package names. A unique match is
+selected automatically; ambiguity or missing access stops for your input.
+Model-supplied paths and URLs do not authorize a checkout. Further discoveries
+join the same coordination, including A → B → C dependencies absent from the
+request. Every member works in an isolated, pinned worktree. Original product
+files remain untouched.</p>
+<p>If the set expands after a member finishes, AutoCode reopens completed peers and
+shows a fresh cohort approval with the new member. Earlier approvals cannot
+release implementation against the expanded set.</p>
+<p>Read and approve the displayed member plans. AutoCode retains the selected role
+routes, efforts and run limits. A configured money cap is shared across sequential
+launches using the core's known-cost accounting; unknown cost remains unknown.
+After each member passes its checks, a separate
+integration Builder derives a joint regression from the symptom and interfaces.
+Chat displays this plan for approval too; you do not write its test command.
+Corrections discovered in the integration copies return through member follow-ups
+and fresh coordinated approval. A failed independent check also returns its
+diagnostics to a new integration plan, retaining the failed evidence. The limits
+are 12 repositories and three joint attempts.</p>
+<p>Independent review and runner execution must establish fail-before/pass-after
+evidence. Integration copies must match the member trees exactly. Missing checks,
+waivers and individual PASS reports cannot authorize publication. AutoCode commits
+the checked files, pushes reserved branches and creates linked PRs with exact
+revisions and the joint evidence binding. Reopening the chat reconciles existing
+publications; an uncertain result never authorizes a second PR creation. PRs are
+not merged automatically.</p>
+<p><code>/pause</code> cancels further coordination and requests a boundary pause from active
+members, retaining files and existing PRs. The TUI consumes the public
+<a href="../task-run/#automatic-coordination-from-chat">coordination contract</a>.</p>
+<h2 id="manual-change-sets">Manual change sets<a class="headerlink" href="#manual-change-sets" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Requirements and the Investigator notice the other repository.</strong> When the request or the code they
   read shows that part of the work belongs elsewhere, the report
@@ -2029,12 +2100,8 @@ deliver only the API half.</p>
   checks do not see them. Treat both as unsupported.</li>
 </ul>
 <h2 id="walkthrough-a-bug-reveals-another-repository">Walkthrough: a bug reveals another repository<a class="headerlink" href="#walkthrough-a-bug-reveals-another-repository" title="Permanent link">&para;</a></h2>
-<p>This is the <strong>current manual fallback</strong>, not the intended everyday chat flow.
-The owner-approved target in <a href="https://github.com/charlieanna/autocode/issues/2155">#2155</a>
-is automatic discovery, coordinated fixes, a combined regression and linked PRs
-from the original TUI bug request. The person should answer genuine ambiguities
-and required approvals, not supply repository topology or an integration command.
-That full workflow remains unimplemented and unverified.</p>
+<p>This walkthrough describes explicit <code>changeset</code> commands for callers that manage
+their own integration check. Terminal bug chats use the automatic flow above.</p>
 <p>Suppose you report “Submitting an order records the wrong total” in <code>order-api</code>.
 The Investigator finds a call to <code>history-service</code> and reports that its consumer
 also needs to accept the corrected payload. You did not need to name that
@@ -2135,6 +2202,18 @@ discover an arbitrary service dependency.</p>
 </thead>
 <tbody>
 <tr>
+<td>TUI symptom → A → B → C discovery → fixes → joint regression → three PRs</td>
+<td><code>tests/test_coordination_tui_e2e.py</code>: public chat actions, real Git repositories and actual producer/consumer calls, independent fail-before/pass-after proof, offline GitHub publication and cross-links</td>
+</tr>
+<tr>
+<td>Locally passing but incompatible member; lost PR response and reopened chat</td>
+<td>The same full-flow test requires a revised coordinated plan, a second joint regression, no publication before correction and exactly one PR per repository; changed joint-test bytes withdraw completion</td>
+</tr>
+<tr>
+<td>Missing or ambiguous repository, missing credentials/access, stale approval, cancellation, changed source/remote, exhausted joint retries</td>
+<td><code>tests/test_coordinate.py</code>: refusal or bounded correction before launching/publishing; <code>tests/test_control_tokens.py</code> keeps coordination approval tokens out of provider environments</td>
+</tr>
+<tr>
 <td>Initial bug request omits the other repository; Investigator cites a local service client</td>
 <td><code>tests/test_bug_questions.py</code>: pause before planning, public registration of a fresh checkout, linked start, reciprocal links, no Builder, explicit local-only answer</td>
 </tr>
@@ -2166,9 +2245,18 @@ limits:</p>
 <ul>
 <li>Discovery depends on the model reporting grounded external work; it does not
   crawl every repository or automatically clone a missing one.</li>
-<li>The person selects and links checkouts and supplies the joint check. A parent
-  folder containing sibling repositories is still unsupported.</li>
-<li>Without a named integration command, <code>verification.done</code> means all individual
+<li>Automatic coordination currently supports owned terminal chats on Linux and
+  local Git repositories containing ordinary files. Symlinks, submodules and
+  <code>durable_local</code> coordination are refused explicitly; saved execution policies
+  are never silently changed.</li>
+<li>Independent verification also requires preservation evidence from the original
+  combined suite. If that suite cannot collect or supplies no complete passing
+  test evidence, the result remains unverified and bounded retries stop with
+  diagnostics.</li>
+<li>The manual change-set API leaves linking and the check command to its caller.
+  Automatic TUI coordination supplies them and requires its separate joint gate.
+  A parent folder containing sibling repositories is still unsupported.</li>
+<li>In the manual change-set API, without a named integration command, <code>verification.done</code> means all individual
   runs completed. It does <strong>not</strong> prove the producer and consumer agree. Name the
   check before treating the overall bug as resolved.</li>
 <li>Set approval binds member plans; a separately versioned shared-interface

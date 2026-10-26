@@ -2460,7 +2460,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/0b7c5a73b93f81c3218ca7322fec3228fcaa367e/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/c35c67f917dcb1bed39ea6a3218be727f615b5f9/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2506,6 +2506,10 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 <tr>
 <td><code>autocode verify</code></td>
 <td>Check an existing working-tree change, branch or patch against caller-supplied criteria; retain independent review, replay and external-change proof in the canonical evidence format. See <a href="../verify/">Standalone verification</a>.</td>
+</tr>
+<tr>
+<td><code>autocode coordinate status\|advance\|approve\|choose\|cancel\|access</code></td>
+<td>Coordinate a terminal-chat bug across authorized local repositories, prove the combined fix and publish linked PRs. The chat takes the core's named actions; see <a href="../multi-repo/#automatic-bug-fixes-from-terminal-chat">Automatic multi-repository fixes</a>.</td>
 </tr>
 <tr>
 <td><code>autocode chat [BRIEF] [--mode ID] [-- RUN_OPTIONS]</code></td>
@@ -2672,7 +2676,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/0b7c5a73b93f81c3218ca7322fec3228fcaa367e/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/c35c67f917dcb1bed39ea6a3218be727f615b5f9/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -2959,6 +2963,18 @@ not approve a plan or start a model.</p>
 <tr>
 <td><code>--changeset-token TOKEN</code></td>
 <td>With <code>--approve-goal</code> on a saved run, bind the approval to a prepared change set. The coordinator supplies this through <code>TaskRun</code>; use <code>changeset approve</code> to review and approve all member plans. Builders remain held until every member has accepted the same set.</td>
+</tr>
+<tr>
+<td><code>--related-profile PATH</code></td>
+<td>Fresh runs only: inherit the coordinator's pinned role routes and limits. Requires its exact <code>--related-profile-sha256</code>; target approval policy remains enforced. The core supplies this for related runs.</td>
+</tr>
+<tr>
+<td><code>--related-profile-sha256 SHA256</code></td>
+<td>Exact hash of <code>--related-profile</code>; both options are required together.</td>
+</tr>
+<tr>
+<td><code>--assign-linked-scope IDENTITY</code></td>
+<td>On a saved run, accept the core's exact repository assignment for the current scope identity. Requires the matching registered change set; grants no plan approval.</td>
 </tr>
 <tr>
 <td><code>--edit-goal body.json</code></td>
@@ -3254,7 +3270,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/0b7c5a73b93f81c3218ca7322fec3228fcaa367e/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/c35c67f917dcb1bed39ea6a3218be727f615b5f9/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3672,8 +3688,13 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 </tr>
 <tr>
 <td><code>autocode verify</code></td>
-<td><code>--workspace</code>, <code>--base</code>, <code>--branch</code>, <code>--patch</code>, <code>--criteria</code>, <code>--criteria-file</code>, <code>--out</code>, <code>--record</code>, <code>--engine</code>, <code>--provider</code>, <code>--model</code>, <code>--reasoning-effort</code>, <code>--evidence-provenance</code>, <code>--suite-command</code>, <code>--check-timeout</code>, <code>--max-seconds</code>, <code>--max-stage-seconds</code>, <code>--json</code></td>
-<td>Verify an existing change against caller criteria, or read a retained verification and recheck freshness. See <a href="../verify/">Standalone verification</a>.</td>
+<td><code>--workspace</code>, <code>--base</code>, <code>--branch</code>, <code>--patch</code>, <code>--criteria</code>, <code>--criteria-file</code>, <code>--out</code>, <code>--record</code>, <code>--engine</code>, <code>--provider</code>, <code>--model</code>, <code>--reasoning-effort</code>, <code>--evidence-provenance</code>, <code>--suite-command</code>, <code>--check-timeout</code>, <code>--max-seconds</code>, <code>--max-stage-seconds</code>, <code>--max-cost-usd</code>, <code>--related-profile</code>, <code>--related-profile-sha256</code>, <code>--json</code></td>
+<td>Verify an existing change against caller criteria, or read a retained verification and recheck freshness. <code>--max-cost-usd</code> caps independent review cost; the paired related-profile options preserve a coordinating run's pinned role routes and limits. See <a href="../verify/">Standalone verification</a>.</td>
+</tr>
+<tr>
+<td><code>autocode coordinate</code></td>
+<td><code>--run-dir</code>, <code>--workspace</code>, <code>--token</code>, <code>--target</code>, <code>--json</code></td>
+<td>The anchor run to coordinate, the authorized local checkout to choose, the exact token of the displayed plans to approve, the ambiguous repository target to resolve, and JSON output. <code>status</code> reads; <code>advance</code> performs one durable core step; <code>approve</code>, <code>choose</code> and <code>cancel</code> take the corresponding named action. <code>access</code> checks GitHub delivery readiness without starting a run. Register local checkouts with the chat's <code>/repos PATH</code>.</td>
 </tr>
 <tr>
 <td><code>autocode doctor</code></td>
@@ -4032,6 +4053,10 @@ highlighted one:</p>
 <td>At a question, or during detachable durable work: switch to tab N (also <code>Ctrl-←</code>/<code>Ctrl-→</code>); a tab Ctrl-T opened can be left the same way before its request is sent, since nothing runs there. Once a session has two chats, a tab bar under the header lists them with a mark for each: <code>●</code> working, <code>!</code> needs you, <code>✓</code> done</td>
 </tr>
 <tr>
+<td><code>/repos [PATH]</code></td>
+<td>List authorized local repositories; add a committed checkout for automatic bug discovery, isolated fixes, generated joint regression and linked PRs. See <a href="../multi-repo/#automatic-bug-fixes-from-terminal-chat">multi-repository setup</a>.</td>
+</tr>
+<tr>
 <td><code>/mode [ID]</code></td>
 <td>The modes the core lists (<code>autocode modes list</code>; only <code>full</code> since 2026-10-22), and which one new chats start in; <code>/mode ID</code> changes it for new chats only, and a saved mode the core no longer lists gives way to its default</td>
 </tr>
@@ -4148,7 +4173,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/0b7c5a73b93f81c3218ca7322fec3228fcaa367e/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/c35c67f917dcb1bed39ea6a3218be727f615b5f9/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
