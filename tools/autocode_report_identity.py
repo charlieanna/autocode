@@ -91,7 +91,7 @@ def bind(value, schema, record, state: RunState):
     return result, corrections
 
 
-def adopt(value, record, state: RunState):
+def adopt(value, record, state: RunState | None):
     """Load-time entry: correct against the record's saved schema and keep the receipt on the record.
 
     The loader preserves the raw response as ``reported_output`` whenever the value changes.
