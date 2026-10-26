@@ -353,6 +353,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The model access preflight now proves each route under the role that owns it, and a tool refusing
+  the level there pauses as `PAUSED_TRANSPORT_UNVERIFIED` with that role's own flag instead of an
+  unclassified error reported as `PAUSED_INVALID_OUTPUT` with the Tester's flag (#2108, #2057). This
+  is the case the pre-fit cannot decide: a manually given level on a model with no declared listing,
+  where only the tool's own variant check can answer.
+
 - The model access preflight now fits every role's effort before its first probe, as the launch
   boundary does (#2104, #2057). A person-named level its model does not declare pauses as
   `PAUSED_EFFORT_UNSUPPORTED` with the role's own flag before any probe spends, instead of probing at

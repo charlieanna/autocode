@@ -7,10 +7,12 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_support as support
 import provider_conformance as cli
 import provider_conformance_contract as contract
 import provider_conformance_fake as fake
@@ -257,6 +259,68 @@ class CliTests(unittest.TestCase):
             self.assertEqual("INTERRUPTED", result["status"])
             self.assertEqual(1, execute.call_count)
             self.assertTrue((Path(result["phases"][0]["artifacts"]) / "result.json").is_file())
+
+
+class ProbeLaunchRoleTests(unittest.TestCase):
+    """#2108: a probe names the role it proves, and a tool's effort refusal becomes the stage launch's pause."""
+
+    class Stopped(RuntimeError):
+        pass
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.roles = []
+
+    def adapter(self, error=None):
+        def launch(role, *args, **kwargs):
+            self.roles.append(role)
+            raise error or self.Stopped
+
+        return types.SimpleNamespace(launch=launch)
+
+    def execute(self, adapter, *, allow_write=False, role=None, directory="probe"):
+        return transport.execute(
+            adapter=adapter,
+            workspace=self.root,
+            directory=self.root / directory,
+            model="zai-coding-plan/glm-5.3",
+            effort="medium",
+            session=None,
+            allow_write=allow_write,
+            prompt="probe",
+            schema={"type": "object"},
+            env={},
+            timeout=30,
+            role=role,
+        )
+
+    def test_a_probe_launch_carries_the_role_it_proves(self):
+        with self.assertRaises(self.Stopped):
+            self.execute(self.adapter(), role="glm")
+        self.assertEqual(["glm"], self.roles)
+
+    def test_a_probe_without_a_role_keeps_its_read_only_and_write_names(self):
+        with self.assertRaises(self.Stopped):
+            self.execute(self.adapter(), directory="read")
+        with self.assertRaises(self.Stopped):
+            self.execute(self.adapter(), allow_write=True, directory="write")
+        self.assertEqual(["sol", "terra"], self.roles)
+
+    def test_a_tool_effort_refusal_is_the_named_pause_its_stage_launch_reports(self):
+        from providers.kilocode import KiloEffortError
+
+        error = KiloEffortError(
+            "Kilo model zai-coding-plan/glm-5.3 does not support reasoning variant 'medium'; "
+            "supported variants: high, low, max. Name one of them with --glm-reasoning-effort high; "
+            "no model request was launched"
+        )
+        with self.assertRaises(support.Paused) as caught:
+            self.execute(self.adapter(error), role="glm")
+        self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", caught.exception.status)
+        self.assertIn("--glm-reasoning-effort high", str(caught.exception))
+        self.assertIs(error, caught.exception.__cause__)
 
 
 if __name__ == "__main__":
