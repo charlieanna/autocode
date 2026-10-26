@@ -27,7 +27,7 @@ PROVIDERS = {
     "mimo": ("compatible", ""),
     "zai": ("compatible", ""),
     "openai": ("compatible", "https://api.openai.com/v1"),
-    "openrouter": ("compatible", "https://openrouter.ai/v1"),
+    "openrouter": ("compatible", "https://openrouter.ai/api/v1"),
     "claude": ("anthropic", "https://api.anthropic.com/v1"),
     "compatible": ("compatible", ""),
 }

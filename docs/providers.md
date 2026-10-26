@@ -1074,7 +1074,7 @@ exact endpoint and matching key for your billing route: ordinary API access and
 Token/Coding Plan subscriptions have separate endpoints. Setup shows the API
 examples and requires you to choose; it never falls back to another billing
 route. OpenAI defaults to `https://api.openai.com/v1`; OpenRouter defaults to
-`https://openrouter.ai/v1`; Claude defaults to
+`https://openrouter.ai/api/v1`; Claude defaults to
 `https://api.anthropic.com/v1`. Endpoint overrides require HTTPS (HTTP is allowed
 only for loopback fixtures). This setup accepts API keys, not ChatGPT or Claude
 subscription logins. Kilo continues to own its separate sign-in and routes.
