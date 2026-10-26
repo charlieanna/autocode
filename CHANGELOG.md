@@ -353,6 +353,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The model access preflight now fits every role's effort before its first probe, as the launch
+  boundary does (#2104, #2057). A person-named level its model does not declare pauses as
+  `PAUSED_EFFORT_UNSUPPORTED` with the role's own flag before any probe spends, instead of probing at
+  the unsupported level until Kilo's own refusal surfaced as `PAUSED_INVALID_OUTPUT` with the Tester's
+  flag. A runner-chosen level is probed at the variant its model declares, the one a stage will launch.
+
 - Follow-up test generation keeps unchanged tests from a completed turn under their approved
   fail-first meaning instead of reopening planning when they pass current code. Fresh proof checks
   inherited regressions against the original reference and new guards against the completed source.
