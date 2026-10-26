@@ -68,7 +68,9 @@ class DirectCliTests(unittest.TestCase):
                 body["messages"][0]["content"][0]["text"] if protocol == "anthropic" else body["messages"][1]["content"]
             )
             data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
-            stage = data["stage"]
+            stage = data.get("stage")
+            if stage is None:
+                return 400, {"error": "stage-less handoff", "keys": sorted(data)}
             stages.append(stage)
             if stage == "recognize_workflow":
                 report = {
@@ -165,8 +167,11 @@ class DirectCliTests(unittest.TestCase):
 
         def respond(body):
             data = json.loads(body["messages"][1]["content"].split("CURRENT HANDOFF DATA\n", 1)[1])
-            stages.append(data["stage"])
-            if data["stage"] == "recognize_workflow":
+            stage = data.get("stage")
+            if stage is None:
+                return 400, {"error": "stage-less handoff", "keys": sorted(data)}
+            stages.append(stage)
+            if stage == "recognize_workflow":
                 report = {
                     "workflow": "build",
                     "reason": "Greeting needs an engineering outcome",

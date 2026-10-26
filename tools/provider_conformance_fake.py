@@ -29,7 +29,7 @@ FAULTS = (
 DIRECT_MODEL = "fixture/direct-probe"
 
 # Keep the fake model servers alive for the process lifetime; the runs are sequential.
-_DIRECT_SERVERS = []
+_DIRECT_SERVERS: list[ThreadingHTTPServer] = []
 
 
 def environment(directory, env, fault=None):

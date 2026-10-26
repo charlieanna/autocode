@@ -210,7 +210,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual("PASS", result["status"], result)
             self.assertEqual(["build", "validate"], [p["phase"] for p in result["phases"]])
             launch = json.loads((Path(result["phases"][0]["artifacts"]) / "launch.json").read_text())
-            self.assertTrue(launch["argv"][0].endswith("autocode_direct_runtime.py"))
+            self.assertTrue(launch["argv"][1].endswith("autocode_direct_runtime.py"))
             self.assertIn("--provider=compatible", launch["argv"])
             self.assertNotIn("fixture-direct-key", json.dumps(launch))
             self.assertEqual("autocode", result["identity"]["engine"])
