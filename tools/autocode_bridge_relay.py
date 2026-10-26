@@ -59,7 +59,8 @@ def _reason(need: dict) -> str:
 
 def gate_key(view: dict, changeset: dict | None = None) -> str:
     """A stable identity for the current gate, so an unchanged stop is relayed once. A plan gate in a
-    change set also changes when the set becomes approvable (its set token)."""
+    change set also changes when the set becomes approvable (its set token); a set that is still
+    waiting, or could not be read, keeps the plain plan key."""
     if view.get("done"):
         return "done"
     need = view.get("needs") or {}
@@ -75,8 +76,9 @@ def gate_key(view: dict, changeset: dict | None = None) -> str:
             if need.get("resolver_token")
             else f"unpublished:{ids}"
         )
-    if kind == "approve_plan" and changeset:
-        return f"{kind}:{need.get('token')}:set:{(changeset.get('approval') or {}).get('set_token')}"
+    set_token = ((changeset or {}).get("approval") or {}).get("set_token")
+    if kind == "approve_plan" and set_token:
+        return f"{kind}:{need.get('token')}:set:{set_token}"
     if kind in ("approve_plan", "review"):
         return f"{kind}:{need.get('token')}"
     return f"{kind}:{_reason(need)}:{need.get('job_retry_token') or ''}"
@@ -161,12 +163,25 @@ def route_markdown(need: dict) -> str:
     return "\n".join(lines)
 
 
+def _same_plan_in_unread_set(view: dict, shown: dict) -> bool:
+    """A linked run's plan gate whose set could not be read this poll, already relayed for this plan."""
+    need = view.get("needs") or {}
+    if need.get("kind") != "approve_plan" or not (view.get("scope") or {}).get("linked"):
+        return False
+    key = f"approve_plan:{need.get('token')}"
+    shown_key = str(shown.get("key") or "")
+    return shown_key == key or shown_key.startswith(key + ":set:")
+
+
 def relay(view: dict, record: dict, changeset: dict | None = None) -> RelayResult:
     """The channel messages this view calls for, and the gate state to remember. ``changeset`` is
     ``autocode changeset status --json`` for a run in a change set (owner decision 2026-10-25)."""
     result = RelayResult(gate={"key": gate_key(view, changeset)})
-    if record.get("gate", {}).get("key") == result.gate["key"]:
+    shown = record.get("gate") or {}
+    if shown.get("key") == result.gate["key"]:
         return result  # an unchanged stop was already relayed
+    if changeset is None and _same_plan_in_unread_set(view, shown):
+        return result  # a set that could not be read this poll is not a new gate; the shown one stands
     if view.get("done"):
         outcome = (view.get("evidence") or {}).get("outcome") or view.get("status") or "complete"
         result.messages = [f"**Task complete** ({outcome}). Preparing the pull request with the run's evidence."]
