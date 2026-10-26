@@ -1962,7 +1962,7 @@
 
 
 <h1 id="channel-bridge-github-issues-as-the-front-door">Channel bridge: GitHub issues as the front door<a class="headerlink" href="#channel-bridge-github-issues-as-the-front-door" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/453baafa124b4edc0ab844e5aa50d1bc2f115c35/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/d7bdc160a0858b84286b7a575a22456899bc6f91/README.md">← Back to README</a></p>
 <p>The channel bridge runs <code>autocode bridge</code> on the same persistent Linux host as
 the core. A team member opens an issue with the bridge label; the bridge starts
 a <strong>durable</strong> run (it survives the bridge, the terminal and the SSH session).
@@ -2038,7 +2038,12 @@ autocode bridge run       # the daemon; one per host (a lock file refuses a seco
 <li>Read the plan it posts — the acceptance criteria, how each will be checked,
    constraints and permission boundaries. Reply <code>approve</code> to accept it, or
    reply with what to change (that goes back to the Requirements Gatherer, and
-   the revised plan is posted for a fresh decision).</li>
+   the revised plan is posted for a fresh decision).
+   If the run is one of a change set (<code>autocode changeset link</code>), the bridge
+   also posts the other runs. Once every run waits with a complete plan, it
+   posts their plans too, and <code>approve set</code> approves every plan together
+   (<a href="../task-run/#change-sets-in-clients">change sets in clients</a>). <code>approve</code>
+   still releases this run alone.</li>
 <li>Walk away. If the run pauses or a role's model runs out of quota, the
    bridge posts why and what to reply (<code>resume</code>, or <code>model NAME</code>).</li>
 <li>On completion the bridge commits the change on the run's branch and
@@ -2057,7 +2062,9 @@ the terminal chat and the headless conformance client:</p>
   posted first. Anything else becomes feedback to the planning stage.</li>
 <li><strong>An approval binds to the plan that was shown.</strong> The bridge records the
   token of the plan it posted; if the plan changed since, the approval is
-  refused and the new plan is posted instead. Words written before a gate was
+  refused and the new plan is posted instead. <code>approve set</code> binds the same way
+  to the change set's plans it posted, and takes only the set approval
+  <code>autocode changeset status</code> names. Words written before a gate was
   posted can never answer it: each gate remembers which comments it has already
   consumed.</li>
 <li><strong>Person-only stops stay person-only.</strong> Pauses, retries and blockers are
