@@ -11,6 +11,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode connections setup` now ends by naming the route each role will use (model, reasoning
+  level, the account and that it is a qualified choice), and a new run with no model flag prints the
+  same lines before it spends anything (#2057). Both read the connected tool's own model listing and
+  launch no model; `connections list --routes --json` returns the same rows as `routes[]` for clients,
+  with `routes_stop` when no connected account can field a qualified route for a role. The plain
+  listing stays subprocess-free and names `routes_next_command` instead. `docs/providers.md` now starts
+  with "You do not need to choose a model", with the model and effort flags as overrides.
+
 - A reasoning effort you named that the role's model does not declare is now a pause you can answer
   (#2057). The run stops as `PAUSED_EFFORT_UNSUPPORTED` before any stage launches, and the status view
   names `--answer effort-ROLE=EFFORT` with the model's declared levels (`needs.effort.declared`) as the
