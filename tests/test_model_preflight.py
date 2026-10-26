@@ -142,6 +142,7 @@ class PreflightCheckTests(unittest.TestCase):
             model = kwargs["model"]
             self.calls.append(model)
             kwargs["directory"].mkdir(parents=True, exist_ok=True)
+            self.assertIn(model, events_by_model, "unexpected model probe: " + model)
             rows = events_by_model[model]
             (kwargs["directory"] / "events.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
             return {
@@ -162,6 +163,18 @@ class PreflightCheckTests(unittest.TestCase):
 
     def run_identity(self):
         return preflight._receipt_identity(self.adapter, self.state["settings"]["transport_identities"]["opencode"])
+
+    def test_review_probes_only_its_reached_validator_and_reuses_that_receipt(self):
+        self.state["next_stage"] = "review_change"
+        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm"}
+        # The unused Builder has no successful response, so any probe fails this test.
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS}))
+        self.assertEqual(["plan/glm"], self.calls)
+        self.assertFalse(self.check({"plan/glm": OK_EVENTS}))
+        self.assertEqual(["plan/glm"], self.calls)
+        self.state["next_stage"] = "terra"
+        self.assertTrue(self.check({"plan/mimo": OK_EVENTS}))
+        self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
 
     def test_each_distinct_model_is_probed_once_per_run(self):
         events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}

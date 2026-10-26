@@ -233,7 +233,7 @@ def sections(view: dict | None, *, launched: bool = False) -> list[Section]:
     result = [Section("Now", now, tuple(rows))]
     if proof := verification.compact(view):
         summary, entries = proof
-        result.append(Section("Verification", summary, tuple(Row("·", line, "dim") for line in entries)))
+        result.append(Section(verification.title(view), summary, tuple(Row("·", line, "dim") for line in entries)))
     if usage := cost.compact(view):
         summary, entries = usage
         result.append(Section("Usage", summary, tuple(Row("·", line, "dim") for line in entries)))

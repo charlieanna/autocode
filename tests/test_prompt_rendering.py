@@ -36,6 +36,7 @@ import autocode_protected_oracles as protected_oracles
 import autocode_provider_launch as provider_launch
 import autocode_report_repair_context as repair
 import autocode_report_source as report_source
+import autocode_review_job as review_job
 import autocode_stage_access as access
 import autocode_stage_context as stage_context
 import autocode_stuck_job as stuck
@@ -169,6 +170,11 @@ def rendered_cases():
                 "context/protected-tests",
                 json.dumps(protected_oracles.context({"protected_tests": record}, ["tests/"]), sort_keys=True),
             )
+        review_prompt, _ = review_job.prompt({"task": "Review greeting.patch", "workspace": WORKSPACE})
+        add(
+            "provider/opencode-review-output-contract",
+            opencode.prompt_for_schema(review_prompt, review_job.SCHEMA, Path("/prompt-fixture/run/events.jsonl")),
+        )
         # A package run's Builder is told its write scope, and its Investigator the package and its suite (#711).
         state = fixed_state()
         state["settings"]["package"] = "packages/greeting"

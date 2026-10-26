@@ -2380,3 +2380,22 @@ A saved bug-Investigator timeout without a route question can expose one only wh
 rejected, timed-out attempt matches its source capture, launch route, configuration and archive.
 An active/uncertain attempt or a mismatch cannot gain that model action. The answer then rechecks
 source and configuration before it is saved, and the explicit retry checks the newly bound token.
+
+### Explicit review intake and result freshness (#2113, #2167)
+
+A new chat explicitly started with `--workflow review` goes directly to its
+Reviewer; it does not gather build requirements or request implementation-plan
+approval. Unpinned chat intake and build approvals are unchanged. Only the
+review's Validator route is due for model preflight; a saved unused Builder route
+is not probed. Probe receipts still bind to the exact tool, model and effort.
+
+For completed reviews, `view.evidence.workflow_result` preserves the recorded
+outcome, summary, report path and digest. New reviews also record `source_revision`
+after the core writes its report. Status exposes a separate `view.review_result`
+inspection with `freshness` (`current`,
+`stale_or_unverified`, or `unknown`) and `reasons` after comparing that binding
+and report digest with the current workspace. Old reviews without a source
+binding remain unknown; status does not upgrade them or rerun a model. A review
+outcome is not build-delivery acceptance. The authenticated
+`evidence.workflow_result` stays unchanged by read-time inspection. The terminal renders these public
+review facts in its header, Review result panel and `/details`.

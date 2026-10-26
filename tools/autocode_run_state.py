@@ -549,7 +549,7 @@ class RunState(TypedDict, total=False):
     resolver_human_proposal: Any  # a Resolver proposal awaiting a human; goals writes, dependency pops
     resolver_human_request: Any
     retained_candidate_handoffs: Any
-    review: Any
+    review: Any  # review_job writes outcome, report digest and post-report source_revision; status inspects freshness
     session_rotations: Any
     source_revision: Any
     git_delivery: Any  # controller-owned commit + receipt pin; completion gate reads it

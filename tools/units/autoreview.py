@@ -33,6 +33,7 @@ try:
     from .. import autocode_review_proof as review_proof
     from .. import autocode_role_transport as role_transport
     from .. import autocode_run_status as run_status
+    from .. import autocode_source_scope as source_scope
     from .. import autocode_task_authority as task_authority
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_verify as verify
@@ -50,6 +51,7 @@ except ImportError:
     import autocode_review_proof as review_proof
     import autocode_role_transport as role_transport
     import autocode_run_status as run_status
+    import autocode_source_scope as source_scope
     import autocode_task_authority as task_authority
     import autocode_verification_plan as verification_plan
     import autocode_verify as verify
@@ -253,6 +255,7 @@ def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None)
             run_tests=lambda tests, patch: review_proof.collect(
                 workspace, evidence_dir / "review-proof", tests, patch, clean_run, timeout=verify.DEFAULT_TIMEOUT
             ),
+            snapshot=lambda root: source_scope.snapshot(root, state),
             run_mutation_check=lambda patch: review_mutation.collect(
                 workspace, evidence_dir / "review-mutation", patch, clean_run
             ),

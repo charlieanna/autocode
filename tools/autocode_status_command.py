@@ -13,6 +13,7 @@ try:
     from . import autocode_cost as cost
     from . import autocode_escalation_view as escalation_view
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_review_result as review_result
     from . import autocode_source_scope as source_scope
 except ImportError:
     import autocode_answer_output as answer_output
@@ -22,6 +23,7 @@ except ImportError:
     import autocode_cost as cost
     import autocode_escalation_view as escalation_view
     import autocode_launch_inputs as launch_inputs
+    import autocode_review_result as review_result
     import autocode_source_scope as source_scope
 
 import json
@@ -185,6 +187,12 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         observation=observation,
         execution_inspection=execution_inspection,
     )
+    if public_view.get("workflow") == "review" and state.get("status") == "TASK_COMPLETE":
+        result = public_view["evidence"].get("workflow_result")
+        if result:
+            public_view["review_result"] = review_result.inspect(
+                result, workspace, current.get("revision") if current else None
+            )
     public_view["attention"] = attention_status.observed(public_view.get("attention"))
     public_view["job_report_recovery"] = job_report_recovery.offer(runner, state, run_dir, workspace)
     try:

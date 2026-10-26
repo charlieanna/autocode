@@ -49,6 +49,45 @@ def details(view):
 
 
 class VerificationDisplayTests(unittest.TestCase):
+    def test_completed_review_uses_its_recorded_result_instead_of_build_delivery(self):
+        import autocode_chat_verification as verification
+
+        for freshness in ("current", "stale_or_unverified", "unknown"):
+            view = current_view(delivered=False)
+            view.update(
+                workflow="review",
+                evidence={
+                    "workflow_result": {
+                        "outcome": "request_changes",
+                        "summary": "1 blocking, 2 advisory findings",
+                        "artifact": "review/findings.json",
+                        "artifact_sha256": "a" * 64,
+                        "freshness": freshness,
+                    }
+                },
+            )
+            # Inspection is separate from immutable canonical outcome facts.
+            view["review_result"] = view["evidence"]["workflow_result"].copy()
+            view["evidence"]["workflow_result"].pop("freshness")
+            before = copy.deepcopy(view)
+            self.assertIn("Review result", {section.title for section in panel.sections(view)})
+            self.assertIn("recorded request changes", verification.cue(view))
+            self.assertIn("1 blocking, 2 advisory", details(view))
+            self.assertIn("review/findings.json", details(view))
+            self.assertNotIn("Current delivery:", details(view))
+            self.assertEqual(before, view)
+        legacy = {
+            "workflow": "review",
+            "status": "TASK_COMPLETE",
+            "evidence": {
+                "workflow_result": {
+                    "outcome": "approve",
+                    "artifact": "review/findings.json",
+                }
+            },
+        }
+        self.assertIn("current review unknown", verification.cue(legacy))
+
     def test_stale_recorded_pass_is_not_presented_as_current_delivery(self):
         view = current_view()
         before = copy.deepcopy(view)

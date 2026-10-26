@@ -229,6 +229,7 @@ def view(
         "needs": need,
         "recovery": recovery_view.project(state, need),
         "verification": verification_view.project(state),
+        "review_result": None,  # status may add a read-time inspection; evidence remains authenticated recorded facts
         "code_checkpoints": code_checkpoints.project(state, run_dir=run_dir, workspace=workspace),
         # Which saved checkpoints built each approved criterion's milestones (#730): attribution, not proof.
         "changes_by_criterion": criterion_changes.attribute((plan or {}).get("body"), state.get("code_checkpoints")),
@@ -759,6 +760,7 @@ def workflow_result(state: RunState):
             "outcome": row.get("verdict"),
             "artifact": row.get("report_path"),
             "artifact_sha256": row.get("report_sha256"),
+            **({"source_revision": row["source_revision"]} if row.get("source_revision") else {}),
             "summary": f"{row.get('blocking', 0)} blocking, {row.get('advisory', 0)} advisory findings"
             + (
                 f"; {row.get('pre_existing', 0)} pre-existing observations, "

@@ -17,6 +17,16 @@ def _text(value, default="unknown"):
     return " ".join(value.split()) if isinstance(value, str) and value.strip() else default
 
 
+def review_result(view):
+    if view.get("workflow") == "review":
+        return _map(view.get("review_result")) or _map(_map(view.get("evidence")).get("workflow_result"))
+    return {}
+
+
+def title(view):
+    return "Review result" if review_result(view) else "Verification"
+
+
 def _gate(view):
     value = _map(view.get("delivery")).get("verified_complete")
     return value if type(value) is bool else None
@@ -28,7 +38,7 @@ def _delivery(view):
 
 
 def available(view):
-    return any(
+    return bool(review_result(view)) or any(
         isinstance(view.get(key), dict) and view[key]
         for key in ("verification", "delivery", "recovery", "runner_check", "efficiency", "code_checkpoints")
     )
@@ -41,6 +51,17 @@ def cue(view, *, unavailable=False):
     if not isinstance(view, dict):
         return "Reading run status"
     if view.get("status") in ("TASK_COMPLETE", "COMPLETE"):
+        if result := review_result(view):
+            return (
+                "Review complete; recorded "
+                + _text(result.get("outcome")).replace("_", " ")
+                + "; "
+                + (
+                    "report and source current"
+                    if result.get("freshness") == "current"
+                    else "current review " + _text(result.get("freshness")).replace("_", " ")
+                )
+            )
         return (
             "Complete; current delivery verified"
             if _gate(view) is True
@@ -52,6 +73,13 @@ def cue(view, *, unavailable=False):
 def compact(view):
     if not available(view):
         return None
+    if result := review_result(view):
+        return "recorded " + _text(result.get("outcome")).replace("_", " "), [
+            _text(result.get("summary")),
+            "Review inspection: " + _text(result.get("freshness")).replace("_", " "),
+            "Report: " + _text(result.get("artifact")),
+            "Evidence and recovery: /details",
+        ]
     report = _map(view.get("verification"))
     rows = ["Report: " + _text(report.get("freshness")).replace("_", " ")]
     pending = sum(row.get("human_acceptance_pending") is True for row in _rows(report.get("coverage")))
@@ -75,11 +103,24 @@ def details(view):
     if not available(view):
         return ""
     report = _map(view.get("verification"))
+    result = review_result(view)
+    if result:
+        report = {}  # build coverage is not the evidence for a review workflow
     lines = [
         "Verification and delivery",
         "Current delivery: " + _delivery(view),
         "Report inspection: " + _text(report.get("freshness")).replace("_", " "),
     ]
+    if result:
+        lines = [
+            "Review result",
+            "Recorded outcome: " + _text(result.get("outcome")).replace("_", " "),
+            _text(result.get("summary")),
+            "Report: " + _text(result.get("artifact")),
+            "Report SHA-256: " + _text(result.get("artifact_sha256")),
+            "Review inspection: " + _text(result.get("freshness")).replace("_", " "),
+        ]
+        lines.extend(_text(reason) for reason in result.get("reasons", []) if isinstance(reason, str))
     reasons = report.get("reasons")
     if isinstance(reasons, list):
         lines.extend(_text(reason) for reason in reasons if isinstance(reason, str))

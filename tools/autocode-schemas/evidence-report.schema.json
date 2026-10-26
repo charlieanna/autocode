@@ -768,6 +768,9 @@
               ]
             }
           }
+        },
+        "source_revision": {
+          "type": "string"
         }
       }
     },
