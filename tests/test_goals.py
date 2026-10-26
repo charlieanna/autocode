@@ -406,6 +406,20 @@ class GoalTests(unittest.TestCase):
                 self.assertEqual(2, self.invoke("--feedback", "Correct the report"))
                 self.assertIn("conversation checkpoint", self.stderr + self.stdout)
 
+    def test_invalid_planning_feedback_cannot_release_an_operational_hold(self):
+        self.approve()
+        self.state["settings"]["limits"]["max_seconds"] = 1
+        self.state["settings"]["budget_origins"] = {"max_seconds": "user_explicit"}
+        self.state.update(status="PAUSED_TIME_LIMIT", active_seconds=2, stop_reason="Explicit total time exhausted")
+        self.assertTrue(
+            runner.resolver_runtime.record_operational_exhaustion(
+                runner, self.state, self.run, s.Paused("PAUSED_TIME_LIMIT", self.state["stop_reason"])
+            )
+        )
+        self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage="astra_finalize")
+        self.assertEqual(2, self.invoke("--feedback", "Correct the report"))
+        self.assertIn("does not acknowledge PAUSED_TIME_LIMIT", self.stderr + self.stdout)
+
     def test_existing_answers_persist_and_cannot_be_asked_again(self):
         self.draft(questions=True)
         self.assertEqual(0, self.invoke("--answer", "Q1=CLI"))
