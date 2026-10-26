@@ -132,9 +132,10 @@ def execute(
     role, so a tool that refuses the effort names the flag that changes it (#2108). Without it the
     probe keeps its generic read-only/write role."""
     directory.mkdir(parents=True)
-    # One stem: a report_file adapter reads its report next to the events file the launch
-    # wrote (Path.with_suffix), so the two paths must share it.
-    event_path, report_path = directory / "stage.jsonl", directory / "stage.json"
+    # One "events" stem: a report_file adapter reads its report next to the events file the
+    # launch wrote (Path.with_suffix), and the model preflight reads the events stream from
+    # this directory under the same name.
+    event_path, report_path = directory / "events.jsonl", directory / "events.json"
     schema_path, prompt_path = directory / "schema.json", directory / "prompt.txt"
     atomic_json(schema_path, schema)
     child_env = agent_env.scrubbed(env)
