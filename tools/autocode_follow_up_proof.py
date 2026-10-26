@@ -132,18 +132,26 @@ def apply(proof, context, receipt, result, *, refused=None):
         )[cid]
         candidate = set(proof.get("pass_to_pass") or []) | set(proof.get("fail_to_pass") or [])
         matches = [test for test in before if test in candidate]
+        candidate_tests = set(test_cases.match_cases([case], sorted(candidate), framework=framework)[cid])
+        missing = candidate_tests - set(before)
+        denied = candidate_tests & set(refused)
         before_failed = test_cases.match_cases(
             [case], [*(results.get("failed") or []), *(results.get("skipped") or [])], framework=framework
         )[cid]
         broken = test_cases.match_cases([case], result.get("failed_on_candidate") or [], framework=framework)[cid]
-        proof["case_tests"][cid] = matches if not invalid and not broken and not before_failed else []
+        proof["case_tests"][cid] = matches if not invalid and not broken and not before_failed and not missing else []
         if invalid:
             proof.setdefault("unverified", []).append(
                 f"Follow-up guard {cid} has no complete fresh baseline check: {receipt.get('error') or 'test execution incomplete'}"
             )
-        elif not matches or broken or before_failed:
+        elif denied or not matches or broken or before_failed:
             proof.setdefault("failures", []).append(
                 f"Follow-up guard {cid} must pass on the completed turn's source and on the current candidate"
+            )
+        elif missing:
+            proof.setdefault("unverified", []).append(
+                f"Follow-up guard {cid} has candidate variants missing from its fresh baseline: "
+                + ", ".join(sorted(missing))
             )
     if proof.get("failures"):
         proof["verdict"] = "FAIL"
