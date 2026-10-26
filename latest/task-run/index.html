@@ -2244,7 +2244,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/1f8f49d4d266921d3b0baac445971e4dc6fa72c3/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/f67499e5aec669a52218703316069039dd2ed613/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3023,7 +3023,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/1f8f49d4d266921d3b0baac445971e4dc6fa72c3/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/f67499e5aec669a52218703316069039dd2ed613/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3196,6 +3196,11 @@ TaskRun consume it. Cross-run coordinators use public child reports, never child
 <tr>
 <td>Name the model a stopped workflow job continues on (<code>retry_job</code> with <code>route</code>)</td>
 <td><code>autocode --answer route-ROLE=MODEL --job-retry-token TOKEN</code>, then retry the job with the new token</td>
+<td>0 saved, 2 rejected</td>
+</tr>
+<tr>
+<td>Choose an effort the model declares for a role whose named effort it does not (<code>PAUSED_EFFORT_UNSUPPORTED</code>, <code>TaskRun.assign_effort(role, effort)</code>)</td>
+<td><code>autocode --answer effort-ROLE=EFFORT</code>, then resume the pause</td>
 <td>0 saved, 2 rejected</td>
 </tr>
 <tr>
@@ -3627,7 +3632,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/1f8f49d4d266921d3b0baac445971e4dc6fa72c3/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/f67499e5aec669a52218703316069039dd2ed613/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4158,6 +4163,17 @@ question has no default and is never delegable; only a model a person names
 answers it (<code>--answer route-ROLE=MODEL</code>), and the run then needs a resume. A
 stopped workflow job carries the same <code>route</code>, with the same fields, on its
 <code>retry_job</code> need (<a href="#failed-workflow-jobs">Failed workflow jobs</a>).</p>
+<p>When a person named a role's reasoning effort and the role's model does not declare
+that level (GLM 5.3 declares <code>low</code>, <code>high</code> and <code>max</code>, not <code>medium</code>), the run pauses as
+<code>PAUSED_EFFORT_UNSUPPORTED</code> before any stage launches (#2057). Its <code>answer</code> need carries
+<code>effort</code>: <code>question_id</code> (<code>effort-ROLE</code>), <code>role</code>, <code>job</code>, <code>model</code>, <code>requested</code>, <code>declared</code>
+(the levels the model offers) and <code>nearest</code> (the declared level nearest the requested
+one; advice, never a default). Its one question lists <code>declared</code> as its <code>options</code>, has no
+<code>proposed_default</code> and is never delegable. <code>next_command</code> is <code>--answer effort-ROLE=EFFORT</code>
+with no token: a client fills <code>EFFORT</code> with one of <code>declared</code> a person chose, and refuses
+anything else. The answer saves that level as the person's own choice and launches
+nothing; the run then needs a resume. An effort the runner chose is never asked about:
+the launch moves it to the nearest declared level and records the move.</p>
 <p>Approving a plan or a review is a real user decision. Automated callers should
 do it only when a person has delegated that decision to them, as the scenario
 harness does for test runs.</p>
@@ -4464,7 +4480,11 @@ with no credential arguments or webview input. Its additional setup states are
 <code>setup_required</code> and <code>configured</code>; clients must not describe
 <code>configured</code> as authenticated live access. The core setup action neither chooses
 a client's default backend nor launches a model. Discovery reads its nonsecret
-metadata; an explicit check validates its private local credential setup.</p>
+metadata; an explicit check validates its private local credential setup. When
+several API providers are configured (issue #2055), the same row instead offers
+an <code>add</code> action with <code>next_command=["connections", "add"]</code>, executed the same
+interactive way; it adds or rotates one provider's key without touching the
+others.</p>
 <h2 id="run-modes-for-clients">Run modes for clients<a class="headerlink" href="#run-modes-for-clients" title="Permanent link">&para;</a></h2>
 <p>A client that starts runs may offer a choice of how much planning a new run does
 before the person approves it. <code>autocode modes list --json</code> returns the
