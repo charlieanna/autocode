@@ -2036,7 +2036,11 @@ with no credential arguments or webview input. Its additional setup states are
 `setup_required` and `configured`; clients must not describe
 `configured` as authenticated live access. The core setup action neither chooses
 a client's default backend nor launches a model. Discovery reads its nonsecret
-metadata; an explicit check validates its private local credential setup.
+metadata; an explicit check validates its private local credential setup. When
+several API providers are configured (issue #2055), the same row instead offers
+an `add` action with `next_command=["connections", "add"]`, executed the same
+interactive way; it adds or rotates one provider's key without touching the
+others.
 
 ## Run modes for clients
 

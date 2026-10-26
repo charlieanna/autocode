@@ -40,6 +40,10 @@ def parser():
     login = actions.add_parser("login", help="Run the backend's own interactive sign-in in this terminal")
     login.add_argument("--provider", required=True)
     actions.add_parser("setup", help="Configure AutoCode's MiMo/Z.ai/OpenAI/Claude API connection in this terminal")
+    add = actions.add_parser(
+        "add", help="Add or rotate one API provider's key in this terminal; several providers may be configured at once"
+    )
+    add.add_argument("provider", nargs="?", help="mimo, zai, openai, openrouter, claude or compatible")
     return result
 
 
@@ -164,9 +168,9 @@ def view():
 
 def cli(argv):
     args = parser().parse_args(argv)
-    if args.action == "setup":
+    if args.action in ("setup", "add"):
         try:
-            return direct.setup()
+            return direct.setup() if args.action == "setup" else direct.add(args.provider)
         except (KeyboardInterrupt, EOFError):
             print("\nAutoCode setup cancelled.")
             return 130
