@@ -1,13 +1,55 @@
 """Compact prompt schemas retain the full output contract."""
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from providers import opencode
 
 
 class CompactSchemaPromptTests(unittest.TestCase):
+    def test_compiled_validator_prefers_receipt_fields_without_retyping_commands(self):
+        import autocode_support as support
+        from units import common
+
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp)
+            (workspace / "answer.py").write_text("def answer(): return 42\n")
+            state = {
+                "version": 2,
+                "task": "Verify the answer without changing the source",
+                "workspace": str(workspace),
+                "settings": {"roles": {"sol": {"engine": "opencode", "model": "fixture"}}, "limits": {}},
+            }
+            # Approval and filesystem identity are outside this prompt contract;
+            # assemble the real request and role schema without a controller or provider.
+            with (
+                patch.object(common.goals, "execution_guard"),
+                patch.object(
+                    common.stage_context.source_scope, "snapshot", return_value={"revision": "s", "head": "h"}
+                ),
+            ):
+                request = common.execution_request(
+                    state, "sol", workspace / "state.json", Path(support.__file__).parent / "autocode-schemas"
+                )
+            schema = request.schema
+            prompt = opencode.prompt_for_schema(request.prompt, schema, workspace / "events.jsonl")
+
+        self.assertIn("independent read-only validation agent", prompt)
+        self.assertIn("For a captured Validator check, prefer command null and exit_code null", prompt)
+        self.assertIn("If either field is supplied, it must exactly match the receipt", prompt)
+        self.assertIn("Other captured check reports must copy these exact values", prompt)
+        self.assertNotIn("For a captured check, checks[].command must equal", prompt)
+        self.assertIn("Never create or edit a receipt manually", prompt)
+        self.assertIn("A PASS report must list at least one successful executed check", prompt)
+        support.validate_schema(
+            {"command": None, "exit_code": None, "evidence_ref": ".autocode/evidence/check.json"},
+            schema["properties"]["checks"]["items"],
+        )
+        self.assertIn(json.dumps(schema, separators=(",", ":")), prompt)
+
     def test_conversation_keeps_the_schema_and_boundary_without_execution_evidence_instructions(self):
         schema = {"type": "object", "properties": {"assistant_reply": {"type": "string"}}}
         prompt = opencode.prompt_for_schema("Task\nCURRENT HANDOFF DATA\n{}", schema, Path("/run/events.jsonl"))

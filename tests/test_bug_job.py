@@ -750,6 +750,51 @@ class InvariantTests(unittest.TestCase):
         self.assertIn("BUG INVARIANT", request.prompt)
         self.assertIn(state["investigation"]["invariant"], request.prompt)
 
+    def test_a_feature_followup_keeps_old_diagnosis_without_ordering_another_bug_probe(self):
+        state = {
+            "investigation": diagnosis(output="previous-bug.json"),
+            "stages": [{"stage": "investigate_bug", "output": "previous-bug.json"}],
+            "turns": [{"stage_index": 1}],
+        }
+        before = copy.deepcopy(state)
+
+        self.assertEqual("", bug_job.validator_note(state))
+        self.assertEqual(before, state, "the completed turn's diagnosis and evidence remain available")
+
+    def test_a_fresh_followup_investigation_still_requires_its_own_invariant_check(self):
+        for active in (False, True):
+            with self.subTest(active=active):
+                state = {
+                    "investigation": diagnosis(output="current-bug.json"),
+                    "stages": [{"stage": "investigate_bug", "output": "previous-bug.json"}],
+                    "turns": [{"stage_index": 1}],
+                }
+                current = {"stage": "investigate_bug", "output": "current-bug.json"}
+                if active:
+                    state["active_stage"] = current
+                else:
+                    state["stages"].append(current)
+                before = copy.deepcopy(state)
+
+                note = bug_job.validator_note(state)
+                self.assertIn(state["investigation"]["invariant"], note)
+                self.assertIn("capture your own check", note)
+                self.assertEqual(before, state)
+
+    def test_an_unreproduced_followup_does_not_create_an_invariant_obligation(self):
+        state = {
+            "investigation": diagnosis("not_reproduced", output="current-bug.json"),
+            "stages": [
+                {"stage": "investigate_bug", "output": "previous-bug.json"},
+                {"stage": "investigate_bug", "output": "current-bug.json"},
+            ],
+            "turns": [{"stage_index": 1}],
+        }
+        before = copy.deepcopy(state)
+
+        self.assertEqual("", bug_job.validator_note(state))
+        self.assertEqual(before, state)
+
 
 class DiagnosisNoteTests(unittest.TestCase):
     """A live bugfix-cent-drift run (2026-09-30): the request said to write the root cause to the note, and a

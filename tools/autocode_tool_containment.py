@@ -25,9 +25,11 @@ from pathlib import Path
 try:
     from . import autocode_native_conformance as native_conformance
     from . import autocode_util as util
+    from .autocode_source_privacy import SECRET_NAME
 except ImportError:
     import autocode_native_conformance as native_conformance
     import autocode_util as util
+    from autocode_source_privacy import SECRET_NAME
 
 
 SUPPORTED_VERSION = "1.18.33"
@@ -119,8 +121,6 @@ class StorePause(util.Paused):
 # Errors that name a private store and their own remedy; provider_launch.prepare adds none of its own.
 STORE_ERRORS = (UnusableStore, StorePause)
 DENIAL_CHANGED = "Private run-state read denial changed; no provider launched"
-# The Seatbelt profile denies reading these names anywhere; bubblewrap masks them.
-SECRET_NAME = re.compile(r"\.env(\..*)?|auth\.json|id_rsa|id_ed25519")
 DENIAL_TEXT = re.compile(r"Operation not permitted|Permission denied|Read-only file system")
 NO_OPENCODE = "strict tool containment cannot find the opencode executable on PATH"
 

@@ -8,6 +8,18 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_review_handoffs_keep_the_public_followup_and_state_contract_consumers(self):
+        consumers = {"tests.test_run_state", "tests.test_follow_up_acceptance_cli"}
+        for path in (
+            "tools/autocode_review_source.py",
+            "tools/autocode_stage_context.py",
+            "tools/autocode_bug_job.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {module: "" for module in consumers})
+                kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+                self.assertEqual(consumers, set(kept))
+
     def test_planning_provenance_helpers_keep_the_importless_run_state_scan(self):
         consumer = "tests.test_run_state"
         for path in ("tools/autocode_planning_review_usage.py", "tools/autocode_assumption_provenance.py"):

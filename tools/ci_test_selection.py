@@ -249,6 +249,14 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (
         (
+            "tools/autocode_review_source.py",
+            "tools/autocode_stage_context.py",
+            "tools/autocode_bug_job.py",
+        ),
+        ("tests.test_run_state", "tests.test_follow_up_acceptance_cli"),
+    ),
+    (
+        (
             "tools/autocode_brief_acceptance.py",
             "tools/autocode_brief_obligations.py",
             "tools/autocode_assumption_provenance.py",

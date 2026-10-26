@@ -69,6 +69,10 @@ PR template asks for an entry here; a change without one is incomplete.
   and two viewers sharing acknowledgement and refusing stale approval (#2070,
   #1886).
 
+- Independent reviewers receive complete, snapshot-matched source text for small approved file
+  scopes, avoiding repeated source-discovery calls. Larger or uncertain scopes keep ordinary
+  filesystem inspection; checks, approvals and independent completion review remain required (#2113).
+
 - A quota switch that moves a role onto another way of paying now says so (#2061). When an automatically
   selected run's stopped model is replaced by one the permitted set says bills differently (a subscription
   route replaced by a pay-per-token one), its `route_assignment` record carries `billing: {from, to}`,
@@ -378,6 +382,11 @@ PR template asks for an entry here; a change without one is incomplete.
   unclassified error reported as `PAUSED_INVALID_OUTPUT` with the Tester's flag (#2108, #2057). This
   is the case the pre-fit cannot decide: a manually given level on a model with no declared listing,
   where only the tool's own variant check can answer.
+
+- A feature follow-up no longer inherits an instruction to re-investigate the previous turn's
+  reproduced bug. Current-turn bug invariants still require independent checks. Kilo/OpenCode
+  receipt guidance now agrees with the Tester's supported command/exit-code hydration, avoiding
+  redundant command transcription without relaxing receipt authentication (#2113).
 
 - The model access preflight now fits every role's effort before its first probe, as the launch
   boundary does (#2104, #2057). A person-named level its model does not declare pauses as
