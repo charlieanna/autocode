@@ -305,6 +305,7 @@ elif stage == "investigate_stuck":
         "evidence_refs": [],
         "example": "",
         "probe": "",
+        "counterexample": {"file": "", "find": "", "replace": ""},
         "untestable": "",
     }
 elif stage == "requirements_gather":

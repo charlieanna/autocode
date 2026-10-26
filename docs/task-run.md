@@ -1985,6 +1985,16 @@ saved source, route and limits. The CLI equivalent is
 keeps the pause. Stale source/configuration, a token for a different attempt,
 or unresolved restoration is rejected before any model request.
 
+A person can change only the total time/accounting caps of that exact stopped job with
+`autocode --run-dir RUN --job-retry-token - --max-seconds SECONDS --max-cost-usd USD --no-chat`
+(`AUTOCODE_JOB_RETRY_TOKEN` supplies the displayed token; either total flag may be omitted).
+This standalone settings action checks the original source and captured configuration before
+saving anything. It preserves usage and failed-attempt evidence, keeps the job paused and issues
+a fresh retry token; it grants no retry or plan approval. Read status again and explicitly retry
+with that fresh token. The old token, mixed actions, model/effort changes and other limits are
+refused. Clients may use this operator action only when offered by their public status contract;
+its availability as a CLI command does not authorize a client to invent a cap increase (#2156).
+
 A job stopped by its provider's content filter, on quota, or by its stage time limit also carries
 `needs.route` (the shape of the `answer` need's `route`: `question_id`, `role`,
 `job`, `current_model`, `engine`, `cause`, `stopped_model`, and `candidates` for a
