@@ -164,3 +164,12 @@ adds only the CI-like PATH to the existing Docker boundary. Initial snapshot
 setup attempts omitted harness/schema resources and were unqualified; the
 passing CLI checks use all tracked ordinary files. No runtime or provider gate
 was weakened, and all source corrections were authored directly.
+
+On `c2e6184b0`, Ubuntu ran 4,094 tests in 238 modules in 1,193 seconds. All
+three multi-repository end-to-end tests passed together (601.7 seconds); the
+only failing module was the existing terminal inventory test. It mistook a
+restored tab's cached header/prompt for a fresh status and sent the next switch
+before the current read arrived. Its controlled public-CLI fixture now emits a
+per-read notice, and the test waits for that fresh displayed status before
+switching again. The private-tmux regression passes in 1.159 seconds, retaining
+the held-read, draft/cursor, two-opened-status and child-cleanup assertions.

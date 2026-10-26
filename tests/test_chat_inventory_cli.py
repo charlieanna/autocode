@@ -37,7 +37,8 @@ elif args[0] == '--status':
  record('status', run=run)
  print(json.dumps({'view': {'workspace': str(root), 'run_dir': run,
   'done': True, 'status': 'TASK_COMPLETE', 'needs': {'kind': 'none'},
-  'chat': {'context': run, 'title': pathlib.Path(run).name, 'input': {'kind': 'follow_up'}},
+  'chat': {'context': run, 'title': pathlib.Path(run).name, 'input': {'kind': 'follow_up'},
+   'notice': f'Current public status: {pathlib.Path(run).name} / {os.getpid()}'},
   'execution': {'mode': 'durable_local', 'detach_supported': True}}}))
 else:
  record('FORBIDDEN', args=args)
@@ -100,11 +101,16 @@ raise SystemExit(code)
                 self.assertIn("Listed chats are not opened tabs", shown)
                 calls = self.calls(root)
                 self.assertEqual({str(runs[0])}, {row["run"] for row in calls if row["kind"] == "status"})
+                before = {row["pid"] for row in calls if row["kind"] == "status"}
                 screen.type("/open 2")
                 screen.keys("Enter")
-                screen.wait_for(lambda shown: "· r23" in shown.splitlines()[0] and "? Anything else?" in shown, 10)
+                self.wait_for_current_status(screen, root, runs[23], before)
                 screen.type("B draft 你好")
+                before = {row["pid"] for row in self.calls(root) if row["kind"] == "status"}
                 screen.keys("Left", "C-Left")
+                # A restored header/prompt is display history, not a fresh
+                # status view. Wait for this read before another tab action.
+                self.wait_for_current_status(screen, root, runs[0], before)
                 screen.wait_for(
                     lambda shown: (
                         "· r00" in shown.splitlines()[0] and composer_text(shown) == "" and "? Anything else?" in shown
@@ -164,3 +170,17 @@ raise SystemExit(code)
     def calls(root):
         path = root / "calls"
         return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def wait_for_current_status(self, screen, root, run, previous):
+        def ready(shown):
+            return (
+                f"· {run.name}" in shown.splitlines()[0]
+                and "? Anything else?" in shown
+                and any(
+                    f"Current public status: {run.name} / {row['pid']}" in shown
+                    for row in self.calls(root)
+                    if row["kind"] == "status" and row["run"] == str(run) and row["pid"] not in previous
+                )
+            )
+
+        screen.wait_for(ready, 10, what=f"a fresh public status for {run.name}")
