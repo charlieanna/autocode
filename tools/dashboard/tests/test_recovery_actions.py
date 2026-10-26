@@ -206,7 +206,11 @@ class RecoveryActionTests(unittest.TestCase):
             iteration=2,
             next_stage="terra",
             phase="EXECUTING",
-            settings={"limits": {"max_cost_usd": 2.0}, "budget_origins": {"max_cost_usd": "user_explicit"}, "roles": {}},
+            settings={
+                "limits": {"max_cost_usd": 2.0},
+                "budget_origins": {"max_cost_usd": "user_explicit"},
+                "roles": {},
+            },
             resolver={},
         )
         if held:
@@ -261,9 +265,10 @@ class RecoveryActionTests(unittest.TestCase):
         moved = dict(public)
         moved["needs"] = {**public["needs"]}
         moved["needs"]["command_inputs"] = [
-            {**public["needs"]["command_inputs"][0], "command": public["needs"]["command_inputs"][0]["command"].replace(
-                str(self.run), "/elsewhere/run"
-            )}
+            {
+                **public["needs"]["command_inputs"][0],
+                "command": public["needs"]["command_inputs"][0]["command"].replace(str(self.run), "/elsewhere/run"),
+            }
         ]
         self.status.update(view=moved)
         self.save("status.json", self.status)

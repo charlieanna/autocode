@@ -23,8 +23,8 @@ import autocode_command_inputs as command_inputs
 import autocode_configure
 import autocode_run_view as run_view
 import autocode_support as support
-
 from dashboard import dashboard_recovery
+
 from scenarios.harness import conformance, needs_command
 from tests import test_needs_contract
 from tests.test_stop_explanations import named_pause_states
