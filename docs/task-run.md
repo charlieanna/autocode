@@ -1801,7 +1801,10 @@ a saved answer, or when it cites a file in this workspace that shows it.
 - `dropped` names the targets of the parts the runner refused.
 - `decision` is `this_repository` once the person chose it, else `null`.
 - `uncovered` lists the targets this run leaves out.
-- `linked` is `[]` until runs can be linked.
+- `linked` lists the other runs of this run's change set: the source run and each run
+  linked to it (`changeset`, `target`, `role` `source` or `member`, `workspace`,
+  `run_dir`, which is `null` while a linked run is starting). It is `[]` for a run in no
+  change set.
 - `briefs` holds a ready brief (`repository`, `brief`) for each repository the request
   spans, this one first, for a person who stops here and runs them separately.
 
@@ -1812,6 +1815,30 @@ plan must record each uncovered part in `scope_exclusions` as
 `Not covered: changes in TARGET: WORK`, and `displayed_plan.scope_exclusions` shows it on
 the approval screen. The Planner's packet names the exact entries
 (`scope_exclusions_required`).
+
+### Linked runs
+
+`autocode changeset link --run-dir RUN --target TARGET --workspace PROJECT [--json] [-- OPTIONS]`
+starts a run in another repository for one of the source run's `scope.external_parts`.
+It is a layer above this interface: it reads the source run's status view and starts the
+linked run with `TaskRun.start`, nothing else.
+
+- `TARGET` must be a target in the source run's `scope.external_parts`.
+- `PROJECT` must be an available project in the AutoCode registry (`autocode registry
+  list`), named by its path or registry id. A path from the task text or a model's report
+  is never used.
+- The linked run's brief is the source run's `scope.briefs` entry for `TARGET`. Arguments
+  after `--` are the linked run's run options, such as its engine and models.
+- The link is recorded in `changesets.json` beside the registry, so both commands need
+  the same `AUTOCODE_HOME`. A target is linked once. A link whose run never started is
+  dropped, so it can be made again.
+- `autocode changeset status --run-dir RUN [--json]` shows the change set of any of its
+  runs, each with the status, `needs` kind and `next_command` of its own status view.
+  `autocode changeset list [--json]` lists every change set.
+
+Linking changes nothing in the source run. It still asks its scope question, and its plan
+still records the linked target as not covered there. Joint plan approval and checking the
+runs together are later steps of #2066.
 
 ## Dependencies between existing runs
 

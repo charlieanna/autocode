@@ -10,8 +10,8 @@ nondelegable question before any plan, and reads the person's answer back:
 - ``uncovered(state)``: the parts the person left out of this run, which the plan must list in its
   scope_exclusions (``exclusion_errors``) and the status view shows (``view``).
 
-Linking a run in the other repository and stopping with a brief for each repository are later
-steps of #2066 and are not offered yet. Imports nothing from AutoCode, so the question gate
+A run in the other repository is linked outside this run (``autocode changeset link``,
+autocode_changeset); this run still records that part as not covered here. Imports nothing from AutoCode, so the question gate
 (autocode_requirements_review) and the contract checks (autocode_goals) can both use it.
 """
 

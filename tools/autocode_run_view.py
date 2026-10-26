@@ -153,11 +153,13 @@ def view(
     """Caller supplies fresh completion, evidence, repair, supervision and design-input inspections."""
     try:
         from . import autocode_attention as attention
+        from . import autocode_changeset_store as changeset_store
         from . import autocode_replay_view as replay_view
         from . import autocode_scope_question as scope_question
         from . import autocode_worker_view as worker_view
     except ImportError:
         import autocode_attention as attention
+        import autocode_changeset_store as changeset_store
         import autocode_replay_view as replay_view
         import autocode_scope_question as scope_question
         import autocode_worker_view as worker_view
@@ -306,6 +308,8 @@ def view(
     result["scope"] = scope_question.view(
         state, (state.get("requirements_handoff") or {}).get("dropped_external_parts")
     )
+    if run_dir is not None:  # the other runs of this run's change set (autocode_changeset)
+        result["scope"]["linked"] = changeset_store.linked_for(run_dir)
     result["chat"] = chat_view.project(state, result, run_dir=run_dir, workspace=workspace)
     result["attention"] = attention.project(
         state, result, workspace=workspace, run_dir=run_dir, context=result["chat"]["context"]
