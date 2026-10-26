@@ -55,6 +55,31 @@ class RequirementsHandoffTests(unittest.TestCase):
         self.assertEqual("", state["requirements_handoff"]["report"]["intended_outcome"])
         self.assertEqual([[QUESTION]], [row["questions"] for row in queued])
 
+    def test_the_saved_handoff_keeps_only_the_external_parts_the_request_grounds(self):
+        # #2066: the runner, not the model, decides what counts as another repository's work.
+        scope = {
+            "spans_repositories": True,
+            "external_parts": [
+                {"target": "other-repo", "work": "Store it", "source_quote": "store it in other-repo", "evidence": ""},
+                {
+                    "target": "guessed-repo",
+                    "work": "Bill it",
+                    "source_quote": "bill it in guessed-repo",
+                    "evidence": "",
+                },
+            ],
+        }
+        state, _ = self.accept(report(workspace_scope=scope), task="Show the field here and store it in other-repo.")
+        saved = state["requirements_handoff"]["report"]["workspace_scope"]
+        self.assertTrue(saved["spans_repositories"])
+        self.assertEqual(["other-repo"], [part["target"] for part in saved["external_parts"]])
+        self.assertEqual(["guessed-repo"], state["requirements_handoff"]["dropped_external_parts"])
+        self.assertNotIn("dropped", saved, "the saved report stays valid against its schema")
+
+    def test_a_handoff_without_a_workspace_scope_is_saved_unchanged(self):
+        state, _ = self.accept(report())
+        self.assertNotIn("workspace_scope", state["requirements_handoff"]["report"])
+
     def test_a_handoff_that_claims_work_still_needs_its_outcome(self):
         for value, settings in (
             (report(required_behaviors=["Greet"], acceptance_tests=["Prints hello"]), None),

@@ -71,7 +71,9 @@ plan — an explicit person's decision to delegate, not a default choice.
 (created fresh from the repository's HEAD if it does not exist yet), left
 uncommitted for review, the same way a single AutoCode task leaves its own
 work. An existing `TARGET` must be the top directory of a worktree of the same
-repository; anything else is refused before a file is written. Extra flags for the underlying task runs (models, reasoning effort,
+repository; anything else is refused before a file is written. Components are
+always parts of one repository; for work in separate repositories see
+[Work that spans several repositories](multi-repo.md). Extra flags for the underlying task runs (models, reasoning effort,
 provider) go after `--options`, shell-quoted.
 
 ### A component with a Figma design

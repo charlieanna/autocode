@@ -59,6 +59,7 @@ try:
     from .. import autocode_utility_route as utility_route
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_workflows as workflows
+    from .. import autocode_workspace_scope as workspace_scope
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
     import autocode_adaptive_planning as adaptive
@@ -93,6 +94,7 @@ except ImportError:
     import autocode_utility_route as utility_route
     import autocode_verification_plan as verification_plan
     import autocode_workflows as workflows
+    import autocode_workspace_scope as workspace_scope
 # Which role and engine run a stage, and the planning cycle, live below this unit so the stage context and the
 # goal lifecycle use them without importing it back; they keep their names here (autocode_planning, autopilot).
 try:
@@ -672,6 +674,8 @@ for _stage in ("astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_
 # The job type travels requirements -> contract -> approval. Every planning stage still runs;
 # for a bug fix they plan and review a small, defect-shaped plan instead of a feature.
 SCHEMAS["requirements_gather"]["properties"]["task_kind"] = goals.TASK_KIND
+# Work that belongs to another repository, validated on acceptance (autocode_workspace_scope, #2066).
+SCHEMAS["requirements_gather"]["properties"]["workspace_scope"] = workspace_scope.SCHEMA
 JOB_TYPE_POLICY = goals.JOB_TYPE_POLICY
 
 

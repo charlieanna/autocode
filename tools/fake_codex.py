@@ -339,6 +339,8 @@ elif stage == "requirements_gather":
         # Requirements names the job (#1860); this offline fixture treats every request as a build.
         "job": "build",
         "design_document": "",
+        # This offline fixture's requests belong to this repository alone (#2066).
+        "workspace_scope": {"spans_repositories": False, "external_parts": []},
     }
     if 'Add "clarity"' in prompt or "clarity" in schema.get("properties", {}):
         # Vague, as the recognizer answered: the review allowance counts per planning cycle as before. A report

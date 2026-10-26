@@ -460,6 +460,7 @@ def main() -> int:
                 },
             ],
             "ignored_statements": [],
+            "workspace_scope": {"spans_repositories": False, "external_parts": []},
             "conflicts": [],
             "proposed_reframes": [],
             "ignored_requirements": [],
