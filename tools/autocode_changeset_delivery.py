@@ -130,9 +130,9 @@ def set_check(summary: dict, record: dict, target: str, command: list[str]) -> d
 
 def verify(summary: dict, record: dict, *, timeout=CHECK_TIMEOUT_SECONDS) -> dict:
     """Run the integration command once every run is complete; save the result bound to their code."""
-    state = view(summary, record)
-    if state["waiting_on"]:
-        raise DeliveryRefused(f"every run must be complete first: waiting on {', '.join(state['waiting_on'])}")
+    verification = view(summary, record)
+    if verification["waiting_on"]:
+        raise DeliveryRefused(f"every run must be complete first: waiting on {', '.join(verification['waiting_on'])}")
     check = record.get("check")
     if not check:
         raise DeliveryRefused("no integration command is named; set one with `changeset check-command`")
@@ -171,10 +171,10 @@ def waive(summary: dict, record: dict, reason: str) -> dict:
     reason = " ".join(str(reason or "").split())
     if not reason:
         raise DeliveryRefused("a waiver needs a reason")
-    state = view(summary, record)
-    if state["waiting_on"]:
-        raise DeliveryRefused(f"every run must be complete first: waiting on {', '.join(state['waiting_on'])}")
-    if state["done"] and not (state["waiver"] or {}).get("current"):
+    verification = view(summary, record)
+    if verification["waiting_on"]:
+        raise DeliveryRefused(f"every run must be complete first: waiting on {', '.join(verification['waiting_on'])}")
+    if verification["done"] and not (verification["waiver"] or {}).get("current"):
         raise DeliveryRefused("the change set is already done; there is nothing to waive")
     return store.set_fields(
         record["id"], {"waiver": {"reason": reason, "at": util.now(), "fingerprint": fingerprint(summary)}}
@@ -209,7 +209,7 @@ def set_order(summary: dict, record: dict, order: list[str]) -> dict:
 def pr_body(summary: dict, record: dict, target: str, uncovered: list[str]) -> str:
     """The Markdown section ``target``'s pull request carries, so the requests cross-link."""
     _row(summary, target)
-    state = view(summary, record)
+    verification = view(summary, record)
     lines = [f"## Change set {summary['changeset']}", ""]
     lines.append(f"This pull request is the {target} side of a change that spans {len(summary['runs'])} repositories.")
     lines += ["", "| Repository | Role | Status | Run |", "| --- | --- | --- | --- |"]
@@ -218,8 +218,8 @@ def pr_body(summary: dict, record: dict, target: str, uncovered: list[str]) -> s
         lines.append(
             f"| {row['target']}{here} | {row['role']} | {row.get('status')} | `{Path(row['run_dir'] or '').name}` |"
         )
-    lines += ["", "Merge order: " + ", then ".join(state["merge_order"]) + "."]
-    check, result, waiver = state["check"], state["result"], state["waiver"]
+    lines += ["", "Merge order: " + ", then ".join(verification["merge_order"]) + "."]
+    check, result, waiver = verification["check"], verification["result"], verification["waiver"]
     if check is None:
         lines.append("Integration check: none was named.")
     elif result and result["current"] and result["passed"]:
