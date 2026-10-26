@@ -30,8 +30,12 @@ deliver only the API half.
   run in a registered project with that repository's ready brief and records the two
   runs as one change set, which both runs' status shows under `scope.linked`
   ([Linked runs](task-run.md#linked-runs)). Each run still plans, builds and completes
-  on its own. Approving the plans together and checking that the two sides agree are
-  later steps of [#2066](https://github.com/charlieanna/autocode/issues/2066).
+  on its own.
+- **You can approve the linked plans together.** `autocode changeset status` shows every
+  run's plan and one set token, and `autocode changeset approve` approves them all at
+  once. A plan that changes in any run withdraws the token
+  ([Approving the set](task-run.md#approving-the-set)). Checking that the two sides agree
+  is a later step of [#2066](https://github.com/charlieanna/autocode/issues/2066).
 - **Component builds stay inside one repository.** `autocode components` builds
   several components in parallel, but every component worktree comes from the
   same repository's HEAD, and integration applies their changes to a worktree of
@@ -46,7 +50,7 @@ deliver only the API half.
 
 ## The manual workflow
 
-Until linked runs are approved and checked together, coordinate the repositories yourself:
+Until linked runs are checked together, coordinate the repositories yourself:
 
 1. Write one brief per repository. Each brief states the shared requirement,
    the interface both sides agree on (field names, payload examples, an API
