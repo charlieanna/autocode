@@ -2172,7 +2172,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/54b9b0ec46fa28652c17a25ce70fa307e9a48498/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/bbcab042ef457b821e361472a1c777e836869cdf/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2342,7 +2342,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/54b9b0ec46fa28652c17a25ce70fa307e9a48498/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/bbcab042ef457b821e361472a1c777e836869cdf/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2465,7 +2465,14 @@ is never silently added.</p>
   not in the table is never chosen automatically, however cheap. After a live run proves
   a route, <code>tools/qualify_routes.py --run-dir RUN --scenario NAME --profile PROFILE</code>
   merges that run into the table, refusing anything that did not declare
-  <code>--evidence-provenance live</code> and finish <code>TASK_COMPLETE</code>; it launches no model.</li>
+  <code>--evidence-provenance live</code> and finish <code>TASK_COMPLETE</code>; it launches no model.
+  Each merge also appends a <code>runs</code> record to the entry: the date, run, scenario and
+  profile, the role's accepted attempts on that route, and their minutes and cost
+  (null when an attempt did not record one). <code>autocode models --selection</code> shows each
+  listed entry's evidence, such as <code>provisional: no AutoCode run yet</code> or
+  <code>qualified: 3 AutoCode runs, latest 2026-10-25, median 20 min, median $1.00</code> (#2059).
+  Provisional entries stay selectable (owner decision, 2026-10-26) until benchmark runs
+  have filled these records.</li>
 <li><strong>Within a role's qualified models, the cheapest route wins.</strong> A subscription route
   counts as cheaper than any pay-per-token one, then the price-table cost orders them,
   and a route whose access is already proven beats one that would need a probe. The
