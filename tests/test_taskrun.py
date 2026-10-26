@@ -137,6 +137,7 @@ class RunViewTests(unittest.TestCase):
                 "efficiency",
                 "recovery",
                 "verification",
+                "review_result",
                 "code_checkpoints",
                 "routes",
                 "provider",
