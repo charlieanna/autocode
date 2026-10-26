@@ -65,6 +65,8 @@ class InvestigatorRepairHandoffTests(unittest.TestCase):
         prompt = self.repair_request()["prompt"].split("CURRENT HANDOFF DATA\n", 1)[0]
         self.assertNotIn("Evidence references must be bare event: IDs or exact file paths", prompt)
         self.assertIn("event: IDs are invalid for investigate_stuck", prompt)
+        # #1769: a repaired probe must still fail on its counterexample, and the repair is told so.
+        self.assertIn("A probe also needs counterexample", prompt)
 
 
 class InvestigatorRepairContextTests(unittest.TestCase):

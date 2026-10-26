@@ -27,6 +27,7 @@ try:
     from .. import autocode_bug_job as bug_job
     from .. import autocode_bug_questions as bug_questions
     from .. import autocode_compact_planning as compact_planning
+    from .. import autocode_counterexample as counterexample
     from .. import autocode_discuss_job as discuss_job
     from .. import autocode_failures as failures
     from .. import autocode_goal_lifecycle as lifecycle
@@ -52,6 +53,7 @@ except ImportError:
     import autocode_bug_job as bug_job
     import autocode_bug_questions as bug_questions
     import autocode_compact_planning as compact_planning
+    import autocode_counterexample as counterexample
     import autocode_discuss_job as discuss_job
     import autocode_failures as failures
     import autocode_goal_lifecycle as lifecycle
@@ -135,54 +137,59 @@ def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None)
         state, workspace, run_dir or Path(record.get("output") or workspace).parent.parent, verify.scratch_run
     )
     if stage == discuss_job.STAGE:
-        # The runner, not the Analyst, runs each claim's probe, in a scratch copy of the code.
+        # The runner, not the Analyst, runs each claim's probe, in a scratch copy of the code, and again
+        # in one with the claim's counterexample made, where it must fail (#1769).
+        probes = Path(record.get("output") or workspace).parent / "answer-probes"
         return discuss_job.apply(
             state,
             value,
             record,
             workspace,
-            run_probe=lambda command: clean_run(
-                workspace,
-                Path(record.get("output") or workspace).parent / "answer-probes",
-                command=command,
-                timeout=PROBE_TIMEOUT,
-            ),
+            run_probe=lambda command: clean_run(workspace, probes, command=command, timeout=PROBE_TIMEOUT),
+            run_counterexample=counterexample.runner(clean_run, workspace, probes, timeout=PROBE_TIMEOUT),
         )
     if stage == stuck_job.STAGE:
-        # The runner shows the diagnosed cause: the probe runs in a scratch tree holding only the cited files.
-        def probe(command, files):
+        # The runner shows the diagnosed cause: the probe runs in a scratch tree holding only the cited files,
+        # and again with its counterexample made, where it must fail (#1769).
+        probes = Path(record.get("output") or workspace).parent / "investigation-probe"
+
+        def contained(workspace, directory, *, command, timeout, **inputs):
             if (state.get("stuck_investigation") or {}).get("mode") == "builder_failure":
                 try:
                     from .. import autocode_builder_failure as builder_failure
                 except ImportError:
                     import autocode_builder_failure as builder_failure
                 command = builder_failure.readonly_probe(command)
-            return clean_run(
-                workspace,
-                Path(record.get("output") or workspace).parent / "investigation-probe",
-                command=command,
-                files=files,
-                timeout=PROBE_TIMEOUT,
+            return clean_run(workspace, directory, command=command, timeout=timeout, **inputs)
+
+        def probe(command, files):
+            return contained(workspace, probes, command=command, files=files, timeout=PROBE_TIMEOUT)
+
+        def against(command, edit, files):
+            return counterexample.runner(contained, workspace, probes, timeout=PROBE_TIMEOUT, files=files)(
+                command, edit
             )
 
-        return stuck_job.apply(state, value, record, workspace, run_probe=probe)
+        return stuck_job.apply(state, value, record, workspace, run_probe=probe, run_counterexample=against)
     # The runner, not the Investigator, shows the bug: its probe must exit 0 on the code as it is.
     guard = job_report_recovery.BEFORE_WRITE.get()
     if guard:
         guard()
 
-    def run_probe(command):
-        result = clean_run(
-            workspace,
-            Path(record.get("output") or workspace).parent / "investigation-probe",
-            command=command,
-            timeout=PROBE_TIMEOUT,
-        )
+    probes = Path(record.get("output") or workspace).parent / "investigation-probe"
+
+    def guarded(*args, **kwargs):
+        result = clean_run(*args, **kwargs)
         if guard:
             guard()  # No note or result is published if inspected bytes/source changed during the probe.
         return result
 
-    bug_job.apply(state, value, record, workspace, run_probe=run_probe)
+    def run_probe(command):
+        return guarded(workspace, probes, command=command, timeout=PROBE_TIMEOUT)
+
+    # The probe must also fail with the bug removed, in another scratch copy (#1769).
+    against = counterexample.runner(guarded, workspace, probes, timeout=PROBE_TIMEOUT)
+    bug_job.apply(state, value, record, workspace, run_probe=run_probe, run_counterexample=against)
     if bug_questions.has_questions(state):
         human.queue(
             state,

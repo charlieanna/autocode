@@ -12,7 +12,7 @@ import { chosenMode, type RunModes } from "./core/modes";
 import type { StatusView } from "./core/view";
 import { transitionNotice } from "./notify";
 import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
-import { numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, planningSpendConfirmation, stateFor } from "./panel";
+import { confirmRaise, numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, planningSpendConfirmation, stateFor } from "./panel";
 
 // While a reply is being written the view is read this often, so each new extract
 // shows at once. A reply that has not changed for STREAM_QUIET_POLLS reads (a model
@@ -31,6 +31,8 @@ interface ChatMessage {
   decisionContext?: string;
   token?: string | null;
   answers?: Record<string, string>;
+  /** A number typed into the bound's separately named raise (#2044). */
+  value?: string;
   checkpoint?: string;
   action?: "compare" | "restore";
   workspace?: string;
@@ -361,7 +363,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       return;
     }
     if (message.type === "new") { if (!this.active.starting) this.show(); return; }
-    if (message.type !== "send" && message.type !== "take") return;
+    if (message.type !== "send" && message.type !== "take" && message.type !== "raise") return;
     const tab = this.active;
     if (message.runKey !== tab.key || tab.starting || this.busy.has(tab.key)) return;
     if (!tab.run) {
@@ -380,6 +382,12 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         await this.controller.sendMessage(view, run, message.text, message.context ?? "");
         void this.view?.webview.postMessage({ type: "sent", runKey: key, text: message.text });
         await this.advanceAfterInput(run);
+      } else if (message.type === "raise") {
+        // The raise resumes the run itself; nothing else is inferred from it.
+        const value = message.value ?? "";
+        if (await confirmRaise(stateFor(view, run, this.controller), message.decisionContext, value)) {
+          await this.controller.raise(view, run, value);
+        }
       } else {
         const state = stateFor(view, run, this.controller);
         if (message.decisionContext !== state.decisionContext) throw new Error("The requested action changed; review it before continuing");

@@ -162,6 +162,87 @@ for (const surface of ['chat', 'Run details']) {
   });
 }
 
+// A cost cap held behind a plain resume (#2044): the view names the raise as the row's own command.
+function heldCostView(token = 'cost:current', operational = false) {
+  const raise = `AUTOCODE_EXPECTED_RECOVERY_TOKEN=${token} autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused --max-cost-usd N --expected-recovery-token -`;
+  const view = { status: 'PAUSED_COST_LIMIT', done: false, recovery: { token },
+    needs: { kind: 'resume', command_inputs: [{ id: 'max_cost_usd', kind: 'integer', flag: '--max-cost-usd', placeholder: 'N',
+      arg_index: 2, label: 'Cost cap (whole USD)', current: 2, used: 2.37, minimum: 3, maximum: Number.MAX_SAFE_INTEGER, command: raise }] },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused` };
+  if (!operational) return view;
+  // AutoResolver's operational request for the same bound: the conversation takes a reply, the row the raise.
+  const reply = 'AUTOCODE_RESOLVER_TOKEN=resolver autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE';
+  return { ...view, status: 'WAITING_FOR_USER', needs: { ...view.needs, kind: 'answer', resolver_scope: 'operational_exhaustion',
+    resolver_request_id: 'req-1', resolver_token: 'resolver' }, next_command: reply.replace('MESSAGE', '"WHAT CHANGED"'),
+    chat: { context: 'chat-1', messages: [], input: { kind: 'resolver_response', label: 'Send recovery reply', next_command: reply } } };
+}
+
+for (const surface of ['chat', 'Run details']) {
+  for (const operational of [false, true]) {
+    test(`a limit held ${operational ? 'by an AutoResolver request' : 'behind a plain resume'} in ${surface} takes a typed raise through its named command`, async (t) => {
+      host.config.set('confirmPersonOnly', false);
+      const ownController = new RunController(host.log);
+      const view = heldCostView('cost:current', operational);
+      const ui = surface === 'chat' ? await openChat(t, view, run, { controller: ownController }) : await openPanel(t, view, undefined, ownController);
+      const field = ui.document.querySelector('[data-question="raise:max_cost_usd"]');
+      const raise = () => ui.document.querySelector('#raise-bound');
+      assert.ok(field, 'the separate raise is shown');
+      assert.equal(field.value, ''); assert.equal(raise().disabled, true);
+      assert.equal(field.getAttribute('aria-label'), 'Cost cap (whole USD)');
+      for (const text of ['Saved cost cap: $2', 'Known spend: $2.37', 'at least $3']) assert.ok(ui.document.body.textContent.includes(text), text);
+      for (const value of ['2', '0', '-1', '3.5', '5e2', '9007199254740992']) {
+        field.value = value; field.dispatchEvent(new ui.window.Event('input')); assert.equal(raise().disabled, true, value);
+      }
+      field.value = '5'; field.dispatchEvent(new ui.window.Event('input'));
+      assert.equal(raise().disabled, false);
+      const launch = t.mock.method(cli, 'stream', async () => ok);
+      const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+      raise().click(); await flush();
+      assert.equal(launch.mock.callCount(), 0, 'declining must leave the cap untouched');
+      const [title, options, button] = confirm.mock.calls[0].arguments;
+      assert.equal(title, 'Set the cost cap to $5 and continue?');
+      assert.equal(button, 'Raise limit and continue');
+      for (const text of ['only the cost cap', 'Other saved limits', 'does not approve a plan']) assert.ok(options.detail.includes(text), text);
+      confirm.mock.mockImplementation(async () => button);
+      raise().click(); await flush();
+      assert.equal(launch.mock.callCount(), 1);
+      const [, args, env] = launch.mock.calls[0].arguments;
+      assert.deepEqual(args, ['--resume-paused', '--max-cost-usd', '5', '--expected-recovery-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
+      assert.deepEqual(env, { AUTOCODE_EXPECTED_RECOVERY_TOKEN: 'cost:current' });
+      ui.setView(heldCostView('cost:new', operational));
+      raise().click(); await flush();
+      assert.equal(launch.mock.callCount(), 1, 'a click on the old offer cannot raise the new pause');
+    });
+  }
+
+  test(`a malformed separate raise in ${surface} is not offered`, async (t) => {
+    const view = heldCostView();
+    view.needs.command_inputs[0].command = view.needs.command_inputs[0].command.replace(run.runDir, '/other/run');
+    const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+    assert.equal(ui.document.querySelector('#raise-bound'), null);
+  });
+
+  test(`an attached cost raise in ${surface} names the cost cap, not active time`, async (t) => {
+    host.config.set('confirmPersonOnly', false);
+    const ownController = new RunController(host.log);
+    const view = heldCostView();
+    view.next_command = view.needs.command_inputs[0].command;
+    delete view.needs.command_inputs[0].command;
+    const ui = surface === 'chat' ? await openChat(t, view, run, { controller: ownController }) : await openPanel(t, view, undefined, ownController);
+    assert.equal(ui.document.querySelector('#raise-bound'), null, 'an attached row is the named action itself');
+    const field = ui.document.querySelector('[data-question="max_cost_usd"]');
+    field.value = '4'; field.dispatchEvent(new ui.window.Event('input'));
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+    ui.document.querySelector('#take-action').click(); await flush();
+    assert.equal(launch.mock.callCount(), 0);
+    const [title, options, button] = confirm.mock.calls[0].arguments;
+    assert.equal(title, 'Set the cost cap to $4 and continue?');
+    assert.equal(button, 'Raise limit and continue');
+    assert.ok(options.detail.includes('only the cost cap'));
+  });
+}
+
 const connectionRows = [
   { id: 'kilocode', label: 'Kilo', connection_status: 'not_checked', detail: 'Installed', actions: [
     { id: 'login', label: 'Sign in / Reconnect', next_command: ['connections', 'login', '--provider', 'kilocode'] },

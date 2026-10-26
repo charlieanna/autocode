@@ -228,7 +228,10 @@ exist, in the repository or in the run's directory, and a retry must cite at lea
 runner copies only the cited run files into a scratch tree, each at `run/<name>`, and runs
 the probe there: a probe that does not exit 0, or that needs a file the Investigator did
 not cite, rejects the report, and the original pause is restored with the reason. The
-probe's receipt is recorded with the investigation.
+probe also carries `counterexample`, one edit to a cited file after which it no longer
+shows the cause; the runner makes it in another scratch tree and the probe must fail
+there, so a probe that passes whatever the files say retries nothing (#1769). The
+probe's receipt, with its counterexample's exit code, is recorded with the investigation.
 
 Bounds: one investigation per distinct stage and pause, three per run
 (`settings.stuck_investigation.max_calls_per_run`; 0 turns it off). A Builder failure the
@@ -464,9 +467,13 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
     example `python3 -c "from pager import page_count; assert page_count(5, 2) == 2"`.
     The runner runs it in a scratch copy and rejects the report if it does
     not exit 0, so the diagnosis rests on something the runner saw, not on
-    the Investigator's word. A bug no command can show here (a live registry,
-    a race, a device) says why in `untestable` instead. The note records the
-    probe that showed the bug in `proven_by`.
+    the Investigator's word. The probe also carries `counterexample`, the one
+    edit that removes the bug, and must fail in a scratch copy with that edit
+    made: a probe that exits 0 whatever the code says, such as
+    `python3 -c 'assert 2 + 2 == 4'`, is not a reproduction (#1769). A bug no
+    command can show here (a live registry, a race, a device) says why in
+    `untestable` instead. The note records the probe that showed the bug in
+    `proven_by`.
   - **Contract criteria.** Each case becomes an acceptance criterion of the
     small-fix contract. For a large fix, it becomes one the Planner must carry
     into the plan you approve.
@@ -834,9 +841,17 @@ and the runner, not a model, runs something that shows it.
 - The runner runs every probe in a scratch copy of the code as it is now, with
   a two-minute limit each. A probe that fails rejects the answer. A probe
   cannot change the workspace.
-- Claims without a probe stay grounded by their source file only, as before.
-- Probed claims are recorded in the run state (`answer.probes`) and shown in
-  the answer's evidence list.
+- A probed claim also carries `counterexample`: the smallest edit to one
+  repository file (`file`, `find`, `replace`) that makes the claim false. The
+  runner makes that edit in a second scratch copy and runs the probe again; it
+  must fail there. A probe that exits 0 whatever the code says, such as
+  `python3 -c 'assert 2 + 2 == 4'`, does not tell the claim from its opposite,
+  so the answer is rejected and goes to the usual bounded report repair; it is
+  never shown as a check that ran (#1769).
+- Claims without a probe stay grounded by their source file only, as before,
+  and the answer lists them as read from the source, not run.
+- Probed claims are recorded in the run state (`answer.probes`, each with its
+  counterexample's exit code) and shown in the answer's evidence list.
 
 ### Design: a concern about today's code carries a probe
 
@@ -856,6 +871,11 @@ same probe rule as discussions applies to what it says about the code.
   `probe`; a constraint that lives in prose (a README rule) has none. The
   blockers file written beside the design records each conflict's proving
   probe in `proven_by`.
+- **Counterexamples.** As in a discussion, every probed concern and conflict
+  also carries `counterexample`, the one edit after which the code no longer
+  behaves as it says, and its probe must fail there. A concern or conflict
+  blocks work, so a probe that passes whatever the code says rejects the
+  report (#1769).
 
 The scratch runs are `autocode_verify.scratch_run`. A Python test delivered
 into a project with no test suite of its own still runs under unittest.

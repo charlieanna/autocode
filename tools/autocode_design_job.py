@@ -65,13 +65,13 @@ try:
     from . import autocode_stage_access as stage_access
     from . import autocode_stray_writes as stray_writes
     from . import autocode_workflows as workflows
-    from .autocode_test_cases import run_probes
+    from .autocode_test_cases import COUNTEREXAMPLE, run_probes
 except ImportError:
     import autocode_follow_up as follow_up
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_workflows as workflows
-    from autocode_test_cases import run_probes
+    from autocode_test_cases import COUNTEREXAMPLE, run_probes
 
 STAGE = workflows.DESIGN_STAGE
 REPORT_PATH = "review/design-review.json"
@@ -83,8 +83,10 @@ CONCERN: dict[str, Any] = {
     "additionalProperties": False,
     "required": ["id", "area", "severity", "summary", "evidence", "example", "probe"],
     # example: the problem as one concrete case in plain English; probe: a shell command, run from the
-    # repository root, that exits 0 exactly when the code behaves as the concern says. "" when the
-    # concern is about the design text alone.
+    # repository root, that exits 0 exactly when the code behaves as the concern says; counterexample: the
+    # edit to one file after which the code no longer does, where the probe must fail (#1769). All "" when
+    # the concern is about the design text alone. counterexample is not required here, so reviews saved
+    # before it still load.
     "properties": {
         "id": TEXT,
         "area": TEXT,
@@ -93,6 +95,7 @@ CONCERN: dict[str, Any] = {
         "evidence": TEXT,
         "example": TEXT,
         "probe": TEXT,
+        "counterexample": COUNTEREXAMPLE,
     },
 }
 QUESTION = {
@@ -280,9 +283,10 @@ def check(value: dict, changed_files, previous: dict | None = None) -> None:
         raise ValueError(f"Only an earlier concern can be resolved; raised in this revision: {new}")
 
 
-def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None) -> None:
-    """``run_probe(command)`` runs a probe in a scratch copy (the unit passes autocode_verify.scratch_run);
-    without it a probed concern is rejected rather than trusted."""
+def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None, run_counterexample=None) -> None:
+    """``run_probe(command)`` runs a probe in a scratch copy (the unit passes autocode_verify.scratch_run)
+    and ``run_counterexample(command, counterexample)`` runs it with the concern's counterexample made
+    (autocode_counterexample.runner); without them a probed concern is rejected rather than trusted."""
     previous = revising(state)
     check(value, record.get("changed_files"), previous)
     if value["mode"] == "propose":
@@ -300,6 +304,8 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None)
         run_probe or (lambda command: {"error": "no probe runner was given"}),
         what="concern",
         key="id",
+        run_counterexample=run_counterexample
+        or (lambda command, edit: {"error": "no counterexample runner was given"}),
     )
     concerns = [
         {key: concern.get(key, "") for key in CONCERN_ORDER} | {"status": _status(concern)}

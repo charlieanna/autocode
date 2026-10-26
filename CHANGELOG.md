@@ -16,6 +16,14 @@ PR template asks for an entry here; a change without one is incomplete.
   `proxy_reason`, and the plan asks you a decision question until a saved answer accepts the
   stand-in. The status view lists these rows as `proxied_requirements`, and the approval screen
   shows them under "Proven only on a stand-in".
+- The VS Code run details and sidebar chat now show the separate limit raise a bound pause names once
+  AutoResolver holds it or `next_command` is a plain resume: a number field and a **Raise limit and
+  continue** button that takes only the row's own command, confirmed with the limit it changes. Typed
+  raises at the cost, iteration, milestone and unchanged-batch pauses are confirmed by name instead of
+  as "total active time". The browser dashboard's recovery card gains a number entry for the one
+  number a pause leaves to a person (`needs.command_inputs`), so a run paused at a limit can be
+  restarted with a typed number from the dashboard too (#2044 follow-up).
+
 - `autocode connections setup` now ends by naming the route each role will use (model, reasoning
   level, the account and that it is a qualified choice), and a new run with no model flag prints the
   same lines before it spends anything (#2057). Both read the connected tool's own model listing and
@@ -372,6 +380,17 @@ PR template asks for an entry here; a change without one is incomplete.
   has passed; actual guest execution remains unverified.
 
 ### Fixed
+
+- A probe that passes whatever the code says no longer counts as evidence (#1769). A probed claim
+  from the Analyst, a probed concern from the Designer and a probed conflict from the Design Reviewer
+  now carry a `counterexample`: one edit (`file`, `find`, `replace`) that makes the claim false. The
+  runner makes it in a second scratch copy and the probe must fail there. A probe such as
+  `python3 -c 'assert 2 + 2 == 4'`, which exits 0 either way, is refused and goes to the usual bounded
+  report repair instead of being shown as a check that ran. The Analyst's answer now lists claims
+  without a probe as read from the source, not run.
+  The bug Investigator's reproduction probe and the stuck Investigator's probe now follow the same
+  rule: a reproduction names the edit that removes the bug, and a diagnosed cause names the edit to a
+  cited file after which the file no longer shows it.
 
 - A report rejected for its format on a configured Kilo connection (a provider TOML whose command
   runs `kilo`, such as `kilo_glm_mimo`) now goes straight to the full report repair, as on the bundled

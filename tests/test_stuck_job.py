@@ -1,6 +1,7 @@
 """A stage that stops converging goes to an Investigator before the run pauses for the user."""
 
 import copy
+import json
 import shlex
 import subprocess
 import sys
@@ -868,6 +869,13 @@ class ProbeTests(unittest.TestCase):
     """A retry's diagnosed cause is shown by a probe the runner runs over the cited files only; no model."""
 
     REJECTED = {"code_refs": ["docs/bugs/cent-drift.json (see the note)"], "summary": "plan"}
+    # The rejected output with the path fixed: the cause the probe shows is gone (#1769).
+    FIXED_REF = {
+        "file": "run/astra_discovery-03.json",
+        "find": "cent-drift.json (see the note)",
+        "replace": "cent-drift.json",
+    }
+    SPACE_PROBE = "python3 -c \"import json; r = json.load(open('run/astra_discovery-03.json')); assert ' ' in r['code_refs'][0]\""
 
     def setup(self):
         import json
@@ -888,7 +896,14 @@ class ProbeTests(unittest.TestCase):
         return state, workspace, run_dir
 
     def apply(self, state, run_dir, workspace, **overrides):
-        value = report(**{"evidence_refs": [str(run_dir / "astra_discovery-03.json")], "untestable": "", **overrides})
+        value = report(
+            **{
+                "evidence_refs": [str(run_dir / "astra_discovery-03.json")],
+                "untestable": "",
+                "counterexample": self.FIXED_REF,
+                **overrides,
+            }
+        )
         autoresolver.apply_job(
             stuck.STAGE,
             state,
@@ -911,8 +926,25 @@ class ProbeTests(unittest.TestCase):
         )
         entry = state["stuck_investigations"][0]
         self.assertEqual(("retried", 0, probe), (entry["outcome"], entry["probe_result"]["exit_code"], entry["probe"]))
+        self.assertNotEqual(0, entry["probe_result"]["counterexample"]["exit_code"])
         self.assertEqual("astra_discovery", state["next_stage"])
         self.assertTrue((run_dir / "secret-uncited.json").is_file())  # the real run directory is untouched
+        self.assertEqual(
+            self.REJECTED["code_refs"], json.loads((run_dir / "astra_discovery-03.json").read_text())["code_refs"]
+        )
+
+    def test_a_probe_that_passes_whatever_the_cited_files_say_sends_nothing_back(self):
+        # #1769: a retry is checked, not trusted, so its probe must fail once the cited file no longer shows
+        # the cause. Without that the stage is not retried, and the original pause is restored.
+        for probe, counterexample in (
+            ("python3 -c 'assert 2 + 2 == 4'", self.FIXED_REF),
+            ("test -f run/astra_discovery-03.json", self.FIXED_REF),
+            (self.SPACE_PROBE, {"file": "", "find": "", "replace": ""}),
+        ):
+            with self.subTest(probe=probe, counterexample=counterexample):
+                state, workspace, run_dir = self.setup()
+                with self.assertRaisesRegex(ValueError, "counterexample"):
+                    self.apply(state, run_dir, workspace, example="x", probe=probe, counterexample=counterexample)
 
     def test_an_archived_output_is_probed_at_its_file_name_as_the_prompt_says(self):
         # Live run 2026-09-29: the rejected output had been moved to archived-sol-01-*/ and a probe

@@ -83,6 +83,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/prompts/fragments/report-repair-context/evidence-probe.md",
         ("tests.test_report_repair", "tests.test_test_cases"),
     ),
+    (
+        "tools/prompts/fragments/report-repair-context/evidence-counterexample.md",
+        ("tests.test_report_repair", "tests.test_discuss_job"),
+    ),
     ("tools/providers/requirements_stream.mjs", ("tests.test_requirements_stream", "tests.test_requirements_chat")),
     ("tools/providers/opencode_activity.mjs", ("tests.test_opencode_activity", "tests.test_kilo_progress")),
     (

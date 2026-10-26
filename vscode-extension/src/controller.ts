@@ -13,17 +13,19 @@ import { realpath } from "node:fs/promises";
 import { invoke, readStatus, stream, tail, type CliResult } from "./core/cli";
 import {
   applyDecisions,
+  boundOffer,
   changesetAction,
   changesetStatusArgs,
   commandInputs,
   findUnsupplied,
+  integerValue,
   isAdvancing,
   openDecisions,
   parseNamedCommand,
   ClientGap,
   type OpenDecision,
 } from "./core/next-command";
-import { readChangesetSummary, readRegistryList, readStatusPayload, approvalToken, planForApproval, type ChangesetSummary, type CheckpointAction, type RegistryList, type StatusView } from "./core/view";
+import { readChangesetSummary, readRegistryList, readStatusPayload, approvalToken, planForApproval, type ChangesetSummary, type CheckpointAction, type IntegerCommandInput, type RegistryList, type StatusView } from "./core/view";
 import { FULL_START_ARGS, readRunModes, type RunModes } from "./core/modes";
 import { readSettings, type Settings } from "./settings";
 
@@ -231,6 +233,39 @@ export class RunController {
     this.log.appendLine(`$ autocode ${args.map(redact).join(" ")}`);
     const result = await this.mutating([run, own], () =>
       stream(this.settings, args, action.env, (chunk) => this.log.append(chunk)));
+    this.log.appendLine(`[autocode exited ${result.code}]`);
+    if (result.rejected) throw new Error(`AutoCode rejected the command:\n${tail(result)}`);
+    if (result.code !== 0 && result.code !== 2) throw new Error(tail(result));
+    return result;
+  }
+
+  /**
+   * The core's separate raise of the bound holding the run (#2044), or null when the view names none.
+   *
+   * At a plain resume or AutoResolver's operational request for a bound pause, next_command is not the
+   * raise; the command_inputs row names it as its own command. A row that fails the shared rule is
+   * no offer here, as in the terminal chat.
+   */
+  boundRaise(view: StatusView, run: RunRef): IntegerCommandInput | null {
+    try {
+      return boundOffer(view, effective(view, run))?.input ?? null;
+    } catch (error) {
+      if (error instanceof ClientGap) return null;
+      throw error;
+    }
+  }
+
+  /** Take the named raise with the number a person typed in its one slot, never in next_command. */
+  async raise(view: StatusView, run: RunRef, text: string): Promise<CliResult> {
+    const own = effective(view, run);
+    const offer = boundOffer(view, own);
+    if (!offer) throw new ClientGap("AutoCode offers no limit to raise for this pause");
+    const argv = [...offer.named.argv];
+    argv[offer.input.arg_index] = integerValue(text, offer.input);
+    const args = [...argv, "--workspace", own.workspace, "--run-dir", own.runDir];
+    this.log.appendLine(`$ autocode ${args.map(redact).join(" ")}`);
+    const result = await this.mutating([run, own], () =>
+      stream(this.settings, args, offer.named.env, (chunk) => this.log.append(chunk)));
     this.log.appendLine(`[autocode exited ${result.code}]`);
     if (result.rejected) throw new Error(`AutoCode rejected the command:\n${tail(result)}`);
     if (result.code !== 0 && result.code !== 2) throw new Error(tail(result));

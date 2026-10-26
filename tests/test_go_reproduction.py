@@ -228,6 +228,12 @@ class GoReproductionTests(unittest.TestCase):
                         }
                     ],
                     "probe": command,
+                    # The bug removed (#1769): the probe must fail here.
+                    "counterexample": {
+                        "file": "pager.go",
+                        "find": "return total / size",
+                        "replace": "return (total + size - 1) / size",
+                    },
                     "untestable": "",
                     "conclusion": "Round up partial pages.",
                     "fix_size": "large",
