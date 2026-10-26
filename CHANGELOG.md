@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- A plan whose criteria can prove only a stand-in for what you see, because code outside the
+  checkout renders it, now says so (#2068): the requirement is traced `proxied` with a
+  `proxy_reason`, and the plan asks you a decision question until a saved answer accepts the
+  stand-in. The status view lists these rows as `proxied_requirements`, and the approval screen
+  shows them under "Proven only on a stand-in".
 - `autocode connections setup` now ends by naming the route each role will use (model, reasoning
   level, the account and that it is a qualified choice), and a new run with no model flag prints the
   same lines before it spends anything (#2057). Both read the connected tool's own model listing and
