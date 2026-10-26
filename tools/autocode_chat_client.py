@@ -1335,14 +1335,24 @@ class ChatClient:
         # A stopped job's model question, named by the view as a command (#2005): a typed model takes it.
         model_command = route.get("command") if need.get("kind") == "retry_job" and route.get("question_id") else None
         offer = self.bound_offer(view)
+        conversation = view.get("chat") or {}
+        message_offer = (
+            need.get("kind") == "resume"
+            and (conversation.get("input") or {}).get("kind") == "feedback"
+            and (conversation.get("input") or {}).get("next_command")
+        )
         hint = ", or type the model to continue on" if model_command else ""
         if offer:
             hint = f", or type a new {offer[0]['label'].lower()} ({offer[0]['minimum']} or more)"
+        elif message_offer and not model_command:
+            hint = ", or type what to change"
         answer = self.ask(f"{prompt}? [y/N]{hint}: ")
         if model_command and answer.strip() and answer.strip().lower() not in (*YES, "n", "no"):
             return self.route_model(view, model_command, route, answer.strip())
         if offer and answer.strip() and answer.strip().lower() not in (*YES, "n", "no"):
             return self.raise_bound(view, offer, answer)
+        if message_offer and answer.strip() and answer.strip().lower() not in (*YES, "n", "no"):
+            return self.send(answer, conversation.get("context") or "")
         if answer.lower() not in YES:
             self.say(f"Left as it is. Pick it up with: autocode chat --run-dir {self.run_dir}")
             return False
