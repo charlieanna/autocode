@@ -222,6 +222,13 @@ The rules the choice keeps:
   a route, `tools/qualify_routes.py --run-dir RUN --scenario NAME --profile PROFILE`
   merges that run into the table, refusing anything that did not declare
   `--evidence-provenance live` and finish `TASK_COMPLETE`; it launches no model.
+  Each merge also appends a `runs` record to the entry: the date, run, scenario and
+  profile, the role's accepted attempts on that route, and their minutes and cost
+  (null when an attempt did not record one). `autocode models --selection` shows each
+  listed entry's evidence, such as `provisional: no AutoCode run yet` or
+  `qualified: 3 AutoCode runs, latest 2026-10-25, median 20 min, median $1.00` (#2059).
+  Provisional entries stay selectable (owner decision, 2026-10-26) until benchmark runs
+  have filled these records.
 - **Within a role's qualified models, the cheapest route wins.** A subscription route
   counts as cheaper than any pay-per-token one, then the price-table cost orders them,
   and a route whose access is already proven beats one that would need a probe. The

@@ -91,6 +91,27 @@ class QualificationTableTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "including the model"):
             selector.parse({"as_of": "x", "roles": {"terra": [wrong_routes]}})
 
+    def test_run_records_are_validated_and_summarised(self):
+        # #2059: structured AutoCode evidence beside the prose; provisional entries stay selectable.
+        entry = {"model": GLM, "evidence": "run", "provenance": "qualified"}
+        bad = {**entry, "runs": [{"date": "2026-10-25", "run": "r1", "minutes": -1, "cost_usd": None}]}
+        with self.assertRaisesRegex(ValueError, "runs must be records"):
+            selector.parse({"as_of": "x", "roles": {"terra": [bad]}})
+        runs = [
+            {"date": "2026-10-24", "run": "r1", "minutes": 10, "cost_usd": 0.5},
+            {"date": "2026-10-25", "run": "r2", "minutes": 30, "cost_usd": None},
+            {"date": "2026-10-23", "run": "r3", "minutes": None, "cost_usd": 1.5},
+        ]
+        selector.parse({"as_of": "x", "roles": {"terra": [{**entry, "runs": runs}]}})
+        self.assertEqual(
+            "qualified: 3 AutoCode runs, latest 2026-10-25, median 20 min, median $1.00",
+            selector.evidence_summary({**entry, "runs": runs}),
+        )
+        self.assertEqual(
+            "provisional: no AutoCode run yet", selector.evidence_summary({**entry, "provenance": "provisional"})
+        )
+        self.assertEqual("qualified: no recorded run", selector.evidence_summary(entry))
+
     def test_a_model_the_table_does_not_list_is_never_chosen(self):
         result = selector.select(ALL_ROLES, [candidate("kilo/unbiased/pareto-latest")])
         self.assertIsNone(result["routes"])
