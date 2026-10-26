@@ -56,6 +56,37 @@ class KiloPolicyTests(unittest.TestCase):
         self.assertEqual({"*": "deny"}, policy.intersect(rules, ("bash",))["bash"])
         self.assertNotIn("background_process", actual)
 
+    def test_write_stage_keeps_operator_restrictions_and_cannot_delegate(self):
+        rules = [
+            {"permission": "*", "pattern": "*", "action": "allow"},
+            {"permission": "edit", "pattern": "protected*", "action": "deny"},
+            {"permission": "bash", "pattern": "danger*", "action": "ask"},
+            {"permission": "task", "pattern": "*", "action": "allow"},
+            {"permission": "websearch", "pattern": "private*", "action": "deny"},
+        ]
+        child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
+        argv = [sys.executable, "run", "--agent", "code", "--session", "old", "--model", "fixture/model"]
+        original = {"permission": rules, "prompt": "Preserve the operator coding prompt"}
+        with patch.object(
+            policy.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(original), "")
+        ):
+            ran, env = policy.restrict(argv, child, Path.cwd(), role="sol", write_stage=True)
+        agent = json.loads(env["KILO_CONFIG_CONTENT"])["agent"][ran[-1]]
+        self.assertEqual(original["prompt"], agent["prompt"])
+        self.assertEqual("fixture/model", agent["model"])
+        self.assertEqual({"*": "allow", "protected*": "deny"}, agent["permission"]["edit"])
+        self.assertEqual({"*": "allow", "danger*": "deny"}, agent["permission"]["bash"])
+        self.assertEqual("deny", agent["permission"]["*"])
+        for tool in ("task", "question", "plan_enter", "plan_exit", "unknown_mcp"):
+            self.assertNotIn(tool, agent["permission"])
+        self.assertNotIn("--session", ran)
+        self.assertEqual("deny", agent["permission"]["external_directory"])
+        self.assertEqual("allow", agent["permission"]["todowrite"])
+        self.assertEqual("allow", agent["permission"]["webfetch"])
+        self.assertEqual("deny", agent["permission"]["websearch"], "unsupported patterned action stays denied")
+        with self.assertRaisesRegex(ValueError, "read-only"):
+            policy.restrict(argv, child, Path.cwd(), role="sol", write_stage=True, request={})
+
     def test_native_permission_wildcards_do_not_treat_brackets_as_character_classes(self):
         rules = [
             {"permission": "*", "pattern": "*", "action": "deny"},
@@ -247,6 +278,11 @@ class NativeKiloPolicyTests(unittest.TestCase):
                 self.assertEqual(0, result.returncode, result.stderr)
                 self.assertTrue(requests, result.stdout)
                 self.assertTrue(all(row.get("max_tokens") == expected for row in requests), requests)
+                for row in requests:
+                    names = {tool["function"]["name"] for tool in row.get("tools", [])}
+                    self.assertIn("bash", names)
+                    self.assertTrue(names & {"edit", "apply_patch", "write"}, names)
+                    self.assertFalse(names & {"task", "question", "plan_enter", "plan_exit"}, names)
 
     def test_report_recovery_removes_tools_from_actual_native_model_request(self):
         requests = []

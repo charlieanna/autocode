@@ -73,6 +73,16 @@ supervision described in [provider process ownership](providers.md#provider-proc
 without the kernel boundary, so fake and live runs work there. Tests that
 assert the kernel boundary itself run on Linux only.
 
+Acceptance writers cannot install a second provider listener inside their inherited
+provider family. When an authored test starts AutoCode fake providers, submit the
+real test for the existing core scratch runner after writer exit. The writer must
+report its local execution limitation, not label the requirement `cannot_write`,
+retry the forbidden launch or count the startup error as fail-first proof. The
+core still requires collected per-test results: failing new behavior, passing
+guards, and no missing or skipped coverage before Builder. A runner-side host
+admission failure remains a verification blocker. This uses the existing runner;
+it adds no sandbox exemption, test skip or new model call.
+
 For a provider-backed regression, use a supported Linux checkout of the same
 revision and the [development setup](../CONTRIBUTING.md#set-up-a-development-checkout).
 Run as an ordinary user and install only the toolchains the selected test needs.

@@ -50,8 +50,11 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("docs/schemas/status-view.schema.json", ("tests.test_json_contract",)),
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture", "tests.test_review_attribution_cli")),
     ("scenarios/harness/profiles.py", ("tests.test_kilocode_effort",)),
-    ("tools/prompts/acceptance-tests.md", ("tests.test_acceptance_tests",)),
-    ("tools/prompts/fragments/acceptance-tests/", ("tests.test_acceptance_tests", "tests.test_acceptance_provenance")),
+    ("tools/prompts/acceptance-tests.md", ("tests.test_acceptance_tests", "tests.test_acceptance_runner_handoff")),
+    (
+        "tools/prompts/fragments/acceptance-tests/",
+        ("tests.test_acceptance_tests", "tests.test_acceptance_provenance", "tests.test_acceptance_runner_handoff"),
+    ),
     ("tools/prompts/fragments/test-cases/diagnosis-builder-note.md", ("tests.test_acceptance_tests",)),
     ("tools/providers/configs/kilocode.toml", ("tests.test_planning",)),
     ("tests/resolver_recommendation_provider.py", ("tests.test_resolver_recommendation_cli",)),
