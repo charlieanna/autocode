@@ -1564,7 +1564,9 @@ until the first record.
 assignments, not evidence a stage ran or a prediction of conditional routing or
 escalation. Several slots can serve the same job. The actual history is in
 `usage.accounting.attempts`: each attempt now also includes `job`, derived from
-its stage and workflow, alongside its recorded model and `launch_route`.
+its stage and workflow, alongside its recorded model and `launch_route`, and
+`route_role`, the slot whose route the stage launched when that differs from its
+unit `role` (null otherwise; #2114).
 Clients must keep configured assignments separate from actual attempts; changing
 a saved route does not rewrite an earlier attempt's model or reasoning effort.
 
