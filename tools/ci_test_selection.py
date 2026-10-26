@@ -110,6 +110,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/prompts/fragments/autoplanner/out-of-checkout-proxy-rule.md",
         ("tests.test_autoplanner_review",),
     ),
+    ("tools/prompts/fragments/autoplanner/requirement-trace-rule.md", ("tests.test_proxied_trace",)),
     ("tools/autocode_capture_bootstrap.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/autocode_native_capture_linux.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/prompts/plan-chat.md", ("tests.test_plan_chat_cli",)),

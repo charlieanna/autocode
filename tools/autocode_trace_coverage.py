@@ -46,7 +46,61 @@ def coverage_errors(requirements, by_id, contract, *, covered, cites_user_event)
                 errors.append(f"Requirement {row['id']} cannot be excluded without a saved user event")
         if disposition == "superseded" and not cites_user_event(evidence):
             errors.append(f"Requirement {row['id']} cannot be superseded without a saved user event")
+        if disposition == "proxied":
+            errors += _proxy_errors(row, entry, contract, cites_user_event=cites_user_event)
+            if covered and evidence not in (behaviors | criteria) and not cites_defined_criterion(evidence):
+                errors.append(f"Requirement {row['id']} is proxied but cites no criterion that proves the stand-in")
     return errors
+
+
+def _proxy_errors(requirement, entry, contract, *, cites_user_event):
+    """A ``proxied`` row (#2068) says its criteria prove a stand-in, not what the user sees. It needs the
+    reason in ``proxy_reason``, and the person's word on it: a saved answer cited in that reason or the
+    evidence, or, until there is one, an open blocking question of kind decision that names the
+    requirement by its ID or by a literal the brief states for it."""
+    rid = requirement["id"]
+    reason = entry.get("proxy_reason")
+    if not isinstance(reason, str) or not reason.strip():
+        return [f"Requirement {rid} is proxied without a proxy_reason saying why its criteria cannot show the result"]
+    if cites_user_event(reason) or cites_user_event(str(entry.get("evidence") or "")):
+        return []
+    if asks_about_proxy(requirement, contract):
+        return []
+    return [
+        f"Requirement {rid} is proxied without the person's confirmation: cite the saved answer that accepts "
+        f"the stand-in in proxy_reason, or ask it as an open_blocking_questions entry of kind decision "
+        f"that names {rid}"
+    ]
+
+
+def asks_about_proxy(requirement, contract) -> bool:
+    """Whether the contract asks the person a decision question about ``requirement``: one whose text
+    names its ID as a whole token, or one of the inline-code literals its brief text states."""
+    rid = str(requirement.get("id") or "")
+    stated = [part for part in (requirement.get("text"), requirement.get("source_quote")) if isinstance(part, str)]
+    found = brief_literals.literals(stated)
+    for question in (contract or {}).get("open_blocking_questions") or []:
+        if not isinstance(question, dict) or question.get("kind") != "decision":
+            continue
+        text = " ".join(str(question.get(key) or "") for key in ("question", "why"))
+        if rid and re.search(r"(?<![A-Za-z0-9_])" + re.escape(rid) + r"(?![A-Za-z0-9_])", text):
+            return True
+        if any(literal in text for literal in found):
+            return True
+    return False
+
+
+def proxied_rows(trace):
+    """The ``proxied`` rows of a validated trace, as the status view and the approval screen show them."""
+    return [
+        {
+            "requirement_id": row.get("requirement_id"),
+            "evidence": row.get("evidence"),
+            "proxy_reason": row.get("proxy_reason"),
+        }
+        for row in trace or []
+        if isinstance(row, dict) and row.get("disposition") == "proxied"
+    ]
 
 
 # The plan's own note that a component sits outside this checkout, or cannot be changed here (#2068),

@@ -105,14 +105,16 @@ def duration(seconds) -> str:
     return f"{seconds} s"
 
 
-def summary(body: dict, revision, cases: list[dict], *, design_only: bool = False) -> list[str]:
+def summary(body: dict, revision, cases: list[dict], *, design_only: bool = False, proxied=()) -> list[str]:
     """The decision in brief, shown between the full brief and the limits.
 
     Every plan field is quoted verbatim from the contract body; a field an older body lacks is
     left out. ``cases`` are the cases the regression proof will require a test for at completion
     (autocode_test_cases.proof_cases) — a reproduced bug's diagnosis or the plan's marked criteria,
     never a mix, so ``proof`` tells which from the cases themselves; ``design_only`` is a design
-    job (autocode_test_cases.design_only), whose criteria no named test proves."""
+    job (autocode_test_cases.design_only), whose criteria no named test proves. ``proxied`` are the
+    trace's proxied rows (autocode_trace_coverage.proxied_rows, #2068): requirements whose criteria prove
+    a stand-in for what the user sees, listed so the person never reads them as fully covered."""
     body = body if isinstance(body, dict) else {}
     lines = [f"Before you approve r{revision} (a summary of the plan above):"]
     outcome = body.get("intended_outcome")
@@ -148,6 +150,12 @@ def summary(body: dict, revision, cases: list[dict], *, design_only: bool = Fals
             if row.get("human_review") is True:
                 lines.append("    Also needs your review of the result before the run can complete.")
         lines += ["What passing proves:"] + ["  - " + line for line in proof(body, criteria, cases, design_only)]
+    rows = [row for row in proxied or () if isinstance(row, dict)]
+    if rows:
+        lines.append("Proven only on a stand-in (what you see is rendered outside this checkout):")
+        for row in rows:
+            lines.append(f"  - {row.get('requirement_id')}: {row.get('evidence')}")
+            lines.append(f"    Why: {row.get('proxy_reason')}")
     return lines
 
 

@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- A plan whose criteria can prove only a stand-in for what you see, because code outside the
+  checkout renders it, now says so (#2068): the requirement is traced `proxied` with a
+  `proxy_reason`, and the plan asks you a decision question until a saved answer accepts the
+  stand-in. The status view lists these rows as `proxied_requirements`, and the approval screen
+  shows them under "Proven only on a stand-in".
 - The VS Code run details and sidebar chat now show the separate limit raise a bound pause names once
   AutoResolver holds it or `next_command` is a plain resume: a number field and a **Raise limit and
   continue** button that takes only the row's own command, confirmed with the limit it changes. Typed
