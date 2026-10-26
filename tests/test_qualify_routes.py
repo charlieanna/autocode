@@ -183,6 +183,52 @@ class QualifyRoutesTests(unittest.TestCase):
         self.assertIn("--dry-run", output)
         self.assertEqual(before, self.table.read_text())
 
+    def test_a_merge_records_the_run_as_structured_evidence(self):
+        # #2059: beside the prose, each run that confirms a route is a record selection can show.
+        attempts = {
+            "attempts": [
+                {
+                    "role": "glm",
+                    "model": "zai-coding-plan/glm-5.3",
+                    "duration_seconds": 600,
+                    "reported_cost_usd": 0.25,
+                },
+                {
+                    "role": "glm",
+                    "model": "zai-coding-plan/glm-5.3",
+                    "duration_seconds": 300,
+                    "reported_cost_usd": None,
+                    "historical_estimated_cost_usd": 0.15,
+                },
+                {"role": "glm", "model": "zai-coding-plan/glm-5.3", "duration_seconds": 900, "rejected": True},
+                {"role": "terra", "model": "openai/gpt-6-sol", "duration_seconds": None},
+            ]
+        }
+        with mock.patch.object(qualify_routes.usage, "accounting", return_value=attempts):
+            code, output = self.run_script("--profile", "glm-mimo-kilo", "--date", "2026-10-25")
+        self.assertEqual(0, code, output)
+        roles = self.written()["roles"]
+        (planner,) = roles["glm"][0]["runs"]
+        self.assertEqual(
+            {
+                "date": "2026-10-25",
+                "run": "run-1",
+                "scenario": "greenfield-greeting-cli",
+                "profile": "glm-mimo-kilo",
+                "attempts": 2,  # the rejected attempt proves nothing
+                "minutes": 15.0,
+                "cost_usd": 0.4,
+            },
+            planner,
+        )
+        (builder,) = [entry for entry in roles["terra"] if entry["model"] == "openai/gpt-6-sol"][0]["runs"]
+        self.assertIsNone(builder["minutes"])  # unknown stays unknown, never a guess
+        self.assertIsNone(builder["cost_usd"])
+        # The same run merged again adds no second record.
+        with mock.patch.object(qualify_routes.usage, "accounting", return_value=attempts):
+            self.run_script("--date", "2026-10-26")
+        self.assertEqual(1, len(self.written()["roles"]["glm"][0]["runs"]))
+
     def test_a_second_run_confirms_instead_of_duplicating(self):
         self.assertEqual(0, self.run_script()[0])
         first = self.written()

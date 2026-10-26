@@ -464,6 +464,8 @@ class SelectionViewTest(unittest.TestCase):
         self.assertIn("not connected", text)
         # The probe debt is named.
         self.assertIn("Still to prove", text)
+        # Each listed entry says what admitted it (#2059).
+        self.assertIn("[provisional: no AutoCode run yet]", text)
 
     def test_a_stopped_selection_prints_the_stop_and_fails(self):
         one_family = {

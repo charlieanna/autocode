@@ -664,19 +664,22 @@ def render_selection(result: dict, found: dict) -> str:
             spellings = {model_identity.identity(route_id) for route_id in entry.get("routes") or [entry["model"]]}
             candidate = next((connected.get(identity) for identity in spellings if identity in connected), None)
             if candidate is None:
-                lines.append(f"  not available: {entry['model']} — not connected on this tool's logins")
+                lines.append(
+                    f"  not available: {entry['model']} — not connected on this tool's logins"
+                    f" [{route_selector.evidence_summary(entry)}]"
+                )
                 continue
             if candidate["model"] == route["model"]:
                 row = prices.rate(candidate["model"])
                 cost = f"input+output {row['input'] + row['output']:.4g} per million" if row else "no price row"
                 billing = candidate.get("billing") or "billing unknown"
-                lines.append(f"  chosen: {candidate['model']} — {cost}, {billing}")
+                lines.append(
+                    f"  chosen: {candidate['model']} — {cost}, {billing} [{route_selector.evidence_summary(entry)}]"
+                )
                 continue
             clash = route_selector.explains_clash(role, candidate["model"], chosen)
-            if clash:
-                lines.append(f"  not chosen: {candidate['model']} — {clash}")
-            else:
-                lines.append(f"  not chosen: {candidate['model']} — a preferred or cheaper qualified route won")
+            why = clash or "a preferred or cheaper qualified route won"
+            lines.append(f"  not chosen: {candidate['model']} — {why} [{route_selector.evidence_summary(entry)}]")
     if result["probe"]:
         lines.append("")
         lines.append(

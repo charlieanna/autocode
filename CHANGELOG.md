@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Qualification evidence is structured (#2059). `tools/qualify_routes.py` now appends a `runs` record
+  to each table entry it confirms: date, run, scenario, profile, the role's accepted attempts on that route,
+  and their minutes and cost (null when an attempt did not record one). The selector validates the records,
+  and `autocode models --selection` shows each listed entry's evidence, for example
+  `[provisional: no AutoCode run yet]`. Selection itself is unchanged: provisional entries stay selectable.
 - A plan whose criteria can prove only a stand-in for what you see, because code outside the
   checkout renders it, now says so (#2068): the requirement is traced `proxied` with a
   `proxy_reason`, and the plan asks you a decision question until a saved answer accepts the
