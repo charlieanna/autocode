@@ -2272,7 +2272,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/540302549e4a3f9bee2c61bfb6e08c04ea2204f7/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/453baafa124b4edc0ab844e5aa50d1bc2f115c35/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3054,7 +3054,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/540302549e4a3f9bee2c61bfb6e08c04ea2204f7/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/453baafa124b4edc0ab844e5aa50d1bc2f115c35/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3667,7 +3667,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/540302549e4a3f9bee2c61bfb6e08c04ea2204f7/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/453baafa124b4edc0ab844e5aa50d1bc2f115c35/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4381,6 +4381,21 @@ own <code>--approve-goal</code> stays possible as an explicit person action that
   pull request carries: the change set id, every run, the merge order, the check's outcome or
   the waiver, and the parts no run of the set covers.</li>
 </ul>
+<h4 id="change-sets-in-clients">Change sets in clients<a class="headerlink" href="#change-sets-in-clients" title="Permanent link">&para;</a></h4>
+<p>Each <code>runs --json</code> row carries <code>changeset</code>, the id of the change set its run belongs to, or
+<code>null</code>. A client (owner decision 2026-10-25) may read <code>autocode changeset status --run-dir RUN
+--json</code> for a run whose status view lists <code>scope.linked</code>, and take only the two argument arrays
+it names, after showing what they act on:</p>
+<ul>
+<li><code>approval.next_command</code>, after showing every run's <code>plan</code>. It carries the <code>set_token</code> of those
+  plans, so a revision in any run makes the core refuse it.</li>
+<li><code>verification.next_command</code>, the joint check.</li>
+</ul>
+<p>The shared rule is <code>autocode_client_actions.changeset_action</code>, mirrored by
+<code>vscode-extension/src/core/next-command.ts</code>. The terminal chat's side panel lists the linked
+runs, <code>/changeset</code> shows the set and offers these actions, and <code>/runs</code> groups the chats of one
+change set. VS Code's Run details shows the set with one button for the action named now. The
+other <code>changeset</code> commands stay the person's own.</p>
 <h2 id="dependencies-between-existing-runs">Dependencies between existing runs<a class="headerlink" href="#dependencies-between-existing-runs" title="Permanent link">&para;</a></h2>
 <p>An already authorized delivery should not become a request for a person to assemble
 hashes and review logs. At an exact stopped permission request, an operator can bind

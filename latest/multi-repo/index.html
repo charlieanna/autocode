@@ -1918,7 +1918,7 @@
 
 
 <h1 id="work-that-spans-several-repositories">Work that spans several repositories<a class="headerlink" href="#work-that-spans-several-repositories" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/540302549e4a3f9bee2c61bfb6e08c04ea2204f7/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/453baafa124b4edc0ab844e5aa50d1bc2f115c35/README.md">← Back to README</a></p>
 <p>One AutoCode run changes one repository. Its workspace is one Git tree. The
 checkpoints, diffs, protected tests and the Builder's declared changes are all
 bounded to that tree, and a Builder write outside it is treated as a fault.</p>
@@ -1956,8 +1956,12 @@ deliver only the API half.</p>
   either repository makes its result stale. A failed check can reopen the run that diverged,
   or you can waive it with a reason. <code>autocode changeset pr-body</code> writes the section each
   pull request carries, with the merge order
-  (<a href="../task-run/#checking-the-set-together-and-delivering-it">Checking the set together</a>).
-  Showing all this in the terminal chat, VS Code and the channel bridge is a later step of
+  (<a href="../task-run/#checking-the-set-together-and-delivering-it">Checking the set together</a>).</li>
+<li><strong>The terminal chat shows the change set.</strong> Its side panel lists the linked runs, and
+  <code>/changeset</code> shows every run and asks before approving the plans together or running the
+  check. <code>/runs</code> groups the chats of one change set
+  (<a href="../task-run/#change-sets-in-clients">Change sets in clients</a>). VS Code's Run details does the
+  same with one button. The channel bridge follows in
   <a href="https://github.com/charlieanna/autocode/issues/2066">#2066</a>.</li>
 <li><strong>Component builds stay inside one repository.</strong> <code>autocode components</code> builds
   several components in parallel, but every component worktree comes from the
