@@ -2272,7 +2272,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/9a666438c0e37c8fbcb874e3b744cfdd42d04bb6/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/a80047f0cc80beef7a07941083eab6621497b1ca/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3054,7 +3054,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/9a666438c0e37c8fbcb874e3b744cfdd42d04bb6/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/a80047f0cc80beef7a07941083eab6621497b1ca/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3615,7 +3615,11 @@ acceptance criterion with its latest recorded outcome and evidence, the
 findings ledger, and, for bug fixes, the runner's own fail-before/pass-after
 regression proof (<code>verdict</code>, <code>fail_to_pass</code>, <code>failures</code>, <code>unverified</code>,
 <code>commands</code>, <code>source_revision</code>, and <code>case_tests</code>: each English test case's
-proving tests; <code>null</code> otherwise). Each acceptance row also carries
+proving tests; <code>null</code> otherwise). Optional
+<code>follow_up_baseline</code>, when present on the proof, identifies the immutable completed-turn
+source freshly checked for new follow-up guards. Inherited regressions still use the
+original run reference; this field does not reuse a previous proof or approve a plan.
+Each acceptance row also carries
 <code>validator_status</code>: the latest saved validation's result for that criterion
 (<code>FAIL</code>, <code>PASS</code> or <code>NOT_VERIFIED</code>), or <code>null</code> when that validation has no row
 for it. A failed criterion must be distinguishable from an unchecked one; the
@@ -3663,7 +3667,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/9a666438c0e37c8fbcb874e3b744cfdd42d04bb6/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/a80047f0cc80beef7a07941083eab6621497b1ca/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4288,6 +4292,24 @@ test starts, so it does not continue to look paused throughout a long suite.</p>
 controller makes the checkpoint <code>stale</code>; an inaccessible process is unknown,
 not assumed dead. Inspect retained test output before restarting a stale check.
 The check activity never substitutes for a passing proof or independent review.</p>
+<h2 id="work-in-another-repository">Work in another repository<a class="headerlink" href="#work-in-another-repository" title="Permanent link">&para;</a></h2>
+<p><code>view.scope</code> reports work the request places in another repository (#2066). Requirements
+names each part, and the runner keeps it only when its quote is verbatim in the request or
+a saved answer, or when it cites a file in this workspace that shows it.</p>
+<ul>
+<li><code>spans_repositories</code> and <code>external_parts</code> (<code>target</code>, <code>work</code>) list the kept parts.</li>
+<li><code>dropped</code> names the targets of the parts the runner refused.</li>
+<li><code>decision</code> is <code>this_repository</code> once the person chose it, else <code>null</code>.</li>
+<li><code>uncovered</code> lists the targets this run leaves out.</li>
+<li><code>linked</code> is <code>[]</code> until runs can be linked.</li>
+</ul>
+<p>A kept part stops the run before any plan, with one nondelegable question
+(<code>workspace-scope-1</code>, kind <code>answer</code>). Its only option is <code>This repository only</code>. Other
+text is refused, and <code>--feedback TEXT</code> changes the request instead. After that answer the
+plan must record each uncovered part in <code>scope_exclusions</code> as
+<code>Not covered: changes in TARGET: WORK</code>, and <code>displayed_plan.scope_exclusions</code> shows it on
+the approval screen. The Planner's packet names the exact entries
+(<code>scope_exclusions_required</code>).</p>
 <h2 id="dependencies-between-existing-runs">Dependencies between existing runs<a class="headerlink" href="#dependencies-between-existing-runs" title="Permanent link">&para;</a></h2>
 <p>An already authorized delivery should not become a request for a person to assemble
 hashes and review logs. At an exact stopped permission request, an operator can bind

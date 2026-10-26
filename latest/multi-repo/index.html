@@ -1918,7 +1918,7 @@
 
 
 <h1 id="work-that-spans-several-repositories">Work that spans several repositories<a class="headerlink" href="#work-that-spans-several-repositories" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/9a666438c0e37c8fbcb874e3b744cfdd42d04bb6/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/a80047f0cc80beef7a07941083eab6621497b1ca/README.md">← Back to README</a></p>
 <p>One AutoCode run changes one repository. Its workspace is one Git tree. The
 checkpoints, diffs, protected tests and the Builder's declared changes are all
 bounded to that tree, and a Builder write outside it is treated as a fault.</p>
@@ -1933,10 +1933,14 @@ deliver only the API half.</p>
   says so in its <code>workspace_scope</code>. The runner keeps a reported part only when
   its quote is verbatim in the request or a saved answer, or when it cites a file
   in this repository that shows it, such as a client of the other service. Other
-  claims are dropped. Asking you what to do about a kept part (this repository
-  only, link a run in the other repository, or stop) is the next step of
-  <a href="https://github.com/charlieanna/autocode/issues/2066">#2066</a> and is not yet
-  built.</li>
+  claims are dropped.</li>
+<li><strong>It asks you before planning.</strong> A kept part stops the run with one question.
+  Answer <code>This repository only</code> to plan this repository's part. The plan then lists
+  each other part in its scope exclusions as <code>Not covered: changes in TARGET: WORK</code>,
+  so the approval screen shows what this run will not deliver. To change the
+  request instead, give feedback. Linking a run in the other repository and
+  stopping with a brief for each repository are later steps of
+  <a href="https://github.com/charlieanna/autocode/issues/2066">#2066</a>.</li>
 <li><strong>Component builds stay inside one repository.</strong> <code>autocode components</code> builds
   several components in parallel, but every component worktree comes from the
   same repository's HEAD, and integration applies their changes to a worktree of
