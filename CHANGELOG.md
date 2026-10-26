@@ -351,6 +351,10 @@ PR template asks for an entry here; a change without one is incomplete.
   Exact runner-only corrections can recover through ordinary Resume; review charges, saved allowances,
   approvals and history remain intact, including renewed default limits on same-turn restarts (#2096).
 
+- A direct connection's OpenRouter provider defaults to `https://openrouter.ai/api/v1`, its real API
+  base, and VS Code's Connections view runs a multi-provider connection's `add` action in a terminal
+  as it does `setup` (#2055).
+
 - Inherited Plan Reviewer charges count once when a small plan's review policy activates. Saved false
   budget pauses offer ordinary Resume when the existing allowance still has room, preserving review
   limits, reported usage, history and plan approval (#2087). New unapproved model interpretations of

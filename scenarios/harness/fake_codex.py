@@ -2039,6 +2039,9 @@ def report_for(stage: str, data: dict) -> dict:
                     *earlier,
                     *({**row, "id": f"R{len(earlier) + number}"} for number, row in enumerate(fresh, start=1)),
                 ]
+        if "workspace_scope" in OUTPUT_SCHEMA.get("properties", {}):
+            # A scripted request belongs to this repository alone (#2066); a scenario that spans two sets it.
+            report.setdefault("workspace_scope", {"spans_repositories": False, "external_parts": []})
         if "clarity" in OUTPUT_SCHEMA.get("properties", {}):
             # An adaptive run's Requirements judges clarity as the recognizer did (#1846, #1860); same script.
             report["clarity"] = os.environ.get("SCENARIO_FAKE_CLARITY") or "clear"

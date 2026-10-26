@@ -10,6 +10,10 @@ architecture and multi-component layer) to control a run. Such code must not imp
 runner internals such as `autocode.py` or read `state.json` directly; that file has
 about 140 keys and changes without notice.
 
+A task run is bound to one workspace, one Git tree. The multi-component layer drives
+several task runs, but all of them come from the same repository; it cannot link runs in
+separate repositories. See [Work that spans several repositories](multi-repo.md).
+
 Every step is one CLI invocation, and the run's state lives on disk. A caller
 that crashes can reattach to the same run directory with
 `TaskRun(workspace, run_dir)`, or with `TaskRun.attach(workspace)` if it never

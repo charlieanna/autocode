@@ -196,6 +196,7 @@ class ParallelQuotaTests(unittest.TestCase):
             '                "acceptance_tests": ["Read a.txt, b.txt and combined.txt"], "source_refs": [],\n'
             '                "proposed_assumptions": [], "open_questions": [], "requirements": [],\n'
             '                "ignored_statements": [], "conflicts": [],\n'
+            '                "workspace_scope": {"spans_repositories": False, "external_parts": []},\n'
             # Requirements names the job (#1860) and, where its schema asks, judges clarity as the
             # recognizer below would; the strict generation schema requires both.
             '                "job": "build", "design_document": "",\n'

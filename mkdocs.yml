@@ -57,6 +57,7 @@ nav:
       - Figma: figma.md
       - Visual captures: visual-captures.md
       - Parallel tasks and components: task-lanes.md
+      - Several repositories: multi-repo.md
   - Review and approve:
       - Pauses and commands: cli.md
       - Interventions: interventions.md

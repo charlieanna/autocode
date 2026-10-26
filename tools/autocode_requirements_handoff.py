@@ -9,8 +9,8 @@ names starts (autocode_requirements_chat.start_named_job, #1860).
 
 Moved out of autopilot.apply_planning, so the controller does not grow; besides that stop, the only
 change is that continuing goes through autocode_run_status, which also retires a stale stop reason.
-State keys written: requirements_history, requirements_handoff, status/phase/next_stage,
-discovery_summary.
+State keys written: requirements_history, requirements_handoff (with its validated workspace_scope
+and any dropped_external_parts, autocode_workspace_scope), status/phase/next_stage, discovery_summary.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ try:
     from . import autocode_run_status as run_status
     from . import autocode_technical_questions as technical_questions
     from . import autocode_util as util
+    from . import autocode_workspace_scope as workspace_scope
 except ImportError:
     import autocode_goals as goals
     import autocode_plan_chat as plan_chat
@@ -41,6 +42,7 @@ except ImportError:
     import autocode_run_status as run_status
     import autocode_technical_questions as technical_questions
     import autocode_util as util
+    import autocode_workspace_scope as workspace_scope
 
 
 def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue) -> None:
@@ -76,6 +78,14 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
     if previous:
         state.setdefault("requirements_history", []).append(copy.deepcopy(previous))
     goals.check_requirement_handoff(state, value)
+    dropped = None
+    if "workspace_scope" in value:  # only what the request or a cited file grounds is kept (#2066)
+        value["workspace_scope"], dropped = workspace_scope.validated(
+            value["workspace_scope"],
+            sources=goals.source_texts(state),
+            source_refs=value.get("source_refs"),
+            workspace=state.get("workspace"),
+        )
     input_refs = {"task", *state.get("answers", {})}
     input_refs.update(event["id"] for event in state.get("user_events", []) if event.get("id"))
     # External design/spec references may accompany local inspection evidence;
@@ -91,6 +101,8 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
     if local_refs or (builds_code and not intent_only):
         check_code_refs(state, local_refs, "source_refs")
     state["requirements_handoff"] = {"report": copy.deepcopy(value), "output": record["output"]}
+    if dropped:
+        state["requirements_handoff"]["dropped_external_parts"] = dropped
     project_memory.capture(state, value)
     remaining = technical_questions.settle(state, questions, "requirements:" + goals.handoff_ref(state))
     if len(remaining) != len(questions):
