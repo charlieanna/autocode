@@ -154,6 +154,36 @@ class QualifyRoutesTests(unittest.TestCase):
         self.assertEqual(len(first["roles"]["glm"]), len(self.written()["roles"]["glm"]))
         self.assertIn("confirmed", output)
 
+    def test_a_stage_that_ran_another_slots_route_qualifies_that_slot_only(self):
+        # #2114: `astra` runs the Plan Reviewer and Completion Reviewer stages on their own routes,
+        # so those attempts qualify those slots and never the Planner route astra never launched.
+        settings = state()
+        settings["settings"]["roles"].update(
+            {
+                "astra": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "reasoning_effort": "high"},
+                "plan_reviewer": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "reasoning_effort": "high"},
+                "completion": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "high"},
+            }
+        )
+        (self.run_dir / "state.json").write_text(json.dumps(settings), encoding="utf-8")
+        attempts = {
+            "attempts": [
+                {"role": "astra", "route_role": "plan_reviewer", "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
+                {"role": "astra", "route_role": "completion", "model": "zai-coding-plan/glm-5.3"},
+                {"role": "glm", "model": "zai-coding-plan/glm-5.3"},
+            ]
+        }
+        with mock.patch.object(qualify_routes.usage, "accounting", return_value=attempts):
+            code, output = self.run_script("--date", "2026-10-25")
+        self.assertEqual(0, code, output)
+        table = self.written()["roles"]
+        self.assertEqual("qualified", table["plan_reviewer"][0]["provenance"])
+        self.assertEqual("qualified", table["completion"][0]["provenance"])
+        self.assertNotIn("astra", table, "the Planner route never launched")
+        self.assertIn("Plan Reviewer: xiaomi-token-plan-sgp/mimo-v2.6-pro at high", output)
+        self.assertIn("Completion Reviewer: zai-coding-plan/glm-5.3 at high", output)
+        self.assertIn("Planner: not qualified", output)
+
     def test_an_unreadable_state_is_not_evidence(self):
         (self.run_dir / "state.json").unlink()
         code, _output = self.run_script()
