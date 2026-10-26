@@ -3571,3 +3571,42 @@ test('cap-counted cost renders above historical cost and polling retains its unk
   assert.match(summary(), /\$1\.53 \(partial\) historical est\./);
   assert.ok(!summary().includes('no configured cap'), 'an older core missing cost does not mean a free or uncapped run');
 });
+
+function changesetSummary(token) {
+  const plan = (id) => ({ revision: 1, acceptance_criteria: [{ id, criterion: `criterion ${id}`, verification_method: 'test', human_review: false }], constraints: [], permission_boundaries: [] });
+  return {
+    changeset: 'changeset-1',
+    runs: [
+      { role: 'source', target: 'ws', workspace: run.workspace, run_dir: run.runDir, status: 'AWAITING_GOAL_APPROVAL', needs: 'approve_plan', plan: plan('AC1') },
+      { role: 'member', target: 'b', workspace: '/b', run_dir: '/b/.autocode/runs/m', status: 'AWAITING_GOAL_APPROVAL', needs: 'approve_plan', plan: plan('BC1') },
+    ],
+    approval: { set_token: token, waiting_on: [], next_command: ['autocode', 'changeset', 'approve', '--run-dir', run.runDir, '--set-token', token] },
+    verification: { waiting_on: ['ws', 'b'], done: false, merge_order: ['ws', 'b'], next_command: null },
+  };
+}
+
+test('Run details shows the change set and approves only the set token it showed (#2066)', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  const ownController = new RunController(host.log);
+  let summary = changesetSummary('set-1');
+  t.mock.method(cli, 'invoke', async (_settings, args) => (args[0] === 'changeset'
+    ? { code: 0, stdout: JSON.stringify(summary), stderr: '', rejected: false } : ok));
+  const view = { status: 'AWAITING_GOAL_APPROVAL', done: false,
+    scope: { linked: [{ changeset: 'changeset-1', target: 'b', role: 'member', workspace: '/b', run_dir: '/b/.autocode/runs/m' }] } };
+  const ui = await openPanel(t, view, undefined, ownController);
+  const text = ui.document.body.textContent;
+  for (const expected of ['Change set changeset-1', 'b (linked run): AWAITING_GOAL_APPROVAL', 'AC1: criterion AC1', 'BC1: criterion BC1']) {
+    assert.ok(text.includes(expected), expected);
+  }
+  const action = () => ui.document.querySelector('#changeset-action');
+  assert.equal(action().textContent, 'Approve all 2 plans');
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  t.mock.method(host.vscode.window, 'showWarningMessage', async () => 'Approve all');
+  summary = changesetSummary('set-2'); // a plan was revised after the card was drawn
+  action().click(); await flush();
+  assert.equal(launch.mock.callCount(), 0, 'a stale set token approves nothing');
+  await ui.poll();
+  action().click(); await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  assert.deepEqual(launch.mock.calls[0].arguments[1], ['changeset', 'approve', '--run-dir', run.runDir, '--set-token', 'set-2']);
+});
