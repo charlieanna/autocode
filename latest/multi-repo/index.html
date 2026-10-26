@@ -1918,7 +1918,7 @@
 
 
 <h1 id="work-that-spans-several-repositories">Work that spans several repositories<a class="headerlink" href="#work-that-spans-several-repositories" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/00e6d67a32dbac3c820a4fe3b794f2368e546f0f/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/0fe591a74ec81c77a2ccf895ea3336b813c78b63/README.md">← Back to README</a></p>
 <p>One AutoCode run changes one repository. Its workspace is one Git tree. The
 checkpoints, diffs, protected tests and the Builder's declared changes are all
 bounded to that tree, and a Builder write outside it is treated as a fault.</p>
@@ -1945,8 +1945,12 @@ deliver only the API half.</p>
   run in a registered project with that repository's ready brief and records the two
   runs as one change set, which both runs' status shows under <code>scope.linked</code>
   (<a href="../task-run/#linked-runs">Linked runs</a>). Each run still plans, builds and completes
-  on its own. Approving the plans together and checking that the two sides agree are
-  later steps of <a href="https://github.com/charlieanna/autocode/issues/2066">#2066</a>.</li>
+  on its own.</li>
+<li><strong>You can approve the linked plans together.</strong> <code>autocode changeset status</code> shows every
+  run's plan and one set token, and <code>autocode changeset approve</code> approves them all at
+  once. A plan that changes in any run withdraws the token
+  (<a href="../task-run/#approving-the-set">Approving the set</a>). Checking that the two sides agree
+  is a later step of <a href="https://github.com/charlieanna/autocode/issues/2066">#2066</a>.</li>
 <li><strong>Component builds stay inside one repository.</strong> <code>autocode components</code> builds
   several components in parallel, but every component worktree comes from the
   same repository's HEAD, and integration applies their changes to a worktree of
@@ -1960,7 +1964,7 @@ deliver only the API half.</p>
   checks do not see them. Treat both as unsupported.</li>
 </ul>
 <h2 id="the-manual-workflow">The manual workflow<a class="headerlink" href="#the-manual-workflow" title="Permanent link">&para;</a></h2>
-<p>Until linked runs are approved and checked together, coordinate the repositories yourself:</p>
+<p>Until linked runs are checked together, coordinate the repositories yourself:</p>
 <ol>
 <li>Write one brief per repository. Each brief states the shared requirement,
    the interface both sides agree on (field names, payload examples, an API
