@@ -92,7 +92,7 @@ def initialize(run_dir, *, command=tasks.AUTOCODE):
     return document
 
 
-def add_member(document, target, entry, brief):
+def add_member(document, target, entry, brief, *, reported_work=None):
     repos.require_clean_product(entry)
     if len(document["members"]) >= MAX_REPOSITORIES:
         raise store.CoordinationError("Automatic repository limit reached; review the discovered scope")
@@ -115,6 +115,7 @@ def add_member(document, target, entry, brief):
             "target": target,
             "slug": slug,
             "brief": brief,
+            **({"reported_work": reported_work} if reported_work else {}),
             "workspace": str(workspace),
             "run_dir": str(workspace / ".autocode" / "runs" / "coordinated-fix"),
             "base_branch": base_branch,
@@ -496,10 +497,8 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
                 document,
                 step["target"],
                 step["entry"],
-                document["task"]
-                + "\n\nThis repository's responsibility: "
-                + step["work"]
-                + ". Investigate concrete dependencies and report additional repositories if the bug crosses another interface. Own only this repository's changes.",
+                document["task"],
+                reported_work=step["work"],
             )
             sync_set(document)
         elif kind == "alias":
