@@ -183,6 +183,7 @@ class OpenCodeFixtureSchemaTests(unittest.TestCase):
             stage="astra_review",
         )
         self.assertIn("\nNATIVE TOOL BOUNDARY:", prompt.rsplit("\nOPENCODE OUTPUT CONTRACT\n", 1)[1])
+        self.assertNotIn("\n", prompt.rsplit("\nCURRENT HANDOFF DATA\n", 1)[1])
         unqualified = self.invoke(prompt)  # The default fixture, as before.
         self.assertNotEqual(0, unqualified.returncode)
         self.assertIn("fake_opencode: invalid current output schema", unqualified.stderr)
