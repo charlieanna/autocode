@@ -464,7 +464,9 @@ def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=F
     # copy of thousands of SDK member hashes. Full CODE-owned launch records
     # and verification keep the original inventory; no task input is omitted.
     data["tool_containment"] = native_locators.boundary_value(policy)
-    compact = data.get("joint_planning") is True  # a planning handoff stays compact, as rendered (#1635)
+    # Planning stays compact (#1635); execution must not inflate a packet
+    # that the context and provider serializers already rendered compactly.
+    compact = data.get("joint_planning") is True or "\n" not in after.strip()
     instruction = prompts.get("fragments/provider-launch/containment-prompt.md")
     if policy.get("private_reads"):
         instruction += prompts.get("fragments/provider-launch/containment-prompt-run-store.md")
