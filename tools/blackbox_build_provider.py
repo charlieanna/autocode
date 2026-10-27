@@ -156,6 +156,11 @@ def classify_failure(data, mode, spec):
         evidence_refs=[str(report), str(events)] if execution else [str(report)],
         example=diagnosis,
         probe=probe,
+        counterexample={
+            "file": "run/" + report.name if execution else "",
+            "find": json.dumps(value["results"][0]) if execution else "",
+            "replace": json.dumps("check exit=0") if execution else "",
+        },
         untestable="" if probe else "The retained report cannot establish which cause produced the empty diff.",
         failure_class="execution" if execution else "unknown",
         failure_id=failure["failure_id"],

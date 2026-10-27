@@ -96,8 +96,8 @@ MUTATIONS = [
     (
         "M09",
         "tools/autocode_report_repair_queue.py",
-        "    if not passing_claim:\n        return",
-        "    return\n    if not passing_claim:\n        return",
+        "    if not passing_claim:\n        check_refs.require_passing_evidence(value)\n        return",
+        "    return\n    if not passing_claim:\n        check_refs.require_passing_evidence(value)\n        return",
         ["tests.test_catalogue_t06"],
     ),
     (

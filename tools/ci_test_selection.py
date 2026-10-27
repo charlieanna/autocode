@@ -85,7 +85,16 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/providers/configs/kilocode.toml", ("tests.test_planning",)),
     ("tests/resolver_recommendation_provider.py", ("tests.test_resolver_recommendation_cli",)),
     ("tests/failure_routing_provider.py", ("tests.test_failure_routing_cli", "tests.test_investigator_route")),
-    ("tools/blackbox_build_provider.py", ("tests.test_failure_routing_cli",)),
+    (
+        "tools/blackbox_build_provider.py",
+        (
+            "tests.test_failure_routing_cli",
+            "tests.test_builder_policy",
+            "tests.test_build_recovery_blackbox",
+            "tests.test_build_blackbox",
+        ),
+    ),
+    ("tools/fake_command_tool.py", ("tests.test_command_flow",)),
     ("tools/fake_codex.py", ("tests.test_subprocess",)),
     # The #2133 CLI regression drives the box through the fake provider; its tests import neither module.
     ("tools/autocode_current_behavior.py", ("tests.test_bugfix_workflow",)),
