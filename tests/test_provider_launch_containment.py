@@ -124,15 +124,42 @@ class LaunchContainment(unittest.TestCase):
 
     def test_a_planning_handoff_stays_compact_under_containment(self):
         packet = {"stage": "astra_discovery", "joint_planning": True, "task": "x"}
-        text = "Instructions\nCURRENT HANDOFF DATA\n" + json.dumps(packet, separators=(",", ":"))
-        updated = launch.containment_prompt(text, {"tool_containment": self.policy})
-        handoff = updated.split("\nCURRENT HANDOFF DATA\n", 1)[1]
-        self.assertNotIn("\n", handoff)
-        self.assertEqual({**packet, "tool_containment": self.policy}, json.loads(handoff))
-        execution = "Instructions\nCURRENT HANDOFF DATA\n" + json.dumps({"stage": "sol"})
-        self.assertIn(
-            "\n", launch.containment_prompt(execution, {"tool_containment": self.policy}).split("DATA\n", 1)[1]
-        )
+        for indent in (None, 2):
+            with self.subTest(indent=indent):
+                text = "Instructions\nCURRENT HANDOFF DATA\n" + json.dumps(packet, indent=indent)
+                updated = launch.containment_prompt(text, {"tool_containment": self.policy})
+                handoff = updated.split("\nCURRENT HANDOFF DATA\n", 1)[1]
+                self.assertNotIn("\n", handoff)
+                self.assertEqual({**packet, "tool_containment": self.policy}, json.loads(handoff))
+
+    def test_execution_handoff_preserves_supplied_json_form_and_all_values(self):
+        for stage in ("terra", "sol", "astra_review", "write_acceptance_tests"):
+            packet = {
+                "stage": stage,
+                "goal_contract": {
+                    "body": {
+                        "acceptance_criteria": [
+                            {"id": "AC1", "criterion": 'Preserve café, "quotes" and\nnewlines', "human_review": False}
+                        ]
+                    }
+                },
+                "checks": [{"exit_code": 0, "evidence_refs": ["check:1"]}],
+                "permission_boundaries": ["No network"],
+                "nested": {"rows": [{"id": n, "values": [True, None, "x"]} for n in range(20)]},
+            }
+            for indented in (False, True):
+                with self.subTest(stage=stage, indented=indented):
+                    original = json.dumps(packet, indent=2) if indented else json.dumps(packet, separators=(",", ":"))
+                    text = "Original instructions\nCURRENT HANDOFF DATA\n" + original
+                    actual = launch.containment_prompt(text, {"tool_containment": self.policy}, stage=stage)
+                    handoff = actual.split("\nCURRENT HANDOFF DATA\n", 1)[1]
+                    self.assertEqual(indented, "\n" in handoff)
+                    expected = {**packet, "tool_containment": self.policy}
+                    if stage == "sol":
+                        expected["runner_regression_proof_current"] = False
+                    self.assertEqual(expected, json.loads(handoff))
+                    self.assertTrue(actual.startswith("Original instructions"))
+                    self.assertEqual(text, launch.containment_prompt(text, {}))
 
     def test_a_writing_planner_never_gets_a_shell_boundary(self):
         launch.prepare(**{**self.options, "planning": True, "allow_write": True, "sandbox": "workspace-write"})
@@ -479,6 +506,8 @@ class TesterProofRequest(unittest.TestCase):
             if not boundary:
                 self.assertEqual(transform.call_args.args[0], sent)
         instruction, _, handoff = sent.rpartition("\nCURRENT HANDOFF DATA\n")
+        if boundary:
+            self.assertNotIn("\n", handoff, "Containment must not expand the compact stage request")
         return instruction, json.loads(handoff)
 
     def test_current_runner_proof_is_cited_not_claimed_as_tester_execution(self):
