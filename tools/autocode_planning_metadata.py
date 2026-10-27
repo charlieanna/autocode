@@ -1,4 +1,4 @@
-"""Recover structural planning metadata without changing a contract or evidence.
+"""Expand runner-owned planning facts without rewriting model intent or evidence.
 
 The report loader retains the provider's response before saving the canonical
 report. Schema, requirement coverage and contract revision checks still apply.
@@ -18,10 +18,12 @@ try:
     from . import autocode_current_behavior as current_behavior
     from . import autocode_plan_retention as retention
     from . import autocode_roles as roles
+    from . import autocode_scope_question as scope_question
 except ImportError:
     import autocode_current_behavior as current_behavior
     import autocode_plan_retention as retention
     import autocode_roles as roles
+    import autocode_scope_question as scope_question
 
 PLANNING_STAGES = frozenset(roles.ALL_PLANNING_STAGES)
 PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
@@ -136,14 +138,16 @@ def normalize_planning_metadata(value, state: RunState | None, record):
 def expand_report(state: RunState, stage, value):
     """Record the same expanded contract the lifecycle will install.
 
-    Runner-derived baseline text must be present before saving the canonical
-    planning report; otherwise exact trace inheritance sees a different body.
+    Runner-derived baseline text and authenticated peer edit exclusions must be
+    present before saving the canonical report; otherwise exact trace inheritance
+    sees a different body.
     The original provider artifact and authored outcome remain unchanged.
     """
     result = retention.expand(state, stage, value)
     body = result.get("contract")
     if isinstance(body, dict):
-        prepared = current_behavior.prepare_body(state, body, stage)
+        prepared = scope_question.retain_assigned_exclusions(state, body)
+        prepared = current_behavior.prepare_body(state, prepared, stage)
         if prepared is not body:
             result = {**result, "contract": prepared}
     return result
