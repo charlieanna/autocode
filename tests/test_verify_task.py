@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from unittest import mock
@@ -67,6 +67,38 @@ def contract(command, *, human=False):
 
 
 class CriteriaTests(unittest.TestCase):
+    def test_related_profile_cannot_silently_discard_explicit_review_routes(self):
+        for flag, value in (
+            ("--engine", "codex"),
+            ("--provider", "kilocode"),
+            ("--model", "selected-model"),
+            ("--reasoning-effort", "high"),
+            ("--evidence-provenance", "fake"),
+        ):
+            with self.subTest(flag=flag), mock.patch.object(verifier, "verify") as launch:
+                launch.return_value = {"verdict": "PASS", "record": "fixture"}
+                error = StringIO()
+                with mock.patch.dict(os.environ, clean_git_environment(), clear=True):
+                    with redirect_stderr(error), redirect_stdout(StringIO()):
+                        code = verifier.cli(
+                            [
+                                "--base",
+                                "HEAD",
+                                "--criteria",
+                                json.dumps(contract("python3 -m unittest tests")),
+                                "--related-profile",
+                                "profile.json",
+                                "--related-profile-sha256",
+                                "0" * 64,
+                                flag,
+                                value,
+                            ]
+                        )
+                self.assertEqual(4, code, error.getvalue())
+                self.assertIn("--related-profile", error.getvalue())
+                self.assertIn(flag, error.getvalue())
+                launch.assert_not_called()
+
     def test_missing_empty_duplicate_or_prose_criteria_are_refused(self):
         for value in (
             "{}",
@@ -445,6 +477,39 @@ class VerificationBoundaryTests(unittest.TestCase):
         self.assertFalse(self.out.exists())
         self.assertFalse(self.marker.exists())
         self.assertFalse((self.root / "registry").exists())
+
+    def test_review_launch_keeps_profile_routes_and_verification_bounds(self):
+        for profile in (False, True):
+            with self.subTest(profile=profile):
+                extra = ["--related-profile", "profile.json", "--related-profile-sha256", "0" * 64] if profile else []
+                args = verifier.parser().parse_args(self.new_arguments(self.root / str(profile)) + extra)
+                with mock.patch.dict(os.environ, self.environment, clear=True):
+                    with mock.patch.object(
+                        verifier.TaskRun, "start", side_effect=verifier.TaskRunError("stop")
+                    ) as launch:
+                        result = verifier.verify(args, criteria_policy.load(args.criteria))
+                self.assertEqual("UNVERIFIED", result["verdict"])
+                launch.assert_called_once()
+                options = launch.call_args.kwargs["options"]
+                self.assertIn("--no-adaptive-planning", options)
+                self.assertEqual("1", options[options.index("--max-iterations") + 1])
+                if profile:
+                    self.assertEqual("profile.json", options[options.index("--related-profile") + 1])
+                    for flag in (
+                        "--engine",
+                        "--provider",
+                        "--sol-model",
+                        "--sol-reasoning-effort",
+                        "--evidence-provenance",
+                    ):
+                        self.assertNotIn(flag, options)
+                else:
+                    for flag, expected in (
+                        ("--engine", "opencode"),
+                        ("--evidence-provenance", "unknown"),
+                        ("--sol-reasoning-effort", "medium"),
+                    ):
+                        self.assertEqual(expected, options[options.index(flag) + 1])
 
     def test_git_redirects_and_config_overrides_refuse_new_and_saved_cli_without_writes(self):
         for name in (

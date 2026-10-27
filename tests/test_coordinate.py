@@ -17,6 +17,7 @@ import autocode_coordination_repositories as repos
 import autocode_coordination_store as store
 import autocode_github as github
 import autocode_related_profile as profiles
+import autocode_run_view as run_view
 
 
 class CoordinationTests(unittest.TestCase):
@@ -80,6 +81,92 @@ class CoordinationTests(unittest.TestCase):
             coordinate.add_member(self.document, "api", entry, "fix it")
         self.assertEqual([], self.document["members"])
 
+    def test_reserved_worktree_cannot_redirect_to_the_original_checkout(self):
+        entry = self.repository()
+        destination = self.root / "reserved"
+        destination.symlink_to(entry["origin"], target_is_directory=True)
+        with self.assertRaisesRegex(store.CoordinationError, "redirect"):
+            repos.prepare(entry, destination)
+        self.assertEqual("result = 1\n", (Path(entry["origin"]) / "code.py").read_text())
+
+    def test_redirected_worktree_parent_cannot_create_an_external_checkout(self):
+        entry = self.repository()
+        external = self.root / "external"
+        external.mkdir()
+        parent = self.root / "redirected"
+        parent.symlink_to(external, target_is_directory=True)
+        with self.assertRaisesRegex(store.CoordinationError, "redirect"):
+            repos.prepare(entry, parent / "member")
+        self.assertFalse((external / "member").exists())
+
+    def test_original_checkout_or_primary_git_directory_is_not_a_prepared_worktree(self):
+        entry = self.repository()
+        alias = self.root / "primary-alias"
+        alias.mkdir()
+        (alias / ".git").write_text("gitdir: " + entry["git_dir"] + "\n")
+        for destination in (Path(entry["origin"]), alias):
+            with self.subTest(destination=destination):
+                with self.assertRaisesRegex(store.CoordinationError, "isolated"):
+                    repos.prepare(entry, destination)
+
+    def test_prepared_worktree_reuse_preserves_pending_edits_and_original_source(self):
+        entry = self.repository()
+        destination = self.root / "worktrees" / "member"
+        repos.prepare(entry, destination)
+        (destination / "code.py").write_text("result = 2\n")
+        repos.prepare(entry, destination)
+        self.assertEqual(entry["base"], repos.git(destination, "rev-parse", "HEAD"))
+        self.assertEqual("", repos.git(destination, "symbolic-ref", "--quiet", "HEAD", accepted=(0, 1)))
+        self.assertEqual("result = 2\n", (destination / "code.py").read_text())
+        self.assertEqual("result = 1\n", (Path(entry["origin"]) / "code.py").read_text())
+
+    def test_redirected_member_is_refused_before_status_or_publication(self):
+        entry = self.repository()
+        coordinate.add_member(self.document, "api", entry, "Fix its contract")
+        member = self.document["members"][0]
+        destination = Path(member["workspace"])
+        repos.prepare(member, destination)
+        destination.rename(self.root / "moved-worktree")
+        destination.symlink_to(entry["origin"], target_is_directory=True)
+        client = Mock()
+        with patch.object(coordinate.tasks, "TaskRun") as task:
+            with self.assertRaisesRegex(store.CoordinationError, "redirect"):
+                coordinate.handle(member)
+            with self.assertRaisesRegex(store.CoordinationError, "redirect"):
+                publication.publish_one(self.document, member, client=client)
+            task.assert_not_called()
+        self.assertFalse(client.mock_calls)
+
+    def test_only_owned_chats_offer_automatic_coordination(self):
+        state = {
+            "status": "PAUSED_QUESTION",
+            "workflow": {"kind": "bugfix", "source": "user", "reason": ""},
+            "turns": [],
+            "workspace_scope": {
+                "turn": 0,
+                "spans_repositories": True,
+                "external_parts": [{"target": "history", "work": "Fix its contract"}],
+            },
+        }
+        run_dir = self.root / "runs" / "anchor"
+        self.assertIsNotNone(run_view.view(state, run_dir=run_dir)["coordination"])
+        state["execution"] = {
+            "version": 1,
+            "mode": "durable_local",
+            "launch_id": "0123456789abcdef0123456789abcdef",
+            "controller_epoch": "0123456789abcdef0123456789abcdef",
+        }
+        durable = run_view.view(state, run_dir=run_dir)
+        self.assertEqual("durable_local", durable["execution"]["mode"])
+        self.assertIsNone(durable["coordination"])
+        self.assertTrue(durable["scope"]["spans_repositories"])
+        with patch.object(coordinate, "anchor_view", return_value=durable):
+            with self.assertRaisesRegex(store.CoordinationError, "owned terminal chat"):
+                coordinate.initialize(run_dir)
+        # Even an existing record may not offer an unsupported executable route.
+        with patch.object(store, "read", return_value={"phase": "fixing", "members": []}):
+            self.assertIsNone(run_view.view(state, run_dir=run_dir)["coordination"])
+
     def test_changed_anchor_scope_cannot_publish_the_old_request(self):
         self.document.update(anchor_turn=1, anchor_scope="shown")
         view = {"turn": 1, "task": self.document["task"], "scope": {"identity": "shown", "decision": None}}
@@ -88,6 +175,24 @@ class CoordinationTests(unittest.TestCase):
             view["scope"]["decision"] = "this_repository"
             with self.assertRaisesRegex(store.CoordinationError, "scope decision changed"):
                 coordinate.observe(self.document)
+
+    def test_answered_member_scope_is_not_reassigned_on_every_refresh(self):
+        self.document["members"] = [
+            {"target": name, "started": True, "run_dir": str(self.root / name)} for name in ("api", "history")
+        ]
+        views = {
+            "api": {
+                "scope": {
+                    "identity": "current-scope",
+                    "external_parts": [{"target": "history"}],
+                    "decision": "this_repository",
+                },
+                "needs": {"kind": "continue"},
+            },
+            "history": {"needs": {"kind": "approve_plan"}},
+        }
+        with patch.object(coordinate.actions, "working", return_value=False):
+            self.assertEqual("advance", coordinate.next_step(self.document, views)["kind"])
 
     def test_delivery_stages_literal_source_without_ignored_run_files(self):
         entry = self.repository()

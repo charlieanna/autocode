@@ -1,6 +1,7 @@
 """The scope question and what the plan must record after it (autocode_scope_question, #2066)."""
 
 import unittest
+from unittest.mock import patch
 
 import autocode_scope_question as scope
 
@@ -44,6 +45,12 @@ class ScopeQuestionTests(unittest.TestCase):
         self.assertIsNone(scope.question(answered))
         self.assertEqual("this_repository", scope.decision(answered))
         self.assertEqual([{"target": "epp-history", "work": "Store the delivery window"}], scope.uncovered(answered))
+
+    def test_late_linked_assignment_cannot_mask_the_persons_exact_scope_answer(self):
+        answered = answered_state(HISTORY)
+        with patch.object(scope.assignment, "current", return_value={"identity": "same-scope"}):
+            self.assertEqual("this_repository", scope.view(answered)["decision"])
+            self.assertEqual("linked_repositories", scope.view(state(HISTORY))["decision"])
 
     def test_the_plan_must_record_each_uncovered_part(self):
         answered = answered_state(HISTORY)

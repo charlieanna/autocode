@@ -52,8 +52,6 @@ def parts(state: RunState) -> list[dict]:
 
 def decision(state: RunState) -> str | None:
     """The person's choice for this run's scope, or None while no answer names one."""
-    if assignment.current(state):
-        return "linked_repositories"
     offered = _question(state)
     if not offered:
         return None
@@ -77,7 +75,7 @@ def decision(state: RunState) -> str | None:
             same = {**question, "id": offered["id"]} == offered
         if same and " ".join(str(answer.get("text") or "").split()).casefold() == THIS_REPOSITORY.casefold():
             return "this_repository"
-    return None
+    return "linked_repositories" if assignment.current(state) else None
 
 
 def question(state: RunState) -> dict | None:

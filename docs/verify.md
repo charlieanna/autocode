@@ -79,7 +79,7 @@ source, index and evidence pins. Later source or evidence changes make the
 verdict UNVERIFIED while retaining the original report for inspection.
 
 Select the review provider with `--engine codex|opencode`, optional `--provider`,
-`--model` and `--reasoning-effort low|medium|high`. OpenCode is the default.
+`--model` and `--reasoning-effort low|medium|high|xhigh|max`. OpenCode is the default.
 `--evidence-provenance fake|live|unknown` labels the supplied provider evidence;
 fake results do not establish real-model effectiveness. `--suite-command`
 selects the project suite used by the external-change proof; otherwise the
@@ -87,6 +87,12 @@ existing runner detects the project framework and derives regression commands.
 Time limits are `--check-timeout` per runner command (default 900 seconds),
 `--max-seconds` for the review (900), and `--max-stage-seconds` (600).
 All must be positive. Provider setup is described in [Providers](providers.md).
+
+Coordinated reviews use `--related-profile PATH` with its exact
+`--related-profile-sha256` to retain saved routing and provenance. These paired
+options refuse explicit `--engine`, `--provider`, `--model`, `--reasoning-effort`
+and `--evidence-provenance` flags. Time and cost caps can still bound the review;
+the review keeps its single-iteration limit and disables adaptive planning.
 
 Exit codes are 0 for PASS, 2 for FAIL or UNVERIFIED, and 4 for an invalid input or
 refused operation. `--json` prints the verdict and canonical evidence metadata;
