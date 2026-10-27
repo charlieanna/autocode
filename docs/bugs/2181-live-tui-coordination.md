@@ -213,3 +213,57 @@ registration prompt. Viewers exited at saved input boundaries for the upgrade;
 saved state, model routes, native provider configuration and prompt resources
 were not changed by this catalog correction. At this checkpoint neither cohort
 has reached Builder, Tester, joint regression or automatic fixture publication.
+
+## Final bounded result (2026-10-27)
+
+**Live qualification failed before implementation.** The remaining report-convergence
+gap is tracked in [#2208](https://github.com/charlieanna/autocode/issues/2208).
+All directly identified runtime defects were fixed separately; required CI for
+#2202 is green on the exact live runtime `aae4389c6a92877f587b3d78064b11863342414a`.
+
+The full supervised Linux deterministic TUI flow was also run with
+`COORDINATION_FIXTURE_EARLY_SCOPE=1` and
+`COORDINATION_FIXTURE_CONSUMER_ALIAS=1`:
+
+```sh
+python -m unittest tests.test_coordination_tui_e2e.CoordinationTuiEndToEnd.test_symptom_discovers_transitive_repositories_and_publishes_only_jointly_verified_fixes
+```
+
+It passed in **386.349 s**, using the real provider supervisor, three Git
+repositories, actual producer/consumer execution and the offline GitHub fixture.
+It proves joint fail-before/pass-after, three cross-linked PRs, idempotent reopen
+and withdrawal of completion after joint-test bytes change. This is not a live
+model or real GitHub publication result.
+
+| Actual live attempt | Furthest result | Final stop |
+| --- | --- | --- |
+| GLM Builder cohort, MiMo independent review | Checkout and history plans reviewed; tax reached final review | Review allowance exhausted after source-value/coverage errors |
+| Retained MiMo Builder cohort, GLM planning | All three repositories discovered | Checkout final review repeatedly covered and excluded the same feedback |
+| Clean fixed-runtime MiMo Builder cohort, GLM planning | All three discovered without topology in the bug report; checkout plan reviewed | History refresh dropped R3 without an authorized omission; recovery's counterexample did not make its probe fail |
+
+The clean attempt used the same model routes/efforts and a **$3 accounting cap**.
+Its original brief was sent at 08:07:18.693 UTC; the final history recovery stage
+ended at 08:32:51.377 UTC (**1532.685 s elapsed**, including other members and
+human gates; history's provider time alone was 417.343 s). Its anchor is
+`mimo-builder-clean-fixed/checkout/.autocode/runs/20261027-010719-chat-5e7b99`.
+Resume it with the same `autocode chat --workspace ... --run-dir ...` form above.
+
+Final bundle manifests are `cad4203d4d4b5175568f0295c65797125dc3eb2585f01c98d049173c70d90f9d`
+for the GLM cohort's tax stop and
+`846271e7b3c05993e462cc6c1904701bf8a7036f5c25da94ab83d02fcdb8fa39`
+for the clean MiMo cohort's history stop. The earlier MiMo failure remains retained
+under `05b81d295f67d58b7152ebd904a3637e38a0d7ff5e9e2c466b5a9c69dc8a7b2a`.
+
+Both final public coordination views say `done: false`, with no joint verdict or
+PR URLs. Authenticated GitHub CLI inspection confirms zero PRs in all three
+private fixture repositories. An independent check of the unchanged original
+commits composes the real modules and gets `100 USD` for subtotal 100, rather than
+`$110.00`; missing amount still raises `KeyError`. No live Builder, Tester, joint
+proof, publication or fresh-PR-head oracle is claimed. Viewers exited at input
+boundaries and all failed attempts remain available.
+
+The live calls used macOS portable supervision; they do not qualify Linux
+containment. The Linux evidence above is deterministic. Actual bounds were the
+saved run/stage/idle/accounting limits. The fixture's native `agent.code.steps=20`
+entry does not apply to AutoCode's generated agent names and is **not** evidence
+of a 20-step limit.
