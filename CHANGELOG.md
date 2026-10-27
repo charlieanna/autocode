@@ -89,6 +89,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- `autocode doctor` now fails with a `session` row when this Linux shell holds `CAP_SYS_ADMIN` or
+  `CAP_SYS_PTRACE` (root in most containers, VMs and CI images), the same check every stage launch makes,
+  and names the fix: run as an ordinary user or prefix `setpriv --bounding-set=-sys_admin,-sys_ptrace`.
+  Before, doctor passed and the first run, even `autocode demo`, stopped at `PAUSED_PROCESS_CLEANUP`.
+  `autocode demo` now prints the stop's reason when it cannot reach the sample plan.
 - On an automatically selected run, the one-use planning-review fallback after repeated provider-stream
   silence now takes the next qualified Plan Reviewer from the run's saved permitted set, the same pool and
   independence check a quota stop uses (#2061). Before, it borrowed whichever other role's model was

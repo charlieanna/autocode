@@ -155,7 +155,9 @@ def _plan(run: TaskRun) -> dict:
         run.answer(question["id"], "CLI", resolver_token=view["needs"].get("resolver_token"))
         view = run.advance_until_input()
     if view["needs"]["kind"] != "approve_plan":
-        raise TaskRunError("The demo did not produce an approval-ready plan: " + view["status"])
+        # The stop's own reason says what to fix (a root shell's refused session, a missing tool).
+        reason = f" ({view['stop_reason']})" if view.get("stop_reason") else ""
+        raise TaskRunError(f"The demo did not produce an approval-ready plan: {view['status']}{reason}")
     print("Plan ready: greet a name, reject invalid input, then independently check it.", flush=True)
     (run.workspace.parent / (run.workspace.name + "-environment") / "displayed-plan.txt").write_text(run.show_goal())
     print("Demo approval: approve the displayed sample plan before building.", flush=True)
