@@ -169,7 +169,7 @@ def verify(args, contract):
         "--workflow",
         "review",
         "--engine",
-        args.engine,
+        args.engine or "opencode",
         "--no-adaptive-planning",
         "--max-iterations",
         "1",
@@ -178,12 +178,15 @@ def verify(args, contract):
         "--max-stage-seconds",
         str(args.max_stage_seconds),
         "--evidence-provenance",
-        args.evidence_provenance,
+        args.evidence_provenance or "unknown",
     ]
     if getattr(args, "related_profile", None):
         options = [
             "--workflow",
             "review",
+            "--no-adaptive-planning",
+            "--max-iterations",
+            "1",
             "--related-profile",
             str(args.related_profile),
             "--related-profile-sha256",
@@ -197,8 +200,8 @@ def verify(args, contract):
         options += ["--provider", args.provider]
     if args.model and not getattr(args, "related_profile", None):
         options += ["--sol-model", args.model]
-    if args.reasoning_effort and not getattr(args, "related_profile", None):
-        options += ["--sol-reasoning-effort", args.reasoning_effort]
+    if not getattr(args, "related_profile", None):
+        options += ["--sol-reasoning-effort", args.reasoning_effort or "medium"]
     if getattr(args, "max_cost_usd", None) is not None:
         options += ["--max-cost-usd", str(args.max_cost_usd)]
     try:
@@ -317,13 +320,13 @@ def parser():
     result.add_argument(
         "--record", type=Path, help="Read an existing verification and recheck source/evidence freshness"
     )
-    result.add_argument("--engine", choices=("codex", "opencode"), default="opencode")
+    result.add_argument("--engine", choices=("codex", "opencode"))
     result.add_argument("--provider", help="Configured provider for the independent review")
     result.add_argument("--related-profile", type=Path, help="Pinned role routing and limits from a coordinating run")
     result.add_argument("--related-profile-sha256", help="Exact SHA-256 of --related-profile")
     result.add_argument("--model", help="Independent Code Reviewer model")
-    result.add_argument("--reasoning-effort", choices=("low", "medium", "high", "xhigh", "max"), default="medium")
-    result.add_argument("--evidence-provenance", choices=("fake", "live", "unknown"), default="unknown")
+    result.add_argument("--reasoning-effort", choices=("low", "medium", "high", "xhigh", "max"))
+    result.add_argument("--evidence-provenance", choices=("fake", "live", "unknown"))
     result.add_argument("--suite-command", help="Project suite command for external-change proof")
     result.add_argument("--check-timeout", type=int, default=900, help="Seconds per independent proof/check command")
     result.add_argument("--max-seconds", type=int, default=900, help="Total review provider time limit")
@@ -343,6 +346,16 @@ def cli(argv=None):
                 raise ValueError("--record cannot be combined with a new verification input")
             result = records.read(args.record)
         else:
+            if bool(args.related_profile) != bool(args.related_profile_sha256):
+                raise ValueError("--related-profile and --related-profile-sha256 must be supplied together")
+            if args.related_profile:
+                conflicts = [
+                    "--" + name.replace("_", "-")
+                    for name in ("engine", "provider", "model", "reasoning_effort", "evidence_provenance")
+                    if getattr(args, name) is not None
+                ]
+                if conflicts:
+                    raise ValueError("--related-profile cannot be combined with " + ", ".join(conflicts))
             if not args.base or (args.criteria is None and args.criteria_file is None):
                 raise ValueError(
                     "Supply --base and explicit --criteria or --criteria-file; criteria are never inferred"

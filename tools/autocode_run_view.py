@@ -326,7 +326,7 @@ def view(
             and result["scope"]["spans_repositories"]
             and not result["scope"]["decision"],
         )
-        if run_dir
+        if run_dir and result["execution"]["mode"] == "owned"
         else None
     )
     if run_dir is not None:  # the other runs of this run's change set (autocode_changeset)

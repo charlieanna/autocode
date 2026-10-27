@@ -977,6 +977,10 @@ are never inferred. `--out` names a fresh output directory. `--record` reads an
 existing verification and checks freshness instead of running models or checks.
 Review controls are `--engine`, `--provider`, `--model`, `--reasoning-effort`,
 `--evidence-provenance`, `--max-seconds` and `--max-stage-seconds`.
+The paired `--related-profile` and `--related-profile-sha256` inherit saved
+review routing and provenance. They refuse explicit `--engine`, `--provider`,
+`--model`, `--reasoning-effort` or `--evidence-provenance` flags rather than
+silently discarding them. Time and cost caps may still bound the review.
 `--suite-command` selects the proof suite and `--check-timeout` bounds each runner
 command. `--json` emits the verdict and evidence metadata. See
 [Standalone verification](verify.md) for the criteria format, proof modes and

@@ -45,6 +45,8 @@ MAX_JOINT_ATTEMPTS = 3
 
 
 def handle(row, *, command=tasks.AUTOCODE):
+    if "origin" in row:
+        repos.require_worktree(row, row["workspace"])
     return tasks.TaskRun(Path(row["workspace"]), Path(row["run_dir"]), command=command)
 
 
@@ -54,9 +56,9 @@ def anchor_view(run_dir, *, command=tasks.AUTOCODE):
 
 def initialize(run_dir, *, command=tasks.AUTOCODE):
     view = anchor_view(run_dir, command=command)
-    if (view.get("execution") or {}).get("mode") == "durable_local":
+    if (view.get("execution") or {}).get("mode") != "owned":
         raise store.CoordinationError(
-            "Automatic coordination currently requires an owned terminal chat; this durable run's execution policy was not changed"
+            "Automatic coordination currently requires an owned terminal chat; this run's execution policy was not changed"
         )
     scope = view.get("scope") or {}
     if view.get("workflow") != "bugfix" or not scope.get("external_parts") or scope.get("decision"):
@@ -238,7 +240,7 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
     by_target = {row["target"]: row for row in document["members"]}
     for target, view in views.items():
         scope = view.get("scope") or {}
-        if scope.get("external_parts") and scope.get("decision") != "linked_repositories":
+        if scope.get("external_parts") and not scope.get("decision"):
             required = {part["target"] for part in scope["external_parts"]}
             if required <= by_target.keys():
                 return {
