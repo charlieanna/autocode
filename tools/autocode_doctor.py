@@ -398,10 +398,17 @@ def containment_check(status: dict) -> Check:
 
 
 def engine_verdict(
-    checks: list[Check], wanted: str | None = None, provider: str = "opencode", origin: str | None = None
+    checks: list[Check],
+    wanted: str | None = None,
+    provider: str = "opencode",
+    origin: str | None = None,
+    claude_on_path: bool = False,
 ) -> Check:
     """Codex must be ready for ``--engine codex``. Otherwise the OpenCode engine runs ``provider``
-    (default_provider()), which must answer and must not be missing a default route."""
+    (default_provider()), which must answer and must not be missing a default route. When that is not
+    ready, the verdict names the other engines this host already has: a ready Codex, and a ``claude``
+    on PATH (``claude_on_path``; its login is checked by ``doctor --engine claude``), so a person with
+    only Claude Code installed is not sent to install OpenCode first."""
     status = {c.name: c.status for c in checks}
     if wanted == "codex":
         ok = status.get("engine:codex") == OK
@@ -429,7 +436,12 @@ def engine_verdict(
     codex_ready = status.get("engine:codex") == OK
     if codex_ready and provider != "codex":
         fix += "; or pass --engine codex (the single-login route) to doctor and to every task"
-    return Check("engine", MISSING, f"{what} is not ready" + ("; Codex is ready" if codex_ready else ""), fix)
+    if claude_on_path and provider != "claude":
+        fix += "; or pass --engine claude (Claude Code is on PATH) to doctor and to every task"
+    found = [
+        name for name, ready in (("Codex is ready", codex_ready), ("Claude Code is on PATH", claude_on_path)) if ready
+    ]
+    return Check("engine", MISSING, "; ".join([f"{what} is not ready", *found]), fix)
 
 
 def workspace_check(workspace: Path, runner=run) -> list[Check]:
@@ -490,7 +502,7 @@ def opencode_checks(
     tool = "engine:opencode" if provider == "opencode" else f"provider:{provider}"
     if any(c.name == tool and c.status == OK for c in checks):
         checks.append(route_check(provider, workspace if workspace.is_dir() else None, resolve))
-    return engine_verdict(checks, wanted, provider)
+    return engine_verdict(checks, wanted, provider, claude_on_path=bool(which("claude")))
 
 
 def claude_checks(

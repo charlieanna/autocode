@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 from pathlib import Path
 
 try:
@@ -26,7 +28,7 @@ def named(value, run_dir, operation=None):
         raise actions.ClientGap("The coordination action names another run or output contract")
     if operation and value[2] != operation:
         raise actions.ClientGap("The coordination action differs from the displayed decision")
-    if value[2] not in ("status", "advance", "approve", "choose", "cancel"):
+    if value[2] not in ("status", "advance", "approve", "choose", "cancel", "budget"):
         raise actions.ClientGap("Unsupported coordination action")
     return value[1:]
 
@@ -68,6 +70,8 @@ def step(client, view, render_plan):
     if summary.get("next_command"):
         client.advance(named(summary["next_command"], client.run_dir, "advance"))
         return None
+    if need["kind"] == "budget":
+        return budget_reply(client, view, need)
     if summary.get("approval"):
         if need["kind"] == "approval":
             for row in need["summary"]["runs"]:
@@ -134,6 +138,52 @@ def step(client, view, render_plan):
         return None
     client.say(need.get("reason") or "Coordination is cancelled; saved work is retained.")
     return 2
+
+
+def budget_reply(client, view, need):
+    argv = list(named(need.get("next_command"), client.run_dir, "budget"))
+    if argv != [
+        "coordinate",
+        "budget",
+        "--run-dir",
+        str(client.run_dir.resolve()),
+        "--token",
+        need.get("token"),
+        "--max-cost-usd",
+        "N",
+        "--json",
+    ]:
+        raise actions.ClientGap("The shared-budget action does not match the displayed checkpoint")
+    minimum = need.get("minimum_cap_usd")
+    if type(minimum) not in (int, float) or not math.isfinite(minimum) or minimum <= 0:
+        raise actions.ClientGap("The shared-budget decision has no finite minimum")
+    accounting = "complete" if need.get("complete") else "incomplete; unknown costs remain unknown"
+    client.say(
+        f"Shared accounting cap: ${need['cap_usd']:g}; known spend: ${need['known_spent_usd']:g} ({accounting})."
+    )
+    client.say(need["effect"])
+    text = client.ask(f"New whole-set cap in USD ({minimum:g} or more; Enter keeps it paused): ").strip()
+    if not text:
+        return 2
+    if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,6})?", text) or not minimum <= float(text) <= actions.MAX_SAFE_INTEGER:
+        client.say("No cap changed. Enter a finite amount at or above the displayed minimum.")
+        return None
+    if client.ask(
+        f"Set the whole-set accounting cap to ${text} and continue the displayed cost recovery? [y/N]: "
+    ).strip().lower() not in ("y", "yes"):
+        return 2
+    fresh = read(client, view)
+    if (fresh.get("needs") or {}).get("token") != need.get("token") or (fresh.get("needs") or {}).get(
+        "kind"
+    ) != "budget":
+        client.say("The shared-budget checkpoint changed; read the current offer before deciding.")
+        return None
+    argv[argv.index("--max-cost-usd") + 1] = text
+    token_index = argv.index("--token") + 1
+    token = argv[token_index]
+    argv[token_index] = "-"
+    client.advance(argv, env={"AUTOCODE_COORDINATION_TOKEN": token})
+    return None
 
 
 def repositories(history, argument):

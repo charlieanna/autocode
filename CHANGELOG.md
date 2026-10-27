@@ -426,6 +426,10 @@ PR template asks for an entry here; a change without one is incomplete.
 - A first task on a host without OpenCode no longer stops at "OpenCode is not on PATH": the refusal now
   says to run `autocode doctor` and that an installed Claude Code or Codex runs with `--engine claude` or
   `--engine codex`.
+- `autocode doctor` on a host with Claude Code installed but no OpenCode no longer only says to install
+  OpenCode: the engine verdict names the `claude` on PATH and the `--engine claude` to pass to doctor and
+  to every task, as it already did for a ready Codex. The login check itself stays with
+  `doctor --engine claude`.
 - The terminal chat no longer prints the Requirements question a second time after the person has already
   seen and answered it. The direct prompt's echo was dropped while the public copy of the question was still
   being written, so the finished message looked new on the next poll. The echo now waits for the finished

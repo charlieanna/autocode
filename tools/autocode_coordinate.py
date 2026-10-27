@@ -20,6 +20,7 @@ try:
     from . import autocode_coordination_access as access
     from . import autocode_coordination_budget as budget
     from . import autocode_coordination_joint as joint
+    from . import autocode_coordination_limits as limits
     from . import autocode_coordination_publish as publication
     from . import autocode_coordination_repositories as repos
     from . import autocode_coordination_store as store
@@ -33,6 +34,7 @@ except ImportError:
     import autocode_coordination_access as access
     import autocode_coordination_budget as budget
     import autocode_coordination_joint as joint
+    import autocode_coordination_limits as limits
     import autocode_coordination_publish as publication
     import autocode_coordination_repositories as repos
     import autocode_coordination_store as store
@@ -228,6 +230,11 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
         return {"kind": "cancelled"}
     if document.get("pending"):
         return {"kind": "reconcile", **document["pending"]}
+    if (document.get("budget") or {}).get("cap_usd"):
+        rows, history = budget_observations(document, views, command=command)
+        offered = limits.offer(document, rows, history)
+        if offered:
+            return offered
     if document.get("rework"):
         return {"kind": "rework", "targets": document["rework"]["targets"]}
     if document.get("phase") == "complete":
@@ -416,14 +423,48 @@ def options(document):
     return ("--related-profile", document["profile"], "--related-profile-sha256", document["profile_sha256"])
 
 
-def budget_options(document, views, current=None, *, command=tasks.AUTOCODE):
+def budget_observations(document, views, *, command=tasks.AUTOCODE):
+    rows = [{**row, "view": views[row["target"]]} for row in document["members"] if row["target"] in views]
     history = [*views.values()]
     for row in document["joint_attempts"]:
         if row.get("started"):
-            history.append(handle(row, command=command).status())
+            view = handle(row, command=command).status()
+            history.append(view)
+            if row.get("run_dir") == (document.get("joint") or {}).get("run_dir"):
+                rows.append({**row, "target": "Joint regression", "view": view})
         if row.get("verification"):
             history.append(budget.verification_view(row["verification"]))
+    return rows, history
+
+
+def budget_options(document, views, current=None, *, command=tasks.AUTOCODE):
+    _, history = budget_observations(document, views, command=command)
     return tuple(budget.envelope(document.get("budget") or {}, history, current)["options"])
+
+
+def revise_budget(run_dir, token, amount, *, command=tasks.AUTOCODE):
+    """The person's finite shared cap, with exactly one fenced cost-pause acknowledgement."""
+    with store.locked(run_dir) as document:
+        if not document:
+            raise store.CoordinationError("Coordination has not started")
+        views = observe(document, command=command)
+        rows, history = budget_observations(document, views, command=command)
+        offered = limits.offer(document, rows, history)
+
+        def resume(row, recovery_token):
+            if store.cancelled(run_dir):
+                raise store.CoordinationError("Coordination was cancelled; no cost pause was resumed")
+            run = handle(row, command=command)
+            run.options = (
+                *budget_options(document, views, row["run_dir"], command=command),
+                "--expected-recovery-token",
+                "-",
+            )
+            run.env = {**(run.env or {}), actions.TOKEN_ENV: recovery_token}
+            run.resume_paused()
+
+        limits.apply(document, offered, token, amount, rows, resume=resume)
+    return status(run_dir, command=command)
 
 
 def require_joint_evidence(document, *, command=tasks.AUTOCODE):
@@ -704,12 +745,15 @@ def parser():
     )
     commands = result.add_subparsers(dest="operation", required=True)
     commands.add_parser("access").add_argument("--json", action="store_true")
-    for name in ("status", "advance", "approve", "choose", "cancel"):
+    for name in ("status", "advance", "approve", "choose", "cancel", "budget"):
         child = commands.add_parser(name)
         child.add_argument("--run-dir", required=True, type=Path)
         child.add_argument("--json", action="store_true")
         if name == "approve":
             child.add_argument("--token", required=True)
+        if name == "budget":
+            child.add_argument("--token", required=True)
+            child.add_argument("--max-cost-usd", required=True, type=float)
         if name == "choose":
             child.add_argument("--target", required=True)
             child.add_argument("--workspace", required=True)
@@ -757,6 +801,12 @@ def cli(argv=None):
             )
         elif args.operation == "cancel":
             result = cancel(args.run_dir)
+        elif args.operation == "budget":
+            result = revise_budget(
+                args.run_dir,
+                os.environ.get("AUTOCODE_COORDINATION_TOKEN", "") if args.token == "-" else args.token,
+                args.max_cost_usd,
+            )
         else:
             with store.locked(args.run_dir) as document:
                 if not document:

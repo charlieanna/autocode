@@ -1,5 +1,6 @@
 """A coordinated member owns the foreground while anchor polling continues."""
 
+import copy
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -65,6 +66,81 @@ class CoordinatedDisplayTests(unittest.TestCase):
                 self.assertEqual(("view", anchor["run_dir"]), events[-1])
                 self.assertIs(parent._observe, observed)
                 self.assertIs(parent._unavailable, unavailable)
+
+
+class SharedBudgetDisplayTests(unittest.TestCase):
+    def setUp(self):
+        self.root = Path("/tmp/coordinated-budget-display").resolve()
+        self.client = Mock(run_dir=self.root / ".autocode/runs/chat")
+        self.need = {
+            "kind": "budget",
+            "cap_usd": 10,
+            "known_spent_usd": 9.5,
+            "complete": False,
+            "minimum_cap_usd": 10.5,
+            "token": "secret-budget-token",
+            "effect": "Retain prior spend, routes and all other limits; approve no plan.",
+            "next_command": [
+                "autocode",
+                "coordinate",
+                "budget",
+                "--run-dir",
+                str(self.client.run_dir),
+                "--token",
+                "secret-budget-token",
+                "--max-cost-usd",
+                "N",
+                "--json",
+            ],
+        }
+        self.summary = {"members": [], "done": False, "needs": self.need}
+
+    def test_explicit_finite_cap_uses_only_fresh_named_action_and_private_token(self):
+        self.client.ask.side_effect = ["15.25", "yes"]
+        with patch.object(coordination, "read", return_value=self.summary):
+            self.assertIsNone(coordination.step(self.client, {}, Mock()))
+        self.client.advance.assert_called_once_with(
+            [
+                "coordinate",
+                "budget",
+                "--run-dir",
+                str(self.client.run_dir),
+                "--token",
+                "-",
+                "--max-cost-usd",
+                "15.25",
+                "--json",
+            ],
+            env={"AUTOCODE_COORDINATION_TOKEN": "secret-budget-token"},
+        )
+        shown = " ".join(str(call.args) for call in self.client.say.call_args_list)
+        self.assertIn("incomplete", shown)
+        self.assertNotIn("secret-budget-token", shown)
+
+    def test_decline_blank_and_invalid_amounts_never_change_a_cap(self):
+        for answers in ([""], ["15", "no"], ["0"], ["nan"], ["inf"], ["9"], ["1e30"]):
+            with self.subTest(answers=answers):
+                self.client.reset_mock()
+                self.client.ask.side_effect = answers
+                with patch.object(coordination, "read", return_value=self.summary):
+                    coordination.step(self.client, {}, Mock())
+                self.client.advance.assert_not_called()
+
+    def test_changed_checkpoint_after_confirmation_is_shown_again_without_dispatch(self):
+        self.client.ask.side_effect = ["15", "yes"]
+        fresh = copy.deepcopy(self.summary)
+        fresh["needs"]["token"] = "new-checkpoint"
+        with patch.object(coordination, "read", side_effect=[self.summary, fresh]):
+            self.assertIsNone(coordination.step(self.client, {}, Mock()))
+        self.client.advance.assert_not_called()
+
+    def test_budget_amount_cannot_be_inserted_into_another_named_operation(self):
+        self.need["next_command"][2] = "approve"
+        with patch.object(coordination, "read", return_value=self.summary):
+            with self.assertRaises(coordination.actions.ClientGap):
+                coordination.step(self.client, {}, Mock())
+        self.client.ask.assert_not_called()
+        self.client.advance.assert_not_called()
 
 
 if __name__ == "__main__":
