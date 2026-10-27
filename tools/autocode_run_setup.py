@@ -490,6 +490,13 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
             recovery_view.require_token(state, getattr(args, "expected_recovery_token", None))
         except ValueError as error:
             parser.error(str(error))
+        if getattr(args, "reconcile_only", None) is not None:
+            try:
+                from . import autocode_checkpoint_reconciliation as reconciliation
+            except ImportError:
+                import autocode_checkpoint_reconciliation as reconciliation
+            reconciliation.require_binding(state, args.reconcile_only)
+            return state  # Metadata-only control keeps configuration, migrations and allowances untouched.
         recovery = state.get("recovery_context") or {}
         archived = (state.get("stages") or [{}])[-1]
         if (

@@ -134,9 +134,10 @@ def run(base, args, parser, resolved, *, failure_routing=True):
         except ValueError as error:
             parser.error(str(error))
         if intent is None:
-            if args.run_dir:
-                controller_owner.reconcile(state, run_dir, workspace, base.write_json)
-            select_provider(base, args, parser, state, workspace)
+            if getattr(args, "reconcile_only", None) is None:
+                if args.run_dir:
+                    controller_owner.reconcile(state, run_dir, workspace, base.write_json)
+                select_provider(base, args, parser, state, workspace)
             return base.run_setup.run_locked(
                 base, args, parser, state, state_path, run_dir, workspace, failure_routing=failure_routing
             )

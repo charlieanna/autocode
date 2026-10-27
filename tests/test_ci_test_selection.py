@@ -387,6 +387,21 @@ class DynamicDependenciesTests(unittest.TestCase):
             kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
             self.assertEqual([consumer], list(kept))
 
+    def test_checkpoint_reconciliation_keeps_its_public_cli_consumer(self):
+        consumer = "tests.test_checkpoint_reconciliation"
+        for path in (
+            "tools/autocode_checkpoint_reconciliation.py",
+            "tools/autocode_action_recovery.py",
+            "tools/autocode_native_invocation.py",
+            "tools/autocode_run_setup.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_args.py",
+            "tools/autocode_control_tokens.py",
+        ):
+            selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+            kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+            self.assertEqual([consumer], list(kept))
+
     def test_activity_policy_keeps_its_public_wrapper_idle_consumer_even_when_slow(self):
         consumer = "tests.test_kilo_wrapper_idle_cli"
         for path in ("tools/autocode_activity.py", "tools/autocode_process.py"):

@@ -251,6 +251,8 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         if stale_check
         else None
     )
+    if stale and "--reconcile-only" in (public_view.get("next_command") or ""):
+        next_action = public_view["next_command"]
     if owner and owner["kind"] == "ended" and state.get("status") == controller_owner.STATUS:
         next_action = public_view["next_command"]
     # A stale runner check stopped before the next stage was launched: name the check, not that stage.

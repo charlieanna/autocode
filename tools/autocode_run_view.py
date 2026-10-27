@@ -177,6 +177,22 @@ def view(
         completion_current = False
     status = state.get("status", "")
     next_action = action(state, run_dir=run_dir, workspace=workspace, stale_report_repair=stale_report_repair)
+    try:
+        from . import autocode_checkpoint_reconciliation as reconciliation
+    except ImportError:
+        import autocode_checkpoint_reconciliation as reconciliation
+    reconcile = reconciliation.offer(state, liveness, controller=controller)
+    if reconcile is not None:
+        next_action = {
+            "needs": reconcile,
+            "pause_category": None,
+            "pause_category_label": None,
+            "next_command": pause_command.command(
+                {**reconcile, "kind": "resume"},
+                run_dir=run_dir or state.get("run_dir"),
+                workspace=workspace or state.get("workspace"),
+            ),
+        }
     need = next_action["needs"]
     task = state.get("current_task") or {}
     active = state.get("active_stage")

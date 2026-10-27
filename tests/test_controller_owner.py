@@ -288,6 +288,35 @@ class OwnerInspectionTests(unittest.TestCase):
             self.assertEqual("unknown", observed["kind"])
             self.assertEqual("PAUSED_PROCESS_CHECK", owners.project(self.state, observed)["status"])
 
+    def test_large_launch_marker_keeps_birth_bound_worker_inspection(self):
+        marker = self.run_dir / "active-processes.json"
+        util.atomic_json(
+            marker, {"command": ["provider", "x" * 32768], "processes": [{"pid": 123, "birth_identity": 1}]}
+        )
+        before = marker.read_bytes()
+        for checked, alive, expected in ((True, False, "ended"), (True, True, "busy"), (False, None, "unknown")):
+            with (
+                self.subTest(expected=expected),
+                patch.object(processes, "recorded_worker_state", return_value={"checked": checked, "alive": alive}),
+            ):
+                self.assertEqual(expected, owners.inspect(self.state, self.run_dir, self.workspace)["kind"])
+                self.assertEqual(before, marker.read_bytes())
+        util.atomic_json(
+            marker,
+            {"command": ["x" * owners.MAX_PROCESS_MARKER_BYTES], "processes": [{"pid": 123, "birth_identity": 1}]},
+        )
+        with patch.object(processes, "recorded_worker_state", return_value={"checked": True, "alive": False}):
+            self.assertEqual("unknown", owners.inspect(self.state, self.run_dir, self.workspace)["kind"])
+        marker.unlink()
+        # A valid controller receipt with a long reason still keeps the small bound.
+        with util.run_lock(self.run_dir), owners.Owner(self.state, self.run_dir, self.persist):
+            pass
+        receipt = util.read(self.run_dir / owners.FILE)
+        receipt["reason"] = "x" * owners.MAX_BYTES
+        util.atomic_json(self.run_dir / owners.FILE, receipt)
+        with patch.object(processes, "process_table", return_value={}):
+            self.assertEqual("unknown", owners.inspect(self.state, self.run_dir, self.workspace)["kind"])
+
     def test_unsaved_preview_does_not_replace_the_durable_ready_checkpoint(self):
         checkpoint = (self.run_dir / "state.json").read_bytes()
         with util.run_lock(self.run_dir), owners.Owner(self.state, self.run_dir, self.persist) as owner:

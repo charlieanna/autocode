@@ -290,6 +290,7 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
 # handle()'s steps, in the order they take precedence. Each returns an exit code to end the
 # invocation, or None to go on; one that sets decided.dispatch sends the run straight to the build.
 STEPS = (
+    action_recovery.reconcile_checkpoint,  # metadata-only ownership inspection, before configuration/decisions
     honor_stops,  # an applied or pending stop, and a bound retry mixed with other actions
     action_decisions.preflight,  # invalid approval cannot reconcile or migrate a stopped attempt
     action_edits.apply,  # a standalone edit: design revision, dependency, report recovery, repair handoff

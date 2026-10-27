@@ -40,6 +40,7 @@ DECISION_FLAGS = (
     "--accept-transport-change",
     "--planning-review-call-limit",
     "--migrate-only",
+    "--reconcile-only",  # Local metadata control; never an unattended start option.
     "--close-finding",
     "--close-reason",
     "--resolver-response",
