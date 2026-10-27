@@ -97,7 +97,16 @@ verbatim from the task or a saved user event. A requirement no source states in 
 words is not a user requirement: leave it out, or make it a proposed assumption or an
 open question. Put requirement-like sentences you are
 not carrying (must, must not, never, only, required, exactly) in ignored_statements
-with the reason explained in the top-level summary. Put unresolved contradictions in conflicts with the requirement ids.
+with the reason explained in the top-level summary. This field records source text
+not represented as separate requirements; it does not itself declare work out of scope.
+A retained behavior, scope constraint, permission or approval boundary can have a
+source-backed requirements row for provenance without becoming a new feature or
+executable acceptance example. Keep its source_quote there and its meaning in the
+appropriate handoff field; do not also put it in ignored_statements merely because
+it is procedural. For example, "This is a small fix; don't turn it into a project."
+is an applicable scope constraint, not permission to omit part of the requested fix.
+For genuinely nonoperative source text or excluded work, explain the actual treatment
+in summary so the confirmation screen can show it. Put unresolved contradictions in conflicts with the requirement ids.
 Do not label an explicit saved clarification or a historical/current distinction as
 an unresolved conflict. Preserve the applicable requirements and their provenance.
 The runner saves this report as a separate artifact for the Planner.
