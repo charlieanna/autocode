@@ -2460,7 +2460,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/915b55b07f1970a76bc5113aa1d2c0b8ab4d813c/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/b2d123f8a3a74213d867645b1b73437676f5a80e/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2676,7 +2676,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/915b55b07f1970a76bc5113aa1d2c0b8ab4d813c/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/b2d123f8a3a74213d867645b1b73437676f5a80e/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3160,6 +3160,10 @@ still require their own actions. Recovery eligibility and token checks are uncha
 <td>With <code>--resume-paused</code>, authorize one retry of the exhausted current serial milestone or stopped parallel members (not a member stopped by its provider's content filter or response output limit: answer its <code>route-terra</code> question; once that request was answered with information or left paused, <code>--retry-builder</code> asks the question again and launches nothing). Keeps failure history, model routes and verification gates; all workers must be stopped. A refused or output-limited member retry with settings saves nothing. A parallel member reruns on its saved Builder route, so a Builder model, provider or reasoning effort change with its retry is refused. A difference saved separately in the run's Builder settings also refuses the retry, naming both routes. Answer that member's open <code>route-terra</code> question to choose its model, or restore the run's Builder settings to the member's route separately before retrying.</td>
 </tr>
 <tr>
+<td><code>--reconcile-only TOKEN</code></td>
+<td>Metadata-only classification of an unfinished saved RUNNING attempt whose supervisor, keeper and provider are freshly confirmed dead. Take the exact action and private token offered by status; <code>-</code> reads <code>AUTOCODE_RECONCILE_ONLY_TOKEN</code>. A successful saved classification exits 0 while the run remains paused. Records an uncertain-stage pause without configuring, launching, adopting or retrying a provider. Retains work, usage, routes and limits. Refuses a changed checkpoint, live/unknown supervision, pending stop or native visual/durable service execution. Cannot combine with settings or other actions.</td>
+</tr>
+<tr>
 <td><code>--abandon-stage '001/terra-01'</code></td>
 <td>Archive a stopped attempt, keep partial edits and logs.</td>
 </tr>
@@ -3270,7 +3274,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/915b55b07f1970a76bc5113aa1d2c0b8ab4d813c/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/b2d123f8a3a74213d867645b1b73437676f5a80e/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -4173,7 +4177,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/915b55b07f1970a76bc5113aa1d2c0b8ab4d813c/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/b2d123f8a3a74213d867645b1b73437676f5a80e/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
