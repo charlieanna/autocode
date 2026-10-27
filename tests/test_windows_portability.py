@@ -29,6 +29,7 @@ LOADS_WITHOUT_FCNTL = (
     "autocode_controller_owner",
     "autocode_conversation",
     "autocode_conversation_session",
+    "autocode_coordination_store",
     "autocode_dependencies",
     "autocode_interventions",
     "autocode_milestones",

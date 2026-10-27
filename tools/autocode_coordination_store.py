@@ -8,7 +8,6 @@ restarted viewer never dispatches a second copy of an uncertain operation.
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import hashlib
 import json
 from pathlib import Path
@@ -59,13 +58,13 @@ def locked(run_dir):
         raise CoordinationError("Coordination directory cannot be a symlink")
     with (directory / "advance.lock").open("a") as handle:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            util.lock_file(handle)
         except BlockingIOError as error:
             raise CoordinationError("Coordination is already advancing in another viewer") from error
         try:
             yield read(run_dir)
         finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            util.unlock_file(handle)
 
 
 def command(run_dir, operation="advance", *arguments):

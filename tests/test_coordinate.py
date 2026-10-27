@@ -45,6 +45,26 @@ class CoordinationTests(unittest.TestCase):
             "joint_attempts": [],
         }
 
+    def test_another_viewer_cannot_advance_the_same_run_while_locked(self):
+        anchor = self.document["anchor"]
+        with store.locked(anchor):
+            with self.assertRaisesRegex(store.CoordinationError, "already advancing"):
+                with store.locked(anchor):
+                    self.fail("A second viewer acquired the held run")
+            with store.locked(str(self.root / "other-run")) as independent:
+                self.assertIsNone(independent)
+        with store.locked(anchor) as released:
+            self.assertIsNone(released)
+
+    def test_exception_releases_the_coordination_lock_and_keeps_saved_record(self):
+        anchor = self.document["anchor"]
+        with self.assertRaisesRegex(RuntimeError, "operation interrupted"):
+            with store.locked(anchor):
+                store.save(self.document)
+                raise RuntimeError("operation interrupted")
+        with store.locked(anchor) as recovered:
+            self.assertEqual(self.document, recovered)
+
     def repository(self, name="api", owner="fixture"):
         root = self.root / name
         root.mkdir(parents=True)
