@@ -27,8 +27,17 @@ def invalid_report(state: RunState) -> bool:
     )
 
 
+def semantic_stop(state: RunState, status: str | None) -> bool:
+    """A stopped semantic decision can take a revised brief, subject to pause authority."""
+    return (
+        status == state.get("status")
+        and status in ("RESOLVER_PENDING", "PAUSED_COMPLETION_GATE")
+        and (state.get("user_request") or {}).get("kind") not in ("human_review", "blocker")
+    )
+
+
 def admitted(state: RunState) -> bool:
-    """Existing conversation checkpoints plus a malformed planning report.
+    """Conversation checkpoints and correctable planning/semantic stops.
 
     Callers still enforce pause authority and human artifact-review decisions.
     """
@@ -36,4 +45,5 @@ def admitted(state: RunState) -> bool:
         state.get("status") in ("AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER", *run_status.PLAN_FEEDBACK_PAUSES)
         or (not state.get("goal_contract") and roles.planning_flow(state) == "v2")
         or invalid_report(state)
+        or semantic_stop(state, state.get("status"))
     )

@@ -406,6 +406,32 @@ class GoalTests(unittest.TestCase):
                 self.assertEqual(2, self.invoke("--feedback", "Correct the report"))
                 self.assertIn("conversation checkpoint", self.stderr + self.stdout)
 
+    def test_semantic_stop_feedback_uses_named_cli_without_dispatch(self):
+        for status in ("RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
+            with self.subTest(status=status):
+                self.approve()
+                self.state["settings"]["roles"]["completion"] = {"model": "sol", "reasoning_effort": "high"}
+                self.state["settings"]["limits"].update(
+                    idle_timeout_seconds=300, tool_timeout_seconds=600, max_seconds=3600
+                )
+                old_token = g.token(self.state["goal_contract"])
+                self.state.update(status=status, next_stage="astra_review")
+                message = "Keep the local flow executable here; retain the mandatory actual-code joint proof."
+                self.assertEqual(0, self.invoke("--status", "--json"))
+                before = json.loads(self.stdout)
+                offered = shlex.split(before["view"]["chat"]["input"]["next_command"])
+                self.assertEqual(["--feedback", "MESSAGE"], offered[-2:])
+                product = (self.root / "greet.py").read_bytes()
+                self.assertEqual(0, self.invoke("--feedback", message), self.stdout + self.stderr)
+                self.assertEqual(0, self.invoke("--status", "--json"))
+                after = json.loads(self.stdout)
+                self.assertIn(message, [row["text"] for row in after["view"]["chat"]["messages"]])
+                self.assertFalse(after["view"]["done"])
+                self.assertEqual(product, (self.root / "greet.py").read_bytes())
+                for key in ("roles", "limits"):
+                    self.assertEqual(before["settings"][key], after["settings"][key])
+                self.assertEqual(2, self.invoke("--approve-goal", old_token))
+
     def test_invalid_planning_feedback_cannot_release_an_operational_hold(self):
         self.approve()
         self.state["settings"]["limits"]["max_seconds"] = 1
@@ -416,9 +442,13 @@ class GoalTests(unittest.TestCase):
                 runner, self.state, self.run, s.Paused("PAUSED_TIME_LIMIT", self.state["stop_reason"])
             )
         )
-        self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage="astra_finalize")
-        self.assertEqual(2, self.invoke("--feedback", "Correct the report"))
-        self.assertIn("does not acknowledge PAUSED_TIME_LIMIT", self.stderr + self.stdout)
+        held = copy.deepcopy(self.state)
+        for status in ("PAUSED_INVALID_OUTPUT", "RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
+            with self.subTest(status=status):
+                self.state = copy.deepcopy(held)
+                self.state.update(status=status, next_stage="astra_finalize")
+                self.assertEqual(2, self.invoke("--feedback", "Correct the report"))
+                self.assertIn("does not acknowledge PAUSED_TIME_LIMIT", self.stderr + self.stdout)
 
     def test_existing_answers_persist_and_cannot_be_asked_again(self):
         self.draft(questions=True)

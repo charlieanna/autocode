@@ -159,10 +159,9 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         # The Tester's pause says --feedback revises the plan; offer it so a client can take it (#1869).
         action = ("feedback", "Send plan feedback", "--feedback")
     elif (
-        status in ("RESOLVER_PENDING", "PAUSED_COMPLETION_GATE")
+        planning_feedback.semantic_stop(state, status)
         and need.get("kind") == "resume"
         and need.get("resolver_scope") not in ("blocker", "operational_exhaustion")
-        and (state.get("user_request") or {}).get("kind") not in ("human_review", "blocker")
         and not pause_authority.feedback_refusal(state)
     ) or (
         status == "PAUSED_INVALID_OUTPUT"
