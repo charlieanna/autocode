@@ -133,7 +133,15 @@ def candidates(target, entries):
     # A model may append a job label or the repository noun to an exact name.
     # This still resolves only against the authorized catalog, never a path.
     described = re.fullmatch(r"(.+?)\s+(?:\([^()]{1,80}\)|repo(?:sitory)?)", name)
-    return [entry for entry in entries if described and described[1] in aliases(entry)]
+    found = [entry for entry in entries if described and described[1] in aliases(entry)]
+    if found:
+        return found
+    # Prefer a real repository named "coordinated checkout" above. Only this
+    # bounded wrapper is a final fallback; never recursively strip descriptions.
+    coordinated = re.fullmatch(r"coordinated\s+(.+?)\s+repo(?:sitory)?", name)
+    if not coordinated or coordinated[1].startswith(("/", "~", ".")) or ".." in coordinated[1].split("/"):
+        return []
+    return [entry for entry in entries if coordinated[1] in aliases(entry)]
 
 
 def member_aliases(members, choices):
