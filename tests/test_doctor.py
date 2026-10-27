@@ -876,6 +876,47 @@ class InstalledUserAdviceTests(unittest.TestCase):
         self.assertNotIn("editable", check.detail)
 
 
+class SessionCheckTests(unittest.TestCase):
+    """A root shell in a container holds CAP_SYS_ADMIN, so every stage is refused; doctor must say so."""
+
+    def refuse(self, error):
+        def require():
+            raise error
+
+        return require
+
+    def test_privileged_shell_fails_doctor_and_names_the_drop(self):
+        check = doctor.session_check(
+            self.refuse(
+                doctor.session_boundary.UnsupportedBoundary(
+                    "Provider session ownership refuses CAP_SYS_PTRACE or CAP_SYS_ADMIN"
+                )
+            )
+        )
+        self.assertEqual(doctor.MISSING, check.status)
+        self.assertIn("the offline demo included", check.detail)
+        self.assertIn("setpriv --bounding-set=-sys_admin,-sys_ptrace autocode", check.fix)
+        self.assertFalse(doctor.passed([check]))
+
+    def test_other_unsupported_hosts_fail_with_their_own_reason(self):
+        check = doctor.session_check(
+            self.refuse(doctor.session_boundary.UnsupportedBoundary("Proc namespace does not match"))
+        )
+        self.assertEqual(doctor.MISSING, check.status)
+        self.assertIn("Proc namespace does not match", check.detail)
+        self.assertNotIn("setpriv", check.fix)
+
+    def test_macos_portable_supervision_and_a_supported_host_pass(self):
+        portable = doctor.session_check(self.refuse(doctor.session_boundary.PortableHost("macOS")))
+        self.assertEqual(doctor.OK, portable.status)
+        self.assertEqual(doctor.OK, doctor.session_check(lambda: None).status)
+
+    def test_all_checks_carries_the_session_check(self):
+        workspace = Path(tempfile.mkdtemp(prefix="doctor-session-"))
+        self.addCleanup(shutil.rmtree, workspace, True)
+        self.assertIn("session", [check.name for check in doctor.all_checks(workspace, runner=fake_runner({}))])
+
+
 class PathCheckTests(unittest.TestCase):
     """#1761: a venv install works through .venv/bin/autocode while a new shell says command not found."""
 

@@ -51,6 +51,27 @@ def unittest_start(root: str, directory: Path, tests) -> str:
     return next((f"{root}/{name}" for name in ("tests", "test") if (directory / name).is_dir()), root)
 
 
+def added_empty_marker_start(directory: Path, tests, pinned_tests, pinned_files) -> str | None:
+    """Retain a plain baseline suite when its only packaging change is an empty marker.
+
+    Project-root tests or executable initializers need ordinary project discovery.
+    Neither a new suite nor missing pinned tests grants this compatibility rule.
+    """
+    if not tests or not pinned_tests:
+        return None
+    for name in ("tests", "test"):
+        marker = f"{name}/__init__.py"
+        if (
+            marker not in pinned_files
+            and all(path.startswith(name + "/") for path in [*tests, *pinned_tests])
+            and (directory / marker).is_file()
+            and not (directory / marker).is_symlink()
+            and not (directory / marker).read_bytes().strip()
+        ):
+            return name
+    return None
+
+
 def read_policy(workspace: Path, path: Path) -> str:
     """Read current policy through bounded relative links without following host paths.
 

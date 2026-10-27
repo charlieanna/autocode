@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode status --summary` prints a run in one sentence: needs you, working, done or stopped, then the
+  exact command the status view names (#2049). The same object is `view.summary` in the `--status` JSON.
+  Only a completion verified against the current checkout reads done; a finished run whose evidence no
+  longer covers the checkout, or a running checkpoint nothing supervises, reads stopped, never done or
+  working. `--status` without `--summary` is unchanged.
 - A bug-fix plan's regression criteria carry a `current_behavior` box: what happens today, copied from the
   Investigator's diagnosis bound to the run, whose probe the runner saw show the bug (#2133). The runner
   fills an empty box, and the approval
@@ -95,6 +100,11 @@ PR template asks for an entry here; a change without one is incomplete.
   instead of a warning to run from a Git checkout; the PATH fix suggests `pipx install autocode-supervisor`;
   and a single installed copy is no longer called "linked/editable". `autocode --help` links the full CLI
   reference on GitHub, which a package install does not ship.
+- `autocode doctor` now fails with a `session` row when this Linux shell holds `CAP_SYS_ADMIN` or
+  `CAP_SYS_PTRACE` (root in most containers, VMs and CI images), the same check every stage launch makes,
+  and names the fix: run as an ordinary user or prefix `setpriv --bounding-set=-sys_admin,-sys_ptrace`.
+  Before, doctor passed and the first run, even `autocode demo`, stopped at `PAUSED_PROCESS_CLEANUP`.
+  `autocode demo` now prints the stop's reason when it cannot reach the sample plan.
 - On an automatically selected run, the one-use planning-review fallback after repeated provider-stream
   silence now takes the next qualified Plan Reviewer from the run's saved permitted set, the same pool and
   independence check a quota stop uses (#2061). Before, it borrowed whichever other role's model was
@@ -412,6 +422,12 @@ PR template asks for an entry here; a change without one is incomplete.
   has passed; actual guest execution remains unverified.
 
 ### Fixed
+
+- A new task that stops before its run is first saved (for example, when the coding-agent CLI is not
+  on PATH) now removes the task worktree and branch it had just created, and says so. Before, every
+  retry left another `.autocode/worktrees/` checkout and `autocode/*` branch that `autocode runs` could
+  not list and `autocode clean-worktrees` would not remove. A worktree holding a saved run, a change or a
+  moved branch is kept.
 
 - An exact runner-supplied command event can now fill omitted check command and exit fields during
   report repair (#2113). Conflicting native event identities, unknown references, bare placeholders

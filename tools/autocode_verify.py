@@ -563,7 +563,14 @@ def detect_framework(root, *, python=None, test_root=None, base=None, package=No
         ]
         if tests or component_packages:
             note = f"pytest is configured but {python} cannot import it; using unittest" if configured else ""
-            if (
+            plain_start = None
+            if base:
+                pinned_files = _git(root, "ls-tree", "-rz", "--name-only", base).split("\0")
+                pinned_tests = [p for p in pinned_files if PYTHON_TEST_MODULE.match(PurePosixPath(p).name)]
+                plain_start = test_roots.added_empty_marker_start(root, tests, pinned_tests, pinned_files)
+            if plain_start:
+                start = " -s " + plain_start
+            elif (
                 any("/" not in p for p in tests)
                 or (root / "tests" / "__init__.py").is_file()
                 or (root / "test" / "__init__.py").is_file()

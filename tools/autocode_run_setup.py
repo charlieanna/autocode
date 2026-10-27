@@ -336,6 +336,7 @@ def resolve(runner, args, parser):
         if not args.in_place and not args.dry_run and not args.status and not args.explain:
             isolated = task_workspaces.create(workspace, task)
             workspace, fresh = Path(isolated["workspace"]), True
+            args._fresh_task_worktree = isolated  # removed again if the launch stops before its first save
             print(
                 f"Task worktree: {workspace}\nBranch: {isolated['branch']}\nStarting from committed HEAD; the original checkout is unchanged.",
                 flush=True,

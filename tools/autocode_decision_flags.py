@@ -164,6 +164,7 @@ START_FLAGS = (
     "--sol-reasoning-effort",
     "--spec-first",
     "--status",
+    "--summary",
     "--task-preflight",
     "--terra-model",
     "--terra-provider",

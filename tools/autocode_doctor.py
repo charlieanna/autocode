@@ -35,6 +35,10 @@ macOS Seatbelt or Linux bubblewrap and its version, then OpenCode exactly 1.18.3
 both, such a run is refused at setup unless it is started with --allow-uncontained-tools, so
 the check warns; it never fails doctor. ``opencode --version`` runs once per doctor.
 
+The ``session`` check fails when this host refuses every supervised stage, by the check each Linux
+stage launch makes (autocode_session_boundary): above all a root shell in a container, VM or CI image
+that holds CAP_SYS_ADMIN or CAP_SYS_PTRACE, which it tells to run as an ordinary user or drop the two.
+
 The ``path`` check (#1761) warns, without failing doctor, when ``autocode`` is not on PATH, so
 a new shell would answer ``command not found``, and names the virtual environment's ``bin``
 directory to add or the ``pipx`` install that puts it there.
@@ -58,11 +62,13 @@ from pathlib import Path
 
 try:
     from . import autocode_install_drift
+    from . import autocode_session_boundary as session_boundary
     from . import autocode_storage_budget as storage_budget
     from . import autocode_tool_containment as tool_containment
     from . import autocode_util as util
 except ImportError:  # direct-script mode has no package parent
     import autocode_install_drift
+    import autocode_session_boundary as session_boundary
     import autocode_storage_budget as storage_budget
     import autocode_tool_containment as tool_containment
     import autocode_util as util
@@ -555,6 +561,36 @@ def claude_checks(
     return Check("engine", OK if ok else MISSING, f"{what} is {'ready' if ok else 'not ready'}", fix)
 
 
+# What a root shell in a container or VM should do instead: the bounding-set drop docs/testing.md documents.
+UNPRIVILEGED = "setpriv --bounding-set=-sys_admin,-sys_ptrace"
+
+
+def session_check(require=session_boundary.require_supported) -> Check:
+    """Whether this host admits supervised stages at all, by the check every Linux stage launch makes.
+
+    A Linux shell holding CAP_SYS_ADMIN or CAP_SYS_PTRACE (root in most containers, VMs and CI images) has
+    every stage refused before any provider starts, the demo included, with PAUSED_PROCESS_CLEANUP. Say so
+    here rather than let the first run discover it. macOS runs under portable supervision and passes."""
+    try:
+        require()
+    except session_boundary.PortableHost:
+        return Check("session", OK, "macOS: stages run under portable supervision")
+    except session_boundary.UnsupportedBoundary as error:
+        fix = "run AutoCode on a supported Linux x86_64 or aarch64 host (docs/install.md)"
+        if "CAP_SYS" in str(error):
+            fix = (
+                "run AutoCode as an ordinary user rather than root, or drop the two capabilities for it: "
+                f"{UNPRIVILEGED} autocode ..."
+            )
+        return Check(
+            "session",
+            MISSING,
+            f"{error}: every stage, the offline demo included, is refused before it starts (PAUSED_PROCESS_CLEANUP)",
+            fix,
+        )
+    return Check("session", OK, "stages can run under supervised session ownership")
+
+
 def shared_host_check(passwd_lines=None, uid=None) -> Check:
     """#818: on a shared machine, other local accounts can read /proc/<pid>/cmdline
     (world-readable) while /proc/<pid>/environ is owner-only — so authorization
@@ -824,6 +860,7 @@ def all_checks(
         *([containment_check(containment)] if containment else []),
         *workspace_check(workspace, runner),
         *local_compose_checks(which, runner),
+        session_check(),
         shared_host_check(),
         path_check(which),
         runner_check(),
