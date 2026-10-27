@@ -2221,6 +2221,7 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
         self.assertEqual(0, stages["sol"]["exit_code"])
         self.assertEqual("TASK_COMPLETE", taskrun.TaskRun.attach(self.workspace, env=self.env).status()["status"])
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Kilo native version/policy admission requires Linux")
     def test_unqualified_kilo_reader_refuses_before_provider_launch(self):
         # A generic command fixture must not impersonate Kilo's native policy
         # handshake. Genuine Kilo execution is covered in test_kilocode_policy.
@@ -2233,23 +2234,13 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
         self.start_options = tuple(
             value for role in ("astra", "sol", "completion") for value in ("--role-transport", role + "=kilocode")
         )
-        if sys.platform.startswith("linux"):
-            # Version admission now refuses this generic 1.16.0 fixture before
-            # a run can reach the later native read-only policy handshake.
-            with self.assertRaisesRegex(taskrun.TaskRunError, "kilocode requires Kilo") as caught:
-                self.start()
-            self.assertIn("found 1.16.0", str(caught.exception))
-            self.assertIn("no provider request was launched", str(caught.exception))
-            self.assertFalse(self.operations("launch"))
-            return
-        run = self.start()
-        before = run.status()
-        self.assertEqual("approve_plan", before["needs"]["kind"])
-        run.approve_plan(before["needs"]["token"])
-        held = run.advance_until_input()
-        self.assertEqual("PAUSED_TOOL_CONTAINMENT", held["status"])
-        self.assertIn("Kilo readonly policy could not be resolved", held["needs"]["reason"])
-        self.assertFalse([row for row in self.operations("launch") if row["tool"] == "kilocode"])
+        # macOS uses the portable read-only policy covered in
+        # test_kilocode_policy, rather than this Linux handshake.
+        with self.assertRaisesRegex(taskrun.TaskRunError, "kilocode requires Kilo") as caught:
+            self.start()
+        self.assertIn("found 1.16.0", str(caught.exception))
+        self.assertIn("no provider request was launched", str(caught.exception))
+        self.assertFalse(self.operations("launch"))
 
     def test_saved_override_and_selected_identity_drift_refuse_before_any_launch(self):
         run = self.start()
