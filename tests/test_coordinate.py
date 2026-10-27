@@ -162,33 +162,33 @@ class CoordinationTests(unittest.TestCase):
 
     def test_descriptive_alias_reuses_the_existing_member_for_scope_assignment(self):
         checkout = self.repository("checkout")
-        coordinate.add_member(self.document, "checkout", checkout, "Format the receipt")
-        coordinate.add_member(self.document, "history", self.repository("history"), "Serialize the receipt")
-        self.document["initial_scope"] = [{"target": "checkout repository", "work": "Format the receipt"}]
-        with patch.object(repos, "catalog", return_value=[checkout]):
-            found = coordinate.resolve_request(self.document, {})
-        self.assertEqual("alias", found["kind"])
-        self.assertEqual("checkout", found["canonical"])
-        self.document["choices"]["checkout repository"] = found["origin"]
-        self.assertEqual({}, coordinate.requests(self.document, {}))
-        for member in self.document["members"]:
-            member["started"] = True
-        views = {
-            "checkout": {"needs": {"kind": "approve_plan"}},
-            "history": {
-                "scope": {
-                    "identity": "current",
-                    "decision": None,
-                    "external_parts": [{"target": "checkout repository"}],
-                },
-                "needs": {"kind": "answer"},
-            },
-        }
-        step = coordinate.next_step(self.document, views)
-        self.assertEqual("assign", step["kind"])
-        self.assertEqual({"checkout repository": "checkout"}, step["aliases"])
-        self.assertEqual({"checkout repository": self.document["members"][0]["run_dir"]}, step["members"])
-        self.assertEqual(2, len(self.document["members"]), "An alias does not create another task")
+        history = self.repository("history")
+        for alias in ("checkout repository", "checkout (formatter)", "Coordinated checkout repository"):
+            with self.subTest(alias=alias):
+                document = copy.deepcopy(self.document)
+                coordinate.add_member(document, "checkout", checkout, "Format the receipt")
+                coordinate.add_member(document, "history", history, "Serialize the receipt")
+                document["initial_scope"] = [{"target": alias, "work": "Format the receipt"}]
+                with patch.object(repos, "catalog", return_value=[checkout]):
+                    found = coordinate.resolve_request(document, {})
+                self.assertEqual("alias", found["kind"])
+                self.assertEqual("checkout", found["canonical"])
+                document["choices"][alias] = found["origin"]
+                self.assertEqual({}, coordinate.requests(document, {}))
+                for member in document["members"]:
+                    member["started"] = True
+                views = {
+                    "checkout": {"needs": {"kind": "approve_plan"}},
+                    "history": {
+                        "scope": {"identity": "current", "decision": None, "external_parts": [{"target": alias}]},
+                        "needs": {"kind": "answer"},
+                    },
+                }
+                step = coordinate.next_step(document, views)
+                self.assertEqual("assign", step["kind"])
+                self.assertEqual({alias: "checkout"}, step["aliases"])
+                self.assertEqual({alias: document["members"][0]["run_dir"]}, step["members"])
+                self.assertEqual(2, len(document["members"]), "An alias does not create another task")
 
     def test_repository_noun_fallback_preserves_exact_names_and_ambiguity(self):
         checkout = self.repository("checkout")
@@ -207,6 +207,29 @@ class CoordinationTests(unittest.TestCase):
             "unknown repository",
         ):
             self.assertEqual([], repos.candidates(target, [checkout]))
+
+    def test_coordinated_repository_description_preserves_catalog_priority_and_refusals(self):
+        checkout = self.repository("checkout")
+        another = self.repository("other/checkout", "other")
+        named = self.repository("named/Coordinated checkout")
+        for suffix in ("repository", "repo"):
+            target = "Coordinated checkout " + suffix
+            literal = self.repository("literal/" + target)
+            self.assertEqual([literal], repos.candidates(target, [checkout, named, literal]))
+            self.assertEqual([named], repos.candidates(target, [checkout, named]))
+            self.assertEqual([checkout], repos.candidates(target.upper(), [checkout]))
+            self.assertEqual([checkout, another], repos.candidates(target, [checkout, another]))
+        for target in (
+            "Coordinated ../checkout repository",
+            "Coordinated /checkout repository",
+            "Coordinated ~checkout repository",
+            "Coordinated https://host/checkout repository",
+            "Coordinated checkout service",
+            "Uncoordinated checkout repository",
+            "Coordinated coordinated checkout repository",
+            "Coordinated unknown repository",
+        ):
+            self.assertEqual([], repos.candidates(target, [checkout]), target)
 
     def test_alias_receipt_must_bind_the_existing_canonical_member_run(self):
         alias = "checkout (formatter)"

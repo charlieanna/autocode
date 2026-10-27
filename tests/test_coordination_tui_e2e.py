@@ -309,7 +309,7 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
 
     def test_scope_assignment_keeps_requirements_confirmation_before_bug_investigation(self):
         self.env["COORDINATION_FIXTURE_EARLY_SCOPE"] = "1"
-        self.env["COORDINATION_FIXTURE_CONSUMER_ALIAS"] = "1"
+        self.env["COORDINATION_FIXTURE_CONSUMER_ALIAS"] = "coordinated"
         self.env["COORDINATION_FIXTURE_MEMBER_CONTEXT"] = "1"
         history = chat.History(self.repos["checkout"], env=self.env)
         for workspace in self.repos.values():
@@ -351,7 +351,9 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             peer_view = taskrun.TaskRun(Path(peer["workspace"]), Path(peer["run_dir"]), env=self.env).status()
             self.assertEqual("Fix checkout showing the wrong final total.", peer_view["task"])
             self.assertEqual("linked_repositories", peer_view["scope"]["decision"])
-            self.assertIn("checkout repository", [part["target"] for part in peer_view["scope"]["external_parts"]])
+            self.assertIn(
+                "Coordinated checkout repository", [part["target"] for part in peer_view["scope"]["external_parts"]]
+            )
             self.assertEqual([], self.github.posts, "Ownership assignment grants no publication authority")
             answered = run.answer(question["id"], "plan")
             self.assertEqual("investigate_bug", answered["next_stage"], answered["stop_reason"])
