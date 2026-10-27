@@ -15,6 +15,48 @@ import goal_fixtures
 
 
 class ChatViewTests(unittest.TestCase):
+    def test_semantic_stops_offer_only_the_permitted_named_feedback_action(self):
+        for status in ("RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
+            with self.subTest(status=status):
+                state = {"status": status, "task": "Fix the total"}
+                before = copy.deepcopy(state)
+                result = self.project(state, "resume")
+                self.assertEqual("feedback", result["input"]["kind"])
+                self.assertEqual(
+                    [
+                        "autocode",
+                        "--workspace",
+                        "/a project",
+                        "--run-dir",
+                        "/a project/.autocode/run",
+                        "--feedback",
+                        "MESSAGE",
+                    ],
+                    shlex.split(result["input"]["next_command"]),
+                )
+                self.assertEqual(before, state)
+
+    def test_semantic_feedback_does_not_bypass_operational_or_human_gates(self):
+        import autocode_goals as goals
+
+        for status in ("RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
+            for extra in (
+                {"user_request": {"kind": "human_review"}},
+                {"user_request": {"kind": "blocker"}},
+                {
+                    goals.RESOLVER_PROPOSAL_KEY: {
+                        "scope": "operational_exhaustion",
+                        "origin": {"pause_status": "PAUSED_COST_LIMIT"},
+                    }
+                },
+            ):
+                with self.subTest(status=status, extra=extra):
+                    self.assertIsNone(self.project({"status": status, **extra}, "resume")["input"])
+            self.assertIsNone(self.project({"status": status}, "continue")["input"])
+            for scope in ("blocker", "operational_exhaustion"):
+                public = {"status": status, "needs": {"kind": "resume", "resolver_scope": scope}}
+                self.assertIsNone(chat.project({"status": status}, public, workspace="/ws", run_dir="/run")["input"])
+
     def test_spend_confirmation_is_offered_at_the_bound_prepare_plan_answer(self):
         state = {
             "status": "WAITING_FOR_USER",

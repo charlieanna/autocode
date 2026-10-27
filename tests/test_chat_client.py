@@ -365,6 +365,17 @@ class ScriptedChat(chat.ChatClient):
 class ConversationTests(unittest.TestCase):
     """What the chat shows and takes at each kind of stop, without a run."""
 
+    def test_named_feedback_at_semantic_stops_is_sent_without_a_resume_or_approval(self):
+        for status in ("RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
+            with self.subTest(status=status):
+                state = {"status": status, "next_stage": "astra_review", "task": "Fix the total"}
+                view = run_view.view(state, workspace=WORKSPACE, run_dir=RUN)
+                correction = "Keep the member flow local; retain the required actual-code joint proof."
+                client = ScriptedChat(view, DONE, replies=[correction])
+                self.assertEqual(0, client.converse())
+                self.assertEqual([["--feedback", correction]], client.taken)
+                self.assertIn("or type what to change", client.text())
+
     def test_a_named_correction_at_a_planning_resume_is_sent_as_a_message(self):
         state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": "astra_finalize", "task": "Fix it"}
         view = run_view.view(state, workspace=WORKSPACE, run_dir=RUN)
