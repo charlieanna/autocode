@@ -127,7 +127,21 @@ def candidates(target, entries):
     name = str(target).strip().casefold().removesuffix(".git")
     if not name or name.startswith(("/", "~", ".")) or "://" in name or ".." in name.split("/"):
         return []
-    return [entry for entry in entries if name in aliases(entry)]
+    exact = [entry for entry in entries if name in aliases(entry)]
+    if exact:
+        return exact
+    # A model may append a job label to an otherwise exact repository name.
+    # This still resolves only against the authorized catalog, never a path.
+    described = re.fullmatch(r"(.+?)\s+\([^()]{1,80}\)", name)
+    return [entry for entry in entries if described and described[1] in aliases(entry)]
+
+
+def member_aliases(members, choices):
+    """Aliases whose selected catalog identity is already an owned member."""
+    origins = {row["origin"]: row["target"] for row in members if row.get("origin")}
+    return {
+        alias: origins[origin] for alias, origin in choices.items() if origin in origins and alias != origins[origin]
+    }
 
 
 def slug(target):

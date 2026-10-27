@@ -292,6 +292,7 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
 
     def test_scope_assignment_keeps_requirements_confirmation_before_bug_investigation(self):
         self.env["COORDINATION_FIXTURE_EARLY_SCOPE"] = "1"
+        self.env["COORDINATION_FIXTURE_CONSUMER_ALIAS"] = "1"
         history = chat.History(self.repos["checkout"], env=self.env)
         for workspace in self.repos.values():
             history.slash("/repos", str(workspace))
@@ -325,6 +326,13 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             self.assertEqual("answer", view["needs"]["kind"], view["stop_reason"])
             [question] = view["needs"]["questions"]
             self.assertTrue(question["id"].startswith("requirements-review-"), question)
+            self.assertEqual(3, len(summary["members"]), "The consumer alias creates no duplicate run")
+            client.step()  # Assign history's exact scope, including its consumer alias.
+            summary = coordination.read(client, client.status())
+            peer = next(row for row in summary["members"] if row["target"] == "history")
+            peer_view = taskrun.TaskRun(Path(peer["workspace"]), Path(peer["run_dir"]), env=self.env).status()
+            self.assertEqual("linked_repositories", peer_view["scope"]["decision"])
+            self.assertIn("checkout (formatter)", [part["target"] for part in peer_view["scope"]["external_parts"]])
             self.assertEqual([], self.github.posts, "Ownership assignment grants no publication authority")
             answered = run.answer(question["id"], "plan")
             self.assertEqual("investigate_bug", answered["next_stage"], answered["stop_reason"])
