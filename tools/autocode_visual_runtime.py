@@ -241,7 +241,7 @@ def _current(state: RunState, snapshot, manifest_sha, *, scope_authority=None):
         # Only its omitted metadata may be absent; any present definition must
         # still equal the approved row. Bind the full approved criteria below.
         expected = dict(approved)
-        for field in ("verification_method", "human_review", "sources"):
+        for field in ("verification_method", "human_review", "sources", "current_behavior"):
             if field not in definition:
                 expected.pop(field, None)
         _require(

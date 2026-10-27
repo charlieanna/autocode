@@ -257,6 +257,14 @@ class ProvenanceDefaults(unittest.TestCase):
 
         self.assertTrue(resolver._validate_body(body(task_kind="bugfix")))
         self.assertFalse(resolver._validate_body(body(task_kind="rewrite")))
+        # A criterion's current_behavior box (#2133) is a known optional string, like sources.
+        boxed = body(task_kind="bugfix")
+        boxed["acceptance_criteria"][0]["current_behavior"] = "prints the total in cents"
+        self.assertTrue(resolver._validate_body(boxed))
+        boxed["acceptance_criteria"][0]["current_behavior"] = ""
+        self.assertTrue(resolver._validate_body(boxed))
+        boxed["acceptance_criteria"][0]["current_behavior"] = ["not", "text"]
+        self.assertFalse(resolver._validate_body(boxed))
 
     def test_the_proof_uses_the_project_virtualenv_when_the_task_worktree_has_none(self):
         from unittest import mock
