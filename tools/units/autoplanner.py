@@ -1476,7 +1476,8 @@ def context(state: RunState, stage, state_path):
         design_rule += native_test_names.rule(native) if native else ""
         design_rule += EXAMPLE_CHECK_RULE if stage in ("astra_challenge", "astra_finalize") else ""
         design_rule += BRIEF_TRACE_RULE if stage in ("astra_challenge", "astra_finalize") else ""
-        design_rule += OUT_OF_CHECKOUT_PROXY_RULE if stage in ("astra_challenge", "astra_finalize") else ""
+        if stage in ("astra_challenge", "astra_finalize"):
+            design_rule += stage_context.coordination_context.proxy_rule(state, OUT_OF_CHECKOUT_PROXY_RULE)
         design_rule += NO_TIMING_RULE
     design_rule += acceptance_policy.COVERAGE
     if stage != "requirements_gather" and not test_cases.design_only(state):

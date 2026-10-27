@@ -12,6 +12,7 @@ import autocode_changeset_store as store
 import autocode_coordination_context as coordination
 import autocode_report_repair_context as repair
 import autocode_stage_context as runtime
+import autocode_trace_coverage as coverage
 from units import autoplanner
 
 
@@ -104,6 +105,37 @@ class CoordinationContextTests(unittest.TestCase):
         repaired = repair.clarification_context(self.state, "requirements_gather")
         self.assertEqual(expected, repaired["coordinated_member"])
         self.assertIsNone(repaired["protected_contract"], "Context does not manufacture an approved goal")
+
+    def test_only_bound_members_distinguish_real_joint_proof_from_a_local_proxy(self):
+        for automatic in (False, True):
+            if automatic:
+                self.automatic()
+            with self.subTest(automatic=automatic):
+                prompt, _ = autoplanner.context(self.state, "astra_challenge", self.run / "state.json")
+                self.assertIn("OUT-OF-CHECKOUT PROXY", prompt)
+                self.assertEqual(automatic, "REAL JOINT PROOF IS NOT A LOCAL PROXY" in prompt)
+                repaired = repair.clarification_context(self.state, "astra_finalize")
+                if automatic:
+                    self.assertIn(
+                        "REAL JOINT PROOF IS NOT A LOCAL PROXY", repaired["coordinated_member"]["instruction"]
+                    )
+
+        requirement = {
+            "id": "R1",
+            "text": "The real checkout must show `$110.00`.",
+            "source_quote": "The real checkout must show `$110.00`.",
+        }
+        joint = "The coordinator's separate real-code joint proof must establish `$110.00`; local evidence cannot discharge it."
+        contract = {
+            "constraints": ["The receipt view is outside this checkout."],
+            "required_behaviors": [joint],
+            "acceptance_criteria": [{"id": "AC1", "criterion": "The receipt amount is numeric 110."}],
+        }
+        # No validator exemption: a local stand-in still raises the ordinary gap.
+        local = [{"requirement_id": "R1", "disposition": "covered", "evidence": "AC1"}]
+        self.assertEqual(["R1"], [row["requirement_id"] for row in coverage.proxy_gaps([requirement], local, contract)])
+        retained = [{"requirement_id": "R1", "disposition": "covered", "evidence": joint}]
+        self.assertEqual([], coverage.proxy_gaps([requirement], retained, contract))
 
 
 if __name__ == "__main__":

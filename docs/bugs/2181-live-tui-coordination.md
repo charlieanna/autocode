@@ -1,6 +1,6 @@
 # Live terminal-chat coordination qualification
 
-Checkpoint: 2026-10-27 05:10 UTC; live qualification is still in progress.
+Checkpoint: 2026-10-27 05:34 UTC; live qualification is still incomplete.
 
 The live qualification uses actual full-screen terminal chat, three private GitHub
 fixture repositories and KiloCode 7.8.12. The initial symptom names only checkout;
@@ -9,8 +9,8 @@ the authorized checkout catalog. No manual linking, joint-test command or fixtur
 PR command was supplied. All AutoCode source corrections were authored directly;
 AutoCode changes only the intentionally broken fixtures during verification.
 
-The runtime revision is `5df0d9d30c0a2601a16db30bf60e1bcd4ee45e6e`.
-GLM-5.3 (`zai-coding-plan/glm-5.3`) authors Requirements and plans; MiMo Pro
+The captured live runtime revision is `5df0d9d30c0a2601a16db30bf60e1bcd4ee45e6e`.
+GLM-5.3 (`zai-coding-plan/glm-5.3`) authors Requirements and goal plans; MiMo Pro
 (`xiaomi-token-plan-sgp/mimo-v2.6-pro`) independently reviews plans. One cohort uses
 GLM Builder/MiMo Tester, the other MiMo Builder/GLM Tester. These are configured
 routes; neither cohort has reached its Builder or Tester at this checkpoint.
@@ -65,5 +65,29 @@ authorization, so neither answer was sent and the user was asked. Its redacted
 `c91a1caca80cf4e961bd779816dc9d7c5d61ad4a2c368cd1c88dffeefae04949`.
 The bundle reports that replay export does not support retained protected-test
 payloads in v1; it is diagnostic evidence, not a successful replay or E2E verdict.
-The MiMo Builder cohort continues independently. The source PR remains draft
-pending the requested live qualification.
+The MiMo Builder cohort then reached a local proxy-consent question (PRX1). No
+answer or waiver was supplied. Its diagnostic bundle manifest SHA-256 is
+`6decc78a0fe179d7029ebe4e0a5fd945ace7f381d96861d82de61b6bcbb3997b`, with the same
+replay-export limitation. Both viewers exited at these input boundaries without
+answering either question.
+
+## Further correction to #2184
+
+The MiMo report explicitly cited the ordinary out-of-checkout proxy instruction.
+That unconditional instruction conflicted with authenticated automatic membership:
+the local test is not accepted as a substitute for the coordinator's later real
+joint proof. The direct correction qualifies that instruction only for bound
+automatic members. The whole result must remain an exact required behavior; if
+local criteria pretend to prove it, the reviewer requests a Planner revision
+instead of proxy consent. Ordinary/manual/unbound runs keep the original rule.
+No trace validator, proxy-gap check, protected criterion or approval is exempted.
+
+The focused regression fails before this correction. All 69 context, reviewer,
+proxy, architecture and run-state checks pass after (26.801 seconds), as do Ruff
+and focused mypy. The supported-Linux intake regression passes in 142.528 seconds.
+One full public fake-provider cohort additionally requires the qualified rule at
+member review and reaches discovery, joint proof and fake GitHub publication;
+it passes in 357.103 seconds. Its identical runtime/test snapshot SHA-256 is
+`2a48d01cbea908058f5a9f025be25af0412b167b0851b2506d049f41542ec2b8`.
+These deterministic results do not establish live-model completion. The source PR
+remains draft pending the requested live qualification and the human gate choices.

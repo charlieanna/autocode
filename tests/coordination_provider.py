@@ -125,6 +125,15 @@ def main():
             raise RuntimeError("First member Requirements prompt omits the core-owned joint-proof responsibility")
         if "not exclusions or proxy acceptance" not in member["instruction"]:
             raise RuntimeError("Member context must retain the joint obligation instead of authorizing exclusion")
+        if "REAL JOINT PROOF IS NOT A LOCAL PROXY" not in member["instruction"]:
+            raise RuntimeError("Real coordinator proof must not ask for local stand-in acceptance")
+    if (
+        os.environ.get("COORDINATION_FIXTURE_MEMBER_CONTEXT")
+        and root.parent.name == "worktrees"
+        and stage in ("astra_challenge", "astra_finalize")
+        and "REAL JOINT PROOF IS NOT A LOCAL PROXY" not in prompt
+    ):
+        raise RuntimeError("Member review must scope the ordinary out-of-checkout proxy rule")
     target = {"checkout": "history", "history": "tax"}.get(name)
     source = PRODUCT[name][0] if not joint else "repositories.json"
     test_path = "tests/test_joint.py" if joint else "tests/test_behavior.py"

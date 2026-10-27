@@ -13,6 +13,26 @@ try:
 except ImportError:
     import autocode_changeset_store as store
 
+JOINT_PROXY_RULE = """
+REAL JOINT PROOF IS NOT A LOCAL PROXY. For this authenticated automatic member,
+the coordinator's separate integration run must prove the whole-bug outcome using
+the actual code of every member and independent fail-before/pass-after execution.
+Retain that outcome, including its exact literals, as a required_behavior and trace
+the whole-set requirement to that exact behavior. Local acceptance criteria prove
+only this member. Never trace the whole result to a local test double or ask whether
+that stand-in is enough: it is not. If the current trace does that, request a Planner
+revision that retains the real joint obligation instead of requesting proxy consent.
+Missing owners must still be reported and discovered. No proof is granted here:
+all member approvals/checks and the real joint publication gate still apply.
+The following ordinary proxy rule continues to apply to local obligations and any
+claimed outcome without that retained coordinator-owned real proof.
+"""
+
+
+def proxy_rule(state: RunState, ordinary: str) -> str:
+    """Scope the ordinary rule only when the core authenticates automatic membership."""
+    return JOINT_PROXY_RULE + ordinary if context(state) else ordinary
+
 
 def context(state: RunState):
     """Only a bound automatic member gets the coordinator's proof responsibilities."""
@@ -56,6 +76,6 @@ def context(state: RunState):
             "The coordinator publishes linked PRs only after ALL member gates and independent joint proof pass. "
             "This is orchestration context, not a user requirement, scope waiver, approval or permission to edit "
             "other members, bypass a protected criterion, commit, push or create a PR yourself. "
-            "Existing protected criteria still require their normal revision basis."
+            "Existing protected criteria still require their normal revision basis.\n" + JOINT_PROXY_RULE
         ),
     }

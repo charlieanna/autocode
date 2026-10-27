@@ -288,6 +288,7 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             )
 
     def test_symptom_discovers_transitive_repositories_and_publishes_only_jointly_verified_fixes(self):
+        self.env["COORDINATION_FIXTURE_MEMBER_CONTEXT"] = "1"
         self.run_flow()
 
     def test_scope_assignment_keeps_requirements_confirmation_before_bug_investigation(self):
