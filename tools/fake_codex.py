@@ -390,6 +390,13 @@ elif stage == "astra_discovery":
         draft["accepted_assumptions"].append(
             {"text": feedback["text"], "basis": "user_feedback", "answer_id": feedback["id"]}
         )
+    if os.environ.get("AUTOCODE_FIXTURE_CURRENT_BEHAVIOR"):
+        # #2133: C1 is a regression criterion. Its current_behavior box is left for the runner to fill from the
+        # bound diagnosis, or, when AUTOCODE_FIXTURE_CURRENT_BEHAVIOR_DRAFT is set, written wrongly first and
+        # corrected by the revision to AUTOCODE_FIXTURE_CURRENT_BEHAVIOR (the Investigator's observed text).
+        draft["acceptance_criteria"][0]["verification_method"] = "test: test_c1_blank_name_rejected"
+        if os.environ.get("AUTOCODE_FIXTURE_CURRENT_BEHAVIOR_DRAFT"):
+            draft["acceptance_criteria"][0]["current_behavior"] = os.environ["AUTOCODE_FIXTURE_CURRENT_BEHAVIOR_DRAFT"]
     cite(draft)
     result = {"contract": draft, "summary": "Build a small local greeting CLI with a clear invalid-input failure"}
     if data.get("joint_planning"):
@@ -433,6 +440,8 @@ elif stage == "glm_revise":
         if key not in ("brief_acceptance", "risk_acceptance", "source_trace")
     }
     draft.pop("initial_task", None)
+    if os.environ.get("AUTOCODE_FIXTURE_CURRENT_BEHAVIOR_DRAFT"):
+        draft["acceptance_criteria"][0]["current_behavior"] = os.environ["AUTOCODE_FIXTURE_CURRENT_BEHAVIOR"]
     draft["important_failure_cases"] = [*draft["important_failure_cases"], "Reject whitespace-only input"]
     adaptive_task(draft, IMPLEMENT_TASK)
     source = next((name for name in ("greet.py", "bye.py") if Path(name).is_file()), None)

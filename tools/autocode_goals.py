@@ -175,6 +175,8 @@ BODY_SCHEMA = obj(
 LEGACY_BODY_SCHEMA = copy.deepcopy(BODY_SCHEMA)
 # Optional per-criterion verbatim source trace (#595; autocode_source_trace). Kept out of LEGACY_BODY_SCHEMA.
 CRITERION["properties"]["sources"] = {"type": "array", "items": obj({"source_id": STRING, "quote": STRING})}
+# Optional: what happens today, which the criterion replaces (#2133; autocode_current_behavior). Not in LEGACY_BODY_SCHEMA.
+CRITERION["properties"]["current_behavior"] = STRING
 REQUIREMENTS_BODY_SCHEMA = copy.deepcopy(BODY_SCHEMA)
 MILESTONE = obj({"id": STRING, "objective": STRING, "acceptance_criteria": STRINGS})
 MILESTONE["properties"]["depends_on"] = STRINGS

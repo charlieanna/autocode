@@ -90,6 +90,8 @@ def plan_markdown(plan: dict) -> str:
     for row in plan.get("acceptance_criteria") or []:
         review = " (human review)" if row.get("human_review") else ""
         lines.append(f"- **{row['id']}**{review}: {row['criterion']}")
+        if row.get("current_behavior"):
+            lines.append(f"  - today: {row['current_behavior']}")
         lines.append(f"  - checked by: {row['verification_method']}")
     for title, rows in (
         ("Constraints", plan.get("constraints")),

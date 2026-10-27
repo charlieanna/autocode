@@ -50,6 +50,7 @@ try:
     from . import autocode_adaptive_planning as adaptive
     from . import autocode_approval_view as approval_view
     from . import autocode_brief_obligations as brief_obligations
+    from . import autocode_current_behavior as current_behavior
     from . import autocode_design_plan as design_plan
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_findings as findings
@@ -99,6 +100,7 @@ except ImportError:
     import autocode_adaptive_planning as adaptive
     import autocode_approval_view as approval_view
     import autocode_brief_obligations as brief_obligations
+    import autocode_current_behavior as current_behavior
     import autocode_design_plan as design_plan
     import autocode_finding_rescope as finding_rescope
     import autocode_findings as findings
@@ -336,6 +338,8 @@ UNAUTHORED_DRAFTS = (
 def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=None, record=None, queue_human=True):
     body = brief_obligations.prepare_body(state, body, origin, record)
     body = risk_obligations.prepare_body(state, body, origin, record)
+    if not allow_legacy or any(key in body for key in BRIEF_FIELDS):  # a legacy body has no such box
+        body = current_behavior.prepare_body(state, body, origin)
     validate_body(state, body, allow_legacy=allow_legacy, origin=origin)
     # Here, not in validate_body, which approval runs again on a saved draft. Human-review criteria too:
     # autocode_dispatch.task_for puts their methods in other milestones' task plans, which reach the Validator.
@@ -787,7 +791,7 @@ def render(state: RunState, run_dir=None):
         declared += [
             dict(row, revision=revision.get("revision"))
             for row in revision.get("declared_changes") or []
-            if isinstance(row, dict) and row.get("review_concerns")
+            if isinstance(row, dict) and (row.get("review_concerns") or row.get("change") == current_behavior.CHANGE)
         ]
         if revision.get("origin") in ("glm_draft", "astra_discovery", "plan"):
             break
@@ -797,7 +801,8 @@ def render(state: RunState, run_dir=None):
         for row in ordered:
             replaced = (
                 f" -> {row['replacement']}"
-                if row.get("change") in ("permission_changed", "reworded") and row.get("replacement")
+                if row.get("change") in ("permission_changed", "reworded", current_behavior.CHANGE)
+                and row.get("replacement")
                 else ""
             )
             asked = (
