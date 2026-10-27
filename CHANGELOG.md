@@ -417,6 +417,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A new task that stops before its run is first saved (for example, when the coding-agent CLI is not
+  on PATH) now removes the task worktree and branch it had just created, and says so. Before, every
+  retry left another `.autocode/worktrees/` checkout and `autocode/*` branch that `autocode runs` could
+  not list and `autocode clean-worktrees` would not remove. A worktree holding a saved run, a change or a
+  moved branch is kept.
+
 - An exact runner-supplied command event can now fill omitted check command and exit fields during
   report repair (#2113). Conflicting native event identities, unknown references, bare placeholders
   without a command and mismatched exits still refuse; repeated updates of one native operation remain

@@ -160,6 +160,32 @@ def create(project, task):
     return data
 
 
+def discard_unused(data) -> bool:
+    """Remove a task worktree and branch this invocation created when no run was saved in it.
+
+    A launch that stops before its first save (a missing provider, a refused setting) leaves
+    nothing to resume: ``autocode runs`` cannot list it and ``clean-worktrees`` finds no
+    complete run, so each retry would leave another worktree and branch behind. A worktree
+    holding a saved run, a change, or a branch moved off its base is kept.
+    """
+    if not data:
+        return False
+    tree = Path(data["workspace"])
+    try:
+        if any((tree / ".autocode" / "runs").glob("*/state.json")):
+            return False
+        if git(tree, "status", "--porcelain", "--untracked-files=all"):
+            return False
+        if git(tree, "rev-parse", "HEAD") != data["base_commit"]:
+            return False
+        project = Path(data["project_workspace"])
+        git(project, "worktree", "remove", "--force", str(tree))
+        git(project, "branch", "-D", data["branch"])
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+    return True
+
+
 def bootstrap(selected, task):
     """Create a local Git-backed task project without taking over user files.
 

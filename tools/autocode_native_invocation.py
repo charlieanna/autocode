@@ -93,10 +93,16 @@ def resolve_and_run(base, args, parser, *, failure_routing=True):
             "PAUSED_VISUAL_EVIDENCE",
             "Native initial planning cannot use a preflight or generated handoff before its original owned origin",
         )
-    resolved = base.run_setup.resolve(base, args, parser)
-    if isinstance(resolved, int):
-        return resolved
-    return run(base, args, parser, resolved, failure_routing=failure_routing)
+    try:
+        resolved = base.run_setup.resolve(base, args, parser)
+        if isinstance(resolved, int):
+            return resolved
+        return run(base, args, parser, resolved, failure_routing=failure_routing)
+    except BaseException:
+        fresh = getattr(args, "_fresh_task_worktree", None)
+        if base.task_workspaces.discard_unused(fresh):
+            print(f"Removed the unused task worktree and branch {fresh['branch']}; no run was saved.", file=sys.stderr)
+        raise
 
 
 def run(base, args, parser, resolved, *, failure_routing=True):
