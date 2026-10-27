@@ -172,7 +172,10 @@ def summarize_events(path, destination):
 def implementation_evidence_paths(refs, events_path):
     """Resolve actual executed-event references to their preserved event log.
 
-    File references retain containment checks; events identify one completed command.
+    File references retain containment checks; events identify one completed command. A bare
+    ``event:`` binds to the stage's latest completed command with a known exit code, as a Validator
+    check's does (#2253): a Claude Code stage never sees the ``item_N`` IDs the runner assigns, so
+    it cannot name one without guessing. An ID no recorded command has is still rejected.
     """
     resolved = []
     completed = None
@@ -184,7 +187,12 @@ def implementation_evidence_paths(refs, events_path):
                     for e in events(events_path)
                     if e.get("type") == "item.completed" and e.get("item", {}).get("type") == "command_execution"
                 ]
-            matches = [item for item in completed if item.get("id") == ref[len("event:") :]]
+            wanted = ref[len("event:") :]
+            if wanted:
+                matches = [item for item in completed if item.get("id") == wanted]
+            else:
+                exited = [item for item in completed if type(item.get("exit_code")) is int]
+                matches = exited[-1:]
             if len(matches) != 1 or type(matches[0].get("exit_code")) is not int:
                 raise ValueError(f"Implementation evidence references a missing executed event: {ref}")
             resolved.append(str(events_path))

@@ -71,6 +71,51 @@ class RuntimeReportTests(unittest.TestCase):
             support.implementation_evidence_paths(["event:command-one", "capture.json", "event:command-one"], self.log),
         )
 
+    def test_a_bare_event_binds_to_the_latest_completed_command(self):
+        # A Claude Code stage never sees the item IDs the runner assigns (#2253): bare event: is its only
+        # way to cite the command it ran, as a Validator check already may.
+        self.assertEqual([str(self.log)], support.implementation_evidence_paths(["event:"], self.log))
+        self.rows.insert(
+            2,
+            {
+                "type": "tool_use",
+                "sessionID": "session-one",
+                "part": {
+                    "id": "command-two",
+                    "tool": "bash",
+                    "state": {"status": "completed", "input": {"command": "python -m lint"}, "metadata": {}},
+                },
+            },
+        )
+        self.save()
+        # The latest command has no exit code, so the bare reference still binds to the one that does.
+        self.assertEqual([str(self.log)], support.implementation_evidence_paths(["event:"], self.log))
+        self.rows[1]["part"]["state"]["metadata"] = {}
+        self.save()
+        with self.assertRaisesRegex(ValueError, "missing executed event: event:$"):
+            support.implementation_evidence_paths(["event:"], self.log)
+
+    def test_a_claude_code_builder_report_needs_no_repair_for_its_one_command(self):
+        # The 2026-10-27 live bugfix-trivial run: Claude Code's Builder ran one command, recorded as
+        # item_12, and cited the guessed event:item_0; the rejection cost a Resolver pass and a repair stage.
+        item = {"type": "command_execution", "id": "item_12", "command": "python3 -m unittest discover", "exit_code": 0}
+        self.log.write_text(
+            "\n".join(
+                json.dumps(row)
+                for row in [
+                    {"type": "thread.started"},
+                    {"type": "item.started", "item": {**item, "exit_code": None}},
+                    {"type": "item.completed", "item": item},
+                    {"type": "turn.completed"},
+                ]
+            )
+            + "\n"
+        )
+        with self.assertRaisesRegex(ValueError, "event:item_0"):
+            support.implementation_evidence_paths(["event:item_0"], self.log)
+        self.assertEqual([str(self.log)], support.implementation_evidence_paths(["event:"], self.log))
+        self.assertEqual([str(self.log)], support.implementation_evidence_paths(["event:item_12"], self.log))
+
     def test_step_markers_missing_events_and_decorated_refs_are_rejected(self):
         for ref in ["event:finish-one", "event:absent", "event:command-one; exit:0"]:
             with self.subTest(ref=ref), self.assertRaises(ValueError):
