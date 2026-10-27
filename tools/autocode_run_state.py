@@ -350,7 +350,7 @@ class RunState(TypedDict, total=False):
     # diagnosis_binding, read by autopilot.queue_resolution before reuse.
     resolution_request: dict | None
     stuck_investigation: dict  # stuck_job writes a request; removed when no investigation is active
-    stuck_investigations: list  # the investigation history
+    stuck_investigations: list  # history; planning_advice binds planning advice, never the spent retry identity
     # autocode_report_repair_queue.queue writes it for a rejected completed report (autocode.reject_completed_stage,
     # native PlanningCalls.reject), stage_recovery for truncated reviews and missing executed-event evidence;
     # execute_report_repair runs it, repaired_result, the resume and recovery archives and native
