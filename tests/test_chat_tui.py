@@ -311,6 +311,36 @@ class PlanningCorrectionTests(unittest.TestCase):
         self.assertEqual([["--feedback", correction]], client.taken)
 
 
+class PauseHintTests(unittest.TestCase):
+    def hints(self, *, coordinated=False, attached=False):
+        ui = screen_ui()
+        view = {"progress": {"line": "Working"}}
+        if coordinated:
+            view["coordination"] = {"cancel_command": ["autocode", "coordinate", "cancel"]}
+        ui.observe(view)
+        drawn = []
+        ui._put = lambda row, col, text, attr=0: drawn.append(text)
+        with mock.patch.object(ui, "_can_detach", return_value=attached):
+            layout = ui._layout(40, 180)
+            ui._question_or_status(layout)
+            ui._hints(layout)
+        return "\n".join(drawn)
+
+    def test_coordinator_names_cancellation_in_both_running_hints(self):
+        for attached in (False, True):
+            with self.subTest(attached=attached):
+                shown = self.hints(coordinated=True, attached=attached)
+                self.assertIn("ctrl-c cancel coordination after this step", shown)
+                self.assertIn("ctrl-c cancels coordination after this step", shown)
+                self.assertNotIn("pause", shown)
+                self.assertEqual(attached, "ctrl-d detaches" in shown)
+
+    def test_ordinary_owned_and_attached_work_keep_their_pause_hints(self):
+        self.assertIn("ctrl-c asks AutoCode to pause after this step", self.hints())
+        self.assertIn("ctrl-c asks for a boundary pause", self.hints(attached=True))
+        self.assertNotIn("cancel", self.hints())
+
+
 class HistoryFileTests(unittest.TestCase):
     """The composer's ↑/↓ history, kept per project in .autocode between chats."""
 

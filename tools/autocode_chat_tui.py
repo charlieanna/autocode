@@ -1512,7 +1512,11 @@ class ChatTUI:
         self._put(layout.status_start, 0, truncate(lead, layout.width), self._style("working"))
         if reading:
             return
-        tail = "ctrl-c pause after this step"
+        tail = (
+            "ctrl-c cancel coordination after this step"
+            if (self._view or {}).get("coordination")
+            else "ctrl-c pause after this step"
+        )
         room = layout.width - display_width(lead) - 2
         if room >= display_width(tail):
             self._put(layout.status_start, layout.width - display_width(tail), tail, self._style("dim"))
@@ -1556,6 +1560,9 @@ class ChatTUI:
             hints = "enter send · / commands · ↑↓ history · pgup/pgdn scroll · ctrl-d quit"
             if not self._glyphs.unicode:
                 hints = "enter send | / commands | up/down history | pgup/pgdn scroll | ctrl-d quit"
+        elif self._view and self._view.get("coordination"):
+            detach = "ctrl-d detaches · " if self._can_detach() else ""
+            hints = f"/ commands · {detach}ctrl-c cancels coordination after this step"
         elif self._can_detach():
             hints = "/ commands · ctrl-d detaches · ctrl-c asks for a boundary pause"
         elif self._view is None:
