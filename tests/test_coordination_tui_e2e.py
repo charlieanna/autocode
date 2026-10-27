@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlparse
 
 import autocode_chat_client as chat
 import autocode_chat_coordination as coordination
+import autocode_taskrun as taskrun
 
 from .test_taskrun import FIXTURE_OPTIONS
 
@@ -287,7 +288,56 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             )
 
     def test_symptom_discovers_transitive_repositories_and_publishes_only_jointly_verified_fixes(self):
+        self.env["COORDINATION_FIXTURE_MEMBER_CONTEXT"] = "1"
         self.run_flow()
+
+    def test_scope_assignment_keeps_requirements_confirmation_before_bug_investigation(self):
+        self.env["COORDINATION_FIXTURE_EARLY_SCOPE"] = "1"
+        self.env["COORDINATION_FIXTURE_CONSUMER_ALIAS"] = "1"
+        self.env["COORDINATION_FIXTURE_MEMBER_CONTEXT"] = "1"
+        history = chat.History(self.repos["checkout"], env=self.env)
+        for workspace in self.repos.values():
+            history.slash("/repos", str(workspace))
+        with patch.dict(os.environ, self.env, clear=True):
+            client = chat.start(
+                self.repos["checkout"],
+                "Fix checkout showing the wrong final total.",
+                ["--workflow", "bugfix"],
+                [*FIXTURE_OPTIONS, "--no-adaptive-planning", "--spec-first"],
+                env=self.env,
+                ask=self.answer,
+                say=self.lines.append,
+            )
+            self.addCleanup(client.close)
+            client.history = history
+            for _ in range(30):
+                current = client.status()
+                if not current.get("coordination"):
+                    client.step()
+                    continue
+                summary = coordination.read(client, current)
+                checkout = next((row for row in summary["members"] if row["target"] == "checkout"), None)
+                if checkout and checkout["status"] != "STARTING":
+                    run = taskrun.TaskRun(Path(checkout["workspace"]), Path(checkout["run_dir"]), env=self.env)
+                    view = run.status()
+                    if view["scope"]["decision"] == "linked_repositories":
+                        break
+                client.step()
+            else:
+                self.fail("The fixture never assigned the discovered repository scope")
+            self.assertEqual("answer", view["needs"]["kind"], view["stop_reason"])
+            [question] = view["needs"]["questions"]
+            self.assertTrue(question["id"].startswith("requirements-review-"), question)
+            self.assertEqual(3, len(summary["members"]), "The consumer alias creates no duplicate run")
+            client.step()  # Assign history's exact scope, including its consumer alias.
+            summary = coordination.read(client, client.status())
+            peer = next(row for row in summary["members"] if row["target"] == "history")
+            peer_view = taskrun.TaskRun(Path(peer["workspace"]), Path(peer["run_dir"]), env=self.env).status()
+            self.assertEqual("linked_repositories", peer_view["scope"]["decision"])
+            self.assertIn("checkout (formatter)", [part["target"] for part in peer_view["scope"]["external_parts"]])
+            self.assertEqual([], self.github.posts, "Ownership assignment grants no publication authority")
+            answered = run.answer(question["id"], "plan")
+            self.assertEqual("investigate_bug", answered["next_stage"], answered["stop_reason"])
 
     def test_combined_suite_preserves_existing_cases_and_proves_the_joint_regression(self):
         from .coordination_provider import ASSERTIONS, JOINT_SETUP, JOINT_TEST, PRODUCT, TEST_PREAMBLE

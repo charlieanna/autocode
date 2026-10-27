@@ -107,6 +107,7 @@ def step(client, view, render_plan):
         return None
     if need["kind"] == "input":
         child_view = need["view"]
+        observe, unavailable = client._observe, client._unavailable
         child = type(client)(
             Path(child_view["workspace"]),
             Path(child_view["run_dir"]),
@@ -114,14 +115,19 @@ def step(client, view, render_plan):
             env=client.env,
             ask=client._ask,
             say=client._say,
-            observe=client._observe,
+            observe=observe,
+            unavailable=unavailable,
             wait=client._wait,
         )
+        # The terminal's idle callback still polls this anchor while the child
+        # owns the screen. Keep those reads without replacing its foreground.
+        client._observe, client._unavailable = None, None
         try:
             child.accept_status(child_view)
             child.show(child_view)
             return None if child.respond(child_view) else 2
         finally:
+            client._observe, client._unavailable = observe, unavailable
             child.close()
     if need["kind"] == "watch":
         client.pace(client.poll_seconds)

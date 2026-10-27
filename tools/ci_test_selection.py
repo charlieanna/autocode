@@ -217,6 +217,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_issue_delivery.py",
             "tools/autocode_github.py",
             "tools/autocode_scope_question.py",
+            "tools/autocode_workspace_scope.py",
         ),
         ("tests.test_coordinate", "tests.test_coordination_tui_e2e"),
     ),
