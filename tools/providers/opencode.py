@@ -216,7 +216,10 @@ def _probe_version(workspace, *, env=None):
     cwd = workspace if env is not None else None
     executable = env_prep.resolve_executable("opencode", effective, cwd=cwd, allow_default_path=env is None)
     if not executable:
-        raise RuntimeError("OpenCode is not on PATH; no provider request was launched")
+        raise RuntimeError(
+            "OpenCode is not on PATH; no provider request was launched. Run `autocode doctor` to see what this "
+            "host has: an installed Claude Code or Codex runs with --engine claude or --engine codex"
+        )
     try:
         result = env_prep.preflight_run(
             [executable, "--version"], effective, cwd=cwd, capture_output=True, text=True, timeout=15

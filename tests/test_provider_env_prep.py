@@ -250,8 +250,13 @@ class ProviderEnvPrepTests(unittest.TestCase):
     def test_ac6_admission_failures_state_no_launch(self):
         empty_bin = self.make_bin("ac6-empty-bin")
         empty_mapping = self.isolated_environ(empty_bin)
-        with self.assertRaisesRegex(RuntimeError, "OpenCode is not on PATH.*no provider request was launched"):
+        with self.assertRaisesRegex(
+            RuntimeError, "OpenCode is not on PATH.*no provider request was launched"
+        ) as refused:
             oc.local_settings(self.workspace, env=empty_mapping)
+        # The first-run refusal says what to do next, not only what is missing (onboarding, #2262).
+        self.assertIn("Run `autocode doctor`", str(refused.exception))
+        self.assertIn("--engine claude or --engine codex", str(refused.exception))
 
         fail_bin = self.make_bin("ac6-models-fail-bin")
         self.install_fake(fail_bin, MODELS_FAIL_FAKE)

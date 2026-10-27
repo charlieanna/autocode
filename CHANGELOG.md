@@ -423,6 +423,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A first task on a host without OpenCode no longer stops at "OpenCode is not on PATH": the refusal now
+  says to run `autocode doctor` and that an installed Claude Code or Codex runs with `--engine claude` or
+  `--engine codex`.
 - `autocode doctor` on a host with Claude Code installed but no OpenCode no longer only says to install
   OpenCode: the engine verdict names the `claude` on PATH and the `--engine claude` to pass to doctor and
   to every task, as it already did for a ready Codex. The login check itself stays with
