@@ -4,6 +4,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_agent_env as agent_env
 import autocode_verify as verify
@@ -117,7 +118,10 @@ class ScrubTests(unittest.TestCase):
         self.assertEqual(["GITHUB_TOKEN"], agent_env.withheld(env))
 
     def test_runner_executed_test_commands_get_the_scrubbed_environment(self):
-        environment = verify.test_environment(Path("/tree"), {"PATH": "/usr/bin", "GH_TOKEN": "t"})
+        # Credential scrubbing does not depend on whether this host needs the
+        # separately tested private 'python' alias shim.
+        with mock.patch.object(verify.shutil, "which", return_value="/usr/bin/python"):
+            environment = verify.test_environment(Path("/tree"), {"PATH": "/usr/bin", "GH_TOKEN": "t"})
         self.assertNotIn("GH_TOKEN", environment)
         self.assertEqual("/usr/bin", environment["PATH"])
 
