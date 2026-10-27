@@ -1014,7 +1014,13 @@ class NewChatSetupTests(unittest.TestCase):
             rows = [{**row, "default": row["id"] == "kilocode"} for row in CONNECTIONS["connections"]]
             listings = {"modes": history.read(["modes"]), "connections": {**CONNECTIONS, "connections": rows}}
             history.read = lambda argv: listings[argv[0]]
-            self.assertEqual("New chats: Full · Kilo. /mode and /engine change them.", history.summary())
+            banner, notice = history.summary().split("\n")
+            self.assertEqual("New chats: Full · Kilo. /mode and /engine change them.", banner)
+            self.assertEqual(
+                "Kilo cannot start chats yet (unavailable). Installed here: OpenCode. "
+                "Type /engine opencode to run new chats on it.",
+                notice,
+            )
             self.assertIn("New chats use the Kilo connection (kilocode)", history.slash("/engine", ""))
             self.assertNotIn("(current)", history.slash("/engine", ""))
             self.assertIn("  kilocode  Kilo: unavailable  (new chats use it)", history.slash("/connect", ""))
@@ -1092,10 +1098,11 @@ class NewChatSetupTests(unittest.TestCase):
                     new=history.new,
                     slash=history.slash,
                 )
-            self.assertEqual(("Add a --shout flag", [], ["--engine", "claude"]), started)
+            self.assertEqual(("Add a --shout flag", []), started[:2])
+            self.assertEqual("claude", chat.setup.flag_value(started[2], "--engine"))
             self.assertIn("New chats run on Claude Code.", "\n".join(said))
-            self.assertIn("/bogus needs an open chat. Type what you want done.", said)
-            self.assertTrue(any("No chats" in line or "chats" in line for line in said), said)
+            self.assertIn("Open or start a chat first: type a request, or /runs to see this project's chats.", said)
+            self.assertIn("No chats yet. Type a request to start one.", said)
 
     def test_connect_checks_signs_in_through_the_terminal_and_uses_a_backend(self):
         with tempfile.TemporaryDirectory() as folder:
