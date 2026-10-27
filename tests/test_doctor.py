@@ -451,6 +451,20 @@ class ClaudeTests(unittest.TestCase):
         )
         self.assertNotIn("engine:claude", checks)
 
+    def test_a_missing_default_engine_names_the_claude_code_already_on_path(self):
+        # Only Claude Code installed: the default OpenCode is missing, and the verdict must say what to
+        # pass instead of sending the person to install OpenCode first.
+        checks = self.checks(None, on_path("claude"), {})
+        self.assertEqual(doctor.MISSING, checks["engine"].status)
+        self.assertEqual(
+            "OpenCode (the default for a new run) is not ready; Claude Code is on PATH", checks["engine"].detail
+        )
+        self.assertIn("or pass --engine claude", checks["engine"].fix)
+        self.assertNotIn("engine:claude", checks, "the login check belongs to doctor --engine claude")
+        checks = self.checks(None, on_path(), {})
+        self.assertEqual("OpenCode (the default for a new run) is not ready", checks["engine"].detail)
+        self.assertNotIn("--engine claude", checks["engine"].fix)
+
     def test_a_claude_default_provider_takes_the_same_checks(self):
         with patch.dict(os.environ, {"AUTOCODE_PROVIDER": "claude"}):
             checks = self.checks(None, on_path("claude", "opencode"), self.LOGGED_IN)
