@@ -449,10 +449,59 @@ def default_missing_provenance(value, record):
         missing.append("contract.task_kind")
     elif "task_kind" in defaults:
         missing.append("task_kind")
+    if isinstance(contract, dict):
+        # An omitted current_behavior box is an empty one (#2133): the strict generation schema
+        # requires it on every criterion, but a provider that leaves it out has said nothing about
+        # today's behaviour, which the runner fills from the bound diagnosis or leaves empty. It costs
+        # no report-repair call.
+        rows = contract_schema.get("acceptance_criteria", {})
+        boxed = any("current_behavior" in offer.get("items", {}).get("properties", {}) for offer in _offers(rows))
+        filled = {**(defaults.get("contract") or contract)}
+        criteria = filled.get("acceptance_criteria")
+        if boxed and isinstance(criteria, list) and _without_box(criteria):
+            filled["acceptance_criteria"] = _boxed(criteria)
+            defaults["contract"] = filled
+            missing.append("contract.acceptance_criteria.current_behavior")
+        elif boxed and isinstance(criteria, dict) and _without_box(criteria.get("upsert")):
+            filled["acceptance_criteria"] = {**criteria, "upsert": _boxed(criteria["upsert"])}
+            defaults["contract"] = filled
+            missing.append("contract.acceptance_criteria.upsert.current_behavior")
     if not defaults:
         return value
     record["defaulted_fields"] = sorted(missing)
     return {**value, **defaults}
+
+
+def _offers(schema):
+    """The criteria list schemas a contract schema offers: the plain list, or each anyOf branch and a
+    finalize delta's upsert list (autocode_plan_retention.model_schema)."""
+    if not isinstance(schema, dict):
+        return []
+    branches = schema.get("anyOf") if isinstance(schema.get("anyOf"), list) else [schema]
+    offers = []
+    for branch in branches:
+        if not isinstance(branch, dict):
+            continue
+        offers.append(branch)
+        upsert = branch.get("properties", {}).get("upsert")
+        if isinstance(upsert, dict):
+            offers.append(upsert)
+    return offers
+
+
+def _without_box(rows):
+    return isinstance(rows, list) and any(
+        isinstance(row, dict) and "criterion" in row and "current_behavior" not in row for row in rows
+    )
+
+
+def _boxed(rows):
+    return [
+        {**row, "current_behavior": ""}
+        if isinstance(row, dict) and "criterion" in row and "current_behavior" not in row
+        else row
+        for row in rows
+    ]
 
 
 def stage_supports_sessions(state: RunState, record):

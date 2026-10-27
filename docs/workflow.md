@@ -462,7 +462,8 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   (`current_behavior: C1 -> …`) and no question, so a wrong note on today's
   behavior no longer costs a report repair and a second planning round
   (#2133). Any other change to it on a protected criterion still needs your
-  saved answer, as a rewording of the criterion would.
+  saved answer, as a rewording of the criterion would. A planning report that
+  leaves the box out has an empty one; that costs no report repair either.
 - **Regression tests in plain English.** When the Investigator reproduces a
   bug, it also writes the regression tests the fix must pass as `test_cases`
   in its diagnosis. Each case has an `id` (`T1`, `T2`, …) and `given`, `when`

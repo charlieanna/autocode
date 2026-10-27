@@ -193,6 +193,64 @@ class ProvenanceDefaults(unittest.TestCase):
         self.assertIn("contract_changes", kept["contract"], "a report that has its own list is left to the schema")
         self.assertNotIn("hoisted_fields", record)
 
+    def test_an_omitted_current_behavior_box_is_empty_not_a_repair_call(self):
+        # The strict generation schema requires the box on every criterion (#2133); the offline fixture
+        # providers and a provider without enforced structured output leave it out. Absent is empty:
+        # the runner fills the box from the bound diagnosis or leaves it so, with no report-repair call.
+        criterion = {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+                "criterion": {"type": "string"},
+                "current_behavior": {"type": "string"},
+            },
+        }
+        properties = {
+            "contract": {"type": "object", "properties": {"acceptance_criteria": {"type": "array", "items": criterion}}}
+        }
+        record = self.record("astra_discovery", properties)
+        rows = [{"id": "C1", "criterion": "a"}, {"id": "C2", "criterion": "b", "current_behavior": "prints 0"}]
+        value = autocode.default_missing_provenance({"contract": {"acceptance_criteria": rows}}, record)
+        self.assertEqual(
+            [{"id": "C1", "criterion": "a", "current_behavior": ""}, rows[1]], value["contract"]["acceptance_criteria"]
+        )
+        self.assertEqual(["contract.acceptance_criteria.current_behavior"], record["defaulted_fields"])
+        # A finalize delta's upsert rows (autocode_plan_retention.model_schema) are criteria too; a
+        # retained reference row is not.
+        delta = {"type": "object", "properties": {"upsert": {"type": "array", "items": criterion}}}
+        offered = {
+            "contract": {
+                "type": "object",
+                "properties": {"acceptance_criteria": {"anyOf": [{"type": "array", "items": criterion}, delta]}},
+            }
+        }
+        record = self.record("astra_finalize", offered)
+        value = autocode.default_missing_provenance(
+            {"contract": {"acceptance_criteria": {"retain_from": "t", "upsert": [rows[0]], "remove": []}}}, record
+        )
+        self.assertEqual(
+            {"retain_from": "t", "upsert": [{"id": "C1", "criterion": "a", "current_behavior": ""}], "remove": []},
+            value["contract"]["acceptance_criteria"],
+        )
+        self.assertEqual(["contract.acceptance_criteria.upsert.current_behavior"], record["defaulted_fields"])
+        record = self.record("astra_finalize", offered)
+        kept = {"contract": {"acceptance_criteria": [{"retain_criterion": "C1", "sha256": "0" * 64}]}}
+        self.assertEqual(kept, autocode.default_missing_provenance(kept, record))
+        self.assertNotIn("defaulted_fields", record)
+        # A complete report, and one against a schema saved before the box existed, are left alone.
+        record = self.record("astra_discovery", properties)
+        complete = {"contract": {"acceptance_criteria": [rows[1]]}}
+        self.assertEqual(complete, autocode.default_missing_provenance(complete, record))
+        self.assertNotIn("defaulted_fields", record)
+        plain = {"type": "object", "properties": {"id": {"type": "string"}, "criterion": {"type": "string"}}}
+        legacy = self.record(
+            "astra_discovery",
+            {"contract": {"type": "object", "properties": {"acceptance_criteria": {"type": "array", "items": plain}}}},
+        )
+        before = {"contract": {"acceptance_criteria": [rows[0]]}}
+        self.assertEqual(before, autocode.default_missing_provenance(before, legacy))
+        self.assertNotIn("defaulted_fields", legacy)
+
     def test_the_resolver_accepts_a_bug_fix_contract(self):
         import autocode_resolver as resolver
         from goal_fixtures import body
