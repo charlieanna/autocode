@@ -9,8 +9,10 @@ from pathlib import Path
 
 try:
     from .. import autocode_direct_config as connection
+    from .. import autocode_route_evidence as route_evidence
 except ImportError:
     import autocode_direct_config as connection
+    import autocode_route_evidence as route_evidence
 from . import command
 
 
@@ -108,7 +110,9 @@ class DirectProvider(command.CommandProvider):
         argv.append(
             "--connection-hash=" + hashlib.sha256(json.dumps(self.settings, sort_keys=True).encode()).hexdigest()
         )
-        return argv, env, {**metadata, "runtime": "autocode-direct-1"}
+        target = connection.provider_settings(self.settings, provider)
+        endpoint = route_evidence.endpoint_identity(target["endpoint"], target["transport"], provider)
+        return argv, env, {**metadata, "runtime": "autocode-direct-1", "endpoint_identity": endpoint}
 
     def normalized_events(self, rows):
         rows = super().normalized_events(rows)

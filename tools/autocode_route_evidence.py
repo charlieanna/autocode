@@ -111,6 +111,12 @@ def valid_run(run):
         and bool(run["run"])
         and all(run.get(key) is None or amount(run[key]) for key in ("minutes", "cost_usd"))
         and ("attempt_accounting" not in run or _valid_accounting(run["attempt_accounting"]))
+        and ("execution_evidence" not in run or _valid_execution_evidence(run["execution_evidence"]))
+        and (
+            "execution_evidence" not in run
+            or "attempt_accounting" not in run
+            or run["execution_evidence"]["attempts"] == run["attempt_accounting"]["attempts"]
+        )
         and (
             "attempt_accounting" not in run
             or (
@@ -171,5 +177,190 @@ def summary(entry):
         parts.append(_all_attempt_summary(current))
     if legacy:
         parts.append(_legacy_summary(legacy))
+    observed = [row["execution_evidence"] for row in records if "execution_evidence" in row]
+    if observed:
+        known = sum(row["known_attempts"] for row in observed)
+        total = sum(row["attempts"] for row in observed)
+        parts.append(f"execution identity {known}/{total} attempts [{len(observed)}/{len(records)} runs recorded]")
+    else:
+        parts.append(f"execution identities unrecorded [0/{len(records)} runs]")
     parts.append("not whole-task totals or invoices")
     return f"{entry.get('provenance')}: " + "; ".join(parts)
+
+
+def _text(value):
+    return isinstance(value, str) and bool(value) and len(value) <= 1024 and all(c.isprintable() for c in value)
+
+
+def endpoint_identity(endpoint, protocol, api_provider):
+    """Configured target identity without credential/query/tenant-path disclosure."""
+    from hashlib import sha256
+    from urllib.parse import urlsplit
+
+    if not _text(endpoint) or any(c.isspace() for c in endpoint):
+        return None
+    try:
+        parsed = urlsplit(endpoint)
+        if (
+            parsed.scheme not in ("https", "http")
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or (parsed.scheme == "http" and parsed.hostname not in ("localhost", "127.0.0.1", "::1"))
+            or protocol not in ("compatible", "anthropic")
+            or not _text(api_provider)
+        ):
+            return None
+        return {
+            "origin": parsed.scheme + "://" + parsed.netloc,
+            "sha256": sha256(endpoint.encode()).hexdigest(),
+            "protocol": protocol,
+            "api_provider": api_provider,
+        }
+    except ValueError:
+        return None
+
+
+def _valid_endpoint(value):
+    if not isinstance(value, dict) or set(value) != {"origin", "sha256", "protocol", "api_provider"}:
+        return False
+    probe = endpoint_identity(value.get("origin"), value.get("protocol"), value.get("api_provider"))
+    return (
+        probe is not None
+        and probe["origin"] == value["origin"]
+        and value["origin"] == value["origin"].rstrip("/")
+        and isinstance(value.get("sha256"), str)
+        and len(value["sha256"]) == 64
+        and all(c in "0123456789abcdef" for c in value["sha256"])
+    )
+
+
+def launch_identity(*, role, engine, provider, model, effort, runtime_commit, settings, endpoint=None):
+    """Freeze launch facts; permitted-but-unselected accounts grant no billing fact."""
+    import re
+    from copy import deepcopy
+
+    if runtime_commit is not None and (
+        not isinstance(runtime_commit, str) or not re.fullmatch(r"[0-9a-f]{7,64}(?:\+modified)?", runtime_commit)
+    ):
+        runtime_commit = None
+    settings = settings if isinstance(settings, dict) else {}
+    selection = settings.get("route_selection")
+    selected_routes = selection.get("routes") if isinstance(selection, dict) else None
+    selected = selected_routes.get(role) if isinstance(selected_routes, dict) else None
+    selected = selected if isinstance(selected, dict) else {}
+    billing = selected.get("billing") if selected.get("model") == model and selected.get("tool") == provider else None
+    if billing not in ("subscription", "pay per token"):
+        billing = None
+    return {
+        "schema": 1,
+        "role": role,
+        "engine": engine,
+        "provider": provider,
+        "model": model,
+        "reasoning_effort": effort,
+        "runtime_commit": runtime_commit,
+        "billing_kind": billing,
+        "billing_basis": "saved_selected_route" if billing else "unrecorded",
+        "endpoint": deepcopy(endpoint) if _valid_endpoint(endpoint) else None,
+    }
+
+
+def valid_execution_identity(value):
+    import re
+
+    return (
+        isinstance(value, dict)
+        and set(value)
+        == {
+            "schema",
+            "role",
+            "engine",
+            "provider",
+            "model",
+            "reasoning_effort",
+            "runtime_commit",
+            "billing_kind",
+            "billing_basis",
+            "endpoint",
+        }
+        and type(value.get("schema")) is int
+        and value["schema"] == 1
+        and all(_text(value.get(key)) for key in ("role", "engine", "provider", "model"))
+        and (value.get("reasoning_effort") in (None, "") or _text(value["reasoning_effort"]))
+        and (value.get("runtime_commit") is None or _text(value["runtime_commit"]))
+        and (
+            value["runtime_commit"] is None
+            or re.fullmatch(r"[0-9a-f]{7,64}(?:\+modified)?", value["runtime_commit"]) is not None
+        )
+        and value.get("billing_kind") in (None, "subscription", "pay per token")
+        and value.get("billing_basis") == ("unrecorded" if value["billing_kind"] is None else "saved_selected_route")
+        and (value.get("endpoint") is None or _valid_endpoint(value["endpoint"]))
+    )
+
+
+def execution_for_attempt(row):
+    facts = row.get("execution_identity")
+    if not valid_execution_identity(facts) or (
+        facts["role"] != (row.get("route_role") or row.get("role"))
+        or facts["model"] != row.get("model")
+        or facts["engine"] != row.get("engine")
+    ):
+        return None
+    if "reasoning_effort" in row and facts["reasoning_effort"] != row["reasoning_effort"]:
+        return None
+    return facts
+
+
+def execution_snapshot(rows, *, accepted):
+    """Group exact launch facts; never backfill an old attempt from current settings."""
+    import copy
+    import json
+
+    groups = {}
+    for row in rows:
+        facts = execution_for_attempt(row)
+        if facts is None:
+            continue
+        key = json.dumps(facts, sort_keys=True)
+        group = groups.setdefault(key, {"identity": copy.deepcopy(facts), "attempts": 0, "accepted_attempts": 0})
+        group["attempts"] += 1
+        group["accepted_attempts"] += bool(accepted(row))
+    known = sum(group["attempts"] for group in groups.values())
+    return {
+        "schema": 1,
+        "attempts": len(rows),
+        "known_attempts": known,
+        "unknown_attempts": len(rows) - known,
+        "observations": [groups[key] for key in sorted(groups)],
+    }
+
+
+def _valid_execution_evidence(value):
+    import json
+
+    if not isinstance(value, dict) or type(value.get("schema")) is not int or value["schema"] != 1:
+        return False
+    if any(not _count(value.get(key)) for key in ("attempts", "known_attempts", "unknown_attempts")):
+        return False
+    observations = value.get("observations")
+    if not isinstance(observations, list) or value["known_attempts"] + value["unknown_attempts"] != value["attempts"]:
+        return False
+    keys = set()
+    for row in observations:
+        if (
+            not isinstance(row, dict)
+            or not valid_execution_identity(row.get("identity"))
+            or not _count(row.get("attempts"))
+            or row["attempts"] == 0
+            or not _count(row.get("accepted_attempts"))
+            or row["accepted_attempts"] > row["attempts"]
+        ):
+            return False
+        key = json.dumps(row["identity"], sort_keys=True)
+        if key in keys:
+            return False
+        keys.add(key)
+    return sum(row["attempts"] for row in observations) == value["known_attempts"]

@@ -1,5 +1,6 @@
 """Supported Linux: direct HTTP fixtures through the actual supervised CLI."""
 
+import hashlib
 import json
 import os
 import shutil
@@ -154,6 +155,19 @@ class DirectCliTests(unittest.TestCase):
         )
         view = run.status()
         self.assertEqual("answer", view["needs"]["kind"], view)
+        facts = [
+            row.get("execution_identity")
+            for row in view["usage"]["accounting"]["attempts"]
+            if not row.get("runner_owned")
+        ]
+        self.assertTrue(facts)
+        for fact in facts:
+            self.assertEqual("autocode", fact["provider"])
+            self.assertEqual("opencode", fact["engine"])
+            self.assertEqual(protocol, fact["endpoint"]["protocol"])
+            self.assertEqual(hashlib.sha256(fixture.url.encode()).hexdigest(), fact["endpoint"]["sha256"])
+            self.assertIsNone(fact["billing_kind"])
+        self.assertNotIn("fixture-secret", json.dumps(view))
         self.assertIn("What would you like to build", view["needs"]["questions"][0]["question"])
         self.assertIsNone(view.get("displayed_plan"))
         self.assertEqual(

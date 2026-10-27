@@ -135,6 +135,7 @@ def run_record(state: RunState, role: str, model: str, run: dict) -> dict:
         "attempt_accounting": route_evidence.snapshot(
             all_rows, len(rows), pending_workers=bool(accounting.get("parallel_workers_pending"))
         ),
+        "execution_evidence": route_evidence.execution_snapshot(all_rows, accepted=accepted),
     }
 
 

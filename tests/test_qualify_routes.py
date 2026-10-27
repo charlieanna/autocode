@@ -209,6 +209,8 @@ class QualifyRoutesTests(unittest.TestCase):
         self.assertEqual(0, code, output)
         roles = self.written()["roles"]
         (planner,) = roles["glm"][0]["runs"]
+        execution = planner.pop("execution_evidence")
+        self.assertEqual((0, 3), (execution["known_attempts"], execution["unknown_attempts"]))
         accounting = planner.pop("attempt_accounting")
         self.assertEqual((3, 1), (accounting["attempts"], accounting["failed_attempts"]))
         self.assertEqual(1800, accounting["duration_seconds"]["value"])

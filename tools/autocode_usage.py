@@ -38,10 +38,12 @@ from pathlib import Path
 try:
     from . import autocode_request_usage as request_usage
     from . import autocode_roles as roles
+    from . import autocode_route_evidence as route_evidence
     from . import autocode_util as util
 except ImportError:
     import autocode_request_usage as request_usage
     import autocode_roles as roles
+    import autocode_route_evidence as route_evidence
     import autocode_util as util
 
 # Historical comparison rates, USD per 1M inclusive input/output tokens.
@@ -336,6 +338,23 @@ def accounting(state: RunState):
                 **({"prompts_hash": record["prompts_hash"]} if "prompts_hash" in record else {}),
                 "original_stage": record.get("original_stage"),
                 "launch_route": deepcopy(_dict(record.get("launch_route"))),
+                **({"reasoning_effort": record["reasoning_effort"]} if "reasoning_effort" in record else {}),
+                "execution_identity": deepcopy(
+                    route_evidence.execution_for_attempt(
+                        {
+                            "execution_identity": record.get("execution_identity"),
+                            "model": model,
+                            "role": record.get("role"),
+                            "route_role": record.get("route_role"),
+                            "engine": record.get("engine"),
+                            "launch_route": _dict(record.get("launch_route")),
+                            **(
+                                {"reasoning_effort": record["reasoning_effort"]} if "reasoning_effort" in record else {}
+                            ),
+                        }
+                    )
+                )
+                or {},
                 "engine": record.get("engine"),
                 "events": record.get("events"),
                 "output": record.get("output"),

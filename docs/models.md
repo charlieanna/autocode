@@ -234,6 +234,18 @@ The rules the choice keeps:
   recorded active time, not task wall time. Provider-reported and historical-estimated
   amounts stay separate, with known subtotals and coverage; missing/uncertain usage
   is not zero. Native shared receipts retain the existing accounting attribution.
+  New attempts also freeze bounded `execution_identity` at launch: role slot,
+  engine/tool, exact model, effective effort and runner commit when known.
+  Public accounting carries those facts; qualification records group them under
+  `execution_evidence` with known/unknown attempt counts. They are not reconstructed
+  from later settings. Billing classification is recorded only for the exact saved
+  selected model/tool, with its basis; a permitted account pool is not proof of the
+  account charged. Direct connections record configured endpoint origin, protocol,
+  provider key slot and SHA-256, keeping tenant paths and credentials out of public
+  evidence. Other backends' endpoints remain unknown when not recorded. Blank/null
+  effort preserves the provider-default convention; a modified or unknown runner
+  commit is not a complete code-byte fingerprint. These records do not establish
+  cross-endpoint compatibility, an external benchmark verdict or comparative merit.
   Legacy and all-attempt cohorts are not pooled. None of these role measurements is
   a whole-task cost per accepted fix, an invoice or new comparative qualification.
   Rejected/repair-only attempts still do not qualify a route, and no historical
