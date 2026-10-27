@@ -89,7 +89,7 @@ def sample(runner, state: "RunState", run_dir, workspace):
             return state, token, owner  # a checkpoint being replaced; keep the one that was read
         if not isinstance(saved, dict) or util.digest(saved) == token:
             return state, token, owner
-        state, token = saved, util.digest(saved)
+        state, token = cast("RunState", saved), util.digest(saved)
     return state, token, controller_owner.inspect(state, run_dir, workspace)
 
 
