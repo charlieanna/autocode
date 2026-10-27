@@ -396,6 +396,9 @@ class RenderedPromptTests(unittest.TestCase):
                 self.assertIn('"sources": [{"source_id": ..., "quote": ...}]', instruction)
                 self.assertIn("the criteria must quote every sentence of every source", instruction)
                 self.assertIn("negation_waivers", instruction)
+                self.assertIn("out_of_scope is an exclusion list, not a coverage ledger", instruction)
+                self.assertIn("A sentence cited by any criterion must never also be out_of_scope", instruction)
+                self.assertIn("required_behaviors and constraints do not replace criterion sources", instruction)
 
     def test_planning_reports_follow_the_provider_output_contract(self):
         cases = {name: text for name, text in rendered_cases().items() if name.startswith("planning/")}
