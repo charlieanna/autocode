@@ -256,6 +256,41 @@ class IsolatedCli(unittest.TestCase):
         self.assertEqual(1, len(w.git(flow.project, "worktree", "list", "--porcelain").split("\n\n")))
         self.assertEqual("", w.git(flow.project, "branch", "--list", "autocode/*"))
 
+    def test_an_in_place_launch_stopped_before_its_first_save_leaves_no_run_directory(self):
+        """The chat starts runs in place with --new-run-dir; a refusal left RUN/writer.lock alone, and
+        `autocode runs` and the chat's /runs listed it as "cannot be read" from then on."""
+        flow = test_subprocess.SubprocessFlow()
+        flow.setUp()
+        self.addCleanup(flow.doCleanups)
+        path = os.pathsep.join([str(flow.root / "fixture-bin"), str(Path(sys.executable).parent), "/usr/bin", "/bin"])
+        if shutil.which("opencode", path=path):
+            self.skipTest("an opencode on the system PATH would start the run")
+        run_dir = flow.project / ".autocode" / "runs" / "chat-refused"
+        result = subprocess.run(
+            [
+                *flow.entry,
+                "--workspace",
+                str(flow.project),
+                "--engine",
+                "opencode",
+                "--in-place",
+                "--no-chat",
+                "--new-run-dir",
+                str(run_dir),
+                "Build greeting",
+            ],
+            cwd=flow.root,
+            env={**flow.env, "PATH": path},
+            capture_output=True,
+            text=True,
+            timeout=35,
+        )
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        self.assertIn("OpenCode is not on PATH", result.stderr)
+        self.assertIn(f"Removed the empty run directory {run_dir}", result.stderr)
+        self.assertFalse(run_dir.exists())
+        self.assertEqual([], list((flow.project / ".autocode" / "runs").glob("*")))
+
     def test_runs_leave_the_users_git_status_showing_only_source_changes(self):
         flow = test_subprocess.SubprocessFlow()
         flow.setUp()

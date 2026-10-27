@@ -357,6 +357,7 @@ def resolve(runner, args, parser):
                 )
             except (OSError, ValueError) as error:
                 parser.error(f"Invalid fresh run destination: {error}")
+        args._fresh_run_dir = run_dir  # removed again, if still unsaved, when the launch stops before its first save
         state_path = run_dir / "state.json"
         state = {
             "version": 2,
