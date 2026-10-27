@@ -31,12 +31,14 @@ try:
     from . import autocode_model_identity as identity
     from . import autocode_role_route as role_route
     from . import autocode_roles as roles
+    from . import autocode_route_evidence as route_evidence
     from . import autocode_route_selector as selector
     from . import autocode_usage as usage
 except ImportError:  # executed as a script, with tools/ on sys.path
     import autocode_model_identity as identity
     import autocode_role_route as role_route
     import autocode_roles as roles
+    import autocode_route_evidence as route_evidence
     import autocode_route_selector as selector
     import autocode_usage as usage
 
@@ -105,15 +107,18 @@ def run_record(state: RunState, role: str, model: str, run: dict) -> dict:
     """The structured evidence one run adds for ``role`` on ``model`` (#2059).
 
     ``run`` names the run (date, run, scenario, profile). Minutes and cost sum the role's accepted
-    attempts on that model; either is null when an attempt did not record it, never a guess."""
+    attempts on that model; either is null when an attempt did not record it, never a guess.
+    Additive attempt_accounting also retains failed/repair work and distinct cost coverage."""
     wanted = identity.identity(model)
-    rows = [
+    accounting = usage.accounting(state) or {}
+    all_rows = [
         row
-        for row in (usage.accounting(state) or {}).get("attempts") or []
+        for row in accounting.get("attempts") or []
         if (row.get("route_role") or row.get("role")) == role
-        and accepted(row)
-        and identity.identity(row["model"]) == wanted
+        and not row.get("runner_owned")
+        and identity.identity(row.get("model")) == wanted
     ]
+    rows = [row for row in all_rows if accepted(row)]
     seconds = [row.get("duration_seconds") for row in rows]
     costs = [
         row.get("reported_cost_usd")
@@ -127,6 +132,9 @@ def run_record(state: RunState, role: str, model: str, run: dict) -> dict:
         "attempts": len(rows),
         "minutes": round(sum(seconds) / 60, 1) if known and None not in seconds else None,
         "cost_usd": round(sum(costs), 4) if known and None not in costs else None,
+        "attempt_accounting": route_evidence.snapshot(
+            all_rows, len(rows), pending_workers=bool(accounting.get("parallel_workers_pending"))
+        ),
     }
 
 

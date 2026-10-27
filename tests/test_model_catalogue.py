@@ -467,6 +467,25 @@ class SelectionViewTest(unittest.TestCase):
         # Each listed entry says what admitted it (#2059).
         self.assertIn("[provisional: no AutoCode run yet]", text)
 
+    def test_selection_discloses_role_metric_scope_and_missing_coverage_without_changing_choice(self):
+        import autocode_route_selector as selector
+
+        table = copy.deepcopy(selector.table())
+        for item in table["roles"]["terra"]:
+            if item["model"] == "openai/gpt-6-sol":
+                item["runs"] = [
+                    {"date": "2026-10-27", "run": "a", "minutes": 2, "cost_usd": 0},
+                    {"date": "2026-10-27", "run": "b", "minutes": None, "cost_usd": None},
+                ]
+        with patch.object(selector, "table", return_value=table):
+            code, text = self.run_selection()
+        self.assertEqual(0, code)
+        self.assertIn("Builder: kilo/openai/gpt-6-sol", text)
+        self.assertIn("accepted-only", text)
+        self.assertIn("1/2 runs", text)
+        self.assertIn("$0.00", text)
+        self.assertIn("not whole-task totals or invoices", text)
+
     def test_a_stopped_selection_prints_the_stop_and_fails(self):
         one_family = {
             "tool": "kilocode",

@@ -226,8 +226,18 @@ The rules the choice keeps:
   profile, the role's accepted attempts on that route, and their minutes and cost
   (null when an attempt did not record one). `autocode models --selection` shows each
   listed entry's evidence, such as `provisional: no AutoCode run yet` or
-  `qualified: 3 AutoCode runs, latest 2026-10-25, median 20 min, median $1.00` (#2059).
-  Provisional entries stay selectable (owner decision, 2026-10-26) until benchmark runs
+  the number/date of recorded runs (#2059). Historical `minutes`, `cost_usd` and
+  `attempts` cover only accepted attempts on that role/model; their display labels
+  the scope, excluded failed/repair amounts and known-run denominator. New records
+  additionally carry versioned `attempt_accounting` for all attempts on that role/model,
+  including rejected, timed-out, interrupted and report-only work. Duration is summed
+  recorded active time, not task wall time. Provider-reported and historical-estimated
+  amounts stay separate, with known subtotals and coverage; missing/uncertain usage
+  is not zero. Native shared receipts retain the existing accounting attribution.
+  Legacy and all-attempt cohorts are not pooled. None of these role measurements is
+  a whole-task cost per accepted fix, an invoice or new comparative qualification.
+  Rejected/repair-only attempts still do not qualify a route, and no historical
+  record is silently backfilled. Provisional entries stay selectable (owner decision, 2026-10-26) until benchmark runs
   have filled these records.
 - **Within a role's qualified models, the cheapest route wins.** A subscription route
   counts as cheaper than any pay-per-token one, then the price-table cost orders them,

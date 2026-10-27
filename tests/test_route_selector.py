@@ -103,10 +103,13 @@ class QualificationTableTests(unittest.TestCase):
             {"date": "2026-10-23", "run": "r3", "minutes": None, "cost_usd": 1.5},
         ]
         selector.parse({"as_of": "x", "roles": {"terra": [{**entry, "runs": runs}]}})
-        self.assertEqual(
-            "qualified: 3 AutoCode runs, latest 2026-10-25, median 20 min, median $1.00",
-            selector.evidence_summary({**entry, "runs": runs}),
-        )
+        text = selector.evidence_summary({**entry, "runs": runs})
+        self.assertIn("qualified: 3 AutoCode runs, latest 2026-10-25", text)
+        self.assertIn("accepted-only", text)
+        self.assertIn("active median 20.0 min [2/3 runs]", text)
+        self.assertIn("cost median $1.00 (reported or historical estimate) [2/3 runs]", text)
+        self.assertIn("failed/repair amounts unavailable", text)
+        self.assertIn("not whole-task totals or invoices", text)
         self.assertEqual(
             "provisional: no AutoCode run yet", selector.evidence_summary({**entry, "provenance": "provisional"})
         )
