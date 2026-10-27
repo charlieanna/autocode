@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_assumption_provenance as assumption_provenance
     from . import autocode_contract_delta as delta
+    from . import autocode_current_behavior as current_behavior
     from . import autocode_draft_examples as examples
     from . import autocode_protected_text as protected
     from . import autocode_python_tests as python_tests
@@ -24,6 +25,7 @@ try:
 except ImportError:
     import autocode_assumption_provenance as assumption_provenance
     import autocode_contract_delta as delta
+    import autocode_current_behavior as current_behavior
     import autocode_draft_examples as examples
     import autocode_protected_text as protected
     import autocode_python_tests as python_tests
@@ -128,15 +130,9 @@ def draft_proof_corrections(state: RunState, before: dict, after: dict, reworded
     }
 
 
-def unapproved_rewordings(previous_contract, previous, body, protected_revisions):
-    """Criterion IDs a planner may reword in a plan nobody has approved yet (#1691).
-
-    The Planner's own first draft can be wrong (a live run miscounted the spaces of an expected
-    output), and the next planning step must be able to correct it. In the current draft,
-    a criterion's wording may change when it still cites every
-    request quote it cited before. IDs present in approved or user-edited history remain protected;
-    an earlier turn's approval does not approve a new ID in the current draft.
-    """
+def draft_own_criteria(previous_contract, previous, body, protected_revisions):
+    """Criterion IDs still the Planner's own in a plan nobody has approved yet: in the previous draft, in no
+    approved or user-edited revision, and still citing every request quote they cited before."""
     if (
         previous_contract.get("approval_status") != "draft"
         or previous_contract.get("approval_event")
@@ -153,15 +149,84 @@ def unapproved_rewordings(previous_contract, previous, body, protected_revisions
             return set()  # Incomplete legacy history cannot establish that an ID is new.
         protected_ids.update(row["id"] for row in rows)
     old = {row["id"]: row for row in previous.get("acceptance_criteria", []) if isinstance(row, dict) and row.get("id")}
-    allowed = set()
+    own = set()
     for row in body.get("acceptance_criteria", []):
         before = old.get(row.get("id")) if isinstance(row, dict) else None
-        if not before or row.get("id") in protected_ids or before.get("criterion") == row.get("criterion"):
+        if not before or row.get("id") in protected_ids:
             continue
         sources = [source for source in before.get("sources") or [] if isinstance(source, dict)]
         if sources and all(source in (row.get("sources") or []) for source in sources):
-            allowed.add(row["id"])
-    return allowed
+            own.add(row["id"])
+    return own
+
+
+def unapproved_rewordings(previous_contract, previous, body, protected_revisions):
+    """Criterion IDs a planner may reword in a plan nobody has approved yet (#1691).
+
+    The Planner's own first draft can be wrong (a live run miscounted the spaces of an expected
+    output), and the next planning step must be able to correct it. In the current draft,
+    a criterion's wording may change when it still cites every
+    request quote it cited before. IDs present in approved or user-edited history remain protected;
+    an earlier turn's approval does not approve a new ID in the current draft.
+    """
+    old = {row["id"]: row for row in previous.get("acceptance_criteria", []) if isinstance(row, dict) and row.get("id")}
+    new = {row["id"]: row for row in body.get("acceptance_criteria", []) if isinstance(row, dict) and row.get("id")}
+    return {
+        cid
+        for cid in draft_own_criteria(previous_contract, previous, body, protected_revisions)
+        if old[cid].get("criterion") != new[cid].get("criterion")
+    }
+
+
+def baseline_corrections(state: RunState, previous_contract, previous, body, protected_revisions, changes):
+    """Criteria whose current_behavior a revision may change on its own, those a saved user basis backs, and
+    the receipts for boxes set to the bound diagnosis text (#2133).
+
+    The box holds what happens today, never the agreed outcome. A change that matches the Investigator's
+    bound observation (autocode_current_behavior.evidence) is the runner's own correction: it is recorded as
+    a receipt and asks nobody. An empty box may be filled, and the Planner's own unapproved criteria
+    (draft_own_criteria) may change it as they may their wording. Any other change needs a saved user
+    answer, declared as a rewording of the criterion, as the live run's refusal said (2026-10-25).
+    """
+    old = {row["id"]: row for row in previous.get("acceptance_criteria", []) if isinstance(row, dict) and row.get("id")}
+    new = {row["id"]: row for row in body.get("acceptance_criteria", []) if isinstance(row, dict) and row.get("id")}
+    changed = sorted(
+        cid for cid in old.keys() & new.keys() if current_behavior.of(old[cid]) != current_behavior.of(new[cid])
+    )
+    if not changed:
+        return set(), set(), []
+    found = current_behavior.evidence(state)
+    own = draft_own_criteria(previous_contract, previous, body, protected_revisions)
+    backed = {
+        raw.get("item")
+        for raw in changes
+        if isinstance(raw, dict)
+        and raw.get("change") == "reworded"
+        and saved_user_basis(state, raw.get("basis"), raw.get("answer_id"))
+    }
+    allowed, consumed, receipts = set(), set(), []
+    for cid in changed:
+        before, after = current_behavior.of(old[cid]), current_behavior.of(new[cid])
+        if found and current_behavior.matches(after, found):
+            allowed.add(cid)
+            receipts.append(current_behavior.receipt(cid, after, found))
+        elif not before or cid in own:
+            allowed.add(cid)
+        elif cid in backed:
+            consumed.add(cid)
+        else:
+            from_evidence = (
+                f"copy bug_diagnosis.observed exactly ({found['text'][:120]!r})"
+                if found
+                else "no reproduced diagnosis is bound to this run, so it cannot be set from evidence"
+            )
+            raise ValueError(
+                f"Changing a protected contract item {cid!r} needs a saved user answer or feedback event; "
+                f"change='current_behavior'. {cid}'s current_behavior is what happens today, the Investigator's "
+                f"observed behavior, not the agreed outcome: {from_evidence}, or keep the previous text "
+                f"({before[:120]!r})."
+            )
+    return allowed, consumed, receipts
 
 
 def saved_user_basis(state: RunState, basis, answer_id):
@@ -251,7 +316,11 @@ def _reject_unchanged_rewordings(previous, body, changes):
             continue
         item = row.get("item")
         if item in old:
-            unchanged = item in new and _criterion_signature(old[item]) == _criterion_signature(new[item])
+            unchanged = (
+                item in new
+                and _criterion_signature(old[item]) == _criterion_signature(new[item])
+                and current_behavior.of(old[item]) == current_behavior.of(new[item])
+            )
         else:
             owners = [key for key in PROTECTED_LISTS if item in previous.get(key, [])]
             if owners:
@@ -475,6 +544,11 @@ def revision_guard(state: RunState, body, changes, origin):
         previous, body, {raw.get("item") for raw in changes if isinstance(raw, dict)}, PROTECTED_LISTS
     )
     reworded = unapproved_rewordings(previous_contract, previous, body, protected_revisions)
+    old_rows = {row["id"]: row for row in previous.get("acceptance_criteria", [])}
+    new_rows = {row["id"]: row for row in body.get("acceptance_criteria", [])}
+    allowed_baseline, backed_baseline, receipts = baseline_corrections(
+        state, previous_contract, previous, body, protected_revisions, changes
+    )
     proof_corrections = draft_proof_corrections(state, previous, body, reworded) - {
         raw.get("item")
         for raw in changes
@@ -494,6 +568,7 @@ def revision_guard(state: RunState, body, changes, origin):
     }
     example_corrections |= reworded - receipted - user_backed
     protected_changes = []
+    folded = []  # the Planner's rows for a box its receipt records
     for raw in changes:
         if not isinstance(raw, dict) or raw.get("change") not in ("removed", "reworded", "permission_changed"):
             raise ValueError("contract_changes entries need item, change, basis and answer_id")
@@ -504,6 +579,15 @@ def revision_guard(state: RunState, body, changes, origin):
             and not raw.get("answer_id")
         ):
             continue  # Older reports declared this engineering correction as a contract delta.
+        if (
+            raw.get("item") in allowed_baseline
+            and raw["change"] == "reworded"
+            and raw.get("basis") == "agent_proposed"
+            and not raw.get("answer_id")
+            and _criterion_signature(old_rows[raw["item"]]) == _criterion_signature(new_rows[raw["item"]])
+        ):
+            folded.append(raw)  # Only the current_behavior box changed: its receipt records that (#2133).
+            continue
         if delta.engineering_delta(raw, previous, body, proof_corrections, PROTECTED_LISTS):
             continue
         if raw.get("item") in example_corrections:
@@ -609,7 +693,6 @@ def revision_guard(state: RunState, body, changes, origin):
             )
             if replacement and replacement not in body.get(key, []):
                 raise ValueError(f"Rewording {item!r} must appear in {key}")
-    new_rows = {row["id"]: row for row in body.get("acceptance_criteria", [])}
     comparable = [
         dict(row, verification_method=new_rows[row["id"]]["verification_method"])
         if row["id"] in proof_corrections
@@ -636,6 +719,8 @@ def revision_guard(state: RunState, body, changes, origin):
     new_criteria = {cid: _criterion_signature(row) for cid, row in new_rows.items()}
     for cid, text in old_criteria.items():
         if new_criteria.get(cid) == text:
+            if cid in backed_baseline:
+                consume(cid, "reworded")  # a user-backed change confined to current_behavior (#2133)
             continue
         consume(cid, "removed" if cid not in new_criteria else "reworded")
     previous_permissions = previous.get("permission_boundaries", [])
@@ -719,4 +804,4 @@ def revision_guard(state: RunState, body, changes, origin):
         raise ValueError(
             f"contract_changes names {left[0]!r}, which was not changed in the protected contract; drop that row"
         )
-    return changes
+    return [*(row for row in changes if not any(row is folded_row for folded_row in folded)), *receipts]

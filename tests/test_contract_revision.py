@@ -1317,3 +1317,145 @@ class ReviewerRequestedOwnTextTests(unittest.TestCase):
         # A delegated answer stores the model's default: not the person's words.
         state["answers"] = {"Q1": {"kind": "delegated", "text": self.SPLIT}}
         self.assertFalse(revision.quotes_person_text(state, self.SPLIT))
+
+
+class BaselineCorrectionTests(unittest.TestCase):
+    """#2133: a criterion's current_behavior box holds the Investigator's observed behavior, not the agreed
+    outcome. Set to exactly the bound diagnosis text, it is the runner's own correction with a receipt; any
+    other change to it on a protected criterion still needs a saved user answer."""
+
+    OBSERVED = "stdout is '2025-W10 ops 3.49h' for a 3h30m entry: the report drifts by a cent of an hour"
+    WRONG = "stdout is '2025-W10 ops 3.51h' for a 3h30m entry"
+    QUOTE = {"source_id": "task:0", "quote": "The weekly report must not drift."}
+
+    def inputs(self, approved=True, box=WRONG):
+        body = {
+            "acceptance_criteria": [
+                {
+                    "id": "AC2",
+                    "criterion": "The weekly report prints 3.50h for a 3h30m entry.",
+                    "verification_method": "test: test_ac2_no_drift",
+                    "human_review": False,
+                    "sources": [self.QUOTE],
+                    "current_behavior": box,
+                }
+            ],
+            "required_behaviors": [],
+            "scope_exclusions": [],
+            "constraints": [],
+            "important_failure_cases": [],
+            "permission_boundaries": ["No network"],
+        }
+        contract = {
+            "body": body,
+            "revision": 2,
+            "hash": "h2",
+            "approval_status": "approved" if approved else "draft",
+            "approval_event": {"id": "e1"} if approved else None,
+            "origin": "glm_revise" if approved else "glm_draft",
+        }
+        state = {
+            "goal_contract": contract,
+            "investigation": {
+                "outcome": "reproduced",
+                "observed": self.OBSERVED,
+                "output": "/run/iterations/investigator-01.jsonl",
+                "output_hash": "f" * 64,
+                "source_revision": "rev9",
+                "probe_result": {"exit_code": 0},
+            },
+        }
+        after = copy.deepcopy(body)
+        after["acceptance_criteria"][0]["current_behavior"] = self.OBSERVED
+        return state, after
+
+    def receipt(self):
+        return {
+            "item": "AC2",
+            "change": "current_behavior",
+            "basis": "agent_proposed",
+            "answer_id": "",
+            "replacement": self.OBSERVED,
+            "evidence": {"output_hash": "f" * 64, "source_revision": "rev9"},
+        }
+
+    def test_the_bound_diagnosis_text_is_accepted_with_a_receipt_and_no_question(self):
+        state, after = self.inputs()
+        before = copy.deepcopy(state)
+        self.assertEqual([self.receipt()], revision_guard(state, after, [], "glm_revise"))
+        self.assertEqual(before, state)
+
+    def test_the_planners_rewording_row_for_the_box_alone_is_folded_into_the_receipt(self):
+        state, after = self.inputs()
+        declared = [
+            {
+                "item": "AC2",
+                "change": "reworded",
+                "basis": "agent_proposed",
+                "answer_id": "",
+                "replacement": self.OBSERVED,
+            }
+        ]
+        self.assertEqual([self.receipt()], revision_guard(state, after, declared, "glm_revise"))
+
+    def test_whitespace_in_the_copied_text_does_not_matter(self):
+        state, after = self.inputs()
+        after["acceptance_criteria"][0]["current_behavior"] = "  " + self.OBSERVED.replace(" for ", "  for\n")
+        self.assertEqual("current_behavior", revision_guard(state, after, [], "glm_revise")[0]["change"])
+
+    def test_another_text_on_a_protected_criterion_is_refused_with_the_evidence_to_copy(self):
+        state, after = self.inputs()
+        after["acceptance_criteria"][0]["current_behavior"] = "the report rounds down"
+        with self.assertRaisesRegex(
+            ValueError, r"'AC2' needs a saved user answer.*current_behavior.*copy bug_diagnosis\.observed exactly"
+        ) as raised:
+            revision_guard(state, after, [], "glm_revise")
+        self.assertIn(self.OBSERVED[:60], str(raised.exception))
+        self.assertIn(self.WRONG[:40], str(raised.exception))
+
+    def test_the_criterion_itself_still_cannot_change_with_the_box(self):
+        state, after = self.inputs()
+        after["acceptance_criteria"][0]["criterion"] = "The weekly report prints 3.5h for a 3h30m entry."
+        with self.assertRaisesRegex(ValueError, r"drops or changes 'AC2' without a user-backed contract change"):
+            revision_guard(state, after, [], "glm_revise")
+
+    def test_without_a_bound_diagnosis_the_box_is_not_evidence(self):
+        for name, found in (
+            ("no investigation", None),
+            ("unbound report", {"outcome": "reproduced", "observed": self.OBSERVED, "output_hash": None}),
+            ("not reproduced", {"outcome": "not_reproduced", "observed": self.OBSERVED, "output_hash": "f" * 64}),
+            ("untestable", {"outcome": "reproduced", "observed": self.OBSERVED, "output_hash": "f" * 64}),
+        ):
+            with self.subTest(name):
+                state, after = self.inputs()
+                state.pop("investigation")
+                if found:
+                    state["investigation"] = found
+                with self.assertRaisesRegex(ValueError, r"'AC2' needs a saved user answer.*no reproduced diagnosis"):
+                    revision_guard(state, after, [], "glm_revise")
+
+    def test_an_empty_box_may_be_filled_with_any_text(self):
+        state, after = self.inputs(box="")
+        after["acceptance_criteria"][0]["current_behavior"] = "the report rounds down"
+        self.assertEqual([], revision_guard(state, after, [], "glm_revise"))
+
+    def test_a_saved_user_answer_authorizes_another_text(self):
+        state, after = self.inputs()
+        state["answers"] = {"Q3": "It rounds down today"}
+        after["acceptance_criteria"][0]["current_behavior"] = "the report rounds down"
+        declared = [
+            {
+                "item": "AC2",
+                "change": "reworded",
+                "basis": "user_answer",
+                "answer_id": "Q3",
+                "replacement": "the report rounds down",
+            }
+        ]
+        self.assertEqual(declared, revision_guard(state, after, declared, "glm_revise"))
+
+    def test_the_planners_own_unapproved_criterion_may_change_its_box(self):
+        state, after = self.inputs(approved=False)
+        after["acceptance_criteria"][0]["current_behavior"] = "the report rounds down"
+        self.assertEqual([], revision_guard(state, after, [], "glm_revise"))
+        self.assertEqual([self.receipt()], revision_guard(*self.inputs(approved=False)[:2], [], "glm_revise"))
