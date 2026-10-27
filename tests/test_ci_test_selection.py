@@ -8,6 +8,22 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_scripted_retry_fixtures_keep_their_slow_public_consumers(self):
+        mappings = {
+            "tools/blackbox_build_provider.py": {
+                "tests.test_failure_routing_cli",
+                "tests.test_builder_policy",
+                "tests.test_build_recovery_blackbox",
+                "tests.test_build_blackbox",
+            },
+            "tools/fake_command_tool.py": {"tests.test_command_flow"},
+        }
+        for path, consumers in mappings.items():
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {module: "" for module in consumers})
+                kept, _ = run_suite.drop_slow(selected, {module: "slow" for module in consumers})
+                self.assertEqual(consumers, set(kept))
+
     def test_native_identity_changes_keep_the_public_repair_consumer(self):
         public = "tests.test_native_event_identity_cli"
         metadata = "tests.test_validation_metadata"

@@ -502,6 +502,11 @@ elif stage == "investigate_stuck" and data.get("builder_failure"):
         evidence_refs=[str(report)],
         example=diagnosis,
         probe=shlex.join([sys.executable, "-c", code]) if execution else "",
+        counterexample={
+            "file": "run/" + report.name if execution else "",
+            "find": json.dumps("No change made") if execution else "",
+            "replace": json.dumps("Implementation written") if execution else "",
+        },
         untestable="" if execution else "This is not the configured missing-output fault.",
         failure_class="execution" if execution else "unknown",
         failure_id=failure["failure_id"],
@@ -516,6 +521,7 @@ elif stage == "investigate_stuck":
         "evidence_refs": [],
         "example": "",
         "probe": "",
+        "counterexample": {"file": "", "find": "", "replace": ""},
         "untestable": "",
     }
 elif stage == "requirements_gather":
