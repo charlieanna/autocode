@@ -47,6 +47,7 @@ directory to add or the ``pipx`` install that puts it there.
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import importlib.util
 import json
 import os
@@ -166,7 +167,8 @@ def conformance_check(engine: str, version: str) -> Check:
             f"conformance:{engine}",
             WARN,
             f"{engine} {version} is untested against the offline conformance suite",
-            "run tools/provider_conformance.py --fake and add a row to tools/provider-matrix.json",
+            "the tested versions are listed in docs/providers.md#conformance-matrix; a maintainer adds this one with "
+            "tools/provider_conformance.py --fake",
         )
     return Check(
         f"conformance:{engine}",
@@ -205,7 +207,6 @@ def engine_checks(which=shutil.which, runner=run, opencode_version=None) -> list
                 "npm install -g opencode-ai@1, then log in (docs/install.md)",
             )
         )
-        checks.append(conformance_check("opencode", "not-installed"))
     if which("codex"):
         login = runner(["codex", "login", "status"])
         checks.append(
@@ -639,7 +640,7 @@ def path_check(which=shutil.which, scripts: str | None = None, environ=None) -> 
     found = which("autocode")
     if found is None:
         installed = Path(scripts) / "autocode"
-        pipx = "pipx install --editable /path/to/autocode puts it on PATH once"
+        pipx = "pipx install autocode-supervisor puts it on PATH once"
         fix = pipx
         if installed.exists():
             activate = shlex.join(["source", str(Path(scripts) / "activate")])
@@ -651,14 +652,32 @@ def path_check(which=shutil.which, scripts: str | None = None, environ=None) -> 
             "path",
             OK,
             f"{found}, through the activated virtual environment {venv}; a new shell finds it only after "
-            f"{shlex.join(['source', str(Path(venv) / 'bin' / 'activate')])} (pipx install --editable puts it on PATH for good)",
+            f"{shlex.join(['source', str(Path(venv) / 'bin' / 'activate')])} (pipx install autocode-supervisor puts "
+            "it on PATH for good)",
         )
     return Check("path", OK, found)
 
 
-def runner_check(commit_source=None) -> Check:
-    """#980: report the autocode code that would execute runs from this machine."""
+def installed_release():
+    """The installed autocode-supervisor version, or None when this code is not an installed distribution."""
+    try:
+        return importlib.metadata.version("autocode-supervisor")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def runner_check(commit_source=None, release=installed_release) -> Check:
+    """#980: report the autocode code that would execute runs from this machine.
+
+    A released install has no source commit by design; it is not told to run from a checkout instead."""
     identity = util.runner_identity(commit_source)
+    if identity["commit"] is None and (version := release()):
+        return Check(
+            "runner",
+            OK,
+            f"installed release autocode-supervisor {version} at {identity['path']} (no source commit; run "
+            "states record this path)",
+        )
     if identity["commit"] is None:
         return Check(
             "runner",
@@ -719,7 +738,7 @@ def install_drift_check(checkout=None, installed=None, workspace: Path | None = 
     installed = Path(installed).resolve()
     if installed == reference.resolve():
         return workspace_check or Check(
-            "install-drift", OK, f"{installed} is the linked/editable copy of the executing tree"
+            "install-drift", OK, f"{installed} is the copy executing now; no second installed copy to drift from"
         )
 
     def digest(path):

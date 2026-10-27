@@ -856,6 +856,26 @@ class SharedHostCheckTests(unittest.TestCase):
         shutil.rmtree(folder, ignore_errors=True)
 
 
+class InstalledUserAdviceTests(unittest.TestCase):
+    """A released install is not sent to maintainer-only steps (onboarding walkthrough, 2026-10-27)."""
+
+    def test_no_conformance_row_for_an_engine_that_is_not_installed(self):
+        names = [check.name for check in doctor.engine_checks(which=on_path(), runner=fake_runner({}))]
+        self.assertIn("engine:opencode", names)
+        self.assertNotIn("conformance:opencode", names)
+
+    def test_an_untested_version_points_users_at_the_tested_list(self):
+        check = doctor.conformance_check("opencode", "0.0.1-untested")
+        self.assertEqual(doctor.WARN, check.status)
+        self.assertIn("docs/providers.md#conformance-matrix", check.fix)
+
+    def test_a_single_installed_copy_is_not_called_editable(self):
+        here = Path(doctor.util.__file__).resolve().parent
+        check = doctor.install_drift_check(checkout=here, installed=here)
+        self.assertEqual(doctor.OK, check.status)
+        self.assertNotIn("editable", check.detail)
+
+
 class SessionCheckTests(unittest.TestCase):
     """A root shell in a container holds CAP_SYS_ADMIN, so every stage is refused; doctor must say so."""
 
@@ -913,13 +933,13 @@ class PathCheckTests(unittest.TestCase):
         self.assertIn("command not found", check.detail)
         self.assertIn(f'export PATH="{self.bin}:$PATH"', check.fix)
         self.assertIn(f"source {self.bin / 'activate'}", check.fix)
-        self.assertIn("pipx install --editable", check.fix)
+        self.assertIn("pipx install autocode-supervisor", check.fix)
 
     def test_without_a_script_to_point_at_the_fix_is_pipx(self):
         check = doctor.path_check(which=on_path(), scripts=str(self.bin.parent / "elsewhere"), environ={})
         self.assertEqual(doctor.WARN, check.status)
         self.assertNotIn("export PATH", check.fix)
-        self.assertIn("pipx install --editable", check.fix)
+        self.assertIn("pipx install autocode-supervisor", check.fix)
 
     def test_on_path_only_through_an_activated_venv_says_a_new_shell_needs_it_again(self):
         found = str(self.bin / "autocode")
@@ -970,7 +990,7 @@ class InstallDriftCheckTests(unittest.TestCase):
         shared = self.tree("tools", {"autocode_util.py": "x = 1\n"})
         check = doctor.install_drift_check(checkout=shared, installed=shared)
         self.assertEqual(doctor.OK, check.status)
-        self.assertIn("linked", check.detail)
+        self.assertIn("the copy executing now", check.detail)
 
     def test_identical_trees_match(self):
         checkout = self.tree("checkout", {"autocode_util.py": "x = 1\n", "autocode.py": "main\n"})
