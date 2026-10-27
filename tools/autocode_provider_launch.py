@@ -20,6 +20,7 @@ try:
     from . import autocode_native_role_isolation as native_isolation
     from . import autocode_output_cap as output_cap
     from . import autocode_prompts as prompts
+    from . import autocode_route_evidence as route_evidence
     from . import autocode_storage_errors as storage_errors
     from . import autocode_util as util
     from . import autocode_verification_copy as verification_copy
@@ -30,6 +31,7 @@ except ImportError:
     import autocode_native_role_isolation as native_isolation
     import autocode_output_cap as output_cap
     import autocode_prompts as prompts
+    import autocode_route_evidence as route_evidence
     import autocode_storage_errors as storage_errors
     import autocode_util as util
     import autocode_verification_copy as verification_copy
@@ -362,6 +364,16 @@ def prepare(
             else output_cap.VARIABLE
         )
         worker["output_token_cap"] = output_cap.recorded(os.environ, environment, variable)
+    worker["execution_identity"] = route_evidence.launch_identity(
+        role=route_role,
+        engine=engine,
+        provider=worker["provider"],
+        model=model,
+        effort=effort,
+        runtime_commit=util.runner_identity().get("commit"),
+        settings=settings,
+        endpoint=(overrides or {}).get("endpoint_identity"),
+    )
     return command, environment, overrides, worker
 
 
@@ -377,6 +389,10 @@ def stage_record(worker):
         }
     engine = worker.get("engine", "opencode")
     record = {"prompts_hash": prompts.HASH}
+    if route_evidence.valid_execution_identity(worker.get("execution_identity")):
+        from copy import deepcopy
+
+        record["execution_identity"] = deepcopy(worker["execution_identity"])
     if engine == "opencode" and worker.get("configured"):
         record["provider"] = worker["provider"]
         if worker.get("fresh_session_reason"):

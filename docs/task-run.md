@@ -59,6 +59,24 @@ Automatic coordination currently runs in owned terminal chats. A `durable_local`
 anchor is refused without changing its saved execution policy. See
 [multi-repository setup and limits](multi-repo.md).
 
+## Per-attempt execution identity (#2059)
+
+New provider launches add bounded `execution_identity` to their saved attempt and
+public `usage.accounting.attempts` row. Schema 1 records the actual route slot,
+engine/tool, model, effective effort, runner source commit when known, a saved
+selected-route billing classification/basis, and optional configured endpoint
+identity (origin, SHA-256, protocol and API provider slot). It contains no key,
+credential URL, tenant path or environment dump. An endpoint hash describes the
+configured target, not an observed HTTP redirect or invoice. Opaque backend
+endpoints and unrecorded billing remain null; account/model discovery is unchanged.
+
+The effective `reasoning_effort` is separate from `launch_route`'s saved route
+configuration: existing fit/first-Builder policies may differ. Empty/null effort
+can mean the provider default and is not replaced with a guessed level. Invalid
+or contradictory identity records project as unknown; old attempts are not
+backfilled from the viewer's current settings/runtime. These are additive
+measurement fields, not action authority, route qualification or a new client.
+
 ## Remote team service proposal (#2023)
 
 The [single-host team-service contract](team-service-contract.md) proposes an

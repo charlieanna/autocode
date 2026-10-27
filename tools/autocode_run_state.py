@@ -308,6 +308,8 @@ class RunState(TypedDict, total=False):
     next_stage: str | None  # controller queues a stage; completion clears it
     sessions: dict  # provider session ids by role
     history: list  # finished stage records (autocode_run_view)
+    # provider_launch freezes optional execution_identity per attempt; usage exposes
+    # the bounded facts and qualify_routes records them without legacy backfill.
     stages: list  # saved stage records; written by the runner
     active_stage: dict | None  # the in-flight stage record
     settings: dict  # roles, budgets, engine, workflow mode; configure owns effort_origins (reviewer effort policy)

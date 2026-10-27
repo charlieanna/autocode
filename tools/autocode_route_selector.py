@@ -122,14 +122,22 @@ def _validate_entry(role, entry):
     ):
         raise ValueError(f"{where}: benchmark needs a name and a source")
     runs = entry.get("runs")
-    if runs is not None and (not isinstance(runs, list) or not all(_valid_run(run) for run in runs)):
+    if runs is not None and (
+        not isinstance(runs, list) or not all(_valid_run(run, role, entry["model"]) for run in runs)
+    ):
         raise ValueError(
             f"{where}: runs must be records with a date, a run, and minutes and cost_usd as numbers or null"
         )
 
 
-def _valid_run(run):
-    return route_evidence.valid_run(run)
+def _valid_run(run, role=None, model=None):
+    if not route_evidence.valid_run(run):
+        return False
+    return all(
+        (role is None or row["identity"]["role"] == role)
+        and (model is None or model_identity.identity(row["identity"]["model"]) == model_identity.identity(model))
+        for row in (run.get("execution_evidence") or {}).get("observations", [])
+    )
 
 
 def evidence_summary(entry):
