@@ -21,7 +21,7 @@
         "schema", "status", "done", "needs", "pause_category", "pause_category_label", "next_command",
         "phase", "next_stage", "iteration", "stop_reason", "explanation", "current_task", "task", "task_sha256",
         "workflow", "workflow_source", "workflow_reason", "turn", "evidence", "approvals", "evidence_report",
-        "acceptance_tests", "usage", "cost", "progress", "delivery", "liveness", "controller", "recovery",
+        "acceptance_tests", "usage", "cost", "progress", "summary", "delivery", "liveness", "controller", "recovery",
         "verification", "review_result", "verification_obligation", "code_checkpoints", "runner", "runner_check", "dependency",
         "prompts_hash", "interaction_timing", "replay_source", "replay_progress", "replay_result",
         "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
@@ -264,6 +264,17 @@
         },
         "cost": {"type": "object", "description": "Spend against the money cap."},
         "progress": {"type": "object", "description": "How far the run has got, from saved records; `line` is for a person, the fields beside it for programs."},
+        "summary": {
+          "type": "object",
+          "description": "The run in one sentence (#2049). `state` is `done` only when completion is verified against the current checkout; a finished run without that, or a running checkpoint nothing supervises, is `stopped`. `next_command` is the view's own `next_command` (null when done).",
+          "required": ["state", "label", "sentence", "next_command"],
+          "properties": {
+            "state": {"enum": ["needs_you", "working", "done", "stopped"]},
+            "label": {"type": "string"},
+            "sentence": {"type": "string"},
+            "next_command": {"type": ["string", "null"]}
+          }
+        },
         "delivery": {"type": ["object", "null"]},
         "liveness": {"type": "object"},
         "controller": {"type": ["object", "null"]},

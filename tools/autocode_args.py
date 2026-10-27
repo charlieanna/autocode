@@ -171,6 +171,12 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="With --status, inspect current source and saved evidence without running checks",
     )
     parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="With --status, print one sentence (needs you, working, done or stopped) and the exact next "
+        "command instead of the JSON payload",
+    )
+    parser.add_argument(
         "--evidence-provenance",
         choices=("fake", "live", "mixed", "unknown"),
         help="New run: disclose whether providers are scripted or live; names alone cannot attest this",
@@ -772,6 +778,8 @@ def parse(unit, argv, default_models):
         parser.error("--new-run-dir requires a fresh --in-place task invocation")
     if args.replay_checks == "recorded" and not args.replay_recording:
         parser.error("--replay-checks recorded requires --replay-recording")
+    if args.summary and not args.status:
+        parser.error("--summary requires --status")
     if args.inspect_evidence and (not args.run_dir or not args.status):
         parser.error("--inspect-evidence requires --run-dir and --status")
     validate_recovery_selector(args, parser)

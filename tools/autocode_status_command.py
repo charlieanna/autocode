@@ -15,6 +15,7 @@ try:
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_review_result as review_result
     from . import autocode_source_scope as source_scope
+    from . import autocode_status_summary as status_summary
 except ImportError:
     import autocode_answer_output as answer_output
     import autocode_chat_activity as chat_activity
@@ -25,6 +26,7 @@ except ImportError:
     import autocode_launch_inputs as launch_inputs
     import autocode_review_result as review_result
     import autocode_source_scope as source_scope
+    import autocode_status_summary as status_summary
 
 import json
 import sys
@@ -274,6 +276,10 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         stage=stage_name,
         following=following_name,
     )
+    # The run in one sentence and its exact next action (#2049); `--summary` prints only this.
+    public_view["summary"] = status_summary.project(
+        public_view, stale=stale or stale_check, completion_current=completion_current, next_action=next_action
+    )
     public_view["chat"]["progress"] = chat_progress.project(
         state, public_view, finished=bool(active_finished), stopped=bool(next_action)
     )
@@ -313,6 +319,9 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
             "Inspect its command ownership receipt and output before resuming the run.",
             file=sys.stderr,
         )
+    if getattr(args, "summary", False):
+        print(status_summary.text(public_view["summary"]))
+        return
     print(
         json.dumps(
             {
