@@ -59,6 +59,18 @@ Automatic coordination currently runs in owned terminal chats. A `durable_local`
 anchor is refused without changing its saved execution policy. See
 [multi-repository setup and limits](multi-repo.md).
 
+## Remote team service proposal (#2023)
+
+The [single-host team-service contract](team-service-contract.md) proposes an
+additive authenticated service over this interface. It is **not implemented or
+approved**. Current local tokens and Git/`--as` provenance do not authenticate a
+remote person. The proposal records opaque remote envelopes, current named-action
+bindings, separate admission/execution/delivery states and explicit public core
+gaps. Its [synthetic examples](examples/team-service-v1.json) are design data,
+not live responses. No existing client, task policy, route, approval or host
+configuration changes through this documentation. The owner decision is needed
+before implementing the service extension or its dependent runtime slices.
+
 ## Python client
 
 `tools/autocode_taskrun.py` wraps the commands below.

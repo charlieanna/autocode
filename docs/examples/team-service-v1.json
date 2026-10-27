@@ -1,0 +1,192 @@
+{
+  "status": "synthetic proposed contract examples; not implemented responses",
+  "version": 1,
+  "principals": [
+    {
+      "principal_id": "person-a",
+      "subject_key": [
+        "https://id.example.invalid",
+        "subject-a"
+      ],
+      "projects": [
+        "project-pager"
+      ]
+    },
+    {
+      "principal_id": "person-b",
+      "subject_key": [
+        "https://id.example.invalid",
+        "subject-b"
+      ],
+      "projects": [
+        "project-totals"
+      ]
+    }
+  ],
+  "submission": {
+    "version": 1,
+    "project_id": "project-pager",
+    "repository_id": "repo-pager",
+    "base_ref": "refs/heads/main",
+    "requirements": "Round page counts up using integer arithmetic.\nPreserve tail items and invalid-size behavior.",
+    "acceptance_criteria": [
+      "An incomplete final page is counted and returned.",
+      "Zero or negative page size raises the existing ValueError."
+    ],
+    "execution_profile_id": "codex-medium-glm-low-v1",
+    "delegation": {
+      "mode": "none"
+    }
+  },
+  "admission_receipt": {
+    "version": 1,
+    "receipt_id": "receipt-admission-a1",
+    "task_id": "task-pager-a1",
+    "admission": "accepted",
+    "owner_principal_id": "person-a",
+    "payload_digest": "sha256:c443f36bb60ada11d007f062a8486fb0cfc4feb4e07b9ba46889f7a0d5f81491",
+    "resolved_base_commit": "1111111111111111111111111111111111111111",
+    "registry_version": "registry-v1",
+    "execution_profile_digest": "sha256:441c1963405549e56dbdbc0a0bf91e0456c594bef2c59189ee3a9a15f5697cf0"
+  },
+  "status_waiting": {
+    "version": 1,
+    "task_id": "task-pager-a1",
+    "incarnation_id": "incarnation-a1",
+    "turn_id": "turn-1",
+    "revision": "observation-7",
+    "admission": "dispatched",
+    "execution": "waiting_for_person",
+    "delivery": {
+      "state": "not_ready",
+      "pull_request_url": null
+    },
+    "observation": {
+      "available": true,
+      "current": true,
+      "observed_at": "2026-10-27T00:00:00Z",
+      "runtime_revision": "2222222222222222222222222222222222222222"
+    },
+    "accounting": {
+      "known_subtotal_usd": "0.20",
+      "complete": false,
+      "unpriced_stages": 1,
+      "basis": "API-equivalent estimate; not a provider bill"
+    },
+    "decision_offer": {
+      "decision_id": "decision-plan-a1-r3",
+      "kind": "approve_plan",
+      "rendered_content": "Synthetic exact plan text: preserve the approved behavior and verify the paging regression.",
+      "rendered_content_digest": "sha256:a201d8e4ded938f4344d5f7ac0e56186bc1c06e4e2f17f5e4a80569eff5e2a9c",
+      "choices": [
+        "approve",
+        "feedback"
+      ],
+      "expires_at": "2026-10-27T00:10:00Z"
+    },
+    "artifacts": [
+      {
+        "artifact_id": "artifact-diff-a1",
+        "kind": "diff",
+        "media_type": "text/plain",
+        "size_bytes": 120,
+        "digest": "sha256:566e677e35f3bf5d693a6e1d499aa0686b5a6aed2945657245d37d57236582e4"
+      }
+    ]
+  },
+  "decision": {
+    "version": 1,
+    "decision_id": "decision-plan-a1-r3",
+    "observed_revision": "observation-7",
+    "choice": "approve",
+    "payload": {}
+  },
+  "decision_receipt_pending": {
+    "version": 1,
+    "receipt_id": "receipt-decision-a1",
+    "task_id": "task-pager-a1",
+    "decision_id": "decision-plan-a1-r3",
+    "state": "outcome_unknown",
+    "correlation_id": "correlation-a1",
+    "reconcile": "read_this_receipt"
+  },
+  "status_unavailable": {
+    "version": 1,
+    "task_id": "task-pager-a1",
+    "incarnation_id": "incarnation-a1",
+    "turn_id": "turn-1",
+    "revision": "observation-8",
+    "admission": "dispatched",
+    "execution": "unknown",
+    "delivery": {
+      "state": "not_ready",
+      "pull_request_url": null
+    },
+    "observation": {
+      "available": false,
+      "current": false,
+      "observed_at": "2026-10-27T00:01:00Z",
+      "last_known_execution": "waiting_for_person"
+    },
+    "decision_offer": null,
+    "artifacts": []
+  },
+  "delivery_published": {
+    "version": 1,
+    "task_id": "task-pager-a1",
+    "incarnation_id": "incarnation-a1",
+    "turn_id": "turn-1",
+    "result_id": "verified-result-a1",
+    "state": "published",
+    "repository_id": "repo-pager",
+    "verified_commit": "3333333333333333333333333333333333333333",
+    "verified_tree": "4444444444444444444444444444444444444444",
+    "evidence_manifest_digest": "sha256:a86c863ce9c45a9ed2817aa8ea662aa3198cc377d354370329f0a8779406120b",
+    "publication_id": "publication-a1",
+    "pull_request_url": "https://forge.example.invalid/team/pager/pull/1",
+    "merged": false
+  },
+  "inbox_item": {
+    "version": 1,
+    "notification_id": "notification-a1",
+    "recipient_principal_id": "person-a",
+    "task_id": "task-pager-a1",
+    "incarnation_id": "incarnation-a1",
+    "turn_id": "turn-1",
+    "attention_id": "attention-plan-a1-r3",
+    "unread": true,
+    "outbound_state": "pending",
+    "task_link": "/tasks/task-pager-a1"
+  },
+  "errors": [
+    {
+      "version": 1,
+      "code": "not_found",
+      "correlation_id": "correlation-denied",
+      "retry": "none"
+    },
+    {
+      "version": 1,
+      "code": "stale_decision",
+      "correlation_id": "correlation-stale",
+      "retry": "refresh_then_new_explicit_decision"
+    },
+    {
+      "version": 1,
+      "code": "idempotency_conflict",
+      "correlation_id": "correlation-conflict",
+      "retry": "none"
+    },
+    {
+      "version": 1,
+      "code": "outcome_unknown",
+      "correlation_id": "correlation-unknown",
+      "retry": "inspect_existing_receipt"
+    }
+  ],
+  "delegation_existing_policy_example": {
+    "mode": "core_policy",
+    "profile_id": "existing-recovery-policy-example",
+    "accepted_digest": "sha256:3c3c3de03133599e763a929f46d458feb87bbb3dd81881099d848b2c3893fac7"
+  }
+}
