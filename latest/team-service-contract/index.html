@@ -1,0 +1,2517 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Plan, approve, build and independently verify a coding task.">
+      
+      
+      
+        <link rel="canonical" href="https://charlieanna.github.io/autocode/latest/team-service-contract/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Single-host team service: contract proposal (#2023) - AutoCode</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#single-host-team-service-contract-proposal-2023" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="AutoCode" class="md-header__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AutoCode
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Single-host team service: contract proposal (#2023)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="AutoCode" class="md-nav__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AutoCode
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native Windows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage names
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a task
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Run a task
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spec-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec-first flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../continuous-planner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Continuous planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pilot-inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pilot inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../figma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Figma
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-captures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual captures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-lanes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel tasks and components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../multi-repo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several repositories
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and approve
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Review and approve
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pauses and commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub issues and PR review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../channels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Channel bridge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verify/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verify an existing change
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../macos-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proof and evidence
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Proof and evidence
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Completion and evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../named-test-proof/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protected-tests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protected tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exact-output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exact output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cost-reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost reporting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure-attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-campaign/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability campaign
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrate and contribute
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrate and contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task-run API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vscode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VS Code extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-step/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inside your coding agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../registry-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registry API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provider-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenario harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compat-preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preparation compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arena/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Arena
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#decision-package" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision package
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="single-host-team-service-contract-proposal-2023">Single-host team service: contract proposal (#2023)<a class="headerlink" href="#single-host-team-service-contract-proposal-2023" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>proposed, not implemented or approved</strong>. Source audit: master
+<code>51728f73b031036f84d6575577596b53c9290df1</code>, 2026-10-27. This document is the
+consolidated service/client-extension decision for #2022 and #2023. Merging
+this proposal does not authorize runtime implementation or expose a host.
+The <a href="../examples/team-service-v1.json">synthetic envelopes</a> are design fixtures,
+not service responses or qualification results.</p>
+<p>The intended outcome is a verified pull request after a person submits work
+and disconnects. A durable worker is only one component of that outcome.
+Keep the existing core controller, TaskRun, supported Linux execution boundary,
+Requirements and exact-plan approval, separate Tester and Completion Reviewer,
+routes, efforts, usage, recovery and spending semantics. No automatic merge,
+deployment, Jira/Slack adapter, fleet or multi-team tenancy is proposed here.</p>
+<h2 id="decision-package">Decision package<a class="headerlink" href="#decision-package" title="Permanent link">&para;</a></h2>
+<p>The recommended first release uses one prepared persistent Linux host, one
+operator-owned repository registry, one OIDC login integration, a private
+service database and a thin authenticated web client. Notifications use the
+per-person service inbox and <strong>SMTP email as the single outbound channel</strong>.
+No action is accepted through email. These are proposed choices, not defaults
+silently enabled by this document.</p>
+<p>The owner decision must cover the client extension, the permission/delegation
+rules below, the OIDC/session boundary, email notifications, the proposed
+trusted-actor core addition and the implementation scope #2024–#2032. The
+identity-provider instance, repositories, recipients, resource limits, routes
+and bounds are operator installation inputs; no real accounts or host settings
+are configured here. A separately agreed bounded pilot and thresholds remain</p>
+<h1 id="2033-no-paid-trial-or-production-deployment-is-included-in-this-package">2033. No paid trial or production deployment is included in this package.<a class="headerlink" href="#2033-no-paid-trial-or-production-deployment-is-included-in-this-package" title="Permanent link">&para;</a></h1>
+<h2 id="responsibility-and-trust">Responsibility and trust<a class="headerlink" href="#responsibility-and-trust" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Owns</th>
+<th>Cannot do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Authentication / #2024</td>
+<td>Validated principal, sessions, membership and permission revisions</td>
+<td>Trust request <code>actor</code>, Git identity or workspace configuration as login</td>
+</tr>
+<tr>
+<td>Service registry / #2026</td>
+<td>Approved repository IDs, refs, setup/check profiles and credential references</td>
+<td>Accept arbitrary URLs, host paths or task-written policy</td>
+</tr>
+<tr>
+<td>Gateway / #2027</td>
+<td>Authorize and translate opaque IDs to public TaskRun operations</td>
+<td>Import CLI/controller internals, read private task state or construct task policy</td>
+</tr>
+<tr>
+<td>Admission / #2028</td>
+<td>Persist and schedule submissions, reconcile public launch receipts</td>
+<td>Become a second stage controller or replay an uncertain launch</td>
+</tr>
+<tr>
+<td>Execution boundary / #2025</td>
+<td>Prepared task workspace, process/storage/secret isolation</td>
+<td>Treat a worktree or shared provider home as an isolation boundary</td>
+</tr>
+<tr>
+<td>Core</td>
+<td>Run lifecycle, locks, decisions, provider supervision, proof and completion</td>
+<td>Infer remote authentication from Git email or <code>--as</code></td>
+</tr>
+<tr>
+<td>Web client / #2029</td>
+<td>Render authorized projections and explicit human choices</td>
+<td>Receive raw core tokens, CLI argument arrays or host paths</td>
+</tr>
+<tr>
+<td>Inbox / #2030</td>
+<td>Durable per-recipient attention and delivery notifications</td>
+<td>Approve, resume, retry or change limits on acknowledgement</td>
+</tr>
+<tr>
+<td>Publisher / #2031</td>
+<td>Reconcile publication of an immutable verified result</td>
+<td>Publish arbitrary working HEAD, force-push or auto-merge</td>
+</tr>
+<tr>
+<td>Operations / #2032</td>
+<td>Health, audit, backup/restore, drain and pinned upgrade records</td>
+<td>Delete uncertain attempts or manufacture recovered completion</td>
+</tr>
+</tbody>
+</table>
+<p>Operator policy, service records and identity/publishing secrets live outside
+all agent-editable workspaces. Distinct execution identities and the supported
+kernel boundary prevent task processes from reading them. The service process
+and pinned core runtime are trusted; task code, generated reports, workspace
+Git/configuration and artifact HTML are untrusted. This is a trusted-team
+single-host boundary, not a hostile multi-tenant SaaS claim. Actual enforcement
+is a release gate in #2025, not established by this proposal.</p>
+<h2 id="authentication-and-authorization">Authentication and authorization<a class="headerlink" href="#authentication-and-authorization" title="Permanent link">&para;</a></h2>
+<p>Use an established OIDC library with authorization-code login and PKCE S256.
+Pin one configured issuer and client audience, exact redirect URI and signing
+algorithm policy; validate signatures, issuer, audience, expiry, state and
+nonce. Stable person identity is the <code>(issuer, subject)</code> pair, mapped to an
+operator-managed opaque <code>principal_id</code>; display name and email grant nothing.
+These protocol choices follow <a href="https://openid.net/specs/openid-connect-core-1_0.html">OIDC Core</a>
+and <a href="https://www.rfc-editor.org/rfc/rfc9700.html">OAuth security BCP</a>, rather than
+a new password or token parser.</p>
+<p>Terminate TLS at one configured reverse proxy on the prepared host. The gateway
+listens only on a private Unix socket, accepts forwarding metadata only from
+that proxy, and never consumes forwarded user/role headers as authentication.
+Use an opaque, server-side, revocable browser session with Secure, HttpOnly,
+SameSite=Lax cookie, a configured short idle/absolute expiry and CSRF protection
+for every write. Do not put OIDC tokens in browser storage or task environments.
+No anonymous endpoints expose task/project inventory. Health without task data
+may be exposed only through operator configuration.</p>
+<p>Permissions are deny-by-default and scoped to projects and, where needed,
+tasks. <code>read</code> does not imply <code>submit</code>; <code>submit</code> does not imply <code>decide</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Reader</th>
+<th>Submitter</th>
+<th>Designated decider</th>
+<th>Operator</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Inventory, status, approved artifacts</td>
+<td>Authorized project/task only</td>
+<td>Same</td>
+<td>Same</td>
+<td>Only with separate read grant</td>
+</tr>
+<tr>
+<td>Submit a new task</td>
+<td>No</td>
+<td>Granted project only</td>
+<td>Only with submit grant</td>
+<td>Only with submit grant</td>
+</tr>
+<tr>
+<td>Answer, feedback, approve exact displayed plan, named pause/recovery action</td>
+<td>No</td>
+<td>Only with explicit task <code>decide</code> grant</td>
+<td>Assigned task only</td>
+<td>No implicit task decision</td>
+</tr>
+<tr>
+<td>Acknowledge inbox</td>
+<td>Own inbox only</td>
+<td>Own inbox only</td>
+<td>Own inbox only</td>
+<td>Own inbox only</td>
+</tr>
+<tr>
+<td>Change registry, membership or drain service</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>Yes, audited</td>
+</tr>
+<tr>
+<td>Expand limits/routes or delegate protected choices</td>
+<td>No</td>
+<td>No implicit grant</td>
+<td>Only an explicitly presented, allowed core action and separate authority</td>
+<td>No bypass through service administration</td>
+</tr>
+</tbody>
+</table>
+<p>The task owner receives read access through a recorded grant; permission to
+submit alone is not a reusable right to inspect someone else's task. Task
+ownership/decider changes require a recorded authorized operation, recheck the
+recipient's access and never transfer an already approved decision to a new
+plan. No owner-controlled arbitrary sharing is included in v1.</p>
+<p>Check current membership, policy revision and task grant on <strong>every</strong> read,
+artifact fetch and decision application. Revocation invalidates sessions and
+future authority, including already queued human decisions and unsent email.
+It does not kill a worker or approve recovery. A revoked owner's running task
+becomes operator attention for reassignment through policy; the core retains
+its actual state. Filter list results and return the same <code>not_found</code> response
+for unknown and inaccessible object IDs. Audit the internal distinction.</p>
+<h2 id="repository-and-execution-policy">Repository and execution policy<a class="headerlink" href="#repository-and-execution-policy" title="Permanent link">&para;</a></h2>
+<p>A registry entry is operator-owned and immutable by version. A submission pins
+its project/repository ID, canonical remote identity, resolved base commit,
+registry version and execution-profile digest. An allowed base ref is resolved
+server-side once; changing its remote target later cannot silently rebase the
+submitted task. Revalidate access and current operator revocations at dispatch.
+A revoked policy blocks dispatch; it does not silently substitute a new one.</p>
+<p>An entry contains:</p>
+<ul>
+<li>Stable project/repository ID, canonical forge/repository identity, allowed
+  base refs and service branch namespace. No request-supplied remote/path.</li>
+<li>Toolchain/runtime image or prepared-host profile identity; reproducible setup
+  and required checks as operator-reviewed argument arrays, working directory
+  and allowed environment keys. Execute setup inside the task boundary.</li>
+<li>Route/effort profile and existing core limits/policies; user-visible before
+  acceptance. A named profile selects approved choices; the service cannot
+  replace models or turn on compact planning to make a job pass.</li>
+<li>Credential references separated into read-checkout, task-model and publisher
+  capabilities. References resolve outside workspaces. No privileged service
+  home, login/session store or publication token is copied to task processes.</li>
+<li>Host/project/repository active-worker limits, queue/scratch/storage bounds,
+  retention class, allowed task owners/deciders and publication destinations.</li>
+<li>Accounting coverage policy: v1 preserves the core's accounting cap and
+  explicit unknowns. Admission is blocked when an operator-required price or
+  provider allowance is unavailable; it never calls an estimate a guaranteed
+  bill. Monthly/person quotas or new strict spending guarantees are not added.</li>
+</ul>
+<p>Before model work, validate repository/ref/credential access, supported durable
+mode, containment, setup and check availability. Setup that runs untrusted
+repository code must already be isolated. Separate invalid submissions from a
+later unavailable prerequisite. No quiet downgrade to owned execution, another
+engine or weaker isolation. Same-repository tasks use distinct workspace/branch
+identities plus existing checkout locks. Multi-repository coordination is not
+silently enabled: current durable anchors refuse automatic coordination, so
+v1 rejects unsupported spanning scope rather than delivering a partial result.</p>
+<h2 id="public-v1-envelopes">Public v1 envelopes<a class="headerlink" href="#public-v1-envelopes" title="Permanent link">&para;</a></h2>
+<p>Use <code>/api/v1</code> and JSON with a version discriminator. Reject unknown request
+fields, invalid types and unsupported versions. IDs are opaque service IDs;
+clients never send or receive run directories, core control tokens, shell
+strings, CLI arrays or credential references. Server-only mappings bind each
+ID to the allowed public core handle. Text is untrusted data; preserve its
+multiline/Unicode content within documented size limits.</p>
+<table>
+<thead>
+<tr>
+<th>Route / envelope</th>
+<th>Required request fields</th>
+<th>Response and authority</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST /tasks</code> / submission</td>
+<td><code>version</code>, project/repository IDs, allowed <code>base_ref</code>, requirements, acceptance criteria, <code>execution_profile_id</code>, explicit <code>delegation</code> record</td>
+<td>Durable admission receipt, task ID, payload digest, resolved base/policy identities; no execution promise</td>
+</tr>
+<tr>
+<td><code>GET /tasks</code> / inventory</td>
+<td>Authorized filters and opaque cursor</td>
+<td>Only visible tasks; no hidden repository counts or IDs</td>
+</tr>
+<tr>
+<td><code>GET /tasks/{id}</code> / status</td>
+<td>Opaque task ID</td>
+<td>Independent admission/execution/delivery state, observation freshness, accounting coverage, permitted artifacts and current decision offer</td>
+</tr>
+<tr>
+<td><code>POST /tasks/{id}/decisions</code> / decision</td>
+<td><code>version</code>, opaque <code>decision_id</code>, exact observed revision, explicit offered choice and typed payload</td>
+<td>Durable decision receipt; applied, refused or pending/unknown. Never immediate claimed completion</td>
+</tr>
+<tr>
+<td><code>GET /tasks/{id}/decisions/{receipt}</code></td>
+<td>Receipt ID</td>
+<td>Durable action outcome or explicit unresolved reconciliation</td>
+</tr>
+<tr>
+<td><code>GET /tasks/{id}/artifacts/{id}</code></td>
+<td>Opaque authorized artifact ID</td>
+<td>Allowlisted bounded inert content, digest/type/size; no arbitrary path/open redirect</td>
+</tr>
+<tr>
+<td><code>GET /inbox</code>, <code>POST /inbox/{id}/acknowledge</code></td>
+<td>Recipient session; explicit read acknowledgement</td>
+<td>Local unread state only; no task action</td>
+</tr>
+<tr>
+<td>delivery in status</td>
+<td>No caller-supplied repository/commit/PR URL</td>
+<td>Verified result identity plus prepared/publishing/published/blocked/unknown state and reconciled PR URL</td>
+</tr>
+</tbody>
+</table>
+<p>All writes carry an <code>Idempotency-Key</code> in a bounded documented format. Store the
+canonical validated request and its digest transactionally before returning
+<code>202 accepted</code>; do not acknowledge a memory-only queue item. Scope uniqueness
+to principal + operation + object + key. The same request returns its original
+receipt. A different request under the same key returns <code>409 idempotency_conflict</code>.
+Uniqueness is per key, not semantic deduplication of two intentionally new tasks.
+Retain tombstones for at least the task/decision retention period; an expired
+key cannot create a second task through a retry. Database failover/restore must
+preserve that boundary or hold admission pending operator reconciliation.</p>
+<p>Canonical payloads use validated typed fields, sorted object keys and UTF-8 JSON
+with no insignificant whitespace, preserving array order and exact text without
+Unicode normalization. Use integer bounds or decimal strings, never non-finite
+numbers. Reject duplicate JSON keys before canonicalization. The service pins a
+canonicalization version with the receipt; an upgrade cannot reinterpret an old
+idempotency key.</p>
+<p>Error codes: <code>unauthenticated</code>, <code>not_found</code>, <code>invalid_submission</code>,
+<code>unsupported_version</code>, <code>idempotency_conflict</code>, <code>stale_decision</code>,
+<code>permission_revoked</code>, <code>policy_unavailable</code>, <code>capacity_unavailable</code>,
+<code>observation_unavailable</code>, <code>core_refused</code>, and <code>outcome_unknown</code>. Return a
+correlation ID and retry guidance, with no secret/core token or host path.
+An HTTP error or timeout is never authority to repeat a provider operation.</p>
+<h2 id="current-core-capabilities-and-additive-gaps">Current core capabilities and additive gaps<a class="headerlink" href="#current-core-capabilities-and-additive-gaps" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Service operation</th>
+<th>Current public capability</th>
+<th>Required boundary / gap owner</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>New durable submission</td>
+<td><code>modes list --json</code>, <code>TaskRun.start_durable</code>, <code>inspect_launch</code></td>
+<td>#2028 persists server-owned binding and reconciles one launch</td>
+</tr>
+<tr>
+<td>Read current execution/proof</td>
+<td><code>TaskRun.status(inspect_evidence=True)</code>, <code>evidence_report(require_current=True)</code></td>
+<td>#2027 filters/redacts the projection; unavailable is not a failed task</td>
+</tr>
+<tr>
+<td>Continue or answer a gate</td>
+<td>Fresh named action via shared <code>NamedCommand</code> and <code>TaskRun.dispatch_durable</code></td>
+<td>#2024/#2027 add trusted actor/assertion receipt support before person actions ship</td>
+</tr>
+<tr>
+<td>Show the actual plan</td>
+<td><code>TaskRun.show_goal</code>, current displayed-plan token and public view</td>
+<td>Gateway stores private token and exact rendered bytes, exposing only its own decision ID</td>
+</tr>
+<tr>
+<td>Current code diff</td>
+<td>Status <code>code_checkpoints</code> named comparison</td>
+<td>#2027 executes only that capability; no arbitrary Git/path RPC</td>
+</tr>
+<tr>
+<td>Per-person service inbox</td>
+<td>Public attention identity plus service-owned recipient/read records</td>
+<td>#2030 must not repurpose core same-UID attention acknowledgement as remote per-person state</td>
+</tr>
+<tr>
+<td>Read arbitrary artifact</td>
+<td>No universal authenticated download operation is established</td>
+<td>#2027 adds a public bounded capability for each supported kind, otherwise refuses it</td>
+</tr>
+<tr>
+<td>Verified general-task PR</td>
+<td>Existing issue/coordination delivery, not a universal TaskRun publisher</td>
+<td>#2031 adds/reuses a public named capability and immutable receipt; no private-state workaround</td>
+</tr>
+<tr>
+<td>Remote actor / lost decision outcome</td>
+<td>No verified service actor or assertion-id lookup is established</td>
+<td>#2024/#2027 additive core contract below; local Git provenance cannot fill this gap</td>
+</tr>
+</tbody>
+</table>
+<p>The table is an audited distinction between existing methods and proposed
+capabilities. It is not a list of features already implemented by the service.</p>
+<h2 id="human-decisions-and-attributable-core-actions">Human decisions and attributable core actions<a class="headerlink" href="#human-decisions-and-attributable-core-actions" title="Permanent link">&para;</a></h2>
+<p>Before offering a decision, the gateway reads fresh public status, verifies
+its task binding and named action, and saves a private observation record.
+Its opaque <code>decision_id</code> binds task incarnation/turn, action kind, exact rendered
+plan/question bytes and digest, core checkpoint/token, policy revision and
+expiry. Only the human-readable content and service ID leave the host. A plan
+approval is a separate explicit choice against that exact displayed plan;
+fetching it, free text, a notification click or a previous approval is not consent.</p>
+<p>At application, reauthenticate/re-authorize, re-read current status and compare
+all bindings. A changed plan/action or revoked grant refuses the decision and
+requires a new display. Pass only the fresh status-named argument array through
+the existing shared client-action machinery and durable transport. The core
+still checks its own token under its lock. Two people acting on the same gate
+cannot authorize two different actions: serialize application per bound gate;
+one receipt wins and the other is stale/refused. Never reuse the winner's
+receipt as the other person's approval.</p>
+<p><strong>Confirmed core gap:</strong> <code>autocode_approval_provenance</code> and
+<code>autocode_required_approver</code> explicitly record unverified Git/<code>--as</code> claims.
+They are not a remote authentication boundary. The current GitHub bridge
+allowlist and service-side authorization cannot turn those claims into verified
+core actor provenance. Do not set Git email or <code>--as</code> to impersonate a user.</p>
+<p>Proposed additive capability, owned by #2024/#2027 before remote decisions ship:</p>
+<ol>
+<li>An operator-configured trusted service issuer attests the validated principal,
+   authorization revision and receipt ID for one exact core decision binding.
+   The binding includes run incarnation/turn, current action/checkpoint/token
+   digest, rendered-content digest, decision payload digest, expiry and a unique
+   single-use assertion ID. The authenticated actor is never supplied by the
+   task workspace or remote request body.</li>
+<li>Use an established JWS implementation with pinned Ed25519 keys and <code>EdDSA</code>,
+   following <a href="https://www.rfc-editor.org/rfc/rfc8037.html">RFC 8037</a>, and a pinned
+   issuer/key policy outside agent-editable storage; no custom cryptographic parser.
+   The signing key stays with the service, outside provider access. Transport
+   the assertion privately alongside the exact named action, never as model
+   context, public argv, an artifact or a new arbitrary CLI command. The precise
+   TaskRun transport/descriptor is part of that additive implementation review.</li>
+<li>The core verifies the assertion, exact current binding, trusted issuer and
+   allowed service policy under its decision lock before mutation. Consume its
+   assertion identity atomically with the decision event and expose an additive
+   <code>authenticated_actor</code>/service-receipt audit projection. An unknown outcome
+   must be queryable by assertion/receipt identity without replaying the action.</li>
+<li>Existing local Git provenance remains explicitly unverified. No configured
+   trust means the new assertion is refused, never treated as a local approval.
+   Service-authorized subject grants must be separate from <code>require-approver</code>'s
+   local Git-email guard; a task cannot remove a trusted service guard by editing
+   project configuration. Existing local behavior is preserved.</li>
+</ol>
+<p>Until this addition exists and is qualified, the gateway must refuse remote
+person decisions. It must not claim #2024/#2027 complete using only an HTTP audit
+row. Contract and fixture work can proceed meanwhile. Core status, artifacts
+and lifecycle remain public interfaces; no private task-state access is added.</p>
+<p>Upfront delegation is explicit, never inferred from requirements. The default
+submission records <code>{"mode":"none"}</code>. A separately authorized submitter may
+select <code>{"mode":"core_policy","profile_id":...,"accepted_digest":...}</code>
+for an operator-approved <strong>existing core recovery-policy profile</strong>. The service
+must display its exact existing flags, authority, maximums, financial guard and
+non-delegable decisions before recording that authenticated grant. It passes
+only that pinned new-run policy to TaskRun; it does not implement recovery or
+increase authority later. For example, an explicitly selected profile may use
+the existing <code>--autoresolver-managed-limits</code> semantics, including its existing
+ceilings and explicit-cap/unknown-usage exclusions. It cannot substitute routes,
+remove a financial cap, waive evidence or authorize an uncertain provider replay.
+The selected profile is installation policy, not authorized by this proposal.</p>
+<p>Requirements confirmation, approval of an exact new plan, scope/permission
+changes, unsupported-effort choices and any core person-only recovery remain
+human gates. The notification names the designated decider. No blanket
+preapproval of future plans, <code>skip-to-build</code> or invented answers is introduced.
+A policy stop with no current named action remains held. Qualify both the
+no-delegation path and an explicit existing-policy grant without treating them
+as equivalent authority. Any broader company delegation is a separate decision.</p>
+<h2 id="admission-execution-and-delivery-are-separate">Admission, execution and delivery are separate<a class="headerlink" href="#admission-execution-and-delivery-are-separate" title="Permanent link">&para;</a></h2>
+<p>A task projection keeps these axes instead of using one misleading <code>success</code>:</p>
+<ul>
+<li>Admission: <code>accepted</code>, <code>queued</code>, <code>preparing</code>, <code>dispatching</code>, <code>dispatched</code>,
+  <code>blocked</code>, <code>rejected</code>. A committed receipt proves admission, not a launch.</li>
+<li>Execution: <code>not_started</code>, <code>running</code>, <code>waiting_for_person</code>, <code>paused</code>, <code>blocked</code>,
+  <code>failed</code>, <code>core_complete</code>, <code>unknown</code>. Public observation includes
+  <code>observed_at</code>, <code>available</code>, <code>current</code>, core runtime and incarnation identity.
+  A stale/unavailable observation never erases the last result or offers actions.</li>
+<li>Delivery: <code>not_ready</code>, <code>prepared</code>, <code>publishing</code>, <code>published</code>, <code>blocked</code>,
+  <code>unknown</code>. Core completion is not PR publication. Current completion receipt,
+  exact verified commit/tree, approved destination and publication identity bind
+  delivery. Later follow-up work has a new turn/result identity.</li>
+</ul>
+<p>Dispatch commits a unique intent before <code>TaskRun.start_durable</code>; reconcile its
+public launch receipt with <code>inspect_launch</code>. Losing the start reply does not
+prove no worker exists. Do not call start again until public reconciliation
+establishes the outcome or an explicit supported recovery decision authorizes
+it. Queue fairness is bounded round-robin across projects and FIFO within a
+project, subject to registry/host limits and core checkout exclusion. Held work
+releases queue scheduling slots only when the actual worker state supports it;
+no scheduling policy grants a task resume or abort.</p>
+<p>Publication intent binds service task/result, destination and exact verified
+commit before a remote side effect. Reconcile by branch/commit/PR identity after
+a lost response. Changed working HEAD must not replace the immutable verified
+result. A newer submitted base policy, stale evidence or unexpected remote
+branch blocks publication; never force-push to resolve it. Existing issue and
+coordination publication machinery is reused where its public capability fits.
+Missing general-task publication/evidence retrieval must be added as named public
+capabilities; #2031 cannot inspect issue-private files or invent CLI commands.</p>
+<p>Accounting projects the public <code>usage</code>, <code>cost</code> and <code>efficiency</code> records with
+coverage, pricing basis, failed attempts and unknown stages. Preserve queue,
+provider-active, observed running-wall, human-wait and repair-wait categories;
+missing time is unknown. Use <a href="../cost-reporting/">existing cost definitions</a>.
+Subscription/API-equivalent estimates are not invoices, and stage-boundary caps
+are not guaranteed bills. #1867's broader policy remains unchanged.</p>
+<h2 id="inbox-artifacts-and-operations">Inbox, artifacts and operations<a class="headerlink" href="#inbox-artifacts-and-operations" title="Permanent link">&para;</a></h2>
+<p>Each logical notification binds recipient, task incarnation/turn and public
+attention/delivery identity. Persist unread state and an outbound outbox outside
+workspaces. Recheck current ownership/access before send or display; suppress
+superseded attention. Use the operator-configured SMTP relay and recipient
+mapping, with no destinations from task text. Email carries a generic state and
+an authenticated task link, not source, secrets, decision tokens or action links.
+A delivery timeout is <code>unknown</code>, not proof email was unsent; durable retry policy
+must preserve one logical notification and acknowledge possible duplicate mail.
+Inbox acknowledgement changes only the service recipient record, not core local
+attention receipts or task authority.</p>
+<p>Artifacts are public-capability IDs resolved and authorized server-side. No raw
+filesystem browsing, symlink following or arbitrary HTML execution. Logs are
+bounded/redacted; treat Markdown/HTML/SVG as untrusted inert content with an
+appropriate download/content policy. A URL possession never substitutes for
+current access. If no public artifact capability exists, return unavailable
+and add the core capability before exposing that artifact.</p>
+<p>Audit append-only service events for admission, authorization/revocation,
+decision intent/outcome, dispatch intent/reconciliation, notification and
+publication identities. Include the authenticated principal and policy revision;
+exclude secrets and core tokens. The service's audit receipt is correlated to,
+not substituted for, the core's actual event/evidence. Drain stops new dispatch,
+not running workers. Pinned-runtime upgrades cannot adopt uncertain attempts.
+Back up service records and supported core recovery artifacts consistently;
+restore holds dispatch until launch/publication ownership is reconciled. Cleanup
+requires current no-worker ownership and retention policy; uncertainty retains
+data. #2032 supplies and qualifies the actual runbooks and mechanisms.</p>
+<h2 id="shared-qualification-fixtures">Shared qualification fixtures<a class="headerlink" href="#shared-qualification-fixtures" title="Permanent link">&para;</a></h2>
+<p>Use two deliberately small <strong>independent</strong> repositories under test-only IDs:
+<code>repo-pager</code> (Python unittest paging CLI) and <code>repo-totals</code> (Python pytest
+aggregation function). Pin their seed commits, setup profiles, external oracles
+and broken variants in #2026; avoid installations by using prepared environments.
+These are proposed fixtures, not the historical live runs or an authorization
+to spend on two new tasks. #2033 agrees any live sample separately.</p>
+<p>The synthetic v1 envelopes name <code>person-a</code>, <code>person-b</code>, these repositories and
+stable service IDs. They contain no real identity, credential or host path.
+The matrix below is required behavior for the dependent implementations; none
+is marked tested by this document.</p>
+<table>
+<thead>
+<tr>
+<th>Case</th>
+<th>Required observation / negative control</th>
+<th>Owner</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Two people, two projects</td>
+<td>A reads/submits/decides pager; B totals; swapped task/artifact/receipt IDs disclose nothing</td>
+<td>#2024/#2027</td>
+</tr>
+<tr>
+<td>Same repository concurrency</td>
+<td>Distinct branches/workspaces, bounded scheduling and existing checkout locks; cross-task writes denied</td>
+<td>#2025/#2028</td>
+</tr>
+<tr>
+<td>Duplicate admission and lost acknowledgement</td>
+<td>Same principal/key/payload returns one task; changed payload conflicts; death before commit has no accepted receipt</td>
+<td>#2028</td>
+</tr>
+<tr>
+<td>Auth forgery</td>
+<td>Actor/header/Git-email/workspace edits, wrong issuer/audience/nonce, expired session and CSRF never authorize</td>
+<td>#2024</td>
+</tr>
+<tr>
+<td>Revoked access</td>
+<td>Revoke after display, before apply/send; no mutation, artifact read or email; worker not silently killed</td>
+<td>#2024/#2030</td>
+</tr>
+<tr>
+<td>Conflicting decisions</td>
+<td>A/B hold one gate; one applies, the other's receipt is refused/stale; no second model dispatch</td>
+<td>#2027</td>
+</tr>
+<tr>
+<td>Stale plan or turn</td>
+<td>Revised plan/follow-up invalidates the old display; no automatic reapproval</td>
+<td>#2027/#2029</td>
+</tr>
+<tr>
+<td>Lost decision receipt</td>
+<td>Reconnect queries the durable receipt/assertion identity; no second invocation from timeout alone</td>
+<td>#2027/#2028</td>
+</tr>
+<tr>
+<td>Lost launch reply / service death</td>
+<td>Inspect the committed launch identity, retain unknown ownership and never blindly start again</td>
+<td>#2028/#2032</td>
+</tr>
+<tr>
+<td>Blocked task / unavailable status</td>
+<td>Separate actual blocked state from unavailable observation; no speculative Resume or fabricated current completion</td>
+<td>#2027/#2029</td>
+</tr>
+<tr>
+<td>Browser close and protected question</td>
+<td>Durable worker continues; inbox/email persists; authenticated fresh exact decision resumes only that gate</td>
+<td>#2029/#2030</td>
+</tr>
+<tr>
+<td>Unknown pricing / in-flight cost</td>
+<td>Subtotal and coverage remain explicit; operator-required coverage blocks admission; no guaranteed bill claim</td>
+<td>#2028/#2033</td>
+</tr>
+<tr>
+<td>Missing setup/isolation</td>
+<td>Preflight refusal before provider launch; no fallback to shared home or owned mode</td>
+<td>#2025/#2026</td>
+</tr>
+<tr>
+<td>False green product</td>
+<td>Unrelated successful command and broken variant cannot satisfy approved criteria or delivery</td>
+<td>#2026/#2031</td>
+</tr>
+<tr>
+<td>Moved HEAD / lost PR reply</td>
+<td>Publish only immutable verified commit or block; reconcile one known PR, no overwrite/force-push</td>
+<td>#2031</td>
+</tr>
+<tr>
+<td>Artifact/notification attack</td>
+<td>Other-task IDs, path/symlink escape, active HTML and task-specified email cannot leak or advance work</td>
+<td>#2024/#2027/#2030</td>
+</tr>
+<tr>
+<td>Reboot / restore / upgrade</td>
+<td>Every accepted receipt accounted for; interrupted/unknown provider work uses core recovery; no fabricated replay</td>
+<td>#2032</td>
+</tr>
+</tbody>
+</table>
+<p>Component tests precede real supported-Linux containment/HTTP/browser/fault
+integration. Existing lifecycle evidence at its pinned revisions is reused but
+is not a service pass. Final pilot gates include the #2022 vague-brief evidence
+gap, a same-task follow-up, exact-commit independent acceptance and agreed cost,
+time and human-intervention thresholds. No threshold is invented here.</p>
+<h2 id="implementation-order-and-open-decisions">Implementation order and open decisions<a class="headerlink" href="#implementation-order-and-open-decisions" title="Permanent link">&para;</a></h2>
+<p>After owner acceptance of this package, #2024 and #2027 implement identity and
+the additive core actor boundary; #2025/#2026 establish isolated repository
+fixtures; #2028 implements durable admission against those interfaces. #2029,</p>
+<h1 id="2030-2031-and-2032-may-develop-against-the-shared-envelopes-concurrently">2030, #2031 and #2032 may develop against the shared envelopes concurrently,<a class="headerlink" href="#2030-2031-and-2032-may-develop-against-the-shared-envelopes-concurrently" title="Permanent link">&para;</a></h1>
+<p>but real submission/decisions/publication wait for their qualified dependencies.
+No unrelated TUI presentation or compact-planning rollout is a prerequisite.</p>
+<p>Still required before #2023 closes:</p>
+<ol>
+<li>Owner accepts or amends this precise service extension, including OIDC,
+   permission matrix, the explicit existing-core-policy delegation boundary, SMTP and the trusted-actor core
+   addition. This records scope; it grants no plan approval for a user's task.</li>
+<li>Operator supplies actual issuer/client/proxy, host, repository/profile,
+   membership, limits, retention and notification configuration at installation;
+   dependent implementations must validate them instead of assuming values.</li>
+<li>
+<h1 id="2033-obtains-explicit-pilot-thresholdsroutesspendtime-bounds-before-live">2033 obtains explicit pilot thresholds/routes/spend/time bounds before live<a class="headerlink" href="#2033-obtains-explicit-pilot-thresholdsroutesspendtime-bounds-before-live" title="Permanent link">&para;</a></h1>
+   measurement. Missing original comparison/vague-brief inputs remain missing.</li>
+<li>Focused implementation and integrated qualification evidence establishes the
+   contract; a merged proposal or green documentation CI is not that evidence.</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
