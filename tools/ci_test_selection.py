@@ -206,6 +206,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
+        ("tools/autocode_route_evidence.py", "tools/autocode_route_selector.py", "tools/qualify_routes.py"),
+        ("tests.test_model_catalogue", "tests.test_route_evidence"),
+    ),
+    (
         ("tools/autocode_handoff_dedup.py", "tools/autocode_context.py", "tools/autocode_stage_context.py"),
         ("tests.test_verification_claim_cli",),
     ),

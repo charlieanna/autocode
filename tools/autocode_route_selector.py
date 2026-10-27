@@ -33,19 +33,20 @@ import json
 import math
 from functools import lru_cache
 from pathlib import Path
-from statistics import median
 
 try:
     from . import autocode_model_identity as model_identity
     from . import autocode_prices as prices
     from . import autocode_role_route as role_route
     from . import autocode_roles as roles
+    from . import autocode_route_evidence as route_evidence
     from . import autocode_verifier_independence as independence
 except ImportError:
     import autocode_model_identity as model_identity
     import autocode_prices as prices
     import autocode_role_route as role_route
     import autocode_roles as roles
+    import autocode_route_evidence as route_evidence
     import autocode_verifier_independence as independence
 
 QUALIFICATION_PATH = Path(__file__).with_name("autocode_route_qualification.json")
@@ -128,38 +129,11 @@ def _validate_entry(role, entry):
 
 
 def _valid_run(run):
-    """One AutoCode run that confirmed the route (#2059), as tools/qualify_routes.py writes it."""
-
-    def amount(value):
-        return value is None or (type(value) in (int, float) and value >= 0)
-
-    return (
-        isinstance(run, dict)
-        and isinstance(run.get("date"), str)
-        and bool(run["date"])
-        and isinstance(run.get("run"), str)
-        and bool(run["run"])
-        and amount(run.get("minutes"))
-        and amount(run.get("cost_usd"))
-    )
+    return route_evidence.valid_run(run)
 
 
 def evidence_summary(entry):
-    """One line on what admitted ``entry``, for `autocode models --selection` (#2059)."""
-    runs = entry.get("runs") or []
-    if not runs:
-        if entry.get("provenance") == "provisional":
-            return "provisional: no AutoCode run yet"
-        return "qualified: no recorded run"
-    latest = max(run["date"] for run in runs)
-    parts = [f"{len(runs)} AutoCode run{'s' if len(runs) != 1 else ''}, latest {latest}"]
-    minutes = [run["minutes"] for run in runs if run.get("minutes") is not None]
-    costs = [run["cost_usd"] for run in runs if run.get("cost_usd") is not None]
-    if minutes:
-        parts.append(f"median {median(minutes):.0f} min")
-    if costs:
-        parts.append(f"median ${median(costs):.2f}")
-    return f"{entry.get('provenance')}: " + ", ".join(parts)
+    return route_evidence.summary(entry)
 
 
 def _validate_excluded(document, roles):

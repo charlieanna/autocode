@@ -22,6 +22,14 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {public: "slow"})
                 self.assertEqual({public} if path.startswith("tests/") else {public, metadata}, set(kept))
 
+    def test_qualification_evidence_keeps_the_public_selection_consumer(self):
+        consumers = {"tests.test_model_catalogue", "tests.test_route_evidence"}
+        for path in ("tools/autocode_route_evidence.py", "tools/autocode_route_selector.py", "tools/qualify_routes.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {module: "" for module in consumers})
+                kept, _ = run_suite.drop_slow(selected, {module: "slow" for module in consumers})
+                self.assertEqual(consumers, set(kept))
+
     def test_claim_reference_changes_keep_the_public_consumer(self):
         consumer = "tests.test_verification_claim_cli"
         for path in (
