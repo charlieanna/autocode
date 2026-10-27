@@ -8,11 +8,13 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_requirements_review as requirements_review
     from . import autocode_resolver_human as human
     from . import autocode_run_status as run_status
     from . import autocode_scope_assignment as assignment
     from . import autocode_workflows as workflows
 except ImportError:
+    import autocode_requirements_review as requirements_review
     import autocode_resolver_human as human
     import autocode_run_status as run_status
     import autocode_scope_assignment as assignment
@@ -41,6 +43,10 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
     human.supersede_assigned_scope(state, published, remaining, receipt)
     if not remaining:
         run_status.running(state, "PLANNING", next_stage=workflows.planner_stage(state))
+        # Scope is offered before the handoff's other questions and confirmation.
+        # Owning the external work answers neither of those human decisions.
+        if state.get("requirements_handoff"):
+            requirements_review.wait(state, state["requirements_handoff"], human.queue)
     runner.write_json(state_path, state)
     print("External work assigned to linked repository runs; plan approval remains required.")
     return 0

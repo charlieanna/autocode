@@ -17,11 +17,13 @@ import copy
 import json
 
 try:
+    from . import autocode_coordination_context as coordination_context
     from . import autocode_goals as goals
     from . import autocode_plan_retention as retention
     from . import autocode_regression_reference as regression_reference
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_coordination_context as coordination_context
     import autocode_goals as goals
     import autocode_plan_retention as retention
     import autocode_regression_reference as regression_reference
@@ -92,6 +94,7 @@ def clarification_context(state: RunState, stage: str) -> dict:
         else ()
     )
     return {
+        **({"coordinated_member": member} if (member := coordination_context.context(state)) else {}),
         **(
             {"retained_contract": retention.token(state), "retained_criteria": retention.inventory(state)}
             if retention.token(state)

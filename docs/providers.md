@@ -112,6 +112,12 @@ The stage starts a fresh restricted session so earlier session grants cannot
 restore those tools. Mixed-session streams remain invalid; AutoCode never merges
 subagent reports or commands into the primary session's evidence.
 
+If the selected Kilo agent has a positive `steps` limit, its restricted AutoCode
+agent keeps that bound. Kilo then forces a text-only response after that many
+tool rounds; the response still has to pass AutoCode's report and completion
+gates. AutoCode adds no default step limit and does not inherit another model
+or broader tool grants with the bound.
+
 ## OpenCode adapter
 
 The Requirements Gatherer, Planner and default Builder use the connections already configured in OpenCode. `--engine opencode`

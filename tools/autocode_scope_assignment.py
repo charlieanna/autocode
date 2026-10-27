@@ -33,6 +33,16 @@ def current(state: RunState):
     expected = {part["target"] for part in scope.current(state).get("external_parts") or []}
     if not expected or set(receipt.get("members") or {}) != expected:
         return None
-    if any(not members.get(target) or members[target] != other for target, other in receipt["members"].items()):
+    aliases = receipt.get("aliases") or {}
+    if (
+        not isinstance(aliases, dict)
+        or set(aliases) - expected
+        or any(not isinstance(v, str) for v in aliases.values())
+    ):
+        return None
+    if any(
+        not members.get(aliases.get(target, target)) or members[aliases.get(target, target)] != other
+        for target, other in receipt["members"].items()
+    ):
         return None
     return receipt

@@ -148,9 +148,10 @@ def observe(document, *, command=tasks.AUTOCODE):
 
 def observe_dependencies(document, views):
     graph = document.setdefault("dependencies", {})
+    aliases = repos.member_aliases(document["members"], document["choices"])
     for target, view in views.items():
         found = {part["target"] for part in (view.get("scope") or {}).get("external_parts", [])}
-        graph[target] = sorted(set(graph.get(target, [])) | found)
+        graph[target] = sorted({aliases.get(name, name) for name in set(graph.get(target, [])) | found})
 
 
 def requests(document, views):
@@ -159,6 +160,7 @@ def requests(document, views):
         for part in (view.get("scope") or {}).get("external_parts") or []:
             requests.setdefault(part["target"], part.get("work", ""))
     existing = {row["target"] for row in document["members"]}
+    existing.update(repos.member_aliases(document["members"], document["choices"]))
     return {target: work for target, work in requests.items() if target not in existing}
 
 
@@ -173,6 +175,9 @@ def resolve_request(document, views):
     if chosen is None and len(candidates) == 1:
         chosen = candidates[0]
     if chosen:
+        member = next((row for row in document["members"] if row["git_dir"] == chosen["git_dir"]), None)
+        if member:
+            return {"kind": "alias", "target": target, "canonical": member["target"], "origin": member["origin"]}
         return {"kind": "resolve", "target": target, "work": work, "entry": chosen}
     return {
         "kind": "repository",
@@ -187,7 +192,12 @@ def resolve_request(document, views):
 
 def sync_set(document):
     members = document["members"]
-    if len(members) < 2 or not members[0]["started"]:
+    starting = (
+        (document.get("pending") or {}).get("target")
+        if (document.get("pending") or {}).get("operation") == "start"
+        else None
+    )
+    if len(members) < 2 or not (members[0]["started"] or starting == members[0]["target"]):
         return
     source = members[0]
     record = sets.find(source["run_dir"])
@@ -201,7 +211,7 @@ def sync_set(document):
                 brief=member["brief"],
             )
         saved = next(row for row in sets.members(record) if row["target"] == member["target"])
-        if member["started"] and not saved.get("run_dir"):
+        if (member["started"] or starting == member["target"]) and not saved.get("run_dir"):
             sets.bind(record["id"], member["target"], member["run_dir"])
             record = sets.find(source["run_dir"])
     if record:
@@ -238,6 +248,8 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
         if not member["started"]:
             return {"kind": "start", "target": member["target"]}
     by_target = {row["target"]: row for row in document["members"]}
+    aliases = repos.member_aliases(document["members"], document["choices"])
+    by_target.update({alias: by_target[canonical] for alias, canonical in aliases.items()})
     for target, view in views.items():
         scope = view.get("scope") or {}
         if scope.get("external_parts") and not scope.get("decision"):
@@ -248,6 +260,11 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
                     "target": target,
                     "identity": scope["identity"],
                     "members": {name: by_target[name]["run_dir"] for name in required},
+                    **(
+                        {"aliases": {name: aliases[name] for name in required if name in aliases}}
+                        if required & aliases.keys()
+                        else {}
+                    ),
                 }
         if (view.get("needs") or {}).get("kind") == "continue":
             if actions.working(view):
@@ -308,6 +325,7 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
 AUTOMATIC = {
     "resolve",
     "start",
+    "alias",
     "assign",
     "advance",
     "joint_start",
@@ -443,6 +461,9 @@ def start_member(document, member, *, command=tasks.AUTOCODE, limits=()):
     repos.prepare(member, member["workspace"])
     document["pending"] = {"operation": "start", "target": member["target"]}
     store.save(document)
+    # Bind the reserved identity before its first Requirements prompt is built.
+    # The pending start remains uncertain until the public task interface returns.
+    sync_set(document)
     tasks.TaskRun.start(
         member["workspace"],
         member["brief"],
@@ -481,6 +502,8 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
                 + ". Investigate concrete dependencies and report additional repositories if the bug crosses another interface. Own only this repository's changes.",
             )
             sync_set(document)
+        elif kind == "alias":
+            document["choices"][step["target"]] = step["origin"]
         elif kind == "start":
             start_member(document, member, command=command, limits=budget_options(document, views, command=command))
         elif kind == "reconcile":
@@ -508,6 +531,8 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
             record = sets.find(member["run_dir"])
             assignments = dict(record.get("scope_assignments") or {})
             assignments[member["run_dir"]] = {"identity": step["identity"], "members": step["members"]}
+            if step.get("aliases"):
+                assignments[member["run_dir"]]["aliases"] = step["aliases"]
             sets.set_fields(record["id"], {"scope_assignments": assignments})
             handle(member, command=command).assign_linked_scope(step["identity"])
         elif kind == "advance":
