@@ -64,19 +64,48 @@ except ImportError:
     import autocode_worker_binding as worker_binding
 
 
+# How often one --status re-reads a checkpoint that changed while its controller receipt was inspected.
+SAMPLE_RETRIES = 4
+
+
+def sample(runner, state: "RunState", run_dir, workspace):
+    """The saved checkpoint and its controller receipt, read together.
+
+    ``--status`` holds no lock. A controller that finishes a stage and exits between the state read
+    and the receipt read would otherwise be shown as ended at a checkpoint that no longer exists:
+    ``needs`` offers a continue while ``checkpoint_token`` names the earlier state, and the worker
+    refuses that exact offer as stale. When the saved state changed during the inspection, read it
+    again and inspect again, so every field of one view describes the same checkpoint.
+    """
+    path = Path(run_dir) / "state.json"
+    token, owner = util.digest(state), None
+    for _ in range(SAMPLE_RETRIES):
+        if not path.is_file():
+            return state, token, None
+        owner = controller_owner.inspect(state, run_dir, workspace)
+        try:
+            saved = runner.read_json(path)
+        except (OSError, ValueError):
+            return state, token, owner  # a checkpoint being replaced; keep the one that was read
+        if not isinstance(saved, dict) or util.digest(saved) == token:
+            return state, token, owner
+        state, token = saved, util.digest(saved)
+    return state, token, controller_owner.inspect(state, run_dir, workspace)
+
+
 def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_preview=None):
+    state, token, owner = sample(runner, state, run_dir, workspace)
     observation = {
         "version": 1,
         "workspace": str(workspace),
         "run_dir": str(run_dir),
-        "checkpoint_token": util.digest(state),
+        "checkpoint_token": token,
         "sampled_at": util.now(),
     }
     execution = state.get("execution") or {}
     execution_inspection = None
     if execution.get("mode") == "durable_local" and execution.get("launch_id"):
         execution_inspection = worker_binding.observation(execution)
-    owner = controller_owner.inspect(state, run_dir, workspace) if (Path(run_dir) / "state.json").is_file() else None
     state = controller_owner.project(state, owner)
     if getattr(args, "explain", False):
         text = stop_explanations.explain(
