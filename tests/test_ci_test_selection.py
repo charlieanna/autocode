@@ -108,6 +108,18 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
                 self.assertEqual(consumers, set(kept))
 
+    def test_task_worktree_cleanup_keeps_the_json_refusal_consumer(self):
+        consumer = "tests.test_json_output"
+        for path in (
+            "tools/autocode_native_invocation.py",
+            "tools/autocode_run_setup.py",
+            "tools/autocode_workspaces.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_launch_provenance_keeps_the_denied_admission_consumer(self):
         consumer = "tests.test_dashboard_integration"
         for path in (

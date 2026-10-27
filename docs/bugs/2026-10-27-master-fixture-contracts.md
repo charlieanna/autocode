@@ -64,3 +64,33 @@ provenance, admission and provider behavior are unchanged. CI explicitly maps th
 launch-provenance producers to this dynamic admission consumer, with a selection
 regression that also keeps it when classified slow. No model run is needed for
 this fixture/CI-only correction.
+
+## JSON refusal after unused-worktree cleanup
+
+The later integrated master run [40575058953](https://github.com/charlieanna/autocode/actions/runs/40575058953)
+on `51b164da1` exposed a separate stale assertion in `tests.test_json_output`.
+Merged #2247 deliberately removes a launch-created task worktree and branch
+when configuration refuses before the first run save. The JSON action test
+still required that unused directory to remain. A fresh Linux checkout of
+`34c3f6f12` reproduces that exact failure in 0.136 seconds.
+
+The regression now requires the unused directory and Git branch to be gone,
+while retaining the existing single-object JSON, exit/error, creation-message
+and saved-state preservation checks. It also requires the cleanup notice on
+stderr. Existing task-workspace controls retain saved runs and edited trees.
+No production cleanup or refusal behavior changes.
+
+The three launch/cleanup modules now explicitly select this dynamic JSON CLI
+consumer. The new selector regression fails for all three producer paths before
+the mapping and also exercises retention when the consumer is classified slow.
+This closes the changed-test selection gap that let the stale assertion reach
+master; no model run is necessary for this test/CI-only correction.
+
+The final focused Linux command passed 83 checks in 19.283 seconds:
+
+```sh
+/tmp/home/sweep-venv/bin/python -m unittest tests.test_json_output tests.test_task_workspaces tests.test_ci_test_selection -q
+```
+
+Ruff lint and formatting checks also pass. The original failed assertion and
+three missing-mapping failures were retained before the corresponding edits.
