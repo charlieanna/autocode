@@ -1894,7 +1894,7 @@ plan approval or declaring an ordinary task run complete.</p>
 source, index and evidence pins. Later source or evidence changes make the
 verdict UNVERIFIED while retaining the original report for inspection.</p>
 <p>Select the review provider with <code>--engine codex|opencode</code>, optional <code>--provider</code>,
-<code>--model</code> and <code>--reasoning-effort low|medium|high</code>. OpenCode is the default.
+<code>--model</code> and <code>--reasoning-effort low|medium|high|xhigh|max</code>. OpenCode is the default.
 <code>--evidence-provenance fake|live|unknown</code> labels the supplied provider evidence;
 fake results do not establish real-model effectiveness. <code>--suite-command</code>
 selects the project suite used by the external-change proof; otherwise the
@@ -1902,6 +1902,11 @@ existing runner detects the project framework and derives regression commands.
 Time limits are <code>--check-timeout</code> per runner command (default 900 seconds),
 <code>--max-seconds</code> for the review (900), and <code>--max-stage-seconds</code> (600).
 All must be positive. Provider setup is described in <a href="../providers/">Providers</a>.</p>
+<p>Coordinated reviews use <code>--related-profile PATH</code> with its exact
+<code>--related-profile-sha256</code> to retain saved routing and provenance. These paired
+options refuse explicit <code>--engine</code>, <code>--provider</code>, <code>--model</code>, <code>--reasoning-effort</code>
+and <code>--evidence-provenance</code> flags. Time and cost caps can still bound the review;
+the review keeps its single-iteration limit and disables adaptive planning.</p>
 <p>Exit codes are 0 for PASS, 2 for FAIL or UNVERIFIED, and 4 for an invalid input or
 refused operation. <code>--json</code> prints the verdict and canonical evidence metadata;
 input refusals are JSON on stderr. Normal output prints the verdict, retained
