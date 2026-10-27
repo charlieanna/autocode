@@ -126,6 +126,7 @@ class AcceptanceWriterRouteCLI(unittest.TestCase):
         self.env = {
             **provider_env,
             "AUTOCODE_HOME": str(self.root / "registry"),
+            "AUTOCODE_ATTENTION_HOME": str(self.root / "private-attention"),
             "XDG_CONFIG_HOME": str(self.root / "config"),
             "PYTHONDONTWRITEBYTECODE": "1",
             "WRITER_RUNTIME": str(Path(__file__).resolve().parents[1]),
