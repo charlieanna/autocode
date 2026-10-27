@@ -452,6 +452,18 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   REWORK, which sends the proof's reasons back to the Builder.
 - **The completion gate requires it.** A bug fix cannot reach `TASK_COMPLETE`
   unless the proof passed for the current source. A refusal names the reason.
+- **What happens today, beside the criterion.** Each regression criterion
+  (`test:`) carries a `current_behavior` box: the Investigator's observed
+  behavior, copied from the diagnosis bound to the run whose probe the runner
+  saw show the bug (an untestable reproduction is not evidence). The runner fills an
+  empty box, and the plan shows it as "Today:" under the criterion. The box is
+  not part of the agreed outcome: a revision that sets it to exactly the
+  diagnosis text goes through with a receipt on the approval screen
+  (`current_behavior: C1 -> …`) and no question, so a wrong note on today's
+  behavior no longer costs a report repair and a second planning round
+  (#2133). Any other change to it on a protected criterion still needs your
+  saved answer, as a rewording of the criterion would. A planning report that
+  leaves the box out has an empty one; that costs no report repair either.
 - **Regression tests in plain English.** When the Investigator reproduces a
   bug, it also writes the regression tests the fix must pass as `test_cases`
   in its diagnosis. Each case has an `id` (`T1`, `T2`, …) and `given`, `when`

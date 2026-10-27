@@ -11,6 +11,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- A bug-fix plan's regression criteria carry a `current_behavior` box: what happens today, copied from the
+  Investigator's diagnosis bound to the run, whose probe the runner saw show the bug (#2133). The runner
+  fills an empty box, and the approval
+  screen, the terminal chat and the channel bridge show it as "Today:" under the criterion. A planning
+  revision that sets the box to exactly the diagnosis text is recorded as a change receipt
+  (`current_behavior: C1 -> …` on the approval screen) and asks no question; any other change to it on a
+  protected criterion still needs a saved user answer. A planning report that leaves the box out has an
+  empty one, with no report repair. Before, that note lived inside the criterion text, and correcting it
+  cost a report repair, a question and a second planning round.
 - Qualification evidence is structured (#2059). `tools/qualify_routes.py` now appends a `runs` record
   to each table entry it confirms: date, run, scenario, profile, the role's accepted attempts on that route,
   and their minutes and cost (null when an attempt did not record one). The selector validates the records,
