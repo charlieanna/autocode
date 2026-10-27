@@ -18,8 +18,8 @@ attempt or the question only the user can answer. Then:
   worth of the limit that stopped the stage and runs it again with the guidance in its
   prompt (``with_guidance``). Planning guidance stays in force for every planning stage
   until the plan is presented; any other stage's guidance until that stage completes.
-  Earlier report-format diagnoses remain context for the run, matching the lifetime
-  of spent investigation identities; they grant no additional retry.
+  Earlier report-format diagnoses remain context only while the diagnosed planning
+  inputs match. Spent investigation identities remain run-wide; they grant no additional retry.
 - ``pause``, a ``DIAGNOSE_ONLY`` status, or a failed investigation: the original pause
   is restored exactly, with the diagnosis added to its reason.
 
@@ -71,6 +71,7 @@ from typing import Any
 
 try:
     from . import autocode_model_identity as model_identity
+    from . import autocode_planning_advice as recovery_binding
     from . import autocode_progressive_state as progressive
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
@@ -81,6 +82,7 @@ try:
     from .autocode_test_cases import COUNTEREXAMPLE, run_probes
 except ImportError:
     import autocode_model_identity as model_identity
+    import autocode_planning_advice as recovery_binding
     import autocode_progressive_state as progressive
     import autocode_roles as roles
     import autocode_run_status as run_status
@@ -219,6 +221,7 @@ def intercept(state: RunState, status: str, reason: str) -> bool:
         "reason": reason,
         "phase": state.get("phase"),
         "requested_at": now(),
+        **recovery_binding.binding(state, stuck),
     }
     if state.get("pending_report_repair"):
         # The before-stage hook would replay a spent repair ahead of the investigation.
@@ -244,6 +247,7 @@ def intercept(state: RunState, status: str, reason: str) -> bool:
             "requested_at": request["requested_at"],
             "outcome": "investigating",
             "trigger": trigger,
+            **recovery_binding.binding(state, stuck),
         }
     )
     pause_fields: tuple[Literal["stop_reason", "paused_at"], ...] = ("stop_reason", "paused_at")
@@ -271,7 +275,9 @@ def annotate(state: RunState, status: str, reason: str) -> str:
         (
             row
             for row in reversed(state.get("stuck_investigations", []))
-            if row.get("identity") == identity(stuck or "", status) and row.get("diagnosis")
+            if row.get("identity") == identity(stuck or "", status)
+            and row.get("diagnosis")
+            and recovery_binding.applies(state, row, stuck or "")
         ),
         None,
     )
@@ -625,6 +631,7 @@ def apply(
     grant_one_attempt(state, request)
     state["stuck_investigation"] = {
         **{k: request[k] for k in ("identity", "stage", "status")},
+        **({"planning_context": request["planning_context"]} if "planning_context" in request else {}),
         "guidance": value["guidance"],
         "diagnosis": value["diagnosis"],
         "example": value.get("example", ""),
@@ -705,12 +712,14 @@ def abandon(state: RunState, error: str) -> tuple[str, str]:
 
 
 def with_guidance(state: RunState, stage: str, request):
-    """Keep report corrections while their investigation identities remain spent."""
+    """Reuse applicable corrections; expired advice never renews its spent identity."""
     current = state.get("stuck_investigation") or {}
     if stage == STAGE:
         return request
-    active = current.get("in_force") and (
-        stage == current["stage"] or (current["stage"] in PLANNING and stage in PLANNING)
+    active = (
+        current.get("in_force")
+        and recovery_binding.applies(state, current, current.get("stage", ""))
+        and (stage == current["stage"] or (current["stage"] in PLANNING and stage in PLANNING))
     )
     lessons = planning_lessons(state) if stage in PLANNING else []
     if active:
@@ -737,11 +746,11 @@ def with_guidance(state: RunState, stage: str, request):
 
 
 def planning_lessons(state: RunState) -> list[dict]:
-    """Reuse report-format advice run-wide, matching run-wide investigation identities.
+    """Reuse report-format advice only against the planning inputs it diagnosed.
 
     A clarification, feedback or follow-up does not renew an investigation identity.
     Never resurrect its retry grant or carry convergence/product advice as a lesson.
-    Legacy INVALID_OUTPUT rows identify rejected reports even without a trigger.
+    Legacy unbound rows stay in history without being presented as current advice.
     """
     lessons = [
         row
@@ -751,6 +760,7 @@ def planning_lessons(state: RunState) -> list[dict]:
         and row.get("stage") in PLANNING
         and row.get("diagnosis")
         and row.get("guidance")
+        and recovery_binding.applies(state, row, row["stage"])
         and (
             row.get("trigger") == "rejected_output"
             or ("trigger" not in row and row.get("status") == "PAUSED_INVALID_OUTPUT")
