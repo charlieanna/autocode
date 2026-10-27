@@ -48,7 +48,11 @@ def value_text(text: str, source_ids, *, protected_locations=()) -> str:
     ids = "|".join(re.escape(value) for value in sorted(set(source_ids), key=len, reverse=True))
     if not ids:
         return text
-    reference = re.compile(r"\b(?:original|from|source)\s+(?:" + ids + r")(?=$|[\s,.;:])")
+    # A request to cite a sentence of an authenticated feedback record names its
+    # provenance, not a quantity hidden inside the record's opaque ID (#2197).
+    reference = re.compile(
+        r"\b(?:original|from|source|sentences?\s+(?:of|in))\s+(?:" + ids + r")(?=$|[\s,.;:])"
+    )
     parts = _INLINE_CODE.split(text)
     for index in range(0, len(parts), 2):
         part = parts[index]
