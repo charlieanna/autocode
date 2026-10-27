@@ -14,6 +14,7 @@ class DynamicDependenciesTests(unittest.TestCase):
             "tools/autocode_check_refs.py",
             "tools/autocode_completion.py",
             "tools/autopilot.py",
+            "tools/autocode_resolver.py",
             "tools/prompts/validator.md",
             "tools/prompts/completion-review.md",
             "tests/stage_repair_provider.py",

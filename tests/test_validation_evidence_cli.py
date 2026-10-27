@@ -32,8 +32,17 @@ class ValidationEvidenceCLI(unittest.TestCase):
         run.show_goal()
         run.approve_plan(view["displayed_plan"]["token"])
         view = run.advance_until_input()
-        self.assertEqual("TASK_COMPLETE", view["status"], view.get("stop_reason"))
         trace = [json.loads(line) for line in (fixture.root / "stage-repair-trace.jsonl").read_text().splitlines()]
+        self.assertEqual(
+            "TASK_COMPLETE",
+            view["status"],
+            {
+                "reason": view.get("stop_reason"),
+                "stage": view.get("next_stage"),
+                "calls": [{k: row.get(k) for k in ("stage", "repair", "error")} for row in trace],
+                "stderr": run.last_advance.stderr[-2500:] if run.last_advance else "",
+            },
+        )
         testers = [row for row in trace if row["stage"] == "sol"]
         self.assertEqual([False, True], [row["repair"] for row in testers], trace)
         self.assertIn(testers[0]["missing_evidence_id"], testers[1]["error"])

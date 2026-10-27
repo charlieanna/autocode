@@ -465,6 +465,29 @@ class ResolverTests(unittest.TestCase):
             self.assertEqual("escalate", r.resolve(denied)[0].action)
             self.assertFalse(denied.ledger.attempts)
 
+    def test_current_behavior_is_supported_without_weakening_contract_validation(self):
+        for text in ("", "The current implementation drops the last page"):
+            owned = body()
+            owned["acceptance_criteria"][0]["current_behavior"] = text
+            before = copy.deepcopy(owned)
+            proposal = r.Proposal("retry", {"guidance": "Repair the report using existing evidence"}, "report repair")
+            decision, receipt = r.resolve(request(contract=snapshot(owned), proposed_resolution=proposal))
+            self.assertEqual(("retry", "proposal within boundaries"), (decision.action, receipt.in_scope_reason))
+            self.assertEqual(before, owned)
+            changed = copy.deepcopy(owned)
+            changed["acceptance_criteria"][0]["current_behavior"] = "Unapproved replacement"
+            result = r.resolve(
+                request(contract=snapshot(owned), proposed_resolution=r.Proposal("replan", {"body": changed}, "x"))
+            )
+            self.assertEqual("protected contract change", result[0].rationale)
+        for value in (None, 1, [], {}):
+            owned = body()
+            owned["acceptance_criteria"][0]["current_behavior"] = value
+            self.assertEqual("escalate", r.resolve(request(contract=snapshot(owned)))[0].action)
+        owned = body()
+        owned["acceptance_criteria"][0]["unknown_field"] = "not supported"
+        self.assertEqual("escalate", r.resolve(request(contract=snapshot(owned)))[0].action)
+
     def test_every_optional_goal_body_field_keeps_the_contract_resolvable(self):
         # The next field autocode_goals adds to the body must not repeat #452's escalation.
         import autocode_goals as goals
