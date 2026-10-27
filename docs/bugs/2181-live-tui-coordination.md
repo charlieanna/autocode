@@ -1,6 +1,6 @@
 # Live terminal-chat coordination qualification
 
-Checkpoint: 2026-10-27 06:24 UTC; both live cohorts stopped in planning.
+Checkpoint: 2026-10-27 06:56 UTC; live qualification resumed, still in planning.
 The requested live end-to-end qualification has not passed.
 
 The live qualification uses actual full-screen terminal chat, three private GitHub
@@ -10,7 +10,7 @@ the authorized checkout catalog. No manual linking, joint-test command or fixtur
 PR command was supplied. All AutoCode source corrections were authored directly;
 AutoCode changes only the intentionally broken fixtures during verification.
 
-The final live runtime revision is `475b8ec706bed696917ac12e952666f6b94ef479`.
+The current live runtime revision is `01d696fa64a1c153e0e85002d0613f59ba8b45c8`.
 Earlier captures used `5df0d9d30` and `3b20b0329`; every attempt is retained.
 GLM-5.3 (`zai-coding-plan/glm-5.3`) authors Requirements and goal plans; MiMo Pro
 (`xiaomi-token-plan-sgp/mimo-v2.6-pro`) independently reviews plans. One cohort uses
@@ -153,3 +153,32 @@ Requirements/goal planning reached GLM-5.3; plan review reached MiMo Pro;
 investigation/recovery reached each cohort's configured checker family. The intended
 Builder/Tester pairings remain unreached. Deterministic joint-flow success is not a
 substitute for the requested live result. PR #2182 remains draft.
+
+## Held planning-repair recovery (2026-10-27)
+
+The next actual TUI continuation exposed [#2191](https://github.com/charlieanna/autocode/issues/2191):
+a cached corrective-information hold intercepted every plain resume, preventing
+reconciliation of a spent planning report repair. That pending repair also blocked
+the explicit retry, leaving Continue in a loop without a model launch. The direct
+fix is [PR #2192](https://github.com/charlieanna/autocode/pull/2192), also applied to
+this qualification branch. An explicit continuation after the information hold can
+archive only the exhausted, terminal planning repair and immediately return,
+keeping the repeated-failure pause and all counts. The next fresh view names the
+existing scoped retry. Active/uncertain work and unspent repairs are excluded.
+
+The finalized public CLI/conformance regression fails on unmodified master
+(9.714 s). All 16 affected operational-information CLI tests pass on supported
+Linux (169.881 s, session/tool-containment preflight), plus 20 focused control,
+retry and pause checks. Ruff and mypy pass. The live MiMo cohort then exercised
+the corrected path: its TUI changed from plain resume to the explicit scoped
+retry; that retry correctly stopped at the existing planning-review bound.
+
+The GLM Builder cohort's next MiMo final review and two repairs still failed
+source-trace validation (121.886 s provider time). Its diagnostic bundle manifest
+is `42d81746cc68564a76f59e4657048cd0d6e796e83abd298834690afb68087e1e`.
+Citation-only replanning feedback was submitted through its TUI, preserving the
+protected criterion wording and real joint-proof/publication obligations. One
+extra review call was selected per cohort (total 4); dollar/run caps and routes
+remain unchanged. The runtime upgrade changed no saved run state, transport
+configuration or prompt resources. Neither cohort has yet reached Builder,
+Tester, joint proof or automatic fixture publication.
