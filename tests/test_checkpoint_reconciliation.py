@@ -126,6 +126,15 @@ class CheckpointCliTests(unittest.TestCase):
         for role in ("owner", "keeper", "provider"):
             saved[role]["pid"] = 2**22 - 1
         self.path.write_text(json.dumps(self.state))
+        # Real interrupted Kilo launches retain command metadata larger than a controller receipt.
+        (self.run / "active-processes.json").write_text(
+            json.dumps(
+                {
+                    "command": ["provider", "x" * 32768],
+                    "processes": [saved["provider"]],
+                }
+            )
+        )
         self.source = self.workspace / "source.txt"
         self.source.write_text("retained partial work\n")
 

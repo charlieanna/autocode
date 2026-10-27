@@ -288,6 +288,26 @@ class OwnerInspectionTests(unittest.TestCase):
             self.assertEqual("unknown", observed["kind"])
             self.assertEqual("PAUSED_PROCESS_CHECK", owners.project(self.state, observed)["status"])
 
+    def test_large_launch_marker_keeps_birth_bound_worker_inspection(self):
+        marker = self.run_dir / "active-processes.json"
+        util.atomic_json(
+            marker, {"command": ["provider", "x" * 32768], "processes": [{"pid": 123, "birth_identity": 1}]}
+        )
+        before = marker.read_bytes()
+        for checked, alive, expected in ((True, False, "ended"), (True, True, "busy"), (False, None, "unknown")):
+            with (
+                self.subTest(expected=expected),
+                patch.object(processes, "recorded_worker_state", return_value={"checked": checked, "alive": alive}),
+            ):
+                self.assertEqual(expected, owners.inspect(self.state, self.run_dir, self.workspace)["kind"])
+                self.assertEqual(before, marker.read_bytes())
+        marker.write_text("x" * (owners.MAX_PROCESS_MARKER_BYTES + 1))
+        self.assertEqual("unknown", owners.inspect(self.state, self.run_dir, self.workspace)["kind"])
+        marker.unlink()
+        # The controller receipt itself keeps the original small bound.
+        (self.run_dir / owners.FILE).write_text("x" * (owners.MAX_BYTES + 1))
+        self.assertEqual("unknown", owners.inspect(self.state, self.run_dir, self.workspace)["kind"])
+
     def test_unsaved_preview_does_not_replace_the_durable_ready_checkpoint(self):
         checkpoint = (self.run_dir / "state.json").read_bytes()
         with util.run_lock(self.run_dir), owners.Owner(self.state, self.run_dir, self.persist) as owner:

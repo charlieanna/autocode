@@ -470,6 +470,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         (
             "tools/autocode_checkpoint_reconciliation.py",
+            "tools/autocode_controller_owner.py",
             "tools/autocode_action_recovery.py",
             "tools/autocode_native_invocation.py",
             "tools/autocode_run_setup.py",

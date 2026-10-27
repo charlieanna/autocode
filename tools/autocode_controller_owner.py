@@ -38,6 +38,9 @@ except ImportError:
 FILE = "controller-owner.json"
 STATUS = "PAUSED_CONTROLLER_EXIT"
 MAX_BYTES = 16384
+# A launch marker also retains argv/context; its process identities use the same
+# strict reader, but it is not a small controller receipt. Keep both bounds finite.
+MAX_PROCESS_MARKER_BYTES = 1024 * 1024
 _owners: dict[str, Owner] = {}
 _MISSING = object()
 
@@ -55,22 +58,22 @@ def _object(pairs):
     return result
 
 
-def _read_json(path):
+def _read_json(path, *, max_bytes=MAX_BYTES):
     try:
         before = path.lstat()
     except FileNotFoundError:
         return _MISSING
-    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > MAX_BYTES:
+    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > max_bytes:
         raise ValueError("Controller receipt is not a bounded owned regular file")
     with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
         opened = os.fstat(stream.fileno())
-        data = stream.read(MAX_BYTES + 1)
+        data = stream.read(max_bytes + 1)
         finished = os.fstat(stream.fileno())
     after = path.lstat()
     fields = ("st_dev", "st_ino", "st_mode", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns")
     if any(getattr(before, key) != getattr(value, key) for value in (opened, finished, after) for key in fields):
         raise ValueError("Controller receipt changed while inspected")
-    if len(data) != before.st_size or len(data) > MAX_BYTES:
+    if len(data) != before.st_size or len(data) > max_bytes:
         raise ValueError("Controller receipt was not read completely")
     value = json.loads(
         data,
@@ -171,7 +174,7 @@ def _worker_ownership(state: RunState, run_dir):
             return "busy", "Birth-bound provider workers are still alive"
         if observed.get("checked") is not True or observed.get("alive") is not False:
             uncertain = True
-    marker = _read_json(Path(run_dir) / "active-processes.json")
+    marker = _read_json(Path(run_dir) / "active-processes.json", max_bytes=MAX_PROCESS_MARKER_BYTES)
     if marker is not _MISSING:
         if not isinstance(marker, dict) or not isinstance(marker.get("processes"), list) or not marker["processes"]:
             uncertain = True
