@@ -22,6 +22,19 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {public: "slow"})
                 self.assertEqual({public} if path.startswith("tests/") else {public, metadata}, set(kept))
 
+    def test_claim_reference_changes_keep_the_public_consumer(self):
+        consumer = "tests.test_verification_claim_cli"
+        for path in (
+            "tools/autocode_handoff_dedup.py",
+            "tools/autocode_context.py",
+            "tools/autocode_stage_context.py",
+            "tests/stage_repair_provider.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_validation_evidence_admission_keeps_its_public_repair_regression(self):
         consumer = "tests.test_validation_evidence_cli"
         for path in (

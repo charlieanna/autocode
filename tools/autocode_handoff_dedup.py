@@ -5,6 +5,7 @@ are presentation details of a copied handoff, never persisted run-state changes.
 """
 
 import copy
+import hashlib
 import json
 
 REFERENCE_POLICY = (
@@ -14,6 +15,44 @@ REFERENCE_POLICY = (
     "command_ref supplies only the command text; each replay keeps its own outcome "
     "and evidence. References do not narrow scope or turn reported PASS into verified PASS."
 )
+
+
+def _claim_references(packet, criteria):
+    """Reference only exact, identity-bound criterion declarations in this packet."""
+    if packet.get("stage") == "write_acceptance_tests":
+        return False
+    obligations = packet.get("verification_obligations")
+    checks = obligations.get("checks") if isinstance(obligations, dict) else None
+    if not isinstance(checks, list):
+        return False
+    changed = False
+    for check in checks:
+        if not isinstance(check, dict) or "claim_ref" in check:
+            continue
+        ids = check.get("criterion_ids")
+        if not isinstance(ids, list) or len(ids) != 1 or not isinstance(ids[0], str) or not ids[0]:
+            continue
+        matches = [(index, row) for index, row in enumerate(criteria) if row["id"] == ids[0]]
+        if len(matches) != 1:
+            continue
+        index, criterion = matches[0]
+        text = criterion["criterion"]
+        identity = hashlib.sha256(json.dumps(criterion, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        purpose = "human_review" if criterion.get("human_review") else "approved_acceptance"
+        reference = f"#/goal_contract/body/acceptance_criteria/{index}/criterion"
+        if (
+            not isinstance(text, str)
+            or not text
+            or check.get("claim") != text
+            or check.get("criterion_identity") != identity
+            or check.get("purpose") != purpose
+            or len(json.dumps(text)) <= len(json.dumps(reference)) + 4
+        ):
+            continue
+        del check["claim"]
+        check["claim_ref"] = reference
+        changed = True
+    return changed
 
 
 def deduplicate(base):
@@ -31,6 +70,7 @@ def deduplicate(base):
         and criteria
         and all(isinstance(c, dict) and "id" in c and "criterion" in c for c in criteria)
     ):
+        changed = _claim_references(result, criteria) or changed
         definitions = [{k: c[k] for k in ("id", "criterion")} for c in criteria]
         if result.get("acceptance_criteria") == definitions and "acceptance_criteria_ref" not in result:
             del result["acceptance_criteria"]

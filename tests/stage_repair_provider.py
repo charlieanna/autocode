@@ -200,6 +200,26 @@ def main():
     event_rows = [json.loads(line) for line in stdout.getvalue().splitlines() if line.strip()]
     case = os.environ["STAGE_REPAIR_CASE"]
     row = {"stage": stage, "repair": repair, "error": data.get("error", ""), "output": str(output)}
+    if case == "verification-claims" and stage in ("terra", "sol", "astra_review") and not repair:
+        checks = data["verification_obligations"]["checks"]
+        referenced = [check for check in checks if "claim_ref" in check]
+        assert referenced, "Expected identity-bound claim references in the actual stage handoff"
+        for check in referenced:
+            parts = check["claim_ref"].removeprefix("#/").split("/")
+            target = data
+            for key in parts:
+                target = target[int(key)] if isinstance(target, list) else target[key]
+            criteria = data["goal_contract"]["body"]["acceptance_criteria"]
+            matches = [criterion for criterion in criteria if [criterion["id"]] == check["criterion_ids"]]
+            assert len(matches) == 1 and target == matches[0]["criterion"]
+            identity = hashlib.sha256(
+                json.dumps(matches[0], sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            assert identity == check["criterion_identity"]
+            assert check["method"] == matches[0]["verification_method"]
+            assert isinstance(check["commands"], list) and isinstance(check["collection_recipe"], list)
+        row["claim_references"] = len(referenced)
+        row["verification_obligations"] = len(checks)
     if stage == "sol" and case == "criterion-evidence":
         value["criterion_results"][0]["evidence_refs"] = []
         row["missing_evidence_id"] = value["criterion_results"][0]["id"]
