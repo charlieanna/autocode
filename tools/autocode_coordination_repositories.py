@@ -65,6 +65,7 @@ def require_clean_product(entry):
 
 
 def require_identity(member):
+    require_worktree(member, member["workspace"])
     actual = identity(member["workspace"])
     if any(actual[key] != member[key] for key in ("git_dir", "remote", "push_remote")):
         raise CoordinationError("Repository or publication remote changed after discovery")
@@ -134,15 +135,45 @@ def slug(target):
     return name + "-" + hashlib.sha256(target.encode()).hexdigest()[:8]
 
 
+def literal_destination(destination):
+    destination = Path(destination).absolute()
+    if ".." in destination.parts or any(path.is_symlink() for path in (destination, *destination.parents)):
+        raise CoordinationError("Reserved worktree path is redirected")
+    return destination
+
+
+def require_worktree(entry, destination):
+    """An owned member must be a literal linked checkout, never its original."""
+    destination = literal_destination(destination)
+    marker = destination / ".git"
+    if destination == Path(entry["origin"]).resolve() or marker.is_symlink() or not marker.is_file():
+        raise CoordinationError("Reserved path is not an isolated linked worktree")
+    directory = Path(git(destination, "rev-parse", "--absolute-git-dir"))
+    common = Path(entry["git_dir"])
+    backlink = directory / "gitdir"
+    if directory.parent != common / "worktrees" or backlink.is_symlink():
+        raise CoordinationError("Reserved path does not match its isolated worktree registration")
+    literal_destination(directory)
+    try:
+        with backlink.open("rb") as handle:
+            registered = Path(os.fsdecode(handle.read(16_385).removesuffix(b"\n")))
+    except OSError as error:
+        raise CoordinationError("Reserved path has no isolated worktree registration") from error
+    if registered != marker:
+        raise CoordinationError("Reserved path does not match its isolated worktree registration")
+
+
 def prepare(entry, destination):
-    destination = Path(destination)
+    destination = literal_destination(destination)
     if destination.exists():
+        require_worktree(entry, destination)
         actual = identity(destination)
         if actual["git_dir"] != entry["git_dir"] or actual["base"] != entry["base"]:
             raise CoordinationError("Reserved worktree exists with a different repository or base")
         return
     destination.parent.mkdir(parents=True, exist_ok=True)
     git(entry["origin"], "worktree", "add", "--detach", "--", destination, entry["base"])
+    require_worktree(entry, destination)
 
 
 def source_files(workspace):
