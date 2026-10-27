@@ -47,6 +47,7 @@ SUITE_CONSUMERS = (
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tests/test_report_repair.py", ("tests.test_native_event_identity_cli",)),
     ("tools/prompts/discovery.md", ("tests.test_investigation_evidence", "tests.test_investigation_handoff_cli")),
     (
         "tools/prompts/fragments/autoplanner/bug-diagnosis-rule.md",
@@ -204,6 +205,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("tools/autocode_event_matching.py", "tools/providers/opencode_events.py", "tools/autocode_support.py"),
+        ("tests.test_validation_metadata", "tests.test_native_event_identity_cli"),
+    ),
     (
         (
             "tools/autocode_check_refs.py",

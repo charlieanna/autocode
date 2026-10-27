@@ -84,6 +84,53 @@ class ValidationMetadataTests(unittest.TestCase):
                     [{"command": None, "evidence_ref": "event:synthetic-check", "exit_code": None}]
                 )
 
+    def test_completed_command_conflict_is_refused_even_before_exit_is_known(self):
+        for metadata in ({}, {"exit": None}, {"exit": True}, {"exit": "0"}, None):
+            with self.subTest(metadata=metadata):
+                earlier = self.native_event(command="python3 other.py")
+                earlier["part"]["state"]["metadata"] = metadata
+                self.native_log(earlier, self.native_event())
+                self.assert_checks_refused_unchanged(
+                    [{"command": None, "evidence_ref": "event:synthetic-check", "exit_code": None}]
+                )
+
+    def test_same_completed_command_can_refine_missing_exit_but_final_exit_is_required(self):
+        earlier = self.native_event()
+        earlier["part"]["state"]["metadata"] = {}
+        self.native_log(earlier, self.native_event())
+        checks = [{"command": None, "evidence_ref": "event:synthetic-check", "exit_code": None}]
+        support.verify_checks(checks, self.workspace, self.log)
+        self.assertEqual(self.COMPOUND_COMMAND, checks[0]["command"])
+        self.assertEqual(0, checks[0]["exit_code"])
+        self.native_log(self.native_event(), earlier)
+        self.assert_checks_refused_unchanged(
+            [{"command": None, "evidence_ref": "event:synthetic-check", "exit_code": None}]
+        )
+
+    def test_partial_metadata_can_add_a_missing_message_identity_without_a_repair(self):
+        earlier = self.native_event()
+        earlier["part"].pop("messageID")
+        earlier["part"]["state"]["metadata"] = {}
+        self.native_log(earlier, self.native_event())
+        checks = [{"command": None, "evidence_ref": "event:synthetic-check", "exit_code": None}]
+        support.verify_checks(checks, self.workspace, self.log)
+        self.assertEqual(self.COMPOUND_COMMAND, checks[0]["command"])
+        self.assertEqual(0, checks[0]["exit_code"])
+
+    def test_sessionless_noise_does_not_conflict_with_the_normalized_session(self):
+        for session in (None, 7, "missing"):
+            with self.subTest(session=session):
+                noise = self.native_event(command="python3 unrelated.py")
+                if session == "missing":
+                    noise.pop("sessionID")
+                else:
+                    noise["sessionID"] = session
+                self.native_log(noise, self.native_event())
+                checks = [{"command": None, "evidence_ref": "event:synthetic-check", "exit_code": None}]
+                support.verify_checks(checks, self.workspace, self.log)
+                self.assertEqual(self.COMPOUND_COMMAND, checks[0]["command"])
+                self.assertEqual(0, checks[0]["exit_code"])
+
     def test_t2_hydrates_multiple_rows(self):
         commands = {
             "check-a": self.COMPOUND_COMMAND,

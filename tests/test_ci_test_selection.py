@@ -8,6 +8,20 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_native_identity_changes_keep_the_public_repair_consumer(self):
+        public = "tests.test_native_event_identity_cli"
+        metadata = "tests.test_validation_metadata"
+        for path in (
+            "tools/autocode_event_matching.py",
+            "tools/providers/opencode_events.py",
+            "tools/autocode_support.py",
+            "tests/test_report_repair.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {public: "", metadata: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {public: "slow"})
+                self.assertEqual({public} if path.startswith("tests/") else {public, metadata}, set(kept))
+
     def test_validation_evidence_admission_keeps_its_public_repair_regression(self):
         consumer = "tests.test_validation_evidence_cli"
         for path in (
