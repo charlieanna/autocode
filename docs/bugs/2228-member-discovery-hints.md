@@ -20,5 +20,8 @@ coordination checks and type/lint checks pass. The full supervised Linux public
 TUI regression passes in 379.588 seconds, including first-dispatch source-authority
 checks, actual three-repository execution, independent joint fail-before/pass-after
 proof, linked offline publication, idempotent reopen and stale-proof rejection.
+The focused linked-scope/understanding-confirmation regression also passes on
+supported Linux (140.720 seconds), including the public member task's unchanged
+user text and the existing question/approval gate.
 This is deterministic provider evidence; the broader live qualification remains
 tracked in #2208.
