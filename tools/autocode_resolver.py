@@ -286,7 +286,7 @@ def _validate_body(body: Any) -> bool:
     if not _rows(
         body["acceptance_criteria"],
         {"id", "criterion", "verification_method", "human_review"},
-        optional={"sources", "current_behavior"},
+        optional={"sources", "current_behavior"},  # current_behavior: today's behaviour beside a criterion (#2133)
     ):
         return False
     criteria = {row["id"] for row in body["acceptance_criteria"]}
