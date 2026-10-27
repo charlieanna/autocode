@@ -162,9 +162,15 @@ class History:
     def summary(self) -> str:
         rows = self.connection_rows()
         try:
-            return setup.summary(self.read(["modes", "list", "--json"]), self.new, rows)
+            text = setup.summary(self.read(["modes", "list", "--json"]), self.new, rows)
         except actions.ClientGap:
-            return setup.summary(None, self.new, rows)
+            text = setup.summary(None, self.new, rows)
+        notice = setup.default_notice(self.new, rows)
+        return text if notice is None else f"{text}\n{notice}"
+
+    def notice(self) -> str | None:
+        """The default-backend warning alone, for the plain chat, which shows no banner."""
+        return setup.default_notice(self.new, self.connection_rows())
 
     def chose(self, done: str) -> str:
         kept = self.new.save(self.workspace)
@@ -1653,6 +1659,7 @@ def open_chat(
     hint: bool = False,
     intro: str | None = None,
     new: setup.NewChat | None = None,
+    slash: Callable[[str, str], str | None] | None = None,
     **kwargs,
 ):
     """`autocode chat` with nothing named: pick up the run left open here, or ask what to do.
@@ -1690,7 +1697,15 @@ def open_chat(
                 say(f"{len(earlier)} earlier chat{'s' if len(earlier) != 1 else ''} here. Type /runs to see them.")
             if intro:
                 say(intro)
-            brief = ask("What do you want done? ").strip()
+            while True:
+                brief = ask("What do you want done? ").strip()
+                if slash is None or not brief.startswith("/"):
+                    break
+                # The line-by-line chat takes /engine, /mode, /connect and /runs here as the full-screen one
+                # does, instead of starting a run called "/engine claude".
+                name, _, argument = brief.partition(" ")
+                answer = slash(name, argument.strip())
+                say(answer if answer is not None else f"{name} needs an open chat. Type what you want done.")
     except Opened as opened:
         row = opened.row
         return ChatClient(Path(row.get("workspace") or workspace), Path(row["run_dir"]), ask=ask, say=say, **kwargs)
@@ -1838,8 +1853,9 @@ def cli(argv: list[str] | None = None) -> int:
                 ask=ask,
                 say=say,
                 hint=ui is not None,
-                intro=history.summary() if ui is not None else None,
+                intro=history.summary() if ui is not None else history.notice(),
                 new=new,  # /mode, /engine and /connect at the first question change it (#2009)
+                slash=history.slash if ui is None else None,  # the full-screen chat binds them itself
                 **seen,
             )
             if client is None:

@@ -141,6 +141,29 @@ def summary(listed: dict | None, chosen: NewChat, rows: list[dict] | None = None
     return f"New chats: {mode} · {backend_label(used, rows)}. /mode and /engine change them."
 
 
+def default_notice(chosen: NewChat, rows: list[dict] | None = None) -> str | None:
+    """A line before the first question when the backend new chats would run on cannot start one (not
+    installed, setup required) and the person chose no engine of their own: what else `connections list`
+    says is installed, and the /engine or /connect that picks it. None when the backend is usable, when
+    the person chose one, or when the listing could not be read."""
+    rows = rows or []
+    if flag_value(chosen.options, "--engine") or flag_value(chosen.options, "--provider"):
+        return None
+    used = backend(chosen, default_connection(rows))
+    row = next((row for row in rows if row["id"] == used), None)
+    if row is None or row.get("connection_status") not in NOT_USABLE:
+        return None
+    usable = [other for other in rows if other.get("connection_status") not in NOT_USABLE]
+    head = f"{backend_label(used, rows)} cannot start chats yet ({state(row)})."
+    if not usable:
+        return head + " Run autocode doctor to see what to install."
+    picks = ", ".join(
+        f"/engine {other['id']}" if other["id"] in ENGINES else f"/connect {other['id']} use" for other in usable
+    )
+    names = ", ".join(backend_label(str(other["id"]), rows) for other in usable)
+    return f"{head} Installed here: {names}. Type {picks} to run new chats on it."
+
+
 def modes_text(listed: dict, chosen: NewChat) -> str:
     """What /mode prints: each mode the core lists, with its description and the current one marked."""
     current = chosen.mode or listed.get("default")

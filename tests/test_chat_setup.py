@@ -133,6 +133,31 @@ class ListingTests(unittest.TestCase):
         self.assertIn("  claude  Claude Code  (current)", setup.engines_text(claude, rows))
         self.assertIn("  kilocode  Kilo: unavailable\n", setup.connections_text(rows, claude))
 
+    def test_an_unusable_default_backend_is_said_before_the_first_question_with_what_to_type(self):
+        """A host with Claude Code installed and no OpenCode: the chat said nothing until the first request
+        failed with "OpenCode is not on PATH"."""
+        rows = [
+            {"id": "opencode", "label": "OpenCode", "connection_status": "unavailable", "default": True},
+            {"id": "claude", "label": "Claude Code", "connection_status": "not_checked"},
+            {"id": "autocode", "label": "AutoCode · Direct", "connection_status": "setup_required"},
+        ]
+        self.assertEqual(
+            "OpenCode cannot start chats yet (unavailable). Installed here: Claude Code. "
+            "Type /engine claude to run new chats on it.",
+            setup.default_notice(setup.NewChat(), rows),
+        )
+        kilo = [{**row, "id": "kilocode", "label": "Kilo"} if row["id"] == "claude" else row for row in rows]
+        self.assertIn("Type /connect kilocode use", setup.default_notice(setup.NewChat(), kilo))
+        alone = [row for row in rows if row["id"] != "claude"]
+        self.assertEqual(
+            "OpenCode cannot start chats yet (unavailable). Run autocode doctor to see what to install.",
+            setup.default_notice(setup.NewChat(), alone),
+        )
+        self.assertIsNone(setup.default_notice(setup.NewChat(None, ["--engine", "claude"]), rows), "chosen")
+        usable = [{**row, "connection_status": "not_checked"} if row["id"] == "opencode" else row for row in rows]
+        self.assertIsNone(setup.default_notice(setup.NewChat(), usable))
+        self.assertIsNone(setup.default_notice(setup.NewChat(), []), "an unreadable listing says nothing")
+
     def test_connections_offer_their_own_actions_and_use_only_when_usable(self):
         rows = setup.connections(CONNECTIONS)
         text = setup.connections_text(rows, setup.NewChat(None, ["--provider", "opencode"]))
