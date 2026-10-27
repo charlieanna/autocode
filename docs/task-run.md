@@ -362,6 +362,11 @@ conformance client's `message_command()` implements this same parsing boundary.
 A client compares the displayed `context` with a fresh status before submitting;
 if it changed, retain the draft and ask the person to review the new checkpoint.
 The ordinary CLI independently rechecks admission when saving the action.
+At a semantic Resolver or completion stop (`RESOLVER_PENDING` or
+`PAUSED_COMPLETION_GATE` with `needs.kind=resume`), permitted corrective feedback
+uses this same named offer. Terminal chat lets the person type the correction at
+the Continue prompt. A held operational pause, blocker or human-review gate does
+not gain a feedback bypass; the existing pause-authority policy still decides.
 An operational `resolver_response` offer binds `provide_information` to the current
 Resolver request ID and token in `needs`. It supplies corrective information only;
 retry grants, scope changes, model routing and resuming remain separate actions.
