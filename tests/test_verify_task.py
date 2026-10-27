@@ -67,6 +67,19 @@ def contract(command, *, human=False):
 
 
 class CriteriaTests(unittest.TestCase):
+    def test_related_profile_pair_is_required_before_any_review_launch(self):
+        for extra in (("--related-profile", "profile.json"), ("--related-profile-sha256", "0" * 64)):
+            with self.subTest(extra=extra), mock.patch.object(verifier, "verify") as launch:
+                error = StringIO()
+                with mock.patch.dict(os.environ, clean_git_environment(), clear=True):
+                    with redirect_stderr(error):
+                        result = verifier.cli(["--json", *extra])
+                self.assertEqual(4, result)
+                refusal = json.loads(error.getvalue())
+                self.assertEqual("UNVERIFIED", refusal["verdict"])
+                self.assertIn("supplied together", refusal["error"])
+                launch.assert_not_called()
+
     def test_related_profile_cannot_silently_discard_explicit_review_routes(self):
         for flag, value in (
             ("--engine", "codex"),
