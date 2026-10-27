@@ -2650,6 +2650,22 @@ class GoalTests(unittest.TestCase):
             self.state["validation"]["end_to_end_result"] = flow
             self.assertFalse(completion_gate.completion_ready(self.state, self.decision("COMPLETE"), current))
 
+    def test_completion_names_pending_flow_when_local_criteria_all_pass(self):
+        self.approve()
+        current = self.validation()
+        self.state["validation"]["end_to_end_result"] = {
+            "status": "NOT_VERIFIED",
+            "summary": "Local tax checks pass; the coordinator's later real-code joint proof has not run.",
+            "evidence_refs": ["event:local-tax"],
+            "pending_human_criteria": [],
+        }
+        self.assertFalse(completion_gate.completion_ready(self.state, self.decision("COMPLETE"), current))
+        reason = completion_gate.rejection(self.state)
+        self.assertIn("end_to_end_flow", reason)
+        self.assertIn("NOT_VERIFIED", reason)
+        self.assertIn("coordinator's later real-code joint proof has not run", reason)
+        self.assertIn("revise the plan", reason)
+
     def test_end_to_end_evidence_cannot_cite_fabricated_events(self):
         self.approve()
         self.validation()

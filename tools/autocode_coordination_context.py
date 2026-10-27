@@ -26,6 +26,13 @@ that stand-in is enough: it is not. If the current trace does that, request a Pl
 revision that retains the real joint obligation instead of requesting proxy consent.
 Missing owners must still be reported and discovered. No proof is granted here:
 all member approvals/checks and the real joint publication gate still apply.
+LOCAL FLOW GATE. The approved end_to_end_flow must describe only this member's executable local path.
+It is a prerequisite to member completion, BEFORE the coordinator can create its
+joint task. Do not put a future coordinator joint check or publication step in
+that local flow: doing so creates a circular prerequisite. Retain every whole-set
+outcome and preservation obligation in required_behaviors or constraints, with
+their exact traces. Reviewers must request a plan revision if a member flow owns
+those later steps; never report local PASS for an unrun whole-set flow or waive it.
 The following ordinary proxy rule continues to apply to local obligations and any
 claimed outcome without that retained coordinator-owned real proof.
 """

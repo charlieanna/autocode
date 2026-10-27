@@ -127,6 +127,8 @@ def main():
             raise RuntimeError("Member context must retain the joint obligation instead of authorizing exclusion")
         if "REAL JOINT PROOF IS NOT A LOCAL PROXY" not in member["instruction"]:
             raise RuntimeError("Real coordinator proof must not ask for local stand-in acceptance")
+        if "only this member's executable local path" not in member["instruction"]:
+            raise RuntimeError("Local flow completion must precede, not wait for, coordinator joint proof")
         if name != "checkout":
             hint = member.get("reported_work")
             if not isinstance(hint, str) or not hint:
@@ -182,10 +184,19 @@ def main():
     outcome = "Fix checkout showing the wrong final total."
     body.update(
         intended_outcome=outcome,
-        end_to_end_flow=["Compute tax, serialize history, display checkout total"],
+        end_to_end_flow=[
+            "Compute tax, serialize history, display checkout total using the real member code"
+            if joint
+            else {
+                "checkout": "Execute checkout formatting through its local receipt entry point",
+                "history": "Execute history serialization and its local tax-service boundary",
+                "tax": "Execute the local tax-service entry point and preserve zero",
+            }[name]
+        ],
         technical_approach=["Execute actual Python functions through their real interfaces"],
         deliverables=paths,
-        required_behaviors=[outcome],
+        required_behaviors=[outcome]
+        + ([] if joint else ["The coordinator must separately prove the actual checkout, history and tax flow"]),
         constraints=["Do not mock production boundaries"],
         important_failure_cases=[],
         scope_exclusions=[],
@@ -411,7 +422,7 @@ def main():
             criterion_results=[{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}],
             end_to_end_result={
                 "status": "PASS",
-                "summary": "Executed the actual code",
+                "summary": "Executed the actual joint code" if joint else f"Executed the {name} local flow",
                 "evidence_refs": ["event:check"],
                 "technical_result": None,
                 "pending_human_criteria": [],

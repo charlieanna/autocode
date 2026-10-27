@@ -50,6 +50,9 @@ release implementation against the expanded set.
 Read and approve the displayed member plans. AutoCode retains the selected role
 routes, efforts and run limits. A configured money cap is shared across sequential
 launches using the core's known-cost accounting; unknown cost remains unknown.
+Each member's flow gate covers its own executable local path. The later joint
+test remains a required whole-set obligation in the plan's constraints or required
+behaviors; placing it inside a member's completion flow creates a circular prerequisite.
 After each member passes its checks, a separate
 integration Builder derives a joint regression from the symptom and interfaces.
 Chat displays this plan for approval too; you do not write its test command.

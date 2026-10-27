@@ -91,6 +91,20 @@ def rejection(state: RunState) -> str:
                 )
             return f"{REFUSED}. Source-declared lifecycle promises need fresh, intact runner process-recovery proof."
     if not gaps:
+        flow = validation.get("end_to_end_result") or {}
+        if (
+            "end_to_end_flow" in ((state.get("goal_contract") or {}).get("body") or {})
+            and not flow.get("pending_human_criteria")
+            and (flow.get("status") != "PASS" or not flow.get("evidence_refs") or not flow.get("summary", "").strip())
+        ):
+            detail = str(flow.get("summary") or "No independent flow evidence was supplied.").strip()
+            return (
+                f"{REFUSED}. The approved end_to_end_flow is {flow.get('status') or 'missing'} "
+                f"or lacks independent evidence: {detail} "
+                "Revalidate the approved flow; if it incorrectly assigns a later coordinator-owned step to this "
+                "member, revise the plan through the normal approval gate while retaining that joint obligation. "
+                "Local criteria alone cannot discharge the approved flow."
+            )
         return REFUSED
     return (
         f"{REFUSED}. The latest validation has no passing result for {', '.join(gaps)}; completion needs one "
