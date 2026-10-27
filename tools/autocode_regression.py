@@ -417,8 +417,7 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
     )
     base = base_commit(state, workspace)
     detection = rooted(options)
-    if detection:
-        detection["base"] = base
+    detection["base"] = base
     # A package run's suite is detected in its package and runs from there (autocode_package_scope).
     detection.update(package_scope.detection(state.get("settings")))
     framework = framework or verify.detect_framework(workspace, python=python, **detection)
