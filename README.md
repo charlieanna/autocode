@@ -25,17 +25,26 @@ with reduced cleanup guarantees; Windows uses WSL. See the
 Install once, then use AutoCode from any project:
 
 ```sh
-pipx install git+https://github.com/charlieanna/autocode
+pipx install autocode-supervisor
 pipx ensurepath
 # Open a new terminal after ensurepath.
 autocode --version
 autocode demo
 ```
 
+Or install the published release with Homebrew:
+
+```sh
+brew install charlieanna/tap/autocode
+```
+
 The demo uses no account or model spend. It shows rejected evidence, a
-completion refusal and a verified result. AutoCode is not on PyPI yet; the Git
-install above follows master. For a development checkout, use
-[`pipx install --editable .`](docs/install.md#advanced-install-from-a-checkout).
+completion refusal and a verified result. PyPI and Homebrew currently publish
+**0.8.2**; these install a tagged release, while this documentation follows master.
+For fixes merged after that tag, use the [master or development-checkout
+installation](docs/install.md#advanced-install-from-a-checkout). See the
+[release verification record](docs/bugs/2026-10-27-release-installation.md) for
+what was checked and the limits of that evidence.
 
 Choose an engine you have connected. For example, with a logged-in Codex CLI:
 
