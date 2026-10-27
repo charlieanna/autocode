@@ -39,6 +39,21 @@ that variable. A missing or changed token authorizes nothing. Repository-choice
 actions exist only for current catalog candidates. Cancellation prevents further
 dispatch and submits only current members' named boundary-pause actions.
 
+At a settled shared-cost stop, `needs.kind=budget` names the current finite cap,
+known accumulated spend, accounting completeness, `minimum_cap_usd`, and its own
+`next_command` argument array. Terminal chat shows these, fills only its
+`--max-cost-usd N` slot with the person's finite amount, confirms the whole-set
+total, rereads the offer and sends its token privately using
+`AUTOCODE_COORDINATION_TOKEN`. `coordinate budget` rejects changed checkpoints,
+active workers, uncertain or cancelled operations, insufficient amounts and
+zero/unlimited caps. It retains prior member, integration and verifier costs and
+all other settings. An existing sufficient shared cap may be reasserted.
+The action acknowledges only the displayed member's cost pause through TaskRun,
+with that run's current public recovery token and its derived share of the cap.
+It grants no plan approval, proof waiver or general recovery retry. Durable
+intent precedes the resume; an uncertain reply is retained for inspection and
+never automatically replayed. No saved member state is edited by coordination.
+
 The coordinator drives each member using `TaskRun`. `related_profile` is the
 public configuration export: selected role routes, efforts, providers, run limits
 and policies, without sessions or approvals. Fresh related runs accept a pinned

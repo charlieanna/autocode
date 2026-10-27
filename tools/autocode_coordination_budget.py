@@ -8,7 +8,11 @@ except ImportError:
 
 def initial(view):
     cost = view.get("cost") or {}
-    return {"cap_usd": cost.get("cap_usd"), "initial_spent_usd": cost.get("spent_usd") or 0.0}
+    return {
+        "cap_usd": cost.get("cap_usd"),
+        "initial_spent_usd": cost.get("spent_usd") or 0.0,
+        "initial_complete": cost.get("complete") is True,
+    }
 
 
 def verification_view(verification):
@@ -31,24 +35,30 @@ def verification_view(verification):
     }
 
 
+def accounting(budget, views):
+    """Report retained known spend even when the envelope is exhausted."""
+    costs = [row.get("cost") or {} for row in views]
+    return {
+        "cap_usd": budget.get("cap_usd"),
+        "known_spent_usd": budget.get("initial_spent_usd", 0.0) + sum(cost.get("spent_usd") or 0 for cost in costs),
+        "complete": budget.get("initial_complete") is True and all(cost.get("complete") for cost in costs),
+    }
+
+
 def envelope(budget, views, current_run=None):
     """A run keeps its own spent amount; all other spend reduces its cap.
 
     Match the core's known-cost policy, retaining explicit unknown coverage.
     No pricing estimate is invented for unpriced provider usage.
     """
+    views = list(views)
     cap = budget.get("cap_usd")
     costs = [(row.get("run_dir"), row.get("cost") or {}) for row in views]
     other = budget.get("initial_spent_usd", 0.0) + sum(
         cost.get("spent_usd") or 0 for run, cost in costs if run != current_run
     )
-    total = budget.get("initial_spent_usd", 0.0) + sum(cost.get("spent_usd") or 0 for _, cost in costs)
-    result = {
-        "cap_usd": cap,
-        "known_spent_usd": total,
-        "complete": all(cost.get("complete") for _, cost in costs),
-        "options": [],
-    }
+    result = {**accounting(budget, views), "options": []}
+    total = result["known_spent_usd"]
     if cap:
         if total >= cap or cap - other <= 0:
             raise CoordinationError("The original coordinated cost cap is exhausted; no further model was launched")
