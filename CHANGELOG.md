@@ -423,6 +423,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A launch refused after its run directory was reserved but before the first checkpoint (a missing
+  engine, an unsupported host) no longer leaves `RUN/writer.lock` behind; the directory is removed and the
+  refusal says so. `autocode runs` and the chat's `/runs` listed such a run as "cannot be read" for ever.
+  The worktree launch already removed its unused worktree (#2247); this covers the in-place launch the chat uses.
 - A first task on a host without OpenCode no longer stops at "OpenCode is not on PATH": the refusal now
   says to run `autocode doctor` and that an installed Claude Code or Codex runs with `--engine claude` or
   `--engine codex`.
