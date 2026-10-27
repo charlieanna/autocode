@@ -29,6 +29,7 @@ import shlex
 from pathlib import Path
 
 try:
+    from . import autocode_coordination_context as coordination_context
     from . import autocode_design_manifest as design_manifest
     from . import autocode_milestone_replan as replan
     from . import autocode_package_writes as package_writes
@@ -39,6 +40,7 @@ try:
     from . import autocode_visual_evidence as visual
     from .autocode_util import criteria_definition
 except ImportError:
+    import autocode_coordination_context as coordination_context
     import autocode_design_manifest as design_manifest
     import autocode_milestone_replan as replan
     import autocode_package_writes as package_writes
@@ -74,6 +76,9 @@ def context_packet(state: RunState, stage, state_path):
         "private_source_exceptions": state.get("private_source_exceptions", []),
         "context_policy": prompts.get("fragments/stage-context/context-packet.md"),
     }
+    coordinated = coordination_context.context(state)
+    if coordinated:
+        base["coordinated_member"] = coordinated
     if stage in ("requirements_gather", "requirements"):
         try:
             from . import autocode_project_memory_lifecycle as project_memory

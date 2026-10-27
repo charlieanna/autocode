@@ -90,6 +90,9 @@ def restrict(
     prompt = original.get("prompt")
     if prompt is not None and not isinstance(prompt, str):
         raise ValueError("Kilo effective agent prompt must be a string")
+    steps = original.get("steps")
+    if steps is not None and (type(steps) is not int or steps < 1):
+        raise ValueError("Kilo effective agent steps must be a positive integer")
     if report_recovery and request is not None:
         raise ValueError("Report recovery cannot grant a verification shell")
     permitted = (
@@ -124,6 +127,7 @@ def restrict(
             "permission": policy,
             "model": argv[argv.index("--model") + 1],
             **({"prompt": prompt} if prompt is not None else {}),
+            **({"steps": steps} if steps is not None else {}),
         },
     }
     child["KILO_CONFIG_CONTENT"] = json.dumps(config)
