@@ -47,8 +47,8 @@ class CompactParser(argparse.ArgumentParser):
         lines += [
             "  -h, --help       Show this overview",
             "  --help-all       Show every accepted option",
-            "",
-            "Subcommands: autocode COMMAND --help. Full reference: docs/cli.md.",
+            "Subcommands: autocode COMMAND --help.",
+            "Full reference: https://github.com/charlieanna/autocode/blob/master/docs/cli.md",
         ]
         return "\n".join(lines) + "\n"
 
