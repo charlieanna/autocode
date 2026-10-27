@@ -66,7 +66,7 @@ def reconcile_checkpoint(runner, args, parser, state: RunState, state_path, run_
     state.update(changed)
     runner.write_json(state_path, state)
     print(state["stop_reason"])
-    return 2
+    return 0  # The metadata action was saved; the run remains paused, not completed.
 
 
 def gate_failures(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):

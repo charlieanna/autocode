@@ -168,8 +168,12 @@ class CheckpointCliTests(unittest.TestCase):
         view = data["view"]
         command = client.named(view, self.workspace, self.run)
         self.assertEqual(["--reconcile-only", "-"], command.argv)
-        result = self.invoke(*command.argv, env=command.env)
-        self.assertEqual(2, result.returncode, result.stderr + result.stdout)
+        result = self.invoke(*command.argv, "--json", env=command.env)
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["result"]["saved"])
+        self.assertFalse(payload["view"]["done"])
+        self.assertNotEqual("continue", payload["view"]["needs"]["kind"])
         current = json.loads(self.path.read_text())
         self.assertEqual("PAUSED_UNCERTAIN_STAGE", current["status"], result.stdout + result.stderr)
         for key in (
@@ -184,6 +188,23 @@ class CheckpointCliTests(unittest.TestCase):
             self.assertEqual(self.state[key], current[key], key)
         self.assertEqual("retained partial work\n", self.source.read_text())
         self.assertFalse((self.run / "iterations").exists(), "No provider or report artifact may be created")
+
+    def test_terminal_client_takes_the_named_metadata_control_without_retry(self):
+        import json
+        import sys
+
+        from autocode_chat_client import ChatClient
+
+        view = json.loads(self.invoke("--status", "--json").stdout)["view"]
+        chat = ChatClient(
+            self.workspace,
+            self.run,
+            command=[sys.executable, str(Path(__file__).resolve().parents[1] / "tools/autocode.py")],
+        )
+        self.addCleanup(chat.close)
+        chat.take(client.named(view, self.workspace, self.run))
+        self.assertEqual("PAUSED_UNCERTAIN_STAGE", json.loads(self.path.read_text())["status"])
+        self.assertFalse((self.run / "iterations").exists())
 
     def test_stale_token_and_combined_settings_refuse_without_saving(self):
         import autocode_checkpoint_reconciliation as reconciliation
