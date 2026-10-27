@@ -49,6 +49,7 @@ class CheckpointReconciliationTests(unittest.TestCase):
             "runner_check",
             "visual",
             "durable",
+            "malformed_native",
         ):
             with self.subTest(fault=fault):
                 state = checkpoint()
@@ -59,6 +60,8 @@ class CheckpointReconciliationTests(unittest.TestCase):
                     fresh["owner"] = {"checked": False, "alive": None}
                 elif fault == "finished":
                     state["active_stage"]["finished_at"] = "2026-10-27T17:35:00Z"
+                elif fault == "malformed_native":
+                    state["task"] = "VISUAL_REVIEW_PROFILE={}"
                 elif fault == "durable":
                     state["execution"] = {"mode": "durable_local"}
                 elif fault == "visual":

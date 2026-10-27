@@ -61,7 +61,6 @@ def offer(state: RunState, inspection, *, controller=None):
         (state.get("execution") or {}).get("mode") == "durable_local"
         or any(row.get("kind") == "stop" for row in state.get("applied_interventions") or [])
         or state.get("ui_run")
-        or visual_profile.initial_intent(state.get("task") or "") is not None
         or state.get("status") != "RUNNING"
         or not isinstance(active, dict)
         or active.get("finished_at")
@@ -72,6 +71,11 @@ def offer(state: RunState, inspection, *, controller=None):
         or (controller is not None and controller.get("kind") != "ended")
     ):
         return None
+    try:
+        if visual_profile.initial_intent(state.get("task") or "") is not None:
+            return None
+    except ValueError:
+        return None  # Malformed native intent stays held; never offer ordinary recovery.
     fresh = liveness.classify(active.get("supervision"), inspection)
     if not all(fresh[role]["checked"] and fresh[role]["alive"] is False for role in liveness.ROLES):
         return None
