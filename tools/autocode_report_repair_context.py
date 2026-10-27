@@ -225,10 +225,19 @@ def prompt_parts(
     )
     receipt_instruction, receipt_handoff = receipt_parts
     interpretations = goals.feedback_interpretation_context(state) if stage in PLANNING_STAGES else {}
-    return receipt_instruction + retention_instruction + historical_instruction, {
+    # Revision validation uses the current review, not the execution findings ledger.
+    # Carry that report once without restoring superseded predecessor contracts.
+    review = (
+        {"planning_exchange": {"astra_challenge": copy.deepcopy(entry)}}
+        if stage == "glm_revise" and (entry := clarification["planning_exchange"].get("astra_challenge"))
+        else {}
+    )
+    review_instruction = prompts.get("fragments/report-repair-context/revision-review.md") if review else ""
+    return receipt_instruction + retention_instruction + historical_instruction + review_instruction, {
         "header": {
             **receipt_handoff,
             **references,
+            **review,
             **({"feedback_interpretations": interpretations} if interpretations else {}),
             **({"regression_reference": regression_reference.context(state)} if stage in PLANNING_STAGES else {}),
         },
