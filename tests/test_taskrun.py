@@ -179,6 +179,18 @@ class RunViewTests(unittest.TestCase):
             set(run_view.view({"status": "RUNNING"})),
         )
 
+    def test_accounting_attempt_inventory_names_execution_identity(self):
+        shown = run_view.view(
+            {
+                "status": "RUNNING",
+                "stages": [{"stage": "terra", "role": "terra", "engine": "codex", "model": "gpt-6-sol"}],
+            }
+        )
+        attempts = shown["usage"]["accounting"]["attempts"]
+        self.assertEqual(1, len(attempts))
+        self.assertIn("execution_identity", attempts[0])
+        self.assertEqual({}, attempts[0]["execution_identity"], "Historical launches remain unknown")
+
     def test_dev_server_is_the_callers_inspection_copied(self):
         self.assertIsNone(run_view.view({"status": "RUNNING"})["dev_server"])
         inspected = {"configured": True, "status": "running", "url": "http://127.0.0.1:4100/"}
