@@ -107,6 +107,16 @@ class ValidationMetadataTests(unittest.TestCase):
             [{"command": None, "evidence_ref": "event:synthetic-check", "exit_code": None}]
         )
 
+    def test_partial_metadata_can_add_a_missing_message_identity_without_a_repair(self):
+        earlier = self.native_event()
+        earlier["part"].pop("messageID")
+        earlier["part"]["state"]["metadata"] = {}
+        self.native_log(earlier, self.native_event())
+        checks = [{"command": None, "evidence_ref": "event:synthetic-check", "exit_code": None}]
+        support.verify_checks(checks, self.workspace, self.log)
+        self.assertEqual(self.COMPOUND_COMMAND, checks[0]["command"])
+        self.assertEqual(0, checks[0]["exit_code"])
+
     def test_sessionless_noise_does_not_conflict_with_the_normalized_session(self):
         for session in (None, 7, "missing"):
             with self.subTest(session=session):

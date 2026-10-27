@@ -88,7 +88,7 @@ def ambiguous_native_command_ids(text):
     Normalization keeps the final update for each part. Hydrating an omitted
     command must not let that hide conflicting execution facts under the same ID.
     """
-    identities, exits = {}, {}
+    identities, messages, exits = {}, {}, {}
     ambiguous = set()
     for line in text.splitlines():
         try:
@@ -116,8 +116,13 @@ def ambiguous_native_command_ids(text):
         if not isinstance(command, str):
             continue
         # A completed command is an identity fact even before its exit arrives.
-        identity = (row["sessionID"], part.get("messageID"), command)
+        identity = (row["sessionID"], command)
         if identities.setdefault(key, identity) != identity:
+            ambiguous.add(key)
+        message = part.get("messageID")
+        # An absent message locator is not a conflicting identity fact. A later
+        # update may fill it; two different supplied locators remain ambiguous.
+        if message is not None and messages.setdefault(key, message) != message:
             ambiguous.add(key)
         metadata = state.get("metadata")
         if not isinstance(metadata, dict):
