@@ -47,6 +47,7 @@ SUITE_CONSUMERS = (
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tools/prompts/review-change.md", ("tests.test_review_attribution_cli",)),
     (
         "tools/prompts/fragments/provider-opencode/review-output.md",
         ("tests.test_review_attribution_cli", "tests.test_schema_prompt_formatting", "tests.test_tool_handoff"),
@@ -462,7 +463,6 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_scratch_preparation.py",
             "tools/autocode_verify.py",
             "tools/units/autoreview.py",
-            "tools/prompts/review-change.md",
         ),
         ("tests.test_review_attribution_cli",),
     ),

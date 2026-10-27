@@ -146,3 +146,10 @@ independent blocking-finding proof remain. No Tester/Completion Reviewer stages
 are combined. Only one compiled review rendering changes; the other 192 remain
 byte-identical. Native qualification must measure the effect before claiming it
 reduces model turns or elapsed time.
+
+
+The changed review prompt's public CLI consumer was listed in the non-resource
+CLI mapping, whose lookup excludes `tools/prompts/`. Move it to the resource
+mapping and include the literal resource in the existing slow-consumer regression;
+otherwise a prompt-only PR could skip the blocking-proof and canonical-result
+CLI checks. The selection control fails before this correction.

@@ -188,6 +188,7 @@ class DynamicDependenciesTests(unittest.TestCase):
             "tools/autocode_review_job.py",
             "tools/autocode_review_proof.py",
             "tools/autocode_review_attribution.py",
+            "tools/prompts/review-change.md",
             "scenarios/catalog/review-clean-pr/broken/blocks-on-a-nit/review/findings.json",
         ):
             with self.subTest(path=path):
