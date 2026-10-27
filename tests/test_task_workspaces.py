@@ -1,6 +1,8 @@
 """Real Git/process tests for concurrent tasks originating in one project."""
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -48,6 +50,23 @@ class TaskWorkspaces(unittest.TestCase):
         one = w.create(self.project, "First")
         with self.assertRaises(ValueError):
             w.resume_workspace(self.root, one)
+
+    def test_discard_unused_keeps_a_worktree_holding_a_run_or_a_change(self):
+        saved = w.create(self.project, "Saved")
+        run = Path(saved["workspace"]) / ".autocode/runs/one"
+        run.mkdir(parents=True)
+        (run / "state.json").write_text("{}")
+        changed = w.create(self.project, "Changed")
+        (Path(changed["workspace"]) / "app.txt").write_text("edited\n")
+        unused = w.create(self.project, "Unused")
+        self.assertFalse(w.discard_unused(saved))
+        self.assertFalse(w.discard_unused(changed))
+        self.assertTrue(w.discard_unused(unused))
+        self.assertFalse(w.discard_unused(None))
+        self.assertTrue(Path(saved["workspace"]).is_dir())
+        self.assertTrue(Path(changed["workspace"]).is_dir())
+        self.assertFalse(Path(unused["workspace"]).exists())
+        self.assertEqual("", w.git(self.project, "branch", "--list", unused["branch"]))
 
     def test_empty_repository_has_actionable_error_and_no_worktree(self):
         empty = self.root / "empty"
@@ -214,6 +233,28 @@ class IsolatedCli(unittest.TestCase):
                 self.assertFalse(marker.exists(), "Explanation must not launch a provider")
                 self.assertFalse((flow.project / ".autocode").exists(), "Explanation must not create a run")
                 self.assertEqual(before_worktrees, w.git(flow.project, "worktree", "list", "--porcelain"))
+
+    def test_a_launch_stopped_before_its_first_save_leaves_no_worktree_or_branch(self):
+        flow = test_subprocess.SubprocessFlow()
+        flow.setUp()
+        self.addCleanup(flow.doCleanups)
+        path = os.pathsep.join([str(flow.root / "fixture-bin"), str(Path(sys.executable).parent), "/usr/bin", "/bin"])
+        if shutil.which("opencode", path=path):
+            self.skipTest("an opencode on the system PATH would start the run")
+        result = subprocess.run(
+            [*flow.entry, "--workspace", str(flow.project), "--engine", "opencode", "--no-chat", "Build greeting"],
+            cwd=flow.root,
+            env={**flow.env, "PATH": path},
+            capture_output=True,
+            text=True,
+            timeout=35,
+        )
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        self.assertIn("OpenCode is not on PATH", result.stderr)
+        self.assertIn("Removed the unused task worktree", result.stderr)
+        self.assertEqual([], list(flow.project.glob(".autocode/worktrees/*")))
+        self.assertEqual(1, len(w.git(flow.project, "worktree", "list", "--porcelain").split("\n\n")))
+        self.assertEqual("", w.git(flow.project, "branch", "--list", "autocode/*"))
 
     def test_runs_leave_the_users_git_status_showing_only_source_changes(self):
         flow = test_subprocess.SubprocessFlow()
