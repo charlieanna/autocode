@@ -42,6 +42,7 @@ try:
     from .. import autocode_native_test_names as native_test_names
     from .. import autocode_planner_escalation as planner_escalation
     from .. import autocode_planning_artifacts as artifacts
+    from .. import autocode_planning_metadata as metadata  # noqa: F401 - planning API
     from .. import autocode_planning_report_policy as report_policy
     from .. import autocode_planning_review_usage as review_usage
     from .. import autocode_progressive_state as progressive
@@ -80,6 +81,7 @@ except ImportError:
     import autocode_native_test_names as native_test_names
     import autocode_planner_escalation as planner_escalation
     import autocode_planning_artifacts as artifacts
+    import autocode_planning_metadata as metadata  # noqa: F401 - planning API
     import autocode_planning_report_policy as report_policy
     import autocode_planning_review_usage as review_usage
     import autocode_progressive_state as progressive

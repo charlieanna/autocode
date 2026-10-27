@@ -21,11 +21,13 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_check_refs as check_refs
     from . import autocode_receipt_repair_context as receipt_repair_context
     from . import autocode_stray_writes as stray_writes
     from . import autocode_util as util
     from . import autocode_verification_plan as verification_plan
 except ImportError:
+    import autocode_check_refs as check_refs
     import autocode_receipt_repair_context as receipt_repair_context
     import autocode_stray_writes as stray_writes
     import autocode_util as util
@@ -53,6 +55,7 @@ def require_executed_passes(value, *, passing_claim: bool):
     the execution the repair cannot perform, so the caller's stage must run again (#1852).
     """
     if not passing_claim:
+        check_refs.require_passing_evidence(value)
         return
     if not value["checks"]:
         raise ValueError(
@@ -60,6 +63,7 @@ def require_executed_passes(value, *, passing_claim: bool):
         )
     failed = [(position, check) for position, check in enumerate(value["checks"], 1) if check["exit_code"]]
     if not failed:
+        check_refs.require_passing_evidence(value)
         return
     rows = [*value.get("criterion_results", []), *value.get("milestone_results", [])]
     flow = value.get("end_to_end_result") or {}

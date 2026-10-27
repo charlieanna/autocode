@@ -420,7 +420,7 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
             )
             state.update({"next_stage": "sol" if kind == "validate" else "terra", "phase": "EXECUTING"})
         return
-    value = planning_unit.retention.expand(state, stage, value)
+    value = planning_unit.metadata.expand_report(state, stage, value)
     planning_unit.resolve_sentence_citations(state, value.get("contract"))
     # Older saved reports predate explicit, user-backed conflict resolutions.
     # An absent list supplies no authority to resolve any conflict.

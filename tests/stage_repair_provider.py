@@ -20,6 +20,7 @@ import shlex
 import subprocess
 import sys
 import traceback
+import uuid
 from pathlib import Path
 
 
@@ -151,6 +152,26 @@ def main():
     data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
     repair = bool(data.get("report_repair"))
     stage = data["original"]["stage"] if repair else data["stage"]
+    if repair and stage == "sol" and os.environ["STAGE_REPAIR_CASE"] == "criterion-evidence":
+        value = copy.deepcopy(data["rejected_report"]["content"])
+        missing = [row for row in value["criterion_results"] if row["status"] == "PASS" and not row["evidence_refs"]]
+        for row in missing:
+            row["evidence_refs"] = ["check:1"]
+        output = Path(sys.argv[sys.argv.index("-o") + 1])
+        output.write_text(json.dumps(value))
+        append_trace(
+            {
+                "stage": stage,
+                "repair": True,
+                "error": data.get("error", ""),
+                "repaired_ids": [row["id"] for row in missing],
+                "output": str(output),
+            }
+        )
+        session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
+        print(json.dumps({"type": "thread.started", "thread_id": session}))
+        print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
+        return 0
     # The runner already launched this provider process. Reuse it for the fake,
     # rather than adding another interpreter and supervised descendant per turn.
     stdout, stderr = io.StringIO(), io.StringIO()
@@ -179,6 +200,9 @@ def main():
     event_rows = [json.loads(line) for line in stdout.getvalue().splitlines() if line.strip()]
     case = os.environ["STAGE_REPAIR_CASE"]
     row = {"stage": stage, "repair": repair, "error": data.get("error", ""), "output": str(output)}
+    if stage == "sol" and case == "criterion-evidence":
+        value["criterion_results"][0]["evidence_refs"] = []
+        row["missing_evidence_id"] = value["criterion_results"][0]["id"]
     if stage == "astra_discovery" and case == "criteria-delta-weakened-proof":
         # Mark the draft proof as runner-enforced. A free-form unapproved
         # proposal may legitimately change, so it is not a protected-proof

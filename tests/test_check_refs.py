@@ -26,6 +26,22 @@ class CheckRefsTests(unittest.TestCase):
             ],
         }
 
+    def test_pass_without_evidence_is_refused_without_mutating_the_report(self):
+        for refs in ([], [""], [" "]):
+            with self.subTest(refs=refs):
+                report = self.report(refs)
+                before = repr(report)
+                with self.assertRaisesRegex(ValueError, "PASS criterion results lack evidence references: AC1"):
+                    check_refs.require_passing_evidence(report)
+                self.assertEqual(before, repr(report))
+        check_refs.require_passing_evidence(self.report(["check:1"]))
+
+    def test_nonpassing_criteria_do_not_need_fabricated_evidence(self):
+        for status in ("FAIL", "NOT_VERIFIED", "BLOCKED"):
+            report = self.report([])
+            report["criterion_results"][0]["status"] = status
+            check_refs.require_passing_evidence(report)
+
     def test_check_references_become_the_checks_evidence(self):
         report = check_refs.resolve(self.report(["check:1", " check:2 ", "README.md", "event:prt_9"]))
         self.assertEqual(
