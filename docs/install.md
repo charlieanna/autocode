@@ -21,18 +21,29 @@ is needed only when installing an external engine with npm. The built-in
 **1. Install AutoCode.**
 
 ```sh
-pipx install git+https://github.com/charlieanna/autocode
+pipx install autocode-supervisor
 pipx ensurepath
 # Open a new terminal so PATH includes pipx's executables.
 autocode --version
 autocode demo
 ```
 
-AutoCode is not on PyPI yet. After the first release this step becomes
-`pipx install autocode-supervisor`, or `brew install charlieanna/tap/autocode`
-with Homebrew ([Releasing](releasing.md#homebrew)). If pipx's Python is older than 3.11, add
-`--python python3.11`. The demo is offline: no sign-in or model spend. Once
-installed, you do not need to activate a virtual environment in every shell.
+Or use the published [Homebrew tap](https://github.com/charlieanna/homebrew-tap):
+
+```sh
+brew install charlieanna/tap/autocode
+```
+
+The published version verified on 2026-10-27 is **0.8.2** on both
+[PyPI](https://pypi.org/project/autocode-supervisor/0.8.2/) and Homebrew.
+These commands install the tagged release, not current master; this guide's
+`latest` documentation can describe newer features and fixes. Use the
+[advanced checkout/master installation](#advanced-install-from-a-checkout)
+when you need those changes. The [release verification record](bugs/2026-10-27-release-installation.md)
+distinguishes distribution smoke checks from task/provider qualification.
+If pipx's Python is older than 3.11, add `--python python3.11`. The demo is
+offline: no sign-in or model spend. Once installed, you do not need to activate
+a virtual environment in every shell.
 
 **Already have an engine signed in?** Reuse it. With Codex, run
 `autocode doctor --engine codex` and add `--engine codex` to your first task.
@@ -185,6 +196,20 @@ Avoid `safe.directory '*'`, which trusts every repository. A checkout on the
 Linux filesystem usually avoids this mounted-directory ownership mismatch.
 
 ## Advanced: install from a checkout
+
+To follow current master without maintaining a development checkout:
+
+```sh
+pipx install git+https://github.com/charlieanna/autocode
+```
+
+Use `pipx reinstall autocode-supervisor` to refresh an existing pipx Git
+installation from its saved source. This is separate from the published PyPI
+release; check `autocode --version` and retain the source commit when reporting
+behavior. Do not assume two builds with the same package version contain the
+same master changes. Choose one active installation rather than relinking a
+Homebrew command over an existing pipx/development command.
+
 
 For working on AutoCode itself, or trying an unreleased change. Run directly from a
 checkout (its Python needs `psutil`, as in the project's `.venv`):
