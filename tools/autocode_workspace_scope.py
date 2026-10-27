@@ -20,6 +20,7 @@ Depends only on requirement quoting and shared utilities.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 try:
@@ -57,16 +58,35 @@ def _text(value) -> str:
     return " ".join(value.split()) if isinstance(value, str) else ""
 
 
+def _cited_file(reference: str, root: Path) -> Path | None:
+    """Resolve a relative file citation, checking optional line/range bounds."""
+    span = re.search(r":([0-9]+)(?:-([0-9]+))?$", reference)
+    relative = reference[: span.start()] if span else reference
+    if not relative or Path(relative).is_absolute() or ".." in Path(relative).parts:
+        return None
+    try:
+        path = (root / relative).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            return None
+        if span:
+            first, last = int(span[1]), int(span[2] or span[1])
+            if first < 1 or last < first:
+                return None
+            with path.open("rb") as source:
+                if not any(number == last for number, _ in enumerate(source, 1)):
+                    return None
+        return path
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
 def _workspace_file(evidence: str, source_refs, workspace) -> bool:
-    """Whether ``evidence`` is a cited source ref naming a file inside ``workspace``."""
-    if not evidence or not workspace or evidence not in {str(ref) for ref in source_refs or []}:
-        return False
-    relative = evidence.rsplit(":", 1)[0] if evidence.rsplit(":", 1)[-1].isdigit() else evidence
-    if not relative or Path(relative).is_absolute():
+    """Ground in the same cited file, not one spelling of its line reference."""
+    if not evidence or not workspace:
         return False
     root = Path(workspace).resolve()
-    path = (root / relative).resolve()
-    return path.is_relative_to(root) and path.is_file()
+    path = _cited_file(evidence, root)
+    return path is not None and any(_cited_file(str(ref), root) == path for ref in source_refs or [])
 
 
 def validated(scope, *, sources, source_refs, workspace) -> tuple[dict, list[str]]:

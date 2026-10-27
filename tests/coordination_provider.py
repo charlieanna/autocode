@@ -282,7 +282,7 @@ def main():
             proposed_assumptions=[],
         )
         if os.environ.get("COORDINATION_FIXTURE_EARLY_SCOPE") and target:
-            report["source_refs"] = [source + ":3"]
+            report["source_refs"] = [source]
             report["workspace_scope"] = {
                 "spans_repositories": True,
                 "external_parts": [
