@@ -50,6 +50,10 @@ release implementation against the expanded set.
 Read and approve the displayed member plans. AutoCode retains the selected role
 routes, efforts and run limits. A configured money cap is shared across sequential
 launches using the core's known-cost accounting; unknown cost remains unknown.
+If that cap stops the run, chat shows the shared known spend and asks for a finite
+whole-set cap, followed by confirmation. Leaving it blank keeps the set paused.
+The explicit change retains all earlier spending and other limits; it does not
+approve a plan or waive verification. A changed checkpoint must be read again.
 Each member's flow gate covers its own executable local path. The later joint
 test remains a required whole-set obligation in the plan's constraints or required
 behaviors; placing it inside a member's completion flow creates a circular prerequisite.
