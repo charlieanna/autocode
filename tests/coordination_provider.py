@@ -123,6 +123,8 @@ def main():
             "instruction", ""
         ):
             raise RuntimeError("First member Requirements prompt omits the core-owned joint-proof responsibility")
+        if "not exclusions or proxy acceptance" not in member["instruction"]:
+            raise RuntimeError("Member context must retain the joint obligation instead of authorizing exclusion")
     target = {"checkout": "history", "history": "tax"}.get(name)
     source = PRODUCT[name][0] if not joint else "repositories.json"
     test_path = "tests/test_joint.py" if joint else "tests/test_behavior.py"

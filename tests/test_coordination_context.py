@@ -87,6 +87,7 @@ class CoordinationContextTests(unittest.TestCase):
                 self.assertIn("SEPARATE isolated integration workspace", context["instruction"])
                 self.assertIn("fail-before/pass-after", context["instruction"])
                 self.assertIn("never discharges the real joint obligation", context["instruction"])
+                self.assertIn("not exclusions or proxy acceptance", context["instruction"])
                 self.assertIn("only after ALL member gates and independent joint proof pass", context["instruction"])
 
     def test_requirements_planning_runtime_and_report_repair_receive_the_same_bound_context(self):
