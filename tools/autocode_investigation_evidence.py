@@ -73,11 +73,13 @@ def _identity_command(workspace, command):
     return shlex.join([executable, "-c", "pass"])
 
 
-def _runtime(state: RunState, workspace, run_dir, command):
+def _runtime(state: RunState, workspace, run_dir, command, *, source_revision=None):
     if sys.platform not in ("linux", "darwin"):
         raise ValueError("complete reproduction runtime identity is unavailable on this platform")
     _, identify = launch_inputs.runners(state, workspace, run_dir, verify.scratch_run, verify.execution_identity)
     result = identify(workspace, command=_identity_command(workspace, command))
+    if source_revision is not None and result.get("source_revision") != source_revision:
+        raise ValueError("source changed during runtime identity collection")
     if result.get("cache_binding_complete") is not True or result.get("reuse_supported") is not True:
         raise ValueError("reproduction runtime/dependencies are not completely bound")
     if result.get("unbound_source_symlinks"):
@@ -134,7 +136,7 @@ def begin(state: RunState, report, record, workspace, run_dir):
                 "source_revision": current["revision"],
             },
             "requirements_hash": _requirements(state),
-            "runtime_hash": _runtime(state, workspace, run_dir, report["probe"]),
+            "runtime_hash": _runtime(state, workspace, run_dir, report["probe"], source_revision=current["revision"]),
             "cited_sources": cited,
         }
     except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError) as error:
@@ -165,7 +167,10 @@ def finish(state: RunState, report, record, workspace, captured):
                 files[note] = original["files"][note]
             if current["head"] != original["head"] or files != original["files"]:
                 raise ValueError("source changed while the reproduction ran")
-            if _runtime(state, workspace, origin["run_dir"], report["probe"]) != evidence["runtime_hash"]:
+            if (
+                _runtime(state, workspace, origin["run_dir"], report["probe"], source_revision=current["revision"])
+                != evidence["runtime_hash"]
+            ):
                 raise ValueError("runtime changed while the reproduction ran")
             evidence.update(
                 eligibility="bound",
@@ -217,7 +222,10 @@ def context(state: RunState, run_dir):
             raise ValueError("diagnosis note changed")
         if util.digest(found.get("probe_result")) != evidence["reproduction_hash"]:
             raise ValueError("reproduction receipt changed")
-        if _runtime(state, workspace, run_dir, report["probe"]) != evidence["runtime_hash"]:
+        if (
+            _runtime(state, workspace, run_dir, report["probe"], source_revision=evidence["source_revision"])
+            != evidence["runtime_hash"]
+        ):
             raise ValueError("reproduction runtime/dependencies/environment changed")
         return {
             "eligibility": "reusable_planning_context",

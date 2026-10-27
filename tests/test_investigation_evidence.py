@@ -229,6 +229,14 @@ class InvestigationEvidenceTests(unittest.TestCase):
         }
         with mock.patch.object(evidence.launch_inputs, "runners", return_value=(None, lambda *a, **k: pins)):
             current = evidence._runtime(self.state, self.workspace, self.run_dir, self.report["probe"])
+            with self.assertRaisesRegex(ValueError, "source changed during runtime identity collection"):
+                evidence._runtime(
+                    self.state,
+                    self.workspace,
+                    self.run_dir,
+                    self.report["probe"],
+                    source_revision="changed-during-hash",
+                )
             for key, value in (
                 ("dependencies", ["dep2"]),
                 ("environment_hash", "env2"),
