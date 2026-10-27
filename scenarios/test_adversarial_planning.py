@@ -47,7 +47,7 @@ class PlanningAttacks(AdversarialCase):
 
 
 class PlanningClarificationRecovery(AdversarialCase):
-    def test_verified_citation_correction_survives_clarification_and_finishes(self):
+    def test_citation_correction_expires_after_clarification_and_fresh_plan_finishes(self):
         from .harness.project import git
 
         (self.project / "README.md").write_text("Implement the requested greeting CLI.\n")
@@ -58,7 +58,8 @@ class PlanningClarificationRecovery(AdversarialCase):
         cycles = self.trace("citation_cycle")
         self.assertTrue(any(not row["guided"] for row in cycles), self.root)
         self.assertTrue(any(row["guided"] and not row["answered"] for row in cycles), self.root)
-        self.assertTrue(any(row["guided"] and row["answered"] for row in cycles), self.root)
+        self.assertTrue(any(not row["guided"] and row["answered"] for row in cycles), self.root)
+        self.assertFalse(any(row["guided"] and row["answered"] for row in cycles), self.root)
         self.assertEqual("TASK_COMPLETE", view["status"], self.root)
         self.assertEqual(
             1,

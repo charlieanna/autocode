@@ -117,7 +117,9 @@ def citation_after_clarification(fake, original, stage, data, trace):
     guided = "INVESTIGATOR GUIDANCE" in fake.PROMPT or "EARLIER PLANNING CORRECTIONS" in fake.PROMPT
     answered = "Q_AFTER" in data.get("saved_answers", {})
     trace("citation_cycle", guided=guided, answered=answered, repair=bool(data.get("report_repair")))
-    value["code_refs"] = ["README.md"] if guided else [".autocode/state.json"]
+    # A new answer expires the old input-bound diagnosis (#2189). The
+    # scripted fresh plan cites source on its own, without stale advice.
+    value["code_refs"] = ["README.md"] if guided or answered else [".autocode/state.json"]
     if guided and not answered:
         value["contract"].update(
             technical_approach=[],

@@ -8,6 +8,7 @@ expected failures. Every attack must reach its target stage before it is judged.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 
@@ -115,8 +116,38 @@ class EvidenceBoundaryTests(AdversarialCase):
         self.assertTrue(all(row["actual_exit"] == 0 and row["command"] != row["prescribed_command"] for row in rows))
         self.assert_not_complete(view)
 
+    def stale_identity_case(self, attack):
+        # Capture a real, previously admitted report through the provider boundary.
+        # Invented echo strings are launch-bound copy corrections since #2135;
+        # replaying a prior task/contract must still be refused.
+        control = self.complete_case("evidence_capture_identity")
+        self.assertTrue(control["done"], self.root)
+        prior = self.trace("evidence_identity_recorded", stage="sol")[-1]["identity"]
+        from .harness.project import git
+
+        # The next turn plans against the files delivered in the first turn.
+        git(self.project, "add", "greet.py", "test_greet.py")
+        git(self.project, "commit", "-qm", "Retain the first verified delivery")
+        follow_up = "Document that greet.py accepts exactly one nonempty name, preserving its behavior."
+        reference = self.root / "follow-up-reference"
+        shutil.copytree(self.scenario.reference, reference)
+        source = reference / "greet.py"
+        source.write_text(
+            source.read_text().replace(
+                '"""Deterministic greeting CLI."""',
+                '"""Deterministic greeting CLI accepting exactly one nonempty name."""',
+            )
+        )
+        config = json.loads(self.config_path.read_text())
+        config["turns"] = [follow_up]
+        config["reference"] = str(reference)
+        self.config_path.write_text(json.dumps(config))
+        self.set_fault("evidence", attack, prior_identity=prior)
+        self.driver.call("follow-up", "--follow-up", follow_up, action=True)
+        return self.finish()
+
     def test_validator_cannot_attest_to_a_different_contract(self):
-        view = self.complete_case("evidence_stale_contract")
+        view = self.stale_identity_case("evidence_stale_contract")
         rows = self.require_injection("sol")
         self.assertTrue(
             all(
@@ -126,8 +157,8 @@ class EvidenceBoundaryTests(AdversarialCase):
         )
         self.assert_not_complete(view)
 
-    def test_validator_cannot_attest_to_an_undispatched_task(self):
-        view = self.complete_case("evidence_stale_task")
+    def test_validator_cannot_replay_a_previously_dispatched_task(self):
+        view = self.stale_identity_case("evidence_stale_task")
         rows = self.require_injection("sol")
         self.assertTrue(all(row["current_task_id"] != row["claimed_task_id"] for row in rows))
         self.assert_not_complete(view)
