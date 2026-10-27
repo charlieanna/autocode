@@ -423,6 +423,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `--status` reads the saved checkpoint and its controller receipt together. A controller that finished a stage and exited between the two reads was shown as ended at a checkpoint that no longer existed: the view offered a continue whose checkpoint token the durable worker then refused as stale (the `test_worker_host` failures on master on 2026-10-26 and 2026-10-27). When the checkpoint changes during the inspection, the view reads it again, so every field of one view describes the same saved state.
 - The terminal chat on a host whose default backend cannot start a chat (OpenCode not installed) says so
   before its first question, names what `connections list` shows installed instead, and the `/engine` or
   `/connect NAME use` that picks it, rather than failing the first request. The line-by-line chat now takes
