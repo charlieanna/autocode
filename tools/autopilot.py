@@ -873,6 +873,7 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
     report_repair_queue.require_executed_passes(
         value, passing_claim=value["verdict"] == "PASS" or human_pending or progressive_pass
     )
+    check_refs.require_passing_evidence(value)
     if modern and stage == "sol" and any(c["human_review"] for c in criteria):
         # Only a contract with human criteria has a review receipt to look up; the gate itself returns
         # when there are none, and missing_human_reviews reads a sealed contract.

@@ -91,6 +91,14 @@ class CompletionGateProperties(unittest.TestCase):
     def test_the_unmutated_state_completes(self):
         self.assertTrue(self.ready())
 
+    def test_a_retained_pass_without_evidence_names_the_criterion_and_validation_action(self):
+        self.state["validation"]["criterion_results"][0]["evidence_refs"] = []
+        self.assertFalse(self.ready())
+        reason = completion_gate.rejection(self.state)
+        self.assertIn("no passing result for C1", reason)
+        self.assertIn("nonempty evidence_refs", reason)
+        self.assertIn("kind=validate", reason)
+
     def test_required_git_delivery_cannot_be_omitted_from_completion(self):
         self.state["goal_contract"] = {
             "body": {"git_delivery": {"kind": "atomic_commit", "message": "Deliver changes"}}

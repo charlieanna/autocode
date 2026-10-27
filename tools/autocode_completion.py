@@ -72,8 +72,12 @@ def rejection(state: RunState) -> str:
         missing = ", ".join(design_coverage.gaps(state)) or "changed or unbound design evidence"
         return f"{REFUSED}. Design coverage needs fresh independent evidence for: {missing}."
     validation = state.get("validation") or {}
-    results = {row["id"]: row.get("status") for row in validation.get("criterion_results", [])}
-    gaps = [row["id"] for row in state.get("acceptance_criteria", []) if results.get(row["id"]) != "PASS"]
+    results = {row["id"]: row for row in validation.get("criterion_results", [])}
+    gaps = [
+        row["id"]
+        for row in state.get("acceptance_criteria", [])
+        if results.get(row["id"], {}).get("status") != "PASS" or not results.get(row["id"], {}).get("evidence_refs")
+    ]
     # A failed validation never ran the runner's observations (#451): name its failed criteria first.
     if not (gaps and validation.get("verdict") != "PASS"):
         if not brief_evidence.ready(state, validation.get("source_revision")):
@@ -90,7 +94,8 @@ def rejection(state: RunState) -> str:
         return REFUSED
     return (
         f"{REFUSED}. The latest validation has no passing result for {', '.join(gaps)}; completion needs one "
-        "validation that passes every criterion on the current source. Request CONTINUE with a next_task of "
+        "validation that passes every criterion on the current source with nonempty evidence_refs for each PASS. "
+        "Request CONTINUE with a next_task of "
         "kind=validate that lists every criterion (in a milestone run, on the current milestone: a validate "
         "task may recheck accepted milestones' criteria)."
     )

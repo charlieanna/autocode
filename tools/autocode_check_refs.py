@@ -96,6 +96,25 @@ def tidy_tester_citations(record: dict, report, workspace, settings) -> None:
         record["dropped_evidence_refs"] = dropped
 
 
+def require_passing_evidence(report: dict) -> None:
+    """A claimed PASS must cite evidence before replay or completion is attempted."""
+    missing = [
+        str(row.get("id", "?"))
+        for row in report.get("criterion_results") or []
+        if isinstance(row, dict)
+        and row.get("status") == "PASS"
+        and not any(isinstance(ref, str) and ref.strip() for ref in row.get("evidence_refs") or [])
+    ]
+    if missing:
+        raise ValueError(
+            "PASS criterion results lack evidence references: "
+            + ", ".join(missing)
+            + ". Cite check:<n> for an already listed check or an existing runner-written artifact. "
+            "A report-only repair may reuse supplied evidence; it must not invent approval, evidence or a new execution. "
+            "If no evidence establishes the criterion, report NOT_VERIFIED instead of PASS."
+        )
+
+
 def unbound_refs(report: dict, allowed) -> list[tuple[str, str]]:
     """Criterion citations that name nothing the runner verified: (criterion id, reference).
 

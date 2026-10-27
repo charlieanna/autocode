@@ -57,7 +57,15 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/prompts/fragments/provider-opencode/review-output.md",
         ("tests.test_review_attribution_cli", "tests.test_schema_prompt_formatting", "tests.test_tool_handoff"),
     ),
-    ("tools/prompts/validator.md", ("tests.test_validation_metadata", "tests.test_report_repair")),
+    (
+        "tools/prompts/validator.md",
+        ("tests.test_validation_metadata", "tests.test_report_repair", "tests.test_validation_evidence_cli"),
+    ),
+    (
+        "tools/prompts/completion-review.md",
+        ("tests.test_completion_properties", "tests.test_validation_evidence_cli"),
+    ),
+    ("tests/stage_repair_provider.py", ("tests.test_validation_evidence_cli",)),
     (
         "tools/prompts/fragments/provider-opencode/prompt-for-schema.md",
         ("tests.test_schema_prompt_formatting", "tests.test_report_repair"),
@@ -193,6 +201,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("tools/autocode_check_refs.py", "tools/autocode_completion.py", "tools/autopilot.py"),
+        ("tests.test_validation_evidence_cli",),
+    ),
     (
         ("tools/autocode_investigation_evidence.py", "tools/units/autoplanner.py", "tools/units/autoresolver.py"),
         ("tests.test_investigation_handoff_cli",),

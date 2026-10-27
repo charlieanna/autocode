@@ -31,6 +31,10 @@ For criterion and end-to-end evidence from image/MCP calls or retained earlier
 stages, cite the exact existing artifact path (including the owning JSONL log),
 not a foreign or non-command event: ID. These artifacts still require independent
 inspection and source provenance; a file path alone is not proof of acceptance.
+Every PASS criterion needs nonempty evidence_refs, including a process or approval-boundary criterion.
+For a runner-owned approval boundary, inspect and cite the exact existing context_artifact path when supplied;
+it carries the recorded approval, not a new approval you may invent. A product test alone does not prove
+that a person approved a plan. If the supplied evidence does not establish the claim, use NOT_VERIFIED.
 A criterion's evidence_refs name only what the runner verified: check:<n>, runner-written evidence under .autocode/,
 or verified design evidence. A project file you read (README.md) is not criterion evidence; cite the check that reads it.
 Other artifact evidence_refs are project file paths (README.md), never sentences like "README.md read: 38 lines". For external
