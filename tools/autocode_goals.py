@@ -43,6 +43,7 @@ try:
     from . import autocode_operational_change as operational_change
     from . import autocode_planning_feedback as planning_feedback
     from . import autocode_requirement_quotes as requirement_quotes
+    from . import autocode_requirement_retention as requirement_retention
     from . import autocode_run_status as run_status
     from . import autocode_scope_question as scope_question
     from . import autocode_source_log as source_log
@@ -71,6 +72,7 @@ except ImportError:
     import autocode_operational_change as operational_change
     import autocode_planning_feedback as planning_feedback
     import autocode_requirement_quotes as requirement_quotes
+    import autocode_requirement_retention as requirement_retention
     import autocode_run_status as run_status
     import autocode_scope_question as scope_question
     import autocode_source_log as source_log
@@ -376,6 +378,15 @@ def check_requirement_handoff(state: RunState, report):
     requirements = report.get("requirements", [])
     if not isinstance(requirements, list):
         raise ValueError("requirements must be an array")
+    previous_handoff = (state.get("requirements_handoff") or {}).get("report") or {}
+    previous_requirements = [] if earlier_job_handoff(state, report) else previous_handoff.get("requirements") or []
+    previous_by_id = {row["id"]: row for row in previous_requirements}
+    ignored_requirements = report.get("ignored_requirements", [])
+    replacements = {
+        row.get("requirement_id")
+        for row in (ignored_requirements if isinstance(ignored_requirements, list) else [])
+        if isinstance(row, dict)
+    }
     seen, quotes, quote_by_id, unsupported = set(), [], {}, []
     for row in requirements:
         if not isinstance(row, dict) or not str(row.get("id", "")).strip() or not str(row.get("text", "")).strip():
@@ -387,6 +398,9 @@ def check_requirement_handoff(state: RunState, report):
         if quote is None:
             unsupported.append(row)
             continue
+        quote = requirement_retention.retained_quote(
+            row, quote, previous_by_id.get(row["id"]), sources, replacement=row["id"] in replacements
+        )
         row["source_quote"] = quote  # the source's own text, even where the report copied the checklist's
         quotes.append(quote)
         quote_by_id[row["id"]] = quote
@@ -412,44 +426,9 @@ def check_requirement_handoff(state: RunState, report):
             raise ValueError("A proposed reframe needs an explicit user acceptance question")
     validate_assumptions(report.get("proposed_assumptions", []), seen)
     check_delegable(report.get("open_questions", []))
-    # A refreshed handoff (one that follows an earlier requirements_gather report)
-    # must retain every previous requirement verbatim, or move it to
-    # ignored_requirements with a reason citing a saved user event. A vanished
-    # requirement with no citation, or a citation the runner cannot resolve, is
-    # rejected: only a saved user answer or feedback event authorizes dropping a
-    # requirement, never the agent's own say-so. At the point this function runs
-    # (from apply_planning, before the new report is installed) state's saved
-    # requirements_handoff is still the previous one.
-    previous_handoff = (state.get("requirements_handoff") or {}).get("report") or {}
-    previous_requirements = [] if earlier_job_handoff(state, report) else previous_handoff.get("requirements") or []
-    if previous_requirements:
-        ignored_requirements = report.get("ignored_requirements", [])
-        if not isinstance(ignored_requirements, list):
-            raise ValueError("ignored_requirements must be an array")
-        ignored_by_id = {}
-        for omission in ignored_requirements:
-            rid = omission.get("requirement_id")
-            if rid in ignored_by_id:
-                raise ValueError(f"Duplicate ignored_requirements entry for {rid}")
-            ignored_by_id[rid] = omission
-        for previous_row in previous_requirements:
-            rid = previous_row["id"]
-            previous_quote = str(previous_row.get("source_quote", "")).strip()
-            if previous_quote and quote_by_id.get(rid) == previous_quote:
-                continue
-            omission = ignored_by_id.get(rid)
-            if not omission:
-                raise ValueError(
-                    f"Refreshed handoff dropped requirement {rid} without a user-backed omission "
-                    "in ignored_requirements"
-                )
-            if not str(omission.get("reason", "")).strip():
-                raise ValueError(f"Omission of requirement {rid} needs a reason")
-            if not _saved_user_basis(state, omission.get("basis"), omission.get("event_id")):
-                raise ValueError(
-                    f"Omission of requirement {rid} needs a saved user answer or feedback event, "
-                    "not an agent-authored reason"
-                )
+    requirement_retention.check(
+        previous_requirements, report, quote_by_id, lambda basis, event_id: _saved_user_basis(state, basis, event_id)
+    )
 
 
 def check_requirement_trace(state: RunState, report, contract, *, coverage=True):

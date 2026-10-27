@@ -267,3 +267,26 @@ containment. The Linux evidence above is deterministic. Actual bounds were the
 saved run/stage/idle/accounting limits. The fixture's native `agent.code.steps=20`
 entry does not apply to AutoCode's generated agent names and is **not** evidence
 of a 20-step limit.
+
+## Direct provenance correction for #2208
+
+Inspecting the saved history report revealed that R3 was present with identical
+requirement text. Its quote had narrowed from the two-sentence original request
+to the preservation sentence. The runner called this a deletion and reported it
+before the separate R4 quote replacement, misleading both report repair and the
+Investigator's counterexample. The direct fix keeps the already authenticated
+original quote when the ID and requirement text are unchanged and the new quote
+is a grounded substring. An explicit replacement, changed requirement, invented
+quote or ungrounded old source cannot use this restoration.
+
+All real omissions and quote replacements are now reported together, with the
+previous and submitted quotes and the existing authorized-replacement procedure.
+The saved incident now preserves R3 and correctly rejects R4's changed provenance;
+the saved input state remains untouched. Eight pure regressions cover this case
+and forgery/removal controls. The real supervised Linux CLI refresh regression
+passes (4.4 s in the changed selection), retaining the requirement and the
+understanding-approval gate. The 1,898-test changed selection covered 89 modules:
+87 passed in the RAM runtime; the two packaging/Git-sensitive modules then passed
+all 29 checks in a disposable packaged Git checkout (12.817 s). This correction
+introduces no prompt, model-route, source waiver or approval change. Live
+qualification remains tracked in #2208.
