@@ -38,7 +38,7 @@ class InvestigationHandoffCliTests(JobHarness):
             root_cause="multiplier is two",
             reproduction="double(5) == 10",
             invariant="double(5) returns 15",
-            probe="python3 -B -c 'from calc import double; assert double(5) == 10'",
+            probe="PYTHONDONTWRITEBYTECODE=1 python3 -B -c 'from calc import double; assert double(5) == 10'",
             untestable="",
             counterexample={"file": "calc.py", "find": "return n * 2", "replace": "return n * 3"},
             test_cases=[{"id": "T1", "given": "n=5", "when": "double(5)", "then": "returns 15", "kind": "restore"}],

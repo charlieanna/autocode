@@ -283,6 +283,53 @@ class InvestigationEvidenceTests(unittest.TestCase):
             with self.subTest(command=command), self.assertRaises(ValueError):
                 evidence._identity_command(self.workspace, command)
 
+    def test_live_redundant_environment_prefix_preserves_complete_runtime_identity(self):
+        command = "PYTHONDONTWRITEBYTECODE=1 python3 -c 'import calc; assert calc.value == 2'"
+        self.assertEqual("python3 -c pass", evidence._identity_command(self.workspace, command))
+        self.assertEqual(
+            "python3 -c pass",
+            evidence._identity_command(
+                self.workspace, "CI=1 PYTHONDONTWRITEBYTECODE=1 python3 -c 'print(1); print(2)'"
+            ),
+        )
+
+    def test_changed_missing_or_tree_dependent_environment_prefix_requires_fresh_discovery(self):
+        environment = evidence.verify.test_environment(self.workspace)
+        for prefix in ("PYTHONDONTWRITEBYTECODE=0", "AUTOCODE_MISSING_2194=somevalue", "PATH=" + environment["PATH"]):
+            with self.subTest(name=prefix.split("=", 1)[0]), self.assertRaises(ValueError):
+                evidence._identity_command(self.workspace, prefix + " python3 -c pass")
+
+    def test_shell_tilde_expansion_does_not_count_as_a_redundant_literal(self):
+        with mock.patch.dict("os.environ", {"AUTOCODE_2194_TEST": "~/unexpanded"}):
+            with self.assertRaisesRegex(ValueError, "not provably redundant"):
+                evidence._identity_command(self.workspace, "AUTOCODE_2194_TEST=~/unexpanded python3 -c pass")
+
+    def test_prefix_environment_is_rechecked_during_runtime_identity_collection(self):
+        self.runtime.stop()
+        initial = evidence.verify.test_environment(self.workspace)
+        changed = {**initial, "AUTOCODE_2194_CHANGED": "yes"}
+        pins = {
+            "cache_binding_complete": True,
+            "reuse_supported": True,
+            "environment_hash": util.digest(initial),
+            "source_revision": "s",
+            "unbound_source_symlinks": [],
+        }
+        with (
+            mock.patch.object(evidence.verify, "test_environment", side_effect=[initial, changed]),
+            mock.patch.object(evidence.launch_inputs, "runners", return_value=(None, lambda *a, **k: pins)),
+        ):
+            with self.assertRaisesRegex(ValueError, "environment changed during identity collection"):
+                evidence._runtime(self.state, self.workspace, self.run_dir, "PYTHONDONTWRITEBYTECODE=1 python3 -c pass")
+
+    def test_adjacent_shell_controls_are_never_direct_python_identity(self):
+        for suffix in (";printf", "&&true", "|cat", ">out", "<in", "&true", "\ntrue"):
+            with self.subTest(suffix=suffix), self.assertRaises(ValueError):
+                evidence._identity_command(self.workspace, "python3 -c pass" + suffix)
+        self.assertEqual(
+            "python3 -c pass", evidence._identity_command(self.workspace, "python3 -c 'print(1); print(2)'")
+        )
+
     def test_changed_original_stage_identity_never_reuses_a_receipt(self):
         self.accept()
         retained = copy.deepcopy(self.state)

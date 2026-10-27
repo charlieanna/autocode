@@ -51,11 +51,41 @@ def _requirements(state: RunState):
     )
 
 
-def _identity_command(workspace, command):
-    # A probe is often Python -c with a semicolon INSIDE its quoted program.
-    # Collect that interpreter's dependency identity without treating Python
-    # punctuation as shell syntax. Never execute the supplied program here.
-    words = shlex.split(command)
+# These variables are rewritten for each scratch tree; matching the checkout's
+# value does not prove the assignment is redundant in the actual probe process.
+_TREE_ENVIRONMENT = frozenset({"PATH", "PYTHONPATH", "VIRTUAL_ENV"})
+_ASSIGNMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", re.DOTALL)
+
+
+def _bound_identity_command(workspace, command):
+    """Parse only a direct Python probe and return its identity command/environment pin.
+
+    Shell punctuation must be tokenized outside quotes: shlex.split alone accepts
+    `pass;other` as a single argument. A prefix is safe only when it has no effect
+    on the clean runner environment and does not depend on the scratch-tree path.
+    The captured environment and its values never enter a report or error message.
+    """
+    if any(char in command for char in "`$\n\r"):
+        raise ValueError("reproduction command has no bounded Python runtime identity")
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    words = list(lexer)
+    if any(word and all(char in ";&|<>()" for char in word) for word in words):
+        raise ValueError("reproduction command contains shell control syntax")
+    assignments = []
+    while words and (match := _ASSIGNMENT.fullmatch(words[0])):
+        assignments.append((match.group(1), match.group(2)))
+        words.pop(0)
+    environment_hash = None
+    if assignments:
+        effective = verify.test_environment(workspace)
+        if any(
+            name in _TREE_ENVIRONMENT or "~" in value or name not in effective or effective[name] != value
+            for name, value in assignments
+        ):
+            raise ValueError("reproduction environment assignment is not provably redundant")
+        environment_hash = util.digest(effective)
     rest = words[1:]
     if rest[:1] == ["-B"]:
         rest = rest[1:]
@@ -64,20 +94,29 @@ def _identity_command(workspace, command):
         or not re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(words[0]).name)
         or len(rest) != 2
         or rest[0] != "-c"
-        or any(c in command for c in "`$")
     ):
         raise ValueError("reproduction command has no bounded Python runtime identity")
     executable = words[0]
     if "/" in executable and not Path(executable).is_absolute():
         executable = str(Path(workspace) / executable)
-    return shlex.join([executable, "-c", "pass"])
+    return shlex.join([executable, "-c", "pass"]), environment_hash
+
+
+def _identity_command(workspace, command):
+    return _bound_identity_command(workspace, command)[0]
 
 
 def _runtime(state: RunState, workspace, run_dir, command, *, source_revision=None):
     if sys.platform not in ("linux", "darwin"):
         raise ValueError("complete reproduction runtime identity is unavailable on this platform")
     _, identify = launch_inputs.runners(state, workspace, run_dir, verify.scratch_run, verify.execution_identity)
-    result = identify(workspace, command=_identity_command(workspace, command))
+    identity_command, environment_hash = _bound_identity_command(workspace, command)
+    result = identify(workspace, command=identity_command)
+    if environment_hash is not None and (
+        result.get("environment_hash") != environment_hash
+        or util.digest(verify.test_environment(workspace)) != environment_hash
+    ):
+        raise ValueError("reproduction environment changed during identity collection")
     if source_revision is not None and result.get("source_revision") != source_revision:
         raise ValueError("source changed during runtime identity collection")
     if result.get("cache_binding_complete") is not True or result.get("reuse_supported") is not True:
