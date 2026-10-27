@@ -152,7 +152,8 @@ python -B "$RUNTIME/tools/autocode.py" chat --workspace "$ROOT/mimo-builder-glm-
 Requirements/goal planning reached GLM-5.3; plan review reached MiMo Pro;
 investigation/recovery reached each cohort's configured checker family. The intended
 Builder/Tester pairings remain unreached. Deterministic joint-flow success is not a
-substitute for the requested live result. PR #2182 remains draft.
+substitute for the requested live result. PR #2182 was subsequently merged; that
+merge does not establish the unfinished live qualification.
 
 ## Held planning-repair recovery (2026-10-27)
 
@@ -182,3 +183,33 @@ extra review call was selected per cohort (total 4); dollar/run caps and routes
 remain unchanged. The runtime upgrade changed no saved run state, transport
 configuration or prompt resources. Neither cohort has yet reached Builder,
 Tester, joint proof or automatic fixture publication.
+
+## Continued live qualification (2026-10-27, 07:48 UTC checkpoint)
+
+Direct fixes [#2195](https://github.com/charlieanna/autocode/pull/2195) and
+[#2198](https://github.com/charlieanna/autocode/pull/2198) clarified source
+exclusions/retained traces and stopped authenticated feedback IDs from becoming
+spurious numerical requirements. Both have since merged. The GLM Builder cohort's
+history plan now reaches `AWAITING_GOAL_APPROVAL`, alongside checkout.
+
+The MiMo Builder cohort remains unqualified: its eighth checkout final review and
+two repairs still reported already-covered feedback as out of scope. Both updated
+instructions were present in `plan-finalize-08.prompt.md`; the attempt took
+246.942 s elapsed (238.058 s provider time). Bundle manifest:
+`05b81d295f67d58b7152ebd904a3637e38a0d7ff5e9e2c466b5a9c69dc8a7b2a`.
+The run remains paused, with no acceptance or approval guard relaxed.
+
+The GLM cohort's tax Investigator then named existing members `checkout repository`
+and `history repository`. That exposed a catalog-lookup gap: the earlier
+parenthetical-label fallback did not recognize the repository noun. Direct fix
+[#2202](https://github.com/charlieanna/autocode/pull/2202) preserves exact-name
+priority, ambiguity and catalog authority while reusing those owned members.
+Both regressions fail before the fix; 40 focused checks pass, and the supported
+Linux supervised TUI scope-assignment regression passes in 148.008 s.
+
+The actual TUI resumed at runtime `aae4389c6a92877f587b3d78064b11863342414a`,
+reused the same three members and advanced tax into planning without another
+registration prompt. Viewers exited at saved input boundaries for the upgrade;
+saved state, model routes, native provider configuration and prompt resources
+were not changed by this catalog correction. At this checkpoint neither cohort
+has reached Builder, Tester, joint regression or automatic fixture publication.
