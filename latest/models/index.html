@@ -2172,7 +2172,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/3fee4fdad7f1e7cd2de210b076ea9004204d0f9e/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/a97761108c1f87e0ac28e6ed7d93f3d1f6fe8208/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2342,7 +2342,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/3fee4fdad7f1e7cd2de210b076ea9004204d0f9e/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/a97761108c1f87e0ac28e6ed7d93f3d1f6fe8208/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2470,8 +2470,18 @@ is never silently added.</p>
   profile, the role's accepted attempts on that route, and their minutes and cost
   (null when an attempt did not record one). <code>autocode models --selection</code> shows each
   listed entry's evidence, such as <code>provisional: no AutoCode run yet</code> or
-  <code>qualified: 3 AutoCode runs, latest 2026-10-25, median 20 min, median $1.00</code> (#2059).
-  Provisional entries stay selectable (owner decision, 2026-10-26) until benchmark runs
+  the number/date of recorded runs (#2059). Historical <code>minutes</code>, <code>cost_usd</code> and
+  <code>attempts</code> cover only accepted attempts on that role/model; their display labels
+  the scope, excluded failed/repair amounts and known-run denominator. New records
+  additionally carry versioned <code>attempt_accounting</code> for all attempts on that role/model,
+  including rejected, timed-out, interrupted and report-only work. Duration is summed
+  recorded active time, not task wall time. Provider-reported and historical-estimated
+  amounts stay separate, with known subtotals and coverage; missing/uncertain usage
+  is not zero. Native shared receipts retain the existing accounting attribution.
+  Legacy and all-attempt cohorts are not pooled. None of these role measurements is
+  a whole-task cost per accepted fix, an invoice or new comparative qualification.
+  Rejected/repair-only attempts still do not qualify a route, and no historical
+  record is silently backfilled. Provisional entries stay selectable (owner decision, 2026-10-26) until benchmark runs
   have filled these records.</li>
 <li><strong>Within a role's qualified models, the cheapest route wins.</strong> A subscription route
   counts as cheaper than any pay-per-token one, then the price-table cost orders them,
