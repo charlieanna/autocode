@@ -269,6 +269,19 @@ def main():
             open_questions=[],
             proposed_assumptions=[],
         )
+        if os.environ.get("COORDINATION_FIXTURE_EARLY_SCOPE") and target:
+            report["source_refs"] = [source + ":3"]
+            report["workspace_scope"] = {
+                "spans_repositories": True,
+                "external_parts": [
+                    {
+                        "target": target,
+                        "work": "Fix the downstream total contract",
+                        "source_quote": "",
+                        "evidence": source + ":3",
+                    }
+                ],
+            }
     elif stage == "astra_challenge":
         report.update(concerns=[], source_trace=source_trace_for((contract.get("body") or body), data))
     elif stage == "terra":
