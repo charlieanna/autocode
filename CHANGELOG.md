@@ -423,6 +423,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat no longer prints the Requirements question a second time after the person has already
+  seen and answered it. The direct prompt's echo was dropped while the public copy of the question was still
+  being written, so the finished message looked new on the next poll. The echo now waits for the finished
+  message.
 - A Builder on Claude Code can cite the command it ran as a bare `event:` in `evidence_refs`, and the
   runner binds it to the stage's latest completed command with a known exit code, as a Validator check's
   bare `event:` already was (#2253). Claude Code stages never see the `item_N` IDs the runner assigns,

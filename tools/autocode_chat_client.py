@@ -785,7 +785,9 @@ class ChatClient:
             who = "You" if row.get("role") == "user" else "AutoCode"
             self.say(f"\n{who}: {text}")
         # A prompt without an immediate public counterpart must not hide a later turn's message.
-        self._local_echoes.clear()
+        # While its counterpart is still being written, the echo waits for the finished message.
+        if streaming_text is None:
+            self._local_echoes.clear()
         self._live_quiet = 0 if streaming_text != self._live_text else self._live_quiet + 1
         self._live_text = streaming_text
         if self._stream is not None:
