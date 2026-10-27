@@ -91,6 +91,9 @@ class CoordinationContextTests(unittest.TestCase):
                 self.assertIn("never discharges the real joint obligation", context["instruction"])
                 self.assertIn("not exclusions or proxy acceptance", context["instruction"])
                 self.assertIn("only after ALL member gates and independent joint proof pass", context["instruction"])
+                self.assertIn("end_to_end_flow", context["instruction"])
+                self.assertIn("only this member's executable local path", context["instruction"])
+                self.assertIn("request a plan revision", context["instruction"])
 
     def test_discovery_hint_requires_the_same_authenticated_member_identity(self):
         self.automatic()

@@ -261,6 +261,12 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
                     ["--workspace", row["workspace"], "--run-dir", row["run_dir"], "--status", "--json"]
                 )
                 related = json.loads(response.stdout)["view"]["related_profile"]["settings"]
+                member_plan = json.loads(response.stdout)["view"]["approved_contract"]["body"]
+                self.assertTrue(all("local" in step for step in member_plan["end_to_end_flow"]))
+                self.assertIn(
+                    "The coordinator must separately prove the actual checkout, history and tax flow",
+                    member_plan["required_behaviors"],
+                )
                 if self.env.get("COORDINATION_FIXTURE_SCOPE_METADATA") and row["target"] == "history":
                     view = json.loads(response.stdout)["view"]
                     parts = view["scope"]["external_parts"]
