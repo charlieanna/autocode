@@ -67,7 +67,9 @@ publications; an uncertain result never authorizes a second PR creation. PRs are
 not merged automatically.
 
 `/pause` cancels further coordination and requests a boundary pause from active
-members, retaining files and existing PRs. The TUI consumes the public
+members, retaining files and existing PRs. While the coordinator is working,
+Ctrl-C takes that same cancellation action; the screen labels it accordingly.
+Individual runs use Ctrl-C for a boundary pause. The TUI consumes the public
 [coordination contract](task-run.md#automatic-coordination-from-chat).
 
 ## Manual change sets
