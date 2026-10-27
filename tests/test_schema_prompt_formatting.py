@@ -65,6 +65,9 @@ class CompactSchemaPromptTests(unittest.TestCase):
         ):
             with self.subTest(rule=rule):
                 self.assertIn(rule, rendered)
+        self.assertLess(
+            rendered.index("named verification commands early, once"), rendered.index("Read the change AND")
+        )
         self.assertNotIn("run the test suite there", rendered)
         self.assertIn(json.dumps(review.SCHEMA, separators=(",", ":")), rendered)
 
