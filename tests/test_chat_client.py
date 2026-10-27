@@ -1014,10 +1014,37 @@ class NewChatSetupTests(unittest.TestCase):
             rows = [{**row, "default": row["id"] == "kilocode"} for row in CONNECTIONS["connections"]]
             listings = {"modes": history.read(["modes"]), "connections": {**CONNECTIONS, "connections": rows}}
             history.read = lambda argv: listings[argv[0]]
-            self.assertEqual("New chats: Full · Kilo. /mode and /engine change them.", history.summary())
+            banner, notice = history.summary().split("\n")
+            self.assertEqual("New chats: Full · Kilo. /mode and /engine change them.", banner)
+            self.assertEqual(
+                "Kilo cannot start chats yet (unavailable). Installed here: OpenCode. "
+                "Type /engine opencode to run new chats on it.",
+                notice,
+            )
             self.assertIn("New chats use the Kilo connection (kilocode)", history.slash("/engine", ""))
             self.assertNotIn("(current)", history.slash("/engine", ""))
             self.assertIn("  kilocode  Kilo: unavailable  (new chats use it)", history.slash("/connect", ""))
+
+    def test_an_unusable_default_backend_is_named_in_the_banner_and_before_the_plain_chat_question(self):
+        """Only Claude Code installed: the chat said nothing until the first request failed."""
+        from tests.test_chat_setup import CONNECTIONS
+
+        with tempfile.TemporaryDirectory() as folder:
+            history = self.history(folder)
+            rows = [
+                {**row, "connection_status": "unavailable" if row["id"] == "opencode" else row["connection_status"]}
+                for row in CONNECTIONS["connections"]
+            ]
+            rows.append({"id": "claude", "label": "Claude Code", "connection_status": "not_checked"})
+            listings = {"modes": history.read(["modes"]), "connections": {**CONNECTIONS, "connections": rows}}
+            history.read = lambda argv: listings[argv[0]]
+            notice = "OpenCode cannot start chats yet (unavailable). Installed here: Claude Code. "
+            notice += "Type /engine claude to run new chats on it."
+            self.assertEqual(notice, history.notice())
+            self.assertEqual(f"New chats: Full · OpenCode. /mode and /engine change them.\n{notice}", history.summary())
+            history.slash("/engine", "claude")
+            self.assertIsNone(history.notice(), "a chosen engine needs no warning")
+            self.assertNotIn("cannot start", history.summary())
 
     def test_a_choice_made_at_the_first_question_starts_that_first_chat_with_it(self):
         """#2009: open_chat was handed the new-chat mode and options before its question, so /connect NAME use,
@@ -1046,6 +1073,36 @@ class NewChatSetupTests(unittest.TestCase):
             ):
                 started = chat.open_chat(Path(folder), None, [], ask=ask, say=lambda _: None, new=history.new)
             self.assertEqual(("Add a --shout flag", ["--mode-flag", "other"], ["--provider", "opencode"]), started)
+
+    def test_a_slash_command_typed_at_the_plain_chat_question_is_taken_not_run_as_a_task(self):
+        """The line-by-line chat started a run called "/engine claude" when the person typed what the
+        unusable-default notice told them to; the full-screen chat already took it as the command."""
+        with tempfile.TemporaryDirectory() as folder:
+            history = self.history(folder)
+            replies = iter(["/engine claude", "/bogus", "/runs", "Add a --shout flag"])
+            said = []
+            modes = lambda mode, **_: {"id": mode, "start_args": [], "spend_confirmation": "planning"}
+            with (
+                mock.patch.object(chat, "project_runs", return_value=[]),
+                mock.patch.object(chat, "mode_row", side_effect=modes),
+                mock.patch.object(
+                    chat, "start", side_effect=lambda ws, brief, args, options, **_: (brief, args, options)
+                ),
+            ):
+                started = chat.open_chat(
+                    Path(folder),
+                    None,
+                    [],
+                    ask=lambda _: next(replies),
+                    say=said.append,
+                    new=history.new,
+                    slash=history.slash,
+                )
+            self.assertEqual(("Add a --shout flag", []), started[:2])
+            self.assertEqual("claude", chat.setup.flag_value(started[2], "--engine"))
+            self.assertIn("New chats run on Claude Code.", "\n".join(said))
+            self.assertIn("Open or start a chat first: type a request, or /runs to see this project's chats.", said)
+            self.assertIn("No chats yet. Type a request to start one.", said)
 
     def test_connect_checks_signs_in_through_the_terminal_and_uses_a_backend(self):
         with tempfile.TemporaryDirectory() as folder:

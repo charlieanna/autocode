@@ -423,6 +423,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat on a host whose default backend cannot start a chat (OpenCode not installed) says so
+  before its first question, names what `connections list` shows installed instead, and the `/engine` or
+  `/connect NAME use` that picks it, rather than failing the first request. The line-by-line chat now takes
+  `/engine`, `/mode`, `/connect` and `/runs` typed at that question as commands, as the full-screen chat
+  already did, instead of starting a run called "/engine claude".
 - A launch refused after its run directory was reserved but before the first checkpoint (a missing
   engine, an unsupported host) no longer leaves `RUN/writer.lock` behind; the directory is removed and the
   refusal says so. `autocode runs` and the chat's `/runs` listed such a run as "cannot be read" for ever.
