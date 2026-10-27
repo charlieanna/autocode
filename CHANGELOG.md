@@ -423,6 +423,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Builder on Claude Code can cite the command it ran as a bare `event:` in `evidence_refs`, and the
+  runner binds it to the stage's latest completed command with a known exit code, as a Validator check's
+  bare `event:` already was (#2253). Claude Code stages never see the `item_N` IDs the runner assigns,
+  so the old prompt ("cited as `event:item_N`", "never invent event IDs") left the Builder no way to
+  cite a command without a report repair; a guessed ID is still rejected. On the 2026-10-27 live
+  `bugfix-trivial` run that cost a Resolver pass and a 16 s repair stage.
+
 - A new task that stops before its run is first saved (for example, when the coding-agent CLI is not
   on PATH) now removes the task worktree and branch it had just created, and says so. Before, every
   retry left another `.autocode/worktrees/` checkout and `autocode/*` branch that `autocode runs` could
