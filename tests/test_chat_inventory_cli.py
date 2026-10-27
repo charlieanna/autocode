@@ -35,6 +35,14 @@ if args[0] == 'runs':
 elif args[0] == '--status':
  run = args[args.index('--run-dir') + 1]
  record('status', run=run)
+ if pathlib.Path(run).name == 'r23' and (root / 'hold-return-status').exists():
+  old_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGUSR1})
+  marker = root / 'return-status-held'
+  pending = root / 'return-status-held.tmp'
+  pending.write_text(str(os.getpid()))
+  pending.replace(marker)
+  signal.sigwait({signal.SIGUSR1})
+  signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
  print(json.dumps({'view': {'workspace': str(root), 'run_dir': run,
   'done': True, 'status': 'TASK_COMPLETE', 'needs': {'kind': 'none'},
   'chat': {'context': run, 'title': pathlib.Path(run).name, 'input': {'kind': 'follow_up'},
@@ -119,7 +127,20 @@ raise SystemExit(code)
                     ),
                     10,
                 )
+                before = {row["pid"] for row in self.calls(root) if row["kind"] == "status"}
+                gate, held_status = root / "hold-return-status", root / "return-status-held"
+                gate.touch()
                 screen.keys("C-Right")
+                screen.wait_for(
+                    lambda shown: composer_text(shown) == "B draft 你好" and held_status.is_file(),
+                    10,
+                    what="the cached draft while this tab's fresh status is held",
+                )
+                # Cached text is display history. Release and observe the new
+                # public view before sending commands through its prompt.
+                gate.unlink()
+                os.kill(int(held_status.read_text()), signal.SIGUSR1)
+                self.wait_for_current_status(screen, root, runs[23], before)
                 screen.wait_for(lambda shown: composer_text(shown) == "B draft 你好", 10)
                 screen.type("X")
                 screen.wait_for(lambda shown: composer_text(shown) == "B draft 你X好", 10)

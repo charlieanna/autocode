@@ -94,3 +94,39 @@ The final focused Linux command passed 83 checks in 19.283 seconds:
 
 Ruff lint and formatting checks also pass. The original failed assertion and
 three missing-mapping failures were retained before the corresponding edits.
+
+## Proof detector and returning-tab test contracts
+
+The final verdict of run 40575058953 is 11,614 tests / 794 modules in
+4,554 seconds, with three failing modules. The JSON refusal failure is fixed
+in #2254. Two additional failures need separate fixture corrections.
+
+`ProvenanceDefaults` supplied a two-argument framework-detector stub even
+though regression proof now forwards its base revision. The exact TypeError
+reproduces without launching a provider. The test now uses a real fixture
+commit and requires the complete detector call: task worktree, selected project
+venv (or explicit interpreter), and the bound base. It does not ignore unknown
+arguments. Both proof producers explicitly retain this slow workflow consumer
+in PR selection; the selector regression fails without that mapping.
+
+The inventory terminal check already awaited a fresh public status after
+switching left, but after switching right it waited only for a restored draft.
+That cached display can precede the new question, which correctly archives
+unbound input rather than treating it as an answer. The observed CI failure
+never reached either intended held inventory read. A fast local baseline passed;
+that is not evidence that the asynchronous path is safe. The fixture now holds
+the returning tab's fresh status behind a signal gate, proves its cached draft
+is visible while held, releases the response, and observes its unique new
+status before sending commands. Cursor/draft preservation, responsive key/help
+handling, no unauthorized task action and child cleanup assertions remain.
+The signal is blocked before publishing an atomic ready marker, avoiding a
+lost-wakeup or partially written PID race. No fixed sleep, timeout increase,
+production authority or model change is introduced.
+
+Focused final evidence: 64 pure/terminal/selector checks pass on macOS in
+2.022 seconds, including the forced status hold (key 14.9 ms, help 23.5 ms).
+The full affected bug-fix workflow and selector pass 68 checks on supported
+Linux in 42.157 seconds. The existing Linux container lacks tmux and its
+credential-switching restrictions prevent package setup, so Linux terminal
+qualification is left to the required Ubuntu PR check, not claimed locally.
+Ruff lint and formatting pass. No provider call or sandbox restriction changed.
