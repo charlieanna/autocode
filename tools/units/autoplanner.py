@@ -38,6 +38,7 @@ try:
     from .. import autocode_failures as failures
     from .. import autocode_follow_up as follow_up
     from .. import autocode_goals as goals
+    from .. import autocode_investigation_evidence as investigation_evidence
     from .. import autocode_native_test_names as native_test_names
     from .. import autocode_planner_escalation as planner_escalation
     from .. import autocode_planning_artifacts as artifacts
@@ -75,6 +76,7 @@ except ImportError:
     import autocode_failures as failures
     import autocode_follow_up as follow_up
     import autocode_goals as goals
+    import autocode_investigation_evidence as investigation_evidence
     import autocode_native_test_names as native_test_names
     import autocode_planner_escalation as planner_escalation
     import autocode_planning_artifacts as artifacts
@@ -1374,6 +1376,8 @@ def context(state: RunState, stage, state_path):
     diagnosis = bug_job.large_correction(state)
     if diagnosis:
         packet["bug_diagnosis"] = diagnosis
+        if stage in ("requirements_gather", "requirements", "astra_discovery", "plan"):
+            packet["bug_diagnosis_evidence"] = investigation_evidence.context(state, Path(state_path).parent)
     findings = follow_up.review_findings(state)
     if findings:
         packet["review_findings"] = findings

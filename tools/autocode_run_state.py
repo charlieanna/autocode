@@ -479,7 +479,7 @@ class RunState(TypedDict, total=False):
     intake_input_hash: Any
     intervention_ack_pending: Any
     intervention_capability: Any
-    investigation: Any
+    investigation: Any  # bug_job report; investigation_evidence owns nested discovery_evidence, read by planning
     investigation_request: Any
     job_retry_authorization: Any
     key: Any

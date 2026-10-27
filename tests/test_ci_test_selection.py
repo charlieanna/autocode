@@ -182,6 +182,20 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in expected})
                 self.assertEqual(expected, set(kept))
 
+    def test_investigation_reuse_resources_and_units_keep_the_public_cli_consumer(self):
+        consumer = "tests.test_investigation_handoff_cli"
+        for path in (
+            "tools/autocode_investigation_evidence.py",
+            "tools/units/autoplanner.py",
+            "tools/units/autoresolver.py",
+            "tools/prompts/discovery.md",
+            "tools/prompts/fragments/autoplanner/bug-diagnosis-rule.md",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
     def test_review_attribution_and_adversarial_nit_keep_the_public_consumer(self):
         consumer = "tests.test_review_attribution_cli"
         for path in (
