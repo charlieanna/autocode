@@ -301,12 +301,21 @@ class OwnerInspectionTests(unittest.TestCase):
             ):
                 self.assertEqual(expected, owners.inspect(self.state, self.run_dir, self.workspace)["kind"])
                 self.assertEqual(before, marker.read_bytes())
-        marker.write_text("x" * (owners.MAX_PROCESS_MARKER_BYTES + 1))
-        self.assertEqual("unknown", owners.inspect(self.state, self.run_dir, self.workspace)["kind"])
+        util.atomic_json(
+            marker,
+            {"command": ["x" * owners.MAX_PROCESS_MARKER_BYTES], "processes": [{"pid": 123, "birth_identity": 1}]},
+        )
+        with patch.object(processes, "recorded_worker_state", return_value={"checked": True, "alive": False}):
+            self.assertEqual("unknown", owners.inspect(self.state, self.run_dir, self.workspace)["kind"])
         marker.unlink()
-        # The controller receipt itself keeps the original small bound.
-        (self.run_dir / owners.FILE).write_text("x" * (owners.MAX_BYTES + 1))
-        self.assertEqual("unknown", owners.inspect(self.state, self.run_dir, self.workspace)["kind"])
+        # A valid controller receipt with a long reason still keeps the small bound.
+        with util.run_lock(self.run_dir), owners.Owner(self.state, self.run_dir, self.persist):
+            pass
+        receipt = util.read(self.run_dir / owners.FILE)
+        receipt["reason"] = "x" * owners.MAX_BYTES
+        util.atomic_json(self.run_dir / owners.FILE, receipt)
+        with patch.object(processes, "process_table", return_value={}):
+            self.assertEqual("unknown", owners.inspect(self.state, self.run_dir, self.workspace)["kind"])
 
     def test_unsaved_preview_does_not_replace_the_durable_ready_checkpoint(self):
         checkpoint = (self.run_dir / "state.json").read_bytes()
