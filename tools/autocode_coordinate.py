@@ -240,7 +240,7 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
     by_target = {row["target"]: row for row in document["members"]}
     for target, view in views.items():
         scope = view.get("scope") or {}
-        if scope.get("external_parts") and scope.get("decision") != "linked_repositories":
+        if scope.get("external_parts") and not scope.get("decision"):
             required = {part["target"] for part in scope["external_parts"]}
             if required <= by_target.keys():
                 return {

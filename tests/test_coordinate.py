@@ -176,6 +176,24 @@ class CoordinationTests(unittest.TestCase):
             with self.assertRaisesRegex(store.CoordinationError, "scope decision changed"):
                 coordinate.observe(self.document)
 
+    def test_answered_member_scope_is_not_reassigned_on_every_refresh(self):
+        self.document["members"] = [
+            {"target": name, "started": True, "run_dir": str(self.root / name)} for name in ("api", "history")
+        ]
+        views = {
+            "api": {
+                "scope": {
+                    "identity": "current-scope",
+                    "external_parts": [{"target": "history"}],
+                    "decision": "this_repository",
+                },
+                "needs": {"kind": "continue"},
+            },
+            "history": {"needs": {"kind": "approve_plan"}},
+        }
+        with patch.object(coordinate.actions, "working", return_value=False):
+            self.assertEqual("advance", coordinate.next_step(self.document, views)["kind"])
+
     def test_delivery_stages_literal_source_without_ignored_run_files(self):
         entry = self.repository()
         workspace = Path(entry["origin"])
