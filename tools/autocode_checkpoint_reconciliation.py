@@ -22,6 +22,7 @@ except ImportError:
     import autocode_visual_profile as visual_profile
 
 BOUND = (
+    "execution",
     "task",
     "ui_run",
     "workspace",
@@ -57,7 +58,8 @@ def require_binding(state: RunState, expected):
 def offer(state: RunState, inspection, *, controller=None):
     active = state.get("active_stage")
     if (
-        any(row.get("kind") == "stop" for row in state.get("applied_interventions") or [])
+        (state.get("execution") or {}).get("mode") == "durable_local"
+        or any(row.get("kind") == "stop" for row in state.get("applied_interventions") or [])
         or state.get("ui_run")
         or visual_profile.initial_intent(state.get("task") or "") is not None
         or state.get("status") != "RUNNING"

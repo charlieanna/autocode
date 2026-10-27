@@ -40,7 +40,16 @@ class CheckpointReconciliationTests(unittest.TestCase):
         self.assertEqual(before, state, "The status projection must remain read-only")
 
     def test_live_unknown_or_finished_supervision_does_not_offer_reconciliation(self):
-        for fault in ("live_owner", "live_keeper", "live_provider", "unknown", "finished", "runner_check", "visual"):
+        for fault in (
+            "live_owner",
+            "live_keeper",
+            "live_provider",
+            "unknown",
+            "finished",
+            "runner_check",
+            "visual",
+            "durable",
+        ):
             with self.subTest(fault=fault):
                 state = checkpoint()
                 fresh = inspection(state["active_stage"]["supervision"], owner=False, keeper=False, provider=False)
@@ -50,6 +59,8 @@ class CheckpointReconciliationTests(unittest.TestCase):
                     fresh["owner"] = {"checked": False, "alive": None}
                 elif fault == "finished":
                     state["active_stage"]["finished_at"] = "2026-10-27T17:35:00Z"
+                elif fault == "durable":
+                    state["execution"] = {"mode": "durable_local"}
                 elif fault == "visual":
                     state["ui_run"] = "/original/native-handoff"
                 else:

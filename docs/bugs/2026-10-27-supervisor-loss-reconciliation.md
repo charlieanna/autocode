@@ -8,7 +8,7 @@ next command nor a safe way for a conforming client to reach the uncertainty
 boundary. This is not evidence that the provider completed, failed or cost zero.
 
 Status now offers one checkpoint-bound metadata-only `--reconcile-only` action
-for ordinary supervised attempts. Under the existing run lock it freshly checks
+for ordinary foreground supervised attempts. Under the existing run lock it freshly checks
 all three process identities and records PAUSED_UNCERTAIN_STAGE. It does not
 configure a provider, migrate saved settings, adopt an output, launch inference,
 reset usage, replenish recovery or retry the attempt. Native visual execution,
