@@ -170,6 +170,46 @@ class KiloPolicyTests(unittest.TestCase):
                     else:
                         self.assertEqual(prompt, agent["prompt"])
 
+    def test_restriction_preserves_the_operators_native_steps_bound_for_every_stage_kind(self):
+        argv = [sys.executable, "run", "--agent", "selected", "--model", "fixture/selected"]
+        original = {
+            "permission": [{"permission": "*", "pattern": "*", "action": "allow"}],
+            "steps": 20,
+            "model": "operator/default",
+            "tools": {"task": True},
+        }
+        for options in ({"portable_shell": True}, {"write_stage": True}, {"report_recovery": True}):
+            with (
+                self.subTest(options=options),
+                patch.object(
+                    policy.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(original), "")
+                ),
+            ):
+                child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
+                ran, env = policy.restrict(argv, child, Path.cwd(), role="requirements", **options)
+                agent = json.loads(env["KILO_CONFIG_CONTENT"])["agent"][ran[-1]]
+                self.assertEqual(20, agent.get("steps"))
+                self.assertEqual("fixture/selected", agent["model"])
+                self.assertEqual("deny", agent["permission"]["*"])
+                self.assertEqual("deny", agent["permission"]["external_directory"])
+                self.assertNotIn("tools", agent)
+                self.assertNotIn("task", agent["permission"])
+
+    def test_invalid_native_steps_refuse_without_widening_the_config(self):
+        argv = [sys.executable, "run", "--agent", "selected", "--model", "fixture/selected"]
+        for steps in (True, 0, -1, 2.5, "20"):
+            original = {"permission": [{"permission": "*", "pattern": "*", "action": "allow"}], "steps": steps}
+            child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
+            with (
+                self.subTest(steps=steps),
+                patch.object(
+                    policy.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(original), "")
+                ),
+                self.assertRaisesRegex(ValueError, "steps must be a positive integer"),
+            ):
+                policy.restrict(argv, child, Path.cwd(), role="requirements")
+            self.assertEqual("{}", child["KILO_CONFIG_CONTENT"])
+
 
 @unittest.skipUnless(
     sys.platform == "linux" and os.environ.get("AUTOCODE_KILO_LOCAL_SSE_TEST") == "1",
