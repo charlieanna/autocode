@@ -112,3 +112,37 @@ unknown and malformed negative controls, raw preservation, atomic refusal,
 unchanged blocking proof, one-call public CLI completion, and tool-free repair
 selection. A matched native TUI/Kilo run checks actual elapsed improvement;
 one sample does not establish a provider latency guarantee.
+
+
+## Live result after #2178: remaining verification-policy mismatch
+
+The green, merged `b9d6b404` runtime completed the matched TUI review in
+286.136 seconds (267.473 seconds in its single native review stage), with no
+access ping, report repair, recovery or operator reply. Both products passed the
+same 210 external checks with all 3,962 frozen source hashes unchanged. Fresh
+Kilo delivered in 160.425 seconds. The new AutoCode result was slower than the
+previous 265.255-second sample; this is not evidence of an end-to-end speedup.
+Retained bundle manifest: `ca9c2e92fb9857f8d3ec45d8a4e20bd547740207f1d5ca0e1deed60728c39511`.
+
+The current trace has 15 native requests / 17 tools versus Kilo's 9 / 9.
+AutoCode's review spent 20.823 seconds in tool execution, including a 16.543-second
+architecture/prompt test invocation in addition to the requested 44 checks;
+Kilo's tool execution covered 1.403 seconds. These intervals overlap native step
+intervals and must not be summed as separate inference and execution totals.
+The broad native step intervals were 118.479 seconds versus 94.981 seconds.
+Native response wait, generation, tool choice and cache behavior vary; neither
+one changed prompt nor one sample establishes a general latency guarantee.
+
+The runtime Reviewer still said to apply the change in a scratch copy and
+"run the test suite", even for an already-applied change with named focused
+checks and a separately assigned external verifier. This conflicts with the
+repository's task-focused verification policy and encourages unrelated extra
+suite work. The follow-up establishes the reviewed source first, runs requested
+checks early and once on that version, adds focused probes for concrete gaps,
+and broadens when requested or justified by an affected consumer. It also asks
+for batched independent context reads without discarding truncated content.
+Fresh evidence, every requested check, failure reporting and the complete
+independent blocking-finding proof remain. No Tester/Completion Reviewer stages
+are combined. Only one compiled review rendering changes; the other 192 remain
+byte-identical. Native qualification must measure the effect before claiming it
+reduces model turns or elapsed time.
