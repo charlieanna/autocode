@@ -148,7 +148,7 @@ command.
 | Missing engine or login in `doctor` | Select the engine you actually connected. Use the same `--engine codex` or `--engine claude` for doctor and the task; the unqualified command uses the configured/default route. |
 | Missing Git project or HEAD | Run in the project root and make its first commit. Starting in a folder of sibling repositories does not select them as a set. |
 | A missing model route | Follow the named route/login fix. An installed CLI alone does not establish access to every selected role's model. |
-| Provider session boundary unavailable on Linux | Use the supported Linux host described in [provider ownership](providers.md#provider-process-ownership). Installation and `doctor` are not a complete kernel-admission test. |
+| Provider session boundary unavailable on Linux | `doctor`'s `session` row names the cause. As root in a container, VM or CI image (a shell holding `CAP_SYS_ADMIN` or `CAP_SYS_PTRACE`), every stage and the demo are refused: run AutoCode as an ordinary user, or prefix it with `setpriv --bounding-set=-sys_admin,-sys_ptrace`. Otherwise use the supported Linux host described in [provider ownership](providers.md#provider-process-ownership). `doctor` is not a complete kernel-admission test. |
 | Another repository is not registered | Set the same `AUTOCODE_HOME` in each terminal and use `autocode registry add /path/to/committed/checkout`; see the [multi-repository walkthrough](multi-repo.md#walkthrough-a-bug-reveals-another-repository). |
 
 ## Prerequisites
