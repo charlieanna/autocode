@@ -2150,7 +2150,7 @@
 
 
 <h1 id="install-and-run">Install and run<a class="headerlink" href="#install-and-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a97761108c1f87e0ac28e6ed7d93f3d1f6fe8208/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/21787a62bcc56912deed85e3e5e9b5f5332bd829/README.md">← Back to README</a></p>
 <h2 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">&para;</a></h2>
 <p>You need macOS or Linux (Windows through WSL), Python 3.11 or newer, Git,
 <a href="https://pipx.pypa.io/">pipx</a>, and npm (Node.js) to install the engine.</p>
@@ -2164,17 +2164,25 @@ with your package manager; on macOS install Python 3.11+, Git and pipx. Node.js/
 is needed only when installing an external engine with npm. The built-in
 <a href="../providers/#autocode-direct-connections-issue-1493">API-key connection</a> does not need it.</p>
 <p><strong>1. Install AutoCode.</strong></p>
-<pre><code class="language-sh">pipx install git+https://github.com/charlieanna/autocode
+<pre><code class="language-sh">pipx install autocode-supervisor
 pipx ensurepath
 # Open a new terminal so PATH includes pipx's executables.
 autocode --version
 autocode demo
 </code></pre>
-<p>AutoCode is not on PyPI yet. After the first release this step becomes
-<code>pipx install autocode-supervisor</code>, or <code>brew install charlieanna/tap/autocode</code>
-with Homebrew (<a href="../releasing/#homebrew">Releasing</a>). If pipx's Python is older than 3.11, add
-<code>--python python3.11</code>. The demo is offline: no sign-in or model spend. Once
-installed, you do not need to activate a virtual environment in every shell.</p>
+<p>Or use the published <a href="https://github.com/charlieanna/homebrew-tap">Homebrew tap</a>:</p>
+<pre><code class="language-sh">brew install charlieanna/tap/autocode
+</code></pre>
+<p>The published version verified on 2026-10-27 is <strong>0.8.2</strong> on both
+<a href="https://pypi.org/project/autocode-supervisor/0.8.2/">PyPI</a> and Homebrew.
+These commands install the tagged release, not current master; this guide's
+<code>latest</code> documentation can describe newer features and fixes. Use the
+<a href="#advanced-install-from-a-checkout">advanced checkout/master installation</a>
+when you need those changes. The <a href="https://github.com/charlieanna/autocode/blob/21787a62bcc56912deed85e3e5e9b5f5332bd829/docs/bugs/2026-10-27-release-installation.md">release verification record</a>
+distinguishes distribution smoke checks from task/provider qualification.
+If pipx's Python is older than 3.11, add <code>--python python3.11</code>. The demo is
+offline: no sign-in or model spend. Once installed, you do not need to activate
+a virtual environment in every shell.</p>
 <p><strong>Already have an engine signed in?</strong> Reuse it. With Codex, run
 <code>autocode doctor --engine codex</code> and add <code>--engine codex</code> to your first task.
 With Claude Code use <code>--engine claude</code> on both commands. Skip step 2 and go to
@@ -2316,6 +2324,15 @@ exact path, replacing this example with your checkout's absolute path:</p>
 <p>Avoid <code>safe.directory '*'</code>, which trusts every repository. A checkout on the
 Linux filesystem usually avoids this mounted-directory ownership mismatch.</p>
 <h2 id="advanced-install-from-a-checkout">Advanced: install from a checkout<a class="headerlink" href="#advanced-install-from-a-checkout" title="Permanent link">&para;</a></h2>
+<p>To follow current master without maintaining a development checkout:</p>
+<pre><code class="language-sh">pipx install git+https://github.com/charlieanna/autocode
+</code></pre>
+<p>Use <code>pipx reinstall autocode-supervisor</code> to refresh an existing pipx Git
+installation from its saved source. This is separate from the published PyPI
+release; check <code>autocode --version</code> and retain the source commit when reporting
+behavior. Do not assume two builds with the same package version contain the
+same master changes. Choose one active installation rather than relinking a
+Homebrew command over an existing pipx/development command.</p>
 <p>For working on AutoCode itself, or trying an unreleased change. Run directly from a
 checkout (its Python needs <code>psutil</code>, as in the project's <code>.venv</code>):</p>
 <pre><code class="language-sh">python3 /path/to/autocode/tools/autocode.py &quot;Build a greeting CLI&quot; \

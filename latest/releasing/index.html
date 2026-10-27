@@ -1784,6 +1784,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#published-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Published baseline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#one-time-setup" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1841,6 +1852,17 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cadence-and-qualification-decision-2048" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cadence and qualification decision (#2048)
+      
+    </span>
+  </a>
   
 </li>
       
@@ -1915,6 +1937,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#published-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Published baseline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#one-time-setup" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1975,6 +2008,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#cadence-and-qualification-decision-2048" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cadence and qualification decision (#2048)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2002,6 +2046,16 @@
 <a href="https://docs.pypi.org/trusted-publishers/">trusted publishing</a>: GitHub proves to PyPI
 which repository, workflow and environment is uploading, so there is no API token to
 store or rotate.</p>
+<h2 id="published-baseline">Published baseline<a class="headerlink" href="#published-baseline" title="Permanent link">&para;</a></h2>
+<p>PyPI and <code>charlieanna/homebrew-tap</code> already publish <strong>0.8.2</strong>, checked on
+2026-10-27. The tag points to <code>86fdb7920f46a935405840f78c8c3bff0ed3422b</code>
+(2026-10-21), not current master. See the <a href="https://github.com/charlieanna/autocode/blob/21787a62bcc56912deed85e3e5e9b5f5332bd829/docs/bugs/2026-10-27-release-installation.md">distribution verification
+record</a>. Existing versions/tags must
+not be republished or moved to ship later master fixes: choose a new version
+and follow the release process below.</p>
+<p>The one-time publisher/environment/tap instructions below describe setup for
+an installation that does not already have them. Do not create a second PyPI
+project or overwrite the existing tap as part of a release.</p>
 <h2 id="one-time-setup">One-time setup<a class="headerlink" href="#one-time-setup" title="Permanent link">&para;</a></h2>
 <ol>
 <li>On PyPI, signed in as the account that will own the project, open
@@ -2051,6 +2105,18 @@ git commit -am &quot;autocode 0.8.0&quot; &amp;&amp; git push
 source archive on PyPI. The formula builds a virtualenv on Homebrew's Python and
 links only the public <code>autocode</code> command; <code>brew test</code> checks that it reports the
 release's version.</p>
+<h2 id="cadence-and-qualification-decision-2048">Cadence and qualification decision (#2048)<a class="headerlink" href="#cadence-and-qualification-decision-2048" title="Permanent link">&para;</a></h2>
+<p>The proposed two-week release cadence remains an owner decision, not an enabled
+schedule. No automation or calendar promise is created by the installation
+correction. Until a cadence is agreed, releases use the explicit version/tag
+process above.</p>
+<p>Before choosing the next release pin, review that revision's required CI,
+packaging/install checks and applicable supported-host/provider reliability
+record, preserving failed, skipped, unknown and unrun results. A distribution
+smoke pass or a prior tag's live sample does not qualify all newer master
+behavior. Record the exact candidate, missing evidence and agreed release gate;</p>
+<h1 id="2048-remains-open-for-this-policy-decision-do-not-publish-the-current-master">2048 remains open for this policy decision. Do not publish the current master<a class="headerlink" href="#2048-remains-open-for-this-policy-decision-do-not-publish-the-current-master" title="Permanent link">&para;</a></h1>
+<p>under the already-published 0.8.2 identity to avoid that decision.</p>
 
 
 
