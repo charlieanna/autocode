@@ -108,6 +108,18 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
                 self.assertEqual(consumers, set(kept))
 
+    def test_launch_provenance_keeps_the_denied_admission_consumer(self):
+        consumer = "tests.test_dashboard_integration"
+        for path in (
+            "tools/autocode_route_evidence.py",
+            "tools/autocode_provider_launch.py",
+            "tools/autocode_usage.py",
+            "tools/providers/direct.py",
+        ):
+            selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+            kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+            self.assertEqual([consumer], list(kept))
+
     def test_review_handoffs_keep_the_public_followup_and_state_contract_consumers(self):
         consumers = {"tests.test_run_state", "tests.test_follow_up_acceptance_cli"}
         for path in (
