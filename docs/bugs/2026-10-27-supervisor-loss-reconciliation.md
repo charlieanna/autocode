@@ -1,5 +1,8 @@
 # Lost supervisor recovery (#2230)
 
+Retained interrupted-run bundle manifest:
+`072b8733c6aea73c140d58a1c80719ff4e749261975f9e7f06db81cfc9700dfe`.
+
 A real host reboot interrupted the native full-screen TUI review on master
 `dd042e5c0`. The saved run `20261027-173510-chat-d3680c` retained RUNNING and an
 unfinished Reviewer attempt. Fresh public status positively found the owner,
