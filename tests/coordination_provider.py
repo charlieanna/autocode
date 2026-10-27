@@ -306,7 +306,7 @@ def main():
             if os.environ.get("COORDINATION_FIXTURE_CONSUMER_ALIAS") and name == "history":
                 report["workspace_scope"]["external_parts"].append(
                     {
-                        "target": "checkout (formatter)",
+                        "target": "checkout repository",
                         "work": "Format the receipt in the consumer",
                         "source_quote": data["task"],
                         "evidence": "",

@@ -334,7 +334,7 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             peer = next(row for row in summary["members"] if row["target"] == "history")
             peer_view = taskrun.TaskRun(Path(peer["workspace"]), Path(peer["run_dir"]), env=self.env).status()
             self.assertEqual("linked_repositories", peer_view["scope"]["decision"])
-            self.assertIn("checkout (formatter)", [part["target"] for part in peer_view["scope"]["external_parts"]])
+            self.assertIn("checkout repository", [part["target"] for part in peer_view["scope"]["external_parts"]])
             self.assertEqual([], self.github.posts, "Ownership assignment grants no publication authority")
             answered = run.answer(question["id"], "plan")
             self.assertEqual("investigate_bug", answered["next_stage"], answered["stop_reason"])
