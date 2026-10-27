@@ -6,7 +6,8 @@ nondelegable question before any plan, and reads the person's answer back:
 
 - ``question(state)``: the open scope question, or None. Its answer must be one of its options
   (the CLI refuses any other text and offers --feedback instead);
-- ``decision(state)``: ``"this_repository"`` once an answer chose it, else None;
+- ``decision(state)``: ``"this_repository"`` for the person's exact answer,
+  ``"linked_repositories"`` for a current core-owned assignment, else None;
 - ``uncovered(state)``: the parts the person left out of this run, which the plan must list in its
   scope_exclusions (``exclusion_errors``) and the status view shows (``view``).
 
@@ -51,7 +52,7 @@ def parts(state: RunState) -> list[dict]:
 
 
 def decision(state: RunState) -> str | None:
-    """The person's choice for this run's scope, or None while no answer names one."""
+    """The person's exact choice, else a current linked assignment, else None."""
     offered = _question(state)
     if not offered:
         return None
