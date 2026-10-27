@@ -1547,8 +1547,9 @@ No field is a percentage or an estimate from elapsed time.
 `displayed_plan` is an optional structured approval projection: `revision`, `hash`,
 `token`, `acceptance_criteria`, `constraints` and `permission_boundaries`. It appears
 only when the last displayed token matches the current sealed contract. Missing,
-modified or stale contracts do not expose it. Criterion `verification_method` and
-`human_review` values are copied without interpreting or coercing model-authored
+modified or stale contracts do not expose it. Criterion `verification_method`,
+`human_review` and the optional `current_behavior` (what happens today, from the
+bound diagnosis; #2133) values are copied without interpreting or coercing model-authored
 text. Automation must check these structured fields and bind the token to
 `needs.token`; do not infer approval authority by parsing headings or review labels
 embedded in `--show-goal` prose. This projection is not approval, execution permission

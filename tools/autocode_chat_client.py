@@ -1502,6 +1502,8 @@ def render_plan(plan: dict) -> str:
     lines = ["Plan to approve:"]
     for row in plan["acceptance_criteria"]:
         lines.append(f"  [{row['id']}] {row['criterion']}")
+        if row.get("current_behavior"):
+            lines.append(f"      Today: {row['current_behavior']}")
         lines.append(f"      Checked by: {row['verification_method']}")
         if row["human_review"]:
             lines.append("      You check this one yourself.")

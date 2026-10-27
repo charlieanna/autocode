@@ -145,6 +145,8 @@ def summary(body: dict, revision, cases: list[dict], *, design_only: bool = Fals
                     if part
                 )
             )
+            if row.get("current_behavior"):
+                lines.append(f"    Today: {row['current_behavior']}")
             if row.get("verification_method"):
                 lines.append(f"    Checked by: {row['verification_method']}")
             if row.get("human_review") is True:

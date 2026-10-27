@@ -574,6 +574,7 @@ CONTRACT_FIELD_NOTES = {
     "scope_exclusions": prompts.get("fragments/autoplanner/contract-field-notes-05.md"),
     "constraints": prompts.get("fragments/autoplanner/contract-field-notes-06.md"),
 }
+CURRENT_BEHAVIOR_NOTE = prompts.get("fragments/autoplanner/contract-field-notes-07.md")
 
 
 def _described(body):
@@ -582,6 +583,7 @@ def _described(body):
         body["properties"][key] = {**body["properties"][key], "description": note}
     criteria = body["properties"]["acceptance_criteria"]["items"]["properties"]
     criteria["human_review"] = {**criteria["human_review"], "description": HUMAN_REVIEW_NOTE}
+    criteria["current_behavior"] = {**criteria["current_behavior"], "description": CURRENT_BEHAVIOR_NOTE}
     return body
 
 

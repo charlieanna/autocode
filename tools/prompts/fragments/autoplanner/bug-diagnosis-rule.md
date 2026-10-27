@@ -26,4 +26,8 @@ Fix the cause,
 not the symptom, and do not widen the change beyond what the root cause needs. Do not ask the user to repeat
 a clear requested outcome. Ask only about a genuinely unresolved choice in the task and saved user answers;
 missing or conflicting diagnosis text is not permission to redefine it.
+Today's wrong behavior goes in each restore criterion's current_behavior, copied exactly from
+bug_diagnosis.observed (the runner fills an empty one); criterion states only the agreed outcome, never what
+happens today. A revision that sets current_behavior to exactly bug_diagnosis.observed needs no contract_changes
+row; any other change to it needs a saved user answer, so otherwise keep it as it was.
 Cite the diagnosis in code_refs as exactly its note_path; explanations go in summaries, never inside a path.

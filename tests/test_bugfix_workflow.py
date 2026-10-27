@@ -10,6 +10,7 @@ These runs use the offline fake provider; they make no model calls.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -22,10 +23,11 @@ sys.path.insert(0, str(TOOLS))
 
 import autocode  # noqa: E402
 import autocode_goal_lifecycle as lifecycle
+import autocode_run_view as run_view  # noqa: E402
 import scenario_references as references  # noqa: E402
 import task_scenarios as scenarios  # noqa: E402
 
-from tests import test_planning, test_subprocess  # noqa: E402
+from tests import test_bug_job, test_planning, test_subprocess  # noqa: E402
 
 # Requirements runs first and names the job (#1860); this fixture names a build.
 PLANNING = [
@@ -260,3 +262,80 @@ class ProvenanceDefaults(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CurrentBehaviorPlanning(unittest.TestCase):
+    """#2133: what happens today lives in each regression criterion's current_behavior box. The runner fills
+    it from the Investigator's bound diagnosis, the approval screen shows it as "Today:", and a Planner that
+    corrects its own wrong note to that text costs no report repair and no question."""
+
+    launch = test_planning.JointFlow.launch
+    saved = test_subprocess.SubprocessFlow.saved
+    prepare = test_planning.JointFlow.prepare
+    new_run_engine_args = ()
+    OBSERVED = "greet.py prints 'Hello, ' and exits 0 for a blank name"
+
+    def setUp(self):
+        BugfixWorkflow.setUp(self)
+        self.env["AUTOCODE_FIXTURE_CURRENT_BEHAVIOR"] = self.OBSERVED
+
+    def plan(self):
+        """JointFlow.draft's planning flow, with a reproduced diagnosis bound to the run before the Planner
+        drafts from the saved answer (the offline Requirements fixture names every job a build, so no
+        Investigator stage runs here)."""
+        self.prepare()
+        self.launch(["Fix the blank-name bug", "--no-chat"], 2)
+        run, state = self.saved()
+        self.assertEqual("WAITING_FOR_USER", state["status"])
+        report = {**test_bug_job.diagnosis(fix_size="large"), "observed": self.OBSERVED, "test_cases": []}
+        output = run / "iterations" / "investigator-fixture.json"
+        output.write_text(json.dumps(report))
+        state["investigation"] = {
+            **report,
+            "output": str(output),
+            "output_hash": hashlib.sha256(output.read_bytes()).hexdigest(),
+            "source_revision": "seed",
+            "probe_result": {"exit_code": 0, "counterexample": {"exit_code": 1}},
+        }
+        (run / "state.json").write_text(json.dumps(state))
+        self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
+        self.launch(["--run-dir", str(run), "--no-chat"], 2)
+        return self.saved()
+
+    def criterion(self, state):
+        self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
+        # Every planning stage once: no report repair and no question to the person.
+        self.assertEqual(PLANNING, [row["stage"] for row in state["stages"]])
+        rows = state["goal_contract"]["body"]["acceptance_criteria"]
+        self.assertEqual(["C1"], [row["id"] for row in rows])
+        return rows[0]
+
+    def test_the_runner_fills_the_box_from_the_bound_diagnosis_and_shows_it(self):
+        run, state = self.plan()
+        c1 = self.criterion(state)
+        self.assertEqual(self.OBSERVED, c1["current_behavior"])
+        self.assertIn(
+            f"  [C1] {c1['criterion']}\n    Today: {self.OBSERVED}\n    Checked by: test: test_c1_blank_name_rejected",
+            lifecycle.render(state),
+        )
+        shown = run_view.view(state)["displayed_plan"]["acceptance_criteria"][0]
+        self.assertEqual(self.OBSERVED, shown["current_behavior"])
+
+    def test_the_planners_wrong_note_is_corrected_to_the_evidence_with_a_receipt_and_no_question(self):
+        self.env["AUTOCODE_FIXTURE_CURRENT_BEHAVIOR_DRAFT"] = "greet.py prints 'Hello, World' for a blank name"
+        run, state = self.plan()
+        c1 = self.criterion(state)
+        self.assertEqual(self.OBSERVED, c1["current_behavior"])
+        receipts = [
+            row
+            for revision in [*state["contract_history"], state["goal_contract"]]
+            for row in revision.get("declared_changes") or []
+            if row.get("change") == "current_behavior"
+        ]
+        self.assertEqual(["C1"], [row["item"] for row in receipts])
+        self.assertEqual(
+            {"output_hash": state["investigation"]["output_hash"], "source_revision": "seed"}, receipts[0]["evidence"]
+        )
+        self.assertIn(
+            f"  - current_behavior: C1 -> {self.OBSERVED} (basis: agent_proposed; revision ", lifecycle.render(state)
+        )
