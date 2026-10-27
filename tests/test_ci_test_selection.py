@@ -108,6 +108,14 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
                 self.assertEqual(consumers, set(kept))
 
+    def test_regression_detection_keeps_the_workflow_provenance_consumer(self):
+        consumer = "tests.test_bugfix_workflow"
+        for path in ("tools/autocode_regression.py", "tools/autocode_verify.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_task_worktree_cleanup_keeps_the_json_refusal_consumer(self):
         consumer = "tests.test_json_output"
         for path in (

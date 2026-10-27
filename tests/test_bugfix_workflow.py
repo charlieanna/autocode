@@ -295,29 +295,30 @@ class ProvenanceDefaults(unittest.TestCase):
             ],
             check=True,
         )
+        base = subprocess.run(
+            ["git", "-C", str(task), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+        ).stdout.strip()
         state = {
             "goal_contract": {"body": {"task_kind": "bugfix"}},
             "project_workspace": str(project),
-            "base_commit": "abc",
+            "base_commit": base,
             "settings": {},
         }
-        seen = []
         result = {"verdict": "PASS", "failures": [], "unverified": [], "checks": {}}
         with (
-            mock.patch.object(verify, "detect_framework", side_effect=lambda root, python: seen.append(python)),
+            mock.patch.object(verify, "detect_framework", return_value=None) as detect,
             mock.patch.object(verify, "verify", return_value=result),
         ):
             regression.prove(state, task, Path(temp.name) / "run")
-        self.assertEqual([str(project / ".venv" / "bin" / "python")], seen)
+        detect.assert_called_once_with(task, python=str(project / ".venv" / "bin" / "python"), base=base)
         # An explicit interpreter setting still wins.
         state = {**state, "settings": {"regression": {"python": "/opt/python"}}}
-        seen.clear()
         with (
-            mock.patch.object(verify, "detect_framework", side_effect=lambda root, python: seen.append(python)),
+            mock.patch.object(verify, "detect_framework", return_value=None) as detect,
             mock.patch.object(verify, "verify", return_value=result),
         ):
             regression.prove(state, task, Path(temp.name) / "run")
-        self.assertEqual(["/opt/python"], seen)
+        detect.assert_called_once_with(task, python="/opt/python", base=base)
 
     def test_decision_lists_and_review_stages_are_never_defaulted(self):
         record = self.record("astra_challenge", {"concerns": {"type": "array"}})
