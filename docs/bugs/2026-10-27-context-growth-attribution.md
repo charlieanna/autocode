@@ -7,10 +7,15 @@ attempts, not eleven new runs or a reliability sample.
 
 ## Evidence and scope
 
-The original two `eeb64352f` bug-fix measurements and
-`plans/cost-measurement-2026-10-25.md` remain unavailable. Their $0.39/$0.57
-cost split and historical 5% first-request cache rate are unverified here.
-These other retained cases do not replace those missing samples.
+The original cost-measurement note was recovered on 2026-10-27 and is kept as
+[cost measurement, glm-mimo-kilo](2026-10-25-cost-measurement-glm-mimo-kilo.md).
+It confirms the $0.39/$0.57 Builder plus Tester split, the 0.5 to 0.8M cached
+Builder input and the 102k fresh Tester input as per-stage ledger reads, and
+records that a reboot wiped the run directories of those `eeb64352f` runs.
+They have no request-level accounting and are not in the tables below. The
+historical 5% first-request cache observation is not in that note and stays
+unsourced. That measurement's run 4 kept its run directory and is B3 here,
+added 2026-10-27 against master `dd042e5c0db3d215aa95ba3a8bffba62f1c56385`.
 
 - W1–W4 and B1: #2113 self-fix, run `20261026-063353-chat-74a0ba`.
   W1/W2 are the GLM writer timeouts before/after #2154; W3/W4 are later
@@ -28,6 +33,15 @@ These other retained cases do not replace those missing samples.
   Its initial stages used #2196's runtime; T2 used merged #2205. The
   retained task completed with independent checks. This is not a clean
   all-stages-on-one-runtime timing experiment.
+- B3: Builder of the cost measurement's run 4, scenario
+  `feature-timesheet-by-project` on master `c9f4063b7`, route
+  `xiaomi-token-plan-sgp/mimo-v2.6-pro` at medium. The scenario harness's
+  60-minute budget stopped it after 804.669 s with one unfinished request,
+  61.7 s after that request began; no bundle was written. Event file sha256
+  `33718dcf9164254e0d479f9bdb03a1f743d9fac057bf8848e162a9854f35ae0b`, prompt
+  sha256 `90374e28c6ec05cd3e5a628f711145010cd700f90eee0c584a4cfb1494d65e62`.
+  Its stage ran before #2211 and #2215, so neither candidate below is applied
+  to it.
 
 ## Measurement method
 
@@ -57,9 +71,10 @@ overlap; request intervals are not HTTP/inference timings.
 
 ## Request and tool growth
 
-All use Kilo. G = `zai-coding-plan/glm-5.3`; C = `openai/gpt-6.1-sol`.
-Effort below is the recorded launch effort. Cache is cumulative read tokens;
-no selected attempt reports cache writes.
+All use Kilo. G = `zai-coding-plan/glm-5.3`; C = `openai/gpt-6.1-sol`;
+M = `xiaomi-token-plan-sgp/mimo-v2.6-pro`. Effort below is the recorded launch
+effort. Cache is cumulative read tokens; no selected attempt reports cache
+writes.
 
 | Case | Model / effort | Requests | First input | Peak input | Cumulative input | Cached input | Fresh input | Observed tool output bytes | Tool union / stage seconds |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -74,6 +89,20 @@ no selected attempt reports cache writes.
 | B2 | C / medium | 12 | 24,930 | 31,832 | 340,124 | 307,968 | 32,156 | 17,359 | 4.328 / 139.021 |
 | T1 | G / low | 4 | 33,754 | 39,639 | 146,406 | 106,688 | 39,718 | 11,589 | 2.421 / 100.454 |
 | T2 | G / low | 6 | 34,298 | 42,091 | 225,453 | 183,232 | 42,221 | 10,331 | 2.889 / 130.952 |
+| B3 | M / medium | 22 | 39,536 | 86,562 | 1,410,900 | 1,337,088 | 73,812 | 39,090 | 7.086 / 804.669 |
+
+B3 reaches 1.41 million cumulative input with a peak of 86,562, and its 34 tool
+calls together ran 7.086 s. Three of its 22 requests took 213.4, 227.5 and
+91.2 s and produced 13,348, 8,907 and 3,493 output tokens, almost all
+reasoning. On each of its 21 request transitions, the fresh input minus the
+previous request's complete output (reasoning included) is between 31 and
+2,826 tokens and tracks the tool output completed in between: 14,689 tokens
+for 38,776 bytes in total; request 4 has 13,460 fresh input after request 3's
+13,348 output with 52 tool bytes between. Of the 48,612 fresh input tokens
+after the first request, 33,923 equal the model's own earlier outputs. This is
+a correlation of provider-reported counts, not an inspection of the backend's
+message layout; the T1/T2 and W1/W2 appendices are consistent with it on GLM.
+B3 does not repeat any file read: six reads, six distinct inputs.
 
 W1/W2 took about 602 seconds despite tool execution unions of 2.622/6.436
 seconds. Their iterative request/exploration loop, not shell test duration,
@@ -103,9 +132,13 @@ responsibilities; size alone does not authorize dropping them.
 | B2 | 24,417 | 1,450 | 49,112 | 74,979 |
 | T1 | 32,433 | 3,359 | 81,769 | 117,561 |
 | T2 | 32,856 | 3,359 | 83,672 | 119,887 |
+| B3 | 23,817 | 1,450 | 38,710 | 62,548 |
 
-For T1, prior validation reports are only 30 bytes, so externalizing them is
-not this sample's opportunity. W1's handoff is 99,236 bytes inside a 107,729-byte
+B3's handoff is the `goal_contract` (15,886 bytes) and
+`verification_obligations` (11,862) before anything else; it holds 8,597
+repeated bytes in identical string leaves, the claim/criterion pattern of
+candidate 2, and 1,038 formatting-only bytes. For T1, prior validation reports
+are only 30 bytes, so externalizing them is not this sample's opportunity. W1's handoff is 99,236 bytes inside a 107,729-byte
 full prompt: earlier comments reporting packet bytes did not count the full
 prefix. #2154 reduces the handoff to 90,223 (full prompt 98,716), but W2 still
 times out. Its largest single request is actually larger. No causal latency
@@ -144,11 +177,31 @@ or cache saving follows from that failed pair.
    backend instructions or another stable segment was cached. Dynamic paths,
    task/schema differences and timing confound attribution. A future matched
    experiment needs an explicit scope; none ran here. Do not promise a cache
-   hit or infer a general hit rate from these cohorts.
+   hit or infer a general hit rate from these cohorts. Run 4 adds one
+   within-run series on both routes without an experiment. First-request
+   cached input was 0 on the first GLM stage, then 5,056, 4,928, 4,992 and
+   9,216 on the later GLM stages, and 0, 0 and 14,336 on the three mimo
+   stages: challenge, finalize 10.5 minutes after challenge's last request,
+   and the Builder 19 s after finalize's last request. The Builder's saved
+   prompt shares at most 12 leading bytes with any other stage's saved prompt
+   of that run, so those 14,336 tokens are not AutoCode's prompt text; the
+   backend's own preamble is the candidate, and the saved prompt cannot show
+   it. Within B3, requests 2 to 22 read between 76% and 99% of their input
+   from cache; the rest is the previous output and the tool results.
+5. **Attribute re-sent reasoning before attributing growth to prompts.** If
+   the backend keeps each request's reasoning in the conversation, as B3's
+   counts suggest, a Builder's growth on a small task is mostly its own
+   output, which no handoff change reaches, and its wall time is reasoning
+   generation rather than context. Confirm it on a matched pair in which one
+   route's backend drops reasoning: there fresh input should track visible
+   output plus tool bytes instead. Until then, no stage, effort or route
+   change follows from B3.
 
 The per-request numbers and observed message-byte progression are recorded in
 the [#2136 audit appendix](https://github.com/charlieanna/autocode/issues/2136#issuecomment-6438619271). Full local native streams support this analysis; public
 bundles retain only event tails, so their manifest hashes alone do not make
-all native tool-output attribution independently replayable. The original
-`eeb64352f` samples remain required before closing that evidence gap. No model,
+all native tool-output attribution independently replayable. B3's per-request
+table is in the #2136 comment that attached the recovered note. The
+`eeb64352f` samples cannot be added at request level: their run directories
+were wiped, and the recovered note is all that remains of them. No model,
 stage-policy, approval, spend guarantee or reliability claim is changed here.
