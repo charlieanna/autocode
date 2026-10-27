@@ -87,6 +87,7 @@ def decision(state: RunState, expected, inspection):
     if offer(state, inspection) is None:
         raise ValueError("Reconciliation requires an unfinished checkpoint with freshly confirmed dead supervision")
     active = state["active_stage"]
+    assert isinstance(active, dict)  # offer() established the retained attempt shape above.
     attempt = f"{active['iteration']:03d}/{Path(active['output']).stem}"
     return {
         "status": "PAUSED_UNCERTAIN_STAGE",
