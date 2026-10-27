@@ -25,8 +25,11 @@ still need investigation. External/nondeterministic behavior is never establishe
 as current by these local bindings.
 
 This uses the conservative runtime identity already available: a directly invoked
-isolated Python `-c` reproduction, optionally with `-B`. The identity collector
-inspects that interpreter without executing the probe text. Shell compositions,
+isolated Python `-c` reproduction, optionally with `-B`. Literal environment
+assignments are accepted only if they match the clean execution environment and
+are independent of scratch-tree paths; the environment is rechecked during
+identity collection. The identity collector inspects that interpreter without
+executing the probe text. Shell compositions,
 command substitutions, other runtimes, global/unbound dependencies, missing pins
 and legacy reports remain fresh-discovery cases. A refused reuse binding does not
 reject an otherwise valid diagnosis or bypass any launch-input guard. Extending
