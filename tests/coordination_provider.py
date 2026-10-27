@@ -113,6 +113,27 @@ def main():
     if joint:
         SUITE = "python3 -m pytest -q"
     name = "joint" if joint else json.loads((root / "repository.json").read_text())["name"]
+    if (
+        os.environ.get("COORDINATION_FIXTURE_MEMBER_CONTEXT")
+        and root.parent.name == "worktrees"
+        and stage == "requirements_gather"
+    ):
+        member = data.get("coordinated_member") or {}
+        if member.get("member") != name or "SEPARATE isolated integration workspace" not in member.get(
+            "instruction", ""
+        ):
+            raise RuntimeError("First member Requirements prompt omits the core-owned joint-proof responsibility")
+        if "not exclusions or proxy acceptance" not in member["instruction"]:
+            raise RuntimeError("Member context must retain the joint obligation instead of authorizing exclusion")
+        if "REAL JOINT PROOF IS NOT A LOCAL PROXY" not in member["instruction"]:
+            raise RuntimeError("Real coordinator proof must not ask for local stand-in acceptance")
+    if (
+        os.environ.get("COORDINATION_FIXTURE_MEMBER_CONTEXT")
+        and root.parent.name == "worktrees"
+        and stage in ("astra_challenge", "astra_finalize")
+        and "REAL JOINT PROOF IS NOT A LOCAL PROXY" not in prompt
+    ):
+        raise RuntimeError("Member review must scope the ordinary out-of-checkout proxy rule")
     target = {"checkout": "history", "history": "tax"}.get(name)
     source = PRODUCT[name][0] if not joint else "repositories.json"
     test_path = "tests/test_joint.py" if joint else "tests/test_behavior.py"
@@ -269,6 +290,28 @@ def main():
             open_questions=[],
             proposed_assumptions=[],
         )
+        if os.environ.get("COORDINATION_FIXTURE_EARLY_SCOPE") and target:
+            report["source_refs"] = [source]
+            report["workspace_scope"] = {
+                "spans_repositories": True,
+                "external_parts": [
+                    {
+                        "target": target,
+                        "work": "Fix the downstream total contract",
+                        "source_quote": "",
+                        "evidence": source + ":3",
+                    }
+                ],
+            }
+            if os.environ.get("COORDINATION_FIXTURE_CONSUMER_ALIAS") and name == "history":
+                report["workspace_scope"]["external_parts"].append(
+                    {
+                        "target": "checkout (formatter)",
+                        "work": "Format the receipt in the consumer",
+                        "source_quote": data["task"],
+                        "evidence": "",
+                    }
+                )
     elif stage == "astra_challenge":
         report.update(concerns=[], source_trace=source_trace_for((contract.get("body") or body), data))
     elif stage == "terra":

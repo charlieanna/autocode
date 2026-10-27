@@ -97,6 +97,51 @@ class WorkspaceScopeTests(unittest.TestCase):
                     self.assertFalse(scope["spans_repositories"])
                     self.assertEqual(["other"], scope["dropped"])
 
+    def test_line_and_range_evidence_uses_the_same_cited_workspace_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "contract.md").write_text("Client\nReceipt\nSeparate history repository\n")
+            for evidence, reference in (
+                ("contract.md:3", "contract.md:2"),
+                ("contract.md:2-3", "contract.md"),
+                ("contract.md", "contract.md:1-3"),
+                ("./contract.md:3", "contract.md:1"),
+            ):
+                with self.subTest(evidence=evidence, reference=reference):
+                    part = {"target": "history", "work": "Fix serialization", "source_quote": "", "evidence": evidence}
+                    found = validated(
+                        {"spans_repositories": True, "external_parts": [part]},
+                        source_refs=[reference],
+                        workspace=directory,
+                    )
+                    self.assertEqual(["history"], [p["target"] for p in found["external_parts"]])
+                    self.assertEqual([], found["dropped"])
+
+    def test_line_bounds_and_symlink_escape_never_ground_scope(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "workspace"
+            root.mkdir()
+            (root / "real.py").write_text("one\ntwo\n")
+            outside = Path(directory) / "outside.py"
+            outside.write_text("secret\n")
+            (root / "link.py").symlink_to(outside)
+            for evidence, refs in (
+                ("real.py:0", ["real.py"]),
+                ("real.py:3", ["real.py"]),
+                ("real.py:2-1", ["real.py"]),
+                ("real.py:1-3", ["real.py"]),
+                ("real.py", ["real.py:99"]),
+                ("link.py:1", ["link.py"]),
+                ("../outside.py:1", ["../outside.py"]),
+            ):
+                with self.subTest(evidence=evidence, refs=refs):
+                    part = {"target": "history", "work": "Fix it", "source_quote": "", "evidence": evidence}
+                    found = validated(
+                        {"spans_repositories": True, "external_parts": [part]},
+                        source_refs=refs,
+                        workspace=root,
+                    )
+                    self.assertEqual(["history"], found["dropped"])
+
     def test_a_report_that_finds_nothing_external_spans_nothing(self):
         for scope in ({"spans_repositories": False, "external_parts": []}, None, "yes", {"external_parts": [7]}):
             with self.subTest(scope=scope):

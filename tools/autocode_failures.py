@@ -20,8 +20,10 @@ import re
 from pathlib import Path
 
 try:
+    from . import autocode_planning_advice as recovery_binding
     from . import autocode_util as util
 except ImportError:
+    import autocode_planning_advice as recovery_binding
     import autocode_util as util
 
 
@@ -144,6 +146,7 @@ def record(state: RunState, stage_record, error, at):
             signature=mark,
             streak=entry["streak"] + 1 if continues else 1,
             stage_index=len(state.get("stages") or []),
+            **recovery_binding.binding(state, selected["stage"]),
         )
         stage_record["failure_signature"] = mark
         if stalled(entry) and "output_probe" not in entry:
@@ -166,7 +169,9 @@ def recent_rejection(state: RunState, stage):
     entries = [
         entry
         for entry in (state.get("failure_history") or {}).values()
-        if (entry.get("identity") or {}).get("stage") == stage and entry.get("count")
+        if (entry.get("identity") or {}).get("stage") == stage
+        and entry.get("count")
+        and recovery_binding.applies(state, entry, stage)
     ]
     if not entries:
         return None

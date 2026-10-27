@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 import autocode_coordinate as coordinate
 import autocode_coordination_access as access
 import autocode_coordination_budget as budget
+import autocode_coordination_context as member_context
 import autocode_coordination_joint as joint
 import autocode_coordination_publish as publication
 import autocode_coordination_repositories as repos
@@ -18,6 +19,7 @@ import autocode_coordination_store as store
 import autocode_github as github
 import autocode_related_profile as profiles
 import autocode_run_view as run_view
+import autocode_scope_assignment as assignment
 
 
 class CoordinationTests(unittest.TestCase):
@@ -80,6 +82,91 @@ class CoordinationTests(unittest.TestCase):
         with self.assertRaisesRegex(store.CoordinationError, "local product edits"):
             coordinate.add_member(self.document, "api", entry, "fix it")
         self.assertEqual([], self.document["members"])
+
+    def test_member_orchestration_context_is_bound_before_its_first_model_call(self):
+        for target in ("checkout", "history"):
+            coordinate.add_member(self.document, target, self.repository(target), "Fix the real bug")
+
+        def started(workspace, brief, **options):
+            shown = member_context.context({"workspace": workspace, "run_dir": options["run_dir"]})
+            self.assertIsNotNone(shown, "The first Requirements call must know who owns joint proof")
+            self.assertEqual(["checkout", "history"], shown["members"])
+            self.assertIsNotNone(self.document["pending"], "Membership does not certify a successful launch")
+
+        with (
+            patch.object(coordinate.store, "save"),
+            patch.object(coordinate.repos, "prepare"),
+            patch.object(coordinate, "options", return_value=()),
+            patch.object(coordinate.tasks.TaskRun, "start", side_effect=started),
+        ):
+            for member in self.document["members"]:
+                coordinate.start_member(self.document, member)
+
+    def test_descriptive_target_uses_exact_catalog_names_before_a_suffix_fallback(self):
+        checkout = self.repository("checkout")
+        literal = self.repository("literal/checkout (formatter)")
+        self.assertEqual([literal], repos.candidates("checkout (formatter)", [checkout, literal]))
+        self.assertEqual([checkout], repos.candidates("checkout (formatter)", [checkout]))
+        another = self.repository("another/checkout", "other")
+        self.assertEqual([checkout, another], repos.candidates("checkout (formatter)", [checkout, another]))
+        self.assertEqual([], repos.candidates("../checkout (formatter)", [checkout]))
+
+    def test_descriptive_alias_reuses_the_existing_member_for_scope_assignment(self):
+        checkout = self.repository("checkout")
+        coordinate.add_member(self.document, "checkout", checkout, "Format the receipt")
+        coordinate.add_member(self.document, "history", self.repository("history"), "Serialize the receipt")
+        self.document["initial_scope"] = [{"target": "checkout (formatter)", "work": "Format the receipt"}]
+        with patch.object(repos, "catalog", return_value=[checkout]):
+            found = coordinate.resolve_request(self.document, {})
+        self.assertEqual("alias", found["kind"])
+        self.assertEqual("checkout", found["canonical"])
+        self.document["choices"]["checkout (formatter)"] = found["origin"]
+        self.assertEqual({}, coordinate.requests(self.document, {}))
+        for member in self.document["members"]:
+            member["started"] = True
+        views = {
+            "checkout": {"needs": {"kind": "approve_plan"}},
+            "history": {
+                "scope": {
+                    "identity": "current",
+                    "decision": None,
+                    "external_parts": [{"target": "checkout (formatter)"}],
+                },
+                "needs": {"kind": "answer"},
+            },
+        }
+        step = coordinate.next_step(self.document, views)
+        self.assertEqual("assign", step["kind"])
+        self.assertEqual({"checkout (formatter)": "checkout"}, step["aliases"])
+        self.assertEqual({"checkout (formatter)": self.document["members"][0]["run_dir"]}, step["members"])
+        self.assertEqual(2, len(self.document["members"]), "An alias does not create another task")
+
+    def test_alias_receipt_must_bind_the_existing_canonical_member_run(self):
+        alias = "checkout (formatter)"
+        state = {
+            "run_dir": str(self.root / "run"),
+            "workspace_scope": {
+                "turn": 0,
+                "spans_repositories": True,
+                "external_parts": [{"target": alias, "work": "Format the receipt"}],
+            },
+        }
+        receipt = {
+            "identity": assignment.scope.identity(state),
+            "members": {alias: "/runs/checkout"},
+            "aliases": {alias: "checkout"},
+        }
+        record = {"automatic_anchor": "anchor", "scope_assignments": {state["run_dir"]: receipt}}
+        with patch.object(assignment.store, "find", return_value=record):
+            with patch.object(
+                assignment.store, "members", return_value=[{"target": "checkout", "run_dir": "/runs/checkout"}]
+            ):
+                self.assertEqual(receipt, assignment.current(state))
+                receipt["aliases"][alias] = "unregistered"
+                self.assertIsNone(assignment.current(state))
+                receipt["aliases"][alias] = "checkout"
+                receipt["members"][alias] = "/runs/another"
+                self.assertIsNone(assignment.current(state))
 
     def test_reserved_worktree_cannot_redirect_to_the_original_checkout(self):
         entry = self.repository()

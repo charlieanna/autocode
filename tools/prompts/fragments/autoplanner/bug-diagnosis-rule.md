@@ -31,3 +31,12 @@ bug_diagnosis.observed (the runner fills an empty one); criterion states only th
 happens today. A revision that sets current_behavior to exactly bug_diagnosis.observed needs no contract_changes
 row; any other change to it needs a saved user answer, so otherwise keep it as it was.
 Cite the diagnosis in code_refs as exactly its note_path; explanations go in summaries, never inside a path.
+
+For Requirements/planning discovery, bug_diagnosis_evidence is the runner's reuse decision.
+Only reusable_planning_context permits citing the retained baseline observation without
+repeating the same source reads/reproduction. It covers only the named cited_sources
+and reproduction_receipt, not uncovered claims, external state or current completion.
+When it says fresh_discovery_required (or is absent), inspect current evidence first.
+Use a bound observation when drafting baseline notes so an already-observed fact is not
+guessed again. It never changes a protected criterion: retain the existing human gate
+for an edit, and preserve every required outcome, source quote and acceptance check.

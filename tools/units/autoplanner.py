@@ -38,6 +38,7 @@ try:
     from .. import autocode_failures as failures
     from .. import autocode_follow_up as follow_up
     from .. import autocode_goals as goals
+    from .. import autocode_investigation_evidence as investigation_evidence
     from .. import autocode_native_test_names as native_test_names
     from .. import autocode_planner_escalation as planner_escalation
     from .. import autocode_planning_artifacts as artifacts
@@ -75,6 +76,7 @@ except ImportError:
     import autocode_failures as failures
     import autocode_follow_up as follow_up
     import autocode_goals as goals
+    import autocode_investigation_evidence as investigation_evidence
     import autocode_native_test_names as native_test_names
     import autocode_planner_escalation as planner_escalation
     import autocode_planning_artifacts as artifacts
@@ -1296,6 +1298,9 @@ def context(state: RunState, stage, state_path):
         "budget": prompts.get("fragments/autoplanner/context.md").format(review_call_limit(state) or "Unlimited"),
         "recovery_context": state.get("recovery_context"),
     }
+    coordinated = stage_context.coordination_context.context(state)
+    if coordinated:
+        packet["coordinated_member"] = coordinated
     interpretations = goals.feedback_interpretation_context(state)
     if interpretations:
         packet["feedback_interpretations"] = interpretations
@@ -1376,6 +1381,8 @@ def context(state: RunState, stage, state_path):
     diagnosis = bug_job.large_correction(state)
     if diagnosis:
         packet["bug_diagnosis"] = diagnosis
+        if stage in ("requirements_gather", "requirements", "astra_discovery", "plan"):
+            packet["bug_diagnosis_evidence"] = investigation_evidence.context(state, Path(state_path).parent)
     findings = follow_up.review_findings(state)
     if findings:
         packet["review_findings"] = findings
@@ -1475,7 +1482,8 @@ def context(state: RunState, stage, state_path):
         design_rule += native_test_names.rule(native) if native else ""
         design_rule += EXAMPLE_CHECK_RULE if stage in ("astra_challenge", "astra_finalize") else ""
         design_rule += BRIEF_TRACE_RULE if stage in ("astra_challenge", "astra_finalize") else ""
-        design_rule += OUT_OF_CHECKOUT_PROXY_RULE if stage in ("astra_challenge", "astra_finalize") else ""
+        if stage in ("astra_challenge", "astra_finalize"):
+            design_rule += stage_context.coordination_context.proxy_rule(state, OUT_OF_CHECKOUT_PROXY_RULE)
         design_rule += NO_TIMING_RULE
     design_rule += acceptance_policy.COVERAGE
     if stage != "requirements_gather" and not test_cases.design_only(state):
