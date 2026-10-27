@@ -16,6 +16,7 @@ try:
     from . import autocode_native_calls as native_calls
     from . import autocode_native_launch as native_launch
     from . import autocode_native_stage_recovery as stage_recovery
+    from . import autocode_run_destination as run_destination
     from . import autocode_source_host as source_host
     from . import autocode_visual_profile as native_profile
     from . import autocode_worker_binding as worker_binding
@@ -24,6 +25,7 @@ except ImportError:
     import autocode_native_calls as native_calls
     import autocode_native_launch as native_launch
     import autocode_native_stage_recovery as stage_recovery
+    import autocode_run_destination as run_destination
     import autocode_source_host as source_host
     import autocode_visual_profile as native_profile
     import autocode_worker_binding as worker_binding
@@ -102,6 +104,11 @@ def resolve_and_run(base, args, parser, *, failure_routing=True):
         fresh = getattr(args, "_fresh_task_worktree", None)
         if base.task_workspaces.discard_unused(fresh):
             print(f"Removed the unused task worktree and branch {fresh['branch']}; no run was saved.", file=sys.stderr)
+        # An in-place launch reserved and locked its run directory before the refusal: without a checkpoint
+        # it is only a "cannot be read" row in every run listing.
+        unsaved = getattr(args, "_fresh_run_dir", None)
+        if run_destination.discard_unsaved(unsaved):
+            print(f"Removed the empty run directory {unsaved}; no run was saved.", file=sys.stderr)
         raise
 
 

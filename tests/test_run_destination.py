@@ -31,6 +31,30 @@ class FreshDestinationTests(unittest.TestCase):
         self.assertTrue(self.target.is_dir())
         self.assertEqual([], list(self.target.iterdir()))
 
+    def test_a_reserved_run_the_launch_never_saved_is_discarded_and_a_saved_one_kept(self):
+        """A launch refused after the lock and before state.json left a directory every listing showed as
+        "cannot be read"."""
+        self.assertFalse(destination.discard_unsaved(None))
+        self.assertFalse(destination.discard_unsaved(self.target), "nothing reserved yet")
+        destination.reserve(self.workspace, self.target)
+        (self.target / "writer.lock").touch()
+        self.assertTrue(destination.discard_unsaved(self.target))
+        self.assertFalse(self.target.exists())
+        for kept in ("state.json", "evidence.jsonl"):
+            with self.subTest(kept=kept):
+                self.target.mkdir(parents=True)
+                (self.target / "writer.lock").touch()
+                (self.target / kept).write_text("{}")
+                self.assertFalse(destination.discard_unsaved(self.target))
+                self.assertTrue((self.target / kept).is_file())
+                (self.target / kept).unlink()
+                (self.target / "writer.lock").unlink()
+                self.target.rmdir()
+        link = self.workspace / ".autocode" / "runs" / "link"
+        link.symlink_to(self.root)
+        self.assertFalse(destination.discard_unsaved(link), "a link is never followed")
+        self.assertTrue(self.root.is_dir())
+
     def test_an_existing_empty_or_saved_run_is_never_reused(self):
         self.target.mkdir(parents=True)
         for saved in (False, True):
