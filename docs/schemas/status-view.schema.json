@@ -142,7 +142,126 @@
         "approvals": {"type": "array", "description": "Who approved each plan and review, edited the plan, resumed the run from a pause or accepted its completion, oldest first (#722). Recorded as given and never verified."},
         "evidence_report": {"type": ["object", "null"]},
         "acceptance_tests": {"type": ["object", "null"]},
-        "usage": {"type": "object", "description": "Tokens and cost so far; unknown cost is not zero."},
+        "usage": {
+          "type": "object",
+          "description": "Tokens and cost so far; unknown cost is not zero.",
+          "required": [
+            "accounting"
+          ],
+          "properties": {
+            "accounting": {
+              "type": "object",
+              "required": [
+                "attempts"
+              ],
+              "properties": {
+                "attempts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "execution_identity"
+                    ],
+                    "properties": {
+                      "execution_identity": {
+                        "type": "object",
+                        "description": "Frozen launch identity, validated against the attempt. Empty object for legacy, unknown or contradictory facts. Known records have schema 1 and all identity fields; billing is a saved selected-route classification, not an invoice. Endpoints identify configured targets, not redirects or compatibility.",
+                        "properties": {
+                          "schema": {
+                            "type": "integer",
+                            "enum": [
+                              1
+                            ]
+                          },
+                          "role": {
+                            "type": "string"
+                          },
+                          "engine": {
+                            "type": "string"
+                          },
+                          "provider": {
+                            "type": "string"
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "reasoning_effort": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "Effective launch effort; blank/null can preserve the provider default."
+                          },
+                          "runtime_commit": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "billing_kind": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "enum": [
+                              null,
+                              "subscription",
+                              "pay per token"
+                            ]
+                          },
+                          "billing_basis": {
+                            "type": "string",
+                            "enum": [
+                              "unrecorded",
+                              "saved_selected_route"
+                            ]
+                          },
+                          "endpoint": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "required": [
+                              "origin",
+                              "sha256",
+                              "protocol",
+                              "api_provider"
+                            ],
+                            "properties": {
+                              "origin": {
+                                "type": "string"
+                              },
+                              "sha256": {
+                                "type": "string"
+                              },
+                              "protocol": {
+                                "type": "string",
+                                "enum": [
+                                  "compatible",
+                                  "anthropic"
+                                ]
+                              },
+                              "api_provider": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "reasoning_effort": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "description": "Effective effort when recorded; absent on historical attempts."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "cost": {"type": "object", "description": "Spend against the money cap."},
         "progress": {"type": "object", "description": "How far the run has got, from saved records; `line` is for a person, the fields beside it for programs."},
         "delivery": {"type": ["object", "null"]},
