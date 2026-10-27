@@ -233,8 +233,9 @@ class JsonActionCliTests(unittest.TestCase):
             {"result": {"exit_code": 2, "saved": False, "message": "", "error": error}}, json.loads(stdout)
         )
         # Without --in-place the task worktree and branch are made before configure refuses: result.message
-        # carries what the invocation printed about them, and the worktree stays.
-        refusal, stdout, _ = self.raised(*(arg for arg in new_run if arg != "--in-place"))
+        # carries what the invocation printed about them. Nothing was saved in the worktree, so the
+        # refusal removes it and its branch again (#2247) and says so on stderr.
+        refusal, stdout, stderr = self.raised(*(arg for arg in new_run if arg != "--in-place"))
         result = json.loads(stdout)["result"]
         self.assertEqual((2, False), (result["exit_code"], result["saved"]))
         self.assertEqual({"code": "input_rejected", "message": refusal}, result["error"])
@@ -242,9 +243,11 @@ class JsonActionCliTests(unittest.TestCase):
         self.assertTrue(created.startswith("Task worktree: "), created)
         worktree = Path(created.removeprefix("Task worktree: "))
         self.assertEqual(self.root / ".autocode/worktrees", worktree.parent)
-        self.assertTrue(worktree.is_dir(), worktree)
         self.assertEqual(f"Branch: autocode/{worktree.name}", branch)
         self.assertEqual("Starting from committed HEAD; the original checkout is unchanged.", starting)
+        self.assertFalse(worktree.exists(), worktree)
+        self.assertIn(f"Removed the unused task worktree and branch autocode/{worktree.name}", stderr)
+        self.assertEqual("", util.git(self.root, "branch", "--list", f"autocode/{worktree.name}"))
 
     def test_a_tool_containment_refusal_prints_its_payload_with_the_refusal(self):
         """containment_policy refuses as the run loads: --allow-uncontained-tools on a run with no built-in OpenCode
