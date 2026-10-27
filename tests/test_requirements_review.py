@@ -7,6 +7,7 @@ provider; the public status view and the provider's stage sequence are the oracl
 from __future__ import annotations
 
 import dataclasses
+import json
 import os
 import sys
 import tempfile
@@ -54,11 +55,53 @@ class SettingTests(unittest.TestCase):
         first = review.review_question(state)
         self.assertTrue(first["id"].startswith(review.PREFIX))
         self.assertEqual("plan", first["proposed_default"])
-        for text in ("Greet by name", "prints Hello, NAME", "greet.py Ada prints Hello, Ada", "Left out:"):
+        for text in (
+            "Greet by name",
+            "prints Hello, NAME",
+            "greet.py Ada prints Hello, Ada",
+            "Other source statements:",
+        ):
             self.assertIn(text, first["question"])
         state["requirements_history"] = [{"report": report}]
         self.assertNotEqual(first["id"], review.review_question(state)["id"])
         self.assertEqual([], review.questions({**state, "settings": {}}))
+
+    def test_other_source_statements_show_their_saved_treatment_without_claiming_scope_exclusion(self):
+        report = {
+            "intended_outcome": "Fix page counting",
+            "constraints": ["Small fix only; retain existing tests"],
+            "ignored_statements": [
+                "This is a small fix; don't turn it into a project.",
+                "This authorizes investigation/planning only, not an implementation plan.",
+                "Do not add colour output.",
+            ],
+            "summary": "The small-fix and approval statements remain constraints; colour output is excluded.",
+        }
+        state = {"settings": {"spec_first": True}, "requirements_handoff": {"report": report}}
+        before = json.loads(json.dumps(report))
+        question = review.review_question(state)
+        self.assertNotIn("Left out:", question["question"])
+        self.assertIn("Other source statements:", question["question"])
+        self.assertIn("Notes: " + report["summary"], question["question"])
+        for statement in report["ignored_statements"]:
+            self.assertIn(statement, question["question"])
+        self.assertIn(report["constraints"][0], question["question"])
+        self.assertEqual(before, report, "the confirmation must not rewrite the saved handoff")
+        self.assertFalse(question["delegable"])
+        self.assertEqual("plan", question["proposed_default"])
+
+    def test_legacy_source_statements_remain_visible_without_an_invented_explanation(self):
+        report = {"intended_outcome": "Greet", "ignored_statements": ["Required examples:"]}
+        state = {"requirements_handoff": {"report": report}}
+        question = review.review_question(state)["question"]
+        self.assertIn("Other source statements:", question)
+        self.assertIn("Required examples:", question)
+        self.assertNotIn("Left out:", question)
+        self.assertNotIn("Notes:", question)
+        report.update(ignored_statements=[], summary="No other statements need explanation")
+        question = review.review_question(state)["question"]
+        self.assertNotIn("Other source statements:", question)
+        self.assertNotIn("Notes:", question)
 
     def test_a_questions_only_handoff_waits_on_the_default_flow_and_requirements_runs_again(self):
         question = {

@@ -128,6 +128,10 @@ def review_question(state: RunState) -> dict:
     assumptions = [
         row.get("text", row) if isinstance(row, dict) else row for row in report.get("proposed_assumptions") or []
     ]
+    # ignored_statements also carries procedural source text and headings, not
+    # only excluded work. Its treatment is explained by the saved summary.
+    statements = report.get("ignored_statements") or []
+    notes = str(report.get("summary") or "").strip() if statements else ""
     text = "\n".join(
         [
             "Here’s what I understand. Does this match what you want?",
@@ -136,7 +140,8 @@ def review_question(state: RunState) -> dict:
             *_lines("Behaviors", report.get("required_behaviors")),
             *_lines("Acceptance examples", report.get("acceptance_tests")),
             *_lines("Constraints", report.get("constraints")),
-            *_lines("Left out", report.get("ignored_statements")),
+            *_lines("Other source statements", statements),
+            *(["", f"Notes: {notes}"] if notes else []),
             *_lines("Assumptions", assumptions),
             "",
             CONFIRMATION.get(

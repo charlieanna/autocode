@@ -448,24 +448,24 @@
     "sha256": "cbed86ec919c70b2ecb6fc22508407e9cdc04f7e1506aee2a0600c062fc039ce"
   },
   "planning/requirements_gather/adaptive": {
-    "bytes": 18546,
-    "sha256": "22d3c7cb82818d739422f290c9e65d3eca7a160c7e43b81ca78f2e27b60f6929"
+    "bytes": 19298,
+    "sha256": "e19891d3cf829fb416da92bc0f576088ed2d85320000c90571f359967597f249"
   },
   "planning/requirements_gather/design": {
-    "bytes": 19658,
-    "sha256": "f8a860b4865ef097f9dc9c3451fd4f0bf62b5c8f5bcf9aa451597e9cfc1f00b5"
+    "bytes": 20410,
+    "sha256": "cec202069c81499f7189f29f32ab30f4ee09ba046c831b2a7706cd0fe90dafd1"
   },
   "planning/requirements_gather/figma": {
-    "bytes": 19434,
-    "sha256": "cdc439bda8f4600c57e67594b182bf0b86051710713137781c3d4e5cba6d3f5b"
+    "bytes": 20186,
+    "sha256": "f7d1f89e6a9ad225954db2af9dfaca372cd04ace048c2e93fc825dab87fe4ca2"
   },
   "planning/requirements_gather/investigation": {
-    "bytes": 19462,
-    "sha256": "95ef8c35a3e7ed05ceddaa152732a6364168d5414898f8b4de742f104c15a10c"
+    "bytes": 20214,
+    "sha256": "ac18ba02f3dfb8c606a7219034798e765ad033137462a184d685a0e81b3106c9"
   },
   "planning/requirements_gather/ordinary": {
-    "bytes": 18546,
-    "sha256": "22d3c7cb82818d739422f290c9e65d3eca7a160c7e43b81ca78f2e27b60f6929"
+    "bytes": 19298,
+    "sha256": "e19891d3cf829fb416da92bc0f576088ed2d85320000c90571f359967597f249"
   },
   "progressive/astra_checkpoint": {
     "bytes": 11863,
