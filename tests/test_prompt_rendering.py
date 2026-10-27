@@ -408,6 +408,35 @@ class RenderedPromptTests(unittest.TestCase):
                 self.assertIn("Follow the provider output contract for reporting.", text)
                 self.assertNotIn("return the report, the runner saves it", text)
 
+    def test_final_review_trace_instructions_allow_exact_retention(self):
+        state = fixed_state()
+        contract = {"acceptance_criteria": [{"id": "AC1", "criterion": "Preserve bytes."}]}
+        state["goal_contract"] = {"revision": 1, "hash": "saved-hash", "body": contract}
+        state["planning"] = {
+            "reports": {
+                "glm_revise": {
+                    "report": {
+                        "contract": contract,
+                        "requirement_trace": [{"requirement_id": "R1", "disposition": "covered", "evidence": "AC1"}],
+                    }
+                }
+            }
+        }
+        state["requirements_handoff"] = {
+            "report": {"requirements": [{"id": "R1", "text": "Preserve bytes.", "source_quote": "Preserve bytes."}]}
+        }
+        with (
+            patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}),
+            patch.object(planner.artifacts, "verify_predecessor", return_value=None),
+        ):
+            prompt, _ = planner.context(state, "astra_finalize", STATE_PATH)
+        instruction, raw = prompt.split("\nCURRENT HANDOFF DATA\n", 1)
+        self.assertEqual("R1", json.loads(raw)["requirement_trace_rows"][0]["requirement_id"])
+        self.assertIn("use requirement_trace=[] to inherit that trace", instruction)
+        self.assertIn("Adding contract.initial_task does not require a new trace", instruction)
+        self.assertIn("Otherwise, requirement_trace must contain exactly one row", instruction)
+        self.assertIn("the independent reviewer still supplies source_trace and concern decisions", instruction)
+
     def test_a_resumed_revision_is_told_the_rejection_it_resumes_from(self):
         state = fixed_state()
         error = "Changing a protected contract item 'AC9' needs a saved user answer or feedback event"
