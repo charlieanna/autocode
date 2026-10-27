@@ -2172,7 +2172,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/21787a62bcc56912deed85e3e5e9b5f5332bd829/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/90fbb4345df0b265c0f80d7bf49bcb93c96fecf7/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2342,7 +2342,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/21787a62bcc56912deed85e3e5e9b5f5332bd829/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/90fbb4345df0b265c0f80d7bf49bcb93c96fecf7/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2478,6 +2478,18 @@ is never silently added.</p>
   recorded active time, not task wall time. Provider-reported and historical-estimated
   amounts stay separate, with known subtotals and coverage; missing/uncertain usage
   is not zero. Native shared receipts retain the existing accounting attribution.
+  New attempts also freeze bounded <code>execution_identity</code> at launch: role slot,
+  engine/tool, exact model, effective effort and runner commit when known.
+  Public accounting carries those facts; qualification records group them under
+  <code>execution_evidence</code> with known/unknown attempt counts. They are not reconstructed
+  from later settings. Billing classification is recorded only for the exact saved
+  selected model/tool, with its basis; a permitted account pool is not proof of the
+  account charged. Direct connections record configured endpoint origin, protocol,
+  provider key slot and SHA-256, keeping tenant paths and credentials out of public
+  evidence. Other backends' endpoints remain unknown when not recorded. Blank/null
+  effort preserves the provider-default convention; a modified or unknown runner
+  commit is not a complete code-byte fingerprint. These records do not establish
+  cross-endpoint compatibility, an external benchmark verdict or comparative merit.
   Legacy and all-attempt cohorts are not pooled. None of these role measurements is
   a whole-task cost per accepted fix, an invoice or new comparative qualification.
   Rejected/repair-only attempts still do not qualify a route, and no historical
