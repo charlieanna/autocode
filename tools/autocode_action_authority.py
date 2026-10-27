@@ -331,10 +331,32 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
             and apply_queued_input(runner, state, run_dir, workspace) is not None
         ):
             return 2
+        already_held = (operational_information.projection(state) or {}).get("status") == "held"
         review = operational_information.reevaluate(runner, state, run_dir, workspace, resume=args.resume_paused)
         if review is not None:
             print(review.message, flush=True)
             if review.action in ("hold", "pending"):
+                # The held view offers plain resume while a pending repair blocks scoped retry.
+                # Reconcile only a spent terminal planning report on that second explicit action;
+                # retain the pause and counts and return before any provider admission (#2191).
+                pending = state.get("pending_report_repair") or {}
+                original = pending.get("original") or {}
+                if (
+                    args.resume_paused
+                    and already_held
+                    and review.action == "hold"
+                    and state.get("status") == "PAUSED_REPEATED_FAILURE"
+                    and pending.get("attempts", 0) >= runner.repair_limit(state)
+                    and original.get("rejected")
+                    and original.get("exit_code") == 0
+                    and not original.get("timed_out")
+                    and not original.get("interrupted")
+                    and not any(
+                        state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts")
+                    )
+                    and runner.prepare_planning_retry(state, run_dir)
+                ):
+                    print("Spent planning repair reconciled; inspect the fresh retry action. No provider launched.")
                 return 2
     information_admitted = review is not None and review.action == "continue"
     if (
