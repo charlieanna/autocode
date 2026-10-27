@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import autocode_changeset_store as store
 import autocode_coordination_context as coordination
+import autocode_coordination_store as coordination_store
 import autocode_report_repair_context as repair
 import autocode_stage_context as runtime
 import autocode_trace_coverage as coverage
@@ -90,6 +91,35 @@ class CoordinationContextTests(unittest.TestCase):
                 self.assertIn("never discharges the real joint obligation", context["instruction"])
                 self.assertIn("not exclusions or proxy acceptance", context["instruction"])
                 self.assertIn("only after ALL member gates and independent joint proof pass", context["instruction"])
+
+    def test_discovery_hint_requires_the_same_authenticated_member_identity(self):
+        self.automatic()
+        leaf = {
+            **self.state,
+            "workspace": str(self.root / "history"),
+            "run_dir": str(self.root / "history/.autocode/runs/fix"),
+        }
+        hint = "Apply tax here unless Q1 assigns it to checkout."
+        document = {
+            "version": 1,
+            "anchor": str(self.root / "anchor"),
+            "members": [
+                {"target": "history", "workspace": leaf["workspace"], "run_dir": leaf["run_dir"], "reported_work": hint}
+            ],
+        }
+        coordination_store.save(document)
+        context = coordination.context(leaf)
+        self.assertEqual(hint, context["reported_work"])
+        self.assertIn("not a user requirement or an answered question", context["instruction"])
+        self.assertIn("Never copy reported_work into a requirement source_quote", context["instruction"])
+        self.assertNotIn("reported_work", coordination.context(self.state))
+        for field in ("target", "workspace", "run_dir"):
+            with self.subTest(field=field):
+                value = document["members"][0][field]
+                document["members"][0][field] = str(self.root / "unrelated")
+                coordination_store.save(document)
+                self.assertNotIn("reported_work", coordination.context(leaf))
+                document["members"][0][field] = value
 
     def test_requirements_planning_runtime_and_report_repair_receive_the_same_bound_context(self):
         self.automatic()

@@ -127,6 +127,15 @@ def main():
             raise RuntimeError("Member context must retain the joint obligation instead of authorizing exclusion")
         if "REAL JOINT PROOF IS NOT A LOCAL PROXY" not in member["instruction"]:
             raise RuntimeError("Real coordinator proof must not ask for local stand-in acceptance")
+        if name != "checkout":
+            hint = member.get("reported_work")
+            if not isinstance(hint, str) or not hint:
+                raise RuntimeError("Discovered members must receive their bound investigation hint")
+            sources = [str(data.get("task", "")), *[row.get("text", "") for row in data.get("source_inventory", [])]]
+            if any(hint in text for text in sources):
+                raise RuntimeError("A model-reported work hint became user requirement source text")
+            if "Never copy reported_work into a requirement source_quote" not in member["instruction"]:
+                raise RuntimeError("Member context must distinguish discovery hints from user authority")
     if (
         os.environ.get("COORDINATION_FIXTURE_MEMBER_CONTEXT")
         and root.parent.name == "worktrees"

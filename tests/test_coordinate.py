@@ -17,6 +17,7 @@ import autocode_coordination_publish as publication
 import autocode_coordination_repositories as repos
 import autocode_coordination_store as store
 import autocode_github as github
+import autocode_goals as goals
 import autocode_related_profile as profiles
 import autocode_run_view as run_view
 import autocode_scope_assignment as assignment
@@ -95,6 +96,34 @@ class CoordinationTests(unittest.TestCase):
             self.assertEqual([], coordinate.resolve_request(self.document, {})["candidates"])
         for target in (str(self.root / "one/api"), "https://github.com/fixture/api", "../api"):
             self.assertEqual([], repos.candidates(target, [first]))
+
+    def test_discovered_work_is_a_hint_not_a_member_user_requirement(self):
+        hint = "Apply tax here unless the user answers Q1 that checkout owns the calculation."
+        entry = self.repository("tax")
+        store.save(self.document)
+        with (
+            patch.object(coordinate, "observe", return_value={}),
+            patch.object(
+                coordinate,
+                "next_step",
+                return_value={
+                    "kind": "resolve",
+                    "target": "tax",
+                    "entry": entry,
+                    "work": hint,
+                },
+            ),
+            patch.object(coordinate, "status", return_value={}),
+        ):
+            coordinate.advance(self.document["anchor"])
+        member = store.read(self.document["anchor"])["members"][0]
+        self.assertEqual(self.document["task"], member["brief"])
+        self.assertEqual(hint, member["reported_work"])
+        with self.assertRaisesRegex(ValueError, "source_quote is not in"):
+            goals.check_requirement_handoff(
+                {"task": member["brief"]},
+                {"requirements": [{"id": "R1", "text": hint, "source_quote": hint}]},
+            )
 
     def test_dirty_original_is_not_silently_replaced_by_head(self):
         entry = self.repository()
