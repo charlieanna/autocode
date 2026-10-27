@@ -177,7 +177,7 @@ class VerifyCliTests(unittest.TestCase):
         )
         return project
 
-    def run_cli(self, project, out, criteria, *, nested_import=False, inject_ignored=False, selection=()):
+    def run_cli(self, project, out, criteria, *, nested_import=False, inject_ignored=False, selection=(), base=None):
         environment = dict(
             clean_git_environment(),
             PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
@@ -202,7 +202,7 @@ class VerifyCliTests(unittest.TestCase):
                 "--workspace",
                 str(project),
                 "--base",
-                self.sha,
+                base or self.sha,
                 *selection,
                 "--criteria",
                 json.dumps(criteria),
@@ -222,6 +222,29 @@ class VerifyCliTests(unittest.TestCase):
             timeout=360,
         )
         return result, json.loads(result.stdout) if result.stdout else None
+
+    def test_added_empty_test_package_preserves_the_unmarked_baseline_suite(self):
+        project = self.root / "added-test-package"
+        shutil.copytree(self.base, project)
+        for args in (
+            ("rm", "tests/__init__.py"),
+            ("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "plain tests"),
+        ):
+            subprocess.run(["git", "-C", str(project), *args], check=True, capture_output=True)
+        base = subprocess.check_output(["git", "-C", str(project), "rev-parse", "HEAD"], text=True).strip()
+        (project / "tests/__init__.py").write_text("")
+        (project / "double.py").write_text("def double(number):\n    return number * 2\n")
+        (project / "tests/test_new.py").write_text(
+            "import unittest\nfrom double import double\n"
+            "class New(unittest.TestCase):\n    def test_c1_double(self): self.assertEqual(6, double(3))\n"
+        )
+        command = shlex.quote(sys.executable) + " -m unittest discover -s tests -v"
+        result, value = self.run_cli(project, self.root / "added-package-output", contract(command), base=base)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("PASS", value["verdict"])
+        proof = value["evidence_report"]["document"]["regression_proof"]
+        self.assertTrue(proof["fail_to_pass"])
+        self.assertTrue(proof["commands"]["suite"].endswith("discover -v -s tests"), proof)
 
     def test_external_change_passes_without_plan_or_builder_and_later_drift_is_refused(self):
         project = self.project("pass")
