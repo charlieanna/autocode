@@ -261,6 +261,15 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
                     ["--workspace", row["workspace"], "--run-dir", row["run_dir"], "--status", "--json"]
                 )
                 related = json.loads(response.stdout)["view"]["related_profile"]["settings"]
+                if self.env.get("COORDINATION_FIXTURE_SCOPE_METADATA") and row["target"] == "history":
+                    view = json.loads(response.stdout)["view"]
+                    parts = view["scope"]["external_parts"]
+                    self.assertEqual(
+                        {"tax", "tax repository", "checkout", "checkout repository"}, {part["target"] for part in parts}
+                    )
+                    exclusions = view["approved_contract"]["body"]["scope_exclusions"]
+                    for part in parts:
+                        self.assertIn(f"Not covered: changes in {part['target']}: {part['work']}", exclusions)
                 self.assertEqual(selected_profile["roles"], related["roles"])
                 for limit in ("max_seconds", "stage_timeout_seconds", "tool_timeout_seconds"):
                     self.assertEqual(selected_profile["limits"][limit], related["limits"][limit])
@@ -281,7 +290,13 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             for url in urls:
                 self.assertIn(url, row["body"])
             self.assertIn("fails on the combined original code", row["body"])
-            self.assertIn("tax, then history, then checkout.", row["body"])
+            if self.env.get("COORDINATION_FIXTURE_SCOPE_METADATA"):
+                # The alias fixture reports the consumer back to its producer,
+                # so the scope graph cannot supply an acyclic merge order.
+                self.assertIn("Dependency cycle: coordinate deployment", row["body"])
+                self.assertIn("review compatibility before merging.", row["body"])
+            else:
+                self.assertIn("tax, then history, then checkout.", row["body"])
         for name, workspace in self.repos.items():
             self.assertEqual(
                 BROKEN[name][1], (workspace / BROKEN[name][0]).read_text(), "Original checkout is unchanged"
@@ -289,6 +304,7 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
 
     def test_symptom_discovers_transitive_repositories_and_publishes_only_jointly_verified_fixes(self):
         self.env["COORDINATION_FIXTURE_MEMBER_CONTEXT"] = "1"
+        self.env["COORDINATION_FIXTURE_SCOPE_METADATA"] = "1"
         self.run_flow()
 
     def test_scope_assignment_keeps_requirements_confirmation_before_bug_investigation(self):

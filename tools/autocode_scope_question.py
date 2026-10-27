@@ -146,6 +146,25 @@ def exclusion(part: dict) -> str:
     return f"{EXCLUSION_PREFIX}{part['target']}: {part.get('work', '')}".rstrip(": ")
 
 
+def retain_assigned_exclusions(state: RunState, contract):
+    """Keep exact core-owned edit boundaries in an automatic member's draft.
+
+    Assignment authenticates every label to an existing peer run. Those factual
+    exclusions need no model inference or user waiver. Preserve every work item,
+    including differently worded items for aliases of one peer, and every authored
+    entry. Manual choices and malformed drafts retain their ordinary checks.
+    """
+    if not isinstance(contract, dict):
+        return contract
+    listed = contract.get("scope_exclusions")
+    if not isinstance(listed, list) or not all(isinstance(row, str) for row in listed):
+        return contract
+    if decision(state) != "linked_repositories":
+        return contract
+    missing = [row for row in dict.fromkeys(exclusion(part) for part in uncovered(state)) if row not in listed]
+    return {**contract, "scope_exclusions": [*listed, *missing]} if missing else contract
+
+
 def exclusion_errors(state: RunState, contract: dict) -> list[str]:
     """One error per uncovered part the contract's scope_exclusions do not name."""
     listed = set(str(row) for row in (contract or {}).get("scope_exclusions") or [])

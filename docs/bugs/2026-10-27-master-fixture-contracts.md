@@ -45,3 +45,22 @@ These supervised fake-provider checks use no model accounts. They establish the
 repaired mechanics, not live delivery speed. Any subsequent requested TUI/Kilo
 review is a separate, bounded integration comparison and must report its actual
 scope and timings.
+
+
+## Cold provenance lookup in the denied-admission fixture
+
+The subsequent full-master run [40553999894](https://github.com/charlieanna/autocode/actions/runs/40553999894)
+on `a38957d18` passed the original failures above, but failed one remaining module
+out of 790 (11,575 tests): `tests.test_dashboard_integration`. Its denied-planning
+admission test patches the shared `subprocess.Popen`, already pinning the retry
+Git-index seams. New launch provenance also asks for the runtime Git identity;
+with a cold identity cache this reaches the unrelated mock and raises before the
+expected admission refusal. Running the single test in a fresh interpreter
+reproduces that error.
+
+The fixture now pins the public runtime-identity seam too. Its assertions still
+require no Popen launch, no spent Planner call and no active stage. Runtime
+provenance, admission and provider behavior are unchanged. CI explicitly maps the
+launch-provenance producers to this dynamic admission consumer, with a selection
+regression that also keeps it when classified slow. No model run is needed for
+this fixture/CI-only correction.

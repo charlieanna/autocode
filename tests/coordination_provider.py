@@ -197,6 +197,10 @@ def main():
     )
     if target:
         body["scope_exclusions"] = [f"Not covered: changes in {target}: Fix the downstream total contract"]
+    if os.environ.get("COORDINATION_FIXTURE_SCOPE_METADATA") and name == "history":
+        # Reproduce the live model's omission. The core owns these authenticated
+        # peer boundaries; this provider must not manufacture them for it.
+        body["scope_exclusions"] = []
     body = cite_sources(body, data)
     contract = data.get("goal_contract") or {}
     task = data.get("current_task") or {}
@@ -273,6 +277,24 @@ def main():
                 else [],
             },
         )
+        if os.environ.get("COORDINATION_FIXTURE_SCOPE_METADATA") and name == "history":
+            report["workspace_scope"]["external_parts"].extend(
+                [
+                    {
+                        "target": "tax repository",
+                        "work": "Verify actual tax in the joint run",
+                        "source_quote": "",
+                        "evidence": source + ":3",
+                    },
+                    {"target": "checkout", "work": "Format the receipt", "source_quote": data["task"], "evidence": ""},
+                    {
+                        "target": "checkout repository",
+                        "work": "Verify actual composed checkout output",
+                        "source_quote": data["task"],
+                        "evidence": "",
+                    },
+                ]
+            )
     elif "contract" in schema.get("properties", {}):
         body = {**(report.get("contract") or {}), **body}
         report["contract"] = body
@@ -299,7 +321,9 @@ def main():
             open_questions=[],
             proposed_assumptions=[],
         )
-        if os.environ.get("COORDINATION_FIXTURE_EARLY_SCOPE") and target:
+        if (
+            os.environ.get("COORDINATION_FIXTURE_EARLY_SCOPE") or os.environ.get("COORDINATION_FIXTURE_SCOPE_METADATA")
+        ) and target:
             report["source_refs"] = [source]
             report["workspace_scope"] = {
                 "spans_repositories": True,
@@ -323,7 +347,35 @@ def main():
                         "evidence": "",
                     }
                 )
+            if os.environ.get("COORDINATION_FIXTURE_SCOPE_METADATA") and name == "history":
+                report["workspace_scope"]["external_parts"].extend(
+                    [
+                        {
+                            "target": "tax repository",
+                            "work": "Verify actual tax in the joint run",
+                            "source_quote": "",
+                            "evidence": source + ":3",
+                        },
+                        {
+                            "target": "checkout",
+                            "work": "Format the receipt",
+                            "source_quote": data["task"],
+                            "evidence": "",
+                        },
+                        {
+                            "target": "checkout repository",
+                            "work": "Verify actual composed checkout output",
+                            "source_quote": data["task"],
+                            "evidence": "",
+                        },
+                    ]
+                )
     elif stage == "astra_challenge":
+        if os.environ.get("COORDINATION_FIXTURE_SCOPE_METADATA") and name == "history":
+            exclusions = contract["body"]["scope_exclusions"]
+            for target in ("tax", "tax repository", "checkout", "checkout repository"):
+                if not any(row.startswith("Not covered: changes in " + target + ": ") for row in exclusions):
+                    raise RuntimeError("Reviewer must see every core-assigned exclusion before approval: " + target)
         report.update(concerns=[], source_trace=source_trace_for((contract.get("body") or body), data))
     elif stage == "terra":
         changed = []

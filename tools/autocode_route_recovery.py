@@ -78,16 +78,8 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
         for event in state.get("user_events", [])
         if event.get("kind") == quota_route.KIND and event.get("role") == role and event.get("actor") == "runner"
     ]
-    # Catalogue substitutions and explicit assignments can differ from the
-    # startup selection. Pin the routes that would actually check the retry.
-    actual = (state.get("settings") or {}).get("roles") or {}
-    current = {
-        **selection,
-        "routes": {
-            other: {**saved, "model": (actual.get(other) or saved).get("model")}
-            for other, saved in (selection.get("routes") or {}).items()
-        },
-    }
+    # Pin the routes that would actually check the retry.
+    current = route_selector.current(selection, (state.get("settings") or {}).get("roles"))
     switched = route_selector.next_route(current, role, dead, failed_models=failed)
     if switched is None:
         return False
