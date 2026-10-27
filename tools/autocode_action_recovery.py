@@ -47,6 +47,28 @@ except ImportError:
     import autocode_support as support
 
 
+def reconcile_checkpoint(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
+    """Publish an uncertain-stage pause under the run lock; never enter a provider/recovery dispatcher."""
+    if getattr(args, "reconcile_only", None) is None:
+        return None
+    try:
+        from . import autocode_checkpoint_reconciliation as reconciliation
+    except ImportError:
+        import autocode_checkpoint_reconciliation as reconciliation
+    if stop.applied_stop(state) is not None or stop.pending_stop(run_dir) is not None:
+        parser.error("A stop is pending or already applied; inspect that stop before reconciling the checkpoint")
+    active = state.get("active_stage") or {}
+    fresh = runner.supervision.observe(active.get("supervision"))
+    try:
+        changed = reconciliation.decision(state, args.reconcile_only, fresh)
+    except ValueError as error:
+        parser.error(str(error))  # Refusal must not overwrite a still-running checkpoint.
+    state.update(changed)
+    runner.write_json(state_path, state)
+    print(state["stop_reason"])
+    return 2
+
+
 def gate_failures(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Settle a classification or job failure before any pause authority is weighed."""
     if getattr(args, "_job_cap_change", False):

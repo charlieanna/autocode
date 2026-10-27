@@ -468,6 +468,18 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_planning_allowance_cli",),
     ),
     (
+        (
+            "tools/autocode_checkpoint_reconciliation.py",
+            "tools/autocode_action_recovery.py",
+            "tools/autocode_native_invocation.py",
+            "tools/autocode_run_setup.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_args.py",
+            "tools/autocode_control_tokens.py",
+        ),
+        ("tests.test_checkpoint_reconciliation",),
+    ),
+    (
         ("tools/autocode_activity.py", "tools/autocode_process.py"),
         ("tests.test_kilo_wrapper_idle_cli",),
     ),

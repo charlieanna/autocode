@@ -495,6 +495,12 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="Reject a REWORK task that bundles more than this many open findings (default: unlimited; 0 disables)",
     )
     parser.add_argument(
+        "--reconcile-only",
+        metavar="TOKEN",
+        help="Classify an unfinished checkpoint after confirmed supervisor loss without launching a provider; "
+        "`-` reads AUTOCODE_RECONCILE_ONLY_TOKEN",
+    )
+    parser.add_argument(
         "--resume-paused",
         action="store_true",
         help="Acknowledge a saved pause; uncertain stages still require reconciliation",
@@ -660,6 +666,7 @@ def user_actions(args) -> dict[str, bool]:
         "--explain": bool(args.explain),
         "--dry-run": bool(args.dry_run),
         "--migrate-only": bool(args.migrate_only),
+        "--reconcile-only": getattr(args, "reconcile_only", None) is not None,
         "--show-goal": bool(args.show_goal),
         "--answer/--delegate": bool(args.answer or args.delegate),
         "--delegate-all": bool(args.delegate_all),
@@ -705,6 +712,15 @@ def parse(unit, argv, default_models):
         args = parser.parse_args(argv)
     if (args.brief is not None or args.brief_file is not None) and (args.run_dir or resume_only):
         parser.error("--brief and --brief-file start a new run; they cannot accompany a saved run or resume")
+    if args.reconcile_only is not None:
+        allowed = {"--reconcile-only", "--run-dir", "--workspace", "--json", "--no-chat"}
+        if (
+            resume_only
+            or not args.run_dir
+            or args.task
+            or any(word.startswith("--") and word.split("=", 1)[0] not in allowed for word in argv)
+        ):
+            parser.error("--reconcile-only requires a saved run and cannot combine with other actions or settings")
     related_profile.validate_arguments(args, parser)
     try:
         args.task = task_input.load(args.task, brief=args.brief, brief_file=args.brief_file, stdin=sys.stdin)

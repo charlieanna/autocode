@@ -634,6 +634,7 @@ their deterministic qualification before this opt-in mode is exposed.
 | Explicit pause | Submit the existing request-ID-bound pause offer. Save the active step, then wait at the core's boundary. |
 | Explicit stop or interrupt | Use a core-named action with its own confirmation and scope. No new immediate-kill control is included in the first delivery; missing controls remain unavailable. Stop, when offered, remains terminal for the conversation. |
 | Worker/controller loss while a viewer survives | Show the current controller/liveness inspection and retained attempt. Use the existing reconciliation action only when offered; never infer a paid replay from a quiet log. |
+| Lost ordinary supervisor | Fresh status may name private `--reconcile-only -` when owner, keeper and provider are positively dead. It classifies the retained unfinished attempt as uncertain under the run lock without provider setup, artifact adoption, settings changes or model calls. A changed checkpoint, live/unknown role or stop refuses. Native visual workers remain outside this control. Any discard/retry is a separate named decision. |
 | Host reboot | Work is interrupted, not transparently resumed. After reconnect, inspect ownership and attempts and expose the ordinary recovery boundary. Unknown provider outcomes stay uncertain. |
 | Two viewers act on one gate | Both may inspect. The first current action admitted under the core's locks changes the run; a competing stale token is refused and refreshed. No client leader or second controller is introduced. |
 
