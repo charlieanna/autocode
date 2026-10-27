@@ -26,6 +26,16 @@ def cost_pause(view):
     return (view.get("recovery") or {}).get("cause") == "PAUSED_COST_LIMIT" or view.get("status") == "PAUSED_COST_LIMIT"
 
 
+def _settled(view):
+    need = view.get("needs") or {}
+    return (
+        view.get("done")
+        or cost_pause(view)
+        or need.get("kind") in ("approve_plan", "continue", "review")
+        or (need.get("kind") == "answer" and not need.get("resolver_scope"))
+    )
+
+
 def _bound(view):
     try:
         workspace, run_dir = Path(view["workspace"]), Path(view["run_dir"])
@@ -55,12 +65,7 @@ def offer(document, rows, history):
         or document.get("phase") in ("complete", "publishing", "cancelled")
         or store.cancelled(document["anchor"])
         or any(actions.working(row["view"]) for row in rows)
-        or any(
-            not row["view"].get("done")
-            and not cost_pause(row["view"])
-            and (row["view"].get("needs") or {}).get("kind") not in ("approve_plan", "continue")
-            for row in rows
-        )
+        or any(not _settled(row["view"]) for row in rows)
     ):
         return None
     summary = budget.accounting(document["budget"], history)

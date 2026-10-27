@@ -258,6 +258,14 @@ class SharedBudgetTests(unittest.TestCase):
         del anchor["initial_complete"]
         self.assertFalse(budget.accounting(anchor, priced)["complete"])
 
+    def test_a_peers_unanswered_requirements_question_is_retained_not_answered(self):
+        self.views["history"].update(status="WAITING_FOR_USER", needs={"kind": "answer", "questions": ["Q1"]})
+        before = copy.deepcopy(self.views["history"])
+        offer = self.offered()
+        self.assertEqual("budget", offer["kind"])
+        self.assertEqual(0, self.cli(15, offer["token"])[0])
+        self.assertEqual(before, self.views["history"])
+
 
 if __name__ == "__main__":
     unittest.main()
