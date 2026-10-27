@@ -10,13 +10,17 @@ import unittest
 from pathlib import Path
 
 import autocode_reviewer_fallback as fallback
+import autocode_route_selector as selector
 import autocode_support as support
 
 GLM = "zai-coding-plan/glm-5.3"
 MIMO = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+SOL = "openai/gpt-6-sol"
+OPUS = "anthropic/claude-opus-5-5"
+ASTRA = "openai/gpt-6-astra"
 
 
-class ReviewerFallbackTests(unittest.TestCase):
+class Fixture(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -98,6 +102,8 @@ class ReviewerFallbackTests(unittest.TestCase):
     def reserve(self):
         return fallback.reserve(self.state, self.run, self.root)
 
+
+class ReviewerFallbackTests(Fixture):
     def test_eligible_receipt_is_bound_and_admission_preserves_accounting(self):
         accounting = copy.deepcopy(
             {key: self.state[key] for key in ("automatic_timeout_recoveries", "failure_history")}
@@ -252,6 +258,74 @@ class ReviewerFallbackTests(unittest.TestCase):
         # Switching review to the only alternate (GLM) would be self-review.
         self.state["settings"]["roles"]["glm"]["model"] = GLM
         self.state["settings"]["roles"]["sol"]["model"] = GLM
+        before = copy.deepcopy(self.state)
+        self.assertIsNone(self.reserve())
+        self.assertEqual(before, self.state)
+
+
+class PermittedPoolTests(Fixture):
+    """On an automatically selected run the fallback comes from the saved permitted set (#2061)."""
+
+    def select(self, *models):
+        accounts = [
+            {
+                "model": model,
+                "tool": "opencode",
+                "account": model.split("/")[0],
+                "billing": "subscription",
+                "levels": None,
+                "probe": "known",
+            }
+            for model in models
+        ]
+        result = selector.select(selector.PIPELINE_ROLES, accounts)
+        result["candidates"] = selector.permitted_set(accounts)
+        roles = {
+            role: {
+                "engine": "opencode",
+                "provider": None,
+                "model": route["model"],
+                "reasoning_effort": route["reasoning_effort"],
+            }
+            for role, route in result["routes"].items()
+        }
+        # The Builder slot holds MiMo, as in the GLM/MiMo cohort: configured and permitted, but excluded
+        # from reviewing plans (owner decision #1723).
+        roles["terra"]["model"] = MIMO
+        self.state["settings"]["roles"] = roles
+        self.state["settings"]["route_selection"] = result
+        current = roles["plan_reviewer"]["model"]
+        for record in self.state["stages"]:
+            record["launch_route"].update(model=current, reasoning_effort=roles["plan_reviewer"]["reasoning_effort"])
+        return result
+
+    def test_fallback_is_the_next_qualified_reviewer_not_a_sibling_route(self):
+        self.select(GLM, MIMO, SOL, OPUS, ASTRA)
+        self.assertEqual(SOL, self.state["settings"]["roles"]["plan_reviewer"]["model"])
+        grant = self.reserve()
+        self.assertEqual(OPUS, grant["binding"]["selected_route"]["model"])
+        selected = fallback.admit(self.state, self.run, self.root)
+        self.assertEqual(("plan_reviewer", OPUS), (selected["role"], selected["model"]))
+
+    def test_no_other_qualified_reviewer_leaves_the_pause_standing(self):
+        # Before #2061 the sibling rule chose the Builder's MiMo, which plan review excludes.
+        self.select(GLM, MIMO, SOL, ASTRA)
+        self.state["settings"]["roles"]["astra"]["engine"] = "codex"
+        before = copy.deepcopy(self.state)
+        self.assertIsNone(self.reserve())
+        self.assertEqual(before, self.state)
+
+    def test_a_reviewer_the_person_named_is_not_switched(self):
+        self.select(GLM, MIMO, SOL, OPUS, ASTRA)
+        self.state["settings"]["route_selection"]["routes"]["plan_reviewer"]["origin"] = (
+            selector.role_route.USER_EXPLICIT
+        )
+        self.assertIsNone(self.reserve())
+
+    def test_fallback_stays_independent_of_the_planner(self):
+        # The Planner now runs on Opus (e.g. an assigned switch): Opus reviewing its plan is self-review.
+        self.select(GLM, MIMO, SOL, OPUS, ASTRA)
+        self.state["settings"]["roles"]["glm"]["model"] = OPUS
         before = copy.deepcopy(self.state)
         self.assertIsNone(self.reserve())
         self.assertEqual(before, self.state)

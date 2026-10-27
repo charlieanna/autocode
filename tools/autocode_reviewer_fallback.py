@@ -1,8 +1,10 @@
 """One-use planning-review route fallback for proven provider-stream silence.
 
-This module only reserves and admits a route which is already present in saved
-settings.  It does not launch providers, change settings, replenish accounting,
-or diagnose why a provider stream was silent.
+This module only reserves and admits a route the run was already permitted to use:
+on an automatically selected run, the next qualified reviewer in its saved permitted
+set (``route_selection.candidates``, #2061); otherwise the one other configured role
+route that stays independent of the plan's author.  It does not launch providers,
+change settings, replenish accounting, or diagnose why a provider stream was silent.
 """
 
 from __future__ import annotations
@@ -22,9 +24,11 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_model_identity as model_identity
+    from . import autocode_route_selector as route_selector
     from . import autocode_support as support
 except ImportError:
     import autocode_model_identity as model_identity
+    import autocode_route_selector as route_selector
     import autocode_support as support
 
 
@@ -164,6 +168,9 @@ def _candidate(state: RunState, stage, current_role, current):
     if not producer_role:
         return None
     producer_model = roles[producer_role]["model"]
+    selection = settings.get("route_selection") or {}
+    if selection.get("candidates"):
+        return _permitted(state, selection, current_role, current, producer_role, producer_model)
     choices = []
     for role, config in roles.items():
         if role == current_role or not isinstance(config, dict):
@@ -186,6 +193,38 @@ def _candidate(state: RunState, stage, current_role, current):
         return None
     role, route = choices[0]
     return {"role": role, **route, "producer_role": producer_role, "producer_model": producer_model}
+
+
+def _permitted(state: RunState, selection, current_role, current, producer_role, producer_model):
+    """The next qualified reviewer in the run's saved permitted set, or None (#2061).
+
+    The same pool and independence search a quota stop uses, so the fallback never
+    reviews on a model the qualification table leaves out (or excludes) for this role,
+    and never on an account the run was not already permitted to bill.
+    """
+    saved = (selection.get("routes") or {}).get(current_role) or {}
+    if saved.get("origin") == route_selector.role_route.USER_EXPLICIT:
+        return None
+    settings = state["settings"]
+    failed = [
+        grant["binding"]["selected_route"]["model"]
+        for grant in (state.get("planning") or {}).get("reviewer_route_fallbacks", [])
+        if isinstance(grant, dict) and grant.get("failed_at")
+    ]
+    route = route_selector.next_route(
+        route_selector.current(selection, settings.get("roles")), current_role, current["model"], failed_models=failed
+    )
+    if route is None or model_identity.shared_family(route["model"], producer_model):
+        return None
+    return {
+        "role": current_role,
+        "engine": current.get("engine"),
+        "provider": current.get("provider"),
+        "model": route["model"],
+        "reasoning_effort": route.get("reasoning_effort"),
+        "producer_role": producer_role,
+        "producer_model": producer_model,
+    }
 
 
 def _binding(state: RunState, stage, workspace, current, selected, evidence):
