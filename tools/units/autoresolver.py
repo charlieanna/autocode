@@ -32,6 +32,7 @@ try:
     from .. import autocode_failures as failures
     from .. import autocode_goal_lifecycle as lifecycle
     from .. import autocode_goals as goals
+    from .. import autocode_investigation_evidence as investigation_evidence
     from .. import autocode_investigation_workspace as investigation_workspace
     from .. import autocode_job_report_recovery as job_report_recovery
     from .. import autocode_launch_inputs as launch_inputs
@@ -58,6 +59,7 @@ except ImportError:
     import autocode_failures as failures
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
+    import autocode_investigation_evidence as investigation_evidence
     import autocode_investigation_workspace as investigation_workspace
     import autocode_job_report_recovery as job_report_recovery
     import autocode_launch_inputs as launch_inputs
@@ -189,7 +191,11 @@ def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None)
 
     # The probe must also fail with the bug removed, in another scratch copy (#1769).
     against = counterexample.runner(guarded, workspace, probes, timeout=PROBE_TIMEOUT)
+    captured = investigation_evidence.begin(
+        state, value, record, workspace, run_dir or Path(record["output"]).parent.parent.parent
+    )
     bug_job.apply(state, value, record, workspace, run_probe=run_probe, run_counterexample=against)
+    investigation_evidence.finish(state, value, record, workspace, captured)
     if bug_questions.has_questions(state):
         human.queue(
             state,

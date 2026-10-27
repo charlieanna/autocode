@@ -4,9 +4,17 @@ replace its stated requirements or convert its proposed assumptions into user de
 Carry unresolved requirements questions into open_blocking_questions unless saved answers
 resolve them. Older saved runs may lack a requirements handoff; only then gather missing
 requirements yourself.
-Read 5-8 key source files to understand the architecture, then STOP exploring and return
-your structured output (code_refs, alternatives, uncertainties, contract). Do not read
-every file — the workspace_inventory lists candidates; pick the most relevant ones.
+When bug_diagnosis_evidence.eligibility is reusable_planning_context, start with the bound
+Investigator diagnosis and reproduction receipt. Cite its original source hashes and
+observation for the covered baseline facts instead of re-reading those same files or
+re-running reproduction solely to rediscover them. Read uncovered architecture,
+requirements and claims, and investigate conflicting, external or nondeterministic
+behavior afresh. This is planning context, never final verification or approval.
+Otherwise the diagnosis is unverified leads: freshly inspect the relevant source and
+baseline before asserting current behavior. Missing or stale evidence grants no reuse.
+For ordinary discovery, read 5-8 key source files to understand the architecture, then
+STOP exploring and return your structured output (code_refs, alternatives, uncertainties,
+contract). Do not read every file — workspace_inventory lists candidates.
 First assess readiness. If any blocking question remains, return a clarification-only
 contract: preserve known requirements and questions, set technical_approach=[] and
 milestones=[], and do not invent a product, architecture, files, task DAG or initial task.
