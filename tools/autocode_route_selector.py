@@ -265,6 +265,22 @@ def permitted_set(candidates):
     return {role: [candidate for candidate, _entry in _options(role, candidates, None)] for role in PIPELINE_ROLES}
 
 
+def current(selection, roles):
+    """``selection`` with each saved route's model replaced by the one the run now uses.
+
+    Catalogue substitutions and explicit assignments can differ from the startup
+    selection; a switch must be checked against the routes that would actually run.
+    """
+    roles = roles or {}
+    return {
+        **(selection or {}),
+        "routes": {
+            other: {**saved, "model": (roles.get(other) or saved).get("model")}
+            for other, saved in ((selection or {}).get("routes") or {}).items()
+        },
+    }
+
+
 def next_route(selection, role, stopped_model, *, failed_models=()):
     """The route a stopped model's role switches to on its own, or None (#1426 step 9).
 

@@ -89,6 +89,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- On an automatically selected run, the one-use planning-review fallback after repeated provider-stream
+  silence now takes the next qualified Plan Reviewer from the run's saved permitted set, the same pool and
+  independence check a quota stop uses (#2061). Before, it borrowed whichever other role's model was
+  configured, so a GLM/MiMo run could hand plan review to the Builder's MiMo, which the qualification
+  table excludes for that role (#1723). When no other qualified reviewer remains, or the person named the
+  reviewer, the pause stands as before. Runs without a saved permitted set keep the old rule.
 - A Tester or Completion Reviewer report that mistypes the echoed contract hash, contract revision or
   task id no longer costs a paid report repair (#2135). On the current, admitted attempt whose launch
   recorded today's contract and task, the runner adopts that launch identity, keeps the provider's
