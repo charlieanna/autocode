@@ -130,9 +130,9 @@ def candidates(target, entries):
     exact = [entry for entry in entries if name in aliases(entry)]
     if exact:
         return exact
-    # A model may append a job label to an otherwise exact repository name.
+    # A model may append a job label or the repository noun to an exact name.
     # This still resolves only against the authorized catalog, never a path.
-    described = re.fullmatch(r"(.+?)\s+\([^()]{1,80}\)", name)
+    described = re.fullmatch(r"(.+?)\s+(?:\([^()]{1,80}\)|repo(?:sitory)?)", name)
     return [entry for entry in entries if described and described[1] in aliases(entry)]
 
 
