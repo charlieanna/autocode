@@ -255,6 +255,42 @@ class ReadyGateTests(unittest.TestCase):
                     records=[{"id": "task:0", "kind": "task", "text": text}],
                 )
 
+    def test_authenticated_feedback_sentence_references_preserve_quantities_not_id_digits(self):
+        source_id = "feedback:feedback-a27901282b5b"
+        for reference in (f"sentence of {source_id}", f"sentences in {source_id}"):
+            text = f"Cite every uncited {reference} and preserve a limit of 7 rows."
+            records = [
+                {"id": source_id, "kind": "feedback", "text": "Keep the existing behavior."},
+                {"id": "task:0", "kind": "task", "text": text},
+            ]
+            rows = [
+                criterion("C1", "Keep the existing behavior.", [records[0]["text"]], source_id=source_id),
+                criterion("C2", "Cite the feedback and preserve a limit of 7 rows.", [text]),
+            ]
+            with self.subTest(reference=reference):
+                self.ready(body(rows), records=records)
+                rows[1]["criterion"] = "Cite the feedback and preserve a row limit."
+                with self.assertRaisesRegex(ValueError, "changed a number the source states: 7"):
+                    self.ready(body(rows), records=records)
+
+    def test_feedback_sentence_reference_must_be_known_and_not_a_requested_output(self):
+        known = "feedback:feedback-a27901282b5b"
+        for text in (
+            "Cite the sentence of feedback:feedback-a99901282b5b.",
+            f"Print the sentence of {known} exactly.",
+            f"Cite the sentence of `{known}`.",
+        ):
+            records = [
+                {"id": known, "kind": "feedback", "text": "Keep the existing behavior."},
+                {"id": "task:0", "kind": "task", "text": text},
+            ]
+            rows = [
+                criterion("C1", "Keep the existing behavior.", [records[0]["text"]], source_id=known),
+                criterion("C2", "Handle the referenced feedback.", [text]),
+            ]
+            with self.subTest(text=text), self.assertRaisesRegex(ValueError, "changed a number"):
+                self.ready(body(rows), records=records)
+
     def test_a_dropped_negation_is_refused(self):
         draft = body(
             [
