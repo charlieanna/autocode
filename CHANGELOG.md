@@ -89,6 +89,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- `autocode doctor` no longer sends a user of the released package to maintainer-only steps: an engine that is
+  not installed gets no conformance row (its own row already says how to install it); an untested engine
+  version points at the tested list in the provider docs; an installed release is identified by its version
+  instead of a warning to run from a Git checkout; the PATH fix suggests `pipx install autocode-supervisor`;
+  and a single installed copy is no longer called "linked/editable". `autocode --help` links the full CLI
+  reference on GitHub, which a package install does not ship.
 - On an automatically selected run, the one-use planning-review fallback after repeated provider-stream
   silence now takes the next qualified Plan Reviewer from the run's saved permitted set, the same pool and
   independence check a quota stop uses (#2061). Before, it borrowed whichever other role's model was
