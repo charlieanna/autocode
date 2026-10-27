@@ -164,17 +164,17 @@ class PreflightCheckTests(unittest.TestCase):
     def run_identity(self):
         return preflight._receipt_identity(self.adapter, self.state["settings"]["transport_identities"]["opencode"])
 
-    def test_review_probes_only_its_reached_validator_and_reuses_that_receipt(self):
+    def test_standalone_review_uses_its_real_request_instead_of_a_paid_access_ping(self):
         self.state["next_stage"] = "review_change"
-        self.state["settings"]["roles"]["sol"] = {"model": "plan/glm"}
-        # The unused Builder has no successful response, so any probe fails this test.
-        self.assertTrue(self.check({"plan/glm": OK_EVENTS}))
-        self.assertEqual(["plan/glm"], self.calls)
-        self.assertFalse(self.check({"plan/glm": OK_EVENTS}))
-        self.assertEqual(["plan/glm"], self.calls)
+        self.assertFalse(self.check({}))
+        self.assertFalse(self.check({}))
+        self.assertEqual([], self.calls)
+        self.assertFalse((self.run_dir / "model-preflight.json").exists())
+        self.assertNotIn("stages", self.state)
+        # A later build still needs its own admitted probes; review grants no receipt.
         self.state["next_stage"] = "terra"
-        self.assertTrue(self.check({"plan/mimo": OK_EVENTS}))
-        self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+        self.assertCountEqual(["plan/glm", "plan/mimo"], self.calls)
 
     def test_each_distinct_model_is_probed_once_per_run(self):
         events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}

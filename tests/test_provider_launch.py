@@ -18,6 +18,51 @@ from providers.command import CommandProvider
 
 
 class ProviderLaunchTests(unittest.TestCase):
+    def test_runner_selects_tool_free_policy_for_a_nonplanning_report_repair(self):
+        import autocode as runner
+
+        class Prepared(Exception):
+            pass
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            schema = root / "schema.json"
+            schema.write_text('{"type":"object"}')
+            state = {
+                "version": 2,
+                "iteration": 1,
+                "next_stage": "review_change",
+                "stages": [],
+                "settings": {
+                    "engine": "opencode",
+                    "provider": "kilocode",
+                    "roles": {
+                        "sol": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "low"},
+                    },
+                },
+            }
+            for report_only in (False, True):
+                with (
+                    self.subTest(report_only=report_only),
+                    mock.patch.object(runner.provider_launch, "prepare", side_effect=Prepared) as prepare,
+                    self.assertRaises(Prepared),
+                ):
+                    runner.run_role(
+                        role="sol",
+                        prompt="Already-completed review report",
+                        sandbox="read-only",
+                        workspace=root,
+                        run_dir=root / str(report_only),
+                        state=state,
+                        schema=schema,
+                        model="zai-coding-plan/glm-5.3",
+                        allow_write=False,
+                        dry_run=True,
+                        report_only=report_only,
+                    )
+                self.assertEqual(report_only, prepare.call_args.kwargs["planning_report_recovery"])
+                self.assertEqual("zai-coding-plan/glm-5.3", prepare.call_args.kwargs["model"])
+
     def test_native_handoff_keeps_all_task_input_with_small_owned_manifest_locator(self):
         descriptor = {
             "manifest": "/owned/isolation.json",

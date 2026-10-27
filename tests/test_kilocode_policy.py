@@ -285,6 +285,13 @@ class NativeKiloPolicyTests(unittest.TestCase):
                     self.assertFalse(names & {"task", "question", "plan_enter", "plan_exit"}, names)
 
     def test_report_recovery_removes_tools_from_actual_native_model_request(self):
+        self.check_report_recovery_requests((False, True))
+
+    def test_report_only_recovery_needs_no_kernel_shell_or_tool_conformance(self):
+        with patch.object(policy.containment, "configure", side_effect=AssertionError("Report repair granted a shell")):
+            self.check_report_recovery_requests((True,))
+
+    def check_report_recovery_requests(self, recovering_states):
         requests = []
         report = '{"summary":"Evidence insufficient; return a concern","concerns":[]}'
         role_prompt = "OPERATOR_REVIEW_PROMPT_SENTINEL: review only; return the supplied report."
@@ -342,7 +349,7 @@ class NativeKiloPolicyTests(unittest.TestCase):
             check=True,
             env=env,
         )
-        for recovering in (False, True):
+        for recovering in recovering_states:
             with self.subTest(recovering=recovering), patch.dict(os.environ, env, clear=True):
                 requests.clear()
                 argv, child, _, worker = launch.prepare(

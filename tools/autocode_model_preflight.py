@@ -349,10 +349,12 @@ def due(routes: dict, next_stage) -> dict:
     With no next stage known (a standalone caller), every route is due."""
     if not next_stage:
         return dict(routes)
-    # A standalone review runs only on sol. Probing a configured Builder or
-    # Planner adds paid latency and can block a review on an unused account.
+    # A standalone review has one execution stage: that request establishes access.
+    # A separate paid ping cannot prevent partially built work here and duplicates
+    # provider startup. Local transport/auth/model/effort admission still runs;
+    # a failed review remains an accounted stage failure, never a successful probe.
     if next_stage == "review_change":
-        return {role: route for role, route in routes.items() if role == "sol"}
+        return {}
     return {role: route for role, route in routes.items() if next_stage in DEFERRED.get(role, (next_stage,))}
 
 

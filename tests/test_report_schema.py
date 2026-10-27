@@ -369,3 +369,119 @@ class GitDeliveryReportCompatibilityTests(unittest.TestCase):
             self.assertEqual(raw, normalize_absent_authority(raw, old, {"stage": "astra_plan"}))
         for raw in ({}, {"contract": None}, {"contract": "invalid"}):
             self.assertEqual(raw, normalize_absent_authority(raw, schema, {"stage": "astra_plan"}))
+
+
+class ReviewSeveritySerializationTests(unittest.TestCase):
+    def setUp(self):
+        import autocode_review_job as review
+
+        self.schema = copy.deepcopy(review.SCHEMA)
+        self.raw = {
+            "verdict": "request_changes",
+            "summary": "Retained live severity spelling error",
+            "change_under_review": "HEAD^..HEAD",
+            "change_patch": "",
+            "findings": [
+                {
+                    "id": "F2",
+                    "severity": "advisary",
+                    "file": "validator.py",
+                    "lines": [17],
+                    "summary": "A nonblocking observation",
+                    "evidence": "Original event remains exact",
+                    "example": "Given the reviewed code, observe the reported behavior",
+                    "untestable": "",
+                }
+            ],
+            "tests_run": ["python -m unittest tests.test_validator"],
+            "delivered_tests": [],
+        }
+
+    def load(self, root, raw, stage="review_change", schema=None):
+        output, schema_path = root / "out.json", root / "schema.json"
+        output.write_text(json.dumps(raw))
+        schema_path.write_text(json.dumps(schema or self.schema))
+        record = {"stage": stage, "output": str(output), "schema": str(schema_path)}
+        return record, runner.load_stage_report(record)
+
+    def test_live_typo_preserves_original_report_and_every_semantic_field_without_a_repair(self):
+        for stage in ("review_change", "review_change_report_repair"):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as d:
+                record, result = self.load(Path(d), self.raw, stage)
+                expected = copy.deepcopy(self.raw)
+                expected["findings"][0]["severity"] = "advisory"
+                self.assertEqual(expected, result)
+                self.assertEqual(self.raw, json.loads(Path(record["reported_output"]).read_text()))
+                self.assertEqual(expected, json.loads(Path(record["output"]).read_text()))
+                self.assertEqual(expected, runner.load_stage_report(record))
+                self.assertNotIn("report_repaired", record)
+                self.assertEqual("advisary", self.raw["findings"][0]["severity"])
+
+    def test_single_edit_spellings_do_not_downgrade_blockers(self):
+        for typo, label in (
+            ("advisroy", "advisory"),
+            ("advisor", "advisory"),
+            ("advisoryy", "advisory"),
+            ("blockign", "blocking"),
+            ("blockin", "blocking"),
+            ("blockingg", "blocking"),
+        ):
+            with self.subTest(typo=typo), tempfile.TemporaryDirectory() as d:
+                raw = copy.deepcopy(self.raw)
+                raw["findings"][0]["severity"] = typo
+                _, result = self.load(Path(d), raw)
+                self.assertEqual(label, result["findings"][0]["severity"])
+                self.assertEqual("request_changes", result["verdict"])
+
+    def test_unknown_severity_or_other_malformed_fields_still_reject_atomically(self):
+        variants = []
+        for label in ("informational", "nonblocking", "warning", "adviserri", "", None, 1, "аdvisary"):
+            raw = copy.deepcopy(self.raw)
+            raw["findings"][0]["severity"] = label
+            variants.append(raw)
+        for field, value in (("verdict", "approv"), ("tests_run", "old PASS"), ("delivered_tests", None)):
+            raw = copy.deepcopy(self.raw)
+            raw[field] = value
+            variants.append(raw)
+        raw = copy.deepcopy(self.raw)
+        raw["findings"][0]["lines"] = ["17"]
+        variants.append(raw)
+        for raw in variants:
+            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as d:
+                with self.assertRaises(ValueError):
+                    self.load(Path(d), raw)
+                self.assertEqual(raw, json.loads((Path(d) / "out.json").read_text()))
+                self.assertFalse((Path(d) / "out.reported.json").exists())
+
+    def test_other_stages_and_other_vocabularies_are_not_normalized(self):
+        for stage, schema in (
+            ("sol", self.schema),
+            ("astra_challenge", self.schema),
+            (
+                "review_change",
+                {
+                    **self.schema,
+                    "properties": {
+                        **self.schema["properties"],
+                        "findings": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {"severity": {"type": "string", "enum": ["warning"]}},
+                            },
+                        },
+                    },
+                },
+            ),
+        ):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as d, self.assertRaises(ValueError):
+                self.load(Path(d), self.raw, stage, schema)
+
+    def test_valid_labels_remain_exact(self):
+        for label in ("blocking", "advisory"):
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as d:
+                raw = copy.deepcopy(self.raw)
+                raw["findings"][0]["severity"] = label
+                record, result = self.load(Path(d), raw)
+                self.assertEqual(raw, result)
+                self.assertNotIn("reported_output", record)
