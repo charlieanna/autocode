@@ -225,7 +225,11 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_usage.py",
             "tools/providers/direct.py",
         ),
-        ("tests.test_direct_connections_cli", "tests.test_route_execution_evidence"),
+        (
+            "tests.test_direct_connections_cli",
+            "tests.test_route_execution_evidence",
+            "tests.test_dashboard_integration",
+        ),
     ),
     (
         ("tools/autocode_route_evidence.py", "tools/autocode_route_selector.py", "tools/qualify_routes.py"),
