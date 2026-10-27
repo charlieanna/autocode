@@ -19,7 +19,21 @@ Reviewer's source_trace names the span and the reason in negation_waivers.
 
 When this report schema includes source_trace, the final reviewer supplies it:
 out_of_scope and negation_waivers, each entry {"source_id", "quote", "reason"}
-with quote verbatim from the named source. Before approving, check the draft
+with quote verbatim from the named source.
+
+out_of_scope is an exclusion list, not a coverage ledger. A sentence cited by any criterion must never also be out_of_scope,
+even if it is procedural feedback such as "Revise the plan and return it for review."
+Do not add an exclusion whose reason says the sentence is already covered. If all
+source sentences are cited, use out_of_scope: []. Each exclusion must quote a
+complete source sentence verbatim, not a fragment. required_behaviors and constraints do not replace criterion sources:
+they preserve the meaning of cited obligations, but an included source sentence
+still needs a citation in an appropriate criterion's sources. Adding citation
+metadata need not change that criterion's behavior or verification method. A
+coordinator obligation can be cited without claiming that a member-local test
+proves the joint result. Recheck coverage against the final resolved criteria,
+including retained criteria, rather than copying an earlier exclusion list.
+
+Before approving, check the draft
 against the sources: every criterion cited, every sentence covered or
 explicitly out of scope, every quoted number, literal and negation survived.
 An uncovered sentence or a corrupted quote is a blocking concern quoting the
