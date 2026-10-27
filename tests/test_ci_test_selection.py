@@ -12,6 +12,7 @@ class DynamicDependenciesTests(unittest.TestCase):
         consumer = "tests.test_validation_evidence_cli"
         for path in (
             "tools/autocode_check_refs.py",
+            "tools/autocode_report_repair_queue.py",
             "tools/autocode_completion.py",
             "tools/autopilot.py",
             "tools/autocode_resolver.py",
@@ -23,6 +24,12 @@ class DynamicDependenciesTests(unittest.TestCase):
                 selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
                 kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
                 self.assertEqual([consumer], list(kept))
+
+    def test_planning_metadata_keeps_the_public_acceptance_consumer(self):
+        consumer = "tests.test_acceptance_tests"
+        selected = run_suite.select_tests(["tools/autocode_planning_metadata.py"], {consumer: ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
 
     def test_copied_recovery_providers_keep_their_public_consumers(self):
         for path, consumers in (

@@ -15,9 +15,11 @@ if TYPE_CHECKING:
 import copy
 
 try:
+    from . import autocode_current_behavior as current_behavior
     from . import autocode_plan_retention as retention
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_current_behavior as current_behavior
     import autocode_plan_retention as retention
     import autocode_roles as roles
 
@@ -128,4 +130,20 @@ def normalize_planning_metadata(value, state: RunState | None, record):
     result = copy.deepcopy(value)
     _trace_identity(result, state)
     _addition_declarations(result, state, stage)
+    return result
+
+
+def expand_report(state: RunState, stage, value):
+    """Record the same expanded contract the lifecycle will install.
+
+    Runner-derived baseline text must be present before saving the canonical
+    planning report; otherwise exact trace inheritance sees a different body.
+    The original provider artifact and authored outcome remain unchanged.
+    """
+    result = retention.expand(state, stage, value)
+    body = result.get("contract")
+    if isinstance(body, dict):
+        prepared = current_behavior.prepare_body(state, body, stage)
+        if prepared is not body:
+            result = {**result, "contract": prepared}
     return result

@@ -420,7 +420,7 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
             )
             state.update({"next_stage": "sol" if kind == "validate" else "terra", "phase": "EXECUTING"})
         return
-    value = planning_unit.retention.expand(state, stage, value)
+    value = planning_unit.metadata.expand_report(state, stage, value)
     planning_unit.resolve_sentence_citations(state, value.get("contract"))
     # Older saved reports predate explicit, user-backed conflict resolutions.
     # An absent list supplies no authority to resolve any conflict.
@@ -873,7 +873,6 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
     report_repair_queue.require_executed_passes(
         value, passing_claim=value["verdict"] == "PASS" or human_pending or progressive_pass
     )
-    check_refs.require_passing_evidence(value)
     if modern and stage == "sol" and any(c["human_review"] for c in criteria):
         # Only a contract with human criteria has a review receipt to look up; the gate itself returns
         # when there are none, and missing_human_reviews reads a sealed contract.
