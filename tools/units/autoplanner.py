@@ -1294,6 +1294,9 @@ def context(state: RunState, stage, state_path):
         "budget": prompts.get("fragments/autoplanner/context.md").format(review_call_limit(state) or "Unlimited"),
         "recovery_context": state.get("recovery_context"),
     }
+    coordinated = stage_context.coordination_context.context(state)
+    if coordinated:
+        packet["coordinated_member"] = coordinated
     interpretations = goals.feedback_interpretation_context(state)
     if interpretations:
         packet["feedback_interpretations"] = interpretations

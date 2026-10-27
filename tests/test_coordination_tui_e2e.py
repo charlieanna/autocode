@@ -293,6 +293,7 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
     def test_scope_assignment_keeps_requirements_confirmation_before_bug_investigation(self):
         self.env["COORDINATION_FIXTURE_EARLY_SCOPE"] = "1"
         self.env["COORDINATION_FIXTURE_CONSUMER_ALIAS"] = "1"
+        self.env["COORDINATION_FIXTURE_MEMBER_CONTEXT"] = "1"
         history = chat.History(self.repos["checkout"], env=self.env)
         for workspace in self.repos.values():
             history.slash("/repos", str(workspace))

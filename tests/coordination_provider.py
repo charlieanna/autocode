@@ -113,6 +113,16 @@ def main():
     if joint:
         SUITE = "python3 -m pytest -q"
     name = "joint" if joint else json.loads((root / "repository.json").read_text())["name"]
+    if (
+        os.environ.get("COORDINATION_FIXTURE_MEMBER_CONTEXT")
+        and root.parent.name == "worktrees"
+        and stage == "requirements_gather"
+    ):
+        member = data.get("coordinated_member") or {}
+        if member.get("member") != name or "SEPARATE isolated integration workspace" not in member.get(
+            "instruction", ""
+        ):
+            raise RuntimeError("First member Requirements prompt omits the core-owned joint-proof responsibility")
     target = {"checkout": "history", "history": "tax"}.get(name)
     source = PRODUCT[name][0] if not joint else "repositories.json"
     test_path = "tests/test_joint.py" if joint else "tests/test_behavior.py"

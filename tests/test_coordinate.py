@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 import autocode_coordinate as coordinate
 import autocode_coordination_access as access
 import autocode_coordination_budget as budget
+import autocode_coordination_context as member_context
 import autocode_coordination_joint as joint
 import autocode_coordination_publish as publication
 import autocode_coordination_repositories as repos
@@ -81,6 +82,25 @@ class CoordinationTests(unittest.TestCase):
         with self.assertRaisesRegex(store.CoordinationError, "local product edits"):
             coordinate.add_member(self.document, "api", entry, "fix it")
         self.assertEqual([], self.document["members"])
+
+    def test_member_orchestration_context_is_bound_before_its_first_model_call(self):
+        for target in ("checkout", "history"):
+            coordinate.add_member(self.document, target, self.repository(target), "Fix the real bug")
+
+        def started(workspace, brief, **options):
+            shown = member_context.context({"workspace": workspace, "run_dir": options["run_dir"]})
+            self.assertIsNotNone(shown, "The first Requirements call must know who owns joint proof")
+            self.assertEqual(["checkout", "history"], shown["members"])
+            self.assertIsNotNone(self.document["pending"], "Membership does not certify a successful launch")
+
+        with (
+            patch.object(coordinate.store, "save"),
+            patch.object(coordinate.repos, "prepare"),
+            patch.object(coordinate, "options", return_value=()),
+            patch.object(coordinate.tasks.TaskRun, "start", side_effect=started),
+        ):
+            for member in self.document["members"]:
+                coordinate.start_member(self.document, member)
 
     def test_descriptive_target_uses_exact_catalog_names_before_a_suffix_fallback(self):
         checkout = self.repository("checkout")

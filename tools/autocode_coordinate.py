@@ -192,7 +192,12 @@ def resolve_request(document, views):
 
 def sync_set(document):
     members = document["members"]
-    if len(members) < 2 or not members[0]["started"]:
+    starting = (
+        (document.get("pending") or {}).get("target")
+        if (document.get("pending") or {}).get("operation") == "start"
+        else None
+    )
+    if len(members) < 2 or not (members[0]["started"] or starting == members[0]["target"]):
         return
     source = members[0]
     record = sets.find(source["run_dir"])
@@ -206,7 +211,7 @@ def sync_set(document):
                 brief=member["brief"],
             )
         saved = next(row for row in sets.members(record) if row["target"] == member["target"])
-        if member["started"] and not saved.get("run_dir"):
+        if (member["started"] or starting == member["target"]) and not saved.get("run_dir"):
             sets.bind(record["id"], member["target"], member["run_dir"])
             record = sets.find(source["run_dir"])
     if record:
@@ -456,6 +461,9 @@ def start_member(document, member, *, command=tasks.AUTOCODE, limits=()):
     repos.prepare(member, member["workspace"])
     document["pending"] = {"operation": "start", "target": member["target"]}
     store.save(document)
+    # Bind the reserved identity before its first Requirements prompt is built.
+    # The pending start remains uncertain until the public task interface returns.
+    sync_set(document)
     tasks.TaskRun.start(
         member["workspace"],
         member["brief"],
