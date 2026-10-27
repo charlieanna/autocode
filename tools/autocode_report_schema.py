@@ -51,6 +51,52 @@ def normalize_absent_authority(value, schema, record):
     return result
 
 
+def _single_spelling_edit(left: str, right: str) -> bool:
+    """One insertion, deletion, substitution or adjacent transposition; no fuzzy threshold."""
+    if len(left) == len(right):
+        changed = [i for i, (a, b) in enumerate(zip(left, right, strict=True)) if a != b]
+        return len(changed) == 1 or (
+            len(changed) == 2
+            and changed[1] == changed[0] + 1
+            and left[changed[0]] == right[changed[1]]
+            and left[changed[1]] == right[changed[0]]
+        )
+    if len(left) > len(right):
+        left, right = right, left
+    return len(right) == len(left) + 1 and any(right[:i] + right[i + 1 :] == left for i in range(len(right)))
+
+
+def normalize_review_severities(value, schema, record):
+    """Correct an unambiguous one-edit spelling error in standalone review severity only.
+
+    This is serialization, never a decision/approval normalizer. The two closed labels are
+    far apart; valid labels, verdicts, evidence, finding IDs and other stages are untouched.
+    Unknown/multi-edit labels still fail schema validation. The loader validates the entire
+    corrected report and preserves the original response in its existing reported artifact.
+    """
+    stage = str(record.get("original_stage") or record.get("stage", "")).removesuffix("_report_repair")
+    labels = ("blocking", "advisory")
+    field = schema.get("properties", {}).get("findings", {}).get("items", {}).get("properties", {}).get("severity", {})
+    if stage != "review_change" or field.get("type") != "string" or field.get("enum") != list(labels):
+        return value
+    if not isinstance(value.get("findings"), list):
+        return value
+    result = copy.deepcopy(value)
+    for row in result["findings"]:
+        supplied = row.get("severity") if isinstance(row, dict) else None
+        if not isinstance(supplied, str) or supplied in labels or not supplied.isascii() or not supplied.isalpha():
+            continue
+        matches = [label for label in labels if _single_spelling_edit(supplied, label)]
+        if len(matches) == 1:
+            row["severity"] = matches[0]
+    return result
+
+
+def normalize_loaded_report(value, schema, record):
+    """Pure schema compatibility for the loader; raw preservation and validation stay with its caller."""
+    return normalize_review_severities(normalize_absent_authority(value, schema, record), schema, record)
+
+
 def review_generation_schema(schema, state: RunState, stage):
     """Constrain runner-owned identity at generation, not by accepting bad reports."""
     result = design_coverage.extend_schema(copy.deepcopy(schema), state, stage)

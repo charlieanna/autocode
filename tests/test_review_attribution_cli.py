@@ -57,7 +57,7 @@ class ReviewAttributionCLI(unittest.TestCase):
                         "findings": [
                             {
                                 "id": "F1",
-                                "severity": "blocking",
+                                "severity": "blockign",
                                 "file": "calc.py",
                                 "lines": [5],
                                 "summary": "Empty parse returns None",
@@ -88,6 +88,9 @@ class ReviewAttributionCLI(unittest.TestCase):
             attempts = view["usage"]["accounting"]["attempts"]
             self.assertTrue(attempts)
             self.assertTrue(all(row.get("stage") == "review_change" for row in attempts), attempts)
+            self.assertEqual(1, len(attempts), "A spelling correction must not launch another review/repair")
+            original_report = json.loads(Path(attempts[0]["output"]).with_suffix(".reported.json").read_text())
+            self.assertEqual("blockign", original_report["findings"][0]["severity"])
             report_path = run.workspace / "review/findings.json"
             raw = report_path.read_bytes()
             report = json.loads(raw)
@@ -120,6 +123,61 @@ class ReviewAttributionCLI(unittest.TestCase):
             self.assertEqual("stale_or_unverified", run.status()["review_result"]["freshness"])
             report_path.unlink()
             self.assertEqual("stale_or_unverified", run.status()["review_result"]["freshness"])
+
+    def test_advisory_typo_completes_once_without_losing_the_finding_or_raw_response(self):
+        with tempfile.TemporaryDirectory(prefix="review-severity-cli-") as tmp:
+            root = Path(tmp).resolve()
+            scenario = catalog.load("review-clean-pr")
+            project = materialize(scenario.seed, root / "project")
+            solution = root / "solution"
+            (solution / "review").mkdir(parents=True)
+            (solution / "review/findings.json").write_text(
+                json.dumps(
+                    {
+                        "verdict": "approve",
+                        "findings": [
+                            {
+                                "id": "F2",
+                                "severity": "advisary",
+                                "file": "README.md",
+                                "lines": [],
+                                "summary": "Retained nonblocking observation",
+                                "evidence": "Original observation text",
+                            }
+                        ],
+                    }
+                )
+            )
+            flags, fake_env = fake_setup(scenario, root, solution)
+            run = TaskRun.start(
+                project,
+                "Review this change without changing application source",
+                options=saved_run_flags(flags),
+                start_options=("--workflow", "review", "--spec-first"),
+                env={**os.environ, **fake_env, "AUTOCODE_HOME": str(root / "registry")},
+                cwd=root,
+                timeout=180,
+            )
+            view = run.advance_until_input()
+            self.assertTrue(view["done"], view)
+            self.assertEqual(
+                ("approve", "current"), (view["review_result"]["outcome"], view["review_result"]["freshness"])
+            )
+            attempts = view["usage"]["accounting"]["attempts"]
+            self.assertEqual(["review_change"], [row["stage"] for row in attempts])
+            report = json.loads((run.workspace / "review/findings.json").read_text())
+            self.assertEqual({"blocking": 0, "advisory": 1, "pre_existing": 0, "inconclusive": 0}, report["counts"])
+            finding = report["findings"][0]
+            self.assertEqual(
+                ("F2", "advisory", "Original observation text"),
+                (finding["id"], finding["severity"], finding["evidence"]),
+            )
+            raw = json.loads(Path(attempts[0]["output"]).with_suffix(".reported.json").read_text())
+            self.assertEqual("advisary", raw["findings"][0]["severity"])
+            self.assertEqual(
+                view["evidence"]["workflow_result"],
+                run.evidence_report(require_current=False)["document"]["workflow_result"],
+            )
 
     def test_new_feature_failure_on_both_sides_remains_a_blocker_on_changed_lines(self):
         with tempfile.TemporaryDirectory(prefix="review-new-feature-cli-") as tmp:

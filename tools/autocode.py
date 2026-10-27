@@ -360,7 +360,7 @@ def load_stage_report(record, workspace=None, evidence_record=None, state: RunSt
     check_refs.tidy_tester_citations(record, validation, workspace, (state or {}).get("settings"))
     value = report_identity.adopt(value, record, state)  # a mistyped echo on a bound launch is no repair (#2135)
     schema = support.review_validation_schema(read_json(Path(record["schema"])), state, record, value)
-    value = support.normalize_absent_authority(value, schema, record)
+    value = support.normalize_loaded_report(value, schema, record)
     # finding_dispositions may be present in reports validated against schemas
     # saved before the field was introduced. Strip it before validation rather
     # than rejecting a correct report.
@@ -601,7 +601,7 @@ def run_role(
         enforce_tool_boundary=not dry_run,
         source_paths=source_scope.paths(state),
         settings=state["settings"],  # the launcher applies the saved #413 opt-out
-        planning_report_recovery=planning_recovery_policy.active(state, original_stage),
+        planning_report_recovery=report_only or planning_recovery_policy.active(state, original_stage),
         replay_context={
             "stage": stage,
             "iteration": iteration,
