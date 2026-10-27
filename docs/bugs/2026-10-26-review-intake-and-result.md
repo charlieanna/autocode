@@ -66,3 +66,49 @@ The wider suite also exposed a terminal-test race: it sampled as soon as an old
 entry label appeared, before curses finished drawing the new list footer. The
 check now waits for both intended list content and its footer, retaining every
 open-tab/key/help/quit assertion and adding no fixed sleep.
+
+
+## Remaining report-only overhead (#2113 follow-up)
+
+The next native run, bundle manifest
+`3228d6abe7df96c3094ddc74f81a719ba807d5ad3b84c36ebb8cbb922c7c42d6`,
+completed in 265.255 seconds including a 24.696-second access probe. Its original
+review took 164.434 seconds and produced `advisary` instead of `advisory` in
+`findings[1].severity`. The runner then spent another 26.696 seconds preparing a
+fresh report repair and 32.468 seconds executing it. Launch metadata confirms
+that this report-only repair unnecessarily configured a kernel verification
+shell, including native conformance probes, despite needing no tools.
+
+The loader now corrects a unique single insertion, deletion, substitution or
+adjacent transposition in the two standalone-review severity labels. This is
+restricted to that stage and its exact closed schema vocabulary. It never
+normalizes decisions, approvals, finding IDs, evidence, supplied exits or other
+stage fields. Unknown or multi-edit severities and all other schema defects
+still reject. Full validation precedes persistence, and the existing
+`.reported.json` artifact retains the original response. A misspelled blocking
+label remains blocking and still needs the unchanged independent finding proof.
+
+Ordinary Kilo report-only repairs now select the existing tool-free report-recovery
+policy. Original review stages retain their tools; model, effort, accounting,
+attempt limits, fresh-session isolation and original-evidence binding are
+unchanged. A standalone review also uses its real, accounted review request to
+establish model access instead of a separate paid ping immediately beforehand.
+Local transport, billing, model and effort admission remain. Build workflows
+retain their access probes; a review grants them no successful probe receipt.
+
+The retained native message timestamps explain the earlier timing gap more
+precisely: the 13 review messages contain 73.868 seconds between message creation
+and the first step part, plus 6.560 seconds after the reported step intervals.
+The corresponding direct Kilo run contains 35.751 seconds before its first step
+parts across 12 messages. These intervals occur inside Kilo's message loop and
+include native preparation/response waiting; they are **not measured HTTP or
+inference time**. AutoCode's controller does not dispatch or sleep between these
+native messages. The stage-start-to-first-message interval was 11.758 seconds.
+Provider queueing, prefill and snapshot costs cannot be separated from this
+retained trace, so none is asserted to explain the whole remaining difference.
+
+Deterministic regressions cover the live typo, other single-edit spellings,
+unknown and malformed negative controls, raw preservation, atomic refusal,
+unchanged blocking proof, one-call public CLI completion, and tool-free repair
+selection. A matched native TUI/Kilo run checks actual elapsed improvement;
+one sample does not establish a provider latency guarantee.
