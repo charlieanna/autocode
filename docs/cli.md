@@ -125,6 +125,7 @@ brief before continuing.
 | `--explain` | Read-only explanation of a saved run's stop and what the next command does. With an explicit task in a Git workspace, previews the initial explanation without creating a run. An explicit `--run-dir` cannot accompany a new task or new-run inputs. |
 | `--dry-run` | Read-only preview; never emits an accepted handoff. |
 | `--inspect-evidence` | With `--status`, inspect the current source and saved verification evidence without running checks. |
+| `--summary` | With `--status` (or `autocode status`), print the run in one sentence instead of the JSON payload: `Needs you`, `Working`, `Done` or `Stopped`, then `Next:` and the exact command the status view names, when there is one. `Done` means completion is verified against the current checkout; a finished run without that, or a checkpoint that says running while nothing supervises it, reads `Stopped`. The same object is `view.summary` in the JSON payload; `--status` without `--summary` keeps every detail. |
 
 ### Understanding a stop
 

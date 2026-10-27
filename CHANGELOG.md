@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode status --summary` prints a run in one sentence: needs you, working, done or stopped, then the
+  exact command the status view names (#2049). The same object is `view.summary` in the `--status` JSON.
+  Only a completion verified against the current checkout reads done; a finished run whose evidence no
+  longer covers the checkout, or a running checkpoint nothing supervises, reads stopped, never done or
+  working. `--status` without `--summary` is unchanged.
 - A bug-fix plan's regression criteria carry a `current_behavior` box: what happens today, copied from the
   Investigator's diagnosis bound to the run, whose probe the runner saw show the bug (#2133). The runner
   fills an empty box, and the approval
