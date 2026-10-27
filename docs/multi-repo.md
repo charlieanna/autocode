@@ -267,8 +267,11 @@ discover an arbitrary service dependency.
 | Code/check changes, waiver replacement and concurrent check edits | `tests/test_changeset_delivery.py` and delivery CLI tests: old evidence cannot accept a different command or version |
 
 These are focused regressions, not one live, end-to-end multi-service production
-trial. No such live trial is claimed. The current implementation also has these
-limits:
+trial. Bounded live Kilo MiMo/GLM TUI attempts on 2026-10-27 discovered all three
+fixture repositories but stopped on planning/report validation before builds,
+joint testing or real PR publication. See the [retained qualification evidence](bugs/2181-live-tui-coordination.md#final-bounded-result-2026-10-27)
+and [remaining convergence issue #2208](https://github.com/charlieanna/autocode/issues/2208).
+Live end-to-end delivery is not yet verified. The current implementation also has these limits:
 
 - Discovery depends on the model reporting grounded external work; it does not
   crawl every repository or automatically clone a missing one.
