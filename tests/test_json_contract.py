@@ -182,6 +182,41 @@ class JsonContractTests(unittest.TestCase):
 
 
 class SchemaCoverageTests(unittest.TestCase):
+    def test_execution_identity_schema_covers_known_unknown_and_invalid_types(self):
+        import autocode_route_evidence as evidence
+        import autocode_run_view as run_view
+
+        schema = SCHEMA["properties"]["view"]["properties"]["usage"]
+        facts = evidence.launch_identity(
+            role="terra",
+            engine="codex",
+            provider="codex",
+            model="gpt-6-sol",
+            effort="medium",
+            runtime_commit="a" * 40,
+            settings={},
+        )
+        stage = {
+            "stage": "terra",
+            "role": "terra",
+            "engine": "codex",
+            "model": "gpt-6-sol",
+            "execution_identity": facts,
+        }
+        shown = run_view.view({"status": "RUNNING", "stages": [stage]})["usage"]
+        self.assertEqual(facts, shown["accounting"]["attempts"][0]["execution_identity"])
+        util.validate_schema(shown, schema)
+        shown["accounting"]["attempts"][0]["execution_identity"] = {}
+        util.validate_schema(shown, schema)
+        for invalid in (None, [], "unknown"):
+            with self.subTest(invalid=invalid):
+                shown["accounting"]["attempts"][0]["execution_identity"] = invalid
+                with self.assertRaises(ValueError):
+                    util.validate_schema(shown, schema)
+        del shown["accounting"]["attempts"][0]["execution_identity"]
+        with self.assertRaisesRegex(ValueError, "missing execution_identity"):
+            util.validate_schema(shown, schema)
+
     def test_coordination_and_inherited_routes_match_the_public_schema(self):
         import autocode_coordination_store as coordination
         import autocode_run_view as run_view
