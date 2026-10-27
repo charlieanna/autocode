@@ -159,6 +159,18 @@ class RecentRejectionTests(unittest.TestCase):
         self.assertIsNotNone(failures.recent_rejection(self.state, "glm_revise"))
         self.assertEqual(before, self.state)
 
+    def test_replanned_contract_does_not_inherit_an_obsolete_rejection(self):
+        self.reject("Old r2 concerns need eight decisions", "t1")
+        self.state["goal_contract"] = {"revision": 5, "hash": "r5", "body": {}}
+        before = copy.deepcopy(self.state)
+        self.assertIsNone(failures.recent_rejection(self.state, "glm_revise"))
+        self.assertEqual(before, self.state, "Stale context must not clear the failure ledger")
+
+    def test_legacy_rejection_without_a_planning_binding_is_history_only(self):
+        entry = self.reject("Old unbound error", "t1")
+        entry.pop("planning_context")
+        self.assertIsNone(failures.recent_rejection(self.state, "glm_revise"))
+
 
 class PauseTests(unittest.TestCase):
     """The runner's rejection path picks the pause the ledger supports."""

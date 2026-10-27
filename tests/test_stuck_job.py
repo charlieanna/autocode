@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import autocode_builder_failure as builder_failure
 import autocode_jobs as jobs
+import autocode_planning_advice as recovery_binding
 import autocode_stuck_job as stuck
 import autocode_util as util
 import autopilot
@@ -487,8 +488,30 @@ class ApplyTests(unittest.TestCase):
 
 
 class GuidanceTests(unittest.TestCase):
+    def test_replanning_does_not_replay_obsolete_report_instructions_or_diagnoses(self):
+        for change in (
+            {"goal_contract": {"revision": 5, "hash": "new-contract"}},
+            {"answers": {"rewording-1": {"text": "Keep the approved wording"}}},
+            {"brief_feedback": [{"id": "new", "text": "Require real joint proof"}]},
+            {"planning": {"reports": {"astra_challenge": {"report": {"concerns": [{"id": "PR-01"}]}}}}},
+            {"task": "A different bug"},
+        ):
+            with self.subTest(change=change):
+                state = self.in_force("astra_finalize")
+                state.update(change)
+                before = copy.deepcopy(state)
+                self.assertEqual(self.request(), stuck.with_guidance(state, "astra_finalize", self.request()))
+                self.assertEqual(
+                    "current rejection", stuck.annotate(state, "PAUSED_REPEATED_FAILURE", "current rejection")
+                )
+                stuck.retire(state)
+                self.assertEqual(self.request(), stuck.with_guidance(state, "astra_finalize", self.request()))
+                self.assertEqual(before["stuck_investigations"], state["stuck_investigations"])
+                self.assertFalse(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "new rejection"))
+
     def history(self, **overrides):
         return {
+            **recovery_binding.binding({}, "astra_discovery"),
             "identity": "astra_discovery:PAUSED_INVALID_OUTPUT",
             "stage": "astra_discovery",
             "requested_at": "2026-09-30T08:00:00+00:00",
@@ -501,8 +524,9 @@ class GuidanceTests(unittest.TestCase):
             **overrides,
         }
 
-    def test_report_corrections_reach_a_fresh_planning_request_after_clarification(self):
+    def test_report_corrections_reach_a_fresh_request_with_the_same_planning_inputs(self):
         state = {"stuck_investigations": [self.history()], "answers": {"Q1": {"text": "Use the existing API"}}}
+        state["stuck_investigations"][0].update(recovery_binding.binding(state, "astra_discovery"))
         before = copy.deepcopy(state)
         for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
             with self.subTest(stage=stage):
@@ -519,6 +543,7 @@ class GuidanceTests(unittest.TestCase):
             self.history(cause="environment"),
             self.history(stage="terra"),
             self.history(guidance=""),
+            self.history(planning_context=None),
         ):
             with self.subTest(row=row):
                 self.assertEqual(

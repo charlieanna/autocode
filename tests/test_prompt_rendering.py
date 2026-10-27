@@ -24,6 +24,7 @@ import autocode_design_check_job as design_check
 import autocode_design_intake as design_intake
 import autocode_design_job as design
 import autocode_discuss_job as discuss
+import autocode_failures as failures
 import autocode_figma as figma
 import autocode_format_correction as correction
 import autocode_goals as goals
@@ -407,16 +408,15 @@ class RenderedPromptTests(unittest.TestCase):
     def test_a_resumed_revision_is_told_the_rejection_it_resumes_from(self):
         state = fixed_state()
         error = "Changing a protected contract item 'AC9' needs a saved user answer or feedback event"
-        state["failure_history"] = {
-            "k": {
-                "identity": {"stage": "glm_revise", "artifact_hash": "fixed-revision", "error_class": "ValueError"},
-                "count": 2,
-                "attempts": ["1:glm_revise:/run/revise.json"],
-                "last_seen": "2026-10-21T00:00:00Z",
-                "last_error": error,
-                "stage_index": 0,
+        for attempt in (1, 2):
+            record = {
+                "stage": "glm_revise",
+                "source_revision": "fixed-revision",
+                "iteration": 1,
+                "output": f"/run/revise-{attempt}.json",
             }
-        }
+            failures.record(state, record, ValueError(error), f"2026-10-21T00:00:0{attempt}Z")
+            state["stages"].append(record)
         with (
             patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}),
             patch.object(planner.artifacts, "verify_predecessor", return_value=None),
