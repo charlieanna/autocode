@@ -1188,6 +1188,18 @@ class StreamAndNoticeTests(unittest.TestCase):
         client.show({"chat": {"messages": [{"id": "later-reply", "role": "assistant", "text": text}]}})
         self.assertEqual(2, client.text().count(f"AutoCode: {text}"))
 
+    def test_a_local_prompt_echo_survives_its_counterpart_still_being_written(self):
+        view = ConversationTests.REVIEW
+        client = ScriptedChat(view)
+        self.addCleanup(client.close)
+        with self.assertRaises(chat.Left):
+            client.requirements(view, actions.named(view, WORKSPACE, RUN))
+        text = view["chat"]["review"]["summary"]
+        live = {"id": "requirements-live", "role": "assistant", "text": text, "streaming": True}
+        client.show({"chat": {"messages": [live]}})
+        client.show({"chat": {"messages": [{"id": "recorded-question", "role": "assistant", "text": text}]}})
+        self.assertEqual(1, client.text().count(f"AutoCode: {text}"), "the question is printed once")
+
     def test_a_local_user_echo_does_not_hide_an_assistant_message_with_the_same_text(self):
         client = ScriptedChat({})
         self.addCleanup(client.close)
