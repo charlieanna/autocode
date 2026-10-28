@@ -251,8 +251,6 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
     kill_after = request.get("kill_after_seconds", 2)
     if isinstance(kill_after, bool) or not isinstance(kill_after, (int, float)) or not 0 < kill_after < math.inf:
         return 2
-    if not processes.live_processes([provider]):
-        return 2
     if not processes.matches(metadata["keeper"], processes.process_table({os.getpid()}).get(os.getpid())):
         return 2
     # Both providers and guarded CLIs lead dedicated sessions before exec.
@@ -293,6 +291,16 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
             channel.close()
         callback = socket.socket(fileno=request["session_callback"])
         callback.setblocking(False)
+    # The liveness refusal comes after the session handshake on purpose: a
+    # bootstrap that died before delivering its listener (a refused nested
+    # listener dies exactly there) is named by the failed transfer in either
+    # completion order, so the launcher's refusal keeps its cause. This gate
+    # then covers a death after the handshake, and command launches with no
+    # handshake at all; it never exits silently (#815: the launcher attaches
+    # this stderr cause when the keeper dies before acknowledging).
+    if not processes.live_processes([provider]):
+        print("Provider exited before keeper admission", file=sys.stderr, flush=True)
+        return 2
     receipt_write_lock = threading.Lock()
     reason_lock = threading.Lock()
     value = {
