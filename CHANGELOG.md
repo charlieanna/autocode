@@ -427,6 +427,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Planning response schemas name only the current review concerns, avoiding synthetic passed-audit
+  decisions that the core discards. Older reports still load without a repair; real concerns, new
+  blockers, full contract review and exact user approval remain enforced (#2440).
+
 - `autocode registry add` and `registry import` now say `no such directory` for a path that does not exist,
   naming the path you typed, and `registry add` on a repository without commits says the repository has
   no commit yet and to make a first commit (#2431). Before, the first showed a Python errno naming the

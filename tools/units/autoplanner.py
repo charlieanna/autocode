@@ -1160,9 +1160,11 @@ def repair_rules(stage, schema):
             "Use clarification_context.retained_contract as the current reference and "
             "clarification_context.retained_criteria for retained criterion identities.\n"
             + retention.final_rule(schema)
+            + report_policy.concern_rule(schema)
         )
     return (
         REVISION_CONFLICT_RULE
+        + report_policy.concern_rule(schema)
         + (retention.revision_reference.RULE if retention.revision_reference.offered(schema) else "")
         + (retention.delta_rule(schema) if retention.allows_delta(schema) else "")
         + prompts.get("fragments/autoplanner/repair-citations.md")
@@ -1569,7 +1571,9 @@ def _model_report_schema(schema, state: RunState):
             result.get("properties", {}).pop(field, None)
             if field in result.get("required", []):
                 result["required"].remove(field)
-    return result
+    review_stage = "plan_review" if role_names.planning_flow(state) == "v2" else "astra_challenge"
+    review = (((state.get("planning") or {}).get("reports") or {}).get(review_stage) or {}).get("report")
+    return report_policy.concern_schema(result, review)
 
 
 def prepare(state: RunState, stage, state_path, schema_dir):
