@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import sys
 import time
@@ -109,8 +110,22 @@ def row(workspace: Path, run_dir: Path, now: float, changesets: dict[str, str] |
         updated_at = None
     availability, payload = registry.read_checkpoint(state_path, workspace)
     if availability != "available":
+        reason = payload.get("message") or availability
+        if not os.path.lexists(run_dir):
+            # A registered run whose directory is gone: only its pointer is left, and the registry
+            # drops it on request. Without the command here the row sat there for good (#2321).
+            forget = [
+                "autocode",
+                "registry",
+                "forget-deleted",
+                "--workspace",
+                str(workspace),
+                "--run-dir",
+                str(run_dir),
+            ]
+            reason = f"run directory no longer exists; drop its entry with: {shlex.join(forget)}"
         return {
-            **unreadable(run_dir, workspace, payload.get("message") or availability),
+            **unreadable(run_dir, workspace, reason),
             "availability": availability,
             "updated_at": updated_at,
         }
