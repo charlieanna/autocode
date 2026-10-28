@@ -2460,7 +2460,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/7f8bd6e95686fd292404f4575755152c7bb5693c/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/7d81be4860fd6f066bd1e9139b8e8f5dac123b98/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2600,11 +2600,11 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 <td>List, then with <code>--yes</code> remove, task worktrees whose runs are complete and whose branch holds their work; records are archived and branches kept (see <a href="../task-lanes/#when-a-task-finishes">Task lanes</a>).</td>
 </tr>
 <tr>
-<td><code>autocode prune-run RUN [--yes] [--json]</code></td>
+<td><code>autocode prune-run RUN [--yes] [--json]</code> (or <code>--run-dir RUN</code>)</td>
 <td>List, then with <code>--yes</code> delete a run's settled evidence bytes: finished verification-copy trees (<code>tool-containment-*/scratch</code>) and settled job-source stores (<code>&lt;attempt&gt;.source/</code>). Manifests, receipts and hashes are retained, so what was there stays provable; <code>state.json</code> is never modified. Anything still named at file level by state, owned by a live stage or a pending failure recovery, or the newest of its kind is kept with the reason shown.</td>
 </tr>
 <tr>
-<td><code>autocode bundle RUN [--out FILE] [--with-diff] [--json]</code></td>
+<td><code>autocode bundle RUN [--out FILE] [--with-diff] [--json]</code> (or <code>--run-dir RUN</code>)</td>
 <td>Write one redacted archive of a run for a bug report (default <code>WORKSPACE/.autocode/bundles/RUN.tar.gz</code>; a run <code>clean-worktrees</code> archived to <code>PROJECT/.autocode/archive/TREE/runs/RUN</code> takes the project as its workspace, and <code>--with-diff</code> then diffs its base commit against the kept branch): the replay recording <code>replay RUN --export</code> writes, so a maintainer can <a href="../replay/">replay</a> it; <code>state.json</code>, <code>activity.jsonl</code>, the stage reports, the check-replay receipts and the last 200 lines of each provider event stream; the resolved settings, <code>doctor --json</code> output and the version. Every file it writes passes the credential redaction exports use, plus the values of secret-named environment variables; a recording that redaction would still change is left out, and the manifest says why. No workspace source unless <code>--with-diff</code> adds the run's diff (against its base commit, else the uncommitted work). <code>manifest.json</code> lists each file's sha256; cite the printed manifest hash in a bug report or a <code>docs/bugs/</code> note instead of pasting logs. The run directory is only read.</td>
 </tr>
 <tr>
@@ -2676,7 +2676,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/7f8bd6e95686fd292404f4575755152c7bb5693c/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/7d81be4860fd6f066bd1e9139b8e8f5dac123b98/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3282,7 +3282,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/7f8bd6e95686fd292404f4575755152c7bb5693c/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/7d81be4860fd6f066bd1e9139b8e8f5dac123b98/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3745,13 +3745,13 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 </tr>
 <tr>
 <td><code>autocode bundle</code></td>
-<td><code>--out</code>, <code>--with-diff</code>, <code>--json</code></td>
-<td>Where to write the archive; add the run's diff of the workspace source; print the archive path and manifest as JSON.</td>
+<td><code>--run-dir</code>, <code>--out</code>, <code>--with-diff</code>, <code>--json</code></td>
+<td>The run, as the other commands name it (instead of the positional <code>RUN</code>); where to write the archive; add the run's diff of the workspace source; print the archive path and manifest as JSON.</td>
 </tr>
 <tr>
 <td><code>autocode prune-run</code></td>
-<td><code>--yes</code>, <code>--json</code></td>
-<td>Delete the listed settled evidence bytes (manifests, receipts and hashes retained); without it the command only lists; optionally format output as JSON.</td>
+<td><code>--run-dir</code>, <code>--yes</code>, <code>--json</code></td>
+<td>The run, as the other commands name it (instead of the positional <code>RUN</code>); delete the listed settled evidence bytes (manifests, receipts and hashes retained); without it the command only lists; optionally format output as JSON.</td>
 </tr>
 <tr>
 <td><code>autocode merge</code></td>
@@ -4185,7 +4185,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/7f8bd6e95686fd292404f4575755152c7bb5693c/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/7d81be4860fd6f066bd1e9139b8e8f5dac123b98/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
