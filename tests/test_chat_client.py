@@ -536,6 +536,23 @@ class ConversationTests(unittest.TestCase):
         )
         self.assertEqual([["--approve-review", "C1", "--review-token", "-"]], client.taken)
 
+    def test_a_review_names_the_files_each_criterions_steps_changed(self):
+        """The chat showed only the criteria; the CLI's review stop names the changed files (#2360, #2383)."""
+        view = self.review_view("C1")
+        view["changes_by_criterion"] = {
+            "meaning": "where to look",
+            "criteria": [{"id": "C1", "milestones": ["M1"], "checkpoints": ["code-1"], "files": ["app/logo.py"]}],
+            "unattributed": [],
+        }
+        client = ScriptedChat(view, DONE, replies=["y"])
+        self.assertEqual(0, client.converse())
+        out = client.text()
+        self.assertIn("[C1] The logo is centred\n      Changed: app/logo.py\n", out)
+        self.assertLess(out.index("Changed: app/logo.py"), out.index("Accept these criteria"))
+        plain = ScriptedChat(self.review_view("C1"), DONE, replies=["y"])
+        plain.converse()
+        self.assertNotIn("Changed:", plain.text())
+
     def test_a_review_whose_criteria_cannot_be_shown_is_not_offered(self):
         client = ScriptedChat(self.review_view("C9"))
         self.assertEqual(2, client.converse())

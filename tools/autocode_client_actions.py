@@ -433,6 +433,23 @@ def plan_for_approval(view: dict) -> dict | None:
     return plan
 
 
+def changed_files(view: dict) -> dict[str, list[str]]:
+    """The files the saved Builder steps of each criterion's milestones changed, by criterion id.
+
+    From the view's ``changes_by_criterion`` (#730): where to look before accepting a criterion,
+    not proof that the change satisfies it; {} when the view carries none.
+    """
+    rows = (view.get("changes_by_criterion") or {}).get("criteria")
+    result: dict[str, list[str]] = {}
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or not isinstance(row.get("id"), str):
+            continue
+        files = [name for name in row.get("files") or [] if isinstance(name, str)]
+        if files:
+            result[row["id"]] = files
+    return result
+
+
 def review_criteria(view: dict) -> list[dict] | None:
     """The criteria a review need asks a person to accept, each with its text, or None.
 
