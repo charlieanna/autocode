@@ -352,6 +352,44 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
     return True
 
 
+def retry_configuration_matches(current, saved):
+    """Compare retry authority, ignoring only a complete content-addressed config's location.
+
+    Package reinstallations relocate bundled TOML files. Their path is diagnostic;
+    bytes, executable, version and all remaining settings still bind the retry.
+    Live transport admission independently checks the currently installed provider.
+    Legacy/incomplete identities keep strict equality.
+    """
+
+    def normalized(value):
+        result = copy.deepcopy(value)
+        if not isinstance(result, dict):
+            return result
+        identities = [result.get("transport_identity")]
+        multiple = result.get("transport_identities")
+        if isinstance(multiple, dict):
+            identities.extend(multiple.values())
+        fields = {"engine", "identity_version", "executable", "version", "config_path", "config_sha256"}
+        for identity in identities:
+            if (
+                isinstance(identity, dict)
+                and set(identity) == fields
+                and type(identity.get("identity_version")) is int
+                and identity["identity_version"] == 1
+                and all(
+                    isinstance(identity.get(key), str) and identity[key]
+                    for key in ("engine", "executable", "config_path")
+                )
+                and (identity["version"] is None or isinstance(identity["version"], str))
+                and isinstance(identity["config_sha256"], str)
+                and re.fullmatch(r"[0-9a-f]{64}", identity["config_sha256"])
+            ):
+                identity.pop("config_path")
+        return result
+
+    return normalized(current) == normalized(saved)
+
+
 def _validate_retry(state: RunState, workspace, token):
     failure = state.get("job_failure") or {}
     if not quota_route.job_pause_current(state):
@@ -370,7 +408,7 @@ def _validate_retry(state: RunState, workspace, token):
         if failure.get("unrestored"):
             raise ValueError("Unrestored source blocks job retry: " + ", ".join(failure["unrestored"]))
         raise ValueError("Source changed since the failed attempt; retry is stale")
-    if configuration(state) != failure["configuration"]:
+    if not retry_configuration_matches(configuration(state), failure["configuration"]):
         raise ValueError("Provider configuration or limits changed; retry is stale")
     return failure
 
@@ -524,7 +562,7 @@ def admit(state: RunState, record, workspace):
         auth.get("consumed")
         or auth.get("token") != failure["job_retry_token"]
         or auth.get("stage") != owner(record)
-        or configuration(state) != failure["configuration"]
+        or not retry_configuration_matches(configuration(state), failure["configuration"])
         or capture.get("before_identity") != failure["source_identity"]
     ):
         raise util.Paused("PAUSED_JOB_FAILURE", "Exact job retry admission changed; no provider launched")

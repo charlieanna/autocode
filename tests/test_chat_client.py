@@ -1485,6 +1485,26 @@ class RefusedStartTests(unittest.TestCase):
         )
 
 
+class AdvancingDiagnosticTests(unittest.TestCase):
+    def test_existing_run_exit_two_displays_refusal_without_retry_or_token_leak(self):
+        client = ScriptedChat({"status": "PAUSED_JOB_FAILURE"})
+        self.addCleanup(client.close)
+        client.viewed.add(str(client.run_dir))
+        client.workspace = ROOT
+        secret = "jr:" + "a" * 64
+        client.command = (
+            sys.executable,
+            "-c",
+            "import sys; print('Input rejected: Provider configuration or limits changed; retry is stale'); "
+            "print(sys.argv[1]); sys.exit(2)",
+            secret,
+        )
+        client.advance(["--resume-paused"], {"AUTOCODE_JOB_RETRY_TOKEN": secret})
+        self.assertIn("Provider configuration or limits changed; retry is stale", client.text())
+        self.assertNotIn(secret, client.text())
+        self.assertEqual([], client.taken)
+
+
 class InterruptTests(unittest.TestCase):
     """Ctrl-C while a stage works, against a real child that stands in for AutoCode."""
 
