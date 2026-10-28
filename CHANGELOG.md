@@ -423,6 +423,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Small Requirements and planning-revision report repairs can return edits bound to the exact rejected
+  report instead of generating the entire JSON again (#2421). AutoCode reconstructs the report locally
+  and applies the existing schema, provenance, protected-requirement and approval checks. Full reports
+  and old saved attempts remain supported.
 - Reuse an accepted report repair’s own launch-bound model-access evidence instead of paying for a redundant probe; rejected or failed requests and unseen routes still require checks (#2418).
 
 - `autocode chat --engine codex "brief"` is refused with the form that works: the run's own options go after `--` (`autocode chat "BRIEF" -- --engine codex`), which the usage error and `chat --help` now say instead of a bare "unrecognized arguments" (#2416).

@@ -60,7 +60,7 @@ try:
     from . import autocode_investigation_progress as investigation_progress
     from . import autocode_launch_inputs as launch_inputs, autocode_parent_boundary as parent_boundary  # noqa: F401 - compatibility API
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_check_refs as check_refs, autocode_planning_metadata as planning_metadata, autocode_preflight_attempts as preflight_attempts, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
-    from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_json_output as json_output, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_receipt_repair_context as receipt_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
+    from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_json_output as json_output, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_report_edits as report_edits, autocode_receipt_repair_context as receipt_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
     from . import autocode_run_status as run_status, autocode_report_repair_queue as report_repair_queue, autocode_rewording_question as rewording, autocode_light_builder as light_builder, autocode_route_fit as route_fit, autocode_report_identity as report_identity
     from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
@@ -78,12 +78,13 @@ except ImportError:
     import autocode_status
     import autocode_artifacts as artifacts
     import autocode_report_repair_context as report_repair_context
+    import autocode_report_edits as report_edits
     import autocode_receipt_repair_context as receipt_repair_context
     import autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
     import autocode_regression as regression
     import autocode_format_correction as format_correction
-    import autocode_cmd_only_report as cmd_only
-    import autocode_check_refs as check_refs
+    import autocode_cmd_only_report as cmd_only  # noqa: F401 - report loader compatibility API
+    import autocode_check_refs as check_refs  # noqa: F401 - report loader compatibility API
     import autocode_support as support
     import autocode_completion as completion_gate
     import autocode_jobs as jobs
@@ -109,7 +110,7 @@ except ImportError:
     import autocode_rewording_question as rewording
     import autocode_light_builder as light_builder
     import autocode_route_fit as route_fit
-    import autocode_report_identity as report_identity
+    import autocode_report_identity as report_identity  # noqa: F401 - report loader compatibility API
     import autocode_status as status_records
     import autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
     import autocode_supervision as supervision
@@ -124,7 +125,7 @@ except ImportError:
     import autocode_rework_policy as rework_policy  # noqa: F401 - compatibility API
     import autocode_escalation as escalation
     import autocode_failures as failures
-    import autocode_planning_metadata as planning_metadata
+    import autocode_planning_metadata as planning_metadata  # noqa: F401 - report loader compatibility API
     import autocode_pause_command as pause_command
     import autocode_resolver_recovery as resolver_recovery
     import autocode_visual_runtime as visual_runtime
@@ -163,7 +164,8 @@ try:
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)  # noqa: F401 - compatibility API
-    from .autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, completed_provider_report, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
+    from .autocode_report_source import (
+        load_stage_report as read_stage_report, REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, completed_provider_report, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)  # noqa: F401 - compatibility API
     from .autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions  # noqa: F401 - compatibility API
     from .autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,  # noqa: F401 - compatibility API
@@ -212,7 +214,8 @@ except ImportError:
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)  # noqa: F401 - compatibility API
-    from autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, completed_provider_report, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
+    from autocode_report_source import (
+        load_stage_report as read_stage_report, REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, completed_provider_report, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)  # noqa: F401 - compatibility API
     from autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions  # noqa: F401 - compatibility API
     from autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,  # noqa: F401 - compatibility API
@@ -325,66 +328,7 @@ slug = util.slug
 
 
 def load_stage_report(record, workspace=None, evidence_record=None, state: RunState | None = None):
-    """Validate provider output, retaining raw bytes before hydrating review IDs."""
-    readonly_events.assert_unchanged_review(record, workspace=workspace)
-    if evidence_record:
-        readonly_events.assert_unchanged_review(evidence_record, workspace=workspace)
-    rework_policy.verify_existing(record)
-    value = completed_provider_report(
-        record,
-        opencode_report=role_transport.report_reader(state, record, opencode, workspace),
-        read_object=util.read_object,
-        persist=write_json,
-    )
-    reported = copy.deepcopy(cmd_only.refuse(value, record.get("schema")))  # never a report, never run (#512)
-    value = (
-        planning.fill_trace_id(state, str(record.get("stage", "")).removesuffix("_report_repair"), value)
-        if state
-        else value
-    )
-    value = default_missing_provenance(
-        normalize_plan_challenge_blocking(planning_metadata.normalize_planning_metadata(value, state, record), record),
-        record,
-    )
-    evidence_record = evidence_record or record
-    validation = value.get("validation", value)
-    checks = validation.get("checks") if isinstance(validation, dict) else None
-    if isinstance(checks, list) and (
-        (record.get("stage") == "sol" and workspace is not None)
-        or any(isinstance(check, dict) and None in (check.get("exit_code"), check.get("command")) for check in checks)
-    ):
-        if workspace is None:
-            raise ValueError("Cannot derive check metadata without the validation workspace")
-        support.verify_checks(checks, workspace, evidence_record["events"], **check_evidence_options(evidence_record))
-    # A Tester's extra citation beside a verified check costs a repair; the raw report stays as .reported.json.
-    check_refs.tidy_tester_citations(record, validation, workspace, (state or {}).get("settings"))
-    value = report_identity.adopt(value, record, state)  # a mistyped echo on a bound launch is no repair (#2135)
-    schema = support.review_validation_schema(read_json(Path(record["schema"])), state, record, value)
-    value = support.normalize_loaded_report(value, schema, record)
-    # finding_dispositions may be present in reports validated against schemas
-    # saved before the field was introduced. Strip it before validation rather
-    # than rejecting a correct report.
-    if "finding_dispositions" not in schema.get("properties", {}) and "finding_dispositions" in value:
-        stripped = {k: v for k, v in value.items() if k != "finding_dispositions"}
-        support.validate_schema(stripped, schema)
-    else:
-        support.validate_schema(value, schema)
-    value = support.hydrate_review_report(value, state, record)
-    if value != reported:
-        original = Path(record["output"]).with_suffix(".reported.json")
-        if original.exists():
-            if read_json(original) != reported:
-                raise ValueError("Preserved raw report differs; reconcile before normalization")
-        else:
-            write_json(original, reported)
-        record["reported_output"] = str(original)
-        reported_checks = reported.get("validation", reported).get("checks") or []
-        record["derived_check_metadata"] = support.derived_check_fields(
-            checks or [], reported_checks, evidence_record.get("events")
-        )
-    if (record.get("engine") == "opencode" and record.get("output_mode") != "report_file") or value != reported:
-        write_json(Path(record["output"]), value)
-    return rework_policy.capture(record, value) if workspace is not None else value
+    return read_stage_report(sys.modules[__name__], record, workspace, evidence_record, state)
 
 
 ReportRepairQueued = report_repair_queue.ReportRepairQueued  # a finished request needs report-only repair
@@ -1365,7 +1309,7 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
             workspace=workspace,
             run_dir=run_dir,
             state=state,
-            schema=Path(original["schema"]),
+            schema=report_edits.prepare(Path(original["schema"]), rejected_source, original["stage"]),
             model=state["settings"]["roles"][route_role]["model"],
             allow_write=False,
             dry_run=False,

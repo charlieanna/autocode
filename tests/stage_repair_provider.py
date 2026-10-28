@@ -196,6 +196,23 @@ def main():
         print(json.dumps({"type": "thread.started", "thread_id": session}))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
         return 0
+    if repair and stage == "glm_revise" and os.environ["STAGE_REPAIR_CASE"].startswith("bounded-report-edits"):
+        case = os.environ["STAGE_REPAIR_CASE"]
+        operations = [{"op": "remove", "path": ["acceptance_test"], "value": None}]
+        if case.endswith("protected"):
+            operations.append(
+                {"op": "replace", "path": ["contract", "required_behaviors"], "value": ["Weaken the requested outcome"]}
+            )
+        token = "0" * 64 if case.endswith("stale") else data["rejected_report"]["sha256"]
+        value = {"repair_report": {"sha256": token, "edits": operations}}
+        output = Path(sys.argv[sys.argv.index("-o") + 1])
+        output.write_text(json.dumps(value))
+        append_trace(
+            {"stage": stage, "repair": True, "error": data.get("error", ""), "patch": value, "output": str(output)}
+        )
+        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
+        print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
+        return 0
     # The runner already launched this provider process. Reuse it for the fake,
     # rather than adding another interpreter and supervised descendant per turn.
     stdout, stderr = io.StringIO(), io.StringIO()
@@ -539,6 +556,8 @@ def main():
             probe=value["probe"],
             has_scratch_map=bool((data.get("investigation_context") or {}).get("evidence_files")),
         )
+    if stage == "glm_revise" and case.startswith("bounded-report-edits") and not repair:
+        value["acceptance_test"] = "Already covered by the retained criteria"
     text = json.dumps(value)
     if stage == "glm_revise" and case == "json-syntax-diagnostic":
         text = json.dumps(value, separators=(",", ":"))

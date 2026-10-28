@@ -22,6 +22,7 @@ try:
     from . import autocode_goals as goals
     from . import autocode_plan_retention as retention
     from . import autocode_regression_reference as regression_reference
+    from . import autocode_report_edits as report_edits
     from . import autocode_roles as roles
 except ImportError:
     import autocode_contract_revision as contract_revision
@@ -29,6 +30,7 @@ except ImportError:
     import autocode_goals as goals
     import autocode_plan_retention as retention
     import autocode_regression_reference as regression_reference
+    import autocode_report_edits as report_edits
     import autocode_roles as roles
 
 PLANNING_STAGES = frozenset(roles.ALL_PLANNING_STAGES)
@@ -288,7 +290,8 @@ def prompt_parts(
         + historical_instruction
         + review_instruction
         + difference_instruction
-        + syntax_instruction,
+        + syntax_instruction
+        + (report_edits.RULE if report_edits.eligible(stage, latest) else ""),
         {
             "header": {
                 **receipt_handoff,
