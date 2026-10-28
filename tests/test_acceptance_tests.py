@@ -401,6 +401,46 @@ class BlindTestsCandidateExecutionTests(unittest.TestCase):
 class RunnerCollectionTests(unittest.TestCase):
     """#1567: a test the run wrote in a form the runner's command does not collect must be fixable."""
 
+    def test_execution_failures_require_execution_while_existing_result_metadata_is_repairable(self):
+        import autocode_acceptance_tests_job as job
+        from autocode_report_repair_queue import ExecutionEvidenceRequired
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root)
+            test = workspace / "test_example.py"
+            test.write_text("def test_example():\n    assert False\n")
+            report = {
+                "tests": [{"case_id": "T1", "test_name": "test_example", "file": test.name}],
+                "cannot_write": [],
+                "already_passing": [],
+            }
+            variants = [
+                ("test:", {"error": "test command did not execute"}),
+                ("test:", {"results": None}),
+                ("test:", {"results": {"passed": [], "failed": []}}),
+                ("guard:", {"results": {"passed": [], "failed": ["test_example"]}}),
+            ]
+            for mark, result in variants:
+                with self.subTest(mark=mark, result=result):
+                    state = approved({"T1": f"{mark} test_example"})
+                    acceptance.route(state)
+                    job.apply(state, report, {"changed_files": [test.name]}, workspace, run_tests=lambda files: result)
+                    self.assertEqual(job.PAUSE, state["status"])
+                    self.assertEqual(job.STAGE, state["next_stage"])
+                    self.assertIn("report-only repair cannot", state["stop_reason"])
+                    self.assertFalse(acceptance.receipts(state))
+            state = approved({"T1": "test: test_example"})
+            acceptance.route(state)
+            with self.assertRaisesRegex(ValueError, "already passes") as error:
+                job.apply(
+                    state,
+                    report,
+                    {"changed_files": [test.name]},
+                    workspace,
+                    run_tests=lambda files: {"results": {"passed": ["test_example"], "failed": []}},
+                )
+            self.assertNotIsInstance(error.exception, ExecutionEvidenceRequired)
+
     def already_working_bug_fix(self, passing):
         """Apply a bug fix's Tester report (#1868) whose runner sees the ``passing`` tests pass on today's code.
 
@@ -509,9 +549,9 @@ class RunnerCollectionTests(unittest.TestCase):
                     f"\n\ndef {name}():\n    assert median([1, 2, 3, 4]) == 2.5\n"
                     "\ndef load_tests(loader, tests, pattern):\n    return tests\n"
                 )
-            with self.assertRaises(ValueError) as rejected:
-                job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
-            message = str(rejected.exception)
+            job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
+            self.assertEqual(job.PAUSE, state["status"])
+            message = state["stop_reason"]
             self.assertIn(f"no test named {name} ran in tests/test_stats.py", message)
             self.assertIn("-m unittest", message)
             self.assertIn("ran 0 test(s) and did not collect it", message)
@@ -841,10 +881,31 @@ class AcceptanceTestsCliTests(unittest.TestCase):
         loaded = catalog.load("feature-stock-refusals")
         self.scenario = dataclasses.replace(loaded, fake_fault="", fake_criteria=dict(CASES))
 
-    def run_to_end(self, *planning, env=None, plan_messages=None):
+    def run_to_end(self, *planning, env=None, plan_messages=None, uncollected_writer=False):
         self.plan_approvals = []
         project = without_maintenance(materialize(self.scenario.seed, self.root / "project"))
         flags, provider_env = fake_setup(self.scenario, self.root, self.scenario.dir / "reference")
+        if uncollected_writer:
+            provider = self.root / "bin" / "codex"
+            marker = "def report_for(stage: str, data: dict) -> dict:\n"
+            injection = (
+                "original_acceptance_tests = acceptance_tests\n"
+                "def acceptance_tests(data):\n"
+                "    report = original_acceptance_tests(data)\n"
+                "    if os.environ.get('ACCEPTANCE_UNCOLLECTED'):\n"
+                "        row = report['tests'][0]\n"
+                "        path = Path(row['file'])\n"
+                "        path.write_text(path.read_text().replace('def ' + row['test_name'] + '(', 'def absent_' + row['test_name'] + '('))\n"
+                "    return report\n\n"
+            )
+            trace = (
+                '    if stage == "write_acceptance_tests":\n'
+                '        with open(os.environ["ACCEPTANCE_TRACE"], "a") as stream:\n'
+                '            stream.write(json.dumps({"repair": bool(data.get("report_repair"))}) + "\\n")\n'
+            )
+            source = provider.read_text()
+            self.assertIn(marker, source)
+            provider.write_text(source.replace(marker, injection + marker + trace))
         if plan_messages:
             # Script only the declared replies. Runtime intent interpretation is still the provider's job.
             provider = self.root / "bin" / "codex"
@@ -894,6 +955,30 @@ class AcceptanceTestsCliTests(unittest.TestCase):
 
     def details(self, view):
         return {key: view.get(key) for key in ("status", "next_stage", "needs", "stop_reason")}
+
+    def test_uncollected_acceptance_requires_execution_instead_of_report_only_repair(self):
+        trace = self.root / "writer-trace.jsonl"
+        run, project, held = self.run_to_end(
+            "--joint-planning",
+            "--spec-first",
+            env={"ACCEPTANCE_UNCOLLECTED": "1", "ACCEPTANCE_TRACE": str(trace)},
+            uncollected_writer=True,
+        )
+        calls = [json.loads(line) for line in trace.read_text().splitlines()]
+        self.assertEqual([{"repair": False}], calls)
+        self.assertFalse(held["done"], self.details(held))
+        self.assertEqual("write_acceptance_tests", held["next_stage"])
+        self.assertIn("no test named", held["stop_reason"])
+        self.assertEqual("feedback", held["chat"]["input"]["kind"])
+        self.assertFalse(any(name.startswith("builder-") for name in self.stage_order(run)))
+        original_token = held["approved_contract"]["token"]
+        run.env.pop("ACCEPTANCE_UNCOLLECTED")
+        completed = run.resume_paused()
+        self.assertTrue(completed["done"], self.details(completed))
+        self.assertEqual(original_token, completed["approved_contract"]["token"])
+        self.assertEqual(
+            [{"repair": False}, {"repair": False}], [json.loads(line) for line in trace.read_text().splitlines()]
+        )
 
     def test_the_tester_writes_failing_tests_before_the_builder_and_the_run_completes(self):
         # C0 guards behavior the seed already has: its test must pass before the Builder starts.

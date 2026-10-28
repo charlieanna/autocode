@@ -45,7 +45,8 @@ def configure_workspace_storage(workspace: str | Path) -> None:
 
 
 def storage_root() -> Path:
-    return Path(os.environ.get("AUTOCODE_HOME", str(Path.home() / ".autocode"))).expanduser().resolve()
+    selected = os.environ.get("AUTOCODE_HOME")
+    return Path(selected if selected is not None else Path.home() / ".autocode").expanduser().resolve()
 
 
 def registry_path() -> Path:

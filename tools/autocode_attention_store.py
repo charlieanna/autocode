@@ -22,8 +22,10 @@ IDENTITY = re.compile(r"[0-9a-f]{64}\Z")
 
 
 def storage():
-    default = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "autocode" / "attention"
-    return Path(os.environ.get("AUTOCODE_ATTENTION_HOME") or default).expanduser().absolute()
+    selected = os.environ.get("AUTOCODE_ATTENTION_HOME")
+    if not selected:
+        selected = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "autocode" / "attention"
+    return Path(selected).expanduser().absolute()
 
 
 def _checked(path, *, directory=False):

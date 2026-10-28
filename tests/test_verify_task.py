@@ -182,6 +182,7 @@ class VerifyCliTests(unittest.TestCase):
             clean_git_environment(),
             PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
             AUTOCODE_HOME=str(self.root / "registry"),
+            AUTOCODE_ATTENTION_HOME=str(self.root / "attention"),
             CODEX_HOME=str(self.root / "codex-home"),
         )
         if inject_ignored:
@@ -222,6 +223,60 @@ class VerifyCliTests(unittest.TestCase):
             timeout=360,
         )
         return result, json.loads(result.stdout) if result.stdout else None
+
+    def test_nested_pytest_proof_preserves_ids_and_empty_package_marker(self):
+        project = self.project("nested-pytest-proof")
+        (project / "tests/__init__.py").unlink()
+        (project / "tests/test_new.py").write_text(
+            "from double import double\ndef test_c1_double():\n    assert double(3) == 6\n"
+        )
+        parent_config = self.root / "pyproject.toml"
+        self.assertFalse(parent_config.exists())
+        parent_config.write_text('[project]\nname = "outer-host"\nversion = "0.0.0"\n')
+        self.addCleanup(parent_config.unlink)
+        preserved = (project / "tests/test_guard.py").read_bytes()
+        command = shlex.join([sys.executable, "-m", "pytest", "-q", "tests"])
+        result, value = self.run_cli(project, self.root / "nested-pytest-output", contract(command))
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("PASS", value["verdict"])
+        proof = value["evidence_report"]["document"]["regression_proof"]
+        self.assertEqual(["tests.test_new::test_c1_double"], proof["fail_to_pass"])
+        self.assertEqual(preserved, (project / "tests/test_guard.py").read_bytes())
+        self.assertFalse((project / "tests/__init__.py").exists())
+
+    def test_deleted_real_tests_and_nonempty_package_initializers_still_refuse(self):
+        for label, path in (("real-test", "tests/test_guard.py"), ("package-import", "tests/__init__.py")):
+            with self.subTest(label=label):
+                project = self.project("deleted-" + label)
+                base = self.sha
+                if label == "package-import":
+                    (project / path).write_text("import math\n")
+                    git = ["git", "-c", "core.hooksPath=" + os.devnull, "-C", str(project)]
+                    subprocess.run([*git, "add", path], check=True, capture_output=True, env=clean_git_environment())
+                    subprocess.run(
+                        [
+                            *git,
+                            "-c",
+                            "user.name=Fixture",
+                            "-c",
+                            "user.email=fixture@example.invalid",
+                            "commit",
+                            "-qm",
+                            "nonempty package initializer",
+                        ],
+                        check=True,
+                        capture_output=True,
+                        env=clean_git_environment(),
+                    )
+                    base = subprocess.check_output([*git, "rev-parse", "HEAD"], text=True).strip()
+                (project / path).unlink()
+                command = shlex.join([sys.executable, "-m", "pytest", "-q", "tests"])
+                result, value = self.run_cli(
+                    project, self.root / ("deleted-" + label + "-output"), contract(command), base=base
+                )
+                self.assertEqual("FAIL", value["verdict"], result.stdout + result.stderr)
+                proof = value["evidence_report"]["document"]["regression_proof"]
+                self.assertIn("Existing test files were deleted: " + path, proof["failures"])
 
     def test_added_empty_test_package_preserves_the_unmarked_baseline_suite(self):
         project = self.root / "added-test-package"

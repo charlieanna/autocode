@@ -34,6 +34,12 @@ class LocalAcknowledgement(unittest.TestCase):
         self.assertEqual("unread", self.inspect()["state"])
         self.assertFalse(self.root.exists())
 
+    def test_explicit_private_storage_needs_no_account_home(self):
+        with patch.object(Path, "home", side_effect=RuntimeError("No account home")):
+            self.assertEqual(self.root, store.storage())
+            self.assertEqual("unread", self.inspect()["state"])
+        self.assertFalse(self.root.exists())
+
     def test_two_viewers_share_one_idempotent_receipt_and_no_task_state_is_created(self):
         with ThreadPoolExecutor(2) as workers:
             receipts = list(workers.map(lambda _: store.acknowledge(ITEM, self.workspace, self.run), range(2)))
