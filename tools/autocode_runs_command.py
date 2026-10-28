@@ -31,6 +31,7 @@ try:
     from . import autocode_chat_view as chat_view
     from . import autocode_registry as registry
     from . import autocode_replay_view as replay_view
+    from . import autocode_run_finder as run_finder
     from . import autocode_run_view as run_view
 except ImportError:
     import autocode_attention as attention
@@ -39,6 +40,7 @@ except ImportError:
     import autocode_chat_view as chat_view
     import autocode_registry as registry
     import autocode_replay_view as replay_view
+    import autocode_run_finder as run_finder
     import autocode_run_view as run_view
 
 SCHEMA = 1
@@ -176,10 +178,13 @@ def _local(workspace: Path) -> list[tuple[Path, Path]]:
 def _pairs(workspace: Path, all_workspaces: bool) -> list[tuple[Path, Path]]:
     """(run directory, its workspace) for one project, or for every registered project.
 
-    A project's own runs include those of its autocode-issue worktrees, so its chat can open them (#1731)."""
+    A project's own runs include those of its autocode-issue worktrees, so its chat can open them (#1731),
+    and those of its task worktrees (a task started without ``--in-place``), the lanes ``--status`` and
+    ``resume`` already find."""
     if not all_workspaces:
         issues = Path(workspace) / ISSUE_WORKTREES
         worktrees = sorted(p for p in issues.iterdir() if p.is_dir()) if issues.is_dir() else []
+        worktrees += run_finder.task_worktrees(Path(workspace).resolve())
         return _local(workspace) + [pair for worktree in worktrees for pair in _local(worktree)]
     records = registry.listing()["runs"]
     return [
