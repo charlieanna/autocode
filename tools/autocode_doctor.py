@@ -82,6 +82,14 @@ except ImportError:
     from providers import opencode as opencode_provider
 
 OK, MISSING, WARN = "ok", "missing", "warn"
+
+# How a person stops typing --engine on every task: the project's settings file, or, for Claude Code, the
+# user's default provider (docs/cli.md, Project settings; docs/providers.md).
+PROJECT_ENGINE = ', or once with engine = "codex" in the project\'s .autocode/config.toml'
+CLAUDE_DEFAULT = (
+    ', or once with engine = "claude" in the project\'s .autocode/config.toml '
+    '(or default_provider = "claude" in ~/.config/autocode/config.toml for every project)'
+)
 ENGINES = ("opencode", "codex", "claude")
 
 
@@ -435,9 +443,9 @@ def engine_verdict(
         fix += "; AUTOCODE_PROVIDER or default_provider in ~/.config/autocode/config.toml selects it"
     codex_ready = status.get("engine:codex") == OK
     if codex_ready and provider != "codex":
-        fix += "; or pass --engine codex (the single-login route) to doctor and to every task"
+        fix += "; or pass --engine codex (the single-login route) to doctor and to every task" + PROJECT_ENGINE
     if claude_on_path and provider != "claude":
-        fix += "; or pass --engine claude (Claude Code is on PATH) to doctor and to every task"
+        fix += "; or pass --engine claude (Claude Code is on PATH) to doctor and to every task" + CLAUDE_DEFAULT
     found = [
         name for name, ready in (("Codex is ready", codex_ready), ("Claude Code is on PATH", claude_on_path)) if ready
     ]
@@ -569,7 +577,7 @@ def claude_checks(
         what = "--engine claude" if wanted == "claude" else "provider claude (the default for a new run)"
     fix = "" if ok else "fix engine:claude above"
     if not ok and status.get("engine:codex") == OK:
-        fix += "; or pass --engine codex (the single-login route) to doctor and to every task"
+        fix += "; or pass --engine codex (the single-login route) to doctor and to every task" + PROJECT_ENGINE
     return Check("engine", OK if ok else MISSING, f"{what} is {'ready' if ok else 'not ready'}", fix)
 
 
