@@ -79,6 +79,12 @@ def ignored_user_config(name: str) -> Path | None:
     return path if path.is_file() else None
 
 
+# The keys ~/.config/autocode/config.toml takes: default_choice here, and autocode_configure's plan-review
+# allowance. A project's keys (autocode_project_config.KEYS) belong in the project's own file; doctor warns
+# when the user file holds one, because a run never reads it from there (#2400).
+USER_KEYS = ("default_provider", "plan_review_call_limit")
+
+
 def user_config_path() -> Path:
     root = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
     return root / "autocode" / "config.toml"
