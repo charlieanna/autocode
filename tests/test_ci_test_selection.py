@@ -8,6 +8,12 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_the_quota_worker_keeps_its_dynamically_imported_fixture_consumer(self):
+        consumer = "tests.test_quota_worker"
+        selected = run_suite.select_tests(["tests/opencode_fixture_cli.py"], {consumer: "", "tests.test_unrelated": ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
     def test_builder_capture_guidance_keeps_its_public_capture_consumer(self):
         consumer = "tests.test_capture_event_contract"
         selected = run_suite.select_tests(
