@@ -104,7 +104,7 @@ def _case(case: dict, inherited=False) -> dict:
         "criterion": test_cases.case_text(case),
         "test_name": case.get("test_name") or test_cases.case_test_name(case["id"]),
         "kind": (
-            "test: already delivered in the completed prior turn; retain its existing test, which may pass today; "
+            "test: already delivered with authenticated fail-first provenance; retain its existing test, which may pass today; "
             "fresh original-reference fail-first proof remains required"
             if inherited
             else "guard: must pass on today's code"

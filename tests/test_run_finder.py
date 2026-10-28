@@ -917,6 +917,16 @@ class InProcessCli(Fixture):
         ):
             return self.main(*argv, cwd=cwd)
 
+    def test_a_run_dir_that_is_not_a_saved_run_is_refused_in_words(self):
+        """``--run-dir /nope`` ended with ``[Errno 2] No such file or directory: '/nope/state.json'``."""
+        for path, what in ((self.root / "nope", "is not a directory"), (self.project, "has no state.json")):
+            with self.subTest(path=path):
+                code, _, stderr = self.explain_read("--run-dir", str(path), "--status")
+                self.assertEqual(2, code)
+                self.assertIn(f"--run-dir {path} {what}. A saved run is PROJECT/.autocode/runs/RUN", stderr)
+                self.assertIn("`autocode runs` lists this project's runs", stderr)
+                self.assertNotIn("Errno", stderr)
+
     def test_explain_spellings_read_the_saved_stop_without_provider_or_writes(self):
         run = self.run_in(
             self.project,

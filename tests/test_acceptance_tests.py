@@ -12,6 +12,7 @@ import dataclasses
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -1009,6 +1010,110 @@ class AcceptanceTestsCliTests(unittest.TestCase):
             self.assertEqual(case["id"], criteria[index]["id"])
             self.assertEqual(f"{case['id']}: ", reference["prefix"])
             self.assertEqual({**guard, **cases}[case["id"]], criteria[index]["criterion"])
+
+    def test_reapproval_after_builder_retains_fail_first_cases_and_completes_with_fresh_proof(self):
+        project = without_maintenance(materialize(self.scenario.seed, self.root / "project"))
+        flags, environment = fake_setup(self.scenario, self.root, self.scenario.dir / "reference")
+        provider = self.root / "bin" / "codex"
+        source = provider.read_text()
+        marker = "        edit_acceptance_tests_once()\n"
+        self.assertIn(marker, source)
+        provider.write_text(
+            source.replace(
+                marker,
+                "        built = Path(os.environ['REAPPROVAL_BUILDER_MARKER'])\n"
+                "        if built.exists():\n"
+                "            product = Path('stock.py')\n"
+                "            product.write_text(product.read_text() + chr(10) + '# Transfers retain the existing validation rules.' + chr(10))\n"
+                "        built.write_text('built')\n" + marker,
+            )
+        )
+        environment.update(
+            AUTOCODE_HOME=str(self.root / "registry"),
+            PYTHONDONTWRITEBYTECODE="1",
+            REAPPROVAL_BUILDER_MARKER=str(self.root / "builder-marker"),
+        )
+        environment["PATH"] = os.pathsep.join((str(Path(sys.executable).parent), environment["PATH"]))
+        run = taskrun.TaskRun.start(
+            project,
+            self.scenario.brief,
+            options=(*flags, "--joint-planning", "--no-adaptive-planning", "--spec-first", "--pause-after-stage"),
+            env=environment,
+            timeout=240,
+            cwd=self.root,
+        )
+        revised = False
+        approvals = []
+        for _ in range(40):
+            view = run.advance_until_input()
+            need = view.get("needs") or {}
+            if view["done"]:
+                break
+            if not revised and "builder" in self.stage_order(run):
+                self.assertEqual("PAUSED_REQUESTED", view["status"], self.details(view))
+                self.assertEqual({"fails"}, set(view["acceptance_tests"]["results"].values()))
+                original = view["approved_contract"]["token"]
+                original_rows = view["approved_contract"]["body"]["acceptance_criteria"]
+                queued = subprocess.run(
+                    [
+                        *run.command,
+                        "intervention",
+                        "submit",
+                        "--workspace",
+                        str(project),
+                        "--run-dir",
+                        str(run.run_dir),
+                        "--request-id",
+                        "same-turn-reapproval",
+                        "--kind",
+                        "feedback",
+                        "--text",
+                        "Keep every existing behavior, criterion and test binding; document the existing transfer validation in stock.py.",
+                        "--json",
+                    ],
+                    env={**os.environ, **environment},
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                )
+                self.assertTrue(json.loads(queued.stdout)["accepted"])
+                run.options = tuple(option for option in run.options if option != "--pause-after-stage")
+                revised = True
+            elif need.get("kind") == "approve_plan":
+                if revised:
+                    exported = self.root / ("reapproval-" + str(len(approvals)) + ".md")
+                    run.export_plan(exported)
+                    lines = exported.read_text().splitlines()
+                    end = next(i for i in range(1, len(lines)) if lines[i] == "---")
+                    rows = json.loads("\n".join(lines[1:end]))["contract"]["acceptance_criteria"]
+                    semantic = lambda row: {k: v for k, v in row.items() if k != "sources"}
+                    self.assertEqual([semantic(row) for row in original_rows], [semantic(row) for row in rows])
+                    self.assertEqual(1, len(approvals), "no guard-correction approval may be introduced")
+                approvals.append(need["token"])
+                run.approve_plan(need["token"])
+            elif need.get("kind") == "resume":
+                run.resume_paused()
+            elif need.get("kind") == "answer":
+                question = need["questions"][0]
+                run.answer(
+                    question["id"], question.get("proposed_default") or "plan", resolver_token=need["resolver_token"]
+                )
+            elif need.get("kind") == "review":
+                for criterion in need["criteria"]:
+                    run.approve_review(criterion, need["token"])
+            else:
+                self.fail(self.details(view))
+        self.assertTrue(revised)
+        self.assertTrue(view["done"], self.details(view))
+        self.assertNotEqual(original, view["approved_contract"]["token"])
+        self.assertEqual(2, len(approvals), "reapproval must not generate a guard-correction plan")
+        methods = {
+            row["id"]: row["verification_method"] for row in view["approved_contract"]["body"]["acceptance_criteria"]
+        }
+        self.assertEqual(CASES, methods)
+        self.assertEqual({"already passes"}, set(view["acceptance_tests"]["results"].values()))
+        self.assertEqual("PASS", view["evidence"]["regression_proof"]["verdict"])
+        self.assertTrue(view["evidence"]["regression_proof"]["fail_to_pass"])
 
     def test_blind_tests_cli_runs_tester_isolates_workspace_and_completes(self):
         # With --blind-tests, Tester writes tests before Builder, but files are archived and isolated
