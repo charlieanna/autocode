@@ -287,6 +287,108 @@ class AcceptanceProvenanceTests(AcceptanceFixture, unittest.TestCase):
                 )
 
 
+class AcceptanceReapprovalProvenanceTests(AcceptanceFixture, unittest.TestCase):
+    apply = AcceptanceProvenanceTests.apply
+
+    def setUp(self):
+        super().setUp()
+        self.state["turns"] = []
+        self.state["brief_feedback"] = []
+        self.state["user_events"] = [self.old["approval_event"], self.state["goal_contract"]["approval_event"]]
+
+    def test_same_turn_reapproval_keeps_the_executed_fail_first_test(self):
+        before = copy.deepcopy(self.state)
+        self.assertEqual(
+            {"AC1"}, provenance.inherited_cases(self.state, reports=self.reports, workspace=self.workspace)
+        )
+        self.assertEqual(before, self.state)
+        approved = copy.deepcopy(self.state["goal_contract"])
+        self.assertEqual([], self.apply())
+        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual(approved, self.state["goal_contract"])
+
+    def test_citation_only_reapproval_keeps_the_same_behavior_and_test(self):
+        self.state["goal_contract"]["body"]["acceptance_criteria"][0]["sources"].append(
+            {"source_id": "answer:binding", "quote": "Keep the exact test"}
+        )
+        self.reseal()
+        self.assertEqual(
+            {"AC1"}, provenance.inherited_cases(self.state, reports=self.reports, workspace=self.workspace)
+        )
+
+    def test_same_turn_history_needs_original_failure_and_authenticated_approval(self):
+        controls = [
+            lambda s: s["acceptance_tests"]["receipts"]["old"].update(results={"AC1": "already passes"}),
+            lambda s: s["contract_history"][0].update(approval_event={"token": "wrong"}),
+            lambda s: s["user_events"].pop(0),
+            lambda s: s["user_events"].append(copy.deepcopy(s["user_events"][0])),
+            lambda s: s["contract_history"].append({**s["contract_history"][0], "origin": "conflicting"}),
+            lambda s: s["goal_contract"]["body"]["acceptance_criteria"][0].update(criterion="Other behavior"),
+            lambda s: s["acceptance_tests"]["receipts"]["old"]["files"]["test_totals.py"].update(sha256="bad"),
+        ]
+        for change in controls:
+            with self.subTest(change=change):
+                state = copy.deepcopy(self.state)
+                change(state)
+                self.assertEqual(
+                    set(), provenance.inherited_cases(state, reports=self.reports, workspace=self.workspace)
+                )
+
+    def test_feedback_revocation_does_not_erase_the_historical_failure_authority(self):
+        self.state["contract_history"][0].update(approval_status="draft", approval_event=None)
+        self.assertEqual(
+            {"AC1"}, provenance.inherited_cases(self.state, reports=self.reports, workspace=self.workspace)
+        )
+        self.state["user_events"].pop(0)
+        self.assertEqual(set(), provenance.inherited_cases(self.state, reports=self.reports, workspace=self.workspace))
+
+    def test_case_id_proof_can_be_bound_to_its_existing_executed_test(self):
+        name = "test_ac1_negative"
+        self.old_code = self.old_code.replace(b"test_t1_negative", name.encode())
+        self.archive.write_bytes(self.old_code)
+        (self.workspace / "test_totals.py").write_bytes(self.old_code)
+        old_body = copy.deepcopy(self.old["body"])
+        old_body["acceptance_criteria"][0]["verification_method"] = "test: TestTotals checks negatives"
+        current_body = copy.deepcopy(self.state["goal_contract"]["body"])
+        current_body["acceptance_criteria"][0]["verification_method"] = "test: " + name
+        events = []
+        self.old = seal(old_body, 1, events)
+        self.state["contract_history"] = [self.old]
+        self.state["goal_contract"] = seal(current_body, 2, events)
+        self.state["user_events"] = events
+        receipt = self.state["acceptance_tests"]["receipts"]["old"]
+        receipt["contract_hash"] = self.old["hash"]
+        receipt["files"]["test_totals.py"]["sha256"] = util.file_hash(self.archive)
+        self.reports[0]["test_name"] = name
+        self.assertEqual(
+            {"AC1"}, provenance.inherited_cases(self.state, reports=self.reports, workspace=self.workspace)
+        )
+        self.reports[0]["test_name"] = "test_other"
+        self.assertEqual(set(), provenance.inherited_cases(self.state, reports=self.reports, workspace=self.workspace))
+
+    def test_changed_behavior_binding_assertions_and_turn_boundary_do_not_inherit(self):
+        for field, value in (
+            ("criterion", "Other behavior"),
+            ("current_behavior", "A different baseline"),
+            ("verification_method", "test: test_other"),
+            ("human_review", True),
+        ):
+            original = copy.deepcopy(self.state)
+            self.state["goal_contract"]["body"]["acceptance_criteria"][0][field] = value
+            self.reseal()
+            self.assertEqual(
+                set(), provenance.inherited_cases(self.state, reports=self.reports, workspace=self.workspace)
+            )
+            self.state = original
+        (self.workspace / "test_totals.py").write_bytes(self.old_code.replace(b"== 2", b"== 1"))
+        self.assertEqual(set(), provenance.inherited_cases(self.state, reports=self.reports, workspace=self.workspace))
+        (self.workspace / "test_totals.py").write_bytes(self.old_code)
+        event = {"id": "new-turn", "kind": "brief_feedback", "actor": "user_cli", "text": "New task"}
+        self.state["user_events"].insert(1, event)
+        self.state["turns"] = [{"event_id": event["id"]}]
+        self.assertEqual(set(), provenance.inherited_cases(self.state, reports=self.reports, workspace=self.workspace))
+
+
 class AcceptanceRecoveryFixture(AcceptanceFixture):
     def setUp(self):
         super().setUp()

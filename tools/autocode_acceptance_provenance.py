@@ -1,7 +1,9 @@
-"""Authenticate acceptance cases delivered by a completed earlier conversation turn.
+"""Authenticate acceptance cases delivered under an earlier approved plan.
 
 These receipts permit a pre-Builder test to pass on today's code. They never
 approve a new plan, relabel its cases, or satisfy its fresh regression proof.
+Reapproval in the same turn retains only an intact earlier failure; completed
+turns additionally require their sealed conversation-boundary provenance.
 """
 
 from __future__ import annotations
@@ -84,12 +86,14 @@ def prior_contract(state: RunState) -> dict | None:
         return None
 
 
-def _archives(state: RunState, contract, row):
+def _archives(state: RunState, contract, row, *, name=None):
     receipts = (state.get("acceptance_tests") or {}).get("receipts") or {}
     if not isinstance(receipts, dict):
         return
     cid = row["id"]
-    name = test_cases.declared_test_name(str(row["verification_method"]).strip()[len(test_cases.MARK) :].strip())
+    name = name or test_cases.declared_test_name(
+        str(row["verification_method"]).strip()[len(test_cases.MARK) :].strip()
+    )
     if not name:
         return
     for receipt in receipts.values():
@@ -130,6 +134,85 @@ def _has_fail_first_origin(state: RunState, row, path, archived) -> bool:
     return False
 
 
+def _historical_approval(state: RunState, contract):
+    """Feedback revokes current approval; its unique historical receipt still authenticates old tests."""
+    events = [
+        event
+        for event in state["user_events"]
+        if event.get("kind") == "goal_approval" and event.get("token") == identity.token(contract)
+    ]
+    if len(events) != 1 or contract.get("approval_event") not in (None, events[0]):
+        return None
+    prior = {**contract, "approval_status": "approved", "approval_event": events[0]}
+    return events[0] if identity.approved({**state, "goal_contract": prior}) else None
+
+
+def _reapproved_cases(state: RunState, reports, workspace) -> set[str]:
+    """An unchanged same-turn test may already pass after the Builder implemented it.
+
+    Only a sealed earlier approval and an intact runner-recorded failure admit
+    reuse. Citation additions and an exact binding of an old case-id selector
+    do not change its behavior. Nothing here approves a plan or proves the fix.
+    """
+    try:
+        if not identity.approved(state):
+            return set()
+        events = state["user_events"]
+        current = state.get("goal_contract") or {}
+        if events.count(current["approval_event"]) != 1:
+            return set()
+        boundary = -1
+        if state.get("turns"):
+            event_id = state["turns"][-1]["event_id"]
+            indices = [i for i, event in enumerate(events) if event.get("id") == event_id]
+            if len(indices) != 1:
+                return set()
+            boundary = indices[0]
+        history = state.get("contract_history") or []
+        reproduced = {case["id"] for case in test_cases.diagnosis_cases(state)}
+        result = set()
+        for contract in history:
+            approval = _historical_approval(state, contract)
+            if (
+                approval is None
+                or not boundary < events.index(approval) < events.index(current["approval_event"])
+                or any(other != contract for other in history if identity.token(other) == identity.token(contract))
+            ):
+                continue
+            old = {row["id"]: row for row in contract["body"]["acceptance_criteria"]}
+            for row in current["body"]["acceptance_criteria"]:
+                cid, method = row["id"], row.get("verification_method")
+                previous = old.get(cid)
+                if cid in reproduced or previous is None or test_cases.mark(method) != test_cases.MARK:
+                    continue
+                semantic = lambda value: {k: v for k, v in value.items() if k not in ("sources", "verification_method")}
+                if (
+                    semantic(previous) != semantic(row)
+                    or test_cases.mark(previous.get("verification_method")) != test_cases.MARK
+                ):
+                    continue
+                name = test_cases.declared_test_name(str(method).strip()[len(test_cases.MARK) :].strip())
+                old_name = test_cases.declared_test_name(
+                    str(previous["verification_method"]).strip()[len(test_cases.MARK) :].strip()
+                )
+                if not name or (
+                    old_name != name if old_name else not test_cases.match_cases([{"id": cid}], [name])[cid]
+                ):
+                    continue
+                reported = [entry for entry in reports or [] if entry.get("case_id") == cid]
+                if reports is not None and (len(reported) != 1 or reported[0].get("test_name") != name):
+                    continue
+                for path, archived, verdict in _archives(state, contract, previous, name=name):
+                    if verdict != "fails" or reports is not None and reported[0].get("file") != path:
+                        continue
+                    if workspace is not None and not acceptance.kept(archived, (Path(workspace) / path).read_bytes()):
+                        continue
+                    result.add(cid)
+        return result
+    except (OSError, AttributeError, KeyError, TypeError, ValueError):
+        return set()
+
+
 def inherited_cases(state: RunState, *, reports: list[dict] | None = None, workspace=None) -> set[str]:
     """Exact unchanged restore cases with intact, prior fail-first generation receipts.
 
@@ -139,9 +222,10 @@ def inherited_cases(state: RunState, *, reports: list[dict] | None = None, works
     only with its intact completed-turn fail-first origin. No result is relabelled
     and no historical final proof is reused. The caller runs today's tests.
     """
+    reapproved = _reapproved_cases(state, reports, workspace)
     prior = prior_contract(state)
     if prior is None:
-        return set()
+        return reapproved
     try:
         contract = state.get("goal_contract") or {}
         if not identity.approved(state):
@@ -151,7 +235,7 @@ def inherited_cases(state: RunState, *, reports: list[dict] | None = None, works
         reproduction = {
             case["id"] for case in test_cases.diagnosis_cases(state) if case.get("kind", "restore") != "preserve"
         }
-        result = set()
+        result = set(reapproved)
         for row in current:
             cid, method = row["id"], row.get("verification_method")
             if cid in reproduction or old.get(cid) != row or test_cases.mark(method) != test_cases.MARK:
@@ -172,4 +256,4 @@ def inherited_cases(state: RunState, *, reports: list[dict] | None = None, works
                 result.add(cid)
         return result
     except (OSError, AttributeError, KeyError, TypeError, ValueError):
-        return set()
+        return reapproved
