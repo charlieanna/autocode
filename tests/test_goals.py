@@ -511,6 +511,19 @@ class GoalTests(unittest.TestCase):
         self.assertNotIn("user_request", self.state)
         self.assertEqual("permission_answer", self.state["answers"]["decision-limit"]["kind"])
 
+    def test_an_answer_to_the_wrong_question_names_the_open_ones(self):
+        """#2313: a wrong id, an answered id and empty text all got "Answer must address one unresolved
+        question with nonempty text"; each now says what went wrong and which questions are open."""
+        question = {"id": "Q1", "question": "CLI or web?", "why": "scope", "options": [], "proposed_default": ""}
+        state = {"pending_questions": [question, dict(question, id="Q2")], "answers": {}}
+        with self.assertRaisesRegex(ValueError, "^No open question Q9; open: Q1, Q2$"):
+            g.answer(state, "Q9", "CLI")
+        with self.assertRaisesRegex(ValueError, "^Q1 needs text: --answer Q1=TEXT$"):
+            g.answer(state, "Q1", "   ")
+        state["answers"]["Q1"] = {"text": "CLI"}
+        with self.assertRaisesRegex(ValueError, "^Q1 is already answered; open: Q2$"):
+            g.answer(state, "Q1", "CLI")
+
     def test_permission_answer_resolves_the_findings_its_published_request_names(self):
         # #1783: the ids sit on the published request, and no producer writes a
         # question payload, so the answer must not look only at the question.

@@ -423,6 +423,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `--answer` with an unknown question id, an already answered id or empty text is refused with a sentence
+  naming the mistake and the open question ids, instead of one generic "Answer must address one unresolved
+  question with nonempty text" for all three (#2313).
 - `autocode merge` run again after a successful merge says "already merged: master at ... contains
   autocode/..." and exits 0, instead of "the base branch moved after this run started; re-validate ...
   then merge again"; its ancestor checks now read git's exit code, so a diverged base takes the
