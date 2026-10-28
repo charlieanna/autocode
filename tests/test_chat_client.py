@@ -1128,6 +1128,45 @@ class NewChatSetupTests(unittest.TestCase):
             self.assertIn("Open or start a chat first: type a request, or /runs to see this project's chats.", said)
             self.assertIn("No chats yet. Type a request to start one.", said)
 
+    def test_a_slash_command_typed_at_the_run_picker_is_taken_not_run_as_a_task(self):
+        """/runs, /help and /quit at "Pick one, or type a new request" started a run called "/runs" (#2355)."""
+        with tempfile.TemporaryDirectory() as folder:
+            history = self.history(folder)
+            waiting = {
+                "name": "20261001-chat-1",
+                "run_dir": f"{folder}/.autocode/runs/r1",
+                "workspace": folder,
+                "bucket": "needs you",
+                "title": "Old dashboard",
+                "updated_at": "2026-10-01T10:00:00",
+                "pause_category_label": "Your decision",
+            }
+
+            def open_with(*replies):
+                it, said = iter(replies), []
+                with (
+                    mock.patch.object(chat, "project_runs", return_value=[waiting]),
+                    mock.patch.object(
+                        chat, "mode_row", side_effect=lambda mode, **_: {"id": mode, "spend_confirmation": "planning"}
+                    ),
+                    mock.patch.object(chat, "start", side_effect=lambda ws, brief, *a, **_: brief),
+                ):
+                    return chat.open_chat(
+                        Path(folder), None, [], ask=lambda _: next(it), say=said.append, slash=history.slash
+                    ), said
+
+            started, said = open_with("/runs", "/help", "/bogus", "7", "/quit")
+            self.assertIsNone(started)
+            self.assertIn("  1. Old dashboard", "\n".join(said), "/runs listed the chats")
+            self.assertIn(chat.FIRST_PROMPT_HELP, said)
+            self.assertIn("/bogus needs an open chat. Type what you want done.", said)
+            self.assertIn("There is no run 7 waiting.", said)
+            self.assertEqual("Nothing started.", said[-1])
+            started, _ = open_with("//slashes are my tool", "unused")
+            self.assertEqual("/slashes are my tool", started)
+            picked, _ = open_with("1")
+            self.assertEqual(Path(waiting["run_dir"]), picked.run_dir)
+
     def test_help_quit_and_a_slash_request_work_at_the_plain_chat_question(self):
         """/help and /quit typed at "What do you want done?" both answered "Open or start a chat first"."""
         with tempfile.TemporaryDirectory() as folder:
