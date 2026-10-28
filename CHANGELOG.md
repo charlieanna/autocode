@@ -423,6 +423,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A malformed Requirements or planning-revision report can use small source-hash-bound text edits
+  instead of repeating the entire JSON response (#2428). Ambiguous, overlapping or oversized edits
+  are rejected; original reports stay retained and all normal validation and approval gates still run.
+
+
 - An empty planning report-repair response no longer strands a retained nonempty original while an
   existing repair attempt remains (#2426). The next repair receives the original and its parser
   diagnostic; saved empty-response holds keep that pending repair on Resume. Usage, limits, source

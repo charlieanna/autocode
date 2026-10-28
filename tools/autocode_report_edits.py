@@ -11,8 +11,10 @@ import json
 from pathlib import Path
 
 try:
+    from . import autocode_report_text_edits as text_edits
     from .autocode_util import atomic_json, file_hash, validate_schema
 except ImportError:
+    import autocode_report_text_edits as text_edits
     from autocode_util import atomic_json, file_hash, validate_schema
 
 KEY = "repair_report"
@@ -34,13 +36,22 @@ RULE = (
 def eligible(stage, source):
     return bool(
         stage in STAGES
-        and source.get("format") == "json"
         and not source.get("truncated")
-        and isinstance(source.get("content"), dict)
-        and KEY not in source["content"]
+        and (
+            source.get("format") == "json"
+            and isinstance(source.get("content"), dict)
+            and KEY not in source["content"]
+            or text_edits.eligible(source)
+        )
         and isinstance(source.get("sha256"), str)
         and len(source["sha256"]) == 64
     )
+
+
+def instruction(stage, source):
+    if not eligible(stage, source):
+        return ""
+    return text_edits.RULE if source.get("format") == "text" else RULE
 
 
 def validation_schema(schema):
@@ -79,14 +90,17 @@ def prepare(schema_path, source, stage):
         "properties": {"op": {"type": "string", "enum": ["add", "remove", "replace"]}, "path": path, "value": {}},
         "required": ["op", "path", "value"],
     }
+    text_mode = source.get("format") == "text"
+    field = "text_edits" if text_mode else "edits"
+    operations = text_edits.schema() if text_mode else {"type": "array", "minItems": 1, "maxItems": 32, "items": edit}
     patch = {
         "type": "object",
         "additionalProperties": False,
         "properties": {
             "sha256": {"type": "string", "const": source["sha256"]},
-            "edits": {"type": "array", "minItems": 1, "maxItems": 32, "items": edit},
+            field: operations,
         },
-        "required": ["sha256", "edits"],
+        "required": ["sha256", field],
     }
     offer = copy.deepcopy(original)
     offer["properties"][KEY] = patch
@@ -96,6 +110,7 @@ def prepare(schema_path, source, stage):
         "source_path": source["path"],
         "sha256": source["sha256"],
         "stage": stage,
+        "format": source["format"],
     }
     target = Path(source["path"]).with_name(Path(source["path"]).stem + ".repair-edits.schema.json")
     atomic_json(target, offer)
@@ -166,7 +181,17 @@ def expand(value, record):
     source = Path(meta["source_path"])
     if source.is_symlink() or not source.is_file() or file_hash(source) != meta["sha256"]:
         raise ValueError("Pinned rejected report changed before applying edits")
-    base = json.loads(source.read_text())
-    if not isinstance(base, dict) or KEY in base or value[KEY]["sha256"] != meta["sha256"]:
+    if value[KEY]["sha256"] != meta["sha256"]:
+        raise ValueError("Report edits do not name the exact rejected source")
+    text = source.read_text()
+    if meta.get("format") == "text":
+        if not text_edits.eligible({"format": "text", "content": text}):
+            raise ValueError("Text edits require a complete malformed JSON source")
+        result = text_edits.apply(text, value[KEY]["text_edits"])
+        if KEY in result:
+            raise ValueError("Text edits cannot reconstruct another repair envelope")
+        return result
+    base = json.loads(text)
+    if not isinstance(base, dict) or KEY in base:
         raise ValueError("Report edits do not name the exact rejected object")
     return apply(base, value[KEY]["edits"])

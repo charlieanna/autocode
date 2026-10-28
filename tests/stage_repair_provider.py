@@ -246,6 +246,43 @@ def main():
         print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
         return 0
+    if repair and stage == "glm_revise" and os.environ["STAGE_REPAIR_CASE"].startswith("malformed-text-edits"):
+        case = os.environ["STAGE_REPAIR_CASE"]
+        source = data["rejected_report"]
+        if not isinstance(source["content"], str):
+            source = data["original_report"]
+        text = source["content"]
+        prefix = text[:60]
+        operations = [{"find": prefix, "replace": '{"access_blockers":[],"contract":' + prefix}]
+        if case.endswith("protected"):
+            body = json.loads('{"contract":' + text)["contract"]
+            operations.append(
+                {
+                    "find": '"required_behaviors": ' + json.dumps(body["required_behaviors"]),
+                    "replace": '"required_behaviors": ["Weaken the requested outcome"]',
+                }
+            )
+        if case.endswith("ambiguous"):
+            operations = [{"find": '"', "replace": ""}]
+        token = "0" * 64 if case.endswith("stale") else source["sha256"]
+        value = {"repair_report": {"sha256": token, "text_edits": operations}}
+        output = Path(sys.argv[sys.argv.index("-o") + 1])
+        output.write_text(json.dumps(value))
+        append_trace(
+            {
+                "stage": stage,
+                "repair": True,
+                "error": data.get("error", ""),
+                "patch": value,
+                "output": str(output),
+                "text_rule": "BOUNDED JSON TEXT REPAIR" in prompt,
+                "source_bytes": len(text.encode()),
+                "patch_bytes": len(json.dumps(value).encode()),
+            }
+        )
+        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
+        print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
+        return 0
     # The runner already launched this provider process. Reuse it for the fake,
     # rather than adding another interpreter and supervised descendant per turn.
     stdout, stderr = io.StringIO(), io.StringIO()
@@ -596,6 +633,10 @@ def main():
         text = json.dumps(value, separators=(",", ":"))
         assert not repair and ',"summary":' in text
         text = text.replace(',"summary":', '"summary":', 1)
+    if stage == "glm_revise" and case.startswith("malformed-text-edits") and not repair:
+        contract = value.pop("contract")
+        value.pop("access_blockers", None)
+        text = json.dumps(contract) + "," + json.dumps(value)[1:]
     if stage == "glm_revise" and case.endswith("original-empty"):
         text = ""
     output.write_text(text)

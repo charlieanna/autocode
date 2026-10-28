@@ -287,7 +287,8 @@ def prompt_parts(
         "JSON SYNTAX DIAGNOSTIC. rejected_report.parse_error describes the first parser failure in the "
         "exact rejected_report.content text: position is a zero-based Unicode character offset; line and "
         "column are one-based. Use it to locate the syntax defect, then return the complete corrected "
-        "report. It may expose further errors after correction; it does not authorize dropping findings, "
+        "report or the offered exact-bound text edits. It may expose further errors after correction; "
+        "it does not authorize dropping findings, "
         "changing requirements or bypassing schema, evidence or protected-contract validation.\n"
         if latest.get("format") == "text"
         and latest.get("parse_error")
@@ -312,7 +313,7 @@ def prompt_parts(
             if latest.get("empty_response")
             else ""
         )
-        + (report_edits.RULE if report_edits.eligible(stage, latest) else ""),
+        + report_edits.instruction(stage, latest),
         {
             "header": {
                 **receipt_handoff,
