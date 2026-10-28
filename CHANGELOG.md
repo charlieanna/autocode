@@ -423,6 +423,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The status view's `verification.coverage[].human_acceptance_pending` is false once a criterion's
+  review receipt is valid for the current validation, as `--status --inspect-evidence` already reported
+  it; the chat side panel no longer reads "1 human acceptance pending" on a reviewed or completed run
+  (#2342).
 - Starting a task whose exact text an unfinished run of the project already carries prints a note on
   stderr naming that run and the `autocode --run-dir RUN` that continues it before the new worktree is
   created, instead of silently starting a second run beside it (#2340).

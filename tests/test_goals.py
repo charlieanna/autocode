@@ -1536,6 +1536,22 @@ class GoalTests(unittest.TestCase):
         self.state["validation"]["unverified_criteria"] = ["C2 — unrelated failure"]
         self.assertFalse(g.human_only_pending_validation(self.state, self.state["validation"], "C1"))
 
+    def test_the_plain_status_view_shows_an_accepted_review_as_no_longer_pending(self):
+        """Without --inspect-evidence the view read a human criterion as pending forever (#2342)."""
+        self.approve(human=True)
+        current = self.validation()
+        self.publish_review()
+        lifecycle.present(self.state)
+        pending = runner.run_view.view(self.state)["verification"]["coverage"][0]
+        self.assertEqual((True, "unchecked"), (pending["human_acceptance_pending"], pending["state"]))
+        g.approve_review(self.state, "C1", g.review_token(self.state), current)
+        self.assertEqual(["C1"], runner.run_view.accepted_reviews(self.state))
+        accepted = runner.run_view.view(self.state)["verification"]["coverage"][0]
+        # Accepted, though the report stays unchecked until an actual inspection makes it current.
+        self.assertEqual((False, "unchecked"), (accepted["human_acceptance_pending"], accepted["state"]))
+        self.state["validation"]["source_revision"] = "changed"  # the receipt no longer binds this validation
+        self.assertTrue(runner.run_view.view(self.state)["verification"]["coverage"][0]["human_acceptance_pending"])
+
     def test_medium_blocking_finding_blocks_even_with_tests_passing(self):
         self.approve()
         current = self.validation()
