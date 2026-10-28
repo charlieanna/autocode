@@ -119,10 +119,13 @@ choice to use OpenCode's own permission checks on Linux. That choice concerns
 tool access; it does not bypass Linux provider process ownership. The macOS
 portable supervision limitation remains as described above.
 
-In a terminal this is a chat. AutoCode may ask a question or two (type the answer),
-then shows the plan: what will be built and how each requirement will be checked.
+In a terminal this is a chat. AutoCode may ask a question or two (type the answer, or
+an option's number). Once it has understood the request it asks before spending on
+planning: `Prepare a reviewed plan?` with what that spends, then `Prepare plan? [y/N]:`;
+type `y`. It then shows the plan: what will be built and how each requirement will be
+checked.
 
-**5. Approve.** At `Approve this brief? [y/N], or type planning feedback:` type `y`.
+**5. Approve.** At `Approve this plan? [y/N], or type what to change:` type `y`.
 Nothing is built before this; anything else you type goes back to the planners as
 feedback. After approval the Builder, Tester and Completion Reviewer run on their own
 until the task completes or needs you.
