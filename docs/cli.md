@@ -173,6 +173,11 @@ as if you had passed `--run-dir RUN`.
 | `--show-goal`, `--answer`, `--approve-goal`, `--feedback` and the other user actions | The only unfinished run, preferring one no task flow drives. These save the run, so they never pick a finished one. |
 | `--follow-up` | The most recently completed run, preferring one no task flow drives. Refused when a run started after it finished has not finished: name the run with `--run-dir`. |
 
+A new task (`autocode "TEXT"`) always starts a new run. When an unfinished run of this
+project already carries exactly that text, the start first prints a note on stderr naming
+each such run and the `autocode --run-dir RUN` that continues it, so a recalled start
+command does not quietly leave two runs of one request behind (#2340).
+
 ### Keeping authorization tokens out of argv
 
 These options accept `-` to read their paired environment variable:
