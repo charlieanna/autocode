@@ -148,6 +148,13 @@ class CleanTests(Fixture):
             code, out = self.clean("--yes")
         self.assertEqual(0, code, out)
         self.assertIn("PAUSED_NO_PROGRESS", out)
+        # The keep reason names steps that exist; "abandon" named none (#2365).
+        self.assertNotIn("abandon", out)
+        self.assertIn(
+            f"finish it, or drop it yourself with git -C {self.project} worktree remove --force {unfinished} "
+            "(its run records go with it)",
+            out,
+        )
         self.assertIn("commit it to the branch first", out)
         self.assertIn("owned by an `autocode program`", out)
         self.assertIn("holds its lock", out)
