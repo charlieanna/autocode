@@ -460,6 +460,9 @@ class ClaudeTests(unittest.TestCase):
             "OpenCode (the default for a new run) is not ready; Claude Code is on PATH", checks["engine"].detail
         )
         self.assertIn("or pass --engine claude", checks["engine"].fix)
+        # And how to stop typing it on every task (the fix named only the flag).
+        self.assertIn('engine = "claude" in the project\'s .autocode/config.toml', checks["engine"].fix)
+        self.assertIn('default_provider = "claude" in ~/.config/autocode/config.toml', checks["engine"].fix)
         self.assertNotIn("engine:claude", checks, "the login check belongs to doctor --engine claude")
         checks = self.checks(None, on_path(), {})
         self.assertEqual("OpenCode (the default for a new run) is not ready", checks["engine"].detail)
