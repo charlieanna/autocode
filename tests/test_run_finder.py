@@ -506,11 +506,14 @@ class CommandLine(Fixture):
             (["--no-chat", "show-goal"], "'show-goal' is the option --show-goal"),
             (["Add", "a", "hello", "script"], "unrecognized arguments: a hello script. If this was the task, put all"),
             (["Add", "--no-such-flag"], "unrecognized arguments: --no-such-flag\n"),
+            (["--task", "Add a hello script"], "there is no --task option: the task is the first argument"),
+            (["--task=Add a hello script", "--no-chat"], "there is no --task option"),
         ):
             with self.subTest(argv=argv):
                 self.assertIn(expected, self.parse_error(*argv))
         self.assertNotIn("put all of it in quotes", self.parse_error("Add", "--no-such-flag"))
         self.assertEqual("approve-goal", self.parse("--", "approve-goal")[0].task, "after -- the word is the task")
+        self.assertEqual("--task", self.parse("--", "--task")[0].task, "after -- the word is the task")
 
     def test_discovered_run_requires_explicit_recovery_with_an_expected_token(self):
         run = self.run_in(self.project, status="PAUSED_BUDGET")

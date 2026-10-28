@@ -133,6 +133,18 @@ def option_typed_as_task(parser, argv, task) -> str | None:
     return f"'{word}' is the option --{word}, not a task. Use --{word}, or write the task in quotes: autocode \"your task\""
 
 
+def task_typed_as_option(argv) -> str | None:
+    """`autocode --task "Add a greeting"`: the task is the first argument, not an option. Left to argparse,
+    --task is the abbreviation of --task-preflight, the task becomes its value, and the launcher reports
+    that there is no saved run (#2391). The refusal, else None; after ``--`` the words are task text."""
+    for word in argv:
+        if word == "--":
+            return None
+        if word == "--task" or word.startswith("--task="):
+            return 'there is no --task option: the task is the first argument, in quotes: autocode "your task"'
+    return None
+
+
 def command_names() -> tuple[str, ...]:
     """Every command handled before the main task parser, in help order."""
     return ("--version", "doctor", *COMMAND_WORDS, *sorted((set(SUBCOMMANDS) | set(BUILTIN_COMMANDS)) - {"doctor"}))
