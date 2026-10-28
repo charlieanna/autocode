@@ -1575,6 +1575,7 @@ class GoalTests(unittest.TestCase):
         )
         self.assertNotIn("r1:secret", shown)
         self.assertNotIn("contract_token", shown)
+
     def test_the_review_stop_names_the_changed_files_and_where_to_read_the_change(self):
         """The gate asked for approval of a change it never located (#2360)."""
         self.approve(human=True)
