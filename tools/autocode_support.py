@@ -444,7 +444,13 @@ def local_settings():
     config = tomllib.loads(config_path.read_text()) if config_path.exists() else {}
     keys = ("model", "model_reasoning_effort", "model_provider", "openai_base_url")
     settings = {k: config.get(k) for k in keys}
-    auth = subprocess.run(["codex", "login", "status"], capture_output=True, text=True)
+    try:
+        auth = subprocess.run(["codex", "login", "status"], capture_output=True, text=True)
+    except OSError as error:  # a bare errno told nobody which engine or what to do (#2307)
+        raise RuntimeError(
+            "Codex is not on PATH; no provider request was launched. Run `autocode doctor` to see what this "
+            "host has: an installed Claude Code or OpenCode runs with --engine claude or --engine opencode"
+        ) from error
     message = auth.stdout + auth.stderr
     settings["auth_mode"] = "ChatGPT" if "using ChatGPT" in message else "unknown"
     settings["environment_auth_present"] = any(k in os.environ for k in ("OPENAI_API_KEY", "CODEX_API_KEY"))
