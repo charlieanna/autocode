@@ -274,6 +274,39 @@ def main():
         row["active_contract_commands"] = [field for field, command in commands.items() if command in active]
         for field in row["active_contract_commands"]:
             value[field] = {} if field == "contract" else []
+    if stage == "glm_revise" and case.startswith("revision-reference"):
+        if repair:
+            value = copy.deepcopy(data["rejected_report"]["content"])
+            value["summary"] = "Addressed concern with exact inherited obligations"
+        else:
+            original = data["goal_contract"]["body"]
+            proposed = value["contract"]
+            changes = {
+                key: proposed[key]
+                for key in ("technical_approach", "milestones", "initial_task", "deliverables", "end_to_end_flow")
+                if key in proposed and proposed[key] != original.get(key)
+            }
+            value["contract"] = {
+                "revise_contract": data.get("retained_contract"),
+                "changes": changes,
+                "retain_requirement_trace": True,
+            }
+            value["requirement_trace"] = []
+            value["contract_changes"] = []
+            if case == "revision-reference-repair":
+                value.pop("summary")
+        if case == "revision-reference-stale":
+            value["contract"]["revise_contract"] = "r0:stale"
+        elif case == "revision-reference-protected":
+            value["contract"]["changes"]["permission_boundaries"] = ["Arbitrary network allowed"]
+        elif case == "revision-reference-missing-criterion":
+            value["contract"]["acceptance_criteria"] = {
+                "retain_from": value["contract"]["revise_contract"],
+                "upsert": [],
+                "remove": ["C1"],
+            }
+        row["revision_reference"] = copy.deepcopy(value["contract"])
+        row["reference_instruction"] = "REVISE ONLY CHANGED FIELDS" in prompt
     if stage == "glm_revise" and case == "batched-protected-diagnostics":
         exact = "Reject an empty name with nonzero exit status"
         if not repair:

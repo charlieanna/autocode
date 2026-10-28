@@ -251,6 +251,30 @@ class ProvenanceDefaults(unittest.TestCase):
         self.assertEqual(before, autocode.default_missing_provenance(before, legacy))
         self.assertNotIn("defaulted_fields", legacy)
 
+    def test_revision_reference_and_legacy_body_get_only_their_own_defaults(self):
+        import autocode_plan_retention as retention
+        from units import autoplanner
+
+        state = {"goal_contract": {"hash": "h", "revision": 1, "body": {}}}
+        schema = retention.model_schema(autoplanner.SCHEMAS["glm_revise"], state, "glm_revise")
+        properties = schema["properties"]
+        ref = {"revise_contract": "r1:h", "changes": {}}
+        record = self.record("glm_revise", properties)
+        result = autocode.default_missing_provenance({"contract": ref}, record)
+        self.assertEqual(ref, result["contract"])
+        row = {"id": "C1", "criterion": "Preserve greeting"}
+        delta = {"retain_from": "r1:h", "upsert": [row], "remove": []}
+        result = autocode.default_missing_provenance(
+            {"contract": {**ref, "acceptance_criteria": delta}}, self.record("glm_revise", properties)
+        )
+        self.assertEqual("", result["contract"]["acceptance_criteria"]["upsert"][0]["current_behavior"])
+        self.assertNotIn("task_kind", result["contract"])
+        result = autocode.default_missing_provenance(
+            {"contract": {"acceptance_criteria": [row]}}, self.record("glm_revise", properties)
+        )
+        self.assertEqual("build", result["contract"]["task_kind"])
+        self.assertEqual("", result["contract"]["acceptance_criteria"][0]["current_behavior"])
+
     def test_the_resolver_accepts_a_bug_fix_contract(self):
         import autocode_resolver as resolver
         from goal_fixtures import body

@@ -423,6 +423,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Planner revisions can send only changed engineering fields against the exact saved plan, retaining
+  unchanged criteria and validated requirement traces before ordinary coverage/authority checks. This
+  avoids forced whole-contract rewriting; full reports and older saved repair schemas remain supported (#2374).
+
 - The brief printed at every launch and stop now lists each saved answer as one line (the question, the answer, and whether it was delegated) instead of dumping the answer records as JSON, contract tokens included (#2363).
 - `autocode clean-worktrees` no longer tells the person to "finish or abandon" an unfinished run, a verb no command implements; its keep reason now names the steps that work today, `git worktree remove --force` on the worktree and, with a shared registry, `autocode registry forget-deleted` (#2365).
 - `autocode models` without `--provider` now follows the project's `engine` setting as `doctor` and a task do, instead of failing with "OpenCode is not on PATH" in a Codex project: a `claude` project lists the Claude Code provider, and a `codex` project is told its routes are fixed (#2369).
