@@ -497,6 +497,7 @@ class ChatClient:
             or (((self._status_view or {}).get("execution") or {}).get("mode") == "durable_local")
         ):
             return worker.advance(self, argv, env)
+        before = self._status_view
         with tempfile.TemporaryFile("w+") as log:
             child = subprocess.Popen(
                 [*self.command, *argv],
@@ -543,7 +544,8 @@ class ChatClient:
             if argv[:1] == ["coordinate"] and child.returncode:
                 log.seek(0)
                 raise actions.ClientGap("Coordination stopped: " + log.read()[-2000:].strip())
-            if child.returncode == 2 and str(self.run_dir) in self.viewed:
+            after = self.status() if child.returncode == 2 and before is not None else None
+            if after is not None and all(before.get(key) == after.get(key) for key in PROGRESS_KEYS):
                 # Exit 2 can refuse an action without changing the saved view.
                 # Show bounded diagnostics; never parse prose into a new action.
                 log.seek(0)
