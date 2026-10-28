@@ -423,6 +423,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode explain` and the status view's `explanation` no longer say "no new decision is needed while the controller is active" for a RUNNING checkpoint the controller left on purpose after a saved answer, approval or follow-up; they say nothing runs it until someone runs the next command, as the summary already did (#2393).
 - `autocode review-pr 12`, `review-pr OWNER/REPO#12` or an issue link is refused by naming the form a pull request URL takes (`pull request URL must be https://github.com/OWNER/REPO/pull/N, not '12'`) instead of "must match the configured GitHub API web host and port", which now names the expected host and is kept for a well-formed URL on another host (#2409).
 - `--max-iterations 0` (and `--legacy-iteration-ceiling 0`) is refused before anything is created: it could never let a stage run, so a new task made a worktree and a run that paused at once with "Saved iteration ceiling reached"; the refusal says to omit the flag or pass `--unlimited-iterations` (#2406).
 - `autocode "   "` is refused as a blank task before any worktree or run exists; it started a task worktree, a branch and a run for the whitespace (#2404). A positional-task refusal no longer carries the `Cannot read brief:` prefix meant for `--brief` and `--brief-file`.
