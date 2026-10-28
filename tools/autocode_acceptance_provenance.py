@@ -134,19 +134,6 @@ def _has_fail_first_origin(state: RunState, row, path, archived) -> bool:
     return False
 
 
-def _historical_approval(state: RunState, contract):
-    """Feedback revokes current approval; its unique historical receipt still authenticates old tests."""
-    events = [
-        event
-        for event in state["user_events"]
-        if event.get("kind") == "goal_approval" and event.get("token") == identity.token(contract)
-    ]
-    if len(events) != 1 or contract.get("approval_event") not in (None, events[0]):
-        return None
-    prior = {**contract, "approval_status": "approved", "approval_event": events[0]}
-    return events[0] if identity.approved({**state, "goal_contract": prior}) else None
-
-
 def _reapproved_cases(state: RunState, reports, workspace) -> set[str]:
     """An unchanged same-turn test may already pass after the Builder implemented it.
 
@@ -172,7 +159,7 @@ def _reapproved_cases(state: RunState, reports, workspace) -> set[str]:
         reproduced = {case["id"] for case in test_cases.diagnosis_cases(state)}
         result = set()
         for contract in history:
-            approval = _historical_approval(state, contract)
+            approval = identity.historical_approval(state, contract)
             if (
                 approval is None
                 or not boundary < events.index(approval) < events.index(current["approval_event"])
