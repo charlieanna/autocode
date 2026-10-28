@@ -207,6 +207,20 @@ class SummaryTests(unittest.TestCase):
             ],
             approval_view.review_request(plan, request, validation),
         )
+        # With the saved Builder steps attributed to each criterion and the run known, the gate names
+        # the files to look at and the one command that shows the change with its evidence (#2360).
+        changes = {"criteria": [{"id": "C1", "files": ["greet.py", "test_greet.py"]}]}
+        self.assertEqual(
+            [
+                "Your review is needed before the run can complete:",
+                "  [C1] Contract holds",
+                "    Checked by: Execute greeting and invalid-input regression checks (pass in the independent check)",
+                "    Changed: greet.py, test_greet.py",
+                "  Independent evidence passed; human review remains",
+                "  See the change and its evidence: autocode review --show --run-dir /run",
+            ],
+            approval_view.review_request(plan, request, validation, changes, "/run"),
+        )
         self.assertEqual(
             [
                 "Validation: PASS; 1 check(s) ran, each exited 0; 0 finding(s).",

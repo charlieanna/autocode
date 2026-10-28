@@ -50,6 +50,7 @@ try:
     from . import autocode_adaptive_planning as adaptive
     from . import autocode_approval_view as approval_view
     from . import autocode_brief_obligations as brief_obligations
+    from . import autocode_criterion_changes as criterion_changes
     from . import autocode_current_behavior as current_behavior
     from . import autocode_design_plan as design_plan
     from . import autocode_finding_rescope as finding_rescope
@@ -100,6 +101,7 @@ except ImportError:
     import autocode_adaptive_planning as adaptive
     import autocode_approval_view as approval_view
     import autocode_brief_obligations as brief_obligations
+    import autocode_criterion_changes as criterion_changes
     import autocode_current_behavior as current_behavior
     import autocode_design_plan as design_plan
     import autocode_finding_rescope as finding_rescope
@@ -831,7 +833,13 @@ def render(state: RunState, run_dir=None):
         lines += ["", "Saved brief feedback:"] + ["  - " + row["text"] for row in state["brief_feedback"]]
     if public:
         if (public["request"] or {}).get("kind") == "human_review":
-            lines += [""] + approval_view.review_request(body, public["request"], state.get("validation"))
+            lines += [""] + approval_view.review_request(
+                body,
+                public["request"],
+                state.get("validation"),
+                criterion_changes.attribute(body, state.get("code_checkpoints")),
+                run_dir if run_dir is not None else state.get("run_dir"),
+            )
         elif public["request"]:
             lines += ["", "Decision needed:", json.dumps(public["request"], indent=2)]
         lines += [f"Answer ID: {q['id']} - {q['question']}" for q in public["questions"]]

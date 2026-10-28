@@ -232,13 +232,22 @@ def _items(value) -> list[str] | None:
     return [row if isinstance(row, str) else json.dumps(row, sort_keys=True) for row in value]
 
 
-def review_request(body: dict, request: dict, validation: dict | None) -> list[str]:
+def review_request(
+    body: dict, request: dict, validation: dict | None, changes: dict | None = None, run_dir=None
+) -> list[str]:
     """The human-review gate as a person reads it: each criterion to review with its text, how the
-    independent check covered it, and what the gate asks (#2327). The raw request stays in the payload."""
+    independent check covered it, which files its saved Builder steps changed, what the gate asks
+    (#2327), and the one command that shows the change with its evidence (#2360). ``changes`` is the
+    status view's ``changes_by_criterion``; the raw request stays in the payload."""
     rows = {row.get("id"): row for row in body.get("acceptance_criteria") or [] if isinstance(row, dict)}
     results = {
         row.get("id"): row.get("status")
         for row in (validation or {}).get("criterion_results") or []
+        if isinstance(row, dict)
+    }
+    changed = {
+        row.get("id"): [str(path) for path in row.get("files") or []]
+        for row in (changes or {}).get("criteria") or []
         if isinstance(row, dict)
     }
     lines = ["Your review is needed before the run can complete:"]
@@ -250,8 +259,12 @@ def review_request(body: dict, request: dict, validation: dict | None) -> list[s
             status = results.get(identifier)
             verdict = f" ({str(status).lower()} in the independent check)" if status else ""
             lines.append(f"    Checked by: {row['verification_method']}{verdict}")
+        if changed.get(identifier):
+            lines.append(f"    Changed: {', '.join(changed[identifier])}")
     if request.get("discovered"):
         lines.append(f"  {request['discovered']}")
+    if run_dir is not None:
+        lines.append(f"  See the change and its evidence: autocode review --show --run-dir {run_dir}")
     return lines
 
 

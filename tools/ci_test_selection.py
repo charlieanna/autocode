@@ -434,6 +434,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_planning_report_policy.py",
             "tools/autocode_plan_retention.py",
             "tools/autocode_report_repair_context.py",
+            "tools/autocode_report_source.py",
             "tools/units/autoplanner.py",
         ),
         ("tests.test_stage_repair_cli",),
