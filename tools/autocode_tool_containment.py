@@ -131,7 +131,14 @@ def backend():
 
 
 def _bubblewrap_problem():
-    """Why bwrap cannot create the namespaces a contained shell needs, or None."""
+    """Why bwrap cannot create the namespaces a contained shell needs, or None.
+
+    The probe mounts the fresh /dev and /proc every launch's bubblewrap_arguments()
+    creates in the new PID namespace. Namespaces alone can work where that mount is
+    refused: a container that masks system paths (Docker's default masks) blocks the
+    fresh /proc mount, so the weaker no-proc probe passed exactly where the first real
+    launch failed (#2373).
+    """
     if not Path(BWRAP).is_file():
         return (
             "strict tool containment requires macOS sandbox-exec or Linux bubblewrap at "
@@ -139,7 +146,22 @@ def _bubblewrap_problem():
         )
     try:
         probe = subprocess.run(
-            [BWRAP, "--unshare-all", "--cap-drop", "ALL", "--ro-bind", "/", "/", "/bin/sh", "-c", "exit 0"],
+            [
+                BWRAP,
+                "--unshare-all",
+                "--cap-drop",
+                "ALL",
+                "--ro-bind",
+                "/",
+                "/",
+                "--dev",
+                "/dev",
+                "--proc",
+                "/proc",
+                "/bin/sh",
+                "-c",
+                "exit 0",
+            ],
             capture_output=True,
             text=True,
             timeout=15,
@@ -151,8 +173,12 @@ def _bubblewrap_problem():
         detail = (probe.stderr.strip().splitlines() or ["no message"])[-1][:300]
         # "this machine is <platform>", as every other refusal says it (the CLI names the host the same way).
         return (
-            f"strict tool containment found {BWRAP} but it cannot create unprivileged namespaces; "
-            f"this machine is {sys.platform}, where the probe exited {probe.returncode}: {detail}"
+            f"strict tool containment found {BWRAP} but it cannot create the unprivileged namespaces "
+            f"and fresh /proc mount a contained shell needs; this machine is {sys.platform}, where the "
+            f"probe exited {probe.returncode}: {detail}. This host may disable unprivileged user "
+            "namespaces, or mask system paths so the sandbox cannot mount its own /proc (Docker's "
+            "default masks do); enable user namespaces, or run the outer container with "
+            "--security-opt=systempaths=unconfined, or use an unmasked host"
         )
     return None
 
@@ -161,7 +187,8 @@ def sandbox_problem():
     """Why this host has no usable kernel sandbox for contained shells, or None.
 
     Runs no OpenCode: on Linux it starts one bwrap probe, because an installed bwrap
-    can still be denied unprivileged user namespaces.
+    can still be denied unprivileged user namespaces, or be unable to mount the fresh
+    /proc its launches need inside the new PID namespace (#2373).
     """
     host = backend()
     if host is None:

@@ -193,6 +193,41 @@ class StopExplanationTests(unittest.TestCase):
         )
         self.assertTrue(view["explanation"]["what_the_command_does"])
 
+    def test_an_answered_operational_request_explains_the_cause_the_pause_still_holds_for(self):
+        """After --resolver-response the stop reason only records the receipt; the view still says why (#2371)."""
+        cause = "Completed requirements_gather output was rejected ($: missing assistant_reply); attempt archived"
+        state = {
+            "status": "PAUSED_REPEATED_FAILURE",
+            "stop_reason": (
+                "AutoResolver received the human response; no execution, approval or additional allowance was"
+                " authorized."
+            ),
+            "settings": {"roles": {}},
+            "acceptance_criteria": [],
+            "resolver": {
+                "human_escalations": {
+                    "req": {
+                        "status": "consumed",
+                        "identity": {
+                            "proposal": {
+                                "scope": "operational_exhaustion",
+                                "origin": {"pause_status": "PAUSED_REPEATED_FAILURE"},
+                                "request": {"discovered": cause},
+                            }
+                        },
+                    }
+                },
+                "human_response_frontier": {"request_id": "req", "pause_status": "PAUSED_REPEATED_FAILURE"},
+            },
+        }
+        text = run_view.view(state)["explanation"]
+        self.assertIn("The run is still held for: " + cause + ".", text["what_happened"])
+        self.assertIn("received the human response", text["what_happened"])
+        self.assertNotIn("authorized..", text["what_happened"])
+        plain = stop_explanations.explain("PAUSED_REPEATED_FAILURE", stop_reason="the same failure repeated.")
+        self.assertNotIn("repeated..", plain["what_happened"])
+        self.assertNotIn("still held for", plain["what_happened"])
+
     def test_a_supervised_running_view_explains_ongoing_work_without_resume(self):
         supervision = {
             "schema": 1,

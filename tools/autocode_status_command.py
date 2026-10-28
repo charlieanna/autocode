@@ -40,6 +40,7 @@ try:
     from . import autocode_interventions as interventions
     from . import autocode_job_report_recovery as job_report_recovery
     from . import autocode_liveness as liveness_policy
+    from . import autocode_pause_authority as pause_authority
     from . import autocode_pause_offer as pause_offer
     from . import autocode_progress_view as progress_view
     from . import autocode_stop_explanations as stop_explanations
@@ -55,6 +56,7 @@ except ImportError:
     import autocode_interventions as interventions
     import autocode_job_report_recovery as job_report_recovery
     import autocode_liveness as liveness_policy
+    import autocode_pause_authority as pause_authority
     import autocode_pause_offer as pause_offer
     import autocode_progress_view as progress_view
     import autocode_stop_explanations as stop_explanations
@@ -109,7 +111,10 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
     state = controller_owner.project(state, owner)
     if getattr(args, "explain", False):
         text = stop_explanations.explain(
-            state.get("status") or "", stop_reason=state.get("stop_reason") or "", needs=runner.run_view.needs(state)
+            state.get("status") or "",
+            stop_reason=state.get("stop_reason") or "",
+            needs=runner.run_view.needs(state),
+            held_cause=pause_authority.answered_cause(state),
         )
         print(text["what_happened"])
         print()

@@ -74,6 +74,36 @@ class HeldPauseTests(unittest.TestCase):
         state["stop_reason"] = "AutoResolver received the human response; no execution was authorized."
         self.assertEqual(state["stop_reason"], pause_authority.held_cause(state, "PAUSED_RATE_LIMIT"))
 
+    def test_an_answered_request_still_names_the_cause_the_pause_holds_for(self):
+        """respond_operational replaces the stop reason with its receipt note; the cause survives in the request."""
+        cause = "Completed requirements_gather output was rejected ($: missing assistant_reply); attempt archived"
+        escalation = {
+            "status": "consumed",
+            "identity": {
+                "proposal": {
+                    "scope": "operational_exhaustion",
+                    "origin": {"pause_status": "PAUSED_REPEATED_FAILURE"},
+                    "request": {"discovered": cause},
+                }
+            },
+        }
+        state = {
+            "status": "PAUSED_REPEATED_FAILURE",
+            "stop_reason": "AutoResolver received the human response; no execution was authorized.",
+            "resolver": {
+                "human_escalations": {"req": escalation},
+                "human_response_frontier": {"request_id": "req", "pause_status": "PAUSED_REPEATED_FAILURE"},
+            },
+        }
+        self.assertEqual(cause, pause_authority.answered_cause(state))
+        # Before the answer the stop reason itself starts with the cause: nothing to add.
+        state["stop_reason"] = cause + ". Provide corrective information or leave the run paused."
+        self.assertEqual("", pause_authority.answered_cause(state))
+        # A frontier at another pause is not this pause's cause.
+        state["stop_reason"] = "AutoResolver received the human response; no execution was authorized."
+        state["resolver"]["human_response_frontier"]["pause_status"] = "PAUSED_RATE_LIMIT"
+        self.assertEqual("", pause_authority.answered_cause(state))
+
     def test_feedback_acknowledges_only_a_pause_that_offers_it(self):
         # The planning budget, and the validation-only stop whose request names --feedback (tests.test_rework_cli).
         def asked(request, at, pause="PAUSED_RESOLVER", status="pending"):
