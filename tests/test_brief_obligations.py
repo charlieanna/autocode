@@ -736,7 +736,11 @@ class BriefObligationsTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 request = autoplanner.prepare(state, stage, self.root / "state.json", self.root)
                 strict = autoplanner.s.model_output_schema(request.schema)
-                self.assertNotIn("brief_acceptance", strict["properties"]["contract"]["properties"])
+                contract = strict["properties"]["contract"]
+                for branch in contract.get("anyOf", [contract]):
+                    fields = branch["properties"]
+                    self.assertNotIn("brief_acceptance", fields)
+                    self.assertNotIn("brief_acceptance", fields.get("changes", {}).get("properties", {}))
                 packet = json.loads(request.prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
                 self.assertEqual(stage == "astra_finalize", "brief_declaration_inventory" in packet)
         self.assertIn("brief_acceptance", goals.BODY_SCHEMA["properties"])
