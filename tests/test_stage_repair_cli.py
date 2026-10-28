@@ -267,6 +267,37 @@ class StageRepairCLI(unittest.TestCase):
         concerns = state["planning"]["reports"]["astra_challenge"]["report"]["concerns"]
         self.assertEqual([row["id"] for row in concerns], [row["concern_id"] for row in final["decisions"]])
 
+    def test_malformed_report_text_edits_reach_plan_approval_without_recopying(self):
+        fixture = self.fixture_for("malformed-text-edits")
+        run, state, view, trace = self.plan(fixture)
+        self.assert_approval_boundary(fixture, state, view, trace)
+        repairs = [row for row in trace if row["repair"]]
+        self.assertEqual(1, len(repairs), repairs)
+        self.assertTrue(repairs[0]["text_rule"])
+        self.assertLess(repairs[0]["patch_bytes"], repairs[0]["source_bytes"])
+        report = Path(repairs[0]["output"])
+        self.assertEqual(repairs[0]["patch"], json.loads(report.with_suffix(".reported.json").read_text()))
+        self.assertIn("contract", json.loads(report.read_text()))
+        plan = fixture.launch(["--run-dir", str(run), "--show-goal"], 0).stdout
+        self.assertIn("C1", plan)
+        self.assertIn("Greet", plan)
+
+    def test_malformed_report_text_edits_cannot_weaken_or_lose_the_exact_source(self):
+        for case in ("stale", "protected", "ambiguous"):
+            with self.subTest(case=case):
+                fixture = self.fixture_for("malformed-text-edits-" + case)
+                _, _, view, trace = self.plan(fixture)
+                self.assertNotEqual("AWAITING_GOAL_APPROVAL", view["status"])
+                self.assertFalse(view["done"])
+                self.assertFalse(any(row["stage"] == "terra" for row in trace))
+                self.assertTrue(any(row.get("patch") for row in trace))
+                expected = {
+                    "stale": "exact rejected source",
+                    "protected": "without a user-backed contract change",
+                    "ambiguous": "exactly once in the pinned source",
+                }[case]
+                self.assertTrue(any(expected in row.get("error", "") for row in trace), trace)
+
     def test_bounded_report_edits_reach_exact_plan_gate_without_recopying(self):
         fixture = self.fixture_for("bounded-report-edits")
         run, state, view, trace = self.plan(fixture)
