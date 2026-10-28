@@ -423,6 +423,23 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode spec.md` no longer starts a run whose task is the literal words `spec.md`: a whitespace-free
+  positional task that names an existing file is refused before any run is created, naming
+  `--brief-file spec.md` for the file's contents and `--brief spec.md` for the words themselves (#2323).
+- `autocode clean-worktrees --yes` forgets the removed worktree's runs in the shared registry, so
+  `autocode runs --all` no longer lists each cleaned-up run as unreadable ("Run state.json is
+  unavailable") for good; the records stay archived and the branch is kept (#2319).
+- `autocode runs --all` says when a registered run's directory no longer exists and names the exact
+  `autocode registry forget-deleted --workspace W --run-dir R` command that drops its entry, instead of
+  "Run state.json is unavailable" with no way out; `forget-deleted` is now documented with the other
+  registry operations (#2321).
+- `--answer` with an unknown question id, an already answered id or empty text is refused with a sentence
+  naming the mistake and the open question ids, instead of one generic "Answer must address one unresolved
+  question with nonempty text" for all three (#2313).
+- `autocode merge` run again after a successful merge says "already merged: master at ... contains
+  autocode/..." and exits 0, instead of "the base branch moved after this run started; re-validate ...
+  then merge again"; its ancestor checks now read git's exit code, so a diverged base takes the
+  documented merge-commit path instead of always attempting a fast-forward (#2315).
 - `--engine codex` on a host without Codex is refused in words ("Codex is not on PATH; no provider request
   was launched. Run `autocode doctor` ...") instead of a raw "[Errno 2] No such file or directory: 'codex'",
   on a new run and on a resume; the Claude engine's refusal gains the same `autocode doctor` hint (#2307).

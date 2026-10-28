@@ -32,6 +32,20 @@ class TaskInputTests(unittest.TestCase):
         self.assertEqual(text, task_input.load(text, brief=None, brief_file=None, stdin=io.StringIO()))
         self.assertIsNone(task_input.load(None, brief=None, brief_file=None, stdin=io.StringIO()))
 
+    def test_a_positional_task_that_names_a_file_is_refused_with_both_readings(self):
+        """#2323: `autocode spec.md` started a run whose task was the literal words "spec.md"."""
+        with tempfile.TemporaryDirectory() as temp:
+            spec = Path(temp) / "spec.md"
+            spec.write_text("Build a greeting CLI\n")
+            with self.assertRaisesRegex(ValueError, "--brief-file .*spec.md; .*--brief .*spec.md"):
+                task_input.load(str(spec), brief=None, brief_file=None, stdin=io.StringIO())
+            # The same words as an explicit brief, a task with spaces, or a name that is no file stay literal.
+            self.assertEqual(str(spec), task_input.load(None, brief=str(spec), brief_file=None, stdin=io.StringIO()))
+            spaced = f"fix {spec}"
+            self.assertEqual(spaced, task_input.load(spaced, brief=None, brief_file=None, stdin=io.StringIO()))
+            missing = str(Path(temp) / "missing.md")
+            self.assertEqual(missing, task_input.load(missing, brief=None, brief_file=None, stdin=io.StringIO()))
+
     def test_conflicting_inputs_are_rejected_before_reading_stdin(self):
         stream = io.StringIO("must remain unread")
         with self.assertRaisesRegex(ValueError, "positional task"):
