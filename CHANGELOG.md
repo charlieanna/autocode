@@ -423,6 +423,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode spec.md` no longer starts a run whose task is the literal words `spec.md`: a whitespace-free
+  positional task that names an existing file is refused before any run is created, naming
+  `--brief-file spec.md` for the file's contents and `--brief spec.md` for the words themselves (#2323).
 - `--answer` with an unknown question id, an already answered id or empty text is refused with a sentence
   naming the mistake and the open question ids, instead of one generic "Answer must address one unresolved
   question with nonempty text" for all three (#2313).
