@@ -112,6 +112,17 @@ class ScopeTests(unittest.TestCase):
                 self.assertTrue({"suite", "linux"} <= enabled)
                 self.assertFalse({"macos", "windows"} & enabled)
 
+    def test_evidence_and_planning_policy_select_their_black_box_scenarios(self):
+        for path in (
+            "tools/autocode_report_identity.py",
+            "tools/autocode_planning_advice.py",
+            "tools/autocode_stuck_job.py",
+            "tools/autocode_regression.py",
+            "tools/autocode_verify.py",
+        ):
+            with self.subTest(path=path):
+                self.assertIn("scenarios", self.enabled(path))
+
     def test_a_tools_fixture_a_scenario_copies_turns_the_scenario_harness_on(self):
         # scenarios/test_contained_opencode.py copies and runs the fake OpenCode client; no import names it (#709).
         self.assertEqual({"suite", "scenarios", "linux", "wheel"}, self.enabled("tools/fake_opencode.py"))

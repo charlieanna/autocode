@@ -298,6 +298,21 @@ SHARED_SCENARIO_PATHS = ("scenarios/harness/", "scenarios/run.py", "scenarios/__
 # A tools/ script a scenario module copies by file name and runs, which no import names, and that
 # module. ci_scope turns the scenario harness step on for these paths too.
 SCENARIO_FIXTURES = {"tools/fake_opencode.py": "scenarios.test_contained_opencode"}
+# Black-box consumers cannot import their runtime producers. Keep this map shared
+# with ci_scope so selecting a consumer also enables the job that executes it.
+SCENARIO_RUNTIME_CONSUMERS = {
+    "tools/autocode_report_identity.py": ("scenarios.test_adversarial_evidence",),
+    "tools/autocode_planning_advice.py": ("scenarios.test_adversarial_planning",),
+    "tools/autocode_stuck_job.py": ("scenarios.test_adversarial_planning",),
+    "tools/autocode_regression.py": (
+        "scenarios.test_harness.StockRefusalsRunTests",
+        "scenarios.test_harness.HybridRunTests",
+    ),
+    "tools/autocode_verify.py": (
+        "scenarios.test_harness.StockRefusalsRunTests",
+        "scenarios.test_harness.HybridRunTests",
+    ),
+}
 LIFECYCLE_TOKENS = (
     "process",
     "session",
@@ -326,6 +341,12 @@ def harness_tests(changed: list[str] | None = None) -> list[str]:
         classes.update(
             {"DriverTimeoutTests", "HarnessNativeIdentityTests", "HarnessAttemptTests", "HarnessOwnerLossTests"}
         )
+    classes.update(
+        target.removeprefix(HARNESS + ".")
+        for path in changed
+        for target in SCENARIO_RUNTIME_CONSUMERS.get(path, ())
+        if target.startswith(HARNESS + ".")
+    )
     if any(path.startswith("scenarios/catalog/") for path in changed):
         classes.update({"CatalogTests", "OracleControlTests", "RunChecksTests"})
     # Failed imports must still run and fail, rather than disappear from focus.
@@ -352,6 +373,7 @@ def scenario_selection(changed: list[str] | None, slow: dict[str, str]) -> tuple
         return modules, []
     selected: set[str] = set()
     for path in changed:
+        selected.update(SCENARIO_RUNTIME_CONSUMERS.get(path, ()))
         for module in modules:
             file = module.replace(".", "/") + ".py"
             if path == file or (module in CATALOG_TEST_MODULES and path.startswith(file.rsplit("/", 1)[0] + "/")):

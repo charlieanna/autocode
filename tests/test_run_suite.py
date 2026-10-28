@@ -385,6 +385,46 @@ class ScenarioModulesTests(unittest.TestCase):
         with mock.patch.object(run_suite, "scenario_modules", return_value=modules):
             self.assertEqual(([modules[0]], modules[1:]), run_suite.scenario_selection(["tools/fake_opencode.py"], {}))
 
+    def test_runtime_policy_selects_evidence_and_planning_black_box_consumers(self):
+        modules = [
+            "scenarios.test_adversarial_evidence",
+            "scenarios.test_adversarial_planning",
+            "scenarios.test_lying_matrix",
+        ]
+        cases = {
+            "tools/autocode_report_identity.py": modules[0],
+            "tools/autocode_planning_advice.py": modules[1],
+            "tools/autocode_stuck_job.py": modules[1],
+        }
+        with mock.patch.object(run_suite, "scenario_modules", return_value=modules):
+            for path, expected in cases.items():
+                with self.subTest(path=path):
+                    selected, skipped = run_suite.scenario_selection([path], {expected: "slow"})
+                    self.assertEqual([expected], selected)
+                    self.assertIn(modules[2], skipped)
+
+    def test_proof_policy_selects_trap_replay_scoring_without_other_harness_runs(self):
+        targets = [
+            "scenarios.test_harness.StockRefusalsRunTests.test_reference",
+            "scenarios.test_harness.HybridRunTests.test_routes",
+            "scenarios.test_harness.DriverFlagTests.test_flags",
+            "scenarios.test_harness.UnrelatedSlowTests.test_other",
+        ]
+        with mock.patch.object(run_suite, "split_module", return_value=targets):
+            for path in ("tools/autocode_regression.py", "tools/autocode_verify.py"):
+                with self.subTest(path=path):
+                    self.assertEqual(targets[:3], run_suite.harness_tests([path]))
+
+    def test_runtime_consumer_paths_and_test_targets_still_exist(self):
+        for path, targets in run_suite.SCENARIO_RUNTIME_CONSUMERS.items():
+            with self.subTest(path=path):
+                self.assertTrue((run_suite.REPO_ROOT / path).is_file(), path)
+            for target in targets:
+                with self.subTest(target=target):
+                    cases = list(run_suite.iter_tests(unittest.defaultTestLoader.loadTestsFromName(target)))
+                    self.assertTrue(cases, target)
+                    self.assertFalse(any("._FailedTest." in case.id() for case in cases), target)
+
     def test_each_scenario_fixture_is_a_tools_script_its_scenario_module_names(self):
         # A renamed fixture or scenario module fails here instead of quietly dropping the selection.
         modules = run_suite.scenario_modules()
