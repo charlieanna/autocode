@@ -9,8 +9,62 @@ from unittest import mock
 
 import autocode_test_environment as test_environment
 import autocode_verify as verify
-from autocode_python_tests import parse, prefers_pytest, unittest_results, verbose_unittest
+from autocode_python_tests import (
+    empty_package_marker,
+    parse,
+    prefers_pytest,
+    pytest_classname,
+    unittest_results,
+    verbose_unittest,
+)
 from autocode_verification_schedule import collection_kind
+
+
+class PythonProofIdentityTests(unittest.TestCase):
+    def test_only_empty_package_markers_have_no_test_or_collection_behavior(self):
+        for source in ("", "\n # package marker\n"):
+            self.assertTrue(empty_package_marker("tests/__init__.py", source))
+        for path, source in (
+            ("tests/test_guard.py", ""),
+            ("tests/__init__.py", "import math\n"),
+            ("tests/__init__.py", "def load_tests(loader, tests, pattern): return tests\n"),
+            ("tests/__init__.py", "def test_guard(): assert True\n"),
+            ("tests/__init__.py", '"package documentation"\n'),
+            ("tests/__init__.py", "not valid python ?"),
+        ):
+            with self.subTest(path=path, source=source):
+                self.assertFalse(empty_package_marker(path, source))
+
+    def test_junit_prefix_must_name_the_physical_tree_and_an_existing_module(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / ".proof-output" / "scratch-run" / "candidate"
+            module = root / "repos" / "history-service" / "tests" / "test_history.py"
+            module.parent.mkdir(parents=True)
+            module.write_text("class HistoryTests: pass\n")
+            name = "repos.history-service.tests.test_history.HistoryTests"
+            prefix = root.relative_to(Path(temp)).as_posix().replace("/", ".") + "."
+            self.assertEqual(name, pytest_classname(prefix + name, root))
+            self.assertEqual(name, pytest_classname(name, root))
+            self.assertEqual(prefix + name, pytest_classname(prefix + name, None))
+            missing = prefix + "tests.test_missing.Tests"
+            self.assertEqual(missing, pytest_classname(missing, root))
+            outside = Path(temp) / "external.py"
+            outside.write_text("class Tests: pass\n")
+            linked = root / "tests/test_external.py"
+            linked.parent.mkdir(parents=True)
+            linked.symlink_to(outside)
+            foreign = prefix + "tests.test_external.Tests"
+            self.assertEqual(foreign, pytest_classname(foreign, root))
+
+    def test_real_project_prefix_and_ambiguous_module_identities_are_not_stripped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "again" / "again"
+            for name in ("test_fix.py", "again/test_fix.py", "scratch/candidate/test_fix.py"):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("class Tests: pass\n")
+            for name in ("again.again.test_fix.Tests", "scratch.candidate.test_fix.Tests"):
+                self.assertEqual(name, pytest_classname(name, root))
 
 
 class DeclaredTestStyleTests(unittest.TestCase):

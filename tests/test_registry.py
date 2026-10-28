@@ -33,6 +33,16 @@ class RegistryTests(unittest.TestCase):
         self.environment.start()
         self.addCleanup(self.environment.stop)
 
+    def test_explicit_storage_lists_without_an_account_home(self):
+        with patch.object(Path, "home", side_effect=RuntimeError("No account home")):
+            self.assertEqual(self.home, registry.storage_root())
+            self.assertEqual([], registry.listing()["workspaces"])
+        self.assertFalse(self.home.exists(), "Listing an empty explicit registry must stay read-only")
+
+    def test_unconfigured_storage_keeps_the_account_home_default(self):
+        with patch.dict(os.environ, {}, clear=True), patch.object(Path, "home", return_value=self.root):
+            self.assertEqual(self.root / ".autocode", registry.storage_root())
+
     def fixture(self, name):
         workspace = self.root / name
         workspace.mkdir()

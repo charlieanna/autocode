@@ -406,6 +406,24 @@ class GoalTests(unittest.TestCase):
                 self.assertEqual(2, self.invoke("--feedback", "Correct the report"))
                 self.assertIn("conversation checkpoint", self.stderr + self.stdout)
 
+    def test_stopped_acceptance_writer_can_take_named_selector_feedback_without_dispatch(self):
+        self.approve()
+        self.state["settings"]["roles"]["completion"] = {"model": "sol", "reasoning_effort": "high"}
+        self.state["settings"]["limits"].update(idle_timeout_seconds=300, tool_timeout_seconds=600, max_seconds=3600)
+        token = g.token(self.state["goal_contract"])
+        self.state.update(status="PAUSED_INVALID_OUTPUT", next_stage="write_acceptance_tests")
+        self.assertEqual(0, self.invoke("--status", "--json"))
+        settings = copy.deepcopy(self.state["settings"])
+        offered = json.loads(self.stdout)["view"]["chat"]["input"]
+        self.assertEqual(["--feedback", "MESSAGE"], shlex.split(offered["next_command"])[-2:])
+        self.assertEqual(
+            0, self.invoke("--feedback", "Name the exact regression and guard methods; retain every assertion.")
+        )
+        for key in ("roles", "limits"):
+            self.assertEqual(settings[key], self.state["settings"][key])
+        self.assertFalse(g.approved(self.state))
+        self.assertEqual(2, self.invoke("--approve-goal", token))
+
     def test_semantic_stop_feedback_uses_named_cli_without_dispatch(self):
         for status in ("RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
             with self.subTest(status=status):
