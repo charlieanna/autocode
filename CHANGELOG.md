@@ -423,6 +423,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- An empty planning report-repair response no longer strands a retained nonempty original while an
+  existing repair attempt remains (#2426). The next repair receives the original and its parser
+  diagnostic; saved empty-response holds keep that pending repair on Resume. Usage, limits, source
+  pins and approval gates stay intact; an empty original or exhausted allowance still stops.
+
 - Small Requirements and planning-revision report repairs can return edits bound to the exact rejected
   report instead of generating the entire JSON again (#2421). AutoCode reconstructs the report locally
   and applies the existing schema, provenance, protected-requirement and approval checks. Full reports

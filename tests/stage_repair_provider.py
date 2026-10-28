@@ -152,6 +152,38 @@ def main():
     data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
     repair = bool(data.get("report_repair"))
     stage = data["original"]["stage"] if repair else data["stage"]
+    if repair and stage == "glm_revise" and os.environ["STAGE_REPAIR_CASE"].startswith("empty-planning-repair"):
+        case = os.environ["STAGE_REPAIR_CASE"]
+        previous = traced(stage, True)
+        output = Path(sys.argv[sys.argv.index("-o") + 1])
+        if not previous or case.endswith("always-empty"):
+            text = ""
+        else:
+            assert data["rejected_report"]["empty_response"] is True
+            assert data["rejected_report"]["content"] == ""
+            assert "EMPTY REPAIR RESPONSE" in prompt
+            source = data["original_report"]
+            text = source["content"]
+            assert hashlib.sha256(text.encode()).hexdigest() == source["sha256"]
+            diagnostic = source["parse_error"]
+            assert diagnostic["message"] == "Expecting ',' delimiter"
+            position = diagnostic["position"]
+            assert text[position:].startswith('"summary":')
+            text = text[:position] + "," + text[position:]
+            json.loads(text)
+        output.write_text(text)
+        append_trace(
+            {
+                "stage": stage,
+                "repair": True,
+                "empty": not text,
+                "original_retained": bool(data.get("original_report")),
+                "output": str(output),
+            }
+        )
+        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
+        print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
+        return 0
     if repair and stage == "glm_revise" and os.environ["STAGE_REPAIR_CASE"] == "json-syntax-diagnostic":
         source = data["rejected_report"]
         text = source["content"]
@@ -559,10 +591,12 @@ def main():
     if stage == "glm_revise" and case.startswith("bounded-report-edits") and not repair:
         value["acceptance_test"] = "Already covered by the retained criteria"
     text = json.dumps(value)
-    if stage == "glm_revise" and case == "json-syntax-diagnostic":
+    if stage == "glm_revise" and (case == "json-syntax-diagnostic" or case.startswith("empty-planning-repair")):
         text = json.dumps(value, separators=(",", ":"))
         assert not repair and ',"summary":' in text
         text = text.replace(',"summary":', '"summary":', 1)
+    if stage == "glm_revise" and case.endswith("original-empty"):
+        text = ""
     output.write_text(text)
     append_trace(row)
     for event in event_rows:
