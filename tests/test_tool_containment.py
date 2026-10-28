@@ -1472,9 +1472,45 @@ class AvailabilityTests(unittest.TestCase):
             patch.object(containment, "BWRAP", str(bwrap)),
         ):
             reason = containment.unavailable(environment=self.opencode(containment.SUPPORTED_VERSION))
-        self.assertIn("cannot create unprivileged namespaces", reason)
+        self.assertIn("cannot create the unprivileged namespaces and fresh /proc mount", reason)
         self.assertIn("setting up uid map: Permission denied", reason)
+        self.assertIn("disable unprivileged user namespaces", reason)
         # Named the way every refusal names the host (test_containment_policy_cli matches it).
+        self.assertIn("this machine is linux", reason)
+
+    def test_linux_probe_mounts_the_fresh_proc_a_masked_container_refuses(self):
+        # #2373: namespaces can form where the fresh /proc mount cannot (Docker's default
+        # system-path masks): the old no-proc probe passed there and the first real launch
+        # failed. The probe must exercise --dev/--proc as bubblewrap_arguments() does, and
+        # the refusal must name the mount, the container-mask cause and its remedy.
+        bwrap = self.bin / "bwrap"
+        seen = self.bin / "probe-arguments"
+        bwrap.write_text(
+            "#!/bin/sh\n"
+            "printf '%s\\n' \"$@\" > " + shlex.quote(str(seen)) + "\n"
+            'for argument in "$@"; do\n'
+            '  if [ "$argument" = "--proc" ]; then\n'
+            '    echo "bwrap: Can\'t mount proc on /newroot/proc: Operation not permitted" >&2\n'
+            "    exit 1\n"
+            "  fi\n"
+            "done\n"
+            "exit 0\n"
+        )
+        bwrap.chmod(0o755)
+        with (
+            patch.object(containment, "sys", SimpleNamespace(platform="linux")),
+            patch.object(containment, "BWRAP", str(bwrap)),
+        ):
+            reason = containment.unavailable(environment=self.opencode(containment.SUPPORTED_VERSION))
+        arguments = seen.read_text().split()
+        self.assertIn("--unshare-all", arguments)
+        self.assertIn("ALL", arguments)
+        self.assertIn("--dev", arguments)
+        self.assertIn("--proc", arguments)
+        self.assertIn("cannot create the unprivileged namespaces and fresh /proc mount", reason)
+        self.assertIn("Can't mount proc on /newroot/proc: Operation not permitted", reason)
+        self.assertIn("mask system paths so the sandbox cannot mount its own /proc", reason)
+        self.assertIn("--security-opt=systempaths=unconfined", reason)
         self.assertIn("this machine is linux", reason)
 
     def test_linux_with_working_bubblewrap_checks_the_opencode_version(self):

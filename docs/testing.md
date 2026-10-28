@@ -119,10 +119,18 @@ Docker must support Linux host-PID mode, seccomp user notifications and nested
 unprivileged namespaces. The wrapper uses `--pid=host` so the process and its
 container `/proc` view match, and removes Docker's outer seccomp filter so
 AutoCode can install its own listener; it never uses `--privileged` or adds a
-capability. A preflight exercises the real session listener and bubblewrap and
-fails before the selected check if Docker Desktop's Linux VM cannot provide
-them. This is execution inside supported Linux, not a macOS admission bypass;
-this exercises the Linux boundary rather than macOS portable supervision.
+capability. The wrapper also sets `--security-opt=systempaths=unconfined`
+(#2373): Docker's default masked read-only system paths are submounts over the
+container's `/proc`, and the kernel then refuses the fresh `/proc` mount inside
+a new PID namespace that every contained launch needs. Removing the masks
+unmasks read-only system paths for processes in the outer container only;
+AutoCode's own tool subprocesses still run inside the unchanged inner bubblewrap
+sandbox (nonroot, capabilities dropped, fresh isolated `/proc`, no network). A
+preflight exercises the real session listener and bubblewrap, mounting the same
+fresh `/dev` and `/proc` a launch does, and fails before the selected check if
+Docker Desktop's Linux VM cannot provide them. This is execution inside
+supported Linux, not a macOS admission bypass; this exercises the Linux boundary
+rather than macOS portable supervision.
 
 This path intentionally does not run discovery, the full suite or the full
 scenario catalog. The image covers the CI Python/Node/Go toolchains, not Java,
