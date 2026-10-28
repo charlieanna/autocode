@@ -114,6 +114,13 @@ class FleetRowsTests(unittest.TestCase):
         self.assertIn("--status", row["next_command"])
         self.assertIn("001/terra-01", row["reason"])
 
+    def test_the_all_projects_table_names_each_runs_workspace(self):
+        """`runs --all` lists every registered project; a run's name alone does not say whose it is (#2379)."""
+        entries = runs.rows(self.root)
+        text = runs.render(entries, "all registered projects", now=time.time(), name_workspace=True)
+        self.assertIn(f"in {self.root}", text)
+        self.assertNotIn(f"in {self.root}", runs.render(entries, str(self.root), now=time.time()))
+
     def test_the_table_groups_rows_and_prints_the_action_under_each(self):
         text = runs.render(runs.rows(self.root), str(self.root), now=time.time())
         self.assertIn(f"{runs.NEEDS} (1)", text)

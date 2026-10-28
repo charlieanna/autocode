@@ -988,6 +988,54 @@ auto-rejected-permission error. If you copied an older provider config to
 the bundled update does not replace your custom file. AutoCode's plan approvals,
 human reviews and recovery choices still require their own user input.
 
+**Restricted stages keep your effective policy — asks included, as denials.**
+A stock Kilo 7.8.3 install resolves its default agent with `bash` set to *ask*,
+allowing only a fixed list of benign command prefixes (`cat *`, `ls *`,
+`grep *` and similar; no `test`, `git` or compound shell lines). Every ordinary
+Kilo stage — the kernel-contained read-only planning and review stages, the
+read-only checks that use Kilo's own shell where no kernel sandbox is
+qualified, and the writer stages — rebuilds the selected agent's effective
+permission into a fresh per-launch agent: explicit allows pass through, and
+every `ask` or `deny` stays a `deny`, because a headless stage must not widen
+an ask into an execution grant. AutoCode's own model-free conformance probes
+run compound shell lines that match none of the stock allowed prefixes, so on
+a stock install the first kernel-contained read-only stage pauses
+`PAUSED_TOOL_CONTAINMENT` with "Native tool permissions deny the model-free
+conformance probe" before any model request. `--auto` cannot grant these: it
+answers permission requests Kilo raises while running, and the per-launch
+agent already carries the ask as an explicit deny, so no request is ever
+raised.
+
+**Selecting the shell policy for a trusted task.** When you deliberately trust
+a task with a shell, start `autocode` with a Kilo configuration whose effective
+permission allows `bash`. One explicit example, for a process that sets no
+inline configuration of its own:
+
+```sh
+KILO_CONFIG_CONTENT='{"permission":{"bash":{"*":"allow"},"external_directory":"deny"}}' \
+  autocode chat "Fix the flaky login test" -- --provider kilocode
+```
+
+The `bash: {"*": "allow"}` rule is broad command authority scoped to this
+process and its stages, not a minimal grant; a narrower operator-defined
+allowlist may serve a given task instead — nothing here requires the blanket
+shape. Inline configuration is appended after Kilo's defaults, so the last
+matching rule wins, and your `~/.config/kilo/kilo.jsonc` file is untouched;
+that on-disk config merge is a separate mechanism from this environment
+variable. If a `KILO_CONFIG_CONTENT` value already exists, merge these
+`permission` fields into that object and keep every other key — never replace
+the whole value with this example — and where the existing policy holds
+explicit `deny` or `ask` rules, review them deliberately rather than copying
+an allow over them. AutoCode adds its own per-launch agent, activity plugin
+and compaction settings by merging into the object it receives, and the
+restricted agent always carries `external_directory` denied. This is a
+per-task decision, not a setup step: skip it when your Kilo configuration
+already gives the effective agents explicit `bash` rules (those pass the
+intersection unchanged), and do not use it for repositories you do not trust.
+On the kernel-contained read-only stages the bubblewrap boundary, not this
+permission line, is what confines the shell; the permission line is what lets
+AutoCode prove that boundary model-free before launching anything.
+
 **Context compaction is off.** Kilo summarizes a conversation on its own once it
 nears the model's window (its `compaction.auto`, at the window minus the larger of
 the output cap and a 20k buffer). A stage must see its handoff whole, so every
@@ -1003,10 +1051,20 @@ a request whose input is less than half of the previous one's (which held at lea
 is still refused. The native-isolation launches keep disabling Kilo's compaction
 agent as before. The rules are in `tools/autocode_context_window.py`.
 
-This command does not establish an OS sandbox or native read-only planning
-policy. A read-only stage that edits source is caught afterwards by AutoCode's
-workspace snapshot check and pauses; use explicit Kilo permission restrictions
-for operations that must be blocked before execution. See Kilo's
+Where each stage's boundary comes from: on Linux, read-only planning and review
+stages are kernel-contained — AutoCode prepares a per-launch bubblewrap boundary
+(fresh user, PID, IPC and network namespaces, a fresh `/proc`, every capability
+dropped, the workspace mounted read-only) and proves it with model-free probes
+before any launch, including the readonly planning shell's denial of private
+run-state reads where that boundary is supplied. On hosts where no kernel
+sandbox is qualified, such as macOS, read-only checks instead run with Kilo's
+own permission-restricted shell and edits denied, and any source change is put
+back by the workspace snapshot check. Writer stages get no kernel sandbox and
+no filesystem boundary from this command: the workspace snapshot checks
+inspect workspace changes afterwards and are not an OS boundary around the
+writer process, and `external_directory: "deny"` is a native tool policy, not
+a filesystem sandbox for bash. Use explicit Kilo permission restrictions for
+operations that must be blocked before execution. See Kilo's
 [permission reference](https://kilo.ai/docs/code-with-ai/platforms/cli#permissions).
 
 The `alibaba-token-plan/` route serves that login's own plan rather than the
