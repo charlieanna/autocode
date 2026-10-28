@@ -79,6 +79,20 @@ class CliSurfaceTests(unittest.TestCase):
                 self.assertEqual(0, code, err)
                 self.assertIn("usage:", out)
 
+    def test_every_subcommands_usage_line_names_the_subcommand(self):
+        """`usage: autocode [-h] {location,list,...}` read as if `autocode list` existed (#2387)."""
+        own_program = {"issue", "unattended"}  # autocode-issue and autocode-unattended are scripts of their own
+        for name in sorted((set(commands.SUBCOMMANDS) | set(commands.BUILTIN_COMMANDS)) - own_program):
+            if name in commands.WITHOUT_PARSER:
+                continue
+            with self.subTest(command=name):
+                code, out, err = self.invoke(name, "--help")
+                self.assertEqual(0, code, err)
+                self.assertTrue(out.startswith(f"usage: autocode {name}"), out.splitlines()[:1])
+        code, out, err = self.invoke("registry", "no-such-action")
+        self.assertEqual(2, code)
+        self.assertIn("autocode registry: error:", err)
+
     def test_a_user_error_names_the_problem_without_the_option_dump(self):
         code, out, err = self.invoke("Build a greeting CLI", "--new-run-dir", "/tmp/fresh-run")
         self.assertEqual(2, code)

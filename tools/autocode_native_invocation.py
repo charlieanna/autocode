@@ -62,12 +62,10 @@ def main_body(base, unit=None, *, launched_at=None):
     handled = subcommands.dispatch(sys.argv[1:])
     if handled is not None:
         return handled
-    if sys.argv[1:2] == ["capture"]:
-        return base.capture_command(sys.argv[2:])
-    if sys.argv[1:2] == ["registry"]:
-        return base.registry.cli(sys.argv[2:])
-    if sys.argv[1:2] == ["intervention"]:
-        return base.interventions.cli(sys.argv[2:])
+    builtins = {"capture": base.capture_command, "registry": base.registry.cli, "intervention": base.interventions.cli}
+    if sys.argv[1:2] and sys.argv[1] in builtins:
+        rest, entry = sys.argv[2:], builtins[sys.argv[1]]
+        return subcommands.as_program(sys.argv[1], lambda: entry(rest), rest)
     args, parser = base.cli_args.parse(unit, sys.argv[1:], base.opencode.DEFAULT_MODELS)
     args._native_action_argv = tuple(sys.argv[1:])
     if args.worker_receipt:
