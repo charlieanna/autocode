@@ -99,8 +99,11 @@ def main():
     modules = [importlib.import_module("autocode_provider_launch")]
     supervision_modules = [importlib.import_module("autocode_supervision")]
     boundaries = [importlib.import_module("autocode_tool_containment")]
-    # Installed CLI scripts import the package namespace instead of tools/ scripts.
-    if Path(target).resolve() != (TOOLS / "autocode.py").resolve():
+    # Installed CLI scripts import the package namespace instead of tools/ scripts. Any other
+    # target — a tools/ script such as the Builder worker, or a copied bundle — runs on the
+    # tools/ namespace above and must not require the installed package: without it installed,
+    # the worker died at this import before writing any result and read as INTERRUPTED (#2442).
+    if not Path(target).resolve().is_relative_to(TOOLS):
         modules.append(importlib.import_module("autocode_cli.autocode_provider_launch"))
         supervision_modules.append(importlib.import_module("autocode_cli.autocode_supervision"))
         boundaries.append(importlib.import_module("autocode_cli.autocode_tool_containment"))
