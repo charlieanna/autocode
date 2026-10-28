@@ -8,6 +8,30 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_scenario_map_inputs_keep_the_target_discovery_guard(self):
+        consumer = "tests.test_run_suite"
+        for path in (
+            "tools/autocode_report_identity.py",
+            "tools/autocode_planning_advice.py",
+            "tools/autocode_stuck_job.py",
+            "tools/autocode_regression.py",
+            "tools/autocode_verify.py",
+            "scenarios/test_adversarial_evidence.py",
+            "scenarios/test_adversarial_planning.py",
+            "scenarios/test_harness.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+        self.assertNotIn(
+            consumer,
+            run_suite.select_tests(
+                ["scenarios/test_unrelated.py"],
+                {consumer: "", "tests.test_unrelated": ""},
+            ),
+        )
+
     def test_scripted_retry_fixtures_keep_their_slow_public_consumers(self):
         mappings = {
             "tools/blackbox_build_provider.py": {
