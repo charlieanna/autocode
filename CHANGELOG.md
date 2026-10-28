@@ -423,6 +423,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode runs --all` says when a registered run's directory no longer exists and names the exact
+  `autocode registry forget-deleted --workspace W --run-dir R` command that drops its entry, instead of
+  "Run state.json is unavailable" with no way out; `forget-deleted` is now documented with the other
+  registry operations (#2321).
 - `--answer` with an unknown question id, an already answered id or empty text is refused with a sentence
   naming the mistake and the open question ids, instead of one generic "Answer must address one unresolved
   question with nonempty text" for all three (#2313).
