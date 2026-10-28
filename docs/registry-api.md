@@ -63,6 +63,15 @@ dummy task. Use one explicit `AUTOCODE_HOME` for registration, source runs,
 linked runs and change-set commands. Task text and model output never invoke
 registration, and clients' named-action contracts are unchanged.
 
+## registry forget-deleted
+
+`autocode registry forget-deleted --workspace /path/to/project --run-dir /path/to/project/.autocode/runs/RUN [--json]`
+drops the registry entry of one run whose directory no longer exists: a run the person
+deleted by hand, or one removed with its worktree by an older `clean-worktrees`. It
+never deletes files, and refuses (`invalid_deleted_run`) while the run directory
+exists, so the entry of a run recreated meanwhile is kept. `autocode runs --all` names
+this command on the row of such a run.
+
 ## registry import
 
 `registry import` discovers and registers existing runs. It requires an
