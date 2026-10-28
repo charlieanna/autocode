@@ -102,7 +102,7 @@ def reconcile(state: RunState, settings, args, workspace, run_dir, *, is_test_pa
     revision = getattr(args, "revise_protected_tests", None)
     previous = settings.get("protected_tests")
     if revision:
-        command_only = revision == commands.SELECTOR
+        command_only = str(revision) == commands.SELECTOR
         if not getattr(args, "run_dir", None) or not getattr(args, "resume_paused", False):
             raise ValueError("--revise-protected-tests requires a saved pause and --resume-paused")
         if (
