@@ -423,6 +423,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The human-review gate reads in prose: each criterion to review with its text and verification
+  method (and whether the independent check passed it), a few-line validation summary with the record's
+  path, then the approval command, instead of the request and the whole validation record as JSON that
+  named the criterion only by id (#2327).
 - `autocode spec.md` no longer starts a run whose task is the literal words `spec.md`: a whitespace-free
   positional task that names an existing file is refused before any run is created, naming
   `--brief-file spec.md` for the file's contents and `--brief spec.md` for the words themselves (#2323).
