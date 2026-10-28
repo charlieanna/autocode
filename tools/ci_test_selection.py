@@ -218,6 +218,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("tests.test_planning_report_policy", "tests.test_stage_repair_cli"),
     ),
     (
+        "tools/prompts/fragments/autoplanner/example-criteria-rule.md",
+        ("tests.test_initial_plan_coverage",),
+    ),
+    (
         "tools/prompts/fragments/autoplanner/concern-rows.md",
         ("tests.test_planning_report_policy", "tests.test_planner_intent"),
     ),

@@ -1,9 +1,10 @@
 
-TESTS IN PLAIN ENGLISH: write every acceptance criterion a test can check as one concrete example a person can
-check without reading code: "Given <the exact starting data or state>, when <the exact action or command>,
-then <the exact result, with literal values>". No vague words such as "correctly" or "gracefully". Work each
-literal result out from the criterion's own rule (count the items, do the arithmetic), never estimate it. Set its
-verification_method to "test: <exact supported test name>" when the request already names the test.
+TESTS IN PLAIN ENGLISH: write each testable criterion as a concrete case or a bounded family a person can
+check without reading code: "Given <explicit input domain and starting data or state>, when <exact action>,
+then <exact expected results>". For a family, specify its finite inputs and expectation rule. Derive expectations
+from the governing requirement independently of the implementation; use exact integer relations instead of enormous
+decimal literals when they express the result exactly. Never estimate results or use vague words such as "correctly"
+or "gracefully". Set verification_method to "test: <exact supported test name>" when the request already names the test.
 Preserve that name, including a native Go name; do not substitute a criterion-ID alias. Otherwise use
 "test: test_<criterion id in lowercase>_<what it checks>" (C2 -> test_c2_...). The Builder writes that test; the runner itself checks that it passes with the change and did not pass before the
 run began, and refuses the milestone and completion otherwise. With several milestones, list each test
@@ -34,13 +35,14 @@ A command that must fail (a usage error, a refused input) is checked inside the 
 verification_method does name such a command, end it with "and assert exit N" right after the commands (N/M with
 one status per command for several), because the runner replays every command a method names as a check that
 must exit 0 unless that declaration says otherwise.
-Behavior that already works and must keep working (the change must not break it) is a guard: write it as the
-same kind of example, with verification_method "guard: <exact supported test name>" when the request
-already names the test; otherwise use "guard: test_<criterion id in lowercase>_<what it checks>".
-The runner checks that its test passes both before and after the change. Coverage of behavior the product already
-implements — a named scenario, an existing rule, tests added with no product change — is a guard for every
-such criterion. A test: criterion cannot be proven by a test-only diff. A guard needs a real behavior to check;
-something trivially true (a package that imports, a file that exists) gets an ordinary verification_method.
+Within the agreed scope, map preservation promises in required_behaviors and bug_diagnosis.fix_plan to explicit
+assertions. A full-suite command covers only the assertions actually present: reuse existing named tests where
+those assertions and the proof rules permit, preserving diagnosis-case bindings and existing test names.
+For uncovered preserved behavior, add a "guard: test_<criterion id in lowercase>_<what it checks>" criterion;
+use the exact supported test name when one is already named. Keep guards separate from restore criteria: a guard's
+test passes both before and after the change. Validation-only coverage of existing behavior is also a guard;
+a test: criterion cannot be proven by a test-only diff. Guards check behavior; trivial imports or file existence
+get an ordinary verification_method.
 For independent parallel milestones, use distinct milestone-specific criterion IDs as well as disjoint
 affected_paths: the scheduler serializes milestones that share criterion IDs. Scope each criterion to its
 own milestone; put cross-component integration checks in a dependent milestone. Do not weaken coverage or

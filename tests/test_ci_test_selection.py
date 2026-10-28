@@ -334,6 +334,15 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in expected})
                 self.assertEqual(expected, set(kept))
 
+    def test_initial_coverage_policy_keeps_its_prompt_and_executable_proof_regression(self):
+        consumer = "tests.test_initial_plan_coverage"
+        selected = run_suite.select_tests(
+            ["tools/prompts/fragments/autoplanner/example-criteria-rule.md"],
+            {consumer: "", "tests.test_unrelated": ""},
+        )
+        kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+        self.assertEqual([consumer], list(kept))
+
     def test_investigation_reuse_resources_and_units_keep_the_public_cli_consumer(self):
         consumer = "tests.test_investigation_handoff_cli"
         for path in (

@@ -427,6 +427,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Align initial planning guidance for bounded test families and explicit preservation assertions, keeping independent review and restore/guard proof requirements (#2113).
+
 - Planning response schemas name only the current review concerns, avoiding synthetic passed-audit
   decisions that the core discards. Older reports still load without a repair; real concerns, new
   blockers, full contract review and exact user approval remain enforced (#2440).
