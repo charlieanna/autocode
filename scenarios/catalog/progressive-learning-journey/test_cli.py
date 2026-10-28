@@ -156,16 +156,16 @@ class ProgressiveCLI(unittest.TestCase):
             # is the run's own event stream, read from the public events command.
             section = shown.split("Saved user answers:\n", 1)[1].split("\n\n", 1)[0]
             asked = original_need["questions"][0]["question"]
-            self.assertIn(f"  - {question}: {asked.strip()} -> {answer.strip()} (a permission decision)", section.splitlines())
+            self.assertIn(
+                f"  - {question}: {asked.strip()} -> {answer.strip()} (a permission decision)", section.splitlines()
+            )
             stream = driver.call(
                 "saved-answer-events", "events", "--run-dir", str(driver.run_dir), record=False, bare=True
             )
             self.assertEqual(0, stream.returncode, stream.stderr)
             recorded = [json.loads(line) for line in stream.stdout.splitlines()]
             saved = [
-                row
-                for row in recorded
-                if row.get("kind") == "permission_answer" and row.get("question_id") == question
+                row for row in recorded if row.get("kind") == "permission_answer" and row.get("question_id") == question
             ]
             self.assertEqual(1, len(saved))
             self.assertEqual(saved[0]["text"], answer)
