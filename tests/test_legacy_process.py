@@ -185,10 +185,23 @@ class ProcessGuardTests(unittest.TestCase):
         self.run = self.workspace / ".autocode/runs/run-x"
         self.run.mkdir(parents=True)
         self.paths = f"--workspace {self.workspace} --run-dir {self.run}"
+        self.row_pids: list[int] = []
 
     def listing(self, *commands):
+        """A fake listing whose row pids are never this test's own runner or its parent.
+
+        The guard skips both by design (pinned below), and a container test runner may
+        really hold a low pid like 101 (#2446); assertions name the chosen pids.
+        """
+        reserved = {os.getpid(), os.getppid()}
+        self.row_pids = []
+        candidate = 101
+        while len(self.row_pids) < len(commands):
+            if candidate not in reserved:
+                self.row_pids.append(candidate)
+            candidate += 1
         return subprocess.CompletedProcess(
-            ["ps"], 0, "".join(f"{101 + index} {command}\n" for index, command in enumerate(commands)), ""
+            ["ps"], 0, "".join(f"{pid} {command}\n" for pid, command in zip(self.row_pids, commands, strict=True)), ""
         )
 
     def test_failed_inspection_keeps_thirty_second_bound_and_only_bounded_first_stderr(self):
@@ -245,7 +258,7 @@ class ProcessGuardTests(unittest.TestCase):
                 self.subTest(writer=writer),
                 patch.object(legacy.subprocess, "run", return_value=self.listing(inspector, writer)),
             ):
-                with self.assertRaisesRegex(legacy.Paused, "Existing run process 102"):
+                with self.assertRaisesRegex(legacy.Paused, f"Existing run process {self.row_pids[1]}"):
                     legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_reader_does_not_hide_a_second_writer(self):
@@ -254,13 +267,13 @@ class ProcessGuardTests(unittest.TestCase):
             "run",
             return_value=self.listing(f"{RUNNER} --status {self.paths}", f"{RUNNER} --approve-goal token {self.paths}"),
         ):
-            with self.assertRaisesRegex(legacy.Paused, "Existing run process 102"):
+            with self.assertRaisesRegex(legacy.Paused, f"Existing run process {self.row_pids[1]}"):
                 legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_status_with_a_queued_mutation_still_blocks(self):
         command = f"{RUNNER} --status {self.paths} --request-milestone-checkpoints"
         with patch.object(legacy.subprocess, "run", return_value=self.listing(command)):
-            with self.assertRaisesRegex(legacy.Paused, "Existing run process 101"):
+            with self.assertRaisesRegex(legacy.Paused, f"Existing run process {self.row_pids[0]}"):
                 legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_owned_marker_still_blocks_before_reader_exemption(self):
@@ -331,28 +344,28 @@ class ProcessGuardTests(unittest.TestCase):
         result = self.listing(f"{RUNNER} --status {self.paths}")
         result.stdout += "--request-milestone-checkpoints\n"
         with patch.object(legacy.subprocess, "run", return_value=result):
-            with self.assertRaisesRegex(legacy.Paused, "Existing run process 101"):
+            with self.assertRaisesRegex(legacy.Paused, f"Existing run process {self.row_pids[0]}"):
                 legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_blank_continuation_keeps_status_text_ambiguous(self):
         result = self.listing(f"{RUNNER} --status {self.paths}")
         result.stdout += "\n"
         with patch.object(legacy.subprocess, "run", return_value=result):
-            with self.assertRaisesRegex(legacy.Paused, "Existing run process 101"):
+            with self.assertRaisesRegex(legacy.Paused, f"Existing run process {self.row_pids[0]}"):
                 legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_non_numeric_continuation_is_not_a_new_process_row(self):
         result = self.listing(f"{RUNNER} --status {self.paths}")
         result.stdout += "not-a-pid --request-milestone-checkpoints\n"
         with patch.object(legacy.subprocess, "run", return_value=result):
-            with self.assertRaisesRegex(legacy.Paused, "Existing run process 101"):
+            with self.assertRaisesRegex(legacy.Paused, f"Existing run process {self.row_pids[0]}"):
                 legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_numeric_continuation_without_a_command_stays_ambiguous(self):
         result = self.listing(f"{RUNNER} --status {self.paths}")
         result.stdout += "202\n"
         with patch.object(legacy.subprocess, "run", return_value=result):
-            with self.assertRaisesRegex(legacy.Paused, "Existing run process 101"):
+            with self.assertRaisesRegex(legacy.Paused, f"Existing run process {self.row_pids[0]}"):
                 legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_malformed_leading_row_refuses_inspection_without_printing_arguments(self):
@@ -369,6 +382,21 @@ class ProcessGuardTests(unittest.TestCase):
         result = subprocess.CompletedProcess(["ps"], 0, f"{os.getpid()} {command}\n{os.getppid()} {command}\n", "")
         with patch.object(legacy.subprocess, "run", return_value=result):
             legacy.assert_no_legacy_process(self.run, self.workspace)
+
+    def test_the_listing_fixture_still_names_a_writer_when_this_runner_holds_pid_101(self):
+        """A container runner may really hold a low pid like 101 (#2446): the guard skips
+        its own and its parent's rows by design, so the fixture's fake listing pids must
+        never collide with either while still naming a foreign writer."""
+        command = f"{RUNNER} --approve-goal token {self.paths}"
+        with (
+            patch("os.getpid", return_value=101),
+            patch("os.getppid", return_value=102),
+        ):
+            result = self.listing(command)
+            self.assertEqual([103], self.row_pids)
+            with patch.object(legacy.subprocess, "run", return_value=result):
+                with self.assertRaisesRegex(legacy.Paused, "Existing run process 103"):
+                    legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_other_workspace_continuation_does_not_attach_to_next_reader(self):
         relative = os.path.relpath(self.run, self.workspace)
