@@ -290,6 +290,13 @@ def resolve(runner, args, parser):
         if not (workspace / ".git").exists():
             parser.error(f"workspace is not a Git repository: {workspace}")
         state_path = run_dir / "state.json"
+        if not state_path.is_file():
+            # Not ``[Errno 2] No such file or directory: '.../state.json'``: say what a run directory is.
+            what = "is not a directory" if not run_dir.is_dir() else "has no state.json"
+            parser.error(
+                f"--run-dir {run_dir} {what}. A saved run is PROJECT/.autocode/runs/RUN; "
+                "`autocode runs` lists this project's runs with their directories"
+            )
         state = runner.read_json(state_path)
         try:
             lifecycle.require_supported_checkpoint(state)
