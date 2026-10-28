@@ -426,6 +426,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - A pause's output ends with its `Next command:` again when the presentation runs longer than a screen
   (a review stop printed the command on line 33 of 410, then a bare state line), and a plain relaunch of
   a waiting run prints the same pause header and command as the stop that got there (#2301).
+- A status read that straddles the controller's atomic receipt write reads the receipt again instead of
+  reporting "Controller ownership could not be inspected: Controller receipt changed while inspected" and
+  offering `--resume-paused` on a run that is running (#2304).
 - `autocode explain` on a run that stopped because this shell holds CAP_SYS_ADMIN or CAP_SYS_PTRACE (root in most containers) says so and names the fix `autocode doctor` names (an ordinary user, or `setpriv --bounding-set=-sys_admin,-sys_ptrace`), instead of "A child process did not clean up" with `--abandon-stage` as the way forward.
 - In the line-by-line chat, `/help` and `/quit` typed at "What do you want done?" work (the commands that work before a chat, and leaving) instead of answering "Open or start a chat first"; `//text` starts a chat whose request begins with a slash.
 - `autocode approve-goal` (a main-run option typed without its dashes) is refused with the option named instead of starting a task worktree and a run for the task "approve-goal"; `autocode Add a hello script` (a task without quotes) says to put the whole task in quotes after "unrecognized arguments".
