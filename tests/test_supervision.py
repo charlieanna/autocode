@@ -620,18 +620,30 @@ signal.pause()
     def dead_provider_metadata(self):
         """Admission metadata whose provider already exited before arming.
 
-        The identity is captured while the bootstrap lives, exactly as the
-        launcher samples it; the child is then an unreaped zombie, as it stays
-        until its parent (the launcher) is released from the failed launch.
+        A readiness byte holds the child deterministically live (blocked on
+        its stdin) while its identity is sampled, then the parent permits its
+        exit and returns from waitid(WNOWAIT): the child is a confirmed
+        zombie that is still unreaped, exactly like a bootstrap that died
+        waiting for its launch to be admitted while its parent still owns the
+        wait. Cleanup closes both pipe ends and reaps it even when sampling
+        fails.
         """
         import autocode_supervision_keeper as keeper
 
         dead = subprocess.Popen(
-            [sys.executable, "-c", "import time; time.sleep(0.2)"], start_new_session=True
-        )  # a brief guaranteed-live window for the identity sample below
+            [sys.executable, "-c", "import os; os.write(1, b'R'); os.read(0, 1)"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            start_new_session=True,
+        )
         self.addCleanup(dead.wait, timeout=10)
+        self.addCleanup(dead.stdout.close)
+        self.addCleanup(dead.stdin.close)  # a closed stdin releases a still-blocked child
+        self.assertEqual(b"R", dead.stdout.read(1))
         provider = supervision._identity(dead.pid)
-        dead.wait(timeout=10)
+        dead.stdin.write(b"exit")
+        dead.stdin.flush()
+        os.waitid(os.P_PID, dead.pid, os.WEXITED | os.WNOWAIT)
         self.assertFalse(processes.live_processes([provider]))
         metadata = {
             "schema": 1,
