@@ -182,3 +182,18 @@ and formatting pass. The broad scenario harness remains the required PR gate.
 A final tightening explicitly requires Tester rejection at `$.contract_hash` or
 `$.task_id`, not merely any later incomplete outcome. Both final CLI attacks pass
 again in 83.366 seconds on Linux.
+
+## Preventing the same black-box selection drift
+
+The affected runtime helpers did not enable the scenario job or select their
+black-box consumers. Five producer paths fail the new scope regression; three
+evidence/planning paths fail module selection, and both proof paths omit the
+stock-refusal/hybrid classes (ten failing subcases before the map).
+
+One shared runtime-consumer map now enables the job and selects the relevant
+evidence/planning module or the two proof-scoring classes. Unrelated adversarial
+and slow harness cases remain excluded from those localized selections. Existing
+shared-harness and full-master behavior remains unchanged. Producer paths and
+targets are checked for existence and successful test discovery. The two focused
+selector modules pass 83 tests in 4.106 seconds; the subsequently added target
+discovery guard passes independently in 0.051 seconds. Lint/format pass.

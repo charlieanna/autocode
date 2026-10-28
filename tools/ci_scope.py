@@ -162,7 +162,7 @@ def select(paths: list[str], *, full: bool = False) -> dict[str, bool]:
             selected["suite"] = True
 
         if path.startswith(("scenarios/", "test-scenarios/", *LIFECYCLE, *MACHINERY)) or (
-            path in run_suite.SCENARIO_FIXTURES
+            path in run_suite.SCENARIO_FIXTURES or path in run_suite.SCENARIO_RUNTIME_CONSUMERS
         ):
             selected["scenarios"] = True
         if path.startswith(
