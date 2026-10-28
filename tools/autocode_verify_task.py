@@ -320,13 +320,17 @@ def parser():
     result.add_argument(
         "--record", type=Path, help="Read an existing verification and recheck source/evidence freshness"
     )
-    result.add_argument("--engine", choices=("codex", "opencode"))
+    result.add_argument("--engine", choices=("codex", "opencode"), help="Coding agent for the independent review")
     result.add_argument("--provider", help="Configured provider for the independent review")
     result.add_argument("--related-profile", type=Path, help="Pinned role routing and limits from a coordinating run")
     result.add_argument("--related-profile-sha256", help="Exact SHA-256 of --related-profile")
     result.add_argument("--model", help="Independent Code Reviewer model")
-    result.add_argument("--reasoning-effort", choices=("low", "medium", "high", "xhigh", "max"))
-    result.add_argument("--evidence-provenance", choices=("fake", "live", "unknown"))
+    result.add_argument(
+        "--reasoning-effort", choices=("low", "medium", "high", "xhigh", "max"), help="Reasoning effort of the review"
+    )
+    result.add_argument(
+        "--evidence-provenance", choices=("fake", "live", "unknown"), help="Where the evidence comes from"
+    )
     result.add_argument("--suite-command", help="Project suite command for external-change proof")
     result.add_argument("--check-timeout", type=int, default=900, help="Seconds per independent proof/check command")
     result.add_argument("--max-seconds", type=int, default=900, help="Total review provider time limit")

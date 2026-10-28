@@ -753,24 +753,35 @@ def approve(run_dir, token, *, command=tasks.AUTOCODE):
     return status(run_dir, command=command)
 
 
+OPERATION_HELP = {
+    "status": "Read the coordination state and its named actions",
+    "advance": "Perform one durable core step",
+    "approve": "Approve the coordinated plans by their exact token",
+    "choose": "Resolve an ambiguous repository target to a local checkout",
+    "cancel": "Cancel the coordination",
+    "budget": "Raise the whole-set cost cap at a displayed cost stop",
+}
+
+
 def parser():
     result = argparse.ArgumentParser(
         prog="autocode coordinate", description="Discover, fix, jointly verify and publish linked repository changes"
     )
     commands = result.add_subparsers(dest="operation", required=True)
-    commands.add_parser("access").add_argument("--json", action="store_true")
-    for name in ("status", "advance", "approve", "choose", "cancel", "budget"):
-        child = commands.add_parser(name)
-        child.add_argument("--run-dir", required=True, type=Path)
-        child.add_argument("--json", action="store_true")
+    access = commands.add_parser("access", help="Check GitHub delivery readiness without starting a run")
+    access.add_argument("--json", action="store_true", help="Print the result as JSON")
+    for name, text in OPERATION_HELP.items():
+        child = commands.add_parser(name, help=text)
+        child.add_argument("--run-dir", required=True, type=Path, help="The anchor run")
+        child.add_argument("--json", action="store_true", help="Print the result as JSON")
         if name == "approve":
-            child.add_argument("--token", required=True)
+            child.add_argument("--token", required=True, help="Exact token of the coordinated plans shown")
         if name == "budget":
-            child.add_argument("--token", required=True)
-            child.add_argument("--max-cost-usd", required=True, type=float)
+            child.add_argument("--token", required=True, help="Exact token of the displayed cost stop")
+            child.add_argument("--max-cost-usd", required=True, type=float, help="Finite cost cap for the whole set")
         if name == "choose":
-            child.add_argument("--target", required=True)
-            child.add_argument("--workspace", required=True)
+            child.add_argument("--target", required=True, help="The ambiguous repository target to resolve")
+            child.add_argument("--workspace", required=True, help="The authorized local checkout to use for it")
     return result
 
 

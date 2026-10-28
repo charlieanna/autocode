@@ -612,19 +612,33 @@ def cli(argv: list[str]) -> int:
             "--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted"
         )
     command = subcommands.add_parser("add", help="Register a committed local Git project without starting a task")
-    command.add_argument("workspace", type=Path)
-    command.add_argument("--json", action="store_true")
-    command = subcommands.add_parser("import")
-    command.add_argument("selected_root", type=Path)
-    command.add_argument("--max-depth", type=int, default=DEFAULT_IMPORT_MAX_DEPTH)
-    command.add_argument("--directory-budget", type=int, default=DEFAULT_IMPORT_DIRECTORY_BUDGET)
+    command.add_argument("workspace", type=Path, help="The project directory to register")
     command.add_argument(
         "--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted"
     )
-    command = subcommands.add_parser("forget-deleted")
-    command.add_argument("--workspace", type=Path, required=True)
-    command.add_argument("--run-dir", type=Path, required=True)
-    command.add_argument("--json", action="store_true")
+    command = subcommands.add_parser("import", help="Register every committed Git project found under a directory")
+    command.add_argument("selected_root", type=Path, help="The directory to search")
+    command.add_argument(
+        "--max-depth",
+        type=int,
+        default=DEFAULT_IMPORT_MAX_DEPTH,
+        help=f"How deep to search (default: {DEFAULT_IMPORT_MAX_DEPTH})",
+    )
+    command.add_argument(
+        "--directory-budget",
+        type=int,
+        default=DEFAULT_IMPORT_DIRECTORY_BUDGET,
+        help=f"Most directories to visit (default: {DEFAULT_IMPORT_DIRECTORY_BUDGET})",
+    )
+    command.add_argument(
+        "--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted"
+    )
+    command = subcommands.add_parser("forget-deleted", help="Drop the entry of a run whose directory no longer exists")
+    command.add_argument("--workspace", type=Path, required=True, help="The project the run belonged to")
+    command.add_argument("--run-dir", type=Path, required=True, help="The run directory that no longer exists")
+    command.add_argument(
+        "--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted"
+    )
     args = parser.parse_args(argv)
     try:
         if args.operation == "location":

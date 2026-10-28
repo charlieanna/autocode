@@ -152,7 +152,7 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="with --run-local: leave the system running afterwards instead of tearing it down",
     )
-    result.add_argument("--engine", choices=["codex", "opencode"])
+    result.add_argument("--engine", choices=["codex", "opencode"], help="coding agent for every component")
     result.add_argument("--provider", help="see docs/providers.md")
     result.add_argument(
         "--joint-planning",
@@ -160,7 +160,9 @@ def parser() -> argparse.ArgumentParser:
         help="separate requirements, planning and independent review per component; default for "
         "new OpenCode runs, opt-in for --engine codex (see docs/models.md)",
     )
-    result.add_argument("--reasoning-effort", choices=["low", "medium", "high", "xhigh", "max"])
+    result.add_argument(
+        "--reasoning-effort", choices=["low", "medium", "high", "xhigh", "max"], help="reasoning effort for every role"
+    )
     result.add_argument(
         "--options",
         default="",
