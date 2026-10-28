@@ -93,12 +93,22 @@ def dispatch(argv: list[str]) -> int | None:
     module = importlib.import_module(f"{__package__}.{name}" if __package__ else name)
     entry = getattr(module, ENTRY_FUNCTIONS.get(argv[0], "cli"))
     if argv[0] not in SYS_ARGV_COMMANDS:
-        return entry(argv[1:])
+        return as_program(argv[0], lambda: entry(argv[1:]), argv[1:])
+    return as_program(argv[0], lambda: entry(), argv[1:], none_is=0)
+
+
+def as_program(name: str, call, argv: list[str], *, none_is=None):
+    """Run ``call`` with ``sys.argv`` naming the program `autocode NAME` followed by ``argv``.
+
+    A parser with no prog of its own takes it from sys.argv[0], so its usage and error lines then
+    name `autocode NAME`, not a bare `autocode` whose arguments do not exist (#2387). ``sys.argv`` is
+    restored afterwards; ``none_is`` stands in for a None result.
+    """
     saved = sys.argv
     try:
-        sys.argv = [f"autocode {argv[0]}", *argv[1:]]
-        result = entry()
-        return 0 if result is None else result
+        sys.argv = [f"autocode {name}", *argv]
+        result = call()
+        return none_is if result is None else result
     finally:
         sys.argv = saved
 

@@ -423,6 +423,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The usage and error lines of `autocode registry`, `output`, `tasks`, `conversation`, `replay`, `checkpoint`, `capture`, `intervention` and other subcommands read `usage: autocode [-h] ...`, as if their arguments belonged to the root command; the dispatcher now names `autocode NAME` as the program for every subcommand (#2387).
 - `autocode bundle` and `autocode prune-run` rejected `--run-dir`, the way every other command names a run; both now accept it as well as the positional `RUN` (#2385).
 - The terminal chat's review step listed the criteria to accept without naming the files that changed; it now prints `Changed: FILE, ...` under each criterion from the status view's `changes_by_criterion`, as the CLI's review stop does (#2383).
 - `autocode runs --all` listed every registered project's runs without saying which project each belongs to; each row now names its workspace on the line before its command (#2379).
