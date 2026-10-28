@@ -1,7 +1,13 @@
 """Explicit command-only recovery that retains every sealed original test byte."""
 
+from __future__ import annotations
+
 import shlex
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_contract_identity as contracts
@@ -22,7 +28,7 @@ class OriginalGateFailure(plan.PlannedCheckFailure):
     """An executed original gate failed; JSON report repair cannot change it."""
 
 
-def completed_gate_repair(state):
+def completed_gate_repair(state: RunState):
     """Authenticate a legacy completed report queued only for the failed original gate."""
     pending = state.get("pending_report_repair") or {}
     original, task = pending.get("original") or {}, state.get("current_task") or {}
@@ -71,7 +77,7 @@ def initial_command(files, command):
     return shlex.join([*invocation.prefix, invocation.python, "-m", "unittest", "-v", *modules])
 
 
-def proposal(state, record):
+def proposal(state: RunState, record):
     """Offer only an approved unfiltered collector covering all original test paths.
 
     This creates no binding and grants no authority. Only an explicit CLI action
@@ -167,8 +173,8 @@ def proposal(state, record):
     }
 
 
-def offer(state):
-    record = (state.get("settings") or {}).get("protected_tests")
+def offer(state: RunState):
+    record = (state.get("settings") or {}).get("protected_tests") or {}
     revision = proposal(state, record)
     if not revision:
         return None
