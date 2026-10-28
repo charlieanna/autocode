@@ -1234,6 +1234,12 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         native_need = recovery_view.native_cleanup_need(state)
         if native_need is not None:
             return native_need
+        try:
+            from . import autocode_protected_commands as protected_commands
+        except ImportError:
+            import autocode_protected_commands as protected_commands
+        if protected_offer := protected_commands.offer(state):
+            return protected_offer
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
         # An uncertain attempt must be set aside before a resume can continue (#340).
         active = state.get("active_stage") or {}

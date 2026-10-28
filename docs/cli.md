@@ -507,7 +507,7 @@ sharing, the versioned schema and the two-run behavior.
 | `--figma-approved-scope PATH` | External reviewed product-scope artifact bound to a complete version 2 inventory and its approved cases. Requires `--figma-approved-scope-sha256` with new-run `--figma-manifest` or stopped `--revise-figma-manifest`. Grants no plan approval; full original-source validation remains required ([scope admission](figma.md#externally-reviewed-product-scope-version-2-inventories)). |
 | `--figma-approved-scope-sha256 SHA256` | Trusted operator SHA256 of the exact `--figma-approved-scope` artifact; required with that option, never inferred from the design bundle. |
 | `--revise-figma-manifest PATH`, `--expected-design-hash HASH`, `--design-change-reason TEXT` | At a stopped run, propose changed Figma references against the inspected hash, retaining history and requiring plan review. |
-| `--revise-protected-tests PATH` | Explicit user revision of the original test inventory and command; requires a reconciled validation pause. |
+| `--revise-protected-tests PATH` | Explicit user revision of the original test inventory and command; requires a reconciled validation pause. The core may offer `@approved-suite` for a command-only correction that keeps every sealed original test, using the exact approved combined suite displayed by chat. |
 | `--bind-dependency PATH`, `--receive-dependency PATH` | Register an authorized prerequisite or receive its verified delivery manifest; neither approves the plan. |
 | `--resolver-message TEXT` | Corrective information accompanying an operational Resolver response. |
 | `--reconcile-review CRITERION=ANSWER` | Bind an authenticated legacy acceptance to current validated evidence without granting a new approval. |

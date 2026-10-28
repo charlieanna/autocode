@@ -32,6 +32,7 @@ from pathlib import Path
 try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_package_scope as package_scope
+    from . import autocode_protected_commands as commands
     from . import autocode_protected_paths as paths
     from . import autocode_protected_store as store
     from . import autocode_util as util
@@ -39,6 +40,7 @@ try:
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_package_scope as package_scope
+    import autocode_protected_commands as commands
     import autocode_protected_paths as paths
     import autocode_protected_store as store
     import autocode_util as util
@@ -120,7 +122,10 @@ def reconcile(state: RunState, settings, args, workspace, run_dir, *, is_test_pa
         if not previous:
             raise ValueError("This saved run has no original protected-test binding; start a new run")
         verify_binding(previous)
-        proposal = util.read_object(revision)
+        command_only = revision == commands.SELECTOR
+        proposal = commands.proposal(state, previous) if command_only else util.read_object(revision)
+        if proposal is None:
+            raise ValueError("No approved command-only protected-test correction is available")
         if (
             set(proposal) != {"previous_hash", "files", "command", "reason"}
             or proposal["previous_hash"] != previous["binding_hash"]
@@ -130,10 +135,18 @@ def reconcile(state: RunState, settings, args, workspace, run_dir, *, is_test_pa
             or not proposal["command"].strip()
         ):
             raise ValueError("A protected-test revision needs the exact previous hash, command and user rationale")
-        files = inventory(workspace, is_test_path, package=package_scope.of(settings))
+        files = (
+            previous["files"]
+            if command_only
+            else inventory(workspace, is_test_path, package=package_scope.of(settings))
+        )
         if proposal["files"] != files or not files:
             raise ValueError("Protected-test revision must identify every current eligible test by hash, size and mode")
-        current = retain(workspace, run_dir, files, proposal["command"])
+        if command_only:
+            with store.opened(previous, workspace) as original_root:
+                current = retain(original_root, run_dir, files, proposal["command"])
+        else:
+            current = retain(workspace, run_dir, files, proposal["command"])
         state.setdefault("user_events", []).append(
             {
                 "kind": "protected_tests_revised",
@@ -142,13 +155,14 @@ def reconcile(state: RunState, settings, args, workspace, run_dir, *, is_test_pa
                 "previous": previous,
                 "current": current,
                 "reason": proposal["reason"],
-                "proposal_sha256": util.file_hash(revision),
+                "proposal_sha256": util.digest(proposal) if command_only else util.file_hash(revision),
             }
         )
         settings["protected_tests"] = current
     elif not getattr(args, "run_dir", None):
         files = inventory(workspace, is_test_path, package=package_scope.of(settings))
-        command = (settings.get("regression") or {}).get("test_command") or (discover_command() if files else None)
+        explicit = (settings.get("regression") or {}).get("test_command")
+        command = explicit or commands.initial_command(files, discover_command() if files else None)
         settings["protected_tests"] = retain(workspace, run_dir, files, command)
     if getattr(args, "run_dir", None) and not any(state.get(key) for key in ("active_stage", "active_runner_check")):
         retained = [settings.get("protected_tests")]
