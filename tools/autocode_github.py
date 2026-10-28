@@ -90,16 +90,13 @@ def parse_pull_request_url(text: str, *, api: str = API) -> IssueRef:
     except ValueError as error:
         raise GitHubError("invalid pull request authority") from error
     match = re.fullmatch(r"/(?P<owner>[\w.-]+)/(?P<repo>[\w.-]+)/pull/(?P<number>[1-9]\d*)/?", value.path)
-    if (
-        value.scheme != "https"
-        or not value.hostname
-        or value.username
-        or value.password
-        or not match
-        or value.hostname != expected_host
-        or port != expected_port
-    ):
-        raise GitHubError("pull request URL must match the configured GitHub API web host and port")
+    expected = f"https://{expected_host}{'' if expected_port == 443 else f':{expected_port}'}/OWNER/REPO/pull/N"
+    if value.scheme != "https" or not value.hostname or value.username or value.password or not match:
+        # A number, OWNER/REPO#N or an issue link: name the form, and the value unless it carries a credential.
+        given = "" if value.username or value.password or len(text) > 200 else f", not {text.strip()!r}"
+        raise GitHubError(f"pull request URL must be {expected}{given}")
+    if value.hostname != expected_host or port != expected_port:
+        raise GitHubError(f"pull request URL must match the configured GitHub API web host and port: {expected}")
     return IssueRef(match["owner"], match["repo"], int(match["number"]))
 
 
