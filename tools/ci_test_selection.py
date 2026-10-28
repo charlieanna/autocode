@@ -68,6 +68,9 @@ SCENARIO_SELECTION_INPUTS = {
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     *((path, ("tests.test_run_suite",)) for path in sorted(SCENARIO_SELECTION_INPUTS)),
+    # The suite collector is executed by the verifier as a dynamic runner resource; its
+    # own imports are invisible to the import selector (#2414).
+    ("tools/autocode_component_tests.py", ("tests.test_verify", "tests.test_test_root")),
     ("tests/test_report_repair.py", ("tests.test_native_event_identity_cli",)),
     ("tools/prompts/discovery.md", ("tests.test_investigation_evidence", "tests.test_investigation_handoff_cli")),
     (
