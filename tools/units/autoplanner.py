@@ -1163,6 +1163,7 @@ def repair_rules(stage, schema):
         )
     return (
         REVISION_CONFLICT_RULE
+        + (retention.revision_reference.RULE if retention.revision_reference.offered(schema) else "")
         + (retention.delta_rule(schema) if retention.allows_delta(schema) else "")
         + prompts.get("fragments/autoplanner/repair-citations.md")
         + (RESPONSE_EVIDENCE_RULE if "responses" in fields else "")
@@ -1507,6 +1508,9 @@ def context(state: RunState, stage, state_path):
             retain_rule = retention.final_rule()
         else:
             retain_rule = retention.RULE + retention.delta_rule()
+            if stage == "glm_revise":
+                retain_rule += retention.revision_reference.RULE
+                packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
     prompt = (
         (retention.FINAL_PROMPT if compact_final else PROMPTS[stage])
         + audit_instruction

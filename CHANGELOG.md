@@ -930,6 +930,10 @@ PR template asks for an entry here; a change without one is incomplete.
   preserving attempt history and usage. Proven legacy run-wide exhaustion offers ordinary Resume
   without another slot grant; inconsistent history and all independent admission gates stay held.
 
+- Planner revisions can send only changed engineering fields against the exact saved plan, retaining
+  unchanged criteria and validated requirement traces before ordinary coverage/authority checks. This
+  avoids forced whole-contract rewriting; full reports and older saved repair schemas remain supported (#2374).
+
 ## [0.8.2] — 2026-10-21
 
 ### Added

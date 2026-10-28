@@ -188,7 +188,7 @@ class PlanRetentionTests(unittest.TestCase):
 
     def test_pinned_old_delta_schema_does_not_offer_the_new_proof_field(self):
         state = self.state()
-        schema = retention.model_schema(planner.SCHEMAS["glm_revise"], state, "glm_revise")
+        schema = retention.model_schema(planner.SCHEMAS["astra_discovery"], state, "astra_discovery")
         self.assertIn("PROOF-ONLY DELTA", retention.delta_rule(schema))
         branch = schema["properties"]["contract"]["properties"]["acceptance_criteria"]["anyOf"][1]
         branch["properties"].pop("proofs")
@@ -200,7 +200,10 @@ class PlanRetentionTests(unittest.TestCase):
         criteria = source["properties"]["contract"]["properties"]["acceptance_criteria"]
         for stage in ("astra_discovery", "glm_revise"):
             schema = retention.model_schema(source, state, stage)
-            options = schema["properties"]["contract"]["properties"]["acceptance_criteria"]["anyOf"]
+            contract = schema["properties"]["contract"]
+            if stage == "glm_revise":
+                contract = contract["anyOf"][1]
+            options = contract["properties"]["acceptance_criteria"]["anyOf"]
             delta = options[1]
             self.assertEqual(criteria["items"], delta["properties"]["upsert"]["items"])
             self.assertEqual({"retain_from", "upsert", "remove"}, set(delta["required"]))

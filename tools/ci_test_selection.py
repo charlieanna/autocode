@@ -433,6 +433,8 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         (
             "tools/autocode_planning_report_policy.py",
             "tools/autocode_plan_retention.py",
+            "tools/autocode_plan_revision_reference.py",
+            "tools/prompts/requirements-revise.md",
             "tools/autocode_report_repair_context.py",
             "tools/autocode_report_source.py",
             "tools/units/autoplanner.py",

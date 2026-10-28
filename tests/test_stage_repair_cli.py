@@ -267,6 +267,44 @@ class StageRepairCLI(unittest.TestCase):
         concerns = state["planning"]["reports"]["astra_challenge"]["report"]["concerns"]
         self.assertEqual([row["id"] for row in concerns], [row["concern_id"] for row in final["decisions"]])
 
+    def test_sparse_revision_reaches_approval_without_recopying_or_repair(self):
+        fixture = self.fixture_for("revision-reference")
+        run, state, view, trace = self.plan(fixture)
+        self.assert_approval_boundary(fixture, state, view, trace)
+        revisions = [row for row in trace if row["stage"] == "glm_revise"]
+        self.assertEqual(1, len(revisions))
+        self.assertFalse(revisions[0]["repair"])
+        self.assertTrue(revisions[0]["reference_instruction"])
+        ref = revisions[0]["revision_reference"]
+        self.assertNotIn("acceptance_criteria", ref)
+        self.assertNotIn("required_behaviors", ref["changes"])
+        # The public plan contains the original obligations and the revised approach,
+        # though the provider never retranscribed them in its revision.
+        plan = fixture.launch(["--run-dir", str(run), "--show-goal"], 0).stdout
+        self.assertIn("Greet", plan)
+        self.assertIn("C1", plan)
+        self.assertFalse(any(row["repair"] for row in trace))
+
+    def test_sparse_revision_repair_preserves_reference_and_approval_gate(self):
+        fixture = self.fixture_for("revision-reference-repair")
+        _, state, view, trace = self.plan(fixture)
+        self.assert_approval_boundary(fixture, state, view, trace)
+        repairs = [row for row in trace if row["repair"]]
+        self.assertEqual(1, len(repairs))
+        self.assertTrue(repairs[0]["reference_instruction"])
+        self.assertIn("revise_contract", repairs[0]["revision_reference"])
+
+    def test_sparse_revision_rejects_stale_protected_and_missing_criteria(self):
+        for case in ("stale", "protected", "missing-criterion"):
+            with self.subTest(case=case):
+                fixture = self.fixture_for("revision-reference-" + case)
+                _, _, view, trace = self.plan(fixture)
+                self.assertNotEqual("AWAITING_GOAL_APPROVAL", view["status"])
+                self.assertFalse(view["done"])
+                self.assertFalse(any(row["stage"] == "terra" for row in trace))
+                errors = " ".join(row["error"] for row in trace)
+                self.assertTrue("reference" in errors or "criterion" in errors, errors)
+
     def test_unchanged_rewording_metadata_repairs_without_a_human_question(self):
         from autocode_taskrun import TaskRun
 

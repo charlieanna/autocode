@@ -417,7 +417,20 @@ def default_missing_provenance(value, record):
         if optional:
             record["defaulted_fields"] = sorted(optional)
         return {**value, **optional}
-    contract_schema = properties.get("contract", {}).get("properties", {})
+    contract_offer = properties.get("contract", {})
+    if "anyOf" in contract_offer:
+        # Revision references and legacy full reports have different optional fields.
+        # Do not inject full-body defaults into a reference, or lose them for old reports.
+        reference = isinstance(value.get("contract"), dict) and "revise_contract" in value["contract"]
+        contract_offer = next(
+            (
+                branch
+                for branch in _offers(contract_offer)
+                if ("revise_contract" in branch.get("properties", {})) == reference
+            ),
+            {},
+        )
+    contract_schema = contract_offer.get("properties", {})
     if isinstance(value.get("contract"), dict):
         # A report-level field written inside the contract is the model's own content, only misplaced:
         # move it up instead of rejecting the report (`$.contract: unexpected fields`, 8 repairs to

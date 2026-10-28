@@ -17,8 +17,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_plan_revision_reference as revision_reference
     from . import autocode_util as util
 except ImportError:
+    import autocode_plan_revision_reference as revision_reference
     import autocode_util as util
 
 # The default flow is affected by the incident. V2 keeps its separately sealed
@@ -174,13 +176,19 @@ def model_schema(schema, state: RunState, stage):
         )
         reference["required"].append("open_blocking_questions")
         result["properties"]["contract"] = reference
+    if stage == "glm_revise":
+        result["properties"]["contract"] = revision_reference.model_schema(body, token(state))
     return result
 
 
 def _delta_offers(schema):
     """The criteria shapes a generation schema offers: the author's branches, or the final reference's delta."""
-    criteria = schema.get("properties", {}).get("contract", {}).get("properties", {}).get("acceptance_criteria", {})
-    return [branch.get("properties", {}) for branch in criteria.get("anyOf", [criteria])]
+    body = schema.get("properties", {}).get("contract", {})
+    offers = []
+    for contract in body.get("anyOf", [body]):
+        criteria = contract.get("properties", {}).get("acceptance_criteria", {})
+        offers.extend(branch.get("properties", {}) for branch in criteria.get("anyOf", [criteria]))
+    return offers
 
 
 def allows_delta(schema):
@@ -281,6 +289,10 @@ def expand(state: RunState, stage, value):
     body = value.get("contract")
     if not isinstance(body, dict):
         return value
+    if "revise_contract" in body:
+        value = revision_reference.expand(
+            value, stage, token(state), (state.get("goal_contract") or {}).get("body"), validated_trace(state)
+        )
     result = copy.deepcopy(value)
     body = result["contract"]
     if "retain_contract" in body:
