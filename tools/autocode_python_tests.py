@@ -146,7 +146,7 @@ def family_inventory(files, read, root: Path):
     each package ``__init__`` source only.
     """
     tests = [p for p in files if TEST_MODULE.match(PurePosixPath(p).name)]
-    packages = {family: [] for family in FAMILY_DIRS}
+    packages: dict[str, list[str]] = {family: [] for family in FAMILY_DIRS}
     for path in files:
         parts = PurePosixPath(path).parts
         if (
