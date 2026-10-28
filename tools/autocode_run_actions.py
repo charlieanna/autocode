@@ -227,7 +227,10 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         else:
             rendered = lifecycle.present(state, run_dir)
             runner.write_json(state_path, state)
-            print(rendered)
+            if getattr(args, "json", False):
+                print(rendered)  # the one JSON payload is printed by json_output.finish (#714)
+            else:  # the same output as the stop that got here: header, presentation, the command last (#2301)
+                runner.print_pause(state, args, workspace, run_dir, rendered)
             return 2
     if state["status"] == "PAUSED_PLANNING_BUDGET" and (
         runner.recover_default_budget(state, run_dir, workspace, "planning_review_call_limit")

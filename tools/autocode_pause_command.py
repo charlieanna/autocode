@@ -147,3 +147,21 @@ def summary(view):
     if view.get("next_command"):
         lines.append("Next command: " + view["next_command"])
     return "\n".join(lines)
+
+
+SCREEN = 20
+
+
+def trailer(view, rendered):
+    """Repeat the command after a presentation longer than a screen (#2301).
+
+    The header's command scrolls off above a long brief, so the last line names it again,
+    unless the presentation's own last screen already does (the approval screen, #381).
+    """
+    command = view.get("next_command")
+    lines = rendered.splitlines()
+    if not command or not view.get("pause_category") or len(lines) <= SCREEN:
+        return ""
+    if command in "\n".join(lines[-SCREEN:]):
+        return ""
+    return "Next command: " + command
