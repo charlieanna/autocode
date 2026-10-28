@@ -423,6 +423,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A run saved after an answer, approval or follow-up and left for the person to continue no longer reads
+  `Working`: `--status --summary` says "Needs you: Saved and ready to continue; nothing runs it until
+  you do." and `autocode runs` lists it under needs you as "Ready to continue", both from the
+  controller's `ready` receipt for the current checkpoint (#2332).
 - The root `--help` names `--engine` (opencode, codex or claude) as the way to choose the coding agent
   instead of `--provider`, and `--provider codex` is refused before any worktree is created, naming
   `--engine codex`, instead of failing afterwards with "create ~/.config/autocode/providers/codex.toml" for
