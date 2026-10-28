@@ -18,8 +18,28 @@ class AccessEvidenceCLI(unittest.TestCase):
     setUp = test_subprocess.SubprocessFlow.setUp
 
     def test_confirmed_requirements_reuses_its_route_and_probes_unseen_builder(self):
+        self.check_requirements_access(repaired=False)
+
+    def test_accepted_requirements_repair_reuses_its_own_access_not_original_report(self):
+        self.check_requirements_access(repaired=True)
+
+    def check_requirements_access(self, *, repaired):
         binary = self.root / "fixture-bin"
         shutil.copy2(HERE / "live_fixture_provider.py", binary / "codex-fixture")
+        if repaired:
+            fixture = binary / "codex-fixture"
+            source = fixture.read_text()
+            anchor = "    output.write_text(json.dumps(report))"
+            self.assertEqual(1, source.count(anchor))
+            fixture.write_text(
+                source.replace(
+                    anchor,
+                    """    if stage == 'requirements_gather' and not repairing:
+        report['proposed_assumptions'][0].pop('category')
+"""
+                    + anchor,
+                )
+            )
         wrapper = binary / "credentialfixture"
         probe = """    schema = json.load(open(sys.argv[sys.argv.index('--output-schema') + 1]))
     if 'ok' in schema.get('properties', {}):
@@ -71,8 +91,17 @@ class AccessEvidenceCLI(unittest.TestCase):
                 probe_models.append(args[args.index("--model") + 1])
             elif "requirements-gather" in report:
                 requirements.append(report)
-        self.assertEqual(1, len(requirements), requirements)
+        self.assertEqual(2 if repaired else 1, len(requirements), requirements)
+        if repaired:
+            self.assertTrue(any("report-repair" in name for name in requirements), requirements)
+            archived = list(
+                run.run_dir.glob(f"iterations/*/archived-requirements-gather-*/{Path(requirements[0]).name}")
+            )
+            self.assertEqual(1, len(archived), "The exact rejected report must remain retained")
+            self.assertNotIn("category", json.loads(archived[0].read_text())["proposed_assumptions"][0])
         self.assertEqual(["demo/builder"], probe_models, "Requirements already paid for demo/reviewer access")
         receipts = json.loads((run.run_dir / "model-preflight.json").read_text())["receipts"]
         reused = [row["probed"].get("demo/reviewer", {}) for row in receipts]
         self.assertTrue(any(row.get("source") == "completed_stage" for row in reused), reused)
+        if repaired:
+            self.assertTrue(any(row.get("stage") == "requirements_gather_report_repair" for row in reused), reused)
