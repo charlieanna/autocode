@@ -6,6 +6,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -224,6 +225,25 @@ class CommandLineTests(unittest.TestCase):
             self.assertEqual(
                 [], list(Path(registry_home).iterdir()), "inventory does not create a run or registry entry"
             )
+
+    def test_a_registered_run_whose_directory_is_gone_names_the_forget_command(self):
+        """#2321: the row said only "Run state.json is unavailable", and nothing named a way out."""
+        with (
+            tempfile.TemporaryDirectory() as registry_home,
+            mock.patch.dict(os.environ, {"AUTOCODE_HOME": registry_home}),
+        ):
+            run = self.root / ".autocode" / "runs" / "finished"
+            registry.register_run(self.root, run, json.loads((run / "state.json").read_text()))
+            shutil.rmtree(run)
+            code, out, _ = capture(["--all", "--json"])
+            self.assertEqual(0, code)
+            (row,) = json.loads(out)["runs"]
+            self.assertEqual(runs.UNREADABLE, row["bucket"])
+            self.assertIn("run directory no longer exists", row["reason"])
+            self.assertIn(f"autocode registry forget-deleted --workspace {self.root} --run-dir {run}", row["reason"])
+            self.assertNotIn("next_command", row)
+            code, _, _ = capture(["--all"])
+            self.assertEqual(0, code)
 
     def test_the_root_command_dispatches_runs(self):
         """`autocode runs` reaches the command through the CLI's own dispatch table."""
