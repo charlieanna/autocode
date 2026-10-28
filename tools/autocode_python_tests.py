@@ -5,7 +5,7 @@ import re
 import shlex
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 try:
     from . import autocode_test_setup as test_setup
@@ -129,6 +129,75 @@ def prefers_pytest_in(directory, files, read) -> bool:
             if TEST_MODULE.match(Path(path).name) or Path(path).name == "__init__.py"
         }
     )
+
+
+FAMILY_DIRS = ("components", "repos")
+
+
+def family_inventory(files, read, root: Path):
+    """One shared enumeration and dispatch policy for nested unittest suite families.
+
+    Both families — ``components/`` and the joint integration layout ``repos/<member>/``
+    (#2414) — enumerate test modules, package markers and member names through the same
+    rules here, so the collector command and its semantics cannot drift between
+    families. Binding keeps each family's established predicate: a ``components``
+    parent package binds through its package markers as it always has, a ``repos``
+    parent binds through ``repo_parent_package``. Pure: reads the tracked file list and
+    each package ``__init__`` source only.
+    """
+    tests = [p for p in files if TEST_MODULE.match(PurePosixPath(p).name)]
+    packages: dict[str, list[str]] = {family: [] for family in FAMILY_DIRS}
+    for path in files:
+        parts = PurePosixPath(path).parts
+        if (
+            path.endswith("/__init__.py")
+            and len(parts) > 1
+            and parts[0] in packages
+            and unittest_package(read(root / path))
+        ):
+            packages[parts[0]].append(path)
+    members = {
+        family: sorted(
+            {
+                PurePosixPath(p).parts[1]
+                for p in [*tests, *packages[family]]
+                if len(PurePosixPath(p).parts) > 2 and PurePosixPath(p).parts[0] == family
+            }
+        )
+        for family in FAMILY_DIRS
+    }
+    return FamilyInventory(
+        tests=tests,
+        components=members["components"],
+        component_packages=packages["components"],
+        repo_members=members["repos"],
+        repo_packages=packages["repos"],
+        repo_parent_package="repos/__init__.py" in packages["repos"],
+    )
+
+
+@dataclass(frozen=True)
+class FamilyInventory:
+    tests: list
+    components: list
+    component_packages: list
+    repo_members: list
+    repo_packages: list
+    repo_parent_package: bool
+
+    def any_family(self):
+        """Whether any nested family (or family-shaped test tree) selects Python unittest."""
+        return bool(self.tests or self.component_packages or self.repo_packages or self.repo_parent_package)
+
+    def has_components(self):
+        return bool(self.components or self.component_packages)
+
+    def has_repos(self):
+        return bool(self.repo_members or self.repo_parent_package)
+
+    def collected_by_runner(self):
+        """Whether the isolated collector must run this tree instead of a root discovery."""
+        return self.has_components() or self.has_repos()
 
 
 def unittest_package(source: str) -> bool:

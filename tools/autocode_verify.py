@@ -555,15 +555,13 @@ def detect_framework(root, *, python=None, test_root=None, base=None, package=No
                 f"{shlex.quote(python)} -m pytest -q -p no:cacheprovider --continue-on-collection-errors",
                 python=python,
             )
-        tests = [p for p in files if PYTHON_TEST_MODULE.match(PurePosixPath(p).name)]
-        component_packages = [
-            p
-            for p in files
-            if p.startswith("components/")
-            and p.endswith("/__init__.py")
-            and python_tests.unittest_package(_read(root / p))
-        ]
-        if tests or component_packages:
+        # One family inventory (autocode_python_tests.family_inventory) drives both nested
+        # layouts: components/ and the joint repos/<member>/ workspace (#2414), where no
+        # root discovery shape collects the members and a later markerless root tests/
+        # directory must not drop them either.
+        families = python_tests.family_inventory(files, _read, root)
+        tests = families.tests
+        if families.any_family():
             note = f"pytest is configured but {python} cannot import it; using unittest" if configured else ""
             plain_start = None
             if base:
@@ -584,23 +582,22 @@ def detect_framework(root, *, python=None, test_root=None, base=None, package=No
                 start = " -s test"
             else:
                 start = ""
-            components = sorted(
-                {
-                    PurePosixPath(p).parts[1]
-                    for p in [*tests, *component_packages]
-                    if len(PurePosixPath(p).parts) > 2 and PurePosixPath(p).parts[0] == "components"
-                }
-            )
-            if components or component_packages:
+            runner = str(Path(__file__).with_name("autocode_component_tests.py"))
+            if families.collected_by_runner():
+                # One command for the whole suite, with bounded derived relative member
+                # paths per family: the collector runs the selected root suite once plus
+                # each family through the one shared family algorithm (parent hooks own
+                # collection; otherwise parent TestCases once and every member isolated),
+                # so baseline originals are never hidden by later root joint tests (#2414).
                 command = shlex.join(
                     [
                         python,
-                        str(Path(__file__).with_name("autocode_component_tests.py")),
+                        runner,
                         "-v",
                         "--root",
                         start.removeprefix(" -s ") or ".",
-                        "--components",
-                        *components,
+                        *(["--components", *families.components] if families.has_components() else []),
+                        *(["--repos", *families.repo_members] if families.has_repos() else []),
                     ]
                 )
                 return Framework("unittest", command, python=python, note=note)
