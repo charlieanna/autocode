@@ -229,7 +229,16 @@ def assess(project, tree, branch, registered):
         except (OSError, ValueError):
             return False, f"{path.parent.name}: unreadable state"
         if status != COMPLETE:
-            return False, f"{path.parent.name} is {status}; finish or abandon it first"
+            # No command abandons a run (#2365): name the steps that work, not a verb that does not.
+            forget = (
+                f"; then autocode registry forget-deleted --workspace {tree} --run-dir {path.parent}"
+                if registry.registry_path().is_file()
+                else ""
+            )
+            return False, (
+                f"{path.parent.name} is {status}; finish it, or drop it yourself with "
+                f"git -C {project} worktree remove --force {tree} (its run records go with it){forget}"
+            )
     if not branch:
         return False, "no branch; commit its work to a branch first"
     try:

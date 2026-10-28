@@ -423,6 +423,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode clean-worktrees` no longer tells the person to "finish or abandon" an unfinished run, a verb no command implements; its keep reason now names the steps that work today, `git worktree remove --force` on the worktree and, with a shared registry, `autocode registry forget-deleted` (#2365).
 - `autocode models` without `--provider` now follows the project's `engine` setting as `doctor` and a task do, instead of failing with "OpenCode is not on PATH" in a Codex project: a `claude` project lists the Claude Code provider, and a `codex` project is told its routes are fixed (#2369).
 - The install guide's first-task walkthrough quotes the prompts the terminal chat prints (`Prepare plan? [y/N]:`, then `Approve this plan? [y/N], or type what to change:`) instead of one it never printed (#2367).
 - The plain CLI's human-review stop now lists the files each criterion's saved Builder steps changed and names `autocode review --show --run-dir RUN` as the way to read the change and its evidence; before, it asked for approval of a change it never located (#2360).
