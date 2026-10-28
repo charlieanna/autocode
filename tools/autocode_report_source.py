@@ -134,14 +134,27 @@ def repair_report_source(record):
     text = path.read_text()
     if not text.strip():
         raise support.Paused("PAUSED_REPORT_REPAIR_INPUT", f"Repair report is empty: {path}." + REPAIR_INPUT_ROUTE)
+    parse_error = None
     try:
         content, format_ = json.loads(text), "json"
+    except json.JSONDecodeError as error:
+        content, format_ = text, "text"
+        # Keep the decoder's location beside the exact pinned text. The generic
+        # provider failure remains unchanged; these are diagnostics, not a repair
+        # or authority to accept/drop any part of the rejected report (#2359).
+        parse_error = {
+            "message": error.msg,
+            "position": error.pos,
+            "line": error.lineno,
+            "column": error.colno,
+        }
     except ValueError:
         content, format_ = text, "text"
     return {
         "path": str(path),
         "sha256": support.file_hash(path),
         "format": format_,
+        **({"parse_error": parse_error} if parse_error is not None else {}),
         "bytes": len(text.encode("utf-8")),
         "truncated": False,
         "content": content,

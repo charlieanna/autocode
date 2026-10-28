@@ -272,13 +272,23 @@ def prompt_parts(
         if differences
         else ""
     )
+    syntax_instruction = (
+        "JSON SYNTAX DIAGNOSTIC. rejected_report.parse_error describes the first parser failure in the "
+        "exact rejected_report.content text: position is a zero-based Unicode character offset; line and "
+        "column are one-based. Use it to locate the syntax defect, then return the complete corrected "
+        "report. It may expose further errors after correction; it does not authorize dropping findings, "
+        "changing requirements or bypassing schema, evidence or protected-contract validation.\n"
+        if latest.get("format") == "text" and latest.get("parse_error") and not latest.get("truncated")
+        else ""
+    )
     review_instruction = prompts.get("fragments/report-repair-context/revision-review.md") if review else ""
     return (
         receipt_instruction
         + retention_instruction
         + historical_instruction
         + review_instruction
-        + difference_instruction,
+        + difference_instruction
+        + syntax_instruction,
         {
             "header": {
                 **receipt_handoff,

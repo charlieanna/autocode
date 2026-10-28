@@ -152,6 +152,30 @@ def main():
     data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
     repair = bool(data.get("report_repair"))
     stage = data["original"]["stage"] if repair else data["stage"]
+    if repair and stage == "glm_revise" and os.environ["STAGE_REPAIR_CASE"] == "json-syntax-diagnostic":
+        source = data["rejected_report"]
+        text = source["content"]
+        diagnostic = source.get("parse_error")
+        row = {
+            "stage": stage,
+            "repair": True,
+            "error": data.get("error", ""),
+            "parse_error": diagnostic,
+            "source_hash_matches": hashlib.sha256(text.encode()).hexdigest() == source["sha256"],
+            "syntax_instruction": "zero-based Unicode character offset" in prompt,
+        }
+        if diagnostic and diagnostic["message"] == "Expecting ',' delimiter":
+            position = diagnostic["position"]
+            assert text[position:].startswith('"summary":')
+            # Correct only the syntax named by the actual handoff location.
+            text = text[:position] + "," + text[position:]
+            json.loads(text)
+        output = Path(sys.argv[sys.argv.index("-o") + 1])
+        output.write_text(text)
+        append_trace({**row, "output": str(output)})
+        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
+        print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
+        return 0
     if repair and stage == "sol" and os.environ["STAGE_REPAIR_CASE"] == "criterion-evidence":
         value = copy.deepcopy(data["rejected_report"]["content"])
         missing = [row for row in value["criterion_results"] if row["status"] == "PASS" and not row["evidence_refs"]]
@@ -482,7 +506,12 @@ def main():
             probe=value["probe"],
             has_scratch_map=bool((data.get("investigation_context") or {}).get("evidence_files")),
         )
-    output.write_text(json.dumps(value))
+    text = json.dumps(value)
+    if stage == "glm_revise" and case == "json-syntax-diagnostic":
+        text = json.dumps(value, separators=(",", ":"))
+        assert not repair and ',"summary":' in text
+        text = text.replace(',"summary":', '"summary":', 1)
+    output.write_text(text)
     append_trace(row)
     for event in event_rows:
         print(json.dumps(event))
