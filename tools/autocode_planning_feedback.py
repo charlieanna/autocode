@@ -22,7 +22,7 @@ except ImportError:
 def invalid_report(state: RunState) -> bool:
     return (
         state.get("status") == "PAUSED_INVALID_OUTPUT"
-        and state.get("next_stage") in roles.ALL_PLANNING_STAGES
+        and state.get("next_stage") in (*roles.ALL_PLANNING_STAGES, "write_acceptance_tests")
         and (state.get("user_request") or {}).get("kind") not in ("human_review", "blocker")
     )
 

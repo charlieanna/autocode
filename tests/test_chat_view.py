@@ -153,7 +153,7 @@ class ChatViewTests(unittest.TestCase):
     def test_invalid_planning_reports_offer_correction_without_retry_or_approval(self):
         import autocode_roles as roles
 
-        for stage in roles.ALL_PLANNING_STAGES:
+        for stage in (*roles.ALL_PLANNING_STAGES, "write_acceptance_tests"):
             with self.subTest(stage=stage):
                 state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": stage, "task": "Fix it"}
                 before = copy.deepcopy(state)
@@ -178,9 +178,10 @@ class ChatViewTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": stage}
                 self.assertIsNone(self.project(state, "resume")["input"])
-        for request in ({"kind": "human_review"}, {"kind": "blocker"}):
-            state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": "astra_finalize", "user_request": request}
-            self.assertIsNone(self.project(state, "resume")["input"])
+        for stage in ("astra_finalize", "write_acceptance_tests"):
+            for request in ({"kind": "human_review"}, {"kind": "blocker"}):
+                state = {"status": "PAUSED_INVALID_OUTPUT", "next_stage": stage, "user_request": request}
+                self.assertIsNone(self.project(state, "resume")["input"])
 
     def test_invalid_planning_report_does_not_release_held_operational_authority(self):
         import autocode_goals as goals
@@ -193,6 +194,8 @@ class ChatViewTests(unittest.TestCase):
                 "origin": {"pause_status": "PAUSED_TIME_LIMIT"},
             },
         }
+        self.assertIsNone(self.project(state, "resume")["input"])
+        state["next_stage"] = "write_acceptance_tests"
         self.assertIsNone(self.project(state, "resume")["input"])
 
     def test_a_retained_invalid_report_does_not_offer_feedback_while_running(self):
