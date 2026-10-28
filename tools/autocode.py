@@ -885,17 +885,16 @@ def run_role(
                 job_source.discard_unadmitted(state, record)  # admission lost: no request or provider was started
             raise
         except processes.ProcessError as error:
+            if native is None and isinstance(error, supervision.LaunchRefused):  # nothing ran (#2296)
+                job_source.discard_refused(state, record, run_dir / "state.json")
             raise support.Paused("PAUSED_PROCESS_CLEANUP", str(error)) from error
         except KeyboardInterrupt as error:  # the stage's one interrupt; the launch stopped what it started
             if native is None:
                 job_source.discard_unadmitted(state, record)
             if state.get("active_stage") is not record:
                 raise  # before admission finished, nothing of this stage was saved
-            raise support.Paused(
-                "PAUSED_INTERRUPTED",
-                f"Provider launch interrupted by {str(error) or 'a signal'}; "
-                "inspect saved artifacts before reconciliation",
-            ) from error
+            interrupted = f"Provider launch interrupted by {str(error) or 'a signal'}; inspect saved artifacts "
+            raise support.Paused("PAUSED_INTERRUPTED", interrupted + "before reconciliation") from error
         except BaseException:
             if native is None:
                 job_source.discard_unadmitted(state, record)
