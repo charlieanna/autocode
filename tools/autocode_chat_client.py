@@ -748,7 +748,42 @@ class ChatClient:
     def say(self, text: str) -> None:
         self._say(text)
 
+    # The line-by-line chat takes ``/`` commands at every prompt, as the full-screen chat's composer does;
+    # ``//`` sends text that starts with a slash. Off in the full-screen chat, whose composer runs them first.
+    line_commands = False
+
     def ask(self, prompt: str) -> str:
+        while True:
+            text = self._read(prompt)
+            if not self.line_commands or not text.startswith("/"):
+                return text
+            if text.startswith("//"):
+                return text[1:].strip()
+            name, _, argument = text.partition(" ")
+            self.say(self.line_command(name, argument.strip()))
+
+    def line_command(self, name: str, argument: str) -> str:
+        """A ``/`` command typed at a line-chat prompt: what to print. Typed as an answer, ``/runs`` was
+        sent to the model as the reply and spent a planning call; ``/open`` and ``/new`` leave the prompt."""
+        if name == "/quit":
+            raise Left
+        if name in ("/help", "/plan", "/tasks", "/details"):
+            return panel.text(name, self._status_view, panel.StageLog())  # the line chat keeps no stage log
+        if name in panel.CLIENT_COMMANDS:
+            result = self.slash(name, argument)
+            if isinstance(result, panel.Confirm):
+                self.say(result.text)
+                if self._read(f"{result.question} [y/N]: ").lower() in YES:
+                    return result.then()
+                return "Nothing changed."
+            if isinstance(result, attention.Menu):
+                return "\n".join(attention.label(row) for row in result.rows) or "No saved alerts."
+            return str(result)
+        known = any(command.name == name for command in panel.COMMANDS)
+        why = "is only in the full-screen chat" if known else "is not a command"
+        return f"{name} {why}. Type /help for the commands; // sends text that starts with /."
+
+    def _read(self, prompt: str) -> str:
         while True:
             try:
                 return self._ask(prompt).strip()
@@ -1861,6 +1896,7 @@ def cli(argv: list[str] | None = None) -> int:
             if client is None:
                 return 2
         client.history = history
+        client.line_commands = ui is None  # / commands at every prompt of the line-by-line chat
         if discovery is not None:
             discovery.transfer(client)
         if ui is not None:
