@@ -4631,8 +4631,11 @@ class StockRefusalsRunTests(unittest.TestCase):
             ],
             result["metrics"]["model_stage_names"],
         )
-        # The proof failed, AutoResolver ran (not the direct Builder repair of #294), and the next proof passed.
-        self.assertEqual(["FAIL", "PASS"], proofs)
+        # The trap fails twice (the anti-flake replay), AutoResolver runs, and the repaired proof passes.
+        self.assertEqual(["FAIL", "FAIL", "PASS"], proofs)
+        revisions = [row["source_revision"] for row in state["regression_proofs"]]
+        self.assertEqual(revisions[0], revisions[1], "Replay must use the same failing source")
+        self.assertNotEqual(revisions[1], revisions[2], "PASS must follow a source repair")
         self.assertEqual(1, len(state["resolution_history"]))
         self.assertEqual([], state.get("direct_rework_assignments") or [])
         diagnosis = result["diagnosis"]
@@ -4653,9 +4656,12 @@ class StockRefusalsRunTests(unittest.TestCase):
         self.assertEqual(1, diagnosis["resolver_calls_on_trap"])
 
     def test_a_misattributed_diagnosis_is_incorrect_while_the_run_still_passes(self):
-        result, _, proofs = self.run_fake(env={"SCENARIO_FAKE_RESOLVER": "misattribute"})
+        result, state, proofs = self.run_fake(env={"SCENARIO_FAKE_RESOLVER": "misattribute"})
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
-        self.assertEqual(["FAIL", "PASS"], proofs)
+        self.assertEqual(["FAIL", "FAIL", "PASS"], proofs)
+        revisions = [row["source_revision"] for row in state["regression_proofs"]]
+        self.assertEqual(revisions[0], revisions[1], "Replay must use the same failing source")
+        self.assertNotEqual(revisions[1], revisions[2], "PASS must follow a source repair")
         self.assertEqual(verdict.INCORRECT, result["diagnosis"]["verdict"])
         self.assertEqual(
             {
@@ -4922,8 +4928,14 @@ class HybridRunTests(unittest.TestCase):
         )
         # The regression proof failed on the scripted Builder's source: the trap, by construction.
         scripted_build = next(row for row in state["stages"] if row["stage"] == "terra")
-        self.assertEqual([(scripted_build["source_revision"], "FAIL"), proofs[1]], proofs)
-        self.assertEqual("PASS", proofs[1][1])
+        self.assertEqual(
+            [(scripted_build["source_revision"], "FAIL")] * 2,
+            proofs[:-1],
+            "The anti-flake replay must fail again on exactly the scripted trap source",
+        )
+        self.assertEqual(3, len(proofs))
+        self.assertEqual("PASS", proofs[-1][1])
+        self.assertNotEqual(scripted_build["source_revision"], proofs[-1][0])
         diagnosis = result["diagnosis"]
         self.assertEqual(
             (verdict.CORRECT, 1, model, 0),
