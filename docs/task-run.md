@@ -404,6 +404,14 @@ At a semantic Resolver or completion stop (`RESOLVER_PENDING` or
 uses this same named offer. Terminal chat lets the person type the correction at
 the Continue prompt. A held operational pause, blocker or human-review gate does
 not gain a feedback bypass; the existing pause-authority policy still decides.
+One blocker stop does gain it, as its own decision rather than a bypass: after a
+blocker was answered with `provide_information` and the response holds the current
+frontier at an approved contract, that hold exists to take the contract decision it
+asked about, so the view offers the same `feedback` action and the CLI admits
+`--feedback` (and, consistently, the `--edit-goal` path the stop reason names).
+The correction invalidates the approval and starts ordinary re-planning toward a
+fresh, unapproved draft and a fresh approval — fresh set approval too, for a linked
+run. The informational reply alone still changes nothing (#2434).
 An operational `resolver_response` offer binds `provide_information` to the current
 Resolver request ID and token in `needs`. It supplies corrective information only;
 retry grants, scope changes, model routing and resuming remain separate actions.
@@ -1623,7 +1631,12 @@ only when the last displayed token matches the current sealed contract. Missing,
 modified or stale contracts do not expose it. Criterion `verification_method`,
 `human_review` and the optional `current_behavior` (what happens today, from the
 bound diagnosis; #2133) values are copied without interpreting or coercing model-authored
-text. Automation must check these structured fields and bind the token to
+text. Where the body carries them it also includes `milestones` (each with at least
+`id` and `objective`) and `end_to_end_flow`: the completion order the approval binds,
+so a person approving a member plan can see a coordinator-owned joint-proof milestone
+in the milestone list instead of only in criteria summaries (#2434); sealed legacy
+bodies predate both fields and simply omit them, keeping every earlier field's shape.
+Automation must check these structured fields and bind the token to
 `needs.token`; do not infer approval authority by parsing headings or review labels
 embedded in `--show-goal` prose. This projection is not approval, execution permission
 or completion proof; the existing CLI approval checks remain authoritative.

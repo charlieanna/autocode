@@ -269,6 +269,7 @@ class Transcript:
     activity: str = ""
     live: str = ""  # an assistant reply still being written (the view's streaming message), shown last
     asked: int = 0  # how many blocks there were when the last question was put to the person
+    last_block_start: int | None = None  # set by lines(): where the newest spoken block begins
 
     def add(self, text: str) -> bool:
         """Add a spoken block; a progress line updates the status row instead."""
@@ -307,9 +308,12 @@ class Transcript:
         return [text for index, text in tail if index >= self.asked]
 
     def lines(self, width: int) -> list[tuple[str, str]]:
-        """The transcript as ``(style, text)`` rows, labels over indented bodies."""
+        """The transcript as ``(style, text)`` rows, labels over indented bodies, remembering
+        where the newest spoken block begins so a tall one can anchor to its top."""
         rendered: list[tuple[str, str]] = []
+        starts: list[int] = []
         for role, text in self.blocks:
+            starts.append(len(rendered))
             label = _LABELS.get(role)
             if label is None:
                 rendered.extend(("plain", line) for line in wrap(text, width))
@@ -328,6 +332,7 @@ class Transcript:
             text = safe_text(self.live).strip("\n")
             rendered.extend(("assistant-body", "  " + line) for line in wrap(text, max(1, width - 2)))
             rendered.append(("plain", ""))
+        self.last_block_start = starts[-1] if starts else None
         return rendered
 
 
@@ -1346,6 +1351,13 @@ class ChatTUI:
         self._scroll = min(self._scroll, max(0, len(lines) - height))
         end = len(lines) - self._scroll
         start = max(0, end - height)
+        if self._scroll == 0 and self._transcript.last_block_start is not None:
+            # A newest block taller than the body anchors to its top, so a long plan reads
+            # from its first line — its criteria — instead of losing its head to the tail
+            # clip now that approvals also carry their milestones and flow (#2434).
+            block_start = self._transcript.last_block_start
+            if end - block_start > height:
+                start, end = block_start, min(len(lines), block_start + height)
         for row, (role, text) in enumerate(lines[start:end], layout.body_start):
             if role.endswith("-label"):
                 self._put(row, 0, truncate(f"{self._glyphs.bar} {text}", width), self._style(role))

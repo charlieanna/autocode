@@ -136,6 +136,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             key = hashlib.sha256(json.dumps([asked, spoken]).encode()).hexdigest()[:12]
             messages.append({"id": f"{REQUIREMENTS_QUESTION}-{key}", "role": "assistant", "text": spoken})
     action = None
+    blocker_hold = False  # an answered semantic blocker waiting for its contract decision (#2434)
     # A completed stage record may remain as active_stage: use the public
     # checkpoint, never infer liveness from the presence of a retained attempt.
     if status == "TASK_COMPLETE" and public.get("done"):
@@ -159,7 +160,12 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         # The Tester's pause says --feedback revises the plan; offer it so a client can take it (#1869).
         action = ("feedback", "Send plan feedback", "--feedback")
     elif (
-        planning_feedback.semantic_stop(state, status)
+        (
+            planning_feedback.semantic_stop(state, status)
+            # An answered semantic blocker holds for its contract decision: the person's explicit
+            # plan feedback takes it, through the same named --feedback action (#2434).
+            or (blocker_hold := status == state.get("status") and pause_authority.answered_blocker_decision(state))
+        )
         and need.get("kind") == "resume"
         and need.get("resolver_scope") not in ("blocker", "operational_exhaustion")
         and not pause_authority.feedback_refusal(state)
@@ -168,7 +174,11 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         and planning_feedback.invalid_report(state)
         and not pause_authority.feedback_refusal(state)
     ):
-        action = ("feedback", "Explain what should change", "--feedback")
+        action = (
+            "feedback",
+            "Send plan feedback" if blocker_hold else "Explain what should change",
+            "--feedback",
+        )
     context_token = context(state, public)
     message_input = None
     if action and run_dir is not None and workspace is not None:

@@ -237,6 +237,59 @@ class NamedActionTests(unittest.TestCase):
         self.assertIsNone(actions.plan_for_approval({**view, "needs": {"kind": "approve_plan", "token": "r3:h"}}))
         self.assertIsNone(actions.plan_for_approval({**view, "displayed_plan": {**plan, "constraints": None}}))
 
+    def test_the_completion_order_is_showable_when_present_and_malformed_never(self):
+        # Milestones and the flow are optional in legacy plans but must be showable when the
+        # plan carries them: a client never asks a person to approve what it cannot render (#2434).
+        legacy = {
+            "token": "r2:h",
+            "acceptance_criteria": [{"id": "C1", "criterion": "c", "verification_method": "m", "human_review": False}],
+            "constraints": [],
+            "permission_boundaries": [],
+        }
+        view = {"needs": {"kind": "approve_plan", "token": "r2:h"}, "displayed_plan": legacy}
+        self.assertIs(legacy, actions.plan_for_approval(view))
+        modern = {
+            **legacy,
+            "milestones": [
+                {"id": "M1", "objective": "Finish the member's local gates", "acceptance_criteria": ["C1"]},
+                {"id": "M2", "objective": "Coordinator-owned joint proof", "acceptance_criteria": []},
+            ],
+            "end_to_end_flow": ["Local gates", "The coordinator's joint check"],
+        }
+        self.assertIs(modern, actions.plan_for_approval(view | {"displayed_plan": modern}))
+        for malformed in (
+            {**modern, "milestones": [{"id": "M1"}]},
+            {**modern, "milestones": [{"id": "M1", "objective": None}]},
+            {**modern, "end_to_end_flow": ["a step", 7]},
+            {**modern, "end_to_end_flow": "local then joint"},
+        ):
+            with self.subTest(malformed=sorted(malformed)[:1]):
+                self.assertIsNone(actions.plan_for_approval(view | {"displayed_plan": malformed}))
+
+    def test_render_plan_shows_the_completion_order_not_only_criteria(self):
+        plan = {
+            "token": "r2:h",
+            "acceptance_criteria": [
+                {"id": "AC1", "criterion": "Local gates", "verification_method": "m", "human_review": False},
+                {"id": "AC5", "criterion": "Joint proof by the whole-set check", "verification_method": "m", "human_review": False},
+            ],
+            "constraints": [],
+            "permission_boundaries": [],
+            "milestones": [
+                {"id": "M1", "objective": "Finish the member's local gates", "acceptance_criteria": ["AC1"]},
+                {"id": "M2", "objective": "Coordinator-owned joint proof", "acceptance_criteria": ["AC5"]},
+            ],
+            "end_to_end_flow": ["Finish this member's local gates", "The coordinator's joint check discharges AC5"],
+        }
+        shown = chat.render_plan(plan)
+        # The circular dependency a member plan once hid is exactly what the screen now names.
+        self.assertIn("Milestone M2 (proves AC5): Coordinator-owned joint proof", shown)
+        self.assertIn("Steps in order:\n  1. Finish this member's local gates", shown)
+        self.assertIn("2. The coordinator's joint check discharges AC5", shown)
+        legacy = {key: value for key, value in plan.items() if key not in ("milestones", "end_to_end_flow")}
+        self.assertNotIn("Milestone", chat.render_plan(legacy))
+        self.assertNotIn("Steps in order", chat.render_plan(legacy))
+
 
 DONE = {"status": "TASK_COMPLETE", "done": True, "needs": None, "next_command": None, "chat": {}}
 

@@ -255,6 +255,54 @@ class RunViewTests(unittest.TestCase):
         self.assertIs(body["acceptance_criteria"][0]["human_review"], True)
         self.assertEqual(["Keep references"], body["constraints"])
 
+    def test_displayed_plan_binds_the_milestones_and_flow_the_person_approves(self):
+        # Criteria summaries alone hid a coordinator-owned joint-proof milestone inside a member
+        # plan (#2434): the approval now carries the completion order itself, additively.
+        method = "python check.py"
+        body = {
+            "acceptance_criteria": [
+                {"id": "AC1", "criterion": "Local gates", "verification_method": method, "human_review": False},
+                {
+                    "id": "AC5",
+                    "criterion": "Joint proof, owned by the coordinator's whole-set check",
+                    "verification_method": method,
+                    "human_review": False,
+                },
+            ],
+            "constraints": [],
+            "permission_boundaries": ["This repository only"],
+            "milestones": [
+                {"id": "M1", "objective": "Finish the member's local gates", "acceptance_criteria": ["AC1"]},
+                {
+                    "id": "M2",
+                    "objective": "Coordinator-owned joint integration proof over every member's actual code",
+                    "acceptance_criteria": ["AC5"],
+                },
+            ],
+            "end_to_end_flow": ["Finish this member's local gates", "The coordinator's joint check discharges AC5"],
+        }
+        contract = {"task_id": "t1", "revision": 3, "body": body}
+        contract["hash"] = util.digest(contract)
+        token = f"r3:{contract['hash']}"
+        state = {"status": "AWAITING_GOAL_APPROVAL", "goal_contract": contract, "displayed_goal": token}
+        displayed = run_view.view(state)["displayed_plan"]
+        self.assertEqual(body["milestones"], displayed["milestones"])
+        self.assertEqual(body["end_to_end_flow"], displayed["end_to_end_flow"])
+        displayed["milestones"][1]["objective"] = "rewritten"
+        displayed["end_to_end_flow"].append("rewritten")
+        self.assertEqual("Coordinator-owned joint integration proof over every member's actual code", body["milestones"][1]["objective"])
+        self.assertEqual(2, len(body["end_to_end_flow"]))
+        # A body without the completion order keeps the previous unconditional fields, additively.
+        legacy = {key: value for key, value in body.items() if key not in ("milestones", "end_to_end_flow")}
+        contract["body"] = copy.deepcopy(legacy)
+        contract.pop("hash", None)
+        contract["hash"] = util.digest(contract)
+        shown = run_view.view({**state, "displayed_goal": f"r3:{contract['hash']}"})["displayed_plan"]
+        self.assertNotIn("milestones", shown)
+        self.assertNotIn("end_to_end_flow", shown)
+        self.assertIsNone(shown["git_delivery"])
+        self.assertIsNone(shown["scope_exclusions"])
+
     def test_displayed_plan_requires_current_sealed_display_identity(self):
         contract = {"task_id": "t1", "revision": 1, "body": {"acceptance_criteria": []}}
         contract["hash"] = util.digest(contract)

@@ -85,6 +85,20 @@ class TranscriptTests(unittest.TestCase):
         transcript.add("AutoCode: done")
         self.assertEqual("", transcript.activity)
 
+    def test_lines_name_where_the_newest_block_begins(self):
+        # The body anchors a block taller than the screen to its top, so a long approval
+        # reads from its first line instead of losing its head to the tail clip (#2434).
+        transcript = tui.Transcript()
+        transcript.add("AutoCode: first")
+        transcript.add("You: a reply that is long enough to matter for anchoring")
+        rows = transcript.lines(80)
+        self.assertEqual(6, len(rows))
+        self.assertEqual(3, transcript.last_block_start)
+        self.assertEqual(("user-label", "You"), rows[transcript.last_block_start])
+        transcript2 = tui.Transcript()
+        transcript2.lines(80)
+        self.assertIsNone(transcript2.last_block_start)
+
     def test_the_closing_words_are_everything_said_after_the_conversation(self):
         transcript = tui.Transcript()
         transcript.add("AutoCode: the plan is ready")

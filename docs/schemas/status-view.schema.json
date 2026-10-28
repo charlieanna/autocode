@@ -385,7 +385,25 @@
               "properties": {"kind": {"enum": ["feedback", "follow_up", "resolver_response"]}, "label": {"type": "string"}, "next_command": {"type": "string"}}}
           }
         },
-        "displayed_plan": {"type": "object", "description": "Present while a sealed plan is displayed for approval."},
+        "displayed_plan": {
+          "type": "object",
+          "description": "Present while a sealed plan is displayed for approval. milestones and end_to_end_flow (#2434) carry the completion order the person approves and are present only where the contract body has them; sealed legacy plans omit both.",
+          "properties": {
+            "milestones": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string"},
+                  "objective": {"type": "string"},
+                  "acceptance_criteria": {"type": "array", "items": {"type": "string"}}
+                },
+                "required": ["id", "objective"]
+              }
+            },
+            "end_to_end_flow": {"type": "array", "items": {"type": "string"}}
+          }
+        },
         "approved_contract": {"type": "object", "description": "Present once a plan is approved."},
         "workspace": {"type": ["string", "null"], "description": "The run's effective workspace; after bootstrap relocation it can differ from the handle a client started with."},
         "run_dir": {"type": ["string", "null"], "description": "The run's effective run directory, compared with a named command's run before it is taken."},

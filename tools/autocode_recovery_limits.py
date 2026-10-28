@@ -43,7 +43,9 @@ RESPONSE_COMMAND = "--resolver-request ID --resolver-token - (reads AUTOCODE_RES
 # and the hold after the response must name it or a plain resume holds forever without saying why.
 CONTRACT_DECISION_ADVICE = (
     "A decision that changes the approved contract takes effect through --edit-goal body.json "
-    "(the goal_contract.body shape from state) followed by --approve-goal; information alone changes nothing."
+    "(the goal_contract.body shape from state) followed by --approve-goal; plan feedback "
+    "(--feedback) carries the correction to a fresh draft needing the same fresh approval; "
+    "information alone changes nothing."
 )
 BOUND_ADVICE = {
     # #1815: the planning-review total is acknowledged by an allowance or by direction for the Planner.
