@@ -651,6 +651,31 @@ def migrate(state: RunState, *, fresh=False):
         workflows.begin(state, first_stage)
 
 
+ANSWER_KINDS = {
+    "delegated": "the proposed default, delegated",
+    "permission_answer": "a permission decision",
+    "checkpoint_answer": "a checkpoint decision",
+}
+
+
+def answer_lines(answers) -> list[str]:
+    """One line per saved answer, the question and what was answered (#2363). The record itself,
+    with its token and timestamps, stays in the run state and the source log."""
+    lines = []
+    for key, row in answers.items() if isinstance(answers, dict) else []:
+        if not isinstance(row, dict):
+            lines.append(f"  - {key}: {row}")
+            continue
+        question = row.get("question")
+        asked = str(question.get("question") or "").strip() if isinstance(question, dict) else ""
+        how = ANSWER_KINDS.get(str(row.get("kind") or ""))
+        answered = str(row.get("text") or "").strip() or "(no text)"
+        lines.append(f"  - {key}: {asked} -> {answered}" if asked else f"  - {key} -> {answered}")
+        if how:
+            lines[-1] += f" ({how})"
+    return lines
+
+
 def render(state: RunState, run_dir=None):
     """The brief as a person reads it; ``run_dir``, when given, completes the approve command."""
     contract = state.get("goal_contract")
@@ -828,7 +853,7 @@ def render(state: RunState, run_dir=None):
             )
         )
     if state.get("answers"):
-        lines += ["", "Saved user answers:", json.dumps(state["answers"], indent=2)]
+        lines += ["", "Saved user answers:"] + answer_lines(state["answers"])
     if state.get("brief_feedback"):
         lines += ["", "Saved brief feedback:"] + ["  - " + row["text"] for row in state["brief_feedback"]]
     if public:
