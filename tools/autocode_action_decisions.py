@@ -77,6 +77,21 @@ except ImportError:
     from autocode_action_resolver import OPERATIONAL_NOT_ANSWER
 
 
+def _edited_goal(runner, path):
+    """The revised contract body at ``path``; ValueError names a file that cannot be loaded.
+
+    A mistyped path or malformed JSON is the person's input to reject, never a reason to pause
+    the run as PAUSED_INVALID_OUTPUT (#2389), as --goal-file already refuses it.
+    """
+    try:
+        body = runner.read_json(path)
+    except (OSError, ValueError) as error:
+        raise ValueError(f"Cannot read the revised goal {path}: {error}") from None
+    if not isinstance(body, dict):
+        raise ValueError(f"{path} does not hold a contract body (a JSON object)")
+    return body
+
+
 def resume_dispatch_requested(args, state: RunState):
     """True when this invocation should dispatch after committing a user action (#509).
 
@@ -325,7 +340,7 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
                 refusal = pause_authority.correction_refusal(candidate, "An edited goal")
                 if refusal:
                     raise ValueError(refusal)
-                lifecycle.install_draft(candidate, runner.read_json(args.edit_goal), origin="user_cli_edit")
+                lifecycle.install_draft(candidate, _edited_goal(runner, args.edit_goal), origin="user_cli_edit")
                 planning_artifacts.prepare_user_cli_edit(candidate, run_dir=run_dir)
             if args.goal_file:
                 # The person's own edit, as --edit-goal, held to a planner draft's checks too (#720).

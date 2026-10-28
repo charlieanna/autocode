@@ -423,6 +423,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A missing, unreadable or malformed `--edit-goal` file paused the run as `PAUSED_INVALID_OUTPUT` with the OS error as its stop reason; it is now refused as input (`Cannot read the revised goal ...`, exit 2) with the run unchanged, as `--goal-file` already was (#2389).
 - The usage and error lines of `autocode registry`, `output`, `tasks`, `conversation`, `replay`, `checkpoint`, `capture`, `intervention` and other subcommands read `usage: autocode [-h] ...`, as if their arguments belonged to the root command; the dispatcher now names `autocode NAME` as the program for every subcommand (#2387).
 - `autocode bundle` and `autocode prune-run` rejected `--run-dir`, the way every other command names a run; both now accept it as well as the positional `RUN` (#2385).
 - The terminal chat's review step listed the criteria to accept without naming the files that changed; it now prints `Changed: FILE, ...` under each criterion from the status view's `changes_by_criterion`, as the CLI's review stop does (#2383).
