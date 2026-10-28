@@ -279,8 +279,11 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
                 self.assertEqual(selected_profile["roles"], related["roles"])
                 for limit in ("max_seconds", "stage_timeout_seconds", "tool_timeout_seconds"):
                     self.assertEqual(selected_profile["limits"][limit], related["limits"][limit])
-            inspected = client.cli(["verify", "--record", summary["verification"]["record"], "--json"])
-            self.assertEqual("PASS", json.loads(inspected.stdout)["verdict"])
+            self.assertEqual("task_run", summary["verification"]["kind"])
+            inspected = client.cli(
+                ["--run-dir", summary["integration"]["run_dir"], "--status", "--inspect-evidence", "--json"]
+            )
+            self.assertEqual("current", json.loads(inspected.stdout)["view"]["evidence_report"]["availability"])
             # Reopening the same TUI chat must reconcile delivery without a second publication.
             self.assertEqual(0, client.step())
             self.assertEqual(3, len(self.github.posts))
