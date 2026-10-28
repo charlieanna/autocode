@@ -867,8 +867,12 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
             result_tree = ET.parse(xml_path)
         except ET.ParseError:
             return None
+        classnames = {}
         for case in result_tree.iter("testcase"):
-            test = f"{case.get('classname', '')}::{case.get('name', '')}"
+            classname = case.get("classname", "")
+            if classname not in classnames:
+                classnames[classname] = python_tests.pytest_classname(classname, tree)
+            test = f"{classnames[classname]}::{case.get('name', '')}"
             problem = case.find("failure") if case.find("failure") is not None else case.find("error")
             if problem is not None:
                 failed.add(test)
@@ -2351,7 +2355,15 @@ def verify(
         fail.append("No change: the candidate is identical to the base revision")
     elif not sources and not preserve:
         fail.append("Only test files changed; a fix must change product code")
-    deleted = [p for p in tests if changes[p] == "deleted"]
+    deleted = [
+        p
+        for p in tests
+        if changes[p] == "deleted"
+        and not (
+            Path(p).name == "__init__.py"
+            and python_tests.empty_package_marker(p, _git(workspace, "show", f"{base}:{p}"))
+        )
+    ]
     if deleted:
         fail.append("Existing test files were deleted: " + ", ".join(deleted))
     removed = removed_python_tests(workspace, base, changes)
