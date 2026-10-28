@@ -197,3 +197,15 @@ shared-harness and full-master behavior remains unchanged. Producer paths and
 targets are checked for existence and successful test discovery. The two focused
 selector modules pass 83 tests in 4.106 seconds; the subsequently added target
 discovery guard passes independently in 0.051 seconds. Lint/format pass.
+
+## Selecting the map's own validation
+
+The producer map's target-discovery check was itself missing from selection when
+one of the mapped scenario files or producers changed. Eight new subcases fail
+before the follow-up; a renamed class could otherwise be skipped silently until
+master. The map now lives in the lower CI-dependency module, with its existing
+runner alias retained. Required unit-guard dependencies are derived from the
+same producer keys and top-level scenario targets, so no second handwritten list
+can drift. Unrelated scenario files do not enroll the guard. The two selector
+interfaces, dependency selection and architecture pass 160 checks in 18.373
+seconds; lint/format pass. No runtime or scenario selection is removed.

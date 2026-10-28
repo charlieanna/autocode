@@ -44,9 +44,30 @@ SUITE_CONSUMERS = (
     *CORE_CONSUMERS,
 )
 
+# Black-box consumers cannot import their runtime producers. Job scope and the scenario runner share this
+# map; its producer and top-level scenario files also select the map-discovery guard.
+SCENARIO_RUNTIME_CONSUMERS = {
+    "tools/autocode_report_identity.py": ("scenarios.test_adversarial_evidence",),
+    "tools/autocode_planning_advice.py": ("scenarios.test_adversarial_planning",),
+    "tools/autocode_stuck_job.py": ("scenarios.test_adversarial_planning",),
+    "tools/autocode_regression.py": (
+        "scenarios.test_harness.StockRefusalsRunTests",
+        "scenarios.test_harness.HybridRunTests",
+    ),
+    "tools/autocode_verify.py": (
+        "scenarios.test_harness.StockRefusalsRunTests",
+        "scenarios.test_harness.HybridRunTests",
+    ),
+}
+SCENARIO_SELECTION_INPUTS = {
+    *SCENARIO_RUNTIME_CONSUMERS,
+    *("/".join(target.split(".")[:2]) + ".py" for targets in SCENARIO_RUNTIME_CONSUMERS.values() for target in targets),
+}
+
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    *((path, ("tests.test_run_suite",)) for path in sorted(SCENARIO_SELECTION_INPUTS)),
     ("tests/test_report_repair.py", ("tests.test_native_event_identity_cli",)),
     ("tools/prompts/discovery.md", ("tests.test_investigation_evidence", "tests.test_investigation_handoff_cli")),
     (
