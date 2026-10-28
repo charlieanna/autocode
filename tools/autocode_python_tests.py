@@ -21,6 +21,52 @@ UNITTEST_FIXTURES = frozenset({"setUpClass", "tearDownClass", "setUpModule", "te
 TEST_MODULE = re.compile(r"^(tests|test_.*|.*_tests?)\.py$")
 
 
+def empty_package_marker(path: str, source: str) -> bool:
+    """Only a Python package marker with no executable AST can lack test coverage."""
+    if Path(path).name != "__init__.py":
+        return False
+    try:
+        return not ast.parse(source).body
+    except (SyntaxError, ValueError):
+        return False
+
+
+def pytest_classname(classname: str, tree) -> str:
+    """Remove only a proven physical scratch-root prefix from an existing module.
+
+    Pytest may choose an ancestor's pyproject as rootdir even without pytest
+    options there. Keep its configured collection unchanged; compare results
+    relative to the owned project. Real project prefixes and ambiguous mappings
+    stay intact rather than borrowing another module's identity.
+    """
+    if tree is None:
+        return classname
+    root = Path(tree).absolute()
+    owned_root = root.resolve()
+
+    def module_exists(name):
+        parts = name.split(".")
+        if any(not part or any(separator in part for separator in ("/", "\\", ":")) for part in parts):
+            return False
+        for end in range(len(parts), 0, -1):
+            module = root.joinpath(*parts[:end]).with_suffix(".py")
+            if module.is_file() and module.resolve().is_relative_to(owned_root):
+                return True
+        return False
+
+    if module_exists(classname):
+        return classname
+    candidates = set()
+    for physical in {root, owned_root}:
+        for ancestor in physical.parents:
+            prefix = physical.relative_to(ancestor).as_posix().replace("/", ".") + "."
+            if classname.startswith(prefix):
+                candidate = classname[len(prefix) :]
+                if module_exists(candidate):
+                    candidates.add(candidate)
+    return next(iter(candidates)) if len(candidates) == 1 else classname
+
+
 def prefers_pytest(sources: dict[str, str]) -> bool:
     """Declared pytest tests need pytest; explicit unittest load_tests hooks win.
 
