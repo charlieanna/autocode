@@ -132,6 +132,27 @@ class ApprovalProvenanceCLITests(unittest.TestCase):
         self.assertEqual(approvals[1]["provenance"], state["human_reviews"]["C1"]["provenance"])
         self.assertNotIn(str(Path(self.project)), json.dumps(approvals))
 
+    def test_an_unreadable_edited_goal_is_refused_without_pausing_the_run(self):
+        """A mistyped --edit-goal path paused the run as PAUSED_INVALID_OUTPUT (#2389); it is input to reject."""
+        self.identify()
+        self.launch(["Build a greeting tool"], 2)
+        run, _ = self.saved()
+        args = ["--run-dir", str(run)]
+        self.launch([*args, "--answer", "Q1=CLI"], 0)
+        self.launch(args, 2)
+        before = self.saved()[1]
+        self.assertEqual("AWAITING_GOAL_APPROVAL", before["status"])
+        broken = self.root / "broken.json"
+        broken.write_text("{not json")
+        for path in (self.root / "missing.json", broken):
+            with self.subTest(path=path.name):
+                result = self.launch([*args, "--edit-goal", str(path)], 2)
+                self.assertIn("Input rejected: Cannot read the revised goal", result.stderr)
+                self.assertIn(path.name, result.stderr)
+                after = self.saved()[1]
+                self.assertEqual("AWAITING_GOAL_APPROVAL", after["status"])
+                self.assertEqual(before["goal_contract"], after["goal_contract"])
+
     def test_a_goal_edit_and_a_resume_record_who_made_them(self):
         self.identify()
         self.launch(["Build a greeting tool"], 2)
