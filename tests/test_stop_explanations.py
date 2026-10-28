@@ -58,6 +58,29 @@ class StopExplanationTests(unittest.TestCase):
         self.assertIn("existing run budgets", text["what_the_command_does"])
         self.assertIn("--resume-paused", text["what_the_command_does"])
 
+    def test_a_host_that_refuses_provider_sessions_is_explained_as_the_host_not_a_stuck_process(self):
+        """A root shell's PAUSED_PROCESS_CLEANUP was explained as a child process that did not clean up, with
+        --abandon-stage as the way forward; the fix is the one autocode doctor names."""
+        reason = (
+            "Provider session boundary unavailable; no provider launched: Provider session ownership refuses "
+            "CAP_SYS_PTRACE or CAP_SYS_ADMIN"
+        )
+        needs = {"kind": "resume", "abandon_stage": "001/requirements-gather-01"}
+        text = stop_explanations.explain("PAUSED_PROCESS_CLEANUP", stop_reason=reason, needs=needs)
+        self.assertIn("No provider was launched", text["what_it_means"])
+        self.assertIn("root in most containers", text["what_it_means"])
+        self.assertIn("setpriv --bounding-set=-sys_admin,-sys_ptrace autocode", text["what_the_command_does"])
+        # A plain --resume-paused holds on the uncertain attempt (the never-launched one), so name both steps.
+        self.assertIn("--abandon-stage 001/requirements-gather-01, then --resume-paused", text["what_the_command_does"])
+        text = stop_explanations.explain("PAUSED_PROCESS_CLEANUP", stop_reason=reason)
+        self.assertIn("--abandon-stage ATTEMPT (the status names it)", text["what_the_command_does"])
+        unsupported = "Provider session boundary unavailable; no provider launched: Provider session ownership requires Linux native x86_64 or aarch64"
+        text = stop_explanations.explain("PAUSED_PROCESS_CLEANUP", stop_reason=unsupported)
+        self.assertIn("supported host", text["what_the_command_does"])
+        # A real cleanup pause keeps the table's text.
+        text = stop_explanations.explain("PAUSED_PROCESS_CLEANUP", stop_reason="child 4242 still running")
+        self.assertEqual(stop_explanations.TABLE["PAUSED_PROCESS_CLEANUP"][0], text["what_it_means"])
+
     def test_a_private_store_containment_stop_is_not_explained_as_a_missing_sandbox(self):
         # #1250: these reasons come from autocode_tool_containment (tests/test_tool_containment.py
         # checks the real ones); every other PAUSED_TOOL_CONTAINMENT reason keeps the table's text.

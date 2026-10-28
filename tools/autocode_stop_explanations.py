@@ -504,6 +504,32 @@ STORE_CAUSES: tuple[tuple[str, tuple[str, str]], ...] = (
 )
 
 
+# PAUSED_PROCESS_CLEANUP reasons that are the host's admission refusal, not a child process (the reason
+# autocode_supervision raises before any provider starts; autocode doctor's session row names the same fix).
+HOST_CAUSES = (
+    (
+        "refuses CAP_SYS_PTRACE or CAP_SYS_ADMIN",
+        (
+            "No provider was launched: this shell holds CAP_SYS_ADMIN or CAP_SYS_PTRACE (root in most containers, "
+            "VMs and CI images), which provider session ownership refuses. No process is stuck; the saved run is "
+            "intact. `autocode doctor` reports this as its session row.",
+            "Run AutoCode as an ordinary user, or drop the two capabilities for every command: "
+            "setpriv --bounding-set=-sys_admin,-sys_ptrace autocode ... . The attempt that never launched is "
+            "recorded as uncertain, so set it aside first: --abandon-stage {attempt}, then --resume-paused.",
+        ),
+    ),
+    (
+        "requires Linux native x86_64 or aarch64",
+        (
+            "No provider was launched: this host cannot own provider sessions (supported: Linux native x86_64 "
+            "or aarch64, and macOS). No process is stuck; the saved run is intact.",
+            "On a supported host (docs/install.md), set the attempt that never launched aside: "
+            "--abandon-stage {attempt}, then --resume-paused.",
+        ),
+    ),
+)
+
+
 def explain(status: str, *, stop_reason: str = "", needs=None) -> dict:
     """Three short paragraphs for a person who did not watch the run (#715).
 
@@ -527,6 +553,12 @@ def explain(status: str, *, stop_reason: str = "", needs=None) -> dict:
         # resume guidance; this text grants no original-owner authority.
         means = "Native planning cleanup requires original-owner verification before another stage can run."
         does = needs["recovery_hint"]
+    if status == "PAUSED_PROCESS_CLEANUP":
+        attempt = (needs or {}).get("abandon_stage") if isinstance(needs, dict) else None
+        for phrase, (host_means, host_does) in HOST_CAUSES:
+            if phrase in (stop_reason or ""):
+                means, does = host_means, host_does.format(attempt=attempt or "ATTEMPT (the status names it)")
+                break
     if status == "PAUSED_TOOL_CONTAINMENT":
         # Every other cause keeps the table's text.
         for phrase, (store_means, store_does) in STORE_CAUSES:
