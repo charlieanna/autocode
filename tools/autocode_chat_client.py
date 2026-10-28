@@ -1401,8 +1401,11 @@ class ChatClient:
             if criteria is None:
                 return self.hand_off(view)  # never ask to accept criteria the person cannot read
             self.say(f"\nAutoCode: {need.get('question') or 'Review these criteria before accepting them.'}")
+            changed = actions.changed_files(view)
             for row in criteria:
                 self.say(f"  [{row['id']}] {row['criterion']}")
+                if row["id"] in changed:  # where to look (#2383), as the CLI's review stop names it (#2360)
+                    self.say(f"      Changed: {', '.join(changed[row['id']])}")
             self.say(f"(The evidence for each: autocode review --show --run-dir {self.run_dir})")
         else:
             self.say(f"\nAutoCode stopped: {label}. {why}".rstrip())
