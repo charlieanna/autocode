@@ -254,7 +254,11 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="autocode bundle", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    result.add_argument("run_dir", type=Path, help="the run: WORKSPACE/.autocode/runs/RUN")
+    result.add_argument("run_dir", nargs="?", type=Path, help="the run: WORKSPACE/.autocode/runs/RUN")
+    # Every other command names the run with --run-dir; accept it here too (#2385).
+    result.add_argument(
+        "--run-dir", dest="run_dir_option", type=Path, help="the same run, named as the other commands name it"
+    )
     result.add_argument(
         "--out", type=Path, help="where to write the archive (default: WORKSPACE/.autocode/bundles/RUN.tar.gz)"
     )
@@ -266,7 +270,9 @@ def parser() -> argparse.ArgumentParser:
 def cli(argv=None) -> int:
     arguments = parser()
     args = arguments.parse_args(argv)
-    run_dir = args.run_dir.absolute()
+    if bool(args.run_dir) == bool(args.run_dir_option):
+        arguments.error("name the run once: RUN or --run-dir RUN")
+    run_dir = (args.run_dir or args.run_dir_option).absolute()
     try:
         files, manifest = collect(run_dir, with_diff=args.with_diff)
         out = args.out or _workspace(run_dir) / ".autocode" / "bundles" / f"{run_dir.name}.tar.gz"
