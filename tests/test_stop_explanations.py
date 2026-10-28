@@ -268,6 +268,22 @@ class StopExplanationTests(unittest.TestCase):
         self.assertIn("in progress", text["what_it_means"])
         self.assertIn("--status", text["what_the_command_does"])
 
+    def test_a_ready_checkpoint_nothing_runs_is_not_explained_as_work_in_progress(self):
+        """#2393: after an answer, approval or follow-up the controller exits on purpose with a ready
+        receipt; the checkpoint still says RUNNING, and the explanation told the person to wait for
+        a controller that was not running."""
+        state = {"status": "RUNNING", "phase": "PLANNING", "settings": {"roles": {}}, "acceptance_criteria": []}
+        ready = {"kind": "ready", "reason": "Saved user action or unit handoff is ready to advance"}
+        text = run_view.view(state, controller=ready)["explanation"]
+        self.assertIn("no controller running", text["what_happened"])
+        self.assertIn("Nothing runs it", text["what_it_means"])
+        self.assertNotIn("in progress", text["what_it_means"])
+        self.assertIn("continues the run from its saved checkpoint", text["what_the_command_does"])
+        self.assertEqual(text, stop_explanations.explain("RUNNING", ready=True))
+        alive = run_view.view(state, controller={"kind": "running", "reason": "alive"})["explanation"]
+        self.assertIn("in progress", alive["what_it_means"])
+        self.assertEqual("The run is RUNNING.", alive["what_happened"])
+
     def test_paused_and_unknown_views_keep_their_stop_and_resume_guidance(self):
         for status in ("PAUSED_BUDGET", "PAUSED_NOT_A_REAL_STATE"):
             with self.subTest(status=status):

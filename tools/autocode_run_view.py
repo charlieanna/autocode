@@ -276,6 +276,7 @@ def view(
             stop_reason=state.get("stop_reason") or "",
             needs=need,
             held_cause=pause_authority.answered_cause(state),
+            ready=(controller or {}).get("kind") == "ready",
         ),
         "current_task": {key: task.get(key) for key in ("id", "objective", "milestone_id")} if task else None,
         # The kind of job recognized from the request (autocode_workflows.WORKFLOWS);

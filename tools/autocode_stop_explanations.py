@@ -528,17 +528,26 @@ HOST_CAUSES = (
 )
 
 
-def explain(status: str, *, stop_reason: str = "", needs=None, held_cause: str = "") -> dict:
+READY = (
+    "Nothing runs it: the controller exited on purpose after a saved answer, approval or follow-up, and the run "
+    "moves only when someone runs the next command.",
+    "The next command (--status names it) continues the run from its saved checkpoint.",
+)
+
+
+def explain(status: str, *, stop_reason: str = "", needs=None, held_cause: str = "", ready: bool = False) -> dict:
     """Three short paragraphs for a person who did not watch the run (#715).
 
     No model call. ``needs`` is the status view's ``needs`` block so the same
     text the view shows is what ``autocode explain`` prints. ``held_cause`` is the cause a pause
     still holds for when the stop reason only records that a person answered its request
-    (autocode_pause_authority.answered_cause).
+    (autocode_pause_authority.answered_cause). ``ready`` is the controller inspection's ``ready``
+    kind: a RUNNING checkpoint no controller runs, which the table's "in progress" words would have
+    the person wait for (#2393).
     """
     stop_reason = stop_reason.strip().rstrip(".")
     held_cause = held_cause.strip().rstrip(".")
-    entry = TABLE.get(status)
+    entry = READY if status == "RUNNING" and ready else TABLE.get(status)
     means, does = (
         entry
         if entry
@@ -607,7 +616,7 @@ def explain(status: str, *, stop_reason: str = "", needs=None, held_cause: str =
     if status in ("TASK_COMPLETE", "COMPLETE"):
         happened = f"The run recorded {status}." + (f" Completion note: {stop_reason}." if stop_reason else "")
     elif status == "RUNNING":
-        happened = "The run is RUNNING."
+        happened = "The run is RUNNING." + (" It is saved at a checkpoint with no controller running." if ready else "")
     else:
         happened = (
             f"The run stopped at {status}. "

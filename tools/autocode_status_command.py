@@ -115,6 +115,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
             stop_reason=state.get("stop_reason") or "",
             needs=runner.run_view.needs(state),
             held_cause=pause_authority.answered_cause(state),
+            ready=(owner or {}).get("kind") == "ready",
         )
         print(text["what_happened"])
         print()
