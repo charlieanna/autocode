@@ -286,7 +286,10 @@ def prompt_parts(
         "column are one-based. Use it to locate the syntax defect, then return the complete corrected "
         "report. It may expose further errors after correction; it does not authorize dropping findings, "
         "changing requirements or bypassing schema, evidence or protected-contract validation.\n"
-        if latest.get("format") == "text" and latest.get("parse_error") and not latest.get("truncated")
+        if latest.get("format") == "text"
+        and latest.get("parse_error")
+        and not latest.get("truncated")
+        and not latest.get("empty_response")
         else ""
     )
     review_instruction = prompts.get("fragments/report-repair-context/revision-review.md") if review else ""

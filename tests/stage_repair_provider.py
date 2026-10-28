@@ -162,6 +162,7 @@ def main():
             assert data["rejected_report"]["empty_response"] is True
             assert data["rejected_report"]["content"] == ""
             assert "EMPTY REPAIR RESPONSE" in prompt
+            assert "JSON SYNTAX DIAGNOSTIC" not in prompt
             source = data["original_report"]
             text = source["content"]
             assert hashlib.sha256(text.encode()).hexdigest() == source["sha256"]
