@@ -857,7 +857,11 @@ class ConversationTests(unittest.TestCase):
                 WORKSPACE, ask=lambda prompt: asked.append(prompt) or next(replies), say=said.append
             )
         self.assertEqual(
-            ["Runs waiting here:", "  1. Add a --shout flag (Your decision)", "  3. Old dashboard (Your decision)"],
+            [
+                "Runs waiting here:",
+                "  1. Add a --shout flag (Your decision) · 2026-10-20 10:00",
+                "  3. Old dashboard (Your decision) · 2026-10-01 10:00",
+            ],
             said,
         )
         self.assertEqual(["Pick one (1, 3), or type a new request: "], asked)
@@ -865,6 +869,12 @@ class ConversationTests(unittest.TestCase):
         runs = chat.panel.runs_text(chat.panel.run_rows(listed))
         self.assertIn("  1. Add a --shout flag", runs)
         self.assertIn("  3. Old dashboard", runs, "the same number in /runs")
+        # Two runs of one request are told apart by when each last moved (#2353).
+        listed[0]["title"] = listed[2]["title"]
+        said.clear()
+        with mock.patch.object(chat, "project_runs", return_value=listed):
+            chat.open_chat(WORKSPACE, ask=lambda prompt: "3", say=said.append)
+        self.assertEqual(2, len({line for line in said if "Add a --shout flag" in line}))
 
     def test_a_failing_run_listing_is_reported_not_taken_for_an_empty_project(self):
         broken = subprocess.CompletedProcess([], 2, "", "Traceback: registry unreadable")

@@ -1742,7 +1742,9 @@ def open_chat(
             say("Runs waiting here:")
             for number, row in sorted(by_number.items()):
                 state = row.get("pause_category_label") or row["bucket"]
-                say(f"  {number}. {row.get('title') or row['name']} ({state})")
+                # When it last moved, as /runs shows it: two runs of one request read alike otherwise (#2353).
+                when = str(row.get("updated_at") or "").replace("T", " ")[:16]
+                say(f"  {number}. {row.get('title') or row['name']} ({state})" + (f" · {when}" if when else ""))
             offered = numbers_text(sorted(by_number))
             while (choice := ask(f"Pick one ({offered}), or type a new request: ").strip()).isdigit():
                 if int(choice) in by_number:
