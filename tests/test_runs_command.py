@@ -66,6 +66,34 @@ class FleetRowsTests(unittest.TestCase):
             runs.counts(runs.rows(self.root)),
         )
 
+    def test_a_run_saved_for_the_person_to_continue_needs_them(self):
+        """#2332: a ready controller receipt means nothing runs the RUNNING checkpoint until the named
+        command is run; the row sat under "working"."""
+        import autocode_controller_owner as owners
+        import autocode_util as util
+
+        run_dir = self.root / ".autocode" / "runs" / "working"
+        state = json.loads((run_dir / "state.json").read_text())
+
+        def persist(path, saved):
+            util.atomic_json(path, saved)
+            owners.checkpoint(path, saved)
+
+        with util.run_lock(run_dir), owners.Owner(state, run_dir, persist) as owner:
+            owner.result(0, ready=True)
+        row = next(item for item in runs.rows(self.root) if item["name"] == "working")
+        self.assertEqual((runs.NEEDS, True, "RUNNING"), (row["bucket"], row["ready_to_continue"], row["status"]))
+        self.assertTrue(row["next_command"])
+        rendered = runs.render(runs.rows(self.root), str(self.root))
+        self.assertIn(
+            "Ready to continue", rendered.split("  working (", 1)[0] if "  working (" in rendered else rendered
+        )
+        self.assertEqual(2, runs.counts(runs.rows(self.root))[runs.NEEDS])
+        # The checkpoint moved on: the receipt no longer vouches for it.
+        (run_dir / "state.json").write_text(json.dumps({**state, "iteration": 2}))
+        row = next(item for item in runs.rows(self.root) if item["name"] == "working")
+        self.assertEqual((runs.WORKING, False), (row["bucket"], row["ready_to_continue"]))
+
     def test_a_run_that_cannot_be_read_is_shown_with_its_reason(self):
         broken = next(item for item in runs.rows(self.root) if item["name"] == "broken")
         self.assertEqual("checkpoint_malformed", broken["availability"])

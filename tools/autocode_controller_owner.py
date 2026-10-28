@@ -153,6 +153,17 @@ def _read(run_dir):
     return value
 
 
+def ready_for(state: RunState, run_dir) -> bool:
+    """True when the last controller exited on purpose after saving this exact checkpoint (a user action
+    or unit handoff): the run advances only when someone runs its next command (#2332). A read of the
+    receipt alone, no process table, so run inventories can afford it; unreadable means False."""
+    try:
+        receipt = _read(run_dir)
+    except (OSError, ValueError, TypeError):
+        return False
+    return bool(receipt and receipt["disposition"] == "ready" and receipt["checkpoint"] == util.digest(state))
+
+
 @contextlib.contextmanager
 def _free_lock(path):
     """Probe an existing kernel lock without creating or rewriting its file."""

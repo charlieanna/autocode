@@ -60,6 +60,11 @@ def project(view: dict, *, stale: bool = False, completion_current=None, next_ac
         state = NEEDS_YOU
         reason = asked if asked and asked != NOTHING_NEEDED else need.get("reason") or view.get("pause_category_label")
         sentence = _sentence(str(reason or status.replace("_", " ").lower()).capitalize())
+    elif status == "RUNNING" and (view.get("controller") or {}).get("kind") == "ready" and command:
+        # The controller exited on purpose after a saved answer, approval or follow-up: the run moves
+        # only when someone runs the command, so "Working" would have the person wait for nothing (#2332).
+        state = NEEDS_YOU
+        sentence = "Saved and ready to continue; nothing runs it until you do."
     elif status in WORKING_STATUSES or kind == "dependency":
         state = WORKING
         sentence = _sentence(progress.get("headline") or "Working")
