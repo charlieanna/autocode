@@ -301,6 +301,20 @@ class StageRepairCLI(unittest.TestCase):
         self.assertEqual([False, True], [row["repair"] for row in attempts], trace)
         self.assertIn("was not changed", attempts[1]["error"])
 
+    def test_first_repair_reports_independent_missing_protected_text(self):
+        fixture = self.fixture_for("batched-protected-diagnostics")
+        _, _, view, trace = self.plan(fixture)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        repairs = [row for row in trace if row["stage"] == "glm_revise" and row["repair"]]
+        self.assertEqual(1, len(repairs), trace)
+        self.assertIn("summary", repairs[0]["error"])
+        self.assertEqual(
+            [{"field": "important_failure_cases", "missing": ["Reject an empty name with nonzero exit status"]}],
+            repairs[0]["protected_list_differences"],
+        )
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
+        self.assertFalse(view["done"])
+
     def test_revision_repair_answers_current_review_with_an_empty_execution_ledger(self):
         fixture = self.fixture_for("revision-concerns")
         _, state, view, trace = self.plan(fixture)

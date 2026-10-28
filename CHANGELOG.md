@@ -427,6 +427,8 @@ PR template asks for an entry here; a change without one is incomplete.
   status`, `login` delegates to `codex login`), so the chat's unusable-default notice can name an
   installed Codex and `/engine codex`, and `/connect codex use` chooses the engine instead of the
   `--provider codex` the core refuses (#2357).
+- The chat's startup picker ("Runs waiting here") shows when each run last moved, as `/runs` does, so
+  several unfinished runs of one request no longer read as identical lines (#2353).
 - `autocode doctor` no longer counts AutoCode's own learned record (`.autocode/project.json`, which its
   generated `.gitignore` un-ignores on purpose) as an uncommitted change, so a project that only carries
   it passes `workspace:clean` after its first run (#2350).
