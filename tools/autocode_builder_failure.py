@@ -23,12 +23,14 @@ if TYPE_CHECKING:
 try:
     from . import autocode_builder_policy as policy
     from . import autocode_failure_classification as classification
+    from . import autocode_retained_work as retained_work
     from . import autocode_run_status as run_status
     from . import autocode_source_scope as source_scope
     from . import autocode_util as util
 except ImportError:
     import autocode_builder_policy as policy
     import autocode_failure_classification as classification
+    import autocode_retained_work as retained_work
     import autocode_run_status as run_status
     import autocode_source_scope as source_scope
     import autocode_util as util
@@ -123,6 +125,25 @@ def dispatch_guard(state: RunState, stage, workspace):
     ):
         state.pop("builder_failure_hold")  # A changed assignment still passes every normal admission gate.
         return
+    if (
+        stage == "terra"
+        and state.get("status") == "RUNNING"
+        and held["status"] == "PAUSED_BUILDER_CLASSIFICATION"
+        and held["reason"].startswith("Builder completed an implementation attempt without source changes")
+        and not held.get("classification_retry")
+        and not any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair"))
+    ):
+        record = next(
+            (row for row in reversed(state.get("stages") or []) if row.get("output") == bound.get("output")), None
+        )
+        if record and record.get("exit_code") == 0 and not record.get("changed_files") and not record.get("rejected"):
+            guard(state, {"failure_evidence": {"binding": bound, "record": record}}, workspace)
+            if retained_work.fresh_candidate(state, record, bound["source_revision"]):
+                # Explicit resume can retire an obsolete no-change hold after
+                # reapproval provenance is reconciled. No attempt or proof credit
+                # is granted: normal admission and fresh validation still follow.
+                state.pop("builder_failure_hold")
+                return
     raise util.Paused(held["status"], held["reason"])
 
 

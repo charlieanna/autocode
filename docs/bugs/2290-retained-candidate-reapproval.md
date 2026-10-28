@@ -14,6 +14,12 @@ must still hold. Missing evidence, changed ownership, another turn and rolled-ba
 work remain refusals. No validation, completion or earlier approval is inherited.
 Every current criterion and mandatory runner proof still requires fresh checking.
 
+An existing no-change classification hold also rechecks that candidate on an
+explicit resume. Only a reconciled successful no-delta Builder record with intact
+bound evidence can retire this particular hold. Other holds, pending ownership,
+failed-classification retries and corrupted evidence cannot. Retiring the hold
+grants no attempt or proof credit; ordinary admission and fresh validation follow.
+
 Historical approval authentication lives in the existing contract-identity
 module, shared with acceptance-test provenance. The public fake-provider
 regression reapproves an implemented task, performs a genuinely no-op second

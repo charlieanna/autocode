@@ -10,7 +10,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import autocode_builder_failure as builder_failure
 import autocode_retained_work as retained_work
 import autocode_util as util
 
@@ -169,6 +171,45 @@ class RetainedWorkTests(unittest.TestCase):
             change(modified)
             self.assertIsNone(retained_work.fresh_candidate(modified, retry, "r1"))
         self.assertIsNone(retained_work.fresh_candidate(state, retry, "changed-source"))
+
+    def held_reapproval(self):
+        state, retry = self.reapproved_assignment()
+        output = self.dir / "builder-02.json"
+        output.write_text("{}")
+        retry.update(output=str(output.resolve()), exit_code=0)
+        state["stages"].append(retry)
+        evidence = builder_failure.evidence(state, retry)
+        builder_failure.hold(
+            state,
+            evidence,
+            "PAUSED_BUILDER_CLASSIFICATION",
+            "Builder completed an implementation attempt without source changes",
+        )
+        state["status"] = "RUNNING"  # The caller has explicitly resumed the saved pause.
+        return state, retry
+
+    def test_explicit_resume_retires_only_the_proven_reapproval_no_change_hold(self):
+        state, retry = self.held_reapproval()
+        before = copy.deepcopy(state)
+        with patch.object(builder_failure.source_scope, "snapshot", return_value={"revision": "r1"}):
+            builder_failure.dispatch_guard(state, "terra", self.workspace)
+        before.pop("builder_failure_hold")
+        self.assertEqual(before, state, "retire only the hold; keep all history, limits and proof requirements")
+
+    def test_corrupt_evidence_other_holds_or_pending_ownership_do_not_release(self):
+        for change in (
+            lambda s, r: s["builder_failure_hold"].update(reason="Provider refused"),
+            lambda s, r: s.update(active_stage="owned-stage"),
+            lambda s, r: s.update(status="PAUSED_BUILDER_CLASSIFICATION"),
+            lambda s, r: s["builder_failure_hold"].update(classification_retry={"pending": True}),
+            lambda s, r: Path(r["output"]).write_text("corrupted"),
+        ):
+            state, retry = self.held_reapproval()
+            change(state, retry)
+            with patch.object(builder_failure.source_scope, "snapshot", return_value={"revision": "r1"}):
+                with self.assertRaises(builder_failure.util.Paused):
+                    builder_failure.dispatch_guard(state, "terra", self.workspace)
+            self.assertIn("builder_failure_hold", state)
 
     def test_repair_does_not_hide_an_earlier_out_of_scope_edit(self):
         state, retry = self.repaired_assignment()
