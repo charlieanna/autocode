@@ -170,6 +170,24 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(sorted(names), names)
         self.assertEqual(manifest, saved)
 
+    def test_the_run_may_be_named_with_run_dir_like_the_other_commands(self):
+        """Every other command takes --run-dir; bundle took only a positional RUN (#2385)."""
+        stdout = io.StringIO()
+        with (
+            mock.patch.object(bundle, "_doctor", lambda workspace: {"ok": True}),
+            mock.patch.object(bundle, "_recording", self.no_recording),
+            contextlib.redirect_stdout(stdout),
+        ):
+            self.assertEqual(0, bundle.cli(["--run-dir", str(self.run), "--json"]))
+        self.assertEqual(
+            str(self.workspace / ".autocode" / "bundles" / "r1.tar.gz"), json.loads(stdout.getvalue())["bundle"]
+        )
+        for argv in ([], [str(self.run), "--run-dir", str(self.run)]):
+            with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as stop:
+                    bundle.cli(argv)
+                self.assertEqual(2, stop.exception.code)
+
     def test_the_cli_writes_the_default_archive_and_reads_the_run_without_changing_it(self):
         before = {path: path.read_bytes() for path in self.run.rglob("*") if path.is_file()}
         stdout = io.StringIO()
