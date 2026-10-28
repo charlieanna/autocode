@@ -74,11 +74,20 @@ class RegistryProjectCliTests(unittest.TestCase):
         plain.mkdir()
         subdir = self.project / "src"
         subdir.mkdir()
-        for path in (self.root / "missing", plain, subdir, self.project):
+        expected = {
+            self.root / "missing" / "deeper": "no such directory",
+            plain: "select the root of an existing Git checkout or worktree",
+            subdir: "select the root of an existing Git checkout or worktree",
+            self.project: "the repository has no commit yet; make a first commit, then register it",
+        }
+        for path, reason in expected.items():
             with self.subTest(path=path):
                 code, refused = self.invoke("add", path)
                 self.assertEqual(2, code, refused)
                 self.assertEqual("invalid_workspace", refused["error"]["code"])
+                # The person's own path and the remedy, not a Python errno naming an ancestor
+                # or Git's "fatal: Needed a single revision".
+                self.assertEqual(f"Cannot register {path}: {reason}", refused["error"]["message"])
                 self.assertFalse((self.home / "registry.json").exists())
 
     def test_git_worktree_root_is_supported(self):
