@@ -251,8 +251,12 @@ def _detail(item: dict) -> str:
     return " · ".join(str(value) for value in (stage, iteration) if value)
 
 
-def render(entries: list[dict], scope: str, *, now: float | None = None) -> str:
-    """Group rows by bucket, each needing run followed by the command that answers it."""
+def render(entries: list[dict], scope: str, *, now: float | None = None, name_workspace: bool = False) -> str:
+    """Group rows by bucket, each needing run followed by the command that answers it.
+
+    ``name_workspace`` adds each run's workspace to its row: `--all` lists every registered project's
+    runs, and a run's name alone does not say which project it belongs to (#2379).
+    """
     clock = time.time() if now is None else now
     summary = counts(entries)
     lines = [f"{scope}: {summary['total']} run(s), {summary[NEEDS]} need you"]
@@ -270,6 +274,8 @@ def render(entries: list[dict], scope: str, *, now: float | None = None) -> str:
                 f"    {_age(item.get('updated_at'), clock):>5}  {item['name'][:NAME_WIDTH]:<{NAME_WIDTH}} {label:<26}"
             )
             lines.append(f"{head} {_detail(item)}".rstrip())
+            if name_workspace and item.get("workspace"):
+                lines.append(f"{'':11}in {item['workspace']}")
             if item.get("next_command"):
                 lines.append(f"{'':11}-> {item['next_command']}")
     return "\n".join(lines)
@@ -316,7 +322,7 @@ def cli(argv: list[str] | None = None) -> int:
     if not selected:
         print(f"{scope}: no run needs you ({len(entries)} run(s) listed).")
         return 0
-    print(render(selected, scope))
+    print(render(selected, scope, name_workspace=args.all))
     if not args.needs:
         print("\nRead-only: nothing here starts, resumes or changes a run.")
     return 0
