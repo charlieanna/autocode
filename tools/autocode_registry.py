@@ -157,6 +157,8 @@ def register_run(workspace: Path, run_dir: Path, state: RunState) -> dict[str, s
 def add_project(selected: Path) -> dict[str, Any]:
     """Register an operator-selected committed Git root without creating a task."""
     try:
+        if not selected.expanduser().exists():
+            raise ValueError("no such directory")
         workspace = selected.expanduser().resolve(strict=True)
         if not workspace.is_dir() or not (workspace / ".git").exists():
             raise ValueError("select the root of an existing Git checkout or worktree")
@@ -165,7 +167,11 @@ def add_project(selected: Path) -> dict[str, Any]:
         top = util.git(workspace, "rev-parse", "--show-toplevel", env=environ, timeout=10)
         if Path(top).resolve() != workspace:
             raise ValueError("select the Git repository root, not a subdirectory")
-        util.git(workspace, "rev-parse", "--verify", "HEAD^{commit}", env=environ, timeout=10)
+        try:
+            util.git(workspace, "rev-parse", "--verify", "HEAD^{commit}", env=environ, timeout=10)
+        except ValueError as error:
+            # Git's own "fatal: Needed a single revision" names no remedy.
+            raise ValueError("the repository has no commit yet; make a first commit, then register it") from error
     except (OSError, RuntimeError, ValueError) as error:
         raise RegistryError("invalid_workspace", f"Cannot register {selected}: {error}") from error
     workspace_id = _identity("workspace", workspace)
@@ -433,6 +439,8 @@ def registry_import(
         raise RegistryError("invalid_depth", "Import max depth must be a nonnegative integer")
     if isinstance(directory_budget, bool) or not isinstance(directory_budget, int) or directory_budget < 1:
         raise RegistryError("invalid_budget", "Import directory budget must be a positive integer")
+    if not Path(selected_root).expanduser().exists():
+        raise RegistryError("invalid_root", f"Selected root is unavailable: no such directory: {selected_root}")
     try:
         root = Path(selected_root).resolve(strict=True)
     except (OSError, RuntimeError) as error:
