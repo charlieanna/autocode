@@ -423,6 +423,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode connections list` carries a `codex` row (unavailable off PATH; `check` runs `codex login
+  status`, `login` delegates to `codex login`), so the chat's unusable-default notice can name an
+  installed Codex and `/engine codex`, and `/connect codex use` chooses the engine instead of the
+  `--provider codex` the core refuses (#2357).
 - `autocode doctor` no longer counts AutoCode's own learned record (`.autocode/project.json`, which its
   generated `.gitignore` un-ignores on purpose) as an uncommitted change, so a project that only carries
   it passes `workspace:clean` after its first run (#2350).

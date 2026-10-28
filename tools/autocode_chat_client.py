@@ -213,7 +213,10 @@ class History:
         if wanted == "use":
             if row.get("connection_status") in setup.NOT_USABLE:
                 return f"{row.get('label') or name} cannot start chats yet: {setup.state(row)}."
-            self.new.options = setup.with_provider(self.new.options, name)
+            if name == "codex":  # an engine without a provider config: --provider codex is refused (#2331)
+                self.new.options = setup.with_engine(self.new.options, name)
+            else:
+                self.new.options = setup.with_provider(self.new.options, name)
             return self.chose(f"New chats use {row.get('label') or name}. Chats already started keep their own.")
         offered = setup.action(rows, name, wanted)
         if offered is None:

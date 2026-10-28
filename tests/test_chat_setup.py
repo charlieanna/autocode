@@ -44,6 +44,24 @@ CONNECTIONS = {
             "detail": "Not installed.",
             "actions": [],
         },
+        {
+            "id": "codex",
+            "label": "Codex",
+            "connection_status": "not_checked",
+            "detail": "Installed.",
+            "actions": [
+                {
+                    "id": "check",
+                    "label": "Check connection",
+                    "next_command": ["connections", "check", "--provider", "codex", "--json"],
+                },
+                {
+                    "id": "login",
+                    "label": "Sign in / Reconnect",
+                    "next_command": ["connections", "login", "--provider", "codex"],
+                },
+            ],
+        },
     ],
 }
 
@@ -146,6 +164,8 @@ class ListingTests(unittest.TestCase):
             "Type /engine claude to run new chats on it.",
             setup.default_notice(setup.NewChat(), rows),
         )
+        codex = [{**row, "id": "codex", "label": "Codex"} if row["id"] == "claude" else row for row in rows]
+        self.assertIn("Installed here: Codex. Type /engine codex", setup.default_notice(setup.NewChat(), codex))
         kilo = [{**row, "id": "kilocode", "label": "Kilo"} if row["id"] == "claude" else row for row in rows]
         self.assertIn("Type /connect kilocode use", setup.default_notice(setup.NewChat(), kilo))
         alone = [row for row in rows if row["id"] != "claude"]
