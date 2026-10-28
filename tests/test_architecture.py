@@ -59,7 +59,7 @@ TANGLED: frozenset[str] = frozenset()
 # 2026-10-26: adopting a bound launch's report identity (#2135) lives in autocode_report_identity; its
 # import and one call in load_stage_report raised autocode.py by 1.
 MAX_LINES = {
-    "autocode.py": 2009,
+    "autocode.py": 1952,
     "autocode_goals.py": 1404,
     "autocode_support.py": 620,
     "autopilot.py": 1513,

@@ -423,6 +423,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Small Requirements and planning-revision report repairs can return edits bound to the exact rejected
+  report instead of generating the entire JSON again (#2421). AutoCode reconstructs the report locally
+  and applies the existing schema, provenance, protected-requirement and approval checks. Full reports
+  and old saved attempts remain supported.
+
 - `autocode chat --engine codex "brief"` is refused with the form that works: the run's own options go after `--` (`autocode chat "BRIEF" -- --engine codex`), which the usage error and `chat --help` now say instead of a bare "unrecognized arguments" (#2416).
 - Every public subcommand option prints a one-line description in `autocode COMMAND --help`: 145 of them (`registry import --max-depth`, `tasks --dry-run`, `checkpoint --restore`, every `conversation`, `coordinate`, `intervention` and `arena` option among them) printed none; a test now keeps a new subcommand option from shipping without one (#2397).
 - `autocode explain` and the status view's `explanation` no longer say "no new decision is needed while the controller is active" for a RUNNING checkpoint the controller left on purpose after a saved answer, approval or follow-up; they say nothing runs it until someone runs the next command, as the summary already did (#2393).

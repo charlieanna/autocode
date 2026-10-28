@@ -30,6 +30,7 @@ try:
     from . import autocode_process as processes
     from . import autocode_progressive_state as progressive
     from . import autocode_recovery_accounting as accounting
+    from . import autocode_report_edits as report_edits
     from . import autocode_report_repair_queue as report_repair_queue
     from . import autocode_requirements_review as requirements_review
     from . import autocode_resolver_human as resolver_human
@@ -50,6 +51,7 @@ except ImportError:
     import autocode_process as processes
     import autocode_progressive_state as progressive
     import autocode_recovery_accounting as accounting
+    import autocode_report_edits as report_edits
     import autocode_report_repair_queue as report_repair_queue
     import autocode_requirements_review as requirements_review
     import autocode_resolver_human as resolver_human
@@ -398,7 +400,7 @@ def default_missing_provenance(value, record):
     if not isinstance(value, dict):
         return value
     try:
-        properties = read_json(Path(record["schema"])).get("properties", {})
+        properties = report_edits.validation_schema(read_json(Path(record["schema"]))).get("properties", {})
     except (OSError, ValueError, KeyError):
         return value
     optional = {}
