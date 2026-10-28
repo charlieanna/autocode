@@ -424,6 +424,7 @@ PR template asks for an entry here; a change without one is incomplete.
 ### Fixed
 
 - The brief printed at every launch and stop now lists each saved answer as one line (the question, the answer, and whether it was delegated) instead of dumping the answer records as JSON, contract tokens included (#2363).
+- The install guide's first-task walkthrough quotes the prompts the terminal chat prints (`Prepare plan? [y/N]:`, then `Approve this plan? [y/N], or type what to change:`) instead of one it never printed (#2367).
 - The plain CLI's human-review stop now lists the files each criterion's saved Builder steps changed and names `autocode review --show --run-dir RUN` as the way to read the change and its evidence; before, it asked for approval of a change it never located (#2360).
 - `autocode connections list` carries a `codex` row (unavailable off PATH; `check` runs `codex login
   status`, `login` delegates to `codex login`), so the chat's unusable-default notice can name an
