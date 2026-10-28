@@ -114,6 +114,24 @@ class WorktreeMergeTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertTrue("branch" in payload["message"].lower() or "delivered" in payload["message"].lower())
 
+    def test_merge_without_a_worktree_argument_says_how_many_there_are(self):
+        import contextlib
+        import io
+
+        def refusal(argv):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+                merge_mod.cli(argv)
+            return err.getvalue()
+
+        self.assertIn("no task worktree under", refusal(["--workspace", str(self.project)]))
+        first = Path(workspaces.create(self.project, "Build a greeting CLI")["workspace"])
+        second = Path(workspaces.create(self.project, "Build a farewell CLI")["workspace"])
+        message = refusal(["--workspace", str(self.project)])
+        self.assertIn("this project has 2:", message)
+        self.assertIn(first.name, message)
+        self.assertIn(second.name, message)
+
 
 if __name__ == "__main__":
     unittest.main()

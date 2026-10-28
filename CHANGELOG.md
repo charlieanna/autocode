@@ -423,6 +423,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode connections list` and `connections check` print a readable line per connection (state, detail and the command of each offered action) when `--json` is not given; the flag was a no-op and both printed one line of JSON.
+- `autocode merge` without a worktree argument says that the project has no task worktree, or names the ones it has, instead of "there is not exactly one task worktree".
 - A completed task worktree's delivery line names the merge command (`autocode merge --workspace PROJECT WORKTREE`, or `git merge BRANCH`) next to the clean-up command, instead of only "Merge it".
 - `autocode runs` lists the runs of the project's task worktrees (a task started without `--in-place` runs in `.autocode/worktrees/<lane>`). It answered "No runs found" for a project whose only run `--status`, `resume` and `explain` all found.
 - Two user actions in one invocation (`--follow-up` with `--dry-run`, `--status` with `--approve-goal`) are refused naming both flags, instead of only "Choose one action per invocation".

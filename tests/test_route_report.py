@@ -114,6 +114,31 @@ class ConnectionRoutesTests(unittest.TestCase):
         self.assertIsNone(payload["routes"])
         self.assertEqual(["connections", "list", "--routes", "--json"], payload["routes_next_command"])
 
+    def test_without_json_the_listing_is_text_a_person_can_read(self):
+        """`autocode connections list` printed one line of JSON; `--json` was a no-op."""
+        with mock.patch.object(connections.subprocess, "run", side_effect=AssertionError("the listing ran a backend")):
+            code, output = self.call("list")
+        self.assertEqual(0, code)
+        self.assertNotIn("{", output)
+        self.assertIn("AutoCode · Direct connection:", output)
+        self.assertIn("Check setup: autocode connections check --provider autocode\n", output)
+        self.assertIn("autocode connections list --routes", output)
+        self.assertNotIn("--json", output)
+        with mock.patch.object(
+            connections.direct,
+            "describe",
+            return_value={
+                "id": "autocode",
+                "label": "AutoCode",
+                "connection_status": "ok",
+                "detail": "",
+                "actions": [],
+            },
+        ):
+            code, output = self.call("check", "--provider", "autocode")
+        self.assertEqual(0, code)
+        self.assertEqual("✔ AutoCode: ok\n", output)
+
     def test_the_routes_listing_names_each_roles_model_and_level(self):
         with mock.patch.object(discovery, "discover", return_value=FOUND):
             with mock.patch("autocode_providers.default_name", return_value="kilocode"):
