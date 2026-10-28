@@ -803,8 +803,14 @@ def answer(state: RunState, question_id, text, *, delegated=False, source=None, 
             "Operational questions require the exact AutoResolver response path, not a requirements answer"
         )
     matches = [q for q in state.get("pending_questions", []) if q["id"] == question_id]
-    if len(matches) != 1 or question_id in state.get("answers", {}) or not text.strip():
-        raise ValueError("Answer must address one unresolved question with nonempty text")
+    # Three different mistakes got one sentence; name the open ids so the person need not look back (#2313).
+    open_ids = ", ".join(q["id"] for q in state.get("pending_questions", []) if q["id"] not in state.get("answers", {}))
+    if question_id in state.get("answers", {}):
+        raise ValueError(f"{question_id} is already answered; open: {open_ids or 'none'}")
+    if len(matches) != 1:
+        raise ValueError(f"No open question {question_id}; open: {open_ids or 'none'}")
+    if not text.strip():
+        raise ValueError(f"{question_id} needs text: --answer {question_id}=TEXT")
     q = matches[0]
     scope_question.check_answer(state, q)
     text = text if delegated else answer_options.offered(q, text)
