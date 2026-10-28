@@ -43,6 +43,9 @@ def load(task: str | None, *, brief: str | None, brief_file: Path | None, stdin:
     if brief is None and brief_file is None:
         if task is not None:
             task.encode("utf-8")
+            if not task.strip():
+                # `autocode "   "` started a worktree and a run for a blank task (#2404).
+                raise ValueError('The task is blank; say it in words, for example: autocode "Build a greeting CLI"')
             if not any(c.isspace() for c in task) and Path(task).is_file():
                 # `autocode spec.md` ran the literal two words as the task; nothing said so (#2323).
                 raise ValueError(
