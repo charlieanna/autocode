@@ -426,6 +426,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - `autocode doctor` no longer counts AutoCode's own learned record (`.autocode/project.json`, which its
   generated `.gitignore` un-ignores on purpose) as an uncommitted change, so a project that only carries
   it passes `workspace:clean` after its first run (#2350).
+- The completion message in the status view's chat (what `autocode chat` and the VS Code client show
+  when a task finishes) names the task branch the work was delivered on and the `autocode merge` and
+  `autocode clean-worktrees` commands that take it, as the plain CLI already printed (#2344).
 - The status view's `verification.coverage[].human_acceptance_pending` is false once a criterion's
   review receipt is valid for the current validation, as `--status --inspect-evidence` already reported
   it; the chat side panel no longer reads "1 human acceptance pending" on a reviewed or completed run
