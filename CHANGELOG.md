@@ -427,6 +427,9 @@ PR template asks for an entry here; a change without one is incomplete.
   review receipt is valid for the current validation, as `--status --inspect-evidence` already reported
   it; the chat side panel no longer reads "1 human acceptance pending" on a reviewed or completed run
   (#2342).
+- Starting a task whose exact text an unfinished run of the project already carries prints a note on
+  stderr naming that run and the `autocode --run-dir RUN` that continues it before the new worktree is
+  created, instead of silently starting a second run beside it (#2340).
 - A run saved after an answer, approval or follow-up and left for the person to continue no longer reads
   `Working`: `--status --summary` says "Needs you: Saved and ready to continue; nothing runs it until
   you do." and `autocode runs` lists it under needs you as "Ready to continue", both from the
