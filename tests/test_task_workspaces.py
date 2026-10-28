@@ -72,8 +72,10 @@ class TaskWorkspaces(unittest.TestCase):
         empty = self.root / "empty"
         empty.mkdir()
         w.git(empty, "init", "-q")
-        with self.assertRaisesRegex(ValueError, "initial Git commit"):
+        with self.assertRaisesRegex(ValueError, "initial Git commit") as refused:
             w.create(empty, "task")
+        # The refusal names the command that fixes it, the same one autocode doctor prints.
+        self.assertIn(f"git -C {empty.resolve()} commit --allow-empty -m 'Start'", str(refused.exception))
         self.assertFalse((empty / ".autocode").exists())
 
     def test_non_git_folder_bootstraps_a_safe_task_project(self):

@@ -133,7 +133,10 @@ def create(project, task):
     try:
         base = git(project, "rev-parse", "--verify", "HEAD")
     except ValueError as error:
-        raise ValueError("Create an initial Git commit before starting an isolated task") from error
+        raise ValueError(
+            "Create an initial Git commit before starting an isolated task: "
+            f"git -C {project} commit --allow-empty -m 'Start' (autocode doctor checks this too)"
+        ) from error
     name = (re.sub("[^a-z0-9]+", "-", task.lower()).strip("-") or "task")[:40]
     name += "-" + uuid.uuid4().hex[:10]
     parent = project / ".autocode/worktrees"
