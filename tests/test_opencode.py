@@ -1,7 +1,9 @@
 """OpenCode transport tests with native JSON events and no network/model calls."""
 
+import contextlib
 import copy
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -719,6 +721,70 @@ class OpenCodeTests(unittest.TestCase):
                 second = oc.local_settings(root)
             self.assertNotEqual(first, second)
             self.assertNotIn("auth.json", calls)
+
+
+class FixtureBootstrapTests(unittest.TestCase):
+    """The offline bootstrap patches the namespace its target imports, and no other (#2442)."""
+
+    TOOLS = Path(__file__).resolve().parents[1] / "tools"
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+
+    def bootstrap(self, target, installed):
+        """Run the fixture bootstrap for ``target`` without executing it.
+
+        ``installed=False`` simulates a checkout without the package installed: importing
+        ``autocode_cli`` raises. ``installed=True`` records those imports and satisfies them
+        with the already-imported tools/ modules, as an installed entry would need.
+        """
+        real_import = importlib.import_module
+        requested = []
+
+        def guarded(name, *args, **kwargs):
+            if name.startswith("autocode_cli"):
+                requested.append(name)
+                if not installed:
+                    raise ModuleNotFoundError(f"blocked test import: {name}")
+                return real_import(name.removeprefix("autocode_cli."))
+            return real_import(name, *args, **kwargs)
+
+        ran = {}
+        with (
+            patch.object(fixture_cli, "checked_fixture", lambda *args, **kwargs: None),
+            patch.object(fixture_cli.importlib, "import_module", side_effect=guarded),
+            patch.object(fixture_cli.runpy, "run_path", lambda target, run_name: ran.update(target=target)),
+            patch.object(sys, "argv", ["bootstrap", str(target)]),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            fixture_cli.main()
+        return requested, ran
+
+    def test_a_tools_script_target_needs_no_installed_package(self):
+        """The Builder worker runs from tools/, where the bootstrap must not import the
+        installed namespace: without the package the worker died at that import before
+        writing any result, and the orchestrator read every member as INTERRUPTED."""
+        target = self.TOOLS / "autocode_builder_worker.py"
+        requested, ran = self.bootstrap(target, installed=False)
+        self.assertEqual([], requested)
+        self.assertEqual(str(target), ran["target"])
+
+    def test_an_installed_entrypoint_target_still_patches_the_package_namespace(self):
+        installed = self.root / "bin" / "autocode"
+        installed.parent.mkdir()
+        installed.write_text("#!/bin/sh\n")
+        requested, ran = self.bootstrap(installed, installed=True)
+        self.assertEqual(
+            [
+                "autocode_cli.autocode_provider_launch",
+                "autocode_cli.autocode_supervision",
+                "autocode_cli.autocode_tool_containment",
+            ],
+            requested,
+        )
+        self.assertEqual(str(installed), ran["target"])
 
 
 class OpenCodeFlow(unittest.TestCase):
