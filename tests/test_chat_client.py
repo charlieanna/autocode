@@ -1491,6 +1491,7 @@ class AdvancingDiagnosticTests(unittest.TestCase):
         self.addCleanup(client.close)
         client.viewed.add(str(client.run_dir))
         client.workspace = ROOT
+        client._status_view = client.status()
         secret = "jr:" + "a" * 64
         client.command = (
             sys.executable,
