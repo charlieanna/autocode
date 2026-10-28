@@ -30,6 +30,7 @@ try:
     from . import autocode_attention_status as attention_status
     from . import autocode_changeset_store as changeset_store
     from . import autocode_chat_view as chat_view
+    from . import autocode_controller_owner as controller_owner
     from . import autocode_registry as registry
     from . import autocode_replay_view as replay_view
     from . import autocode_run_finder as run_finder
@@ -39,6 +40,7 @@ except ImportError:
     import autocode_attention_status as attention_status
     import autocode_changeset_store as changeset_store
     import autocode_chat_view as chat_view
+    import autocode_controller_owner as controller_owner
     import autocode_registry as registry
     import autocode_replay_view as replay_view
     import autocode_run_finder as run_finder
@@ -151,6 +153,12 @@ def row(workspace: Path, run_dir: Path, now: float, changesets: dict[str, str] |
     )
     command = shown["next_command"]
     reason = None
+    bucket = _bucket(need.get("kind"), state.get("status"))
+    ready = False
+    if bucket == WORKING and command and controller_owner.ready_for(state, run_dir):
+        # Saved by an answer, approval or follow-up and left for the person to continue: nothing runs
+        # it, so it needs them, not patience (#2332).
+        bucket, ready = NEEDS, True
     if need.get("abandon_stage"):
         # Only the run itself can tell an uncertain attempt from one whose retained
         # report just needs repair, and only the first may be set aside. Point the
@@ -162,7 +170,8 @@ def row(workspace: Path, run_dir: Path, now: float, changesets: dict[str, str] |
         "name": run_dir.name,
         "title": title(state.get("task")),
         "workspace": str(workspace),
-        "bucket": _bucket(need.get("kind"), state.get("status")),
+        "bucket": bucket,
+        "ready_to_continue": ready,
         "availability": availability,
         "status": state.get("status"),
         "needs": need.get("kind"),
@@ -253,7 +262,10 @@ def render(entries: list[dict], scope: str, *, now: float | None = None) -> str:
             continue
         lines += ["", f"  {bucket} ({len(group)})"]
         for item in group:
-            label = item.get("pause_category_label") or item.get("pause_category") or item.get("status") or "unreadable"
+            label = item.get("pause_category_label") or item.get("pause_category")
+            if not label and item.get("ready_to_continue"):
+                label = "Ready to continue"
+            label = label or item.get("status") or "unreadable"
             head = (
                 f"    {_age(item.get('updated_at'), clock):>5}  {item['name'][:NAME_WIDTH]:<{NAME_WIDTH}} {label:<26}"
             )

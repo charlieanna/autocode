@@ -49,6 +49,27 @@ class StatusSummaryTests(unittest.TestCase):
         self.assertEqual(("working", "Builder working."), (result["state"], result["sentence"]))
         self.assertEqual("Working: Builder working.", summary.text(result))
 
+    def test_a_saved_action_left_for_the_person_to_continue_needs_them_not_patience(self):
+        """#2332: after an answer, approval or follow-up the controller exits on purpose with a ready
+        receipt; the checkpoint still says RUNNING, and the summary read "Working"."""
+        ready = view(
+            "RUNNING",
+            needs={"kind": "continue"},
+            headline="Next: Understand your request",
+            next_command="autocode --run-dir R --workspace W",
+        )
+        ready["controller"] = {"kind": "ready", "reason": "Saved user action or unit handoff is ready to advance"}
+        result = summary.project(ready)
+        self.assertEqual(
+            ("needs_you", "Saved and ready to continue; nothing runs it until you do."),
+            (result["state"], result["sentence"]),
+        )
+        self.assertEqual("autocode --run-dir R --workspace W", result["next_command"])
+        alive = {**ready, "controller": {"kind": "running", "reason": "Birth-bound controller is alive"}}
+        self.assertEqual("working", summary.project(alive)["state"])
+        unnamed = {**ready, "next_command": None}
+        self.assertEqual("working", summary.project(unnamed)["state"])
+
     def test_waiting_on_another_run_is_not_a_request_to_the_person(self):
         result = summary.project(
             view("PAUSED_DEPENDENCY", needs={"kind": "dependency"}, headline="Waiting for another run")
