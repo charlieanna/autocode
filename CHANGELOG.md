@@ -423,6 +423,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode clean-worktrees` no longer tells the person to "finish or abandon" an unfinished run, a verb no command implements; its keep reason now names the steps that work today, `git worktree remove --force` on the worktree and, with a shared registry, `autocode registry forget-deleted` (#2365).
 - `autocode connections list` carries a `codex` row (unavailable off PATH; `check` runs `codex login
   status`, `login` delegates to `codex login`), so the chat's unusable-default notice can name an
   installed Codex and `/engine codex`, and `/connect codex use` chooses the engine instead of the
