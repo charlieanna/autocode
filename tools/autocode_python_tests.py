@@ -31,6 +31,21 @@ def empty_package_marker(path: str, source: str) -> bool:
         return False
 
 
+def deleted_test_files(paths, read):
+    """Keep deleted coverage, excluding only proven empty Python package markers."""
+    return [path for path in paths if Path(path).name != "__init__.py" or not empty_package_marker(path, read(path))]
+
+
+def pytest_case_names(cases, tree):
+    """Pair each report case with its owned identity, sharing module lookups."""
+    classnames = {}
+    for case in cases:
+        classname = case.get("classname", "")
+        if classname not in classnames:
+            classnames[classname] = pytest_classname(classname, tree)
+        yield f"{classnames[classname]}::{case.get('name', '')}", case
+
+
 def pytest_classname(classname: str, tree) -> str:
     """Remove only a proven physical scratch-root prefix from an existing module.
 
