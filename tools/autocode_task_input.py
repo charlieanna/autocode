@@ -43,6 +43,12 @@ def load(task: str | None, *, brief: str | None, brief_file: Path | None, stdin:
     if brief is None and brief_file is None:
         if task is not None:
             task.encode("utf-8")
+            if not any(c.isspace() for c in task) and Path(task).is_file():
+                # `autocode spec.md` ran the literal two words as the task; nothing said so (#2323).
+                raise ValueError(
+                    f"{task} is a file, and the positional task is literal text. To run the file's contents: "
+                    f"autocode --brief-file {task}; to run the words themselves: autocode --brief {task}"
+                )
         return task
     if task is not None:
         raise ValueError("Use either the positional task, --brief, or --brief-file")

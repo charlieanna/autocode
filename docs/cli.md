@@ -97,7 +97,7 @@ workflow and is separate from the [real-model reliability results](../RELIABILIT
 | Flag | Meaning |
 | --- | --- |
 | `--brief TEXT` | Start a new run with literal task text; `--brief -` reads UTF-8 bytes from stdin. Mutually exclusive with a positional task, `--brief-file`, saved-run options and `resume`. |
-| `--brief-file PATH` | Start a new run with the file's exact UTF-8 task text, retaining line breaks and trailing whitespace. Mutually exclusive with a positional task, `--brief`, saved-run options and `resume`. |
+| `--brief-file PATH` | Start a new run with the file's exact UTF-8 task text, retaining line breaks and trailing whitespace. Mutually exclusive with a positional task, `--brief`, saved-run options and `resume`. | A whitespace-free positional task that names an existing file (`autocode spec.md`) is refused before any run is created and names this option, since the positional task is literal text. |
 
 Use `autocode --brief-file brief.txt` or pipe UTF-8 text into `autocode --brief -`
 to preserve backticks, `$()`, quotes and line breaks exactly. These inputs start

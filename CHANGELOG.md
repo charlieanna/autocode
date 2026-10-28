@@ -423,6 +423,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode spec.md` no longer starts a run whose task is the literal words `spec.md`: a whitespace-free
+  positional task that names an existing file is refused before any run is created, naming
+  `--brief-file spec.md` for the file's contents and `--brief spec.md` for the words themselves (#2323).
 - `autocode clean-worktrees --yes` forgets the removed worktree's runs in the shared registry, so
   `autocode runs --all` no longer lists each cleaned-up run as unreadable ("Run state.json is
   unavailable") for good; the records stay archived and the branch is kept (#2319).
