@@ -46,10 +46,10 @@ def parser():
         help="Also choose the route each role would use, from the connected tool's own model listing (#2057)",
     )
     check = actions.add_parser("check", help="Check backend credentials without launching a model")
-    check.add_argument("--provider", required=True)
-    check.add_argument("--json", action="store_true")
+    check.add_argument("--provider", required=True, help="Connection to check (an ID from `connections list`)")
+    check.add_argument("--json", action="store_true", help="Return the public connection view")
     login = actions.add_parser("login", help="Run the backend's own interactive sign-in in this terminal")
-    login.add_argument("--provider", required=True)
+    login.add_argument("--provider", required=True, help="Connection to sign in to (an ID from `connections list`)")
     actions.add_parser("setup", help="Configure AutoCode's MiMo/Z.ai/OpenAI/Claude API connection in this terminal")
     add = actions.add_parser(
         "add", help="Add or rotate one API provider's key in this terminal; several providers may be configured at once"

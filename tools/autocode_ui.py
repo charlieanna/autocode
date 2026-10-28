@@ -37,6 +37,7 @@ except ImportError:
 
 DEFAULT_MODELS = {"astra": "gpt-5.6-sol", "terra": "gpt-5.6-terra", "sol": "gpt-5.6-sol"}
 DEFAULT_PLANNER_MODEL = "gpt-5.6-sol"
+ROLE_LABELS = {"astra": "Plan Reviewer", "terra": "Builder", "sol": "Tester"}
 DEFAULT_ASTRA_REASONING_EFFORT = "high"
 
 
@@ -511,20 +512,24 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         description="Plan, build and validate editable Figma UI through the shared Autocode workflow."
     )
-    result.add_argument("task")
-    result.add_argument("--workspace", type=Path, default=Path.cwd())
-    result.add_argument("--figma-file")
+    result.add_argument("task", help="The design task, in words")
+    result.add_argument("--workspace", type=Path, default=Path.cwd(), help="Project directory (default: current)")
+    result.add_argument("--figma-file", help="The Figma file to design in")
     result.add_argument("--run-dir", type=Path, help="New artifact directory (existing runs are never overwritten)")
     result.add_argument("--from-plan-run", type=Path, help="Start a new run at Builder using a saved accepted UI plan")
     for role, default in DEFAULT_MODELS.items():
-        result.add_argument(f"--{role}-model", default=default)
+        result.add_argument(f"--{role}-model", default=default, help=f"{ROLE_LABELS[role]} model (default: {default})")
     result.add_argument(
         "--astra-reasoning-effort",
         choices=("low", "medium", "high", "xhigh", "max"),
         default=DEFAULT_ASTRA_REASONING_EFFORT,
         help="Reasoning effort for plan review, plan finalization and completion decision",
     )
-    result.add_argument("--planner-model", default=DEFAULT_PLANNER_MODEL)
+    result.add_argument(
+        "--planner-model",
+        default=DEFAULT_PLANNER_MODEL,
+        help=f"Requirements and Planner model (default: {DEFAULT_PLANNER_MODEL})",
+    )
     result.add_argument(
         "--max-reworks",
         type=rework_limit,
@@ -539,7 +544,7 @@ def parser() -> argparse.ArgumentParser:
         metavar="N|none",
         help="Plan rework limit (default: 1); none continues until accepted or blocked",
     )
-    result.add_argument("--dry-run", action="store_true")
+    result.add_argument("--dry-run", action="store_true", help="Preview the run; launch nothing")
     result.add_argument(
         "--build", action="store_true", help="Pass the accepted Figma result to Autocode for implementation"
     )

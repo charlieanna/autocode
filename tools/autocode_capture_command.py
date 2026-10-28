@@ -37,16 +37,19 @@ def evidence_roots(cwd: Path) -> list[Path]:
 
 def cli(argv=None, *, formatter=filters.compact_output):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True, help="File that retains the exact output")
     parser.add_argument("--no-compress", action="store_true", help="Always display the complete original")
     parser.add_argument(
-        "--mode", choices=("raw", "conservative"), default=os.environ.get("AUTOCODE_OUTPUT_MODE", "conservative")
+        "--mode",
+        choices=("raw", "conservative"),
+        default=os.environ.get("AUTOCODE_OUTPUT_MODE", "conservative"),
+        help="Display mode (default: AUTOCODE_OUTPUT_MODE or conservative)",
     )
     parser.add_argument(
         "--known-output-sha256",
         help="Omit an identical display only after verifying exact retrieval; still execute fresh proof",
     )
-    parser.add_argument("command", nargs=argparse.REMAINDER)
+    parser.add_argument("command", nargs=argparse.REMAINDER, help="The command to run, after --")
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:

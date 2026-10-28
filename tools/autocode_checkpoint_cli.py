@@ -372,14 +372,14 @@ def restore(state: RunState, run_dir, ident, expected, operation):
 def parser() -> argparse.ArgumentParser:
     """The arguments `autocode checkpoint` reads; `autocode completion` reads them too."""
     result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument("--workspace", required=True, type=Path)
-    result.add_argument("--run-dir", required=True, type=Path)
+    result.add_argument("--workspace", required=True, type=Path, help="Project directory")
+    result.add_argument("--run-dir", required=True, type=Path, help="The saved run")
     action = result.add_mutually_exclusive_group(required=True)
-    action.add_argument("--compare", metavar="CHECKPOINT")
-    action.add_argument("--restore", metavar="CHECKPOINT")
+    action.add_argument("--compare", metavar="CHECKPOINT", help="Show what a saved code step changed")
+    action.add_argument("--restore", metavar="CHECKPOINT", help="Restore the code of a saved step; needs its token")
     action.add_argument("--working", action="store_true", help="Show what changed since the newest saved step")
-    result.add_argument("--expected-token")
-    result.add_argument("--request-id")
+    result.add_argument("--expected-token", help="The exact token the comparison showed, for --restore")
+    result.add_argument("--request-id", help="Stable ID of this action, so a repeat is recognized")
     result.add_argument("--json", action="store_true", help="Format output as JSON (default)")
     return result
 

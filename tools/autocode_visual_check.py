@@ -296,7 +296,7 @@ def run(workspace, policy_path, policy_sha256, *, output=None):
 def parser() -> argparse.ArgumentParser:
     """The arguments `autocode visual-check` reads; `autocode completion` reads them too."""
     result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument("--workspace", default=".")
+    result.add_argument("--workspace", default=".", help="Project directory (default: current)")
     result.add_argument("--policy", required=True, help="Source-owned policy path relative to workspace")
     result.add_argument(
         "--policy-sha256", required=True, help="Policy digest pinned in the approved verification command"

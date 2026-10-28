@@ -363,10 +363,10 @@ def analyze(run_dir: Path, out: Path | None) -> int:
 def run(argv: list[str]) -> int:
     if "--analyze" in argv:
         parser = argparse.ArgumentParser(prog="autocode-unattended --analyze", allow_abbrev=False)
-        parser.add_argument("--analyze", action="store_true")
-        parser.add_argument("--run-dir", type=Path, required=True)
+        parser.add_argument("--analyze", action="store_true", help="Read-only analysis of a saved run")
+        parser.add_argument("--run-dir", type=Path, required=True, help="The saved run")
         parser.add_argument("--workspace", type=Path, help="Accepted for symmetry; the run records its own")
-        parser.add_argument("--out", type=Path)
+        parser.add_argument("--out", type=Path, help="Save the evidence report in this directory")
         args = parser.parse_args(argv)
         return analyze(args.run_dir, args.out)
     reason = refused(argv)

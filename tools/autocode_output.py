@@ -43,20 +43,28 @@ def section(data, start, end):
 def parser() -> argparse.ArgumentParser:
     """The arguments `autocode output` reads; `autocode completion` reads them too."""
     result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument("--store", type=Path, default=os.environ.get("AUTOCODE_OUTPUT_STORE"))
     result.add_argument(
-        "--mode", choices=("raw", "conservative"), default=os.environ.get("AUTOCODE_OUTPUT_MODE", "conservative")
+        "--store",
+        type=Path,
+        default=os.environ.get("AUTOCODE_OUTPUT_STORE"),
+        help="Retained store (default: AUTOCODE_OUTPUT_STORE)",
+    )
+    result.add_argument(
+        "--mode",
+        choices=("raw", "conservative"),
+        default=os.environ.get("AUTOCODE_OUTPUT_MODE", "conservative"),
+        help="Display mode (default: AUTOCODE_OUTPUT_MODE or conservative)",
     )
     commands = result.add_subparsers(dest="action", required=True)
     read = commands.add_parser("read", help="Read exact file lines and retain the complete original bytes")
-    read.add_argument("file", type=Path)
+    read.add_argument("file", type=Path, help="The file to read")
     read.add_argument("--known-sha256", help="Refer to a verified retained copy when this full-file hash is unchanged")
     get = commands.add_parser("retrieve", help="Retrieve exact retained bytes, including from before a file changed")
-    get.add_argument("sha256")
+    get.add_argument("sha256", help="SHA-256 of the retained bytes")
     get.add_argument("--raw", action="store_true", help="Emit original bytes directly, without a JSON envelope")
     for command in (read, get):
-        command.add_argument("--start-line", type=int, default=1)
-        command.add_argument("--end-line", type=int)
+        command.add_argument("--start-line", type=int, default=1, help="First line to show (default: 1)")
+        command.add_argument("--end-line", type=int, help="Last line to show (default: the end)")
     commands.add_parser("status", help="Show display measurements; these are not model tokens or cost savings")
     return result
 

@@ -16,9 +16,9 @@ def parser():
     result = argparse.ArgumentParser(prog="autocode attention", description=__doc__)
     commands = result.add_subparsers(dest="action", required=True)
     ack = commands.add_parser("ack", help="Record this local user's read acknowledgement; launches no model")
-    ack.add_argument("--workspace", required=True)
-    ack.add_argument("--run-dir", required=True)
-    ack.add_argument("--item-id", required=True)
+    ack.add_argument("--workspace", required=True, help="Project directory")
+    ack.add_argument("--run-dir", required=True, help="The saved run")
+    ack.add_argument("--item-id", required=True, help="The alert ID the status view or run inventory names")
     return result
 
 

@@ -412,7 +412,7 @@ def parser() -> argparse.ArgumentParser:
         epilog="Load it in this shell:\n" + "\n".join(f"  {LOAD[shell]}" for shell in SHELLS),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    result.add_argument("shell", choices=SHELLS)
+    result.add_argument("shell", choices=SHELLS, help="The shell to generate the script for")
     return result
 
 

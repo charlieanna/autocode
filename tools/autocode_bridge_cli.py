@@ -405,10 +405,10 @@ def parser() -> argparse.ArgumentParser:
     )
     run.set_defaults(handler=cmd_run)
     check = commands.add_parser("check", help="report configuration, GitHub access, durable availability")
-    check.add_argument("--project")
+    check.add_argument("--project", help="persistent checkout to build in (default: AUTOCODE_BRIDGE_PROJECT or here)")
     check.set_defaults(handler=cmd_check)
     status = commands.add_parser("status", help="list the bridged issues and their gates")
-    status.add_argument("--json", action="store_true")
+    status.add_argument("--json", action="store_true", help="print the listing as JSON")
     status.set_defaults(handler=cmd_status)
     return result
 

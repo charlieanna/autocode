@@ -133,6 +133,20 @@ class CliDocumentationTests(unittest.TestCase):
         )
         self.assertEqual([], silent, "Main-run options without help text: " + ", ".join(silent))
 
+    def test_every_subcommand_option_prints_help_text(self):
+        """#2397: 145 public subcommand options (`registry import --max-depth`, `tasks --dry-run`, every
+        `conversation` and `coordinate` option among them) printed no description."""
+        silent = []
+        for path, parser in self.parsers.items():
+            if parser is None or not path:
+                continue
+            for action in parser_actions(parser):
+                if isinstance(action, argparse._SubParsersAction):
+                    continue  # the command word itself; its parser's description is its help
+                if action.help != argparse.SUPPRESS and not (action.help or "").strip():
+                    silent.append("autocode " + " ".join(path) + " " + (action.option_strings or [action.dest])[0])
+        self.assertEqual([], silent, "Subcommand options without help text: " + ", ".join(sorted(silent)))
+
     def test_hidden_options_match_the_explicit_internal_set(self):
         observed = {}
         for path, parser in self.parsers.items():

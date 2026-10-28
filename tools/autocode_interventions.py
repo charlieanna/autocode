@@ -330,17 +330,19 @@ def consume(
 def cli(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Submit or inspect pending Autocode interventions")
     commands = parser.add_subparsers(dest="operation", required=True)
-    submit_parser = commands.add_parser("submit")
-    submit_parser.add_argument("--workspace", required=True, type=Path)
-    submit_parser.add_argument("--run-dir", required=True, type=Path)
-    submit_parser.add_argument("--request-id", required=True)
-    submit_parser.add_argument("--kind", required=True, choices=("feedback", "pause", "stop"))
-    submit_parser.add_argument("--text", default="")
-    submit_parser.add_argument("--json", action="store_true")
-    inspect_parser = commands.add_parser("inspect")
-    inspect_parser.add_argument("--workspace", required=True, type=Path)
-    inspect_parser.add_argument("--run-dir", required=True, type=Path)
-    inspect_parser.add_argument("--json", action="store_true")
+    submit_parser = commands.add_parser("submit", help="Queue a feedback, pause or stop request for a run")
+    submit_parser.add_argument("--workspace", required=True, type=Path, help="Project directory")
+    submit_parser.add_argument("--run-dir", required=True, type=Path, help="The saved run")
+    submit_parser.add_argument(
+        "--request-id", required=True, help="Stable ID of this request, so a repeat is recognized"
+    )
+    submit_parser.add_argument("--kind", required=True, choices=("feedback", "pause", "stop"), help="What is requested")
+    submit_parser.add_argument("--text", default="", help="The feedback text")
+    submit_parser.add_argument("--json", action="store_true", help="Print the receipt as JSON")
+    inspect_parser = commands.add_parser("inspect", help="List the pending interventions of a run")
+    inspect_parser.add_argument("--workspace", required=True, type=Path, help="Project directory")
+    inspect_parser.add_argument("--run-dir", required=True, type=Path, help="The saved run")
+    inspect_parser.add_argument("--json", action="store_true", help="Print the listing as JSON")
     args = parser.parse_args(argv)
     try:
         if args.operation == "submit":
