@@ -47,6 +47,7 @@ try:
     from . import autocode_effort_question as effort_question
     from . import autocode_escalation_view as escalation_view
     from . import autocode_finding_rescope as finding_rescope
+    from . import autocode_goals as goals
     from . import autocode_liveness as liveness_policy
     from . import autocode_member_stop as member_stop
     from . import autocode_operational_information as operational_information
@@ -97,6 +98,7 @@ except ImportError:
     import autocode_effort_question as effort_question
     import autocode_escalation_view as escalation_view
     import autocode_finding_rescope as finding_rescope
+    import autocode_goals as goals
     import autocode_liveness as liveness_policy
     import autocode_member_stop as member_stop
     import autocode_operational_information as operational_information
@@ -134,6 +136,19 @@ COMPLETE = ("TASK_COMPLETE", "COMPLETE")
 # Statuses where relaunching the run, with no user input, continues the work.
 CONTINUE = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL")
 QUESTION_FIELDS = ("id", "question", "why", "options", "proposed_default")
+
+
+def accepted_reviews(state: RunState) -> list:
+    """The human-review criteria whose review receipt is valid for the current validation, in plan
+    order: the plain view reports them accepted, as --inspect-evidence already did (#2342). Legacy or
+    partial plans carry no review binding to show."""
+    contract = state.get("goal_contract") or {}
+    try:
+        criteria = contract["body"]["acceptance_criteria"]
+        missing = set(goals.missing_human_reviews(state))
+        return [row["id"] for row in criteria if row.get("human_review") and row["id"] not in missing]
+    except (KeyError, TypeError, AttributeError, ValueError):
+        return []
 
 
 def view(
@@ -244,7 +259,7 @@ def view(
         "done": status in COMPLETE and not simulated and not invalid_replay,
         "needs": need,
         "recovery": recovery_view.project(state, need),
-        "verification": verification_view.project(state),
+        "verification": verification_view.project(state, accepted_human_ids=accepted_reviews(state)),
         "review_result": None,  # status may add a read-time inspection; evidence remains authenticated recorded facts
         "code_checkpoints": code_checkpoints.project(state, run_dir=run_dir, workspace=workspace),
         # Which saved checkpoints built each approved criterion's milestones (#730): attribution, not proof.

@@ -403,12 +403,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
 
 def reviewed_criteria(runner, state: "RunState"):
     """Human-review criteria whose review receipt is valid for the current validation."""
-    contract = state.get("goal_contract") or {}
-    try:
-        human = {row["id"] for row in contract["body"]["acceptance_criteria"] if row.get("human_review")}
-        return human - set(runner.goals.missing_human_reviews(state))
-    except (KeyError, TypeError, AttributeError, ValueError):
-        return set()  # Legacy or partial plans carry no review binding to show.
+    return set(runner.run_view.accepted_reviews(state))
 
 
 def _pause_command():

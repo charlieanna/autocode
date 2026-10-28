@@ -423,6 +423,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The status view's `verification.coverage[].human_acceptance_pending` is false once a criterion's
+  review receipt is valid for the current validation, as `--status --inspect-evidence` already reported
+  it; the chat side panel no longer reads "1 human acceptance pending" on a reviewed or completed run
+  (#2342).
 - A run saved after an answer, approval or follow-up and left for the person to continue no longer reads
   `Working`: `--status --summary` says "Needs you: Saved and ready to continue; nothing runs it until
   you do." and `autocode runs` lists it under needs you as "Ready to continue", both from the
