@@ -423,6 +423,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The completion message in the status view's chat (what `autocode chat` and the VS Code client show
+  when a task finishes) names the task branch the work was delivered on and the `autocode merge` and
+  `autocode clean-worktrees` commands that take it, as the plain CLI already printed (#2344).
 - Starting a task whose exact text an unfinished run of the project already carries prints a note on
   stderr naming that run and the `autocode --run-dir RUN` that continues it before the new worktree is
   created, instead of silently starting a second run beside it (#2340).
