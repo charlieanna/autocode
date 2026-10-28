@@ -330,11 +330,13 @@ def builder_note(state: RunState) -> str:
 
 
 def view(state: RunState) -> dict | None:
-    """The status view's ``acceptance_tests`` field: files, cases and the last result, or None."""
-    rows = list(receipts(state).values())
+    """Current-contract tests and its most recently recorded generation result, or None."""
+    current = (state.get("goal_contract") or {}).get("hash")
+    rows = [row for row in receipts(state).values() if row.get("contract_hash") == current]
     if not rows:
         return None
-    last = rows[-1]
+    order = {row.get("output"): index for index, row in enumerate(state.get("stages") or [])}
+    last = max(rows, key=lambda row: (order.get(row.get("output"), -1), str(row.get("output") or "")))
     payload = {
         "files": sorted(all_files(state)),
         "case_ids": list(last.get("case_ids") or []),

@@ -619,6 +619,36 @@ class RunnerCollectionTests(unittest.TestCase):
                 job.apply(state, value, record, workspace, run_tests=run_tests, evidence_dir=evidence)
 
 
+class AcceptanceViewTests(unittest.TestCase):
+    def test_current_receipt_wins_regardless_of_serialized_batch_hash_order(self):
+        state = approved()
+        current = {"contract_hash": "h1", "case_ids": ["C1"], "results": {"C1": "already passes"}, "output": "new.json"}
+        historical = {"contract_hash": "old", "case_ids": ["C1"], "results": {"C1": "fails"}, "output": "old.json"}
+        for rows in ({"a": current, "z": historical}, {"a": historical, "z": current}):
+            state["acceptance_tests"] = {"receipts": json.loads(json.dumps(rows, sort_keys=True))}
+            before = json.dumps(state, sort_keys=True)
+            self.assertEqual({"C1": "already passes"}, acceptance.view(state)["results"])
+            self.assertEqual("new.json", acceptance.view(state)["output"])
+            self.assertEqual(before, json.dumps(state, sort_keys=True))
+
+    def test_current_batches_follow_recorded_stage_order_not_hash_or_output_name(self):
+        state = approved()
+        state["stages"] = [{"output": "z-old.json"}, {"output": "a-new.json"}]
+        state["acceptance_tests"] = {
+            "receipts": {
+                "a": {"contract_hash": "h1", "case_ids": ["C2"], "results": {"C2": "fails"}, "output": "a-new.json"},
+                "z": {"contract_hash": "h1", "case_ids": ["C1"], "results": {"C1": "fails"}, "output": "z-old.json"},
+            }
+        }
+        self.assertEqual(["C2"], acceptance.view(state)["case_ids"])
+        self.assertEqual("a-new.json", acceptance.view(state)["output"])
+
+    def test_new_contract_has_no_acceptance_display_until_its_own_receipt_exists(self):
+        state = approved()
+        state["acceptance_tests"] = {"receipts": {"old": {"contract_hash": "old", "results": {"C1": "fails"}}}}
+        self.assertIsNone(acceptance.view(state))
+
+
 class RouteTests(unittest.TestCase):
     def test_a_build_with_unwritten_cases_goes_to_the_tester_once(self):
         state = approved()
