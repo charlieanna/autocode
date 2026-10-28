@@ -24,6 +24,7 @@ import copy
 from pathlib import Path
 
 try:
+    from . import autocode_coordination_context as coordination_context
     from . import autocode_goals as goals
     from . import autocode_plan_chat as plan_chat
     from . import autocode_project_memory_lifecycle as project_memory
@@ -34,6 +35,7 @@ try:
     from . import autocode_util as util
     from . import autocode_workspace_scope as workspace_scope
 except ImportError:
+    import autocode_coordination_context as coordination_context
     import autocode_goals as goals
     import autocode_plan_chat as plan_chat
     import autocode_project_memory_lifecycle as project_memory
@@ -74,18 +76,23 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
     ids = [question["id"] for question in questions]
     if len(ids) != len(set(ids)) or any(not question_id.strip() for question_id in ids):
         raise ValueError("Requirements question IDs must be nonempty and unique")
-    previous = state.get("requirements_handoff")
-    if previous:
-        state.setdefault("requirements_history", []).append(copy.deepcopy(previous))
-    goals.check_requirement_handoff(state, value)
+    # Validate the reported scope before any state is written (#2066 grounding, and a
+    # coordinated member's role-noun label refused so the bounded report repair
+    # attempts the correction, #2420; never a silent drop).
+    coordinated = coordination_context.context(state)
     dropped = None
-    if "workspace_scope" in value:  # only what the request or a cited file grounds is kept (#2066)
+    if "workspace_scope" in value:
         value["workspace_scope"], dropped = workspace_scope.validated(
             value["workspace_scope"],
             sources=goals.source_texts(state),
             source_refs=value.get("source_refs"),
             workspace=state.get("workspace"),
+            member_names=tuple(coordinated["members"]) if coordinated else (),
         )
+    previous = state.get("requirements_handoff")
+    if previous:
+        state.setdefault("requirements_history", []).append(copy.deepcopy(previous))
+    goals.check_requirement_handoff(state, value)
     input_refs = {"task", *state.get("answers", {})}
     input_refs.update(event["id"] for event in state.get("user_events", []) if event.get("id"))
     # External design/spec references may accompany local inspection evidence;

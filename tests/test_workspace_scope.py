@@ -25,10 +25,14 @@ SAVED_SCOPE = {
 }
 
 
-def validated(scope, *, sources=(TASK,), source_refs=(), workspace=None):
+def validated(scope, *, sources=(TASK,), source_refs=(), workspace=None, member_names=()):
     """The saved scope with the dropped targets beside it, so one assertion can read both."""
     kept, dropped = workspace_scope.validated(
-        scope, sources=list(sources), source_refs=list(source_refs), workspace=workspace
+        scope,
+        sources=list(sources),
+        source_refs=list(source_refs),
+        workspace=workspace,
+        member_names=member_names,
     )
     validate_schema(kept, workspace_scope.SCHEMA)  # the saved report is checked against its schema again
     return {**kept, "dropped": dropped}
@@ -150,6 +154,115 @@ class WorkspaceScopeTests(unittest.TestCase):
     def test_spans_repositories_follows_the_kept_parts_not_the_report(self):
         claimed_false = {**SAVED_SCOPE, "spans_repositories": False}
         self.assertTrue(validated(claimed_false)["spans_repositories"])
+
+
+ROLE_TASK = "Fix checkout showing '100.0 USD' for a 100 USD subtotal when the expected total is '$110.00'."
+
+
+class CoordinatedMemberTargetTests(unittest.TestCase):
+    """A coordinated member names external owners exactly (#2420)."""
+
+    MEMBERS = ("checkout", "history", "tax")
+
+    def part(self, target, *, quote=ROLE_TASK, evidence=""):
+        return {
+            "target": target,
+            "work": "Produce the final '$110.00' display",
+            "source_quote": quote,
+            "evidence": evidence,
+        }
+
+    def test_a_role_label_is_refused_for_the_report_repair_never_dropped(self):
+        # The live attempt-5 labels: the quote grounds the part, the target names no member.
+        for target in ("Checkout display member", "Receipt-handling member"):
+            with (
+                self.subTest(target=target),
+                self.assertRaisesRegex(
+                    ValueError,
+                    "role label.*coordinated members are: checkout, history, tax.*ask the person in questions",
+                ),
+            ):
+                validated(
+                    {"spans_repositories": True, "external_parts": [self.part(target)]},
+                    sources=(ROLE_TASK,),
+                    member_names=self.MEMBERS,
+                )
+
+    def test_a_canonical_member_name_is_kept(self):
+        found = validated(
+            {"spans_repositories": True, "external_parts": [self.part("checkout")]},
+            sources=(ROLE_TASK,),
+            member_names=self.MEMBERS,
+        )
+        self.assertEqual(["checkout"], [row["target"] for row in found["external_parts"]])
+        self.assertEqual([], found["dropped"])
+
+    def test_a_literally_grounded_role_name_is_still_a_real_repository(self):
+        # A repository genuinely called "Payments member": the authorized quote names it.
+        task = "The Payments member repository owns the final receipt display."
+        found = validated(
+            {"spans_repositories": True, "external_parts": [self.part("Payments member", quote=task)]},
+            sources=(task,),
+            member_names=self.MEMBERS,
+        )
+        self.assertEqual(["Payments member"], [row["target"] for row in found["external_parts"]])
+
+    def test_a_role_label_name_exemption_needs_a_real_citation_with_tight_bounds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            # The name sits on line 1; the report's citations decide whether it counts.
+            (Path(directory) / "contract.md").write_text("Payments member client lives here\nsecond line\n")
+            (Path(directory) / "uncited.md").write_text("The Receipt-handling member owns receipts.\n")
+            cases = [
+                # A quote-grounded part cannot borrow a name from a file the report never cites.
+                (
+                    "uncited file cannot exempt a quote-grounded part",
+                    self.part("Receipt-handling member", evidence="uncited.md"),
+                    ["contract.md:1"],
+                    False,
+                ),
+                # Whole-file evidence with a line-2 citation stays inside line 2.
+                (
+                    "source_refs line bound clips a whole-file evidence",
+                    self.part("Payments member", quote="", evidence="contract.md"),
+                    ["contract.md:2"],
+                    False,
+                ),
+                # The evidence's own line bound clips a whole-file source_ref.
+                (
+                    "evidence line bound clips a whole-file citation",
+                    self.part("Payments member", quote="", evidence="contract.md:2"),
+                    ["contract.md"],
+                    False,
+                ),
+                # A citation whose intersection covers the naming line grounds the name.
+                (
+                    "the intersecting cited lines ground the name",
+                    self.part("Payments member", quote="", evidence="contract.md:1"),
+                    ["contract.md:1-2"],
+                    True,
+                ),
+            ]
+            for name, part, refs, accepted in cases:
+                with self.subTest(case=name):
+                    scope = {"spans_repositories": True, "external_parts": [part]}
+                    sources = (ROLE_TASK,) if part["source_quote"] else ()
+                    if accepted:
+                        found = validated(
+                            scope, sources=sources, source_refs=refs, workspace=directory, member_names=self.MEMBERS
+                        )
+                        self.assertEqual([part["target"]], [row["target"] for row in found["external_parts"]])
+                    else:
+                        with self.assertRaisesRegex(ValueError, "role label"):
+                            validated(
+                                scope, sources=sources, source_refs=refs, workspace=directory, member_names=self.MEMBERS
+                            )
+
+    def test_runs_outside_coordination_keep_free_form_targets(self):
+        found = validated(
+            {"spans_repositories": True, "external_parts": [self.part("Checkout display member")]},
+            sources=(ROLE_TASK,),
+        )
+        self.assertEqual(["Checkout display member"], [row["target"] for row in found["external_parts"]])
 
 
 if __name__ == "__main__":

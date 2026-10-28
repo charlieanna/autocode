@@ -169,12 +169,18 @@ def requests(document, views):
     return {target: work for target, work in requests.items() if target not in existing}
 
 
+def member_role_identities(document, target, catalog):
+    """Legacy already-accepted role-noun labels (#2420): see repos.member_role_identities."""
+    return repos.member_role_identities(document["members"], target, catalog)
+
+
 def resolve_request(document, views):
     wanted = requests(document, views)
     if not wanted:
         return None
     target, work = next(iter(wanted.items()))
-    candidates = repos.candidates(target, repos.catalog())
+    catalog = repos.catalog()
+    candidates = repos.candidates(target, catalog)
     choice = document["choices"].get(target)
     chosen = next((row for row in candidates if row["origin"] == choice), None) if choice else None
     if chosen is None and len(candidates) == 1:
@@ -184,6 +190,33 @@ def resolve_request(document, views):
         if member:
             return {"kind": "alias", "target": target, "canonical": member["target"], "origin": member["origin"]}
         return {"kind": "resolve", "target": target, "work": work, "entry": chosen}
+    # Only a catalog that matched nothing consults the member role-noun fallback:
+    # the catalog's own ambiguity and choices are never overridden (#2420).
+    identities = {} if candidates else member_role_identities(document, target, catalog)
+    if identities:
+        members = {row["git_dir"]: row for row in document["members"]}
+        selected = (
+            next((entry for entry in identities.values() if choice and entry["origin"] == choice), None)
+            if choice
+            else None
+        )
+        if selected:
+            member = members.get(selected["git_dir"])
+            if member:
+                return {"kind": "alias", "target": target, "canonical": member["target"], "origin": member["origin"]}
+            return {"kind": "resolve", "target": target, "work": work, "entry": selected}
+        if len(identities) == 1 and (member := members.get(next(iter(identities)))):
+            # A unique, already-linked and still-available identity reuses its member.
+            return {"kind": "alias", "target": target, "canonical": member["target"], "origin": member["origin"]}
+        return {
+            "kind": "repository",
+            "target": target,
+            "work": work,
+            "reason": "Repository match is ambiguous"
+            if len(identities) > 1
+            else "Repository label names a catalog repository that is not yet linked",
+            "candidates": [{"workspace": row["origin"], "base": row["base"]} for row in identities.values()],
+        }
     return {
         "kind": "repository",
         "target": target,

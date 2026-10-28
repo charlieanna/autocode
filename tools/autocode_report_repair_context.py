@@ -76,7 +76,10 @@ def baseline_instruction(stage: str) -> str:
 def clarification_context(state: RunState, stage: str) -> dict:
     """Return the human and investigation context needed to repair a planning report."""
     if stage not in PLANNING_STAGES:
-        return {}
+        # The Investigator reports external owners too; its repair must see the same
+        # canonical member names the rejection names (#2420).
+        member = coordination_context.context(state) if stage == "investigate_bug" else None
+        return {**({"coordinated_member": member} if member else {})}
 
     handoff = copy.deepcopy(state.get("requirements_handoff"))
     questions = ((handoff or {}).get("report") or {}).get("open_questions", [])
@@ -300,6 +303,13 @@ def prompt_parts(
                 **review,
                 **({"feedback_interpretations": interpretations} if interpretations else {}),
                 **({"regression_reference": regression_reference.context(state)} if stage in PLANNING_STAGES else {}),
+                # The Investigator's report repair names external owners; it needs the
+                # same canonical member context its stage packet carries (#2420).
+                **(
+                    {"coordinated_member": clarification["coordinated_member"]}
+                    if stage == "investigate_bug" and "coordinated_member" in clarification
+                    else {}
+                ),
             },
             "original_report": historical_source,
             "protected_contract": protected,

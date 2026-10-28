@@ -139,6 +139,28 @@ class CoordinationContextTests(unittest.TestCase):
         self.assertEqual(expected, repaired["coordinated_member"])
         self.assertIsNone(repaired["protected_contract"], "Context does not manufacture an approved goal")
 
+    def test_member_context_demands_exact_external_owner_names(self):
+        self.automatic()
+        instruction = coordination.context(self.state)["instruction"]
+        self.assertIn("Name an external owner exactly as the members list in this context names it", instruction)
+        self.assertIn("never append role words such as 'member' to a target", instruction)
+        self.assertIn("genuinely named that way keeps its exact name", instruction)
+
+    def test_the_investigator_and_its_report_repair_receive_the_member_context(self):
+        self.automatic()
+        import autocode_bug_job as bug_job
+
+        expected = coordination.context(self.state)
+        prompt, _ = bug_job.prompt(self.state)
+        data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(expected, data["coordinated_member"])
+        repaired = repair.clarification_context(self.state, "investigate_bug")
+        self.assertEqual(expected, repaired["coordinated_member"])
+        source = {"path": "/run/x.json", "sha256": "h", "format": "json", "truncated": False, "content": {}}
+        pending = {"original": {"stage": "investigate_bug"}}
+        _, handoff = repair.prompt_parts(self.state, pending, source, source, ("", {}))
+        self.assertEqual(expected, handoff["header"]["coordinated_member"], "The repair payload carries it")
+
     def test_only_bound_members_distinguish_real_joint_proof_from_a_local_proxy(self):
         for automatic in (False, True):
             if automatic:

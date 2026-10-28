@@ -63,6 +63,7 @@ from typing import Any
 
 try:
     from . import autocode_bug_questions as bug_questions
+    from . import autocode_coordination_context as coordination_context
     from . import autocode_investigation_progress as investigation_progress
     from . import autocode_investigation_retry as investigation_retry
     from . import autocode_package_scope as package_scope
@@ -83,6 +84,7 @@ try:
     )
 except ImportError:
     import autocode_bug_questions as bug_questions
+    import autocode_coordination_context as coordination_context
     import autocode_investigation_progress as investigation_progress
     import autocode_investigation_retry as investigation_retry
     import autocode_package_scope as package_scope
@@ -203,6 +205,10 @@ def packet(state: RunState, inventory: dict | None = None, engine: str | None = 
         "saved_answers": state.get("answers", {}),
         "prior_investigation": state.get("investigation"),
     }
+    # The Investigator reports external owners; a coordinated member must name
+    # them exactly as its member context lists them (autocode_coordination_context).
+    if coordinated := coordination_context.context(state):
+        data["coordinated_member"] = coordinated
     if retry := investigation_retry.context(state):
         data["prior_failed_attempt"] = retry
     return data
@@ -395,6 +401,18 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None,
             "The Investigator must use saved user answers instead of repeating answered questions: "
             + "; ".join(repeated)
         )
+    # Validate the reported scope before any probe runs or state is written: a
+    # coordinated member's role-noun label is refused here so the normal bounded
+    # report repair attempts to name the owning repository (#2420); the scope is
+    # never silently dropped.
+    coordinated = coordination_context.context(state)
+    scope, dropped = workspace_scope.validated(
+        value.get("workspace_scope"),
+        sources=requirement_cues.source_texts(state),
+        source_refs=[part.get("evidence") for part in (value.get("workspace_scope") or {}).get("external_parts", [])],
+        workspace=workspace,
+        member_names=tuple(coordinated["members"]) if coordinated else (),
+    )
     probe = value.get("probe", "").strip()
     shown = (
         run_probes(
@@ -414,12 +432,6 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None,
         )
         if probe
         else []
-    )
-    scope, dropped = workspace_scope.validated(
-        value.get("workspace_scope"),
-        sources=requirement_cues.source_texts(state),
-        source_refs=[part.get("evidence") for part in (value.get("workspace_scope") or {}).get("external_parts", [])],
-        workspace=workspace,
     )
     # Keep the exact accepted report for diagnosis-artifact identity. Only the
     # runner-owned scope record contains normalized, grounded obligations.

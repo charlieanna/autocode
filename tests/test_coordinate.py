@@ -231,6 +231,143 @@ class CoordinationTests(unittest.TestCase):
         ):
             self.assertEqual([], repos.candidates(target, [checkout]), target)
 
+    def member_document(self, *targets):
+        self.entries = {target: self.repository(target) for target in targets}
+        for target, entry in self.entries.items():
+            coordinate.add_member(self.document, target, entry, "Fix the real bug")
+        return self.document
+
+    def test_a_member_role_label_reuses_the_linked_member(self):
+        self.member_document("checkout", "history", "tax")
+        checkout, history, tax = (self.entries[name] for name in ("checkout", "history", "tax"))
+        # The live attempt-5 label, and its bare form (#2420).
+        for alias in ("Checkout display member", "checkout member"):
+            with self.subTest(alias=alias):
+                document = copy.deepcopy(self.document)
+                document["initial_scope"] = [{"target": alias, "work": "Produce the final '$110.00' display"}]
+                with patch.object(repos, "catalog", return_value=[checkout, history, tax]):
+                    found = coordinate.resolve_request(document, {})
+                self.assertEqual("alias", found["kind"])
+                self.assertEqual("checkout", found["canonical"])
+                document["choices"][alias] = found["origin"]
+                self.assertEqual({}, coordinate.requests(document, {}))
+                for member in document["members"]:
+                    member["started"] = True
+                views = {
+                    "tax": {
+                        "scope": {"identity": "current", "decision": None, "external_parts": [{"target": alias}]},
+                        "needs": {"kind": "answer"},
+                    },
+                }
+                views.update({name: {"needs": {"kind": "approve_plan"}} for name in ("checkout", "history")})
+                step = coordinate.next_step(document, views)
+                self.assertEqual("assign", step["kind"])
+                self.assertEqual({alias: "checkout"}, step["aliases"])
+                self.assertEqual(3, len(document["members"]), "A role label creates no duplicate task")
+
+    def test_a_member_role_label_naming_a_second_repository_refuses(self):
+        self.member_document("checkout", "history")
+        checkout, history = self.entries["checkout"], self.entries["history"]
+        self.document["initial_scope"] = [{"target": "checkout history member", "work": "Fix both displays"}]
+        with patch.object(repos, "catalog", return_value=[checkout, history]):
+            need = coordinate.resolve_request(self.document, {})
+        self.assertEqual(
+            ("repository", [], "Repository is not available in the authorized local catalog"),
+            (need["kind"], need["candidates"], need["reason"]),
+        )
+
+    def test_catalog_ambiguity_for_the_full_target_is_never_overridden_by_the_fallback(self):
+        self.member_document("checkout")
+        checkout = self.entries["checkout"]
+        first = self.repository("one/Checkout display member")
+        second = self.repository("two/Checkout display member", "another")
+        self.document["initial_scope"] = [{"target": "Checkout display member", "work": "Produce the display"}]
+        with patch.object(repos, "catalog", return_value=[checkout, first, second]):
+            need = coordinate.resolve_request(self.document, {})
+        self.assertEqual("repository", need["kind"])
+        self.assertEqual("Repository match is ambiguous", need["reason"])
+        self.assertEqual([first["origin"], second["origin"]], [row["workspace"] for row in need["candidates"]])
+
+    def test_a_member_role_label_enumerates_every_authorized_prefix_identity(self):
+        self.member_document("checkout")
+        checkout = self.entries["checkout"]
+        display = self.repository("literal/checkout display")
+        self.document["initial_scope"] = [{"target": "checkout display member", "work": "Format the receipt"}]
+        with patch.object(repos, "catalog", return_value=[checkout, display]):
+            need = coordinate.resolve_request(self.document, {})
+        self.assertEqual("repository", need["kind"])
+        self.assertEqual("Repository match is ambiguous", need["reason"])
+        # Catalog order, never set-iteration order, so the public offer is stable.
+        self.assertEqual([checkout["origin"], display["origin"]], [row["workspace"] for row in need["candidates"]])
+        # The person's choice of the unlinked identity starts its discovery instead.
+        self.document["choices"]["checkout display member"] = display["origin"]
+        with patch.object(repos, "catalog", return_value=[checkout, display]):
+            found = coordinate.resolve_request(self.document, {})
+        self.assertEqual("resolve", found["kind"])
+        self.assertEqual(display["git_dir"], found["entry"]["git_dir"])
+
+    def test_a_multiword_alias_takes_the_longest_bounded_match(self):
+        self.member_document("checkout")
+        checkout = self.entries["checkout"]
+        display = self.repository("literal/checkout-display")
+        # The catalog alias is the package name, a remote-safe repository identity.
+        display_root = self.root / "literal" / "checkout-display"
+        (display_root / "package.json").write_text('{"name": "checkout display"}')
+        repos.git(display_root, "add", "--all")
+        repos.git(display_root, "commit", "-qm", "package identity")
+        coordinate.add_member(self.document, "checkout display", display, "Fix the real bug")
+        catalog = [checkout, display]
+        # Two job words fit the "checkout display" alias; the same tail is three
+        # words past "checkout", so only the longer authorized identity matches.
+        with patch.object(repos, "catalog", return_value=catalog):
+            found = coordinate.resolve_request(
+                {**self.document, "initial_scope": [{"target": "checkout display final view member", "work": "w"}]},
+                {},
+            )
+        self.assertEqual("alias", found["kind"])
+        self.assertEqual("checkout display", found["canonical"])
+
+    def test_a_job_phrase_naming_another_repository_refuses(self):
+        self.member_document("checkout")
+        checkout = self.entries["checkout"]
+        billing = self.repository("literal/billing api")
+        for target in ("checkout billing api member", "checkout . member", "checkout .. member"):
+            with self.subTest(target=target):
+                with patch.object(repos, "catalog", return_value=[checkout, billing]):
+                    need = coordinate.resolve_request(
+                        {**self.document, "initial_scope": [{"target": target, "work": "w"}]}, {}
+                    )
+                self.assertEqual(("repository", []), (need["kind"], need["candidates"]), target)
+
+    def test_a_member_role_label_requires_a_current_catalog_identity(self):
+        self.member_document("checkout", "history")
+        history = self.entries["history"]
+        self.document["initial_scope"] = [{"target": "Checkout display member", "work": "Produce the display"}]
+        with patch.object(repos, "catalog", return_value=[history]):  # checkout left the authorized catalog
+            need = coordinate.resolve_request(self.document, {})
+        self.assertEqual(("repository", []), (need["kind"], need["candidates"]))
+
+    def test_a_repository_literally_named_like_a_role_label_wins_the_exact_match(self):
+        self.member_document("checkout")
+        checkout = self.entries["checkout"]
+        literal = self.repository("literal/Checkout display member")
+        self.document["initial_scope"] = [{"target": "Checkout display member", "work": "Produce the display"}]
+        with patch.object(repos, "catalog", return_value=[checkout, literal]):
+            found = coordinate.resolve_request(self.document, {})
+        self.assertEqual("resolve", found["kind"])
+        self.assertEqual(literal["git_dir"], found["entry"]["git_dir"])
+
+    def test_an_unnamed_role_label_stays_an_unavailable_catalog_gate(self):
+        self.member_document("checkout", "history")
+        checkout, history = self.entries["checkout"], self.entries["history"]
+        self.document["initial_scope"] = [{"target": "Receipt-handling member", "work": "Preserve receipts"}]
+        with patch.object(repos, "catalog", return_value=[checkout, history]):
+            need = coordinate.resolve_request(self.document, {})
+        self.assertEqual(
+            ("repository", [], "Repository is not available in the authorized local catalog"),
+            (need["kind"], need["candidates"], need["reason"]),
+        )
+
     def test_alias_receipt_must_bind_the_existing_canonical_member_run(self):
         alias = "checkout (formatter)"
         state = {

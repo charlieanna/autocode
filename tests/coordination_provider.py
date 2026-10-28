@@ -176,7 +176,7 @@ def main():
             # Each repository can be locally green while its interfaces disagree.
             payloads[source] = PRODUCT["history"][1].replace("'amount': total", "'amount': total * 100")
             payloads[test_path] = payloads[test_path].replace("{'amount': 110,", "{'amount': 11000,")
-    source_messages = [data["task"], *[row.get("text", "") for row in data.get("source_inventory") or []]]
+    source_messages = [data.get("task") or "", *[row.get("text", "") for row in data.get("source_inventory") or []]]
     validate_only = any(
         text.startswith("A joint regression found a mismatch in another repository") for text in source_messages
     ) and all((root / path).is_file() and (root / path).read_text() == content for path, content in payloads.items())
@@ -235,12 +235,6 @@ def main():
     report.update({key: value for key, value in common.items() if key in schema.get("properties", {})})
     session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
     print(json.dumps({"type": "thread.started", "thread_id": session}), flush=True)
-    log = root / ".autocode/provider-calls.jsonl"
-    log.parent.mkdir(exist_ok=True)
-    with log.open("a") as stream:
-        stream.write(
-            json.dumps({"stage": stage, "name": name, "model": sys.argv[sys.argv.index("--model") + 1]}) + "\n"
-        )
     if stage == "recognize_workflow":
         report.update(workflow="build", reason="Fixture follow-up or integration task", signals=[], design_document="")
         if "clarity" in report:
@@ -315,6 +309,67 @@ def main():
                     },
                 ]
             )
+        role = os.environ.get("COORDINATION_FIXTURE_MEMBER_ROLE_LABEL")
+        if role and name == "tax" and stage == "investigate_bug":
+            # #2420: the live attempt-5 labels. The report contract refuses them;
+            # the bounded report repair must receive the member context and the
+            # canonical names, then name the owners exactly, keeping every
+            # obligation. A stuck model repeats the same invalid labels on every
+            # original, repair and retry attempt.
+            task = data.get("task")
+            if not task:
+                # A report-repair payload carries the rejected report instead of the task.
+                rejected = (data.get("rejected_report") or {}).get("content") or {}
+                task = next(
+                    (
+                        part.get("source_quote")
+                        for part in (rejected.get("workspace_scope") or {}).get("external_parts") or []
+                        if part.get("source_quote")
+                    ),
+                    "",
+                )
+            labels = {
+                "spans_repositories": True,
+                "external_parts": [
+                    {
+                        "target": "Checkout display member",
+                        "work": "Produce the final '$110.00' display",
+                        "source_quote": task,
+                        "evidence": "",
+                    },
+                    {
+                        "target": "Receipt-handling member",
+                        "work": "Preserve malformed-receipt behavior",
+                        "source_quote": "",
+                        "evidence": source + ":1",
+                    },
+                ],
+            }
+            if data.get("report_repair"):
+                if (data.get("coordinated_member") or {}).get("members") != ["checkout", "history", "tax"]:
+                    raise RuntimeError("Investigator repair must receive the coordinated member context")
+                if "checkout, history, tax" not in str(data.get("error", "")):
+                    raise RuntimeError("Investigator repair error must name the canonical members")
+                if role != "stuck":
+                    report["workspace_scope"] = {
+                        "spans_repositories": True,
+                        "external_parts": [
+                            {
+                                "target": "checkout",
+                                "work": "Produce the final display",
+                                "source_quote": task,
+                                "evidence": "",
+                            },
+                            {
+                                "target": "history",
+                                "work": "Preserve malformed-receipt behavior in the serialized receipt record",
+                                "source_quote": "",
+                                "evidence": source + ":1",
+                            },
+                        ],
+                    }
+            if role == "stuck" or not data.get("report_repair"):
+                report["workspace_scope"] = labels
     elif "contract" in schema.get("properties", {}):
         body = {**(report.get("contract") or {}), **body}
         report["contract"] = body
@@ -505,6 +560,23 @@ def main():
         report["requirement_trace"] = []
     # Keep the fake output strictly at the active public schema, including optional fields it declared.
     output.write_text(json.dumps(shaped(report, schema)))
+    # The receipt is written only after a complete report exists, so counting it
+    # counts successfully emitted answers, never crashed provider calls.
+    log = root / ".autocode/provider-calls.jsonl"
+    log.parent.mkdir(exist_ok=True)
+    with log.open("a") as stream:
+        stream.write(
+            json.dumps(
+                {
+                    "stage": stage,
+                    "name": name,
+                    "model": sys.argv[sys.argv.index("--model") + 1],
+                    # Which investigate calls were normal attempts and which repairs.
+                    "repair": bool(data.get("report_repair")),
+                }
+            )
+            + "\n"
+        )
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)
 
 
