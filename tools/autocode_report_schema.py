@@ -11,8 +11,10 @@ import copy
 
 try:
     from . import autocode_design_coverage as design_coverage
+    from . import autocode_planning_report_policy as planning_policy
 except ImportError:
     import autocode_design_coverage as design_coverage
+    import autocode_planning_report_policy as planning_policy
 
 
 def normalize_absent_authority(value, schema, record):
@@ -136,6 +138,7 @@ def review_validation_schema(schema, state: RunState | None, record, value):
     New providers produce ID-only rows; legacy reports must still copy every
     literal exactly. This also accepts ID-only responses against older saved schemas.
     """
+    schema = planning_policy.concern_validation_schema(schema, record)
     stage = record.get("original_stage") or record.get("stage")
     if state and stage in ("sol", "astra_checkpoint"):
         design_coverage.report_refs(state, value.get("validation", value))

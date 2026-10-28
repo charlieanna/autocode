@@ -1,11 +1,17 @@
 """Regression cases from live AutoPlanner trials: clarification and intent changes."""
 
+import copy
+import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import autocode as runner
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
+import autocode_plan_retention as retention
+import autocode_run_view as run_view
 import autopilot
 from goal_fixtures import body
 from units import autoplanner as planner
@@ -329,6 +335,180 @@ class ConcernCoverageTests(unittest.TestCase):
                 self.assertEqual([self.decision("C1")], saved["decisions"])
                 self.assertEqual(goals.token(current["goal_contract"]), current["planning"]["final_token"])
                 self.assertEqual(2, len(value["decisions"]))  # the provider's report itself is not edited
+
+
+class RetainedConcernReportTests(unittest.TestCase):
+    """The #2440 paging report added passed-audit rows that ingestion already discards."""
+
+    def setUp(self):
+        # This is a mocked planning/report test, with one unchanged source revision.
+        snapshot = patch.object(lifecycle.source_scope, "snapshot", return_value={"revision": "source-revision"})
+        snapshot.start()
+        self.addCleanup(snapshot.stop)
+
+    def inputs(self, concerns=("C1", "C2")):
+        current = state()
+        current["stages"] = [{"stage": "astra_finalize", "output": "final.json", "source_revision": "source-revision"}]
+        contract = body()
+        contract["acceptance_criteria"][0]["sources"] = [{"source_id": "task:0", "quote": current["task"]}]
+        contract["initial_task"] = {
+            "kind": "implement",
+            "objective": "Deliver the CLI",
+            "milestone_id": "M1",
+            "requirements": ["Greet"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": ["Run"],
+            "affected_paths": ["greet.py"],
+        }
+        planner.new_cycle(current)
+        lifecycle.install_draft(current, contract, origin="glm_revise")
+        current["planning"]["reports"].update(
+            {
+                "astra_challenge": {
+                    "output": "challenge.json",
+                    "report": {"concerns": [{"id": cid} for cid in concerns]},
+                },
+                "glm_revise": {
+                    "output": "revision.json",
+                    "report": {"contract": copy.deepcopy(current["goal_contract"]["body"]), "requirement_trace": []},
+                },
+            }
+        )
+        decision = {
+            "decision": "Resolved in the retained revision.",
+            "rationale": "The named checks cover the missing behavior within the existing scope.",
+            "acceptance_test": "Run the retained criterion's exact checks before and after the fix.",
+            "resolved": True,
+        }
+        report = {
+            "contract": {
+                "retain_contract": retention.token(current),
+                "acceptance_criteria": {
+                    "retain_from": retention.token(current),
+                    "upsert": [],
+                    "remove": [],
+                    "proofs": [],
+                },
+                "open_blocking_questions": [],
+            },
+            "summary": "The retained revision is ready for exact human approval.",
+            "contract_changes": [],
+            "conflict_resolutions": [],
+            "requirement_trace": [],
+            "decisions": [{"concern_id": cid, **decision} for cid in concerns],
+            "source_trace": {"out_of_scope": [], "negation_waivers": []},
+            "obligation_decisions": [],
+            "progressive_proposal": {
+                "version": 0,
+                "needed_because": "",
+                "shared_decisions": [],
+                "outstanding_criteria": [],
+                "done_slices": [],
+                "slices": [],
+            },
+        }
+        return current, report
+
+    def load_report(self, current, report):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        request = planner.prepare(copy.deepcopy(current), "astra_finalize", root / "state.json", None)
+        schema = runner.util.model_output_schema(request.schema)
+        output, schema_file, events = root / "final.json", root / "schema.json", root / "final.jsonl"
+        output.write_text(json.dumps(report))
+        schema_file.write_text(json.dumps(schema))
+        events.write_text('{"type":"turn.completed"}\n')
+        record = {
+            "stage": "astra_finalize",
+            "engine": "codex",
+            "output": str(output),
+            "schema": str(schema_file),
+            "events": str(events),
+            "source_revision": "source-revision",
+        }
+        current["stages"] = [record]
+        loaded = runner.load_stage_report(record, state=current)
+        self.assertEqual(report["decisions"], loaded["decisions"])
+        self.assertEqual(schema, json.loads(schema_file.read_text()), "the pinned generation schema stays unchanged")
+        raw = Path(record.get("reported_output", output))
+        self.assertEqual(report, json.loads(raw.read_text()), "provider evidence stays intact")
+        return loaded, record
+
+    def test_omitting_discarded_audit_rows_preserves_the_exact_public_approval_gate(self):
+        current, concise = self.inputs()
+        original = copy.deepcopy(concise)
+        # Sanitized shape of the saved report: three extra audit decisions beside real C1/C2.
+        original["decisions"] += [
+            {**concise["decisions"][0], "concern_id": cid}
+            for cid in ("AUDIT-PROVENANCE", "AUDIT-EXAMPLES-PROOFS", "AUDIT-HANDOFF")
+        ]
+        report_before = copy.deepcopy(original)
+        outcomes = []
+        for report in (original, concise):
+            candidate = copy.deepcopy(current)
+            loaded, record = self.load_report(candidate, report)
+            expanded = retention.expand(candidate, "astra_finalize", loaded)["contract"]
+            self.assertEqual(current["goal_contract"]["body"], expanded)
+            autopilot.apply_planning(candidate, "astra_finalize", loaded, record)
+            lifecycle.human.evaluate(candidate)
+            shown = lifecycle.present(candidate)
+            view = run_view.view(candidate)
+            self.assertEqual("approve_plan", view["needs"]["kind"])
+            selected = view["needs"]["token"]
+            self.assertEqual(goals.token(candidate["goal_contract"]), selected)
+            self.assertIn(selected, shown)
+            self.assertIn("--approve-goal", view["next_command"])
+            self.assertIn(selected, view["next_command"])
+            self.assertFalse(goals.approved(candidate))
+            with self.assertRaisesRegex(goals.s.Paused, "no valid explicit approval"):
+                goals.execution_guard(candidate)
+            with self.assertRaisesRegex(ValueError, "current displayed draft token"):
+                lifecycle.approve(candidate, "r0:wrong")
+            outcomes.append(
+                (
+                    {key: value for key, value in candidate["goal_contract"]["body"].items() if key != "source_trace"},
+                    candidate["planning"]["reports"]["astra_finalize"]["report"],
+                    # Raw report provenance changes the sealed token, never the approval action or plan.
+                    view["next_command"].replace(selected, "CURRENT_PLAN_TOKEN"),
+                )
+            )
+        self.assertEqual(outcomes[0], outcomes[1])
+        self.assertEqual(
+            current["goal_contract"]["body"],
+            {key: outcomes[1][0][key] for key in current["goal_contract"]["body"]},
+        )
+        self.assertEqual(report_before, original)
+
+    def test_retained_report_still_refuses_missing_duplicate_or_unresolved_real_concerns(self):
+        for variant in ("missing", "duplicate", "unresolved"):
+            with self.subTest(variant=variant):
+                current, report = self.inputs()
+                if variant == "missing":
+                    report["decisions"].pop()
+                elif variant == "duplicate":
+                    report["decisions"][1] = copy.deepcopy(report["decisions"][0])
+                else:
+                    report["decisions"][0]["resolved"] = False
+                error = "blocking questions" if variant == "unresolved" else "exactly one"
+                loaded, record = self.load_report(current, report)
+                with self.assertRaisesRegex(ValueError, error):
+                    autopilot.apply_planning(current, "astra_finalize", loaded, record)
+                self.assertFalse(goals.approved(current))
+
+    def test_a_new_blocker_survives_an_empty_incoming_concern_list(self):
+        current, report = self.inputs(concerns=())
+        question = body(questions=True)["open_blocking_questions"][0]
+        report["contract"]["open_blocking_questions"] = [question]
+        loaded, record = self.load_report(current, report)
+        autopilot.apply_planning(current, "astra_finalize", loaded, record)
+        lifecycle.human.evaluate(current)
+        view = run_view.view(current)
+        self.assertEqual("WAITING_FOR_USER", view["status"])
+        self.assertNotEqual("approve_plan", (view["needs"] or {}).get("kind"))
+        self.assertIn(question["question"], lifecycle.present(current))
+        self.assertFalse(goals.approved(current))
+        self.assertEqual("none", current["goal_contract"]["body"]["initial_task"]["kind"])
 
 
 if __name__ == "__main__":
