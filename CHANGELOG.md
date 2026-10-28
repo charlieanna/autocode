@@ -94,6 +94,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Contained Kilo launches reuse their freshly intersected shell policy within the same launch, removing
+  one intermediate agent lookup. The final native permission/tool checks and every sandbox and toolchain
+  probe still run; policy order or configuration mismatches stop before the model starts (#2439).
+
 - `autocode doctor` no longer sends a user of the released package to maintainer-only steps: an engine that is
   not installed gets no conformance row (its own row already says how to install it); an untested engine
   version points at the tested list in the provider docs; an installed release is identified by its version
@@ -422,6 +426,10 @@ PR template asks for an entry here; a change without one is incomplete.
   has passed; actual guest execution remains unverified.
 
 ### Fixed
+
+- Planning response schemas name only the current review concerns, avoiding synthetic passed-audit
+  decisions that the core discards. Older reports still load without a repair; real concerns, new
+  blockers, full contract review and exact user approval remain enforced (#2440).
 
 - `autocode registry add` and `registry import` now say `no such directory` for a path that does not exist,
   naming the path you typed, and `registry add` on a repository without commits says the repository has

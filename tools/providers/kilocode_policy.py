@@ -143,6 +143,12 @@ def restrict(
         del argv[index : index + 2]
     if request is not None:
         child, _ = containment.configure(
-            argv, child, workspace, allow_write=False, request=request, transport="kilocode"
+            argv,
+            child,
+            workspace,
+            allow_write=False,
+            request=request,
+            transport="kilocode",
+            resolved_shell_policy=policy,
         )
     return argv, child

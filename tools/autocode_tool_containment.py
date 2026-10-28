@@ -1179,6 +1179,32 @@ def shell_permissions(rules):
     return {"*": "deny", "bash": bash, "external_directory": "deny"}
 
 
+def _same_shell_permissions(actual, expected):
+    # Native permission patterns are last-match wins; dict equality alone loses their order.
+    return actual == expected and list(actual["bash"].items()) == list(expected["bash"].items())
+
+
+def _resolved_kilo_shell_policy(policy, definition):
+    """Take only this launch's already intersected Kilo policy, never stored native evidence."""
+    if (
+        not isinstance(policy, dict)
+        or list(policy) != ["*", "bash", "external_directory"]
+        or policy["*"] != "deny"
+        or policy["external_directory"] != "deny"
+        or not isinstance(policy["bash"], dict)
+        or not policy["bash"]
+        or any(
+            not isinstance(pattern, str) or action not in ("allow", "deny", "ask")
+            for pattern, action in policy["bash"].items()
+        )
+    ):
+        raise RuntimeError("Unsupported resolved Kilo shell policy")
+    current = definition.get("permission")
+    if not isinstance(current, dict) or list(current) != list(policy) or not _same_shell_permissions(current, policy):
+        raise RuntimeError("Resolved Kilo shell policy differs from this launch's agent")
+    return {"*": "deny", "bash": dict(policy["bash"]), "external_directory": "deny"}
+
+
 def configure(
     command,
     environment,
@@ -1188,6 +1214,7 @@ def configure(
     request,
     retain_launch_identity=False,
     transport="opencode",
+    resolved_shell_policy=None,
 ):
     """Constrain one launch and prove its *actual* native bash path before dispatch.
 
@@ -1195,12 +1222,16 @@ def configure(
     approval-bearing shell policy blocks conformance rather than using debug's
     auto-allow-ask behavior. The original model, effort and command are untouched.
     A readonly request's ``private_run`` (prepare()) is proven through the actual
-    native bash too, and that proof is retained in conformance.json.
+    native bash too, and that proof is retained in conformance.json. Kilo may pass
+    its freshly intersected shell policy to avoid resolving the intermediate agent;
+    the final effective native policy and every actual shell probe are still checked.
     """
     if transport not in ("opencode", "kilocode"):
         raise ValueError("Unsupported tool containment transport")
     if transport == "kilocode" and (allow_write or retain_launch_identity):
         raise ValueError("Ordinary Kilo containment supports readonly stages only")
+    if resolved_shell_policy is not None and transport != "kilocode":
+        raise ValueError("Resolved shell policy is only supported for ordinary read-only Kilo")
     supported_version = "7.8.3" if transport == "kilocode" else SUPPORTED_VERSION
     config_variable = "KILO_CONFIG_CONTENT" if transport == "kilocode" else "OPENCODE_CONFIG_CONTENT"
     if type(retain_launch_identity) is not bool:
@@ -1269,10 +1300,13 @@ def configure(
         except ValueError as error:
             raise RuntimeError("Native tool conformance did not return auditable JSON") from error
 
-    original = debug()
-    if not isinstance(original, dict):
-        raise RuntimeError("Native tool conformance returned an unsupported agent object")
-    permissions = shell_permissions(original.get("permission"))
+    if resolved_shell_policy is None:
+        original = debug()
+        if not isinstance(original, dict):
+            raise RuntimeError("Native tool conformance returned an unsupported agent object")
+        permissions = shell_permissions(original.get("permission"))
+    else:
+        permissions = _resolved_kilo_shell_policy(resolved_shell_policy, definition)
     try:
         from . import autocode_toolchain as toolchain
     except ImportError:
@@ -1300,7 +1334,7 @@ def configure(
     actual = debug()
     if not isinstance(actual, dict):
         raise RuntimeError("Native tool conformance returned an unsupported agent object")
-    if shell_permissions(actual.get("permission")) != permissions:
+    if not _same_shell_permissions(shell_permissions(actual.get("permission")), permissions):
         raise RuntimeError("Strict containment could not preserve the effective shell restrictions")
     tools = actual.get("tools", {})
     if (
@@ -1596,7 +1630,7 @@ def configure(
         # A changed target shell needs its own final bounded native observation.
         # Reusing readonly conformance would not describe the actual launch.
         actual = debug()
-        if shell_permissions(actual.get("permission")) != permissions:
+        if not _same_shell_permissions(shell_permissions(actual.get("permission")), permissions):
             raise RuntimeError("Native writer target changed effective shell restrictions")
         tools = actual.get("tools", {})
         if (
