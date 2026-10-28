@@ -212,6 +212,37 @@ def say_routes(stream=None):
         print("  " + line, file=stream)
 
 
+def text(result) -> str:
+    """The connection view for a person at the terminal: one line per connection with its state and the
+    actions it offers, as `autocode CONNECTION ...` commands. `--json` returns the view the clients read."""
+    rows = result.get("connections") if "connections" in result else [result]
+    lines = []
+    for row in rows:
+        marks = {"ok": "✔", "credentials_present": "✔", "unavailable": "✘", "setup_required": "✘", "check_failed": "✘"}
+        state = str(row.get("connection_status") or "unknown")
+        default = " (new runs use this)" if row.get("default") else ""
+        lines.append(f"{marks.get(state, '•')} {row.get('label') or row.get('id')}: {state.replace('_', ' ')}{default}")
+        if row.get("detail"):
+            lines.append(f"    {row['detail']}")
+        for action in row.get("actions") or []:
+            argv = [str(part) for part in action.get("next_command") or [] if str(part) != "--json"]
+            if argv:
+                lines.append(f"    {action.get('label') or action.get('id')}: autocode {' '.join(argv)}")
+    if "routes_lines" in result:
+        lines += [""] + (
+            [f"Routes for a new run, from {result['tool']}'s local listing:"]
+            + ["  " + line for line in result["routes_lines"]]
+            if result.get("routes")
+            else [
+                "Routes for a new run are not chosen yet: "
+                + (result.get("routes_stop") or "no qualified route was found")
+            ]
+        )
+    elif result.get("routes_next_command"):
+        lines += ["", "The route each role would use: autocode connections list --routes"]
+    return "\n".join(lines)
+
+
 def cli(argv):
     args = parser().parse_args(argv)
     if args.action in ("setup", "add"):
@@ -244,5 +275,5 @@ def cli(argv):
         except (OSError, ValueError, RuntimeError):
             print("Backend login could not start; check its user-level configuration.")
             return 2
-    print(json.dumps(result))
+    print(json.dumps(result) if args.json else text(result))
     return 0

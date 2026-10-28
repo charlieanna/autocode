@@ -121,8 +121,11 @@ def cli(argv) -> int:
                 for p in worktrees._registered(project)
                 if p.parent == parent and worktrees._task_branch(p, legacy=True)
             )
-            if len(trees) != 1:
-                arguments.error("name the worktree to merge; there is not exactly one task worktree")
+            if not trees:
+                arguments.error(f"no task worktree under {parent} to merge (autocode runs lists this project's runs)")
+            if len(trees) > 1:
+                names = ", ".join(tree.name for tree in trees)
+                arguments.error(f"name the worktree to merge; this project has {len(trees)}: {names}")
             tree = trees[0]
     except (OSError, ValueError, json.JSONDecodeError) as error:
         arguments.error(str(error))
