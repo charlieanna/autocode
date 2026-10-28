@@ -204,6 +204,34 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertEqual("completed_stage", probed(self.run_dir)["plan/glm"]["source"])
         self.assertFalse(self.check({}))
 
+    def test_accepted_repair_proves_access_but_never_failed_or_unbound_repairs(self):
+        for invalid in (
+            None,
+            "rejected",
+            "timed_out",
+            "interrupted",
+            "cleanup_error",
+            "unbound",
+            "wrong_effort",
+            "failed_event",
+        ):
+            with self.subTest(invalid=invalid):
+                (self.run_dir / "model-preflight.json").unlink(missing_ok=True)
+                record = copy.deepcopy(self.successful_stage())
+                record.update(stage="requirements_gather_report_repair", report_only=True)
+                if invalid == "unbound":
+                    record.pop("access_preflight_identity")
+                elif invalid == "wrong_effort":
+                    record["access_preflight_identity"]["identity"]["reasoning_effort"] = "high"
+                elif invalid == "failed_event":
+                    Path(record["events"]).write_text("\n".join(json.dumps(x) for x in OK_EVENTS + PAYWALL_EVENTS))
+                elif invalid:
+                    record[invalid] = True
+                self.state["stages"] = [record]
+                self.calls.clear()
+                self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+                self.assertEqual(["plan/glm", "plan/mimo"] if invalid else ["plan/mimo"], self.calls)
+
     def test_later_failed_call_and_explicit_probe_failure_override_prior_success(self):
         record = self.successful_stage()
         self.state["stages"] = [record, {**record, "exit_code": 1}]
