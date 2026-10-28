@@ -545,7 +545,11 @@ class ChatClient:
                 log.seek(0)
                 raise actions.ClientGap("Coordination stopped: " + log.read()[-2000:].strip())
             after = self.status() if child.returncode == 2 and before is not None else None
-            if after is not None and all(before.get(key) == after.get(key) for key in PROGRESS_KEYS):
+            if (
+                before is not None
+                and after is not None
+                and all(before.get(key) == after.get(key) for key in PROGRESS_KEYS)
+            ):
                 # Exit 2 can refuse an action without changing the saved view.
                 # Show bounded diagnostics; never parse prose into a new action.
                 log.seek(0)
