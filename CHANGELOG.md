@@ -423,6 +423,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `--max-iterations 0` (and `--legacy-iteration-ceiling 0`) is refused before anything is created: it could never let a stage run, so a new task made a worktree and a run that paused at once with "Saved iteration ceiling reached"; the refusal says to omit the flag or pass `--unlimited-iterations` (#2406).
 - `autocode "   "` is refused as a blank task before any worktree or run exists; it started a task worktree, a branch and a run for the whitespace (#2404). A positional-task refusal no longer carries the `Cannot read brief:` prefix meant for `--brief` and `--brief-file`.
 - `--status`, `explain` or `--follow-up` on a run whose task worktree `autocode clean-worktrees` removed say so: the removed worktree, the merged branch, the archive holding its records, `autocode bundle --run-dir RUN` to read them, and a new task to continue, instead of only "Saved task worktree is missing or does not belong to this project" (#2402).
 - `autocode doctor` has a `user settings` row for `~/.config/autocode/config.toml`: `engine = "codex"` or any other key the user file does not take was silently ignored; doctor now names it, says the file takes only `default_provider` and `plan_review_call_limit`, and points a project key to the project's `.autocode/config.toml` (#2400).
