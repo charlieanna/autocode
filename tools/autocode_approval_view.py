@@ -230,3 +230,53 @@ def _items(value) -> list[str] | None:
     if not isinstance(value, list):
         return None
     return [row if isinstance(row, str) else json.dumps(row, sort_keys=True) for row in value]
+
+
+def review_request(body: dict, request: dict, validation: dict | None) -> list[str]:
+    """The human-review gate as a person reads it: each criterion to review with its text, how the
+    independent check covered it, and what the gate asks (#2327). The raw request stays in the payload."""
+    rows = {row.get("id"): row for row in body.get("acceptance_criteria") or [] if isinstance(row, dict)}
+    results = {
+        row.get("id"): row.get("status")
+        for row in (validation or {}).get("criterion_results") or []
+        if isinstance(row, dict)
+    }
+    lines = ["Your review is needed before the run can complete:"]
+    for identifier in request.get("criteria") or []:
+        row = rows.get(identifier) or {}
+        text = str(row.get("criterion") or row.get("text") or "").strip()
+        lines.append(f"  [{identifier}] {text}".rstrip())
+        if row.get("verification_method"):
+            status = results.get(identifier)
+            verdict = f" ({str(status).lower()} in the independent check)" if status else ""
+            lines.append(f"    Checked by: {row['verification_method']}{verdict}")
+    if request.get("discovered"):
+        lines.append(f"  {request['discovered']}")
+    return lines
+
+
+def validation_summary(validation: dict) -> list[str]:
+    """The independent check's verdict in a few lines instead of its whole record (#2327): what ran,
+    how it exited, the findings and any criterion it left unverified, then where the record is."""
+    checks = [row for row in validation.get("checks") or [] if isinstance(row, dict)]
+    exits = [row.get("exit_code") for row in checks]
+    ran = f"{len(checks)} check(s) ran"
+    if checks:
+        ran += ", each exited 0" if all(code == 0 for code in exits) else f", exit codes {exits}"
+    findings = [row for row in validation.get("findings") or []]
+    unverified = [str(item) for item in validation.get("unverified_criteria") or []]
+    lines = [f"Validation: {validation.get('verdict') or 'no verdict'}; {ran}; {len(findings)} finding(s)."]
+    for row in findings[:10]:
+        if isinstance(row, dict):
+            label = row.get("criterion_id") or row.get("id") or row.get("severity") or "finding"
+            text = row.get("text") or row.get("description") or row.get("summary") or json.dumps(row, sort_keys=True)
+            lines.append(f"  - {label}: {text}")
+        else:
+            lines.append(f"  - {row}")
+    if len(findings) > 10:
+        lines.append(f"  ... and {len(findings) - 10} more")
+    if unverified:
+        lines.append(f"  Not verified by the check: {', '.join(unverified)}")
+    if validation.get("output"):
+        lines.append(f"  Full record: {validation['output']}")
+    return lines

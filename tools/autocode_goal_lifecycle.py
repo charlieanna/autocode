@@ -830,7 +830,9 @@ def render(state: RunState, run_dir=None):
     if state.get("brief_feedback"):
         lines += ["", "Saved brief feedback:"] + ["  - " + row["text"] for row in state["brief_feedback"]]
     if public:
-        if public["request"]:
+        if (public["request"] or {}).get("kind") == "human_review":
+            lines += [""] + approval_view.review_request(body, public["request"], state.get("validation"))
+        elif public["request"]:
             lines += ["", "Decision needed:", json.dumps(public["request"], indent=2)]
         lines += [f"Answer ID: {q['id']} - {q['question']}" for q in public["questions"]]
         lines += [f"Resolver request ID: {public['request_id']}", f"Resolver request token: {public['request_token']}"]
@@ -867,11 +869,8 @@ def render(state: RunState, run_dir=None):
         lines += adaptive.review_notes(state["planning"])
     review = review_token(state) if public else None
     if review:
-        lines += [
-            "",
-            f"Review token (current validated artifact): {review}",
-            "Validation: " + json.dumps(state["validation"], indent=2),
-        ]
+        lines += ["", f"Review token (current validated artifact): {review}"]
+        lines += approval_view.validation_summary(state["validation"] or {})
     if asks_approval:
         # The last screen: the decision in brief, then the limits and the commands (#381).
         lines += [""] + approval_view.summary(
