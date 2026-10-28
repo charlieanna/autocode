@@ -423,6 +423,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `--status`, `explain` or `--follow-up` on a run whose task worktree `autocode clean-worktrees` removed say so: the removed worktree, the merged branch, the archive holding its records, `autocode bundle --run-dir RUN` to read them, and a new task to continue, instead of only "Saved task worktree is missing or does not belong to this project" (#2402).
 - `autocode doctor` has a `user settings` row for `~/.config/autocode/config.toml`: `engine = "codex"` or any other key the user file does not take was silently ignored; doctor now names it, says the file takes only `default_provider` and `plan_review_call_limit`, and points a project key to the project's `.autocode/config.toml` (#2400).
 - An unknown key in `.autocode/config.toml` or `[tool.autocode]` is refused with the closest known key first (`unknown setting 'max_cost_usd'; did you mean 'max-cost-usd'?`) instead of only the forty-name list of accepted keys (#2398).
 - `--help-all` describes every main-run option: `--workspace`, `--status`, `--dry-run`, `--answer`, `--approve-review`, `--reasoning-effort`, `--pause-after-stage`, `--context-soft-tokens`, `--legacy-iteration-ceiling` and `--migrate-only` printed with no help text; a test now keeps a new main-run option from shipping without one (#2395).
