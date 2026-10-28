@@ -19,8 +19,9 @@ The pinned model schema also reaches the report loader. Tightening that schema
 alone would reject legacy synthetic rows and cause the very repair call being
 avoided. The existing validation projection therefore restores compatible concern
 row acceptance for planning contracts only. Row content remains validated;
-the original coverage check still rejects missing, duplicate, empty or unresolved
-real answers. Raw provider evidence stays intact.
+the original coverage check still rejects missing, duplicate or empty real
+answers. The later decision guard rejects unresolved answers without blocking
+questions; genuine blockers still reach the person. Raw provider evidence stays intact.
 
 A saved-response-shaped regression passes strict model_output_schema output
 through the actual report loader, retained-contract expansion, planning consumer
