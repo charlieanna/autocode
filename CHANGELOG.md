@@ -423,6 +423,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode clean-worktrees --yes` forgets the removed worktree's runs in the shared registry, so
+  `autocode runs --all` no longer lists each cleaned-up run as unreadable ("Run state.json is
+  unavailable") for good; the records stay archived and the branch is kept (#2319).
 - `autocode runs --all` says when a registered run's directory no longer exists and names the exact
   `autocode registry forget-deleted --workspace W --run-dir R` command that drops its entry, instead of
   "Run state.json is unavailable" with no way out; `forget-deleted` is now documented with the other

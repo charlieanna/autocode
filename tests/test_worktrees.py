@@ -7,9 +7,11 @@ import os
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 from datetime import datetime
 from pathlib import Path
 
+import autocode_registry as registry
 import autocode_workspaces as w
 import autocode_worktrees as worktrees
 
@@ -101,6 +103,33 @@ class CleanTests(Fixture):
         self.assertEqual("TASK_COMPLETE", json.loads((archived / "runs" / "r1" / "state.json").read_text())["status"])
         self.assertEqual("", git(self.project, "status", "--porcelain", "--untracked-files=all"))
         self.assertEqual(1, git(self.project, "worktree", "list", "--porcelain").count("worktree "))
+
+    def test_removing_a_worktree_forgets_its_runs_in_the_shared_registry(self):
+        """#2319: the run stayed registered after clean-worktrees, so `runs --all` listed it as unreadable
+        ("Run state.json is unavailable") for good."""
+        home = Path(self.project.parent, "home")
+        with unittest.mock.patch.dict(os.environ, {"AUTOCODE_HOME": str(home)}):
+            data, tree, state = self.task()
+            registry.register_run(tree, tree / ".autocode" / "runs" / "r1", state)
+            self.assertEqual(1, len(registry.listing()["runs"]))
+            worktrees.deliver(state, tree)
+            code, out = self.clean("--yes")
+            self.assertEqual(0, code, out)
+            self.assertEqual([], registry.listing()["runs"])
+            self.assertTrue((home / "registry.json").is_file())
+        self.assertFalse(tree.exists())
+        archived = self.project / ".autocode" / "archive" / tree.name / "runs" / "r1" / "state.json"
+        self.assertTrue(archived.is_file())
+
+    def test_removing_a_worktree_never_creates_a_registry(self):
+        """A registry kept inside the worktree went with it; forgetting must not make a new one."""
+        home = Path(self.project.parent, "no-such-home")
+        with unittest.mock.patch.dict(os.environ, {"AUTOCODE_HOME": str(home)}):
+            data, tree, state = self.task()
+            worktrees.deliver(state, tree)
+            code, out = self.clean("--yes")
+        self.assertEqual(0, code, out)
+        self.assertFalse(home.exists())
 
     def test_unfinished_undelivered_program_and_locked_worktrees_are_kept(self):
         _, unfinished, _ = self.task(status="PAUSED_NO_PROGRESS", name="one")
