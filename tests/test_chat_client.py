@@ -1898,34 +1898,41 @@ class TerminalChatTests(unittest.TestCase):
                 screen.wait_for(gate, 300)
                 screen.type("y")
                 screen.keys("Enter")
-            first = screen.wait_for(
+            screen.wait_for(
+                lambda shown: (
+                    "Approve this plan" in shown
+                    and "Plan to approve:" in shown
+                    and "Greeting contract holds" in shown
+                    and "Steps in order" not in shown
+                    and "Run greet.py" not in shown
+                ),
+                300,
+                what="the plan's first page at its approval prompt, without its paged-away steps",
+            )
+            screen.keys("NPage")
+            screen.wait_for(
+                lambda shown: (
+                    "Steps in order" in shown
+                    and "Read Hello, NAME or a usage error" in shown
+                    and "Plan to approve:" not in shown
+                ),
+                60,
+                what="the plan's last flow steps after PageDown, past its head",
+            )
+            screen.keys("PPage")
+            screen.wait_for(
                 lambda shown: (
                     "Approve this plan" in shown and "Plan to approve:" in shown and "Greeting contract holds" in shown
                 ),
-                300,
-                what="the plan's first page at its approval prompt",
-            )
-            self.assertNotIn("Steps in order", first, "the flow's steps are paged to, not on the plan's first page")
-            self.assertNotIn("Run greet.py", first)
-            screen.keys("NPage")
-            last = screen.wait_for(
-                lambda shown: "Steps in order" in shown and "Read Hello, NAME or a usage error" in shown,
                 60,
-                what="the plan's last flow steps after PageDown",
-            )
-            self.assertNotIn("Plan to approve:", last, "PageDown moved forward through the plan")
-            screen.keys("PPage")
-            screen.wait_for(
-                lambda shown: "Plan to approve:" in shown and "Greeting contract holds" in shown,
-                60,
-                what="the plan's head after PageUp",
+                what="the plan's head after PageUp, with the approval prompt still shown",
             )
             screen.type("y")
             screen.keys("Enter")
             screen.wait_for("Anything else?", 300)
             screen.keys("Enter")
             self.assertEqual(0, screen.exit_status())
-            self.assertIn("Done.", screen.text())
+            screen.wait_for("Done.", what="the closing words after the screen closes")
             self.assertTrue((self.workspace / "greet.py").is_file())
 
     def test_plain_autocode_in_a_terminal_opens_the_full_screen_chat(self):
