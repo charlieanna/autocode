@@ -72,6 +72,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # own imports are invisible to the import selector (#2414).
     ("tools/autocode_component_tests.py", ("tests.test_verify", "tests.test_test_root")),
     ("tests/test_report_repair.py", ("tests.test_native_event_identity_cli",)),
+    ("tools/prompts/fragments/stage-context/context-packet-04.md", ("tests.test_capture_event_contract",)),
     ("tools/prompts/discovery.md", ("tests.test_investigation_evidence", "tests.test_investigation_handoff_cli")),
     (
         "tools/prompts/fragments/autoplanner/bug-diagnosis-rule.md",
