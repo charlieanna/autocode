@@ -178,3 +178,7 @@ The final fixture tracks the first delivery and supplies a genuinely changed
 module docstring before replaying the historical identity. On macOS, all 22
 launch-identity and planning-guidance unit controls pass in 0.694 seconds. Lint
 and formatting pass. The broad scenario harness remains the required PR gate.
+
+A final tightening explicitly requires Tester rejection at `$.contract_hash` or
+`$.task_id`, not merely any later incomplete outcome. Both final CLI attacks pass
+again in 83.366 seconds on Linux.

@@ -156,12 +156,26 @@ class EvidenceBoundaryTests(AdversarialCase):
             )
         )
         self.assert_not_complete(view)
+        self.assertTrue(
+            any(
+                "$.contract_hash: invalid enum" in row["error"]
+                for row in self.trace("evidence_rejection_observed", stage="sol")
+            ),
+            self.root,
+        )
 
     def test_validator_cannot_replay_a_previously_dispatched_task(self):
         view = self.stale_identity_case("evidence_stale_task")
         rows = self.require_injection("sol")
         self.assertTrue(all(row["current_task_id"] != row["claimed_task_id"] for row in rows))
         self.assert_not_complete(view)
+        self.assertTrue(
+            any(
+                "$.task_id: invalid enum" in row["error"]
+                for row in self.trace("evidence_rejection_observed", stage="sol")
+            ),
+            self.root,
+        )
 
     def test_completion_owner_cannot_break_source_after_validation(self):
         view = self.complete_case("evidence_late_source_mutation")
