@@ -8,9 +8,11 @@ import subprocess
 from pathlib import Path
 
 try:
+    from . import autocode_joint_inputs as joint_inputs
     from . import autocode_review_proof as review_proof
     from . import autocode_scratch_overlay as scratch_overlay
 except ImportError:
+    import autocode_joint_inputs as joint_inputs
     import autocode_review_proof as review_proof
     import autocode_scratch_overlay as scratch_overlay
 
@@ -64,6 +66,7 @@ def prepare(
                     f"git apply {patch} failed: {(applied.stderr or applied.stdout).strip()[-300:]}"
                 )
         scratch_overlay.apply(tree, files, links)
+        joint_inputs.copy(workspace, tree)
     except BaseException:
         remove_tree(workspace, tree)
         raise
