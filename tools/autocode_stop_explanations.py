@@ -528,12 +528,16 @@ HOST_CAUSES = (
 )
 
 
-def explain(status: str, *, stop_reason: str = "", needs=None) -> dict:
+def explain(status: str, *, stop_reason: str = "", needs=None, held_cause: str = "") -> dict:
     """Three short paragraphs for a person who did not watch the run (#715).
 
     No model call. ``needs`` is the status view's ``needs`` block so the same
-    text the view shows is what ``autocode explain`` prints.
+    text the view shows is what ``autocode explain`` prints. ``held_cause`` is the cause a pause
+    still holds for when the stop reason only records that a person answered its request
+    (autocode_pause_authority.answered_cause).
     """
+    stop_reason = stop_reason.strip().rstrip(".")
+    held_cause = held_cause.strip().rstrip(".")
     entry = TABLE.get(status)
     means, does = (
         entry
@@ -608,6 +612,7 @@ def explain(status: str, *, stop_reason: str = "", needs=None) -> dict:
         happened = (
             f"The run stopped at {status}. "
             + (f"The stop reason is: {stop_reason}. " if stop_reason else "")
+            + (f"The run is still held for: {held_cause}. " if held_cause else "")
             + f"This is {owner}'s decision, not a wrong deliverable."
         )
     return {

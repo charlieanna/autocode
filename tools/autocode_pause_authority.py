@@ -122,6 +122,20 @@ def _held_proposal(state: RunState):
     return {}
 
 
+def answered_cause(state: RunState) -> str:
+    """The cause a pause still holds for after a person answered its request, or ''.
+
+    respond_operational replaces the stop reason with its receipt note ("AutoResolver received the
+    human response; ..."), so an explanation read from the stop reason alone would no longer say why
+    the run is paused. The consumed request's own discovered cause says it.
+    """
+    reason = str(state.get("stop_reason") or "")
+    cause = str((_held_proposal(state).get("request") or {}).get("discovered") or "").strip()
+    if not cause or reason.startswith(cause):
+        return ""
+    return cause
+
+
 def held_origin(state: RunState):
     """The origin of the pause holding the run: its pause_status and, for a budget, the bound's kind."""
     return _held_proposal(state).get("origin") or {"pause_status": state.get("status")}
