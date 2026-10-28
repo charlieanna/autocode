@@ -271,7 +271,12 @@ class NamedActionTests(unittest.TestCase):
             "token": "r2:h",
             "acceptance_criteria": [
                 {"id": "AC1", "criterion": "Local gates", "verification_method": "m", "human_review": False},
-                {"id": "AC5", "criterion": "Joint proof by the whole-set check", "verification_method": "m", "human_review": False},
+                {
+                    "id": "AC5",
+                    "criterion": "Joint proof by the whole-set check",
+                    "verification_method": "m",
+                    "human_review": False,
+                },
             ],
             "constraints": [],
             "permission_boundaries": [],
@@ -1870,6 +1875,33 @@ class TerminalChatTests(unittest.TestCase):
         self.assertIn(b"AutoCode chat", seen)
         self.assertIn(b"Plan to approve:", seen)
         self.assertIn(b"Done.", seen)
+        self.assertTrue((self.workspace / "greet.py").is_file())
+
+    def test_a_plan_taller_than_the_screen_opens_at_its_top_and_pages_to_its_end(self):
+        """#2434: an approval also carries its milestones and flow, so the plan can outgrow the
+        screen. It opens at its top beside the prompt, PageDown reaches its end, PageUp returns
+        to its head, and only then does the person approve — nothing is hidden, only paged."""
+        leader, child = self.spawn_terminal("chat", "--workspace", str(self.workspace), BRIEF, "--", *FIXTURE_OPTIONS)
+        try:
+            head = read_terminal(leader, until=b"Approve this plan?")
+            self.assertIn(b"Plan to approve:", head, "the anchored first page names what is approved")
+            self.assertIn(b"Contract holds", head, "the criteria lead the first page")
+            os.write(leader, b"\x1b[6~")  # PageDown: forward through the block toward the tail
+            tail = read_terminal(leader, until=b"Read the greeting or an invalid-input error")
+            self.assertIn(b"Steps in order", tail, "the flow's end is reachable by paging")
+            os.write(leader, b"\x1b[5~")  # PageUp: back toward the block's top
+            back = read_terminal(leader, until=b"Plan to approve:")
+            self.assertIn(b"Contract holds", back)
+            os.write(leader, b"y\n")
+            rest = read_terminal(leader, until=b"Anything else?")
+            os.write(leader, b"\n")
+            rest += read_terminal(leader)
+        finally:
+            os.close(leader)
+            if child.poll() is None:
+                child.kill()
+        self.assertEqual(0, child.wait(timeout=60), (head + tail + back + rest).decode(errors="replace")[-2000:])
+        self.assertIn(b"Done.", rest)
         self.assertTrue((self.workspace / "greet.py").is_file())
 
     def test_plain_autocode_in_a_terminal_opens_the_full_screen_chat(self):

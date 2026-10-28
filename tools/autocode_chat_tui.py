@@ -643,9 +643,27 @@ class ChatTUI:
             if self._closed:
                 return
             anchor = self._history_anchor()
-            self._transcript.add(text)
+            added = self._transcript.add(text)
             self._keep_history_anchor(anchor)
+            if added and anchor is None:
+                self._anchor_tall_block()
             self._draw()
+
+    def _anchor_tall_block(self) -> None:
+        """Open a block taller than the body at its top, in the scroll's own coordinates.
+
+        A long approval now carries its milestones and flow (#2434); following the tail would
+        draw only its end. The anchor is plain scroll state, so the History header shows it,
+        PageDown walks forward through the block toward the live tail, PageUp walks back, and
+        the tail is followed again exactly when the person pages back to it.
+        """
+        layout = self._layout(*self._size())
+        lines = self._transcript.lines(layout.body_width or layout.width)
+        height = max(0, layout.body_end - layout.body_start)
+        start = self._transcript.last_block_start
+        if not height or start is None or len(lines) - start <= height:
+            return
+        self._scroll = len(lines) - start - height
 
     def _history_anchor(self) -> tuple[int, int] | None:
         if not self._scroll:
@@ -1351,13 +1369,6 @@ class ChatTUI:
         self._scroll = min(self._scroll, max(0, len(lines) - height))
         end = len(lines) - self._scroll
         start = max(0, end - height)
-        if self._scroll == 0 and self._transcript.last_block_start is not None:
-            # A newest block taller than the body anchors to its top, so a long plan reads
-            # from its first line — its criteria — instead of losing its head to the tail
-            # clip now that approvals also carry their milestones and flow (#2434).
-            block_start = self._transcript.last_block_start
-            if end - block_start > height:
-                start, end = block_start, min(len(lines), block_start + height)
         for row, (role, text) in enumerate(lines[start:end], layout.body_start):
             if role.endswith("-label"):
                 self._put(row, 0, truncate(f"{self._glyphs.bar} {text}", width), self._style(role))

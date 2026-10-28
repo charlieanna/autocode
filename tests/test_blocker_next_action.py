@@ -276,9 +276,7 @@ class BlockerNeedTests(unittest.TestCase):
         return public
 
     def view(self):
-        return run_view.view(
-            self.state, workspace=self.state["workspace"], run_dir=self.state["run_dir"]
-        )
+        return run_view.view(self.state, workspace=self.state["workspace"], run_dir=self.state["run_dir"])
 
     def test_an_answered_blocker_offers_its_plan_feedback_and_consistent_edit_path(self):
         # The live dead end (#2434): after the informational reply the view named only
@@ -491,7 +489,6 @@ class BlockerNextActionCLITests(unittest.TestCase):
         self.assertIn("--edit-goal body.json", result.stdout)
         self.assertIn("--approve-goal", result.stdout)
         self.assertFalse(probe.exists(), "information launches no provider")
-
 
     def answer_the_blocker_with_information(self, message):
         """Answer the checkpoint's blocker with information through the public CLI, exactly as

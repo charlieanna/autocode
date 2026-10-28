@@ -445,7 +445,9 @@ class AnsweredBlockerDecisionTests(unittest.TestCase):
     def test_the_planning_budget_pause_keeps_its_own_feedback_authority(self):
         # Pre-existing, separately admitted (#1294); the answered-blocker exception neither
         # widens nor narrows it.
-        self.assertTrue(pause_authority.feedback_acknowledges({"status": "PAUSED_PLANNING_BUDGET"}, "PAUSED_PLANNING_BUDGET"))
+        self.assertTrue(
+            pause_authority.feedback_acknowledges({"status": "PAUSED_PLANNING_BUDGET"}, "PAUSED_PLANNING_BUDGET")
+        )
         state = answered_blocker_state()
         state["status"] = "PAUSED_PLANNING_BUDGET"
         self.assertFalse(pause_authority.answered_blocker_decision(state))

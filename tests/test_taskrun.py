@@ -290,7 +290,10 @@ class RunViewTests(unittest.TestCase):
         self.assertEqual(body["end_to_end_flow"], displayed["end_to_end_flow"])
         displayed["milestones"][1]["objective"] = "rewritten"
         displayed["end_to_end_flow"].append("rewritten")
-        self.assertEqual("Coordinator-owned joint integration proof over every member's actual code", body["milestones"][1]["objective"])
+        self.assertEqual(
+            "Coordinator-owned joint integration proof over every member's actual code",
+            body["milestones"][1]["objective"],
+        )
         self.assertEqual(2, len(body["end_to_end_flow"]))
         # A body without the completion order keeps the previous unconditional fields, additively.
         legacy = {key: value for key, value in body.items() if key not in ("milestones", "end_to_end_flow")}
