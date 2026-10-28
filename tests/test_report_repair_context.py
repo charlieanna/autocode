@@ -265,6 +265,46 @@ class ClarificationContextTests(unittest.TestCase):
 class DecisionRepairContextTests(unittest.TestCase):
     setUp = repair_fixtures.base.RetrofitTest.setUp
 
+    def test_revision_repair_receives_current_review_even_when_execution_findings_are_empty(self):
+        concerns = [
+            {"id": "C4", "concern": "Cite the saved answer", "requested_change": "Retain the exact answer quote"},
+            {
+                "id": "C5",
+                "concern": "The copy requirement contradicts its exception",
+                "requested_change": "Clarify the exception",
+            },
+        ]
+        review = {"output": "current-review.json", "report": {"summary": "Second review", "concerns": concerns}}
+        self.state.update(
+            next_stage="glm_revise",
+            planning={
+                "reports": {
+                    "astra_discovery": {"report": {"contract": {"intended_outcome": "superseded-draft"}}},
+                    "astra_challenge": review,
+                }
+            },
+            planning_history=[{"reports": {"astra_challenge": {"report": {"concerns": [{"id": "OLD"}]}}}}],
+        )
+        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        repair_fixtures.RepairTests.queue(
+            self,
+            stage="glm_revise",
+            role="glm",
+            report=json.dumps({"responses": []}),
+            error=ValueError("Every plan-review concern needs exactly one response/decision using its ID"),
+        )
+        saved_planning = copy.deepcopy(self.state["planning"])
+        request = repair_fixtures.RepairTests.repair_request(self)
+        data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+
+        self.assertEqual([], data["open_findings"])
+        self.assertEqual({"astra_challenge": review}, data["planning_exchange"])
+        self.assertNotIn("superseded-draft", request["prompt"])
+        self.assertNotIn('"OLD"', request["prompt"])
+        self.assertIn("open_findings is the execution findings ledger", request["prompt"])
+        self.assertIn("exactly one substantive response", request["prompt"])
+        self.assertEqual(saved_planning, self.state["planning"])
+
     def test_author_repair_offers_delta_only_when_its_pinned_schema_allows_it(self):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
