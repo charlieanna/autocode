@@ -79,7 +79,7 @@ def proposal(state, record):
     """
     if (
         not record
-        or state.get("status") not in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED")
+        or state.get("status") not in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED", "PAUSED_INVALID_OUTPUT")
         or state.get("next_stage") not in ("sol", "astra_checkpoint")
         or any(
             state.get(key)
@@ -101,8 +101,7 @@ def proposal(state, record):
     workspace = Path(state.get("workspace") or ".")
     if (
         not old
-        or old.kind != "unittest"
-        or old.arguments != ("discover", "-v")
+        or not (old.kind == "unittest" and old.arguments == ("discover", "-v") or old.kind == "pytest")
         or marker.get("size") != 0
         or (workspace / "tests/__init__.py").exists()
         or not any(name.startswith("repos/") and Path(name).name.startswith("test_") for name in files)
@@ -134,11 +133,37 @@ def proposal(state, record):
     choices = list(dict.fromkeys(choices))
     if len(choices) != 1:
         return None
+    command = choices[0]
+    # Restoring the sealed empty root package can collide with a candidate's
+    # nested empty test package. Offer explicit import isolation, never remove
+    # either marker or silently change the saved collection command.
+    collision = False
+    for name in files:
+        relative = PurePosixPath(name)
+        if name.startswith("repos/") and relative.parent.name == "tests":
+            marker_path = workspace / relative.parent / "__init__.py"
+            if marker_path.is_file():
+                if marker_path.is_symlink() or marker_path.stat().st_size != 0:
+                    return None
+                collision = True
+    if old.kind == "pytest" and (old != python_tests.parse(command) or not collision):
+        return None
+    if collision:
+        invocation = python_tests.parse(command)
+        arguments = list(invocation.arguments)
+        if "tests" not in arguments:
+            return None
+        arguments.remove("tests")
+        # The joint root establishes the real repositories' imports before
+        # their own suites; importlib avoids reusing either tests package.
+        command = shlex.join(
+            [*invocation.prefix, invocation.python, "-m", "pytest", "tests", *arguments, "--import-mode=importlib"]
+        )
     return {
         "previous_hash": record["binding_hash"],
         "files": files,
-        "command": choices[0],
-        "reason": "Person selected the approved combined suite to repair empty root discovery; every sealed original test remains protected.",
+        "command": command,
+        "reason": "Person selected explicit original-suite collection recovery; every sealed original test remains protected.",
     }
 
 
@@ -150,7 +175,7 @@ def offer(state):
     return {
         "kind": "resume",
         "action": "--resume-paused --revise-protected-tests " + SELECTOR,
-        "reason": "Original test discovery no longer collects the approved workspace. Explicitly replace only its command: "
+        "reason": "Original test collection needs correction. Explicitly replace only its command: "
         + str(record["command"])
         + " → "
         + revision["command"]

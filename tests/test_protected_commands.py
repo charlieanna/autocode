@@ -98,6 +98,25 @@ class CommandRecoveryTests(unittest.TestCase):
         state["goal_contract"]["approval_status"] = "draft"
         self.assertIsNone(commands.proposal(state, record))
 
+    def test_import_isolation_is_an_explicit_offer_for_colliding_empty_packages_only(self):
+        state, record, expected = self.fixture()
+        state["status"] = "PAUSED_INVALID_OUTPUT"
+        record["command"] = expected
+        self.assertIsNone(commands.proposal(state, record))
+        marker = Path(state["workspace"]) / "repos/a/tests/__init__.py"
+        marker.parent.mkdir(parents=True)
+        marker.touch()
+        before = copy.deepcopy(state)
+        offered = commands.offer(state)
+        self.assertIn("python3 -m pytest tests repos/a/tests -q --import-mode=importlib", offered["reason"])
+        self.assertEqual(before, state)
+        self.assertEqual(record["files"], commands.proposal(state, record)["files"])
+        marker.write_text("raise RuntimeError('package setup must not be bypassed')\n")
+        self.assertIsNone(commands.proposal(state, record))
+        marker.write_text("")
+        record["command"] += " -k new"
+        self.assertIsNone(commands.proposal(state, record))
+
     def test_filtered_or_incomplete_or_ambiguous_commands_are_not_offered(self):
         for command in (
             "python3 -m pytest tests -q",
