@@ -121,6 +121,18 @@ class CliDocumentationTests(unittest.TestCase):
                 missing = public - scope_options(self.scopes, path)
                 self.assertFalse(missing, "Undocumented public options: " + ", ".join(sorted(missing)))
 
+    def test_every_main_run_option_prints_help_text(self):
+        """#2395: --help-all is the built-in reference for the main run, and ten of its options
+        (--workspace, --status, --answer, --approve-review, --dry-run among them) printed no description."""
+        parser = autocode_args.build_parser(None, autocode_configure.DEFAULT_ROLE_MODELS)
+        silent = sorted(
+            option
+            for action in parser._actions
+            if action.help != argparse.SUPPRESS and not (action.help or "").strip()
+            for option in action.option_strings
+        )
+        self.assertEqual([], silent, "Main-run options without help text: " + ", ".join(silent))
+
     def test_hidden_options_match_the_explicit_internal_set(self):
         observed = {}
         for path, parser in self.parsers.items():
