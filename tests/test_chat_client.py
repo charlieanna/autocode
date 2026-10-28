@@ -1864,6 +1864,17 @@ class TerminalChatTests(unittest.TestCase):
         self.assertEqual(2, code)
         self.assertIn(b"Nothing started.", seen)
 
+    def test_a_run_option_typed_as_a_chat_option_is_told_to_go_after_the_separator(self):
+        """#2416: `autocode chat --engine codex "brief"` said only "unrecognized arguments"."""
+        proc = self.chat("--engine", "codex", BRIEF, options=())
+        self.assertEqual(2, proc.returncode)
+        self.assertIn("unrecognized arguments: --engine", proc.stderr)
+        self.assertIn('go after --: autocode chat "BRIEF" -- --engine codex', proc.stderr)
+        self.assertFalse((self.workspace / ".autocode").exists())
+        proc = self.chat("--help", options=())
+        self.assertEqual(0, proc.returncode)
+        self.assertIn('go after --: autocode chat "BRIEF" -- --engine codex', proc.stdout)
+
     def test_a_brief_and_a_run_are_not_both_named(self):
         proc = self.chat(BRIEF, "--run-dir", str(self.workspace), options=())
         self.assertEqual(2, proc.returncode)
