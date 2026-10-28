@@ -250,6 +250,25 @@ def main():
         row["active_contract_commands"] = [field for field, command in commands.items() if command in active]
         for field in row["active_contract_commands"]:
             value[field] = {} if field == "contract" else []
+    if stage == "glm_revise" and case == "revision-concerns":
+        if repair:
+            value = copy.deepcopy(data["rejected_report"]["content"])
+            review = (data.get("planning_exchange") or {}).get("astra_challenge") or {}
+            concerns = (review.get("report") or {}).get("concerns", [])
+            value["responses"] = [
+                {
+                    "concern_id": concern["id"],
+                    "response": "Whitespace is invalid",
+                    "evidence_refs": ["goal_contract.body"],
+                    "change": "Added whitespace case",
+                    "acceptance_test": "Whitespace input exits 2",
+                }
+                for concern in concerns
+            ]
+            row["current_review_ids"] = [concern["id"] for concern in concerns]
+            row["execution_findings"] = data.get("open_findings")
+        else:
+            value["responses"] = []  # The retained incident omitted current concern responses.
     if (
         case == "unchanged-rewording"
         and not repair

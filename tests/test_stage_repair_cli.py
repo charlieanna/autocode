@@ -301,6 +301,20 @@ class StageRepairCLI(unittest.TestCase):
         self.assertEqual([False, True], [row["repair"] for row in attempts], trace)
         self.assertIn("was not changed", attempts[1]["error"])
 
+    def test_revision_repair_answers_current_review_with_an_empty_execution_ledger(self):
+        fixture = self.fixture_for("revision-concerns")
+        _, state, view, trace = self.plan(fixture)
+        self.assert_approval_boundary(fixture, state, view, trace)
+        revisions = [row for row in trace if row["stage"] == "glm_revise"]
+        self.assertEqual([False, True], [row["repair"] for row in revisions], trace)
+        self.assertIn("Every plan-review concern", revisions[1]["error"])
+        self.assertEqual(["P1"], revisions[1]["current_review_ids"])
+        self.assertEqual([], revisions[1]["execution_findings"])
+        first_revision = next(i for i, row in enumerate(trace) if row["stage"] == "glm_revise")
+        self.assertFalse(any(row["stage"] == "astra_discovery" for row in trace[first_revision:]), trace)
+        self.assertEqual(1, sum(row["stage"] == "astra_challenge" for row in trace), trace)
+        self.assertFalse(any(row["stage"] == "investigate_stuck" for row in trace), trace)
+
     def test_revision_repairs_a_stale_reference_using_the_current_inventory(self):
         fixture = self.fixture_for("retained-criteria")
         _, state, view, trace = self.plan(fixture)

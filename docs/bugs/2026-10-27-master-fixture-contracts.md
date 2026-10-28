@@ -130,3 +130,70 @@ Linux in 42.157 seconds. The existing Linux container lacks tmux and its
 credential-switching restrictions prevent package setup, so Linux terminal
 qualification is left to the required Ubuntu PR check, not claimed locally.
 Ruff lint and formatting pass. No provider call or sandbox restriction changed.
+
+## Adversarial scenario contracts after #2135, #2189 and #2065
+
+Integrated master `49e3ecdde` passed all 11,629 unit tests (794 modules,
+2,755 seconds), then failed seven scenario assertions in run
+[40593561776](https://github.com/charlieanna/autocode/actions/runs/40593561776).
+A fresh Linux checkout reproduces the three adversarial failures in 59.575
+seconds; the four proof-order failures are retained in the CI log.
+
+The evidence attacks invented a hash/revision and a never-dispatched task ID.
+Since #2135 a current, admitted launch supplies runner-owned identity; arbitrary
+copy errors are corrected and their raw reports retained. Those inputs no longer
+exercise the stale-identity boundary. The replacement captures a real Tester
+identity from a completed first turn, commits its delivered source, and starts a
+scoped documentation edit in the same run. The second Tester replays that earlier
+contract or task. The tests still require that injection reaches Tester, that the
+old and current identities differ, and that the run cannot complete. No private
+state is edited and no production identity guard changes.
+
+The clarification test expected an earlier Investigator diagnosis to remain
+current after a new answer. #2189 intentionally binds advice to its diagnosed
+inputs, including saved answers. The fixture now produces a fresh source citation
+after clarification and asserts the old guidance is absent, delivery completes,
+and only one investigation was purchased. Its original bad citation still causes
+the initial investigation, so a skipped recovery cannot satisfy the test.
+
+The stock-refusal and hybrid scoring checks expected one failed proof before the
+repair. #2065 deliberately re-executes a failed proof once to distinguish a flake.
+The tests now require exactly FAIL, FAIL, PASS; both failures must use identical
+source and the passing proof must use changed source. Existing exact stage-route,
+Resolver-call, vacuous-test diagnosis and correct/incorrect scoring assertions
+remain. No arbitrary duplicate allowance or extra retry is introduced.
+
+These corrections exercise existing runtime decisions rather than changing
+verification, approval, provider, timeout or sandbox policy. Live model calls
+cannot establish deterministic fake attack coverage and are unnecessary for this
+patch.
+
+Final focused results on supported Linux: both historical-identity attacks pass
+in 88.482 seconds; both stock-refusal scoring cases with source-identity assertions
+pass in 80.010 seconds. The clarification case and both hybrid provider/environment
+cases also pass. An intermediate two-turn fixture was correctly rejected by its
+mandatory target-reached assertion (first missing tracked source, then a no-op
+Builder); those failed attempts are retained rather than counted as protection.
+The final fixture tracks the first delivery and supplies a genuinely changed
+module docstring before replaying the historical identity. On macOS, all 22
+launch-identity and planning-guidance unit controls pass in 0.694 seconds. Lint
+and formatting pass. The broad scenario harness remains the required PR gate.
+
+A final tightening explicitly requires Tester rejection at `$.contract_hash` or
+`$.task_id`, not merely any later incomplete outcome. Both final CLI attacks pass
+again in 83.366 seconds on Linux.
+
+## Preventing the same black-box selection drift
+
+The affected runtime helpers did not enable the scenario job or select their
+black-box consumers. Five producer paths fail the new scope regression; three
+evidence/planning paths fail module selection, and both proof paths omit the
+stock-refusal/hybrid classes (ten failing subcases before the map).
+
+One shared runtime-consumer map now enables the job and selects the relevant
+evidence/planning module or the two proof-scoring classes. Unrelated adversarial
+and slow harness cases remain excluded from those localized selections. Existing
+shared-harness and full-master behavior remains unchanged. Producer paths and
+targets are checked for existence and successful test discovery. The two focused
+selector modules pass 83 tests in 4.106 seconds; the subsequently added target
+discovery guard passes independently in 0.051 seconds. Lint/format pass.
