@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 try:
+    from . import autocode_access_evidence as access_evidence
     from . import autocode_agent_env as agent_env
     from . import autocode_containment_policy as containment_policy
     from . import autocode_native_locators as native_locators
@@ -25,6 +26,7 @@ try:
     from . import autocode_util as util
     from . import autocode_verification_copy as verification_copy
 except ImportError:
+    import autocode_access_evidence as access_evidence
     import autocode_agent_env as agent_env
     import autocode_containment_policy as containment_policy
     import autocode_native_locators as native_locators
@@ -364,6 +366,10 @@ def prepare(
             else output_cap.VARIABLE
         )
         worker["output_token_cap"] = output_cap.recorded(os.environ, environment, variable)
+    if engine == "opencode":
+        worker["access_preflight_identity"] = access_evidence.launch_binding(
+            settings, route_role, adapter, model, effort
+        )
     worker["execution_identity"] = route_evidence.launch_identity(
         role=route_role,
         engine=engine,
@@ -393,6 +399,10 @@ def stage_record(worker):
         from copy import deepcopy
 
         record["execution_identity"] = deepcopy(worker["execution_identity"])
+    if worker.get("access_preflight_identity"):
+        from copy import deepcopy
+
+        record["access_preflight_identity"] = deepcopy(worker["access_preflight_identity"])
     if engine == "opencode" and worker.get("configured"):
         record["provider"] = worker["provider"]
         if worker.get("fresh_session_reason"):

@@ -1,6 +1,7 @@
 """Launch probes each billing-routed role model once per run, before stage spend."""
 
 import contextlib
+import copy
 import io
 import json
 import sys
@@ -175,6 +176,105 @@ class PreflightCheckTests(unittest.TestCase):
         self.state["next_stage"] = "terra"
         self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
         self.assertCountEqual(["plan/glm", "plan/mimo"], self.calls)
+
+    def successful_stage(self):
+        output = self.run_dir / "requirements.json"
+        events = self.run_dir / "requirements.jsonl"
+        output.write_text('{"summary": "Requirements understood"}')
+        events.write_text("\n".join(json.dumps(row) for row in OK_EVENTS))
+        return {
+            "stage": "requirements_gather",
+            "engine": "opencode",
+            "provider": "fixture",
+            "model": "plan/glm",
+            "reasoning_effort": None,
+            "launch_route": {"engine": "opencode", "provider": None, "model": "plan/glm", "reasoning_effort": None},
+            "accounted": True,
+            "exit_code": 0,
+            "finished_at": "2026-10-28T00:00:00+00:00",
+            "output": str(output),
+            "events": str(events),
+            "access_preflight_identity": {"schema": 1, "identity": self.run_identity(), "model": "plan/glm"},
+        }
+
+    def test_successful_real_requirements_call_avoids_duplicate_probe_only_for_that_route(self):
+        self.state["stages"] = [self.successful_stage()]
+        self.assertTrue(self.check({"plan/mimo": OK_EVENTS}))
+        self.assertEqual(["plan/mimo"], self.calls)
+        self.assertEqual("completed_stage", probed(self.run_dir)["plan/glm"]["source"])
+        self.assertFalse(self.check({}))
+
+    def test_later_failed_call_and_explicit_probe_failure_override_prior_success(self):
+        record = self.successful_stage()
+        self.state["stages"] = [record, {**record, "exit_code": 1}]
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+        self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
+        marker = self.run_dir / "model-preflight.json"
+        saved = json.loads(marker.read_text())
+        saved["receipts"][0]["probed"]["plan/glm"] = {"status": "uncertain"}
+        marker.write_text(json.dumps(saved))
+        self.state["stages"] = [record]
+        self.calls.clear()
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS}))
+        self.assertEqual(["plan/glm"], self.calls)
+
+    def test_completed_stage_receipt_does_not_outlive_original_events(self):
+        record = self.successful_stage()
+        self.state["stages"] = [record]
+        self.assertTrue(self.check({"plan/mimo": OK_EVENTS}))
+        Path(record["events"]).unlink()
+        self.calls.clear()
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS}))
+        self.assertEqual(["plan/glm"], self.calls)
+
+    def test_changed_binding_and_incomplete_or_failed_events_require_probe(self):
+        mutations = [
+            lambda row: row["access_preflight_identity"]["identity"].update(transport_sha256="b" * 64),
+            lambda row: row["access_preflight_identity"]["identity"].update(reasoning_effort="high"),
+            lambda row: row["access_preflight_identity"].update(model="other/model"),
+            lambda row: row["access_preflight_identity"].update(schema=True),
+            lambda row: row["launch_route"].update(reasoning_effort="high"),
+            lambda row: row.update(events=str(self.root / "outside.jsonl")),
+            lambda row: Path(row["events"]).write_text("not json"),
+            lambda row: Path(row["events"]).write_text(json.dumps({"type": "step_start"})),
+            lambda row: Path(row["events"]).write_text("\n".join(json.dumps(x) for x in OK_EVENTS + PAYWALL_EVENTS)),
+            lambda row: Path(row["output"]).unlink(),
+        ]
+        (self.root / "outside.jsonl").write_text("\n".join(json.dumps(x) for x in OK_EVENTS))
+        for index, mutate in enumerate(mutations):
+            with self.subTest(case=index):
+                (self.run_dir / "model-preflight.json").unlink(missing_ok=True)
+                record = copy.deepcopy(self.successful_stage())
+                mutate(record)
+                self.state["stages"] = [record]
+                self.calls.clear()
+                self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+                self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
+
+    def test_unbound_or_unsuccessful_real_stage_does_not_replace_access_probe(self):
+        for field, value in (
+            ("access_preflight_identity", None),
+            ("accounted", False),
+            ("exit_code", 1),
+            ("exit_code", False),
+            ("finished_at", None),
+            ("timed_out", True),
+            ("interrupted", True),
+            ("rejected", True),
+            ("dry_run", True),
+            ("replay", {"source": "fixture"}),
+            ("engine", "codex"),
+            ("provider", "other"),
+        ):
+            with self.subTest(field=field, value=value):
+                self.state.pop("stages", None)
+                (self.run_dir / "model-preflight.json").unlink(missing_ok=True)
+                record = self.successful_stage()
+                record[field] = value
+                self.state["stages"] = [record]
+                self.calls.clear()
+                self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS})
+                self.assertCountEqual(["plan/glm", "plan/mimo"], self.calls)
 
     def test_each_distinct_model_is_probed_once_per_run(self):
         events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}
