@@ -672,7 +672,47 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
             finish_rework_step(document, row["target"])
         elif kind == "verify":
             active = document["joint"]
-            active["verification"] = joint_evidence.capture(handle(active, command=command), active["base"])
+            view = handle(active, command=command).status(inspect_evidence=True)
+            report = (view.get("evidence_report") or {}).get("document") or {}
+            if report.get("regression_proof") is not None:
+                active["verification"] = joint_evidence.capture(handle(active, command=command), active["base"])
+            else:
+                # Older command-only plans still need the independent external proof.
+                contract = joint.criteria(document, view)
+                directory = store.root(run_dir)
+                criteria = directory / f"joint-criteria-{len(document['joint_attempts'])}.json"
+                util.atomic_json(criteria, contract)
+                output = directory / f"verification-{len(document['joint_attempts'])}"
+                limits = json.loads(Path(document["profile"]).read_text())["settings"]["limits"]
+                argv = [
+                    *command,
+                    "verify",
+                    "--workspace",
+                    active["workspace"],
+                    "--base",
+                    active["base"],
+                    "--criteria-file",
+                    str(criteria),
+                    "--suite-command",
+                    contract["acceptance_criteria"][0]["verification_method"],
+                    "--out",
+                    str(output),
+                    *options(document),
+                    *budget_options(document, views, command=command),
+                    "--max-seconds",
+                    str(limits.get("max_seconds") or 900),
+                    "--max-stage-seconds",
+                    str(limits.get("stage_timeout_seconds") or 600),
+                    "--check-timeout",
+                    str(min(limits.get("tool_timeout_seconds") or 900, limits.get("max_seconds") or 900)),
+                    "--json",
+                ]
+                reply = tasks.run_process(argv, advancing=True)
+                if reply.returncode not in (0, 2):
+                    raise store.CoordinationError(
+                        "Joint verification refused: " + (reply.stderr or reply.stdout)[-2000:]
+                    )
+                active["verification"] = json.loads(reply.stdout)
             if active["verification"].get("verdict") == "PASS":
                 if joint.mismatches(document, active["workspace"]):
                     raise store.CoordinationError("Member code changed during joint verification")

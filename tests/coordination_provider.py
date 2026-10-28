@@ -205,7 +205,9 @@ def main():
             {
                 "id": "C1",
                 "criterion": outcome,
-                "verification_method": f"Run `{SUITE}` from the workspace root and assert exit 0" if joint else SUITE,
+                "verification_method": "test: test_checkout_total_through_real_tax_history_and_checkout"
+                if joint and os.environ.get("COORDINATION_FIXTURE_MEMBER_CONTEXT")
+                else SUITE,
                 "human_review": False,
             }
         ],
