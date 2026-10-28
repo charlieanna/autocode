@@ -1883,15 +1883,21 @@ class TerminalChatTests(unittest.TestCase):
         to its head, and only then does the person approve — nothing is hidden, only paged."""
         leader, child = self.spawn_terminal("chat", "--workspace", str(self.workspace), BRIEF, "--", *FIXTURE_OPTIONS)
         try:
-            head = read_terminal(leader, until=b"Approve this plan?")
+            for until, reply in (
+                (b"Approve understanding and prepare plan?", b"y\n"),
+                (b"Prepare plan?", b"y\n"),
+            ):
+                read_terminal(leader, until=until)
+                os.write(leader, reply)
+            head = read_terminal(leader, until=b"Contract holds", seconds=150)
+            head += read_terminal(leader, until=b"Approve this plan?", seconds=30)
             self.assertIn(b"Plan to approve:", head, "the anchored first page names what is approved")
-            self.assertIn(b"Contract holds", head, "the criteria lead the first page")
             os.write(leader, b"\x1b[6~")  # PageDown: forward through the block toward the tail
             tail = read_terminal(leader, until=b"Read the greeting or an invalid-input error")
-            self.assertIn(b"Steps in order", tail, "the flow's end is reachable by paging")
+            tail += read_terminal(leader, until=b"Steps in order")
             os.write(leader, b"\x1b[5~")  # PageUp: back toward the block's top
-            back = read_terminal(leader, until=b"Plan to approve:")
-            self.assertIn(b"Contract holds", back)
+            back = read_terminal(leader, until=b"Contract holds")
+            back += read_terminal(leader, until=b"Plan to approve:")
             os.write(leader, b"y\n")
             rest = read_terminal(leader, until=b"Anything else?")
             os.write(leader, b"\n")
