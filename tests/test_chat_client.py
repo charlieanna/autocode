@@ -1051,8 +1051,8 @@ class NewChatSetupTests(unittest.TestCase):
             banner, notice = history.summary().split("\n")
             self.assertEqual("New chats: Full · Kilo. /mode and /engine change them.", banner)
             self.assertEqual(
-                "Kilo cannot start chats yet (unavailable). Installed here: OpenCode. "
-                "Type /engine opencode to run new chats on it.",
+                "Kilo cannot start chats yet (unavailable). Installed here: OpenCode, Codex. "
+                "Type /engine opencode, /engine codex to run new chats on it.",
                 notice,
             )
             self.assertIn("New chats use the Kilo connection (kilocode)", history.slash("/engine", ""))
@@ -1072,8 +1072,8 @@ class NewChatSetupTests(unittest.TestCase):
             rows.append({"id": "claude", "label": "Claude Code", "connection_status": "not_checked"})
             listings = {"modes": history.read(["modes"]), "connections": {**CONNECTIONS, "connections": rows}}
             history.read = lambda argv: listings[argv[0]]
-            notice = "OpenCode cannot start chats yet (unavailable). Installed here: Claude Code. "
-            notice += "Type /engine claude to run new chats on it."
+            notice = "OpenCode cannot start chats yet (unavailable). Installed here: Codex, Claude Code. "
+            notice += "Type /engine codex, /engine claude to run new chats on it."
             self.assertEqual(notice, history.notice())
             self.assertEqual(f"New chats: Full · OpenCode. /mode and /engine change them.\n{notice}", history.summary())
             history.slash("/engine", "claude")
@@ -1220,6 +1220,9 @@ class NewChatSetupTests(unittest.TestCase):
             self.assertIn("New chats use OpenCode", history.slash("/connect", "opencode use"))
             self.assertIn("for this session", history.slash("/connect", "opencode use"), "no .autocode: not kept")
             self.assertEqual(["--provider", "opencode"], history.new.options)
+            # Codex is an engine without a provider config: `use` chooses --engine codex (#2357).
+            self.assertIn("New chats use Codex", history.slash("/connect", "codex use"))
+            self.assertEqual(["--engine", "codex"], history.new.options)
 
 
 class TabTests(unittest.TestCase):

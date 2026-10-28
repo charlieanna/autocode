@@ -423,6 +423,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode connections list` carries a `codex` row (unavailable off PATH; `check` runs `codex login
+  status`, `login` delegates to `codex login`), so the chat's unusable-default notice can name an
+  installed Codex and `/engine codex`, and `/connect codex use` chooses the engine instead of the
+  `--provider codex` the core refuses (#2357).
 - A slash command typed at the line chat's "Pick one, or type a new request" (`/runs`, `/help`,
   `/quit`, `/engine` and the rest) is taken as the command, as at "What do you want done?", instead of
   starting a run whose task is the text `/runs` (#2355).
