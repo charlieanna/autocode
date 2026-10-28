@@ -424,6 +424,7 @@ PR template asks for an entry here; a change without one is incomplete.
 ### Fixed
 
 - `autocode doctor` has a `user settings` row for `~/.config/autocode/config.toml`: `engine = "codex"` or any other key the user file does not take was silently ignored; doctor now names it, says the file takes only `default_provider` and `plan_review_call_limit`, and points a project key to the project's `.autocode/config.toml` (#2400).
+- An unknown key in `.autocode/config.toml` or `[tool.autocode]` is refused with the closest known key first (`unknown setting 'max_cost_usd'; did you mean 'max-cost-usd'?`) instead of only the forty-name list of accepted keys (#2398).
 - `--help-all` describes every main-run option: `--workspace`, `--status`, `--dry-run`, `--answer`, `--approve-review`, `--reasoning-effort`, `--pause-after-stage`, `--context-soft-tokens`, `--legacy-iteration-ceiling` and `--migrate-only` printed with no help text; a test now keeps a new main-run option from shipping without one (#2395).
 - `autocode --task "Add a greeting"` is refused in words: there is no `--task` option and the task is the first argument. argparse read `--task` as the abbreviation of `--task-preflight`, took the task as its value and the launcher reported "No AutoCode run found" (#2391).
 - A missing, unreadable or malformed `--edit-goal` file paused the run as `PAUSED_INVALID_OUTPUT` with the OS error as its stop reason; it is now refused as input (`Cannot read the revised goal ...`, exit 2) with the run unchanged, as `--goal-file` already was (#2389).
