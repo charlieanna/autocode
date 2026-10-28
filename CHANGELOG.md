@@ -423,6 +423,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode doctor` no longer counts AutoCode's own learned record (`.autocode/project.json`, which its
+  generated `.gitignore` un-ignores on purpose) as an uncommitted change, so a project that only carries
+  it passes `workspace:clean` after its first run (#2350).
 - The status view's `verification.coverage[].human_acceptance_pending` is false once a criterion's
   review receipt is valid for the current validation, as `--status --inspect-evidence` already reported
   it; the chat side panel no longer reads "1 human acceptance pending" on a reviewed or completed run

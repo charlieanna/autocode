@@ -527,6 +527,22 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(doctor.WARN, {c.name: c.status for c in checks}["workspace:clean"])
         self.assertTrue(doctor.passed(checks))
 
+    def test_autocodes_own_learned_record_is_not_an_uncommitted_change(self):
+        """A first run leaves .autocode/project.json untracked on purpose; doctor does not blame the person (#2350)."""
+        self.git("init", "-q")
+        self.git("commit", "-q", "--allow-empty", "-m", "start")
+        (self.root / ".autocode").mkdir()
+        (self.root / ".autocode" / ".gitignore").write_text("*\n!/config.toml\n!/project.json\n")
+        (self.root / ".autocode" / "project.json").write_text("{}")
+        (self.root / ".autocode" / "runs").mkdir()
+        (self.root / ".autocode" / "runs" / "state.json").write_text("{}")  # ignored, as every run record is
+        self.assertEqual({"workspace": doctor.OK}, self.statuses())
+        (self.root / "notes.txt").write_text("draft")
+        checks = doctor.workspace_check(self.root)
+        clean = {c.name: c for c in checks}["workspace:clean"]
+        self.assertEqual(doctor.WARN, clean.status)
+        self.assertTrue(clean.detail.startswith("1 uncommitted change(s)"), clean.detail)
+
 
 class LocalComposeTests(unittest.TestCase):
     def test_missing_docker_and_failed_readiness_are_optional_warnings(self):
