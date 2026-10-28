@@ -1552,6 +1552,24 @@ class GoalTests(unittest.TestCase):
         self.state["validation"]["source_revision"] = "changed"  # the receipt no longer binds this validation
         self.assertTrue(runner.run_view.view(self.state)["verification"]["coverage"][0]["human_acceptance_pending"])
 
+    def test_the_review_stop_names_the_changed_files_and_where_to_read_the_change(self):
+        """The gate asked for approval of a change it never located (#2360)."""
+        self.approve(human=True)
+        self.validation()
+        self.state["run_dir"] = "/project/.autocode/runs/r1"  # the request's binding names the run
+        self.publish_review()
+        lifecycle.present(self.state)
+        milestone = self.state["goal_contract"]["body"]["milestones"][0]["id"]
+        self.state["code_checkpoints"] = [
+            {"id": "code-1", "milestone_id": milestone, "changed_files": ["greet.py"], "available": True}
+        ]
+        shown = lifecycle.render(self.state)
+        self.assertIn("  [C1] Contract holds\n", shown)
+        self.assertIn("    Changed: greet.py\n", shown)
+        self.assertIn(
+            "See the change and its evidence: autocode review --show --run-dir /project/.autocode/runs/r1", shown
+        )
+
     def test_medium_blocking_finding_blocks_even_with_tests_passing(self):
         self.approve()
         current = self.validation()
