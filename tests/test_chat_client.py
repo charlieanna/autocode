@@ -1132,20 +1132,23 @@ class NewChatSetupTests(unittest.TestCase):
         """/runs, /help and /quit at "Pick one, or type a new request" started a run called "/runs" (#2355)."""
         with tempfile.TemporaryDirectory() as folder:
             history = self.history(folder)
-            waiting = {
-                "name": "20261001-chat-1",
-                "run_dir": f"{folder}/.autocode/runs/r1",
-                "workspace": folder,
-                "bucket": "needs you",
-                "title": "Old dashboard",
-                "updated_at": "2026-10-01T10:00:00",
-                "pause_category_label": "Your decision",
-            }
+            waiting = [
+                {
+                    "name": f"202610{day}-chat-{n}",
+                    "run_dir": f"{folder}/.autocode/runs/r{n}",
+                    "workspace": folder,
+                    "bucket": "needs you",
+                    "title": title,
+                    "updated_at": f"2026-10-{day}T10:00:00",
+                    "pause_category_label": "Your decision",
+                }
+                for n, title, day in ((1, "Old dashboard", "01"), (2, "Add a --shout flag", "20"))
+            ]
 
             def open_with(*replies):
                 it, said = iter(replies), []
                 with (
-                    mock.patch.object(chat, "project_runs", return_value=[waiting]),
+                    mock.patch.object(chat, "project_runs", return_value=waiting),
                     mock.patch.object(
                         chat, "mode_row", side_effect=lambda mode, **_: {"id": mode, "spend_confirmation": "planning"}
                     ),
@@ -1157,15 +1160,15 @@ class NewChatSetupTests(unittest.TestCase):
 
             started, said = open_with("/runs", "/help", "/bogus", "7", "/quit")
             self.assertIsNone(started)
-            self.assertIn("  1. Old dashboard", "\n".join(said), "/runs listed the chats")
+            self.assertIn("  2. Old dashboard", "\n".join(said), "/runs listed the chats")
             self.assertIn(chat.FIRST_PROMPT_HELP, said)
-            self.assertIn("/bogus needs an open chat. Type what you want done.", said)
+            self.assertIn("Open or start a chat first: type a request, or /runs to see this project's chats.", said)
             self.assertIn("There is no run 7 waiting.", said)
             self.assertEqual("Nothing started.", said[-1])
             started, _ = open_with("//slashes are my tool", "unused")
             self.assertEqual("/slashes are my tool", started)
-            picked, _ = open_with("1")
-            self.assertEqual(Path(waiting["run_dir"]), picked.run_dir)
+            picked, _ = open_with("2")
+            self.assertEqual(Path(waiting[0]["run_dir"]), picked.run_dir, "a number still picks a run")
 
     def test_help_quit_and_a_slash_request_work_at_the_plain_chat_question(self):
         """/help and /quit typed at "What do you want done?" both answered "Open or start a chat first"."""
