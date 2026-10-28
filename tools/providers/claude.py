@@ -159,6 +159,12 @@ def parse_version(text: str) -> str | None:
     return match.group(1) if match else None
 
 
+NOT_ON_PATH = (
+    "claude is not on PATH; no provider request was launched. Run `autocode doctor` to see what this host has: "
+    "an installed Codex or OpenCode runs with --engine codex or --engine opencode"
+)
+
+
 def child_environment(env: Mapping[str, str] | None = None) -> dict[str, str]:
     """The environment Claude Code runs in: the agent environment, minus the parent session's identity."""
     base = agent_env.scrubbed(env_prep.snapshot_environment()) if env is None else dict(env)
@@ -224,7 +230,7 @@ def _probe(workspace, env) -> tuple[str, Callable[[list[str]], Any], dict[str, s
     effective = child_environment(env)
     executable = env_prep.resolve_executable("claude", effective, cwd=cwd, allow_default_path=env is None)
     if not executable:
-        raise RuntimeError("claude is not on PATH; no provider request was launched")
+        raise RuntimeError(NOT_ON_PATH)
 
     def call(command: list[str]) -> Any:
         return env_prep.preflight_run(
@@ -400,7 +406,7 @@ def launch(
     child = child_environment(env)
     executable = env_prep.resolve_executable("claude", child, cwd=str(workspace))
     if not executable:
-        raise RuntimeError("claude is not on PATH; no provider request was launched")
+        raise RuntimeError(NOT_ON_PATH)
     argv = [
         sys.executable,
         "-I",

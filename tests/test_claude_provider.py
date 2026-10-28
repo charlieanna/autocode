@@ -315,7 +315,9 @@ class IdentityTests(FakeClaude, unittest.TestCase):
         self.assertTrue(claude.transport_drift(first, example))
 
     def test_prelaunch_failures_launch_nothing(self):
-        with self.assertRaisesRegex(RuntimeError, "^claude is not on PATH; no provider request was launched$"):
+        with self.assertRaisesRegex(
+            RuntimeError, "^claude is not on PATH; no provider request was launched. Run `autocode doctor`"
+        ):
             claude.local_settings(self.workspace, env={"PATH": str(self.root / "empty")})
         with self.assertRaisesRegex(RuntimeError, r"claude version check failed \(exit 4\); no agent was launched"):
             self.identity(FAKE_VERSION_EXIT="4")

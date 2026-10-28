@@ -423,6 +423,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `--engine codex` on a host without Codex is refused in words ("Codex is not on PATH; no provider request
+  was launched. Run `autocode doctor` ...") instead of a raw "[Errno 2] No such file or directory: 'codex'",
+  on a new run and on a resume; the Claude engine's refusal gains the same `autocode doctor` hint (#2307).
 - A pause's output ends with its `Next command:` again when the presentation runs longer than a screen
   (a review stop printed the command on line 33 of 410, then a bare state line), and a plain relaunch of
   a waiting run prints the same pause header and command as the stop that got there (#2301).
