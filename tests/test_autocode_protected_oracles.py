@@ -98,6 +98,84 @@ class OriginalOracleTests(unittest.TestCase):
         self.assertIn("Ran 2 tests", result["candidate"]["tail"])
         self.assertIn("Ran 1 test", result["original"]["tail"])
 
+    def test_automatic_original_gate_collects_nested_members_without_root_marker(self):
+        (self.project / "test_layout.py").unlink()
+        nested = self.project / "repos/a-1/tests/test_layout.py"
+        nested.parent.mkdir(parents=True)
+        nested.write_text(ORIGINAL)
+        marker = self.project / "tests/__init__.py"
+        marker.parent.mkdir()
+        marker.touch()
+        (self.project / "layout.py").write_text("def height(): return 40\n")
+        self.command = shlex.join([sys.executable, "-m", "unittest", "discover", "-v"])
+        self.state = {"settings": {}}
+        self.configure(self.new_args)
+        self.assertIn("repos/a-1/tests/test_layout.py", self.binding["command"])
+        marker.unlink()
+        nested.write_text(ORIGINAL + "\n    def test_positive(self): self.assertGreater(height(), 0)\n")
+        result = self.execute()
+        self.assertEqual("PASS", result["verdict"], result)
+        self.assertEqual(2, result["candidate"]["results"]["total"])
+        self.assertEqual(1, result["original"]["results"]["total"])
+        nested.write_text(ORIGINAL.replace("40", "20"))
+        (self.project / "layout.py").write_text("def height(): return 20\n")
+        with self.assertRaisesRegex(ValueError, "original gate did not pass"):
+            self.execute()
+
+    def test_explicit_command_only_repair_replays_the_same_original_assertions(self):
+        import autocode_args
+        import autocode_opencode
+
+        from .test_protected_commands import CommandRecoveryTests, pending_gate_report
+
+        (self.project / "test_layout.py").unlink()
+        nested = self.project / "repos/a/tests/test_layout.py"
+        nested.parent.mkdir(parents=True)
+        nested.write_text(ORIGINAL)
+        marker = self.project / "tests/__init__.py"
+        marker.parent.mkdir()
+        marker.touch()
+        self.command = shlex.join([sys.executable, "-m", "unittest", "discover", "-v"])
+        self.state = {"settings": {"regression": {"test_command": self.command}}}
+        self.configure(self.new_args)
+        old = copy.deepcopy(self.binding)
+        archive = Path(old["root"]).read_bytes()
+        marker.unlink()
+        (marker.parent / "test_joint.py").write_text(
+            "from layout import height\ndef test_positive_height(): assert height() > 0\n"
+        )
+        nested.write_text(ORIGINAL + "\n    def test_positive(self): self.assertGreater(height(), 0)\n")
+        (self.project / "layout.py").write_text("def height(): return 40\n")
+        state, _, _ = CommandRecoveryTests.fixture(self)
+        self.state.update({key: value for key, value in state.items() if key not in ("workspace", "settings")})
+        self.state["workspace"] = str(self.project)
+        contract = self.state["goal_contract"]
+        contract["body"]["acceptance_criteria"][0]["verification_method"] = shlex.join(
+            [sys.executable, "-m", "pytest", "repos", "tests", "-q"]
+        )
+        contract["hash"] = guard.util.digest({k: contract[k] for k in ("task_id", "revision", "body")})
+        contract["approval_event"]["token"] = "r1:" + contract["hash"]
+        pending = copy.deepcopy(pending_gate_report(self.state, self.run / "legacy-report"))
+        args = autocode_args.build_parser(None, autocode_opencode.DEFAULT_MODELS).parse_args(
+            ["--run-dir", str(self.run), "--resume-paused", "--revise-protected-tests", "@approved-suite"]
+        )
+        self.configure(args)
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertEqual(pending, self.state["report_repair_archive"][-1]["repair"])
+        self.assertEqual(old["files"], self.binding["files"])
+        self.assertEqual(archive, Path(old["root"]).read_bytes())
+        self.assertNotEqual(old["binding_hash"], self.binding["binding_hash"])
+        self.assertEqual(old, self.state["user_events"][-1]["previous"])
+        result = self.execute()
+        self.assertEqual("PASS", result["verdict"], result)
+        self.assertEqual(3, result["candidate"]["results"]["total"])
+        self.assertEqual(2, result["original"]["results"]["total"])
+        # A weakened current assertion cannot replace the sealed original one.
+        nested.write_text(ORIGINAL.replace("40", "20"))
+        (self.project / "layout.py").write_text("def height(): return 20\n")
+        with self.assertRaisesRegex(ValueError, "original gate did not pass"):
+            self.execute()
+
     def test_completion_requires_the_unchanged_executed_receipt(self):
         (self.project / "test_layout.py").write_text(
             ORIGINAL + "\n    def test_positive(self):\n        self.assertGreater(height(), 0)\n"

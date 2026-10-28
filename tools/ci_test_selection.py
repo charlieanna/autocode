@@ -240,6 +240,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
+        ("tools/autocode_protected_oracles.py", "tools/autocode_protected_commands.py"),
+        ("tests.test_protected_oracles_cli",),
+    ),
+    (
         ("tools/autocode_regression.py", "tools/autocode_verify.py"),
         ("tests.test_bugfix_workflow",),
     ),

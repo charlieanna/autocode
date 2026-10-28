@@ -2451,3 +2451,7 @@ binding remain unknown; status does not upgrade them or rerun a model. A review
 outcome is not build-delivery acceptance. The authenticated
 `evidence.workflow_result` stays unchanged by read-time inspection. The terminal renders these public
 review facts in its header, Review result panel and `/details`.
+
+### Original-test command recovery
+
+At an idle validation pause, the core can name `--resume-paused --revise-protected-tests @approved-suite` when an approved empty package-marker deletion stranded the original root unittest collector for nested repositories. The `needs.reason` displays both exact commands and the retained original-test guarantee; clients take only that named action after confirmation. This revises only the suite command, capturing the same sealed original files from their archive, never the current modified tests. The old binding and explicit user event remain. The offered pytest command must be uniquely approved, unfiltered and cover every original path; active, uncertain, unapproved, filtered or ambiguous cases offer no correction. Fresh original-test replay and independent validation remain required.
