@@ -1813,9 +1813,18 @@ def open_chat(
     return start(workspace, brief, list(chosen.get("start_args") or []), options, ask=ask, say=say, **kwargs)
 
 
+RUN_OPTIONS_HINT = (
+    "options of the run itself (--engine, --workflow, --max-cost-usd and the other `autocode` run options) "
+    'go after --: autocode chat "BRIEF" -- --engine codex'
+)
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        prog="autocode chat", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        prog="autocode chat",
+        description=__doc__,
+        epilog=RUN_OPTIONS_HINT,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     result.add_argument("brief", nargs="?", help="what you want done; starts a new run (omit to pick up a run)")
     result.add_argument("--brief", dest="brief_option", metavar="TEXT", help="the brief, for one that starts with -")
@@ -1861,7 +1870,11 @@ def cli(argv: list[str] | None = None) -> int:
         index = argv.index("--")
         argv, options = argv[:index], argv[index + 1 :]
     arguments = parser()
-    args = arguments.parse_args(argv)
+    args, unknown = arguments.parse_known_args(argv)
+    if unknown:
+        # `--engine codex` typed as a chat option: the README's run flag, which here goes after --.
+        hint = "; " + RUN_OPTIONS_HINT if any(word.startswith("-") for word in unknown) else ""
+        arguments.error(f"unrecognized arguments: {' '.join(unknown)}{hint}")
     if args.brief_option is not None:
         if args.brief is not None:
             arguments.error("give the brief once, as an argument or with --brief")
