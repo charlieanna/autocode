@@ -15,6 +15,7 @@ import autocode_chat_client as chat
 import autocode_client_actions as actions
 import autocode_run_view as run_view
 
+from tests.terminal_screen import TerminalScreen, require_tmux
 from tests.test_agent_step import ask_one_question_once, fixture_workspace
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
@@ -1879,36 +1880,53 @@ class TerminalChatTests(unittest.TestCase):
 
     def test_a_plan_taller_than_the_screen_opens_at_its_top_and_pages_to_its_end(self):
         """#2434: an approval also carries its milestones and flow, so the plan can outgrow the
-        screen. It opens at its top beside the prompt, PageDown reaches its end, PageUp returns
-        to its head, and only then does the person approve — nothing is hidden, only paged."""
-        leader, child = self.spawn_terminal("chat", "--workspace", str(self.workspace), BRIEF, "--", *FIXTURE_OPTIONS)
-        try:
-            for until, reply in (
-                (b"Approve understanding and prepare plan?", b"y\n"),
-                (b"Prepare plan?", b"y\n"),
-            ):
-                read_terminal(leader, until=until)
-                os.write(leader, reply)
-            head = read_terminal(leader, until=b"Contract holds", seconds=150)
-            head += read_terminal(leader, until=b"Approve this plan?", seconds=30)
-            self.assertIn(b"Plan to approve:", head, "the anchored first page names what is approved")
-            os.write(leader, b"\x1b[6~")  # PageDown: forward through the block toward the tail
-            tail = read_terminal(leader, until=b"Read the greeting or an invalid-input error")
-            tail += read_terminal(leader, until=b"Steps in order")
-            os.write(leader, b"\x1b[5~")  # PageUp: back toward the block's top
-            back = read_terminal(leader, until=b"Contract holds")
-            back += read_terminal(leader, until=b"Plan to approve:")
-            os.write(leader, b"y\n")
-            rest = read_terminal(leader, until=b"Anything else?")
-            os.write(leader, b"\n")
-            rest += read_terminal(leader)
-        finally:
-            os.close(leader)
-            if child.poll() is None:
-                child.kill()
-        self.assertEqual(0, child.wait(timeout=60), (head + tail + back + rest).decode(errors="replace")[-2000:])
-        self.assertIn(b"Done.", rest)
-        self.assertTrue((self.workspace / "greet.py").is_file())
+        screen. It opens at its top beside the approval prompt, PageDown reaches its end, PageUp
+        returns to its head, and only then does the person approve — nothing is hidden, only paged."""
+        tmux = require_tmux(self)
+        argv = [
+            sys.executable,
+            str(AUTOCODE),
+            "chat",
+            "--workspace",
+            str(self.workspace),
+            BRIEF,
+            "--",
+            *FIXTURE_OPTIONS,
+        ]
+        with TerminalScreen(argv, cwd=self.workspace, env=self.env, cols=100, rows=20, tmux=tmux) as screen:
+            for gate in ("Approve understanding", "Prepare plan?"):
+                screen.wait_for(gate, 300)
+                screen.type("y")
+                screen.keys("Enter")
+            first = screen.wait_for(
+                lambda shown: (
+                    "Approve this plan" in shown and "Plan to approve:" in shown and "Greeting contract holds" in shown
+                ),
+                300,
+                what="the plan's first page at its approval prompt",
+            )
+            self.assertNotIn("Steps in order", first, "the flow's steps are paged to, not on the plan's first page")
+            self.assertNotIn("Run greet.py", first)
+            screen.keys("NPage")
+            last = screen.wait_for(
+                lambda shown: "Steps in order" in shown and "Read Hello, NAME or a usage error" in shown,
+                60,
+                what="the plan's last flow steps after PageDown",
+            )
+            self.assertNotIn("Plan to approve:", last, "PageDown moved forward through the plan")
+            screen.keys("PPage")
+            screen.wait_for(
+                lambda shown: "Plan to approve:" in shown and "Greeting contract holds" in shown,
+                60,
+                what="the plan's head after PageUp",
+            )
+            screen.type("y")
+            screen.keys("Enter")
+            screen.wait_for("Anything else?", 300)
+            screen.keys("Enter")
+            self.assertEqual(0, screen.exit_status())
+            self.assertIn("Done.", screen.text())
+            self.assertTrue((self.workspace / "greet.py").is_file())
 
     def test_plain_autocode_in_a_terminal_opens_the_full_screen_chat(self):
         seen, code = self.run_terminal(until=b"What do you want done?")

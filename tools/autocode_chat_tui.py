@@ -269,7 +269,12 @@ class Transcript:
     activity: str = ""
     live: str = ""  # an assistant reply still being written (the view's streaming message), shown last
     asked: int = 0  # how many blocks there were when the last question was put to the person
-    last_block_start: int | None = None  # set by lines(): where the newest spoken block begins
+    block_starts: list[int] = field(default_factory=list)  # set by lines(): where each spoken block begins
+
+    @property
+    def last_block_start(self) -> int | None:
+        """The newest spoken block's first row, for anyone placing a block's heading."""
+        return self.block_starts[-1] if self.block_starts else None
 
     def add(self, text: str) -> bool:
         """Add a spoken block; a progress line updates the status row instead."""
@@ -332,7 +337,7 @@ class Transcript:
             text = safe_text(self.live).strip("\n")
             rendered.extend(("assistant-body", "  " + line) for line in wrap(text, max(1, width - 2)))
             rendered.append(("plain", ""))
-        self.last_block_start = starts[-1] if starts else None
+        self.block_starts = starts
         return rendered
 
 
@@ -650,20 +655,30 @@ class ChatTUI:
             self._draw()
 
     def _anchor_tall_block(self) -> None:
-        """Open a block taller than the body at its top, in the scroll's own coordinates.
+        """Open the reply's first block taller than the body at its top, in the scroll's own coordinates.
 
         A long approval now carries its milestones and flow (#2434); following the tail would
-        draw only its end. The anchor is plain scroll state, so the History header shows it,
-        PageDown walks forward through the block toward the live tail, PageUp walks back, and
-        the tail is followed again exactly when the person pages back to it.
+        draw only its end. Only the blocks since the person last spoke are candidates — what
+        they were last asked to read — so a short block the client adds after a tall one (where
+        the recorded plan lives) does not hide it, and older blocks a person already answered
+        are never reached back for. The anchor is plain scroll state, so the History header
+        shows it, PageDown walks forward through the block toward the live tail, PageUp walks
+        back, and the tail is followed again exactly when the person pages back to it.
         """
         layout = self._layout(*self._size())
         lines = self._transcript.lines(layout.body_width or layout.width)
         height = max(0, layout.body_end - layout.body_start)
-        start = self._transcript.last_block_start
-        if not height or start is None or len(lines) - start <= height:
+        starts = self._transcript.block_starts
+        blocks = self._transcript.blocks
+        if not height or not starts:
             return
-        self._scroll = len(lines) - start - height
+        spoken = max((index for index, (role, _) in enumerate(blocks) if role == "user"), default=-1)
+        for index in range(len(starts) - 1, spoken, -1):
+            start = starts[index]
+            end = starts[index + 1] if index + 1 < len(starts) else len(lines)
+            if end - start > height:
+                self._scroll = len(lines) - start - height
+                return
 
     def _history_anchor(self) -> tuple[int, int] | None:
         if not self._scroll:
@@ -933,6 +948,11 @@ class ChatTUI:
                 self._composer.reset()
             if not keep_context:
                 self._scroll = 0
+                # The question's own rows shrink the body after say() anchored the reply with
+                # the taller layout, and this prompt is where the person reads it: re-anchor,
+                # so a reply that outgrows the screen still opens at its top when its
+                # question shows. A reply that fits keeps following the tail.
+                self._anchor_tall_block()
             self._restored_session = False
             self._draft_context = current_context
             self._frame = 0

@@ -676,6 +676,59 @@ class AskTests(unittest.TestCase):
         self.assertEqual(["flush", "read"], calls)
 
 
+class TallReplyAnchorTests(unittest.TestCase):
+    """#2434: a plan carrying milestones and flow outgrows the body, and the person pages it."""
+
+    def setUp(self):
+        for name in ("curs_set", "flushinp"):
+            patcher = mock.patch.object(tui.curses, name, create=True)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def ui(self, *keys, rows=20, cols=100):
+        ui = screen_ui(*keys)
+        ui._screen.getmaxyx.return_value = (rows, cols)
+        return ui
+
+    def shown(self, ui):
+        """The body's visible rows: what the person reads, from the scroll state _body draws."""
+        layout = ui._layout(*ui._size())
+        lines = ui._transcript.lines(layout.body_width or layout.width)
+        height = max(0, layout.body_end - layout.body_start)
+        end = len(lines) - ui._scroll
+        return " ".join(text for _, text in lines[max(0, end - height) : end])
+
+    def test_a_tall_plan_keeps_its_head_at_its_question_despite_the_pointer_after_it(self):
+        ui = self.ui("y", "\x03")  # Ctrl-C leaves the question's view in place: an answer would re-follow the tail
+        ui.say("You: y")  # the prepare-plan answer: reading restarts here
+        ui.say("AutoCode: " + "\n".join(["Plan to approve:", *[f"  step {number}" for number in range(1, 21)]]))
+        ui.say("AutoCode: (Everything the plan records: autocode --show-goal)")
+        with self.assertRaises(KeyboardInterrupt):
+            ui.ask("Approve this plan? [y/N]")
+        shown = self.shown(ui)
+        self.assertIn("Plan to approve:", shown, "the anchored first page opens at the plan's head")
+        self.assertNotIn("step 20", shown, "the plan's end is paged to, not drawn over its head")
+        ui._handle(tui.curses.KEY_NPAGE, asking=True)
+        ui._handle(tui.curses.KEY_NPAGE, asking=True)  # this plan is two pages deep
+        paged = self.shown(ui)
+        self.assertIn("step 20", paged, "PageDown walks forward through the plan")
+        self.assertNotIn("Plan to approve:", paged)
+        ui._handle(tui.curses.KEY_PPAGE, asking=True)
+        ui._handle(tui.curses.KEY_PPAGE, asking=True)
+        self.assertIn("Plan to approve:", self.shown(ui), "PageUp walks back to the plan's head")
+
+    def test_an_old_tall_block_the_person_answered_is_not_reached_back_for(self):
+        ui = self.ui("y", "\x03")
+        ui.say("AutoCode: " + "\n".join(["first line of the understanding", *["understanding"] * 20]))
+        ui.say("You: y")
+        ui.say("AutoCode: short follow-up")
+        with self.assertRaises(KeyboardInterrupt):
+            ui.ask("Approve this plan? [y/N]")
+        shown = self.shown(ui)
+        self.assertIn("short follow-up", shown)
+        self.assertNotIn("first line of the understanding", shown, "the person answered it; the tail is followed")
+
+
 class WindowTests(unittest.TestCase):
     def test_short_text_keeps_the_cursor_column(self):
         self.assertEqual(("hello", 5), tui.window("hello", 5, 10))
