@@ -1552,6 +1552,30 @@ class GoalTests(unittest.TestCase):
         self.state["validation"]["source_revision"] = "changed"  # the receipt no longer binds this validation
         self.assertTrue(runner.run_view.view(self.state)["verification"]["coverage"][0]["human_acceptance_pending"])
 
+    def test_saved_answers_render_as_one_line_each_not_as_their_json_record(self):
+        """Every later launch dumped the answer records, tokens included, as JSON (#2363)."""
+        self.draft(questions=True)
+        lifecycle.human.evaluate(self.state)
+        asked = self.state["pending_questions"][0]
+        g.answer(self.state, asked["id"], "accept default", delegated=True)
+        self.state["answers"]["decision-limit"] = {
+            "kind": "permission_answer",
+            "question": {"id": "decision-limit", "question": "Raise the run limit?"},
+            "text": "Approve the saved limit change",
+            "contract_token": "r1:secret",
+        }
+        shown = lifecycle.render(self.state)
+        section = shown.split("Saved user answers:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertEqual(
+            [
+                f"  - {asked['id']}: {asked['question']} -> {asked['proposed_default']} (the proposed default, delegated)",
+                "  - decision-limit: Raise the run limit? -> Approve the saved limit change (a permission decision)",
+            ],
+            section.splitlines(),
+        )
+        self.assertNotIn("r1:secret", shown)
+        self.assertNotIn("contract_token", shown)
+
     def test_the_review_stop_names_the_changed_files_and_where_to_read_the_change(self):
         """The gate asked for approval of a change it never located (#2360)."""
         self.approve(human=True)
