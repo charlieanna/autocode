@@ -753,7 +753,10 @@ def _proving(
         util.atomic_json(path, result)
     state["regression_proof"] = proof
     state.setdefault("regression_proofs", []).append(
-        {k: proof.get(k) for k in ("verdict", "source_revision", "path", "proved_at", "duration_seconds")}
+        {
+            **{k: proof.get(k) for k in ("verdict", "source_revision", "path", "proved_at", "duration_seconds")},
+            "proof_context": util.digest(execution_context),
+        }
     )
     # A visible, runner-owned step in the stage history: no provider, no tokens.
     record = {
@@ -1046,19 +1049,26 @@ def before_review(state: RunState, stage, workspace, run_dir):
 def _review_needs_proof(state: RunState, workspace):
     """The Completion Owner reuses a proof of this source, except a failure proved only once.
 
-    A failing replay demands REWORK, and on an unchanged source that REWORK can only reach a
-    person: one timing flake in an unrelated test held a finished run (2026-10-25). So a failure
-    is replayed once more for the same source before the review sees it. A second failure stands.
+    A failing replay demands REWORK. Replay it once more within the same proof context,
+    because a timing flake can otherwise hold a finished run. Reapproved contracts and
+    changed case bindings require fresh execution even when candidate source is unchanged.
     """
     current = source_scope.snapshot(workspace, state)["revision"]
     saved = state.get("regression_proof") or {}
-    if saved.get("source_revision") != current:
+    context = saved.get("execution_context") or {}
+    if (
+        saved.get("source_revision") != current
+        or context.get("contract_identity") != util.digest(state.get("goal_contract"))
+        or context.get("cases_identity") != util.digest(cases(state))
+    ):
         return True
     return saved.get("verdict") == verify.FAIL and (
         sum(
             1
             for row in state.get("regression_proofs") or []
-            if isinstance(row, dict) and row.get("source_revision") == current
+            if isinstance(row, dict)
+            and row.get("source_revision") == current
+            and row.get("proof_context") == util.digest(context)
         )
         < 2
     )
