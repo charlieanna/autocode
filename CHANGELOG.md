@@ -423,6 +423,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode registry add` and `registry import` now say `no such directory` for a path that does not exist,
+  naming the path you typed, and `registry add` on a repository without commits says the repository has
+  no commit yet and to make a first commit (#2431). Before, the first showed a Python errno naming the
+  first missing ancestor (`/nonexistent` for `/nonexistent/deep/path`) and the second showed Git's
+  `fatal: Needed a single revision`.
 - A malformed Requirements or planning-revision report can use small source-hash-bound text edits
   instead of repeating the entire JSON response (#2428). Ambiguous, overlapping or oversized edits
   are rejected; original reports stay retained and all normal validation and approval gates still run.
