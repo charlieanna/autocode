@@ -17,12 +17,14 @@ import copy
 import json
 
 try:
+    from . import autocode_contract_revision as contract_revision
     from . import autocode_coordination_context as coordination_context
     from . import autocode_goals as goals
     from . import autocode_plan_retention as retention
     from . import autocode_regression_reference as regression_reference
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_contract_revision as contract_revision
     import autocode_coordination_context as coordination_context
     import autocode_goals as goals
     import autocode_plan_retention as retention
@@ -213,6 +215,32 @@ def sources(pending: dict, read_source) -> tuple[dict, dict]:
     return original, latest
 
 
+def protected_list_differences(protected, latest) -> list[dict]:
+    """Show independent literal differences even when validation stopped earlier.
+
+    This is a read-only inventory, not another validator or a semantic comparison.
+    Full contract references retain their fields and must not be treated as drops.
+    Partial/malformed artifacts keep the existing error instead of guessing values.
+    """
+    if not isinstance(protected, dict) or latest.get("format") != "json" or latest.get("truncated"):
+        return []
+    report = latest.get("content")
+    body = report.get("contract") if isinstance(report, dict) else None
+    if not isinstance(body, dict) or "retain_contract" in body:
+        return []
+    differences = []
+    for field in contract_revision.PROTECTED_LISTS:
+        before, after = protected.get(field), body.get(field)
+        if not isinstance(before, list) or not isinstance(after, list):
+            continue
+        if not all(isinstance(value, str) for value in [*before, *after]):
+            continue
+        missing = list(dict.fromkeys(value for value in before if value not in after))
+        if missing:
+            differences.append({"field": field, "missing": missing})
+    return differences
+
+
 def prompt_parts(
     state: RunState, pending: dict, original: dict, latest: dict, receipt_parts: tuple
 ) -> tuple[str, dict]:
@@ -232,19 +260,39 @@ def prompt_parts(
         if stage == "glm_revise" and (entry := clarification["planning_exchange"].get("astra_challenge"))
         else {}
     )
+    differences = protected_list_differences(protected, latest) if stage in retention.AUTHORS else []
+    difference_instruction = (
+        "PROTECTED LIST DIFFERENCES. protected_list_differences lists exact saved entries absent from the "
+        "latest rejected report, including differences independent of the first error. Address them in this "
+        "same repair: retain the saved text verbatim; put additional detail in separate entries. If the "
+        "existing change rules permit a recorded replacement/removal, keep its required change receipts "
+        "instead. This inventory is not a ruling on those receipts and grants no change authority. All "
+        "schema, provenance and protected-contract guards still run. Do not undo authorized changes or "
+        "invent user approval.\n"
+        if differences
+        else ""
+    )
     review_instruction = prompts.get("fragments/report-repair-context/revision-review.md") if review else ""
-    return receipt_instruction + retention_instruction + historical_instruction + review_instruction, {
-        "header": {
-            **receipt_handoff,
-            **references,
-            **review,
-            **({"feedback_interpretations": interpretations} if interpretations else {}),
-            **({"regression_reference": regression_reference.context(state)} if stage in PLANNING_STAGES else {}),
+    return (
+        receipt_instruction
+        + retention_instruction
+        + historical_instruction
+        + review_instruction
+        + difference_instruction,
+        {
+            "header": {
+                **receipt_handoff,
+                **({"protected_list_differences": differences} if differences else {}),
+                **references,
+                **review,
+                **({"feedback_interpretations": interpretations} if interpretations else {}),
+                **({"regression_reference": regression_reference.context(state)} if stage in PLANNING_STAGES else {}),
+            },
+            "original_report": historical_source,
+            "protected_contract": protected,
+            "clarification": {"clarification_context": clarification} if stage == "astra_finalize" else {},
         },
-        "original_report": historical_source,
-        "protected_contract": protected,
-        "clarification": {"clarification_context": clarification} if stage == "astra_finalize" else {},
-    }
+    )
 
 
 def instruction(stage: str) -> str:

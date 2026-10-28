@@ -426,6 +426,8 @@ PR template asks for an entry here; a change without one is incomplete.
 - A slash command typed at the line chat's "Pick one, or type a new request" (`/runs`, `/help`,
   `/quit`, `/engine` and the rest) is taken as the command, as at "What do you want done?", instead of
   starting a run whose task is the text `/runs` (#2355).
+- The chat's startup picker ("Runs waiting here") shows when each run last moved, as `/runs` does, so
+  several unfinished runs of one request no longer read as identical lines (#2353).
 - `autocode doctor` no longer counts AutoCode's own learned record (`.autocode/project.json`, which its
   generated `.gitignore` un-ignores on purpose) as an uncommitted change, so a project that only carries
   it passes `workspace:clean` after its first run (#2350).
