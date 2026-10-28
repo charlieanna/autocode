@@ -14,6 +14,11 @@ but incompatible history implementation and a lost response after PR creation.
 Both cases also change the generated joint test after publication and require
 the public completion claim to be withdrawn.
 
+A later [recovered live TUI qualification](2334-current-joint-evidence.md) reached
+real linked PR publication with GLM and independent OpenAI review. Its recovery
+conditions and fresh-PR-head evidence are separate from the deterministic results
+below.
+
 ## Commands
 
 From the repository root, using the project venv interpreter:

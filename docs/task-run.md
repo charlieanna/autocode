@@ -65,8 +65,16 @@ it neither invents a human answer nor approves a plan.
 An integration task works on original baselines and candidate copies, generates
 the joint test, and returns differences to members through follow-ups. Publication
 requires every member's canonical completion evidence, exact matching integration
-copies, and fresh standalone `verify` fail-before/pass-after evidence. The
-coordinator owns durable publication intent and reconciles branch/PR identity
+copies, and the integration run's current authenticated completion report with
+independent criterion verdicts and runner fail-before/pass-after proof. Approved
+prose methods and named `test:`/`guard:` bindings remain unchanged. A native
+verification receipt has `kind: task_run`; its `record` names the canonical report,
+and its binding and digests are rechecked through TaskRun's inspected status before
+publication and on reopen. Its model costs are already counted in the joint run.
+Older completed plans without a native regression-proof record still use standalone
+`verify`; their records retain the existing freshness reader. A present but stale
+or failing native proof is refused rather than falling back.
+The coordinator owns durable publication intent and reconciles branch/PR identity
 before any retry. It never merges. Manual change-set completion alone is not
 automatic coordination completion.
 

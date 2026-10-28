@@ -201,7 +201,16 @@ def main():
         important_failure_cases=[],
         scope_exclusions=[],
         accepted_assumptions=[],
-        acceptance_criteria=[{"id": "C1", "criterion": outcome, "verification_method": SUITE, "human_review": False}],
+        acceptance_criteria=[
+            {
+                "id": "C1",
+                "criterion": outcome,
+                "verification_method": "test: test_checkout_total_through_real_tax_history_and_checkout"
+                if joint and os.environ.get("COORDINATION_FIXTURE_MEMBER_CONTEXT")
+                else SUITE,
+                "human_review": False,
+            }
+        ],
         milestones=[
             {"id": "M1", "objective": outcome, "acceptance_criteria": ["C1"], "depends_on": [], "affected_paths": paths}
         ],
