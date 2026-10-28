@@ -88,6 +88,29 @@ class JsonOutcomeTests(unittest.TestCase):
         self.assertIn("AutoCode\nState: PAUSED_PROCESS_CLEANUP\nNext command:", out.getvalue())
         self.assertTrue(out.getvalue().endswith("PAUSED_PROCESS_CLEANUP: stopped\n"))
 
+    def test_a_long_pause_presentation_ends_with_the_next_command(self):
+        """#2301: the header's command scrolled off above a 400-line review presentation, whose last
+        line was a bare state; a short presentation keeps the header alone."""
+        args = SimpleNamespace(json=False)
+        state = {"status": "PAUSED_PROCESS_CLEANUP", "task": "greet", "iteration": 1}
+        long_prose = "\n".join(["Build brief r2 (approved)", *["  detail"] * 60, "State: EXECUTING / PAUSED"])
+        with (
+            mock.patch.object(autocode.status_command, "render"),
+            contextlib.redirect_stdout(io.StringIO()) as out,
+        ):
+            autocode.print_pause(state, args, self.workspace, self.run_dir, long_prose)
+        header, _, rest = out.getvalue().partition("\n")
+        command = rest.splitlines()[1]
+        self.assertTrue(command.startswith("Next command: "))
+        self.assertTrue(out.getvalue().endswith(f"State: EXECUTING / PAUSED\n{command}\n"), out.getvalue())
+        self.assertEqual(2, out.getvalue().count(command))
+        with (
+            mock.patch.object(autocode.status_command, "render"),
+            contextlib.redirect_stdout(io.StringIO()) as out,
+        ):
+            autocode.print_pause(state, args, self.workspace, self.run_dir, long_prose + "\nTo continue: " + command)
+        self.assertEqual(2, out.getvalue().count(command), "a tail that already names the command is not repeated")
+
     def test_pause_prose_is_rendered_by_the_caller_before_the_state_write(self):
         """present() mutates state (drops a stale displayed_goal), so the caller must
         render before persisting; the helper must not re-render or defer it."""

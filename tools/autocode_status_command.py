@@ -409,13 +409,17 @@ def reviewed_criteria(runner, state: "RunState"):
         return set()  # Legacy or partial plans carry no review binding to show.
 
 
-def pause_summary(runner, state: "RunState", workspace, run_dir):
-    """Read-only category and action header; never re-render the mutating plan."""
+def _pause_command():
     try:
         from . import autocode_pause_command as pause_command
     except ImportError:
         import autocode_pause_command as pause_command
-    return pause_command.summary(runner.run_view.view(state, run_dir=run_dir, workspace=workspace))
+    return pause_command
+
+
+def pause_summary(runner, state: "RunState", workspace, run_dir):
+    """Read-only category and action header; never re-render the mutating plan."""
+    return _pause_command().summary(runner.run_view.view(state, run_dir=run_dir, workspace=workspace))
 
 
 def print_pause(runner, state: "RunState", args, workspace, run_dir, rendered):
@@ -426,10 +430,15 @@ def print_pause(runner, state: "RunState", args, workspace, run_dir, rendered):
     if getattr(args, "json", False):
         runner.json_output.status(runner, state, args, workspace, run_dir)
     else:
-        summary = pause_summary(runner, state, workspace, run_dir)
+        pause_command = _pause_command()
+        view = runner.run_view.view(state, run_dir=run_dir, workspace=workspace)
+        summary = pause_command.summary(view)
         if summary:
             print(summary)
         print(rendered)
+        # The command again after a long presentation, so the last line is the action (#2301).
+        if trailer := pause_command.trailer(view, rendered):
+            print(trailer)
 
 
 def rejection_message(runner, state: "RunState", workspace, run_dir, error):

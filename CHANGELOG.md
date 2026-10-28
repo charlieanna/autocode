@@ -423,6 +423,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A pause's output ends with its `Next command:` again when the presentation runs longer than a screen
+  (a review stop printed the command on line 33 of 410, then a bare state line), and a plain relaunch of
+  a waiting run prints the same pause header and command as the stop that got there (#2301).
 - A status read that straddles the controller's atomic receipt write reads the receipt again instead of
   reporting "Controller ownership could not be inspected: Controller receipt changed while inspected" and
   offering `--resume-paused` on a run that is running (#2304).
