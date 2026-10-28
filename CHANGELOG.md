@@ -423,6 +423,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- In the line-by-line chat, `/help` and `/quit` typed at "What do you want done?" work (the commands that work before a chat, and leaving) instead of answering "Open or start a chat first"; `//text` starts a chat whose request begins with a slash.
 - `autocode approve-goal` (a main-run option typed without its dashes) is refused with the option named instead of starting a task worktree and a run for the task "approve-goal"; `autocode Add a hello script` (a task without quotes) says to put the whole task in quotes after "unrecognized arguments".
 - `autocode doctor`, when the default OpenCode is missing and Claude Code or Codex is installed, names how to make that engine the default once (`engine = "claude"` in the project's `.autocode/config.toml`, or `default_provider = "claude"` in `~/.config/autocode/config.toml`) instead of only "pass --engine claude to doctor and to every task".
 - `--run-dir` naming a path that is not a saved run is refused in words ("is not a directory" or "has no state.json", what a run directory looks like, and that `autocode runs` lists them) instead of `[Errno 2] No such file or directory: '.../state.json'`.

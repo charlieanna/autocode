@@ -1128,6 +1128,32 @@ class NewChatSetupTests(unittest.TestCase):
             self.assertIn("Open or start a chat first: type a request, or /runs to see this project's chats.", said)
             self.assertIn("No chats yet. Type a request to start one.", said)
 
+    def test_help_quit_and_a_slash_request_work_at_the_plain_chat_question(self):
+        """/help and /quit typed at "What do you want done?" both answered "Open or start a chat first"."""
+        with tempfile.TemporaryDirectory() as folder:
+            history = self.history(folder)
+
+            def open_with(*replies):
+                it, said = iter(replies), []
+                with (
+                    mock.patch.object(chat, "project_runs", return_value=[]),
+                    mock.patch.object(
+                        chat, "mode_row", side_effect=lambda mode, **_: {"id": mode, "spend_confirmation": "planning"}
+                    ),
+                    mock.patch.object(chat, "start", side_effect=lambda ws, brief, *a, **_: brief),
+                ):
+                    return chat.open_chat(
+                        Path(folder), None, [], ask=lambda _: next(it), say=said.append, slash=history.slash
+                    ), said
+
+            started, said = open_with("/help", "/quit")
+            self.assertIsNone(started)
+            self.assertIn(chat.FIRST_PROMPT_HELP, said)
+            self.assertEqual("Nothing started.", said[-1])
+            self.assertNotIn("Open or start a chat first", "\n".join(said))
+            started, _ = open_with("//slashes are my tool", "unused")
+            self.assertEqual("/slashes are my tool", started)
+
     def test_connect_checks_signs_in_through_the_terminal_and_uses_a_backend(self):
         with tempfile.TemporaryDirectory() as folder:
             history = self.history(folder)

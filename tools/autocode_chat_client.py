@@ -1684,6 +1684,13 @@ def numbers_text(numbers: list[int]) -> str:
     return ", ".join(str(number) for number in numbers)
 
 
+FIRST_PROMPT_HELP = (
+    "Type what you want done to start a chat, or: /runs lists this project's chats and /open N picks one up; "
+    "/mode, /engine and /connect choose how a new chat runs; /repos registers a checkout; /quit leaves. "
+    "// sends a request that starts with /."
+)
+
+
 def open_chat(
     workspace: Path,
     mode=None,
@@ -1737,8 +1744,18 @@ def open_chat(
                 if slash is None or not brief.startswith("/"):
                     break
                 # The line-by-line chat takes /engine, /mode, /connect and /runs here as the full-screen one
-                # does, instead of starting a run called "/engine claude".
+                # does, instead of starting a run called "/engine claude". /quit leaves and /help says what
+                # works before a chat; neither reached here, so both answered "Open or start a chat first".
+                if brief.startswith("//"):
+                    brief = brief[1:].strip()  # a request that starts with /
+                    break
                 name, _, argument = brief.partition(" ")
+                if name == "/quit":
+                    brief = ""
+                    break
+                if name == "/help":
+                    say(FIRST_PROMPT_HELP)
+                    continue
                 answer = slash(name, argument.strip())
                 say(answer if answer is not None else f"{name} needs an open chat. Type what you want done.")
     except Opened as opened:
