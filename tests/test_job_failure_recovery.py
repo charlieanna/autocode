@@ -72,7 +72,12 @@ if os.environ.get('JOB_TRANSPORT'):
  configure=autocode.configure
  def selected_transport(*args,**kwargs):
   selected=configure(*args,**kwargs)
-  selected['transport_identities']={'codex':{'fixture':os.environ['JOB_TRANSPORT']}}
+  identity={'fixture':os.environ['JOB_TRANSPORT']}
+  if os.environ.get('JOB_TRANSPORT_PATH'):
+   identity={'engine':'fixturetool','identity_version':1,'executable':'/fixture/tool',
+    'version':'1.0','config_path':os.environ['JOB_TRANSPORT_PATH'],
+    'config_sha256':os.environ.get('JOB_TRANSPORT_HASH','a'*64)}
+  selected['transport_identities']={'codex':identity}
   return selected
  autocode.configure=selected_transport
 import autocode_provider_recovery as provider_recovery
@@ -447,6 +452,25 @@ class JobFailureTaskRunTests(JobHarness):
         run = self.start()
         token = self.paused(run)["job_retry_token"]
         run.env.update(JOB_TRANSPORT="changed", JOB_MODE="success")
+        with self.assertRaisesRegex(TaskRunError, "configuration|limits"):
+            run.retry_job(token)
+        self.assertEqual(1, self.count())
+
+    def test_byte_identical_relocated_transport_retries_once_through_cli(self):
+        self.env.update(JOB_TRANSPORT="configured", JOB_TRANSPORT_PATH="/old/install/provider.toml")
+        run = self.start()
+        token = self.paused(run)["job_retry_token"]
+        run.env.update(JOB_TRANSPORT_PATH="/new/install/provider.toml", JOB_MODE="success")
+        after = run.retry_job(token)
+        self.assertTrue(after["done"], after)
+        self.assertEqual(2, self.count())
+        self.assertEqual(ORIGINAL, (self.workspace / "calc.py").read_text())
+
+    def test_relocated_transport_with_different_bytes_still_rejects_retry(self):
+        self.env.update(JOB_TRANSPORT="configured", JOB_TRANSPORT_PATH="/old/install/provider.toml")
+        run = self.start()
+        token = self.paused(run)["job_retry_token"]
+        run.env.update(JOB_TRANSPORT_PATH="/new/install/provider.toml", JOB_TRANSPORT_HASH="b" * 64)
         with self.assertRaisesRegex(TaskRunError, "configuration|limits"):
             run.retry_job(token)
         self.assertEqual(1, self.count())

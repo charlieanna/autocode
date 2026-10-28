@@ -88,8 +88,8 @@ def settings_refusal(args, state: RunState, selected) -> str | None:
         quota_route.job_pause_current(state)
         and failure.get("stage") == stuck_job.STAGE
         and (getattr(args, "investigator_model", None) or getattr(args, "investigator_reasoning_effort", None))
-        and chosen != current
-        and chosen != failure.get("configuration")
+        and not job_failure.retry_configuration_matches(chosen, current)
+        and not job_failure.retry_configuration_matches(chosen, failure.get("configuration"))
     ):
         return (
             "The stopped Investigator's preparation pin is bound to its exact retry; nothing is saved. "
@@ -100,8 +100,8 @@ def settings_refusal(args, state: RunState, selected) -> str | None:
     if (
         quota_route.job_pause_current(state)
         and not answering
-        and chosen != current
-        and chosen != failure.get("configuration")
+        and not job_failure.retry_configuration_matches(chosen, current)
+        and not job_failure.retry_configuration_matches(chosen, failure.get("configuration"))
     ):
         return (
             "Provider configuration or limits at a stopped job are bound to its exact retry; nothing is saved. "
@@ -109,7 +109,7 @@ def settings_refusal(args, state: RunState, selected) -> str | None:
         )
     if not answering:
         return None
-    if current == chosen:
+    if job_failure.retry_configuration_matches(current, chosen):
         return None
     return (
         "A stopped job's model answer changes only that job's model; this invocation also changes the "
