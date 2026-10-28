@@ -66,6 +66,7 @@ try:
     from . import autocode_chat_worker as worker
     from . import autocode_client_actions as actions
     from . import autocode_events_command as events
+    from .autocode_util import redact
 except ImportError:
     import autocode_chat_attention as attention
     import autocode_chat_attention_discovery as attention_discovery
@@ -79,6 +80,7 @@ except ImportError:
     import autocode_chat_worker as worker
     import autocode_client_actions as actions
     import autocode_events_command as events
+    from autocode_util import redact
 
 AUTOCODE = (sys.executable, str(Path(__file__).resolve().parent / "autocode.py"))
 POLL_SECONDS = 2.0
@@ -541,6 +543,13 @@ class ChatClient:
             if argv[:1] == ["coordinate"] and child.returncode:
                 log.seek(0)
                 raise actions.ClientGap("Coordination stopped: " + log.read()[-2000:].strip())
+            if child.returncode == 2 and str(self.run_dir) in self.viewed:
+                # Exit 2 can refuse an action without changing the saved view.
+                # Show bounded diagnostics; never parse prose into a new action.
+                log.seek(0)
+                diagnostic = redact(log.read(), secret_values=(env or {}).values())[-2000:].strip()
+                if diagnostic:
+                    self.say("AutoCode action stopped: " + diagnostic)
             if str(self.run_dir) not in self.viewed:
                 try:
                     self.status()

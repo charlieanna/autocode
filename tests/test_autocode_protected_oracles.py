@@ -170,6 +170,24 @@ class OriginalOracleTests(unittest.TestCase):
         self.assertEqual("PASS", result["verdict"], result)
         self.assertEqual(3, result["candidate"]["results"]["total"])
         self.assertEqual(2, result["original"]["results"]["total"])
+        # A candidate's nested package collides with the restored root package.
+        # Keep both markers and every assertion; explicit import isolation must
+        # collect all cases rather than omit the root or a member's originals.
+        (nested.parent / "__init__.py").touch()
+        with self.assertRaisesRegex(ValueError, "original gate did not pass"):
+            self.execute()
+        self.state.update(status="PAUSED_INVALID_OUTPUT")
+        previous = copy.deepcopy(self.binding)
+        self.configure(args)
+        self.assertEqual(previous["files"], self.binding["files"])
+        self.assertEqual(
+            shlex.join([sys.executable, "-m", "pytest", "tests", "repos", "-q", "--import-mode=importlib"]),
+            self.binding["command"],
+        )
+        result = self.execute()
+        self.assertEqual("PASS", result["verdict"], result)
+        self.assertEqual(3, result["candidate"]["results"]["total"])
+        self.assertEqual(2, result["original"]["results"]["total"])
         # A weakened current assertion cannot replace the sealed original one.
         nested.write_text(ORIGINAL.replace("40", "20"))
         (self.project / "layout.py").write_text("def height(): return 20\n")
