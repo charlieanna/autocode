@@ -89,10 +89,16 @@ class LinuxFakeContainerTests(unittest.TestCase):
         self.assertIn("--cap-drop=ALL", command)
         self.assertIn("--security-opt=no-new-privileges:true", command)
         self.assertIn("--security-opt=seccomp=unconfined", command)
+        # #2373: only the OUTER container's system-path masks are removed, so the inner
+        # bwrap sandbox can mount its own fresh /proc in its new PID namespace (Docker's
+        # default masks make the kernel refuse that mount); every inner boundary setting
+        # above and below is unchanged, and no broader mount or live flag is accepted.
+        self.assertIn("--security-opt=systempaths=unconfined", command)
         self.assertIn("--pid=host", command)
         self.assertIn("--network=none", command)
         self.assertNotIn("--privileged", command)
         self.assertFalse(any(argument.startswith("--cap-add") for argument in command))
+        self.assertFalse(any(argument.startswith("-v") or argument.startswith("--volume") for argument in command))
 
         mounts = [command[index + 1] for index, argument in enumerate(command) if argument == "--mount"]
         self.assertEqual([f"type=bind,source={ROOT.resolve()},target=/workspace"], mounts)
