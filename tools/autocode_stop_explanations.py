@@ -514,8 +514,7 @@ HOST_CAUSES = (
             "VMs and CI images), which provider session ownership refuses. No process is stuck; the saved run is "
             "intact. `autocode doctor` reports this as its session row.",
             "Run AutoCode as an ordinary user, or drop the two capabilities for every command: "
-            "setpriv --bounding-set=-sys_admin,-sys_ptrace autocode ... . The attempt that never launched is "
-            "recorded as uncertain, so set it aside first: --abandon-stage {attempt}, then --resume-paused.",
+            "setpriv --bounding-set=-sys_admin,-sys_ptrace autocode ... , then --resume-paused{recovery}.",
         ),
     ),
     (
@@ -523,8 +522,7 @@ HOST_CAUSES = (
         (
             "No provider was launched: this host cannot own provider sessions (supported: Linux native x86_64 "
             "or aarch64, and macOS). No process is stuck; the saved run is intact.",
-            "On a supported host (docs/install.md), set the attempt that never launched aside: "
-            "--abandon-stage {attempt}, then --resume-paused.",
+            "On a supported host (docs/install.md), --resume-paused{recovery}.",
         ),
     ),
 )
@@ -555,9 +553,15 @@ def explain(status: str, *, stop_reason: str = "", needs=None) -> dict:
         does = needs["recovery_hint"]
     if status == "PAUSED_PROCESS_CLEANUP":
         attempt = (needs or {}).get("abandon_stage") if isinstance(needs, dict) else None
+        # A run saved before #2296 still holds the attempt that never launched as uncertain.
+        recovery = (
+            f"; this run recorded the attempt that never launched, so first --abandon-stage {attempt}"
+            if attempt
+            else ""
+        )
         for phrase, (host_means, host_does) in HOST_CAUSES:
             if phrase in (stop_reason or ""):
-                means, does = host_means, host_does.format(attempt=attempt or "ATTEMPT (the status names it)")
+                means, does = host_means, host_does.format(recovery=recovery)
                 break
     if status == "PAUSED_TOOL_CONTAINMENT":
         # Every other cause keeps the table's text.

@@ -240,6 +240,18 @@ def discard_prepared(record):
         path.unlink(missing_ok=True)
 
 
+def discard_refused(state: RunState, record, state_path):
+    """Undo an admitted attempt whose launch the host refused before any process started (#2296).
+
+    Nothing ran: no provider, no receipt, no artifacts. Kept as ``active_stage`` it became an uncertain
+    stage that every resume held on until ``--abandon-stage``; a plain resume should try the stage again.
+    """
+    if state.get("active_stage") is record:
+        state.pop("active_stage")
+        util.atomic_json(state_path, state)
+    discard_unadmitted(state, record)
+
+
 def discard_unadmitted(state: RunState, record):
     """Remove an attempt's prepared files when it never became the active stage (#1114).
 
