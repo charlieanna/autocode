@@ -42,6 +42,29 @@ class RecordedGitHubTests(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(github.GitHubError):
                 github.parse_pull_request_url(url)
 
+    def test_a_value_that_is_not_a_pull_request_url_is_told_the_form_it_takes(self):
+        for given in (
+            "12",
+            "charlieanna/autocode#12",
+            "https://github.com/a/b/pulls",
+            "https://github.com/a/b/issues/7",
+        ):
+            with self.subTest(given=given), self.assertRaises(github.GitHubError) as caught:
+                github.parse_pull_request_url(given)
+            self.assertEqual(
+                f"pull request URL must be https://github.com/OWNER/REPO/pull/N, not {given!r}", str(caught.exception)
+            )
+        with self.assertRaises(github.GitHubError) as caught:
+            github.parse_pull_request_url("https://token@github.com/a/b/pull/7")
+        self.assertNotIn("token", str(caught.exception), "a credential in the value is never echoed")
+        with self.assertRaises(github.GitHubError) as caught:
+            github.parse_pull_request_url("https://foreign/a/b/pull/7", api="https://enterprise.test:8443/api/v3")
+        self.assertEqual(
+            "pull request URL must match the configured GitHub API web host and port: "
+            "https://enterprise.test:8443/OWNER/REPO/pull/N",
+            str(caught.exception),
+        )
+
     def test_web_host_and_port_bind_to_the_configured_api_before_any_get(self):
         for api, accepted in (
             ("https://api.github.com", "https://github.com/a/b/pull/7#discussion"),
