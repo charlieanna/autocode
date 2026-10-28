@@ -28,6 +28,7 @@ built-in Claude Code provider, which runs AutoCode's fixed argv, as ``engine = "
 from __future__ import annotations
 
 import argparse
+import difflib
 import sys
 import tomllib
 from pathlib import Path
@@ -150,8 +151,11 @@ def _checked(table, source: str) -> dict[str, tuple[object, str]]:
         if key in USER_ONLY:
             raise ValueError(f"{source}: {key} cannot be set by a project; {USER_ONLY[key]}")
         if key not in KEYS and key not in FILE_ONLY:
+            # `max_cost_usd` is the flag's destination, not its key: name the key before the forty-name list (#2398).
+            near = difflib.get_close_matches(str(key).replace("_", "-"), (*KEYS, *FILE_ONLY), n=1, cutoff=0.75)
+            hint = f" did you mean {near[0]!r}?" if near else ""
             raise ValueError(
-                f"{source}: unknown setting {key!r}; a project file sets only {', '.join((*KEYS, *FILE_ONLY))}"
+                f"{source}: unknown setting {key!r};{hint} a project file sets only {', '.join((*KEYS, *FILE_ONLY))}"
             )
     return {key: (value, source) for key, value in table.items()}
 
