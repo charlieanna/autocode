@@ -751,10 +751,40 @@ def route_lines(result: dict, roles=None) -> list[str]:
     return lines
 
 
+CODEX_PROJECT = (
+    "autocode models: this project's engine is codex (set in {source}); a Codex run takes its fixed "
+    "default routes (docs/models.md#default-models), not a catalogue listing. "
+    "The OpenCode catalogue is still listed with --provider opencode."
+)
+
+
+def project_engine(workspace) -> tuple[str | None, str | None]:
+    """The engine the project's files set for a new run (#707), as doctor and a task read it, or
+    (None, None); `autocode models` follows it when no --provider is given (#2369)."""
+    try:
+        from . import autocode_project_config as project_config
+    except ImportError:
+        import autocode_project_config as project_config
+    try:
+        value, source = project_config.read(workspace).get("engine", (None, None))
+    except (OSError, ValueError):
+        return None, None
+    return (value, str(source)) if value in ("codex", "claude") else (None, None)
+
+
 def cli(argv: list[str]) -> int:
     """`autocode models`: what your plans offer, and whether the default routes can be used."""
     arguments = parser()
     args = arguments.parse_args(argv)
+    if not args.provider:
+        # Doctor and a task honour the project's engine; listing OpenCode's catalogue in a Codex or
+        # Claude project answered a question nobody asked (#2369).
+        engine, source = project_engine(args.workspace)
+        if engine == "codex":
+            print(CODEX_PROJECT.format(source=source))
+            return 0
+        if engine == "claude":
+            args.provider = "claude"
     if args.selection:
         # Local listings only: discovery reads the tool's model and login lists, and
         # the selector is a pure function; neither launches a model.
