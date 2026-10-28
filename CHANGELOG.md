@@ -423,6 +423,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The plain CLI's human-review stop now lists the files each criterion's saved Builder steps changed and names `autocode review --show --run-dir RUN` as the way to read the change and its evidence; before, it asked for approval of a change it never located (#2360).
 - The chat's startup picker ("Runs waiting here") shows when each run last moved, as `/runs` does, so
   several unfinished runs of one request no longer read as identical lines (#2353).
 - `autocode doctor` no longer counts AutoCode's own learned record (`.autocode/project.json`, which its
