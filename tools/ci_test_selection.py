@@ -672,6 +672,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (("tools/autocode_provider_auth",), ("tests.test_provider_auth_cli", "tests.test_provider_credentials")),
     # An early access stop must retain the configured-provider environment guidance.
+    (
+        ("tools/autocode_access_evidence", "tools/autocode_model_preflight", "tools/autocode_provider_launch"),
+        ("tests.test_access_evidence_cli",),
+    ),
     (("tools/autocode_model_preflight",), ("tests.test_provider_credentials",)),
     (
         ("tools/autocode_run_records.py",),

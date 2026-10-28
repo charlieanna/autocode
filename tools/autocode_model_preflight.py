@@ -47,6 +47,7 @@ except ImportError:
     from autocode_util import atomic_json, digest
 
 try:
+    from . import autocode_access_evidence as access_evidence
     from . import autocode_agent_env as agent_env
     from . import autocode_cost as cost
     from . import autocode_preflight_attempts as attempts
@@ -58,6 +59,7 @@ try:
     from . import autocode_support as support
     from . import provider_conformance_transport as transport
 except ImportError:
+    import autocode_access_evidence as access_evidence
     import autocode_agent_env as agent_env
     import autocode_cost as cost
     import autocode_preflight_attempts as attempts
@@ -511,6 +513,14 @@ def check(
             for record in charged:
                 if record.get("preflight_identity") == identity:
                     probed[record["model"]] = record["preflight_outcome"]
+        # A real, completed call already demonstrated access on this exact launch
+        # identity. Missing legacy bindings never borrow the current configuration.
+        # Completed-stage entries are revalidated from their original artifacts,
+        # never promoted into permanent probe receipts. Explicit probe failures
+        # remain authoritative over earlier successful task calls.
+        probed = {model: outcome for model, outcome in probed.items() if outcome.get("source") != "completed_stage"}
+        for model, outcome in access_evidence.passed(state.get("stages", []), identity, run_dir).items():
+            probed.setdefault(model, outcome)
         wanted = [
             model
             for model in distinct_models({"roles": routes})

@@ -117,6 +117,66 @@ class ProviderLaunchTests(unittest.TestCase):
             with self.subTest(engine=worker["engine"], configured=worker.get("configured")):
                 self.assertEqual({"prompts_hash": prompts.HASH, **expected}, launch.stage_record(worker))
 
+    def test_access_binding_is_saved_at_launch_and_does_not_follow_later_settings(self):
+        from types import SimpleNamespace
+
+        identity = {
+            "engine": "fixture",
+            "identity_version": 1,
+            "executable": "/fixture",
+            "version": "1",
+            "config_path": "/config.toml",
+            "config_sha256": "a" * 64,
+        }
+        settings = {
+            "engine": "opencode",
+            "provider": "fixture",
+            "roles": {"requirements": {"model": "demo/reviewer"}},
+            "transport_identities": {"opencode": identity},
+        }
+        adapter = SimpleNamespace(
+            NAME="fixture", CONFIGURED=True, _config={"auth": {}}, launch=lambda *args, **kwargs: (["fixture"], {}, {})
+        )
+        _, _, _, worker = launch.prepare(
+            engine="opencode",
+            adapter=adapter,
+            role="glm",
+            route_role="requirements",
+            workspace=Path("/workspace"),
+            run_dir=Path("/run"),
+            session=None,
+            model="demo/reviewer",
+            effort="low",
+            allow_write=False,
+            planning=True,
+            report=Path("/report"),
+            schema=Path("/schema"),
+            prompt_file=Path("/prompt"),
+            sandbox="read-only",
+            transport_args=[],
+            chatgpt=False,
+            provider="fixture",
+            settings=settings,
+        )
+        record = launch.stage_record(worker)
+        binding = record["access_preflight_identity"]
+        self.assertEqual(
+            {
+                "schema": 1,
+                "identity": {
+                    "provider": "fixture",
+                    "transport_sha256": util.digest(identity),
+                    "reasoning_effort": "low",
+                },
+                "model": "demo/reviewer",
+            },
+            binding,
+        )
+        identity["config_sha256"] = "b" * 64
+        worker["access_preflight_identity"]["model"] = "changed"
+        self.assertEqual("demo/reviewer", binding["model"])
+        self.assertNotEqual(util.digest(identity), binding["identity"]["transport_sha256"])
+
     def test_a_provider_that_never_resumes_across_stages_starts_each_stage_fresh(self):
         """#717: the built-in claude provider resumes only a same-stage correction (a planning launch)."""
 
