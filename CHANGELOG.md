@@ -427,6 +427,9 @@ PR template asks for an entry here; a change without one is incomplete.
   method (and whether the independent check passed it), a few-line validation summary with the record's
   path, then the approval command, instead of the request and the whole validation record as JSON that
   named the criterion only by id (#2327).
+- A run waiting on a question shows each pending question's options and proposed default in the
+  readable tail of `--status` and in `--status --summary`, and the full-status tail ends with the exact
+  `--answer` command, instead of leaving all three inside the JSON payload (#2325).
 - `autocode spec.md` no longer starts a run whose task is the literal words `spec.md`: a whitespace-free
   positional task that names an existing file is refused before any run is created, naming
   `--brief-file spec.md` for the file's contents and `--brief spec.md` for the words themselves (#2323).
