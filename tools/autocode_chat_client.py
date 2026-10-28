@@ -213,7 +213,10 @@ class History:
         if wanted == "use":
             if row.get("connection_status") in setup.NOT_USABLE:
                 return f"{row.get('label') or name} cannot start chats yet: {setup.state(row)}."
-            self.new.options = setup.with_provider(self.new.options, name)
+            if name == "codex":  # an engine without a provider config: --provider codex is refused (#2331)
+                self.new.options = setup.with_engine(self.new.options, name)
+            else:
+                self.new.options = setup.with_provider(self.new.options, name)
             return self.chose(f"New chats use {row.get('label') or name}. Chats already started keep their own.")
         offered = setup.action(rows, name, wanted)
         if offered is None:
@@ -1732,6 +1735,30 @@ def open_chat(
     listed = project_runs(workspace, command=command, env=env)
     runs = waiting(listed)
     earlier = listed if hint and not runs else []
+
+    def request(prompt: str) -> str | None:
+        """What the person typed at ``prompt``: a request ("" to leave), or None once a slash command
+        was taken, at the picker as at the first question (#2009, #2355).
+
+        The line-by-line chat takes /engine, /mode, /connect and /runs here as the full-screen one
+        does, instead of starting a run called "/engine claude". /quit leaves and /help says what
+        works before a chat; neither reached here, so both answered "Open or start a chat first".
+        """
+        brief = ask(prompt).strip()
+        if slash is None or not brief.startswith("/"):
+            return brief
+        if brief.startswith("//"):
+            return brief[1:].strip()  # a request that starts with /
+        name, _, argument = brief.partition(" ")
+        if name == "/quit":
+            return ""
+        if name == "/help":
+            say(FIRST_PROMPT_HELP)
+            return None
+        answer = slash(name, argument.strip())
+        say(answer if answer is not None else f"{name} needs an open chat. Type what you want done.")
+        return None
+
     try:
         if len(runs) == 1:
             say(f"Picking up {runs[0].get('title') or runs[0]['name']}.")
@@ -1746,35 +1773,26 @@ def open_chat(
                 when = str(row.get("updated_at") or "").replace("T", " ")[:16]
                 say(f"  {number}. {row.get('title') or row['name']} ({state})" + (f" · {when}" if when else ""))
             offered = numbers_text(sorted(by_number))
-            while (choice := ask(f"Pick one ({offered}), or type a new request: ").strip()).isdigit():
+            while True:
+                choice = request(f"Pick one ({offered}), or type a new request: ")
+                if choice is None:
+                    continue
+                if not choice.isdigit():
+                    brief = choice
+                    break
                 if int(choice) in by_number:
                     return ChatClient(workspace, Path(by_number[int(choice)]["run_dir"]), ask=ask, say=say, **kwargs)
                 say(f"There is no run {choice} waiting.")
-            brief = choice
         else:
             if earlier:
                 say(f"{len(earlier)} earlier chat{'s' if len(earlier) != 1 else ''} here. Type /runs to see them.")
             if intro:
                 say(intro)
             while True:
-                brief = ask("What do you want done? ").strip()
-                if slash is None or not brief.startswith("/"):
+                typed = request("What do you want done? ")
+                if typed is not None:
+                    brief = typed
                     break
-                # The line-by-line chat takes /engine, /mode, /connect and /runs here as the full-screen one
-                # does, instead of starting a run called "/engine claude". /quit leaves and /help says what
-                # works before a chat; neither reached here, so both answered "Open or start a chat first".
-                if brief.startswith("//"):
-                    brief = brief[1:].strip()  # a request that starts with /
-                    break
-                name, _, argument = brief.partition(" ")
-                if name == "/quit":
-                    brief = ""
-                    break
-                if name == "/help":
-                    say(FIRST_PROMPT_HELP)
-                    continue
-                answer = slash(name, argument.strip())
-                say(answer if answer is not None else f"{name} needs an open chat. Type what you want done.")
     except Opened as opened:
         row = opened.row
         return ChatClient(Path(row.get("workspace") or workspace), Path(row["run_dir"]), ask=ask, say=say, **kwargs)

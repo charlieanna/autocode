@@ -26,6 +26,9 @@ except ImportError:
     from providers import command
 
 BUILTINS = {
+    # Codex is an engine (--engine codex), not a provider config; its row lets a client say it is installed
+    # and signed in. `codex login status` exits 0 signed in, 1 not, as the registered contract (#2357).
+    "codex": ("Codex", "codex", ["codex", "login"], ["codex", "login", "status"]),
     "kilocode": ("Kilo", "kilo", ["kilo", "auth", "login"], ["kilo", "auth", "list"]),
     "opencode": ("OpenCode", "opencode", ["opencode", "auth", "login"], ["opencode", "auth", "list"]),
     "claude": ("Claude Code", "claude", ["claude", "auth", "login"], ["claude", "auth", "status", "--json"]),

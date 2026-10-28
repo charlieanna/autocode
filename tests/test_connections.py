@@ -126,6 +126,35 @@ class ConnectionTests(unittest.TestCase):
                 ["opencode"], [row["id"] for row in connections.view()["connections"] if row.get("default")]
             )
 
+    def test_codex_is_listed_as_an_engine_backend_and_checked_through_its_login_status(self):
+        """The list had no Codex row, so a client could not offer a signed-in Codex (#2357)."""
+        with mock.patch.object(connections.shutil, "which", return_value=None):
+            row = next(row for row in connections.view()["connections"] if row["id"] == "codex")
+        self.assertEqual(("Codex", "unavailable", []), (row["label"], row["connection_status"], row["actions"]))
+        with mock.patch.object(connections.shutil, "which", return_value="/usr/bin/codex"):
+            row = connections.connection_view("codex")
+            self.assertEqual("not_checked", row["connection_status"])
+            self.assertEqual(
+                [
+                    ["connections", "check", "--provider", "codex", "--json"],
+                    ["connections", "login", "--provider", "codex"],
+                ],
+                [item["next_command"] for item in row["actions"]],
+            )
+            for code, expected in ((0, "credentials_present"), (1, "sign_in_required"), (2, "check_failed")):
+                with (
+                    self.subTest(code=code),
+                    mock.patch.object(
+                        connections.subprocess,
+                        "run",
+                        return_value=subprocess.CompletedProcess([], code, "Logged in using ChatGPT", ""),
+                    ) as run,
+                ):
+                    checked = connections.connection_view("codex", check=True)
+                    self.assertEqual(expected, checked["connection_status"])
+                    self.assertEqual(["codex", "login", "status"], run.call_args.args[0])
+                    self.assertNotIn("ChatGPT", json.dumps(checked))
+
     def test_empty_kilo_auth_list_is_not_a_successful_login(self):
         for output, status in (
             ("0 credentials", "sign_in_required"),

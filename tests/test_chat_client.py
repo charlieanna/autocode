@@ -1051,8 +1051,8 @@ class NewChatSetupTests(unittest.TestCase):
             banner, notice = history.summary().split("\n")
             self.assertEqual("New chats: Full · Kilo. /mode and /engine change them.", banner)
             self.assertEqual(
-                "Kilo cannot start chats yet (unavailable). Installed here: OpenCode. "
-                "Type /engine opencode to run new chats on it.",
+                "Kilo cannot start chats yet (unavailable). Installed here: OpenCode, Codex. "
+                "Type /engine opencode, /engine codex to run new chats on it.",
                 notice,
             )
             self.assertIn("New chats use the Kilo connection (kilocode)", history.slash("/engine", ""))
@@ -1072,8 +1072,8 @@ class NewChatSetupTests(unittest.TestCase):
             rows.append({"id": "claude", "label": "Claude Code", "connection_status": "not_checked"})
             listings = {"modes": history.read(["modes"]), "connections": {**CONNECTIONS, "connections": rows}}
             history.read = lambda argv: listings[argv[0]]
-            notice = "OpenCode cannot start chats yet (unavailable). Installed here: Claude Code. "
-            notice += "Type /engine claude to run new chats on it."
+            notice = "OpenCode cannot start chats yet (unavailable). Installed here: Codex, Claude Code. "
+            notice += "Type /engine codex, /engine claude to run new chats on it."
             self.assertEqual(notice, history.notice())
             self.assertEqual(f"New chats: Full · OpenCode. /mode and /engine change them.\n{notice}", history.summary())
             history.slash("/engine", "claude")
@@ -1138,6 +1138,48 @@ class NewChatSetupTests(unittest.TestCase):
             self.assertIn("Open or start a chat first: type a request, or /runs to see this project's chats.", said)
             self.assertIn("No chats yet. Type a request to start one.", said)
 
+    def test_a_slash_command_typed_at_the_run_picker_is_taken_not_run_as_a_task(self):
+        """/runs, /help and /quit at "Pick one, or type a new request" started a run called "/runs" (#2355)."""
+        with tempfile.TemporaryDirectory() as folder:
+            history = self.history(folder)
+            waiting = [
+                {
+                    "name": f"202610{day}-chat-{n}",
+                    "run_dir": f"{folder}/.autocode/runs/r{n}",
+                    "workspace": folder,
+                    "bucket": "needs you",
+                    "title": title,
+                    "updated_at": f"2026-10-{day}T10:00:00",
+                    "pause_category_label": "Your decision",
+                }
+                for n, title, day in ((1, "Old dashboard", "01"), (2, "Add a --shout flag", "20"))
+            ]
+
+            def open_with(*replies):
+                it, said = iter(replies), []
+                with (
+                    mock.patch.object(chat, "project_runs", return_value=waiting),
+                    mock.patch.object(
+                        chat, "mode_row", side_effect=lambda mode, **_: {"id": mode, "spend_confirmation": "planning"}
+                    ),
+                    mock.patch.object(chat, "start", side_effect=lambda ws, brief, *a, **_: brief),
+                ):
+                    return chat.open_chat(
+                        Path(folder), None, [], ask=lambda _: next(it), say=said.append, slash=history.slash
+                    ), said
+
+            started, said = open_with("/runs", "/help", "/bogus", "7", "/quit")
+            self.assertIsNone(started)
+            self.assertIn("  2. Old dashboard", "\n".join(said), "/runs listed the chats")
+            self.assertIn(chat.FIRST_PROMPT_HELP, said)
+            self.assertIn("Open or start a chat first: type a request, or /runs to see this project's chats.", said)
+            self.assertIn("There is no run 7 waiting.", said)
+            self.assertEqual("Nothing started.", said[-1])
+            started, _ = open_with("//slashes are my tool", "unused")
+            self.assertEqual("/slashes are my tool", started)
+            picked, _ = open_with("2")
+            self.assertEqual(Path(waiting[0]["run_dir"]), picked.run_dir, "a number still picks a run")
+
     def test_help_quit_and_a_slash_request_work_at_the_plain_chat_question(self):
         """/help and /quit typed at "What do you want done?" both answered "Open or start a chat first"."""
         with tempfile.TemporaryDirectory() as folder:
@@ -1178,6 +1220,9 @@ class NewChatSetupTests(unittest.TestCase):
             self.assertIn("New chats use OpenCode", history.slash("/connect", "opencode use"))
             self.assertIn("for this session", history.slash("/connect", "opencode use"), "no .autocode: not kept")
             self.assertEqual(["--provider", "opencode"], history.new.options)
+            # Codex is an engine without a provider config: `use` chooses --engine codex (#2357).
+            self.assertIn("New chats use Codex", history.slash("/connect", "codex use"))
+            self.assertEqual(["--engine", "codex"], history.new.options)
 
 
 class TabTests(unittest.TestCase):

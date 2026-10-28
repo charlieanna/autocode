@@ -1055,8 +1055,9 @@ A version the offline conformance suite has not been run against is
 
 ### Connection setup and company backends
 
-`autocode connections list --json` lists built-in Kilo, OpenCode and Claude Code
-and user-registered providers. `connections check --provider NAME --json` checks
+`autocode connections list --json` lists built-in Kilo, OpenCode, Codex and Claude Code
+and user-registered providers (Codex is an engine, `--engine codex`; its row says whether it is
+installed and signed in). `connections check --provider NAME --json` checks
 credentials without model traffic. `connections login --provider NAME` opens the
 backend's own interactive sign-in. AutoCode does not store a second copy of keys,
 SSO sessions, or AWS credentials. Kilo/OpenCode login lets the backend choose its
