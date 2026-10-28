@@ -40,7 +40,28 @@ class PlanningTests(unittest.TestCase):
                 self.assertIn(planning.retention.DELTA_RULE, request.prompt)
                 self.assertTrue(planning.retention.allows_delta(request.schema))
                 delta = {"retain_from": data["retained_contract"], "upsert": [], "remove": []}
-                criteria = request.schema["properties"]["contract"]["properties"]["acceptance_criteria"]
+                contract = request.schema["properties"]["contract"]
+                # #2374 offers glm_revise a revision-reference anyOf before the compatible full
+                # contract form; the delta is bound to the current contract in whichever branch
+                # carries it (astra_discovery still has the plain form).
+                branches = contract.get("anyOf", [contract])
+                reference = next(
+                    (branch for branch in branches if "revise_contract" in branch.get("properties", {})), None
+                )
+                if reference is not None:
+                    self.assertEqual(
+                        [data["retained_contract"]],
+                        reference["properties"]["revise_contract"].get("enum"),
+                    )
+                    offered = reference["properties"]["acceptance_criteria"]
+                    support.validate_schema(delta, offered)
+                    with self.assertRaises(ValueError):
+                        support.validate_schema({**delta, "upsert": [{"id": "C1"}]}, offered)
+                criteria = next(
+                    branch["properties"]["acceptance_criteria"]
+                    for branch in branches
+                    if "anyOf" in branch.get("properties", {}).get("acceptance_criteria", {})
+                )
                 # The runtime validates the expanded canonical report; check
                 # the concrete generation branch here (the small runtime
                 # validator intentionally does not implement JSON anyOf).

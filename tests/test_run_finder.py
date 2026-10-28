@@ -508,6 +508,11 @@ class CommandLine(Fixture):
             (["Add", "--no-such-flag"], "unrecognized arguments: --no-such-flag\n"),
             (["--task", "Add a hello script"], "there is no --task option: the task is the first argument"),
             (["--task=Add a hello script", "--no-chat"], "there is no --task option"),
+            (["--max-iterations", "0", "Add a hello script"], "--max-iterations must be at least 1; omit it"),
+            (
+                ["--legacy-iteration-ceiling", "0", "Add a hello script"],
+                "--legacy-iteration-ceiling must be at least 1",
+            ),
         ):
             with self.subTest(argv=argv):
                 self.assertIn(expected, self.parse_error(*argv))
