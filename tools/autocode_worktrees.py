@@ -45,9 +45,11 @@ import tempfile
 from pathlib import Path
 
 try:
+    from . import autocode_registry as registry
     from . import autocode_util as util
     from . import autocode_workspaces as workspaces
 except ImportError:
+    import autocode_registry as registry
     import autocode_util as util
     import autocode_workspaces as workspaces
 
@@ -259,11 +261,25 @@ def remove(project, tree, registered):
         shutil.copytree(
             tree / ".autocode", archive, symlinks=True, dirs_exist_ok=True, ignore=shutil.ignore_patterns("writer.lock")
         )
+        runs = sorted(p.parent for p in (tree / ".autocode" / "runs").glob("*/state.json"))
         # --force: the worktree is detached with the delivered source uncommitted relative to
         # HEAD; assess() has just shown the branch holds exactly that source.
         _git(project, "worktree", "remove", "--force", str(tree))
     _git(project, "worktree", "prune", check=False)
+    _forget_runs(tree, runs)
     return archive
+
+
+def _forget_runs(tree, runs):
+    """Drop the removed worktree's runs from the shared registry, or `runs --all` lists each of them as
+    unreadable for good (#2319). A registry kept inside the worktree went with it: never recreate one."""
+    if not runs or not registry.registry_path().is_file():
+        return
+    for run in runs:
+        try:
+            registry.forget_deleted(tree, run)
+        except registry.RegistryError:
+            continue  # the records are archived either way; the pointer is only a listing
 
 
 def parser() -> argparse.ArgumentParser:
