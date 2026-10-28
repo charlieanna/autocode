@@ -111,6 +111,18 @@ def command_parser(name: str) -> argparse.ArgumentParser | None:
     return importlib.import_module(f"{__package__}.{module}" if __package__ else module).parser()
 
 
+def option_typed_as_task(parser, argv, task) -> str | None:
+    """`autocode approve-goal`: a one-word task that names a main-run option without its dashes is a
+    typo, not a task to start a worktree and a run for. The refusal, else None. After ``--`` the word
+    is task text as typed."""
+    word = (task or "").strip()
+    if "--" in argv or not word or " " in word or word.startswith("-"):
+        return None
+    if f"--{word}" not in parser._option_string_actions:
+        return None
+    return f"'{word}' is the option --{word}, not a task. Use --{word}, or write the task in quotes: autocode \"your task\""
+
+
 def command_names() -> tuple[str, ...]:
     """Every command handled before the main task parser, in help order."""
     return ("--version", "doctor", *COMMAND_WORDS, *sorted((set(SUBCOMMANDS) | set(BUILTIN_COMMANDS)) - {"doctor"}))
