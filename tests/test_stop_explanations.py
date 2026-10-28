@@ -70,10 +70,13 @@ class StopExplanationTests(unittest.TestCase):
         self.assertIn("No provider was launched", text["what_it_means"])
         self.assertIn("root in most containers", text["what_it_means"])
         self.assertIn("setpriv --bounding-set=-sys_admin,-sys_ptrace autocode", text["what_the_command_does"])
-        # A plain --resume-paused holds on the uncertain attempt (the never-launched one), so name both steps.
-        self.assertIn("--abandon-stage 001/requirements-gather-01, then --resume-paused", text["what_the_command_does"])
-        text = stop_explanations.explain("PAUSED_PROCESS_CLEANUP", stop_reason=reason)
-        self.assertIn("--abandon-stage ATTEMPT (the status names it)", text["what_the_command_does"])
+        # A run saved before #2296 still holds the never-launched attempt as uncertain, so name both steps.
+        self.assertIn("then --resume-paused; this run recorded", text["what_the_command_does"])
+        self.assertIn("first --abandon-stage 001/requirements-gather-01", text["what_the_command_does"])
+        # Since #2296 the refused launch leaves no attempt behind: a plain --resume-paused carries on.
+        text = stop_explanations.explain("PAUSED_PROCESS_CLEANUP", stop_reason=reason, needs={"kind": "resume"})
+        self.assertIn("then --resume-paused.", text["what_the_command_does"])
+        self.assertNotIn("--abandon-stage", text["what_the_command_does"])
         unsupported = "Provider session boundary unavailable; no provider launched: Provider session ownership requires Linux native x86_64 or aarch64"
         text = stop_explanations.explain("PAUSED_PROCESS_CLEANUP", stop_reason=unsupported)
         self.assertIn("supported host", text["what_the_command_does"])

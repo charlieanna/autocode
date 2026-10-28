@@ -58,21 +58,38 @@ def _object(pairs):
     return result
 
 
+READ_ATTEMPTS = 4
+
+
 def _read_json(path, *, max_bytes=MAX_BYTES):
-    try:
-        before = path.lstat()
-    except FileNotFoundError:
-        return _MISSING
-    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > max_bytes:
-        raise ValueError("Controller receipt is not a bounded owned regular file")
-    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
-        opened = os.fstat(stream.fileno())
-        data = stream.read(max_bytes + 1)
-        finished = os.fstat(stream.fileno())
-    after = path.lstat()
-    fields = ("st_dev", "st_ino", "st_mode", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns")
-    if any(getattr(before, key) != getattr(value, key) for value in (opened, finished, after) for key in fields):
-        raise ValueError("Controller receipt changed while inspected")
+    """One consistent read of the receipt, or ValueError.
+
+    The controller replaces the receipt atomically, so a viewer's read can straddle a checkpoint:
+    the file it opened is no longer the one at the path. That is a moment, not a lost owner;
+    read again a bounded number of times before reporting the ownership as uninspectable (#2304).
+    """
+    for attempt in range(READ_ATTEMPTS):
+        try:
+            before = path.lstat()
+        except FileNotFoundError:
+            return _MISSING
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > max_bytes:
+            raise ValueError("Controller receipt is not a bounded owned regular file")
+        try:
+            with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
+                opened = os.fstat(stream.fileno())
+                data = stream.read(max_bytes + 1)
+                finished = os.fstat(stream.fileno())
+            after = path.lstat()
+        except FileNotFoundError:
+            if attempt + 1 == READ_ATTEMPTS:
+                raise
+            continue  # replaced between the stat and the open: read the new one
+        fields = ("st_dev", "st_ino", "st_mode", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns")
+        if all(getattr(before, key) == getattr(value, key) for value in (opened, finished, after) for key in fields):
+            break
+        if attempt + 1 == READ_ATTEMPTS:
+            raise ValueError("Controller receipt changed while inspected")
     if len(data) != before.st_size or len(data) > max_bytes:
         raise ValueError("Controller receipt was not read completely")
     value = json.loads(

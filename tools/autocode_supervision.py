@@ -43,6 +43,14 @@ class SupervisionError(processes.ProcessError):
     pass
 
 
+class LaunchRefused(SupervisionError):
+    """The host refused the launch before any process started (#2296).
+
+    Nothing ran: no keeper, no provider, no receipt. The caller may treat the
+    attempt as not started instead of as an uncertain stage.
+    """
+
+
 class LaunchLimitExpired(SupervisionError):
     """The launch limit passed before the keeper acknowledged (#989)."""
 
@@ -572,7 +580,7 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
             provider_boundary = False
             _note_portable_host()
         except boundary.BoundaryError as error:
-            raise SupervisionError(f"Provider session boundary unavailable; no provider launched: {error}") from error
+            raise LaunchRefused(f"Provider session boundary unavailable; no provider launched: {error}") from error
     # The held envelope authenticates the exact values passed to this Popen,
     # not caller-owned containers that can change during its checkpoint.
     command = list(command)

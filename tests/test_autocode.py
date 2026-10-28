@@ -1316,6 +1316,43 @@ class RetrofitTest(unittest.TestCase):
                 )
         self.assertEqual("PAUSED_PROCESS_CLEANUP", caught.exception.status)
 
+    def test_a_launch_refused_before_any_process_started_leaves_no_uncertain_attempt(self):
+        """#2296: a root shell's boundary refusal happens before Popen. The attempt had been admitted as the
+        active stage, so every resume paused on it as an uncertain stage until it was abandoned."""
+
+        @contextlib.contextmanager
+        def launch(command, *, checkpoint, **kwargs):
+            raise runner.supervision.LaunchRefused(
+                "Provider session boundary unavailable; no provider launched: "
+                "Provider session ownership refuses CAP_SYS_PTRACE or CAP_SYS_ADMIN"
+            )
+            yield  # pragma: no cover - a generator-based context manager
+
+        with (
+            patch.object(runner.supervision, "launch", launch),
+            patch.object(s, "snapshot", return_value={"head": "h", "files": {}, "revision": "r"}),
+            patch.object(runner.processes, "preflight"),
+        ):
+            with self.assertRaises(s.Paused) as caught:
+                runner.run_role(
+                    role="terra",
+                    prompt="small handoff",
+                    sandbox="workspace-write",
+                    workspace=self.root,
+                    run_dir=self.run,
+                    state=self.state,
+                    schema=runner.SCHEMA_DIR / "v2/terra-report.schema.json",
+                    model="gpt-5.6-terra",
+                    allow_write=True,
+                    dry_run=False,
+                )
+        self.assertEqual("PAUSED_PROCESS_CLEANUP", caught.exception.status)
+        self.assertIn("no provider launched", str(caught.exception))
+        self.assertNotIn("active_stage", self.state, "nothing ran, so there is no attempt to reconcile")
+        self.assertNotIn("active_stage", json.loads((self.run / "state.json").read_text()))
+        self.assertEqual([], sorted(p.name for p in (self.run / "iterations").rglob("*.prompt.md")))
+        self.assertIsNone(runner.reconcile_active(self.state, self.run, self.root))
+
     def test_automatic_timeout_recovery_archives_stopped_terra_and_continues_glm(self):
         before = s.snapshot(self.root)
         base = self.run / "iterations/005/terra-01"

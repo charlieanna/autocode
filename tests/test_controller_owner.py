@@ -340,6 +340,42 @@ class OwnerInspectionTests(unittest.TestCase):
         self.assertEqual("unknown", observed["kind"])
         self.assertEqual("PAUSED_PROCESS_CHECK", owners.project(self.state, observed)["status"])
 
+    def test_a_receipt_replaced_while_inspected_is_read_again_not_reported_as_uninspectable(self):
+        """#2304: a viewer's status read that straddled the controller's atomic receipt write reported
+        "Controller receipt changed while inspected" and offered --resume-paused on a running run."""
+        with util.run_lock(self.run_dir), owners.Owner(self.state, self.run_dir, self.persist) as owner:
+            owner.result(0, ready=True)
+        path = self.run_dir / owners.FILE
+        saved = json.loads(path.read_text())
+        real_lstat = Path.lstat
+        replaced = []
+
+        def lstat_then_replace(target):
+            result = real_lstat(target)
+            if target == path and not replaced:  # the controller checkpoints between the stat and the open
+                replaced.append(True)
+                util.atomic_json(path, dict(saved, last_checkpoint_at=util.now()))
+            return result
+
+        with patch.object(Path, "lstat", lstat_then_replace):
+            value = owners._read_json(path)
+        self.assertEqual(saved["id"], value["id"])
+        self.assertTrue(replaced)
+        # A receipt that keeps changing is still reported rather than trusted.
+        always = []
+
+        def keeps_changing(target):
+            result = real_lstat(target)
+            if target == path:
+                always.append(True)
+                util.atomic_json(path, dict(saved, last_checkpoint_at=util.now(), seq=len(always)))
+            return result
+
+        with patch.object(Path, "lstat", keeps_changing):
+            with self.assertRaises(ValueError) as refused:
+                owners._read_json(path)
+        self.assertIn("changed while inspected", str(refused.exception))
+
     def test_incomplete_or_malformed_ownership_metadata_cannot_prove_absence(self):
         with util.run_lock(self.run_dir), owners.Owner(self.state, self.run_dir, self.persist) as owner:
             owner.result(0, ready=True)
