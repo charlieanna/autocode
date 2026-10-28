@@ -115,6 +115,37 @@ class BundleTests(unittest.TestCase):
             json.loads((self.run / "state.json").read_text())["base_commit"], manifest["notes"]["diff_base"]
         )
 
+    def test_an_archived_runs_bundle_takes_the_project_and_diffs_its_kept_branch(self):
+        """clean-worktrees copies a finished worktree's records to PROJECT/.autocode/archive/TREE (#2377)."""
+        git(self.workspace, "checkout", "-qb", "autocode/task-1")
+        (self.workspace / "app.py").write_text("SOURCE_LINE = 2\n")
+        git(self.workspace, "-c", "user.name=F", "-c", "user.email=f@example.test", "commit", "-qam", "work")
+        git(self.workspace, "checkout", "-q", "-")
+        archive = self.workspace / ".autocode" / "archive" / "task-1"
+        (archive / "runs").mkdir(parents=True)
+        self.run.rename(archive / "runs" / "r1")
+        self.run = archive / "runs" / "r1"
+        (archive / "task-workspace.json").write_text(json.dumps({"kind": "task", "branch": "autocode/task-1"}))
+        files, manifest = self.collect(with_diff=True)
+        self.assertIn(b"+SOURCE_LINE = 2", files["diff.patch"])
+        base = json.loads((self.run / "state.json").read_text())["base_commit"]
+        self.assertEqual(f"{base}..autocode/task-1", manifest["notes"]["diff_base"])
+        stdout = io.StringIO()
+        with (
+            mock.patch.object(bundle, "_doctor", lambda workspace: {"ok": True}),
+            mock.patch.object(bundle, "_recording", self.no_recording),
+            contextlib.redirect_stdout(stdout),
+        ):
+            self.assertEqual(0, bundle.cli([str(self.run), "--json"]))
+        self.assertEqual(
+            str(self.workspace / ".autocode" / "bundles" / "r1.tar.gz"), json.loads(stdout.getvalue())["bundle"]
+        )
+        # Without the saved branch the diff cannot be taken; the bundle without it still can.
+        (archive / "task-workspace.json").unlink()
+        with self.assertRaisesRegex(ValueError, "without --with-diff"):
+            self.collect(with_diff=True)
+        self.assertIn("doctor.json", self.collect()[0])
+
     def test_a_recording_redaction_would_still_change_is_left_out(self):
         files, manifest = self.collect(recording=self.recording_with('{"clean": true}'))
         self.assertEqual(b'{"clean": true}', files["recording/recording.json"])
