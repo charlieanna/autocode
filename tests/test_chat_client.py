@@ -430,6 +430,30 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(0, client.converse())
         self.assertEqual([["--answer", "Q1=Different scope", "--resolver-token", "-"]], client.taken)
 
+    def test_a_slash_command_at_a_question_is_run_not_sent_as_the_answer(self):
+        """Typed at a run's question, ``/runs`` went to the model as the reply and spent a planning call."""
+        client = ScriptedChat(answer_view(), DONE, replies=["/runs", "/bogus", "/live", "//literal", "2"])
+        client.line_commands = True
+        self.assertEqual(0, client.converse())
+        out = client.text()
+        self.assertIn("This chat has no project list.", out)
+        self.assertIn("/bogus is not a command.", out)
+        self.assertIn("/live is only in the full-screen chat.", out)
+        self.assertEqual(["--feedback", "/literal"], client.taken[0], "// sent the text as typed")
+        self.assertNotIn("/runs", " ".join(" ".join(argv) for argv in client.taken))
+
+    def test_slash_help_and_quit_work_at_a_line_chat_prompt(self):
+        client = ScriptedChat(answer_view(), DONE, replies=["/help", "/quit"])
+        client.line_commands = True
+        client.converse()
+        self.assertIn("/help", client.text())
+        self.assertEqual([], client.taken)
+
+    def test_the_full_screen_chat_keeps_slash_text_as_typed(self):
+        client = ScriptedChat(answer_view(), DONE, replies=["/runs"])
+        self.assertEqual(0, client.converse())
+        self.assertEqual([["--feedback", "/runs"]], client.taken)
+
     def test_an_off_list_default_and_space_padded_label_still_answer_the_question(self):
         for text, expected in (
             ("", "Other valid default"),

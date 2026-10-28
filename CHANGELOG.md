@@ -423,6 +423,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The line-by-line chat (`autocode chat` outside a full terminal) takes `/` commands typed at a run's question or plan prompt (`/runs`, `/open`, `/new`, `/help`, `/quit`, ...) instead of sending them to the model as the answer, which spent a planning call. `//text` sends text that starts with a slash.
 - A completed task worktree's delivery line names the merge command (`autocode merge --workspace PROJECT WORKTREE`, or `git merge BRANCH`) next to the clean-up command, instead of only "Merge it".
 - `autocode runs` lists the runs of the project's task worktrees (a task started without `--in-place` runs in `.autocode/worktrees/<lane>`). It answered "No runs found" for a project whose only run `--status`, `resume` and `explain` all found.
 - Two user actions in one invocation (`--follow-up` with `--dry-run`, `--status` with `--approve-goal`) are refused naming both flags, instead of only "Choose one action per invocation".
