@@ -151,7 +151,9 @@ def prune(plan):
 def parser() -> argparse.ArgumentParser:
     """The arguments `autocode prune-run` reads; `autocode completion` reads them too."""
     result = argparse.ArgumentParser(prog="autocode prune-run", description=__doc__)
-    result.add_argument("run", help="run directory whose settled evidence bytes to prune")
+    result.add_argument("run", nargs="?", help="run directory whose settled evidence bytes to prune")
+    # Every other command names the run with --run-dir; accept it here too (#2385).
+    result.add_argument("--run-dir", dest="run_dir", help="the same run, named as the other commands name it")
     result.add_argument("--yes", action="store_true", help="delete the listed set (without it, only list)")
     result.add_argument("--json", action="store_true", help="print the result as JSON")
     return result
@@ -160,7 +162,9 @@ def parser() -> argparse.ArgumentParser:
 def cli(argv=None):
     arguments = parser()
     args = arguments.parse_args(argv)
-    run = Path(args.run)
+    if bool(args.run) == bool(args.run_dir):
+        arguments.error("name the run once: RUN or --run-dir RUN")
+    run = Path(args.run or args.run_dir)
     state_path = run / "state.json"
     if not state_path.is_file():
         arguments.error(f"{run} is not an autocode run directory (no state.json)")

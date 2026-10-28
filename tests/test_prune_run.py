@@ -137,6 +137,19 @@ class PruneTests(unittest.TestCase):
         self.assertFalse((self.aaaa / "scratch").exists())
         self.assertTrue((self.aaaa / "verification-copy.json").is_file())
 
+    def test_the_run_may_be_named_with_run_dir_like_the_other_commands(self):
+        """Every other command takes --run-dir; prune-run took only a positional RUN (#2385)."""
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            code = prune_run.cli(["--run-dir", str(self.run)])
+        self.assertEqual(code, 0)
+        self.assertIn("re-run with --yes", stdout.getvalue())
+        for argv in ([], [str(self.run), "--run-dir", str(self.run)]):
+            with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as stop:
+                    prune_run.cli(argv)
+                self.assertEqual(2, stop.exception.code)
+
     def test_a_live_stage_refuses_the_prune(self):
         write(self.run, "state.json", json.dumps({**self.state, "active_stage": {"stage": "terra"}}))
         stdout = io.StringIO()
