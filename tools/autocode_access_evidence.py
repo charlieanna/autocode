@@ -72,7 +72,12 @@ def _completed_events(record, run_dir) -> bool:
 
 
 def passed(records, identity, run_dir) -> dict[str, dict]:
-    """Only clean, charged real calls under the exact requested identity qualify."""
+    """Only clean, charged real calls under the exact requested identity qualify.
+
+    An accepted report-only repair is also a real request to that route. Its own
+    launch binding and terminal events prove access; the rejected original does
+    not. This grants no task correctness, tool capability or execution evidence.
+    """
     if not isinstance(identity, dict) or not isinstance(records, list):
         return {}
     outcomes: dict[str, dict] = {}
@@ -102,8 +107,7 @@ def passed(records, identity, run_dir) -> dict[str, dict]:
         if not isinstance(record.get("finished_at"), str) or not record["finished_at"]:
             continue
         if any(
-            record.get(key)
-            for key in ("timed_out", "interrupted", "rejected", "dry_run", "replay", "cleanup_error", "report_only")
+            record.get(key) for key in ("timed_out", "interrupted", "rejected", "dry_run", "replay", "cleanup_error")
         ):
             continue
         if not _completed_events(record, run_dir):

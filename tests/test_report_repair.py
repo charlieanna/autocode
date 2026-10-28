@@ -727,7 +727,13 @@ class RepairTests(unittest.TestCase):
                     self.assertIn("Each responses[].evidence_refs must be nonempty", prompt)
                 self.assertEqual(error, data["error"])
                 self.assertEqual(rejected, data["rejected_report"]["content"])
-                self.assertEqual(schema_bytes, request["schema"].read_bytes())
+                self.assertEqual(schema_bytes, schema.read_bytes())
+                self.assertEqual(
+                    json.loads(schema_bytes),
+                    runner.report_edits.validation_schema(json.loads(request["schema"].read_text())),
+                )
+                if stage != "glm_revise":
+                    self.assertEqual(schema_bytes, request["schema"].read_bytes())
                 self.assertFalse(request["allow_write"])
                 self.assertTrue(request["report_only"])
 

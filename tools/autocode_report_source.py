@@ -8,6 +8,7 @@ except ImportError:
     import autocode_prompts as prompts
 
 
+import copy
 import json
 from pathlib import Path
 
@@ -205,3 +206,75 @@ def repair_report_instruction(pending):
     if truncated:
         return prompts.get("fragments/report-source/repair-report-instruction-02.md")
     return prompts.get("fragments/report-source/repair-report-instruction.md")
+
+
+def load_stage_report(runtime, record, workspace=None, evidence_record=None, state=None):
+    """Validate provider output, retaining raw bytes before hydrating review IDs."""
+    runtime.readonly_events.assert_unchanged_review(record, workspace=workspace)
+    if evidence_record:
+        runtime.readonly_events.assert_unchanged_review(evidence_record, workspace=workspace)
+    runtime.rework_policy.verify_existing(record)
+    value = runtime.completed_provider_report(
+        record,
+        opencode_report=runtime.role_transport.report_reader(state, record, runtime.opencode, workspace),
+        read_object=runtime.util.read_object,
+        persist=runtime.write_json,
+    )
+    reported = copy.deepcopy(runtime.cmd_only.refuse(value, record.get("schema")))  # never a report, never run (#512)
+    value = runtime.report_edits.expand(value, record)
+    value = (
+        runtime.planning.fill_trace_id(state, str(record.get("stage", "")).removesuffix("_report_repair"), value)
+        if state
+        else value
+    )
+    value = runtime.default_missing_provenance(
+        runtime.normalize_plan_challenge_blocking(
+            runtime.planning_metadata.normalize_planning_metadata(value, state, record), record
+        ),
+        record,
+    )
+    evidence_record = evidence_record or record
+    validation = value.get("validation", value)
+    checks = validation.get("checks") if isinstance(validation, dict) else None
+    if isinstance(checks, list) and (
+        (record.get("stage") == "sol" and workspace is not None)
+        or any(isinstance(check, dict) and None in (check.get("exit_code"), check.get("command")) for check in checks)
+    ):
+        if workspace is None:
+            raise ValueError("Cannot derive check metadata without the validation workspace")
+        runtime.support.verify_checks(
+            checks, workspace, evidence_record["events"], **runtime.check_evidence_options(evidence_record)
+        )
+    # A Tester's extra citation beside a verified check costs a repair; the raw report stays as .reported.json.
+    runtime.check_refs.tidy_tester_citations(record, validation, workspace, (state or {}).get("settings"))
+    value = runtime.report_identity.adopt(
+        value, record, state
+    )  # a mistyped echo on a bound launch is no repair (#2135)
+    schema = runtime.support.review_validation_schema(
+        runtime.report_edits.validation_schema(runtime.read_json(Path(record["schema"]))), state, record, value
+    )
+    value = runtime.support.normalize_loaded_report(value, schema, record)
+    # finding_dispositions may be present in reports validated against schemas
+    # saved before the field was introduced. Strip it before validation rather
+    # than rejecting a correct report.
+    if "finding_dispositions" not in schema.get("properties", {}) and "finding_dispositions" in value:
+        stripped = {k: v for k, v in value.items() if k != "finding_dispositions"}
+        runtime.support.validate_schema(stripped, schema)
+    else:
+        runtime.support.validate_schema(value, schema)
+    value = runtime.support.hydrate_review_report(value, state, record)
+    if value != reported:
+        original = Path(record["output"]).with_suffix(".reported.json")
+        if original.exists():
+            if runtime.read_json(original) != reported:
+                raise ValueError("Preserved raw report differs; reconcile before normalization")
+        else:
+            runtime.write_json(original, reported)
+        record["reported_output"] = str(original)
+        reported_checks = reported.get("validation", reported).get("checks") or []
+        record["derived_check_metadata"] = runtime.support.derived_check_fields(
+            checks or [], reported_checks, evidence_record.get("events")
+        )
+    if (record.get("engine") == "opencode" and record.get("output_mode") != "report_file") or value != reported:
+        runtime.write_json(Path(record["output"]), value)
+    return runtime.rework_policy.capture(record, value) if workspace is not None else value
