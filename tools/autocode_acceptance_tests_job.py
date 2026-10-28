@@ -47,6 +47,7 @@ try:
     from . import autocode_stray_writes as stray_writes
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
+    from .autocode_report_repair_queue import ExecutionEvidenceRequired
     from .autocode_verify import is_test_path
 except ImportError:
     import autocode_acceptance_provenance as provenance
@@ -56,6 +57,7 @@ except ImportError:
     import autocode_stray_writes as stray_writes
     import autocode_test_cases as test_cases
     import autocode_util as util
+    from autocode_report_repair_queue import ExecutionEvidenceRequired
     from autocode_verify import is_test_path
 
 STAGE = acceptance.STAGE
@@ -202,10 +204,14 @@ def corrected_body(state: RunState, names: dict[str, str]) -> dict:
 def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: dict, *, inherited=()) -> dict[str, str]:
     """Per case, how the runner saw its test on today's code; raises ValueError naming what is wrong."""
     if run.get("error"):
-        raise ValueError(f"The runner could not run the acceptance tests on today's code: {run['error']}")
+        raise ExecutionEvidenceRequired(
+            f"The runner could not run the acceptance tests on today's code: {run['error']}"
+        )
     results = run.get("results")
     if results is None:
-        raise ValueError("The acceptance tests reported no per-test results; write standard tests for the project")
+        raise ExecutionEvidenceRequired(
+            "The acceptance tests reported no per-test results; write standard tests for the project"
+        )
     rows = {row["case_id"]: row for row in value["tests"]}
     # The final regression proof finds each test by the approved name, else by the case id
     # (test_ac1_...): a test named otherwise would pass here and never count there.
@@ -226,12 +232,14 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
     # A bug's reproduction must run and fail; a file that cannot load is no reproduction (autocode_proof_seam).
     unloadable = bool(results.get("collection_errors")) and not test_cases.bugfix(state)
     verdicts, wrong = {}, []
+    needs_execution = False
     already = {row["case_id"] for row in value["already_passing"]}
     for case in named:
         source = (Path(workspace) / rows[case["id"]]["file"]).read_text(errors="replace")
         if case.get("kind") == "preserve":
             verdicts[case["id"]] = "passes" if passed[case["id"]] else ""
             if not passed[case["id"]]:
+                needs_execution = True
                 wrong.append(f"guard {case['id']} ({case['test_name']}) does not pass on today's code")
         elif case["id"] in inherited and passed[case["id"]]:
             verdicts[case["id"]] = "already passes"
@@ -246,9 +254,11 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
         elif unloadable and test_cases.named_in(case["test_name"], source):
             verdicts[case["id"]] = "cannot load"
         else:
+            needs_execution = True
             wrong.append(_not_run(case, rows[case["id"]]["file"], source, run, results))
     if wrong:
-        raise ValueError(
+        error = ExecutionEvidenceRequired if needs_execution else ValueError
+        raise error(
             "The runner ran the acceptance tests on today's code: "
             + "; ".join(wrong)
             + ". A test: case must fail before the Builder starts and a guard: case must pass. If the behavior "
@@ -301,7 +311,18 @@ def apply(
         raise ValueError(f"Each test file must exist in the workspace and be a test file: {bad}")
     run = (run_tests or (lambda tests: {"error": "no test runner was given"}))(files)
     inherited = provenance.inherited_cases(state, reports=value["tests"], workspace=workspace)
-    verdicts = _verdicts(state, cases, value, workspace, run, inherited=inherited)
+    try:
+        verdicts = _verdicts(state, cases, value, workspace, run, inherited=inherited)
+    except ExecutionEvidenceRequired as error:
+        run_status.pause(
+            state,
+            PAUSE,
+            f"The runner could not establish the approved pre-build proof: {error}. "
+            "Resume explicitly to correct the tests and execute a fresh proof, or use --feedback to revise the plan. "
+            "A report-only repair cannot change test files or rerun proof.",
+            next_stage=STAGE,
+        )
+        return
     already = {row["case_id"]: row for row in value["already_passing"] if row["case_id"] not in inherited}
     if already:
         names = {row["case_id"]: row["test_name"] for row in value["tests"] if row["case_id"] in already}
