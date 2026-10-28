@@ -423,6 +423,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A run waiting on a question shows each pending question's options and proposed default in the
+  readable tail of `--status` and in `--status --summary`, and the full-status tail ends with the exact
+  `--answer` command, instead of leaving all three inside the JSON payload (#2325).
 - `autocode spec.md` no longer starts a run whose task is the literal words `spec.md`: a whitespace-free
   positional task that names an existing file is refused before any run is created, naming
   `--brief-file spec.md` for the file's contents and `--brief spec.md` for the words themselves (#2323).
