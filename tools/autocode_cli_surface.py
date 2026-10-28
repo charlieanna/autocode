@@ -52,5 +52,13 @@ class CompactParser(argparse.ArgumentParser):
         ]
         return "\n".join(lines) + "\n"
 
+    def error(self, message):
+        # `autocode Add a hello script`: argparse reads "Add" as the task and refuses the rest as
+        # "unrecognized arguments". When none of them is an option, the person left the quotes out.
+        extra = message.removeprefix("unrecognized arguments: ")
+        if extra != message and not any(word.startswith("-") for word in extra.split()):
+            message += '. If this was the task, put all of it in quotes: autocode "your whole task"'
+        super().error(message)
+
     def print_full_help(self):
         self._print_message(argparse.ArgumentParser.format_help(self), sys.stdout)

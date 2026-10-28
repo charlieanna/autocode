@@ -702,20 +702,20 @@ def parse(unit, argv, default_models):
     """Parse argv (sys.argv[1:]) and return (args, parser); an invalid combination exits via parser.error."""
     argv = list(argv)
     # `resume` continues a saved run; the read commands become their corresponding flags.
-    resume_only = argv[:1] == ["resume"]
-    if resume_only:
+    if resume_only := argv[:1] == ["resume"]:
         argv = argv[1:]
     elif argv and argv[0] in COMMAND_WORDS:
         argv = [f"--{argv[0]}", *argv[1:]]
     parser = build_parser(unit, default_models)
     args = parser.parse_args(argv)
-    # The word may also follow options (`autocode --no-chat resume`); argparse then reads it as
-    # the task. After `--` it stays task text.
+    # The word may also follow options (`autocode --no-chat resume`): argparse reads it as the task.
     at = _command_word_at(parser, argv, args.task) if args.task in COMMAND_WORDS else None
     if at is not None:
         resume_only = resume_only or args.task == "resume"
         argv = argv[:at] + ([] if args.task == "resume" else [f"--{args.task}"]) + argv[at + 1 :]
         args = parser.parse_args(argv)
+    if typo := subcommands.option_typed_as_task(parser, argv, args.task):
+        parser.error(typo)  # `autocode approve-goal` is not a task
     if (args.brief is not None or args.brief_file is not None) and (args.run_dir or resume_only):
         parser.error("--brief and --brief-file start a new run; they cannot accompany a saved run or resume")
     if args.reconcile_only is not None:
