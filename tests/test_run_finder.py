@@ -484,6 +484,21 @@ class CommandLine(Fixture):
         self.assertIn("--inspect-evidence requires --run-dir and --status", self.parse_error("--inspect-evidence"))
         self.assertEqual(before, tree_snapshot(self.project))
 
+    def test_an_option_typed_without_its_dashes_or_a_task_without_quotes_is_refused_in_words(self):
+        """`autocode approve-goal` started a task worktree for the task "approve-goal"; `autocode Add a hello
+        script` said only "unrecognized arguments: a hello script"."""
+        self.assertEqual("Add a hello script", self.parse("Add a hello script")[0].task)
+        for argv, expected in (
+            (["approve-goal"], "'approve-goal' is the option --approve-goal, not a task. Use --approve-goal"),
+            (["--no-chat", "show-goal"], "'show-goal' is the option --show-goal"),
+            (["Add", "a", "hello", "script"], "unrecognized arguments: a hello script. If this was the task, put all"),
+            (["Add", "--no-such-flag"], "unrecognized arguments: --no-such-flag\n"),
+        ):
+            with self.subTest(argv=argv):
+                self.assertIn(expected, self.parse_error(*argv))
+        self.assertNotIn("put all of it in quotes", self.parse_error("Add", "--no-such-flag"))
+        self.assertEqual("approve-goal", self.parse("--", "approve-goal")[0].task, "after -- the word is the task")
+
     def test_discovered_run_requires_explicit_recovery_with_an_expected_token(self):
         run = self.run_in(self.project, status="PAUSED_BUDGET")
         before = tree_snapshot(self.project)

@@ -423,6 +423,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode approve-goal` (a main-run option typed without its dashes) is refused with the option named instead of starting a task worktree and a run for the task "approve-goal"; `autocode Add a hello script` (a task without quotes) says to put the whole task in quotes after "unrecognized arguments".
 - `autocode connections list` and `connections check` print a readable line per connection (state, detail and the command of each offered action) when `--json` is not given; the flag was a no-op and both printed one line of JSON.
 - `autocode merge` without a worktree argument says that the project has no task worktree, or names the ones it has, instead of "there is not exactly one task worktree".
 - The line-by-line chat (`autocode chat` outside a full terminal) takes `/` commands typed at a run's question or plan prompt (`/runs`, `/open`, `/new`, `/help`, `/quit`, ...) instead of sending them to the model as the answer, which spent a planning call. `//text` sends text that starts with a slash.
