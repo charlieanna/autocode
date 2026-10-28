@@ -15,6 +15,48 @@ from . import test_report_repair as repair_fixtures
 
 
 class ClarificationContextTests(unittest.TestCase):
+    def test_protected_list_inventory_is_literal_read_only_and_not_an_authority_decision(self):
+        protected = {
+            "important_failure_cases": ["Keep zero", "Keep negatives"],
+            "constraints": ["Local only"],
+            "permission_boundaries": ["a.py"],
+        }
+        content = {
+            "contract": {
+                "important_failure_cases": ["Keep zero", "Keep negative values"],
+                "constraints": ["Local only"],
+                "permission_boundaries": ["b.py"],
+            },
+            "contract_changes": [
+                {
+                    "item": "Keep negatives",
+                    "change": "reworded",
+                    "basis": "user_answer",
+                    "answer_id": "Q1",
+                    "replacement": "Keep negative values",
+                }
+            ],
+        }
+        source = {"format": "json", "truncated": False, "content": content}
+        before = copy.deepcopy((protected, source))
+        self.assertEqual(
+            [{"field": "important_failure_cases", "missing": ["Keep negatives"]}],
+            context.protected_list_differences(protected, source),
+        )
+        self.assertEqual(before, (protected, source), "Inventories neither edit receipts nor grant/refuse changes")
+        retained = copy.deepcopy(source)
+        retained["content"]["contract"]["important_failure_cases"].append("Keep negatives")
+        self.assertEqual([], context.protected_list_differences(protected, retained))
+        for unknown in (
+            {**source, "truncated": True},
+            {**source, "format": "text"},
+            {**source, "content": []},
+            {**source, "content": {"contract": {"retain_contract": "r1:hash"}}},
+            {**source, "content": {"contract": {"important_failure_cases": "invalid"}}},
+        ):
+            with self.subTest(source=unknown):
+                self.assertEqual([], context.protected_list_differences(protected, unknown))
+
     def test_historical_overlay_keeps_all_old_values_available_without_read_tools(self):
         original = {
             "shared": "retained text " * 500,
@@ -264,6 +306,39 @@ class ClarificationContextTests(unittest.TestCase):
 
 class DecisionRepairContextTests(unittest.TestCase):
     setUp = repair_fixtures.base.RetrofitTest.setUp
+
+    def test_first_id_repair_also_names_independently_missing_protected_text(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["next_stage"] = "glm_revise"
+        exact = "Nonpositive size must still raise ValueError after the change"
+        self.state["goal_contract"]["body"]["important_failure_cases"] = [exact]
+        value = {
+            "contract": copy.deepcopy(self.state["goal_contract"]["body"]),
+            "requirement_trace": [{"requirement": "Keep invalid-size behavior"}],
+            "contract_changes": [],
+        }
+        value["contract"]["important_failure_cases"] = [
+            "Nonpositive size (0 and negative) must still raise ValueError after the change"
+        ]
+        before = copy.deepcopy(value)
+        repair_fixtures.RepairTests.queue(
+            self,
+            stage="glm_revise",
+            role="glm",
+            report=json.dumps(value),
+            error=ValueError("Planner report is missing requirement_trace[0].requirement_id"),
+        )
+        request = repair_fixtures.RepairTests.repair_request(self)
+        data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertIn("requirement_id", data["error"])
+        self.assertEqual([{"field": "important_failure_cases", "missing": [exact]}], data["protected_list_differences"])
+        self.assertEqual(before, data["rejected_report"]["content"])
+        self.assertIn("retain the saved text verbatim", request["prompt"])
+        self.assertIn("grants no change authority", request["prompt"])
+        with self.assertRaisesRegex(ValueError, "drops or changes"):
+            runner.goals.revision_guard(self.state, value["contract"], [], "glm_revise")
 
     def test_revision_repair_receives_current_review_even_when_execution_findings_are_empty(self):
         concerns = [

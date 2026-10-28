@@ -250,6 +250,21 @@ def main():
         row["active_contract_commands"] = [field for field, command in commands.items() if command in active]
         for field in row["active_contract_commands"]:
             value[field] = {} if field == "contract" else []
+    if stage == "glm_revise" and case == "batched-protected-diagnostics":
+        exact = "Reject an empty name with nonzero exit status"
+        if not repair:
+            value["contract"]["important_failure_cases"] = ["Reject empty input with a failing exit code"]
+            value.pop("summary")
+        else:
+            value = copy.deepcopy(data["rejected_report"]["content"])
+            value["summary"] = "Retained exact failure-case obligation"
+            differences = data.get("protected_list_differences", [])
+            row["protected_list_differences"] = differences
+            if any(
+                item.get("field") == "important_failure_cases" and exact in item.get("missing", [])
+                for item in differences
+            ) or exact in data.get("error", ""):
+                value["contract"]["important_failure_cases"] = [exact]
     if stage == "glm_revise" and case == "revision-concerns":
         if repair:
             value = copy.deepcopy(data["rejected_report"]["content"])
