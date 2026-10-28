@@ -878,6 +878,12 @@ def parse(unit, argv, default_models):
     ):
         if getattr(args, flag) is not None and getattr(args, flag) < 0:
             parser.error(f"--{flag.replace('_', '-')} must be nonnegative")
+    for flag in ("max_iterations", "legacy_iteration_ceiling"):
+        if getattr(args, flag) == 0:  # no stage could run; unlike --max-seconds, 0 does not mean unlimited
+            parser.error(
+                f"--{flag.replace('_', '-')} must be at least 1; omit it for no ceiling "
+                "(a new run's default) or pass --unlimited-iterations"
+            )
     actions = user_actions(args)
     if args.close_finding and not args.run_dir:
         parser.error("--close-finding requires --run-dir")
