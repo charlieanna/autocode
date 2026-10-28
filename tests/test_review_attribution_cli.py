@@ -36,6 +36,12 @@ class ReviewAttributionCLI(unittest.TestCase):
                 )
             )
             (project / "change.patch").write_text(reviewed_patch)
+            # Exact named input must outrank generic review words in a crowded
+            # workspace; this is the real public review path, not a prompt mock.
+            noise = project / "archive/review/merge/patch/before"
+            noise.mkdir(parents=True)
+            for index in range(45):
+                (noise / f"{index}.txt").write_text("unrelated fixture\n")
             for args in (
                 ("init", "-q"),
                 ("add", "-A"),
@@ -89,6 +95,9 @@ class ReviewAttributionCLI(unittest.TestCase):
             self.assertTrue(attempts)
             self.assertTrue(all(row.get("stage") == "review_change" for row in attempts), attempts)
             self.assertEqual(1, len(attempts), "A spelling correction must not launch another review/repair")
+            prompt = Path(attempts[0]["output"]).with_suffix(".prompt.md").read_text()
+            handoff = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+            self.assertEqual("change.patch", handoff["workspace_inventory"]["files"][0])
             original_report = json.loads(Path(attempts[0]["output"]).with_suffix(".reported.json").read_text())
             self.assertEqual("blockign", original_report["findings"][0]["severity"])
             report_path = run.workspace / "review/findings.json"

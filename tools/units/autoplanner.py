@@ -16,8 +16,6 @@ except ImportError:
 
 import copy
 import json
-import os
-import re
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -63,6 +61,7 @@ try:
     from .. import autocode_utility_route as utility_route
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_workflows as workflows
+    from .. import autocode_workspace_inventory as workspace_inventory_impl
     from .. import autocode_workspace_scope as workspace_scope
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
@@ -102,6 +101,7 @@ except ImportError:
     import autocode_utility_route as utility_route
     import autocode_verification_plan as verification_plan
     import autocode_workflows as workflows
+    import autocode_workspace_inventory as workspace_inventory_impl
     import autocode_workspace_scope as workspace_scope
 # Which role and engine run a stage, and the planning cycle, live below this unit so the stage context and the
 # goal lifecycle use them without importing it back; they keep their names here (autocode_planning, autopilot).
@@ -1186,7 +1186,7 @@ def split_code_ref(root, ref):
 # Paths the runner or the tools own: a plan may not cite them as evidence. They are transient (a run's
 # active-processes.json is gone when the run ends), so a plan built on one breaks when the citation is
 # re-read (VALIDATION.md, 2026-09-26: a bugfix plan cited .autocode/active-processes.json).
-RUNNER_OWNED_PARTS = (".autocode", ".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache")
+RUNNER_OWNED_PARTS = workspace_inventory_impl.RUNNER_OWNED_PARTS
 
 
 def cited_file(root, path, field, ref):
@@ -1205,33 +1205,8 @@ def cited_file(root, path, field, ref):
 
 
 def workspace_inventory(workspace, task, limit=40, scan_limit=5000):
-    """Bounded filesystem inventory; works in repositories and ordinary directories."""
-    root = Path(workspace)
-    # #1822: list no file cited_file refuses; a pytest cache sorted ahead of README.md and was offered as citable.
-    ignored = {".venv", "venv", "node_modules", ".next", "dist", "build", ".cache", *RUNNER_OWNED_PARTS}
-    words = set(re.findall(r"[a-z]{3,}", task.lower()))
-    candidates = []
-    truncated = False
-    for directory, dirs, files in os.walk(root):
-        dirs[:] = sorted(d for d in dirs if d not in ignored and not Path(directory, d).is_symlink())
-        for name in sorted(files):
-            path = Path(directory, name)
-            if name in ignored or name.endswith((".pyc", ".png", ".jpg", ".lock")) or path.is_symlink():
-                continue
-            relative = path.relative_to(root).as_posix()
-            score = sum(word in relative.lower() for word in words)
-            candidates.append((-score, relative))
-            if len(candidates) >= scan_limit:
-                truncated = True
-                break
-        if truncated:
-            break
-    candidates.sort()
-    return {
-        "files": [name for _, name in candidates[:limit]],
-        "truncated": truncated or len(candidates) > limit,
-        "instruction": prompts.get("fragments/autoplanner/workspace-inventory.md"),
-    }
+    """Bounded navigation hints shared by planning and standalone jobs."""
+    return workspace_inventory_impl.inventory(workspace, task, limit, scan_limit)
 
 
 def capture_command():
