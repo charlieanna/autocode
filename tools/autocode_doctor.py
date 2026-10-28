@@ -896,8 +896,36 @@ def all_checks(
         install_drift_check(workspace=workspace),
         storage_check(workspace),
         project_settings(workspace)[0],
+        user_settings_check(),
         project_memory_check(workspace),
     ]
+
+
+def user_settings_check() -> Check:
+    """The user's ~/.config/autocode/config.toml: the keys it sets, or a warning for each key the file does
+    not take (#2400). `engine = "codex"` there was silently ignored, while doctor's own fix line names the
+    project's .autocode/config.toml for it; a run reads only autocode_providers.USER_KEYS from the user file."""
+    try:
+        from . import autocode_project_config as project_config
+    except ImportError:
+        import autocode_project_config as project_config
+    path = autocode_providers.user_config_path()
+    if not path.is_file():
+        return Check("user settings", OK, f"none ({path} does not exist)")
+    try:
+        table = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
+        return Check("user settings", MISSING, f"{path} cannot be read as TOML: {error}", "correct the file")
+    known = ", ".join(autocode_providers.USER_KEYS)
+    unknown = [str(key) for key in table if key not in autocode_providers.USER_KEYS]
+    if not unknown:
+        return Check("user settings", OK, f"{path}: {', '.join(str(key) for key in table) or 'no keys'}")
+    project_keys = [key for key in unknown if key in project_config.KEYS or key in project_config.FILE_ONLY]
+    detail = f"{path} sets {', '.join(repr(key) for key in unknown)}, which a run never reads from the user file"
+    fix = f"the user file takes only {known}"
+    if project_keys:
+        fix += f"; {', '.join(project_keys)} belong{'s' if len(project_keys) == 1 else ''} in the project's .autocode/config.toml"
+    return Check("user settings", WARN, detail, fix)
 
 
 def project_memory_snapshot(workspace):

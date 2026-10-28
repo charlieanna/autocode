@@ -778,6 +778,31 @@ class CliTests(unittest.TestCase):
         self.assertIsNone(codex["containment"])
         self.assertNotIn("containment", {c["name"] for c in codex["checks"]})
 
+    def test_the_user_file_is_shown_and_a_project_key_in_it_is_named_as_ignored(self):
+        """#2400: engine = "codex" in ~/.config/autocode/config.toml was silently ignored."""
+        with tempfile.TemporaryDirectory() as folder:
+            config = Path(folder) / "autocode" / "config.toml"
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": folder}):
+                absent = doctor.user_settings_check()
+                config.parent.mkdir()
+                config.write_text('default_provider = "kilocode"\nplan_review_call_limit = 3\n')
+                known = doctor.user_settings_check()
+                config.write_text('engine = "codex"\nmax-cost-usd = 5\ndefualt_provider = "codex"\n')
+                ignored = doctor.user_settings_check()
+                config.write_text('engine = "codex\n')
+                broken = doctor.user_settings_check()
+        self.assertEqual((doctor.OK, "none"), (absent.status, absent.detail[:4]))
+        self.assertEqual(doctor.OK, known.status)
+        self.assertIn("default_provider, plan_review_call_limit", known.detail)
+        self.assertEqual(doctor.WARN, ignored.status)
+        self.assertIn("sets 'engine', 'max-cost-usd', 'defualt_provider', which a run never reads", ignored.detail)
+        self.assertIn("takes only default_provider, plan_review_call_limit", ignored.fix)
+        self.assertIn("engine, max-cost-usd belong in the project's .autocode/config.toml", ignored.fix)
+        self.assertEqual(doctor.MISSING, broken.status)
+        self.assertIn("cannot be read as TOML", broken.detail)
+        self.assertFalse(doctor.passed([broken]))
+        self.assertTrue(doctor.passed([ignored]))
+
     def test_doctor_shows_where_each_project_setting_comes_from_and_fails_on_a_refused_file(self):
         # #707: a new run's settings from .autocode/config.toml or [tool.autocode], with their source.
         with tempfile.TemporaryDirectory() as folder:
