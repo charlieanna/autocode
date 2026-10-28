@@ -130,9 +130,11 @@ def deliver(state: RunState, workspace) -> str:
         _git(workspace, "update-ref", f"refs/heads/{branch}", commit, tip)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         return f"\nThe delivered source was not committed to {branch}: {error}"
+    project = state.get("project_workspace", "<project>")
     return (
-        f"\nDelivered on branch {branch} ({commit[:12]}). Merge it, then remove this worktree "
-        f"with `autocode clean-worktrees --workspace {state.get('project_workspace', '<project>')} --yes`."
+        f"\nDelivered on branch {branch} ({commit[:12]}). Merge it with "
+        f"`autocode merge --workspace {project} {workspace}` (or `git merge {branch}` from your checkout), "
+        f"then remove this worktree with `autocode clean-worktrees --workspace {project} --yes`."
     )
 
 

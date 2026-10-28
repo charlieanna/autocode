@@ -203,6 +203,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("Delivered on branch autocode/build-greeting-", result.stdout)
         (tree,) = (flow.project / ".autocode" / "worktrees").iterdir()
+        # The delivery line names the merge command, not only the clean-up one.
+        self.assertIn(f"`autocode merge --workspace {flow.project} {tree}`", result.stdout)
         run_dir = next(tree.glob(".autocode/runs/*"))
         status = json.loads(run("--workspace", str(flow.project), "--run-dir", str(run_dir), "--status").stdout)
         self.assertEqual("TASK_COMPLETE", status["status"])
