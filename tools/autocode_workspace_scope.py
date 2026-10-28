@@ -12,8 +12,9 @@ parts it can ground, so a model's claim never acts on its own:
   ``source_refs`` cite and that exists inside the workspace (for example a client of the other
   service). A part with neither is dropped and its target is returned as dropped;
 - a coordinated member run (``member_names``) must additionally name a kept part's repository:
-  a role-noun label ("Checkout display member") that is neither a canonical member name nor
-  literally grounded in the part's authorized quote or cited lines is refused with a ValueError,
+  a role-noun label ("Checkout display member") that is neither a canonical member name nor literally
+  grounded in the part's authorized quote or in the lines a ``source_refs`` citation shares with the
+  part's evidence file (the intersection of both line bounds) is refused with a ValueError,
   so the normal bounded report repair attempts the correction; a repair that does not converge
   stays a visible failure and nothing is dropped silently (#2420);
 - ``spans_repositories`` is true only when a part was kept.
@@ -98,24 +99,47 @@ def _workspace_file(evidence: str, source_refs, workspace) -> bool:
     return path is not None and any(_cited_file(str(ref), root) == path for ref in source_refs or [])
 
 
-def _cited_text(reference: str, workspace) -> str:
-    """The text of a cited workspace file, clipped to the lines the citation
-    names, so a grounded literal stays inside the citation's own bounds."""
-    if not reference or not workspace:
-        return ""
-    path = _cited_file(reference, Path(workspace).resolve())
-    if path is None:
-        return ""
+def _span(reference: str):
+    """The ``first, last`` line span a citation names; None for the whole file."""
+    found = re.search(r":([0-9]+)(?:-([0-9]+))?$", reference)
+    if not found:
+        return None
+    return int(found[1]), int(found[2] or found[1])
+
+
+def _bounded_lines(path: Path):
     try:
         with path.open("rb") as handle:  # bound the read before splitting lines
-            lines = handle.read(1_048_576).decode(errors="replace").splitlines()
+            return handle.read(1_048_576).decode(errors="replace").splitlines()
     except OSError:
+        return []
+
+
+def _cited_name_text(evidence: str, source_refs, workspace) -> str:
+    """The lines an authorized ``source_refs`` citation shares with the cited
+    evidence file, clipped to the intersection of both line bounds: a literal
+    name is grounded only inside a citation the report actually makes, and an
+    uncited file or a wider bound never exempts a role label (#2420)."""
+    if not evidence or not workspace:
         return ""
-    span = re.search(r":([0-9]+)(?:-([0-9]+))?$", reference)
-    if not span:
-        return "\n".join(lines)
-    first, last = int(span[1]), int(span[2] or span[1])
-    return "\n".join(lines[first - 1 : last])
+    root = Path(workspace).resolve()
+    path = _cited_file(evidence, root)
+    if path is None:
+        return ""
+    lines = _bounded_lines(path)
+    wanted = _span(evidence)
+    texts = []
+    for reference in source_refs or []:
+        if _cited_file(str(reference), root) != path:
+            continue  # the part may be quote-grounded; only a real citation counts
+        spans = [span for span in (wanted, _span(str(reference))) if span]
+        if not spans:
+            texts.append("\n".join(lines))
+            continue
+        first, last = max(span[0] for span in spans), min(span[1] for span in spans)
+        if first <= last:
+            texts.append("\n".join(lines[first - 1 : last]))
+    return "\n".join(texts)
 
 
 def validated(scope, *, sources, source_refs, workspace, member_names=()) -> tuple[dict, list[str]]:
@@ -140,12 +164,13 @@ def validated(scope, *, sources, source_refs, workspace, member_names=()) -> tup
             continue
         if canonical and target.casefold() not in canonical and ROLE_NOUN.fullmatch(target):
             # A coordinated member's role noun is not a repository name. The exact
-            # name may still be genuine when the authorized quote or the cited
-            # workspace lines contain it literally; anything else is refused so the
-            # normal report repair names the owner, never silently dropped.
-            grounded_name = (quote and target.casefold() in quote.casefold()) or (
-                bool(evidence) and target.casefold() in _cited_text(evidence, workspace).casefold()
-            )
+            # name may still be genuine when the authorized quote contains it
+            # literally, or when a source_refs citation to the part's evidence file
+            # names those same lines; anything else is refused so the normal
+            # bounded report repair names the owner, never silently dropped.
+            grounded_name = quote is not None and target.casefold() in quote.casefold()
+            if not grounded_name:
+                grounded_name = target.casefold() in _cited_name_text(evidence, source_refs, workspace).casefold()
             if not grounded_name:
                 raise ValueError(
                     f"workspace_scope target {target!r} is a role label, not a repository name; "

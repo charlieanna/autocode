@@ -206,32 +206,56 @@ class CoordinatedMemberTargetTests(unittest.TestCase):
             member_names=self.MEMBERS,
         )
         self.assertEqual(["Payments member"], [row["target"] for row in found["external_parts"]])
+
+    def test_a_role_label_name_exemption_needs_a_real_citation_with_tight_bounds(self):
         with tempfile.TemporaryDirectory() as directory:
-            (Path(directory) / "tax.py").write_text("TAX_REPOSITORY = 'Receipt-handling member'\nreturn\n")
-            cited = validated(
-                {
-                    "spans_repositories": True,
-                    "external_parts": [self.part("Receipt-handling member", quote="", evidence="tax.py:1")],
-                },
-                sources=(),
-                source_refs=["tax.py:1"],
-                workspace=directory,
-                member_names=self.MEMBERS,
-            )
-            self.assertEqual(["Receipt-handling member"], [row["target"] for row in cited["external_parts"]])
-            # The same file without the name on the cited line grounds the part
-            # but not the label, so the refusal keeps the citation's bounds.
-            with self.assertRaisesRegex(ValueError, "role label"):
-                validated(
-                    {
-                        "spans_repositories": True,
-                        "external_parts": [self.part("Payments member", quote="", evidence="tax.py:2")],
-                    },
-                    sources=(),
-                    source_refs=["tax.py:2"],
-                    workspace=directory,
-                    member_names=self.MEMBERS,
-                )
+            # The name sits on line 1; the report's citations decide whether it counts.
+            (Path(directory) / "contract.md").write_text("Payments member client lives here\nsecond line\n")
+            (Path(directory) / "uncited.md").write_text("The Receipt-handling member owns receipts.\n")
+            cases = [
+                # A quote-grounded part cannot borrow a name from a file the report never cites.
+                (
+                    "uncited file cannot exempt a quote-grounded part",
+                    self.part("Receipt-handling member", evidence="uncited.md"),
+                    ["contract.md:1"],
+                    False,
+                ),
+                # Whole-file evidence with a line-2 citation stays inside line 2.
+                (
+                    "source_refs line bound clips a whole-file evidence",
+                    self.part("Payments member", quote="", evidence="contract.md"),
+                    ["contract.md:2"],
+                    False,
+                ),
+                # The evidence's own line bound clips a whole-file source_ref.
+                (
+                    "evidence line bound clips a whole-file citation",
+                    self.part("Payments member", quote="", evidence="contract.md:2"),
+                    ["contract.md"],
+                    False,
+                ),
+                # A citation whose intersection covers the naming line grounds the name.
+                (
+                    "the intersecting cited lines ground the name",
+                    self.part("Payments member", quote="", evidence="contract.md:1"),
+                    ["contract.md:1-2"],
+                    True,
+                ),
+            ]
+            for name, part, refs, accepted in cases:
+                with self.subTest(case=name):
+                    scope = {"spans_repositories": True, "external_parts": [part]}
+                    sources = (ROLE_TASK,) if part["source_quote"] else ()
+                    if accepted:
+                        found = validated(
+                            scope, sources=sources, source_refs=refs, workspace=directory, member_names=self.MEMBERS
+                        )
+                        self.assertEqual([part["target"]], [row["target"] for row in found["external_parts"]])
+                    else:
+                        with self.assertRaisesRegex(ValueError, "role label"):
+                            validated(
+                                scope, sources=sources, source_refs=refs, workspace=directory, member_names=self.MEMBERS
+                            )
 
     def test_runs_outside_coordination_keep_free_form_targets(self):
         found = validated(
