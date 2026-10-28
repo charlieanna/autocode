@@ -724,7 +724,8 @@ class CommandLine(Fixture):
         ):
             with self.subTest(argv=argv):
                 self.assertIn("driven by `autocode tasks`", self.parse_error(*argv))
-        self.assertIn("Choose one action per invocation", self.parse_error("--status", "--approve-goal", "r1:x"))
+        refused = self.parse_error("--status", "--approve-goal", "r1:x")
+        self.assertIn("Choose one action per invocation: --status and --approve-goal were given together", refused)
 
     def test_only_read_actions_fall_back_to_a_finished_run(self):
         complete = self.run_in(self.project, status="TASK_COMPLETE")

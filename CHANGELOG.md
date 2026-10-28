@@ -423,6 +423,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode runs` lists the runs of the project's task worktrees (a task started without `--in-place` runs in `.autocode/worktrees/<lane>`). It answered "No runs found" for a project whose only run `--status`, `resume` and `explain` all found.
+- Two user actions in one invocation (`--follow-up` with `--dry-run`, `--status` with `--approve-goal`) are refused naming both flags, instead of only "Choose one action per invocation".
 - A task started in a Git checkout that has no commit yet is refused with the command that fixes it (`git -C PROJECT commit --allow-empty -m 'Start'`, the same one `autocode doctor` prints) instead of only "Create an initial Git commit".
 - `--status` reads the saved checkpoint and its controller receipt together. A controller that finished a stage and exited between the two reads was shown as ended at a checkpoint that no longer existed: the view offered a continue whose checkpoint token the durable worker then refused as stale (the `test_worker_host` failures on master on 2026-10-26 and 2026-10-27). When the checkpoint changes during the inspection, the view reads it again, so every field of one view describes the same saved state.
 - The terminal chat on a host whose default backend cannot start a chat (OpenCode not installed) says so
