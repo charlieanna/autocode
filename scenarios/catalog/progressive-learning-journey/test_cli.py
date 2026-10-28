@@ -151,11 +151,26 @@ class ProgressiveCLI(unittest.TestCase):
                 return body
 
             self.assertEqual(printed_body(shown), printed_body(goal_card))
-            saved, _ = json.JSONDecoder().raw_decode(shown.split("Saved user answers:\n", 1)[1].lstrip())
-            self.assertEqual(saved[question]["kind"], "permission_answer")
-            self.assertEqual(saved[question]["text"], answer)
-            self.assertEqual(saved[question]["contract_token"], original_token)
-            self.assertEqual(saved[question]["request"], captured["request"])
+            # Since #2363 the brief renders saved answers as one line each and keeps
+            # the contract token out of what a person reads; the structured record
+            # is the run's own event stream, read from the public events command.
+            section = shown.split("Saved user answers:\n", 1)[1].split("\n\n", 1)[0]
+            asked = original_need["questions"][0]["question"]
+            self.assertIn(
+                f"  - {question}: {asked.strip()} -> {answer.strip()} (a permission decision)", section.splitlines()
+            )
+            stream = driver.call(
+                "saved-answer-events", "events", "--run-dir", str(driver.run_dir), record=False, bare=True
+            )
+            self.assertEqual(0, stream.returncode, stream.stderr)
+            recorded = [json.loads(line) for line in stream.stdout.splitlines()]
+            saved = [
+                row for row in recorded if row.get("kind") == "permission_answer" and row.get("question_id") == question
+            ]
+            self.assertEqual(1, len(saved))
+            self.assertEqual(saved[0]["text"], answer)
+            self.assertEqual(saved[0]["contract_token"], original_token)
+            self.assertEqual(saved[0]["request"], captured["request"])
             for path, contents in source.items():
                 self.assertEqual((driver.project / path).read_text(), contents)
             final = driver.until_stopped()
