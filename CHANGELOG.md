@@ -423,6 +423,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The install guide's first-task walkthrough quotes the prompts the terminal chat prints (`Prepare plan? [y/N]:`, then `Approve this plan? [y/N], or type what to change:`) instead of one it never printed (#2367).
 - The plain CLI's human-review stop now lists the files each criterion's saved Builder steps changed and names `autocode review --show --run-dir RUN` as the way to read the change and its evidence; before, it asked for approval of a change it never located (#2360).
 - `autocode connections list` carries a `codex` row (unavailable off PATH; `check` runs `codex login
   status`, `login` delegates to `codex login`), so the chat's unusable-default notice can name an
