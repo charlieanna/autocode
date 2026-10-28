@@ -11,6 +11,11 @@ parts it can ground, so a model's claim never acts on its own:
   (autocode_requirement_quotes.ground), or when its ``evidence`` is a file this report's
   ``source_refs`` cite and that exists inside the workspace (for example a client of the other
   service). A part with neither is dropped and its target is returned as dropped;
+- a coordinated member run (``member_names``) must additionally name a kept part's repository:
+  a role-noun label ("Checkout display member") that is neither a canonical member name nor
+  literally grounded in the part's authorized quote or cited lines is refused with a ValueError,
+  so the normal bounded report repair attempts the correction; a repair that does not converge
+  stays a visible failure and nothing is dropped silently (#2420);
 - ``spans_repositories`` is true only when a part was kept.
 
 The validated value replaces the report's own in the saved handoff. Asking the person what to do
@@ -53,6 +58,10 @@ SCHEMA = {
     "additionalProperties": False,
 }
 
+# The core's own coordinated-member context calls coordinated repositories
+# "members", so member reports name external owners "<repository> ... member".
+ROLE_NOUN = re.compile(r".+\s+member", re.IGNORECASE)
+
 
 def _text(value) -> str:
     return " ".join(value.split()) if isinstance(value, str) else ""
@@ -89,12 +98,33 @@ def _workspace_file(evidence: str, source_refs, workspace) -> bool:
     return path is not None and any(_cited_file(str(ref), root) == path for ref in source_refs or [])
 
 
-def validated(scope, *, sources, source_refs, workspace) -> tuple[dict, list[str]]:
+def _cited_text(reference: str, workspace) -> str:
+    """The text of a cited workspace file, clipped to the lines the citation
+    names, so a grounded literal stays inside the citation's own bounds."""
+    if not reference or not workspace:
+        return ""
+    path = _cited_file(reference, Path(workspace).resolve())
+    if path is None:
+        return ""
+    try:
+        with path.open("rb") as handle:  # bound the read before splitting lines
+            lines = handle.read(1_048_576).decode(errors="replace").splitlines()
+    except OSError:
+        return ""
+    span = re.search(r":([0-9]+)(?:-([0-9]+))?$", reference)
+    if not span:
+        return "\n".join(lines)
+    first, last = int(span[1]), int(span[2] or span[1])
+    return "\n".join(lines[first - 1 : last])
+
+
+def validated(scope, *, sources, source_refs, workspace, member_names=()) -> tuple[dict, list[str]]:
     """The grounded ``workspace_scope`` (still valid against SCHEMA, since the saved report is checked
     again later) and the targets of the parts dropped for want of a quote or a real cited file."""
     if not isinstance(scope, dict):
         return {"spans_repositories": False, "external_parts": []}, []
     kept, dropped = [], []
+    canonical = {str(name).casefold() for name in member_names}
     for part in scope.get("external_parts") or []:
         if not isinstance(part, dict):
             continue
@@ -108,5 +138,21 @@ def validated(scope, *, sources, source_refs, workspace) -> tuple[dict, list[str
         if quote is None and not _workspace_file(evidence, source_refs, workspace):
             dropped.append(target)
             continue
+        if canonical and target.casefold() not in canonical and ROLE_NOUN.fullmatch(target):
+            # A coordinated member's role noun is not a repository name. The exact
+            # name may still be genuine when the authorized quote or the cited
+            # workspace lines contain it literally; anything else is refused so the
+            # normal report repair names the owner, never silently dropped.
+            grounded_name = (quote and target.casefold() in quote.casefold()) or (
+                bool(evidence) and target.casefold() in _cited_text(evidence, workspace).casefold()
+            )
+            if not grounded_name:
+                raise ValueError(
+                    f"workspace_scope target {target!r} is a role label, not a repository name; "
+                    f"coordinated members are: {', '.join(str(name) for name in member_names)}. "
+                    "Name the owning repository exactly as that list names it, or by its actual "
+                    "repository name for one outside the set, grounded like the rest of the report; "
+                    "if the owner cannot be named from evidence, ask the person in questions."
+                )
         kept.append({"target": target, "work": work, "source_quote": quote or "", "evidence": evidence})
     return {"spans_repositories": bool(kept), "external_parts": kept}, dropped

@@ -78,6 +78,20 @@ The coordinator owns durable publication intent and reconciles branch/PR identit
 before any retry. It never merges. Manual change-set completion alone is not
 automatic coordination completion.
 
+A coordinated member names the repositories that own its external work by their
+exact member names (or a genuinely grounded repository name); its member context
+says so, and a role label such as `Checkout display member` is refused by the
+report contract, so the normal bounded report repair attempts the correction. A
+repair that does not converge leaves the member stopped on that visible failure;
+the refused obligation is never silently dropped (ordinary filtering of ungrounded
+scope is unchanged). For labels earlier runs already accepted, discovery resolves
+the trailing member role noun against the authorized catalog only, and only when
+the catalog's own exact, noun, parenthetical and coordinated matches found
+nothing: every alias-prefix identity is enumerated, a job word or phrase naming
+another repository refuses the label, one identity that is already linked and
+still available reuses that member automatically, and anything else stays the
+person's repository gate.
+
 Automatic coordination currently runs in owned terminal chats. A `durable_local`
 anchor is refused without changing its saved execution policy. See
 [multi-repository setup and limits](multi-repo.md).

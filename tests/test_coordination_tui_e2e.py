@@ -217,6 +217,7 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             )
             self.addCleanup(client.close)
             client.history = history
+            self.flow_client = client
             selected_profile = client.status()["related_profile"]["settings"]
             for _ in range(100):
                 view = client._status_view or {}
@@ -467,6 +468,121 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
         self.run_flow()
         self.assertTrue(self.observed_mismatch, "The actual joint regression must reject the first candidate set")
         self.assertTrue(self.reopened, "A lost publication reply must be recovered by reopening the TUI")
+
+    def test_a_refused_role_label_repairs_to_the_canonical_members_and_continues(self):
+        # #2420: the live attempt-5 tax investigation labeled the checkout owner
+        # "Checkout display member" and receipts "Receipt-handling member". The
+        # report contract refuses both, the normal report repair names "checkout"
+        # and "history" with both obligations kept, and delivery continues with no
+        # /repos or repository-choice prompt: the only questions this flow may ask
+        # are the genuine plan approvals.
+        self.env["COORDINATION_FIXTURE_MEMBER_CONTEXT"] = "1"
+        self.env["COORDINATION_FIXTURE_SCOPE_METADATA"] = "1"
+        self.env["COORDINATION_FIXTURE_MEMBER_ROLE_LABEL"] = "repair"
+        self.run_flow()
+        summary = coordination.read(self.flow_client, self.flow_client.status())
+        tax = next(row for row in summary["members"] if row["target"] == "tax")
+        view = taskrun.TaskRun(Path(tax["workspace"]), Path(tax["run_dir"]), env=self.env).status()
+        parts = (view.get("scope") or {}).get("external_parts", [])
+        self.assertEqual(["checkout", "history"], [part["target"] for part in parts])
+        self.assertTrue(all("receipt" in part["work"] or "display" in part["work"] for part in parts))
+        # The provider-call receipt proves the repair ran: one refused attempt,
+        # one bounded report repair, and no private state is read.
+        calls = [
+            json.loads(line)
+            for line in (Path(tax["workspace"]) / ".autocode" / "provider-calls.jsonl").read_text().splitlines()
+        ]
+        self.assertEqual(
+            [("investigate_bug", False), ("investigate_bug", True)],
+            [
+                (row["stage"], row["repair"])
+                for row in calls
+                if row["name"] == "tax" and row["stage"] == "investigate_bug"
+            ],
+        )
+
+    def test_an_unrepairable_role_label_stops_the_member_without_catalog_prompts(self):
+        self.env["COORDINATION_FIXTURE_MEMBER_CONTEXT"] = "1"
+        self.env["COORDINATION_FIXTURE_MEMBER_ROLE_LABEL"] = "stuck"
+        history = chat.History(self.repos["checkout"], env=self.env)
+        for workspace in self.repos.values():
+            history.slash("/repos", str(workspace))
+        captured = {}
+
+        def decide(question):
+            if "Approve these coordinated plans?" in question:
+                return "yes"
+            # Diagnose the public gate before answering it, while the member's own
+            # stop reason is still the displayed one.
+            client = captured.get("client")
+            if client and "stop" not in captured:
+                summary = coordination.read(client, client.status())
+                tax = next((row for row in summary["members"] if row["target"] == "tax"), None)
+                if tax and tax["status"] != "STARTING":
+                    run = taskrun.TaskRun(Path(tax["workspace"]), Path(tax["run_dir"]), env=self.env)
+                    captured["stop"] = run.status().get("needs") or {}
+                    captured["shown"] = "\n".join(self.lines[-8:])
+            return "n"
+
+        with patch.dict(os.environ, self.env, clear=True):
+            client = chat.start(
+                self.repos["checkout"],
+                "Fix checkout showing the wrong final total.",
+                ["--workflow", "bugfix"],
+                [*FIXTURE_OPTIONS, "--no-adaptive-planning"],
+                env=self.env,
+                ask=decide,
+                say=self.lines.append,
+                poll_seconds=chat.POLL_SECONDS,
+            )
+            self.addCleanup(client.close)
+            client.history = history
+            captured["client"] = client
+            for _ in range(200):
+                outcome = client.step()
+                if outcome is not None:
+                    break
+            else:
+                self.fail("The member with the unrepairable label never surfaced its stop")
+            self.assertEqual(2, outcome, "\n".join(self.lines[-30:]))
+            # The publicly shown stop is the refused report's own bounded failure:
+            # the configured two repair attempts both rejected the same labels, no
+            # publication, no repository-choice or /repos prompt.
+            stop = captured["stop"]
+            self.assertIn("The same step repeatedly failed", captured["shown"])
+            self.assertEqual("answer", stop.get("kind"), captured["shown"])
+            self.assertEqual(
+                ("operational_exhaustion", "PAUSED_REPEATED_FAILURE"),
+                (stop.get("resolver_scope"), stop.get("pause_origin")),
+                captured["shown"],
+            )
+            summary = coordination.read(client, client.status())
+            tax = next(row for row in summary["members"] if row["target"] == "tax")
+            self.assertIn("PAUSED", tax["status"])
+            self.assertEqual(("input", "tax"), (summary["needs"]["kind"], summary["needs"].get("target")))
+            view = taskrun.TaskRun(Path(tax["workspace"]), Path(tax["run_dir"]), env=self.env).status()
+            self.assertEqual(
+                [], (view.get("scope") or {}).get("external_parts", []), "No ungrounded scope was persisted"
+            )
+            # The same invalid labels on every bounded attempt: one original and
+            # the configured two refused repairs, then the visible stop.
+            calls = [
+                json.loads(line)
+                for line in (Path(tax["workspace"]) / ".autocode" / "provider-calls.jsonl").read_text().splitlines()
+            ]
+            attempts = [
+                (row["stage"], row["repair"])
+                for row in calls
+                if row["name"] == "tax" and row["stage"] == "investigate_bug"
+            ]
+            self.assertEqual(
+                [("investigate_bug", False), ("investigate_bug", True), ("investigate_bug", True)], attempts
+            )
+            self.assertEqual([], self.github.posts)
+            self.assertTrue(
+                all("repos PATH" not in line for line in self.lines),
+                "No unavailable-catalog prompt may answer a refused report: " + "\n".join(self.lines[-10:]),
+            )
 
 
 if __name__ == "__main__":

@@ -1,8 +1,12 @@
 """Which Requirements reports the runner accepts as the handoff (autocode_requirements_handoff.accept)."""
 
+import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
+import autocode_changeset_store as sets
 import autocode_requirements_handoff as handoff
 
 QUESTION = {
@@ -136,6 +140,99 @@ class RequirementsHandoffTests(unittest.TestCase):
                 self.accept(value, settings)
 
     def test_clarifying_a_stated_requirement_does_not_require_inspecting_source(self):
+        task = "Make chat respond quickly while keeping all safety checks."
+        question = {**QUESTION, "question": "What response time would be quick enough?"}
+        value = report(
+            intended_outcome=task,
+            requirements=[{"id": "R1", "text": task, "source_quote": task}],
+            constraints=["Keep all safety checks"],
+            open_questions=[question],
+        )
+        state, queued = self.accept(value, task=task)
+        self.assertEqual([[question]], [row["questions"] for row in queued])
+        self.assertNotIn("goal_contract", state)
+
+    def test_a_coordinated_member_role_label_is_refused_before_any_state_write(self):
+        # #2420: the live attempt-5 tax Requirements could have carried the same
+        # role labels; the refusal names the canonical members for report repair.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            with mock.patch.dict(os.environ, {"AUTOCODE_HOME": str(root / "registry")}):
+                anchor = root / "anchor" / ".autocode" / "runs" / "chat"
+                anchor.mkdir(parents=True)
+                spaces = {name: root / name for name in ("checkout", "history", "tax")}
+                for space in spaces.values():
+                    space.mkdir()
+                record = sets.reserve(
+                    source_workspace=spaces["checkout"],
+                    source_run_dir=anchor,
+                    target="history",
+                    workspace=spaces["history"],
+                    brief="Fix the total",
+                )
+                sets.reserve(
+                    source_workspace=spaces["checkout"],
+                    source_run_dir=anchor,
+                    target="tax",
+                    workspace=spaces["tax"],
+                    brief="Fix the total",
+                )
+                run_dir = spaces["tax"] / ".autocode" / "runs" / "fix"
+                sets.bind(record["id"], "tax", run_dir)
+                sets.set_fields(record["id"], {"automatic_anchor": str(root / "coordination")})
+                state = {
+                    "task": "Fix checkout showing '100.0 USD' for a 100 USD subtotal.",
+                    "settings": {"spec_first": True},
+                    "stages": [],
+                    "run_dir": str(run_dir),
+                    "workspace": str(spaces["tax"]),
+                }
+                scope = {
+                    "spans_repositories": True,
+                    "external_parts": [
+                        {
+                            "target": "Checkout display member",
+                            "work": "Produce the final '$110.00' display",
+                            "source_quote": "Fix checkout showing '100.0 USD' for a 100 USD subtotal.",
+                            "evidence": "",
+                        }
+                    ],
+                }
+                with self.assertRaisesRegex(ValueError, "role label.*coordinated members are: checkout, history, tax"):
+                    handoff.accept(
+                        state,
+                        report(workspace_scope=scope),
+                        {"output": None},
+                        check_code_refs=lambda *_: self.fail("No code claim is made"),
+                        queue=lambda *args, **kwargs: None,
+                    )
+                self.assertNotIn("requirements_handoff", state)
+                self.assertNotIn("requirements_history", state)
+                canonical = {
+                    "spans_repositories": True,
+                    "external_parts": [
+                        {
+                            "target": "checkout",
+                            "work": "Produce the final '$110.00' display",
+                            "source_quote": "Fix checkout showing '100.0 USD' for a 100 USD subtotal.",
+                            "evidence": "",
+                        }
+                    ],
+                }
+                handoff.accept(
+                    state,
+                    report(workspace_scope=canonical),
+                    {"output": None},
+                    check_code_refs=lambda *_: None,
+                    queue=lambda *args, **kwargs: None,
+                )
+                self.assertEqual(
+                    ["checkout"],
+                    [
+                        part["target"]
+                        for part in state["requirements_handoff"]["report"]["workspace_scope"]["external_parts"]
+                    ],
+                )
         task = "Make chat respond quickly while keeping all safety checks."
         question = {**QUESTION, "question": "What response time would be quick enough?"}
         value = report(

@@ -144,6 +144,63 @@ def candidates(target, entries):
     return [entry for entry in entries if coordinated[1] in aliases(entry)]
 
 
+JOB_WORD = re.compile(r"[\w-]+")
+
+
+def _job_words(alias, body):
+    """The bounded job words ``body`` appends to ``alias``: none, or one or two
+    real words. Dots are not meaningful job words, and a longer tail is not a
+    bounded description of this alias."""
+    if body == alias:
+        return []
+    if not body.startswith(alias + " "):
+        return None
+    words = body[len(alias) :].split()
+    if len(words) > 2 or any(not JOB_WORD.fullmatch(word) for word in words):
+        return None
+    return words
+
+
+def member_role_identities(members, target, entries):
+    """Resolve the core's own member role noun to authorized catalog identities.
+
+    Coordinated member reports may name a linked repository "<name> <job words>
+    member" (the noun this core's member context teaches). Reports are now
+    corrected before this (#2420); this bounded fallback also resolves labels
+    earlier runs already accepted. It runs only when the catalog's own exact,
+    noun, parenthetical and coordinated matches found nothing, so their
+    ambiguity and choices stay untouched. Every authorized alias-prefix identity
+    is enumerated (multi-word aliases included), a job word or job phrase naming
+    another repository refuses the whole label, and only an identity currently
+    in the authorized catalog can match: model text never names a path or remote.
+    """
+    name = str(target).strip().casefold()
+    if not name.endswith(" member"):
+        return {}
+    body = name[: -len(" member")].strip()
+    if not body:
+        return {}
+    names = {}
+    for entry in entries:
+        for alias in aliases(entry):
+            names.setdefault(alias, set()).add(entry["git_dir"])
+    for member in members:
+        for alias in {str(member["target"]).casefold(), *aliases(member)}:
+            names.setdefault(alias, set()).add(member["git_dir"])
+    matched = set()
+    for alias, identities in names.items():
+        job = _job_words(alias, body)
+        if job is None:
+            continue
+        phrases = {word for word in job} | ({" ".join(job)} if len(job) > 1 else set())
+        if any(phrase in names and not names[phrase] <= identities for phrase in phrases):
+            return {}  # a job word or phrase names another repository: refuse the label
+        matched |= identities
+    # Catalog order, never set-iteration order, so candidate lists are stable
+    # across processes and the public choose binding shows a stable offer.
+    return {entry["git_dir"]: entry for entry in entries if entry["git_dir"] in matched}
+
+
 def member_aliases(members, choices):
     """Aliases whose selected catalog identity is already an owned member."""
     origins = {row["origin"]: row["target"] for row in members if row.get("origin")}

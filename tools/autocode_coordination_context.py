@@ -93,6 +93,9 @@ def context(state: RunState):
         "instruction": (
             "This is one member of an automatic coordinated bug fix. Own only this repository's source changes "
             "and executable local regressions. Retain the original whole-bug outcome and report external owners. "
+            "Name an external owner exactly as the members list in this context names it, or by the repository's "
+            "actual name when it is outside the set; never append role words such as 'member' to a target "
+            "(a repository genuinely named that way keeps its exact name, grounded like any other target). "
             "After every member has an approved plan and passes its own independent checks, the core coordinator "
             "creates a SEPARATE isolated integration workspace containing the actual code of every member. "
             "Its joint task derives and implements the real cross-repository regression and executable suite; "

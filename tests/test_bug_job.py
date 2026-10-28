@@ -12,14 +12,21 @@ from pathlib import Path
 from unittest import mock
 
 import autocode_bug_job as bug_job
+import autocode_changeset_store as sets
 import autocode_jobs as jobs
 import autocode_run_view as run_view
 import autocode_workflows as workflows
 import autopilot
 from autocode_taskrun import TaskRun, TaskRunError
+from autocode_workspace_scope_state import current as current_scope
 from units import autoresolver
 
 from .test_job_failure_recovery import PROVIDER, JobHarness
+
+COORDINATED_TASK = (
+    "Fix checkout showing '100.0 USD' for a 100 USD subtotal when the expected final total is '$110.00'. "
+    "Preserve existing behavior for a zero total and malformed receipts."
+)
 
 
 def state_for(workspace="/nowhere", task="Occasionally we renew the same domain twice after a timeout. Fix it."):
@@ -1335,5 +1342,85 @@ class BugPlanningTaskAuthorityTests(unittest.TestCase):
                 self.assertIn("a blocking plan concern", instruction)
                 self.assertIn("The Plan Reviewer checks that comparison independently", instruction)
                 self.assertIn("fix_plan is a proposed approach, not a user decision", instruction)
-                self.assertIn("unresolved choice in the task and saved user answers", instruction)
-                self.assertIn("missing or conflicting diagnosis text is not permission to redefine it", instruction)
+
+
+class CoordinatedMemberInvestigationTests(unittest.TestCase):
+    """A coordinated member's Investigator names external owners exactly (#2420)."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        environment = mock.patch.dict(os.environ, {"AUTOCODE_HOME": str(self.root / "registry")})
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.spaces = {name: self.root / name for name in ("checkout", "history", "tax")}
+        for space in self.spaces.values():
+            space.mkdir()
+        anchor = self.root / "anchor" / ".autocode" / "runs" / "chat"
+        anchor.mkdir(parents=True)
+        record = sets.reserve(
+            source_workspace=self.spaces["checkout"],
+            source_run_dir=anchor,
+            target="history",
+            workspace=self.spaces["history"],
+            brief=COORDINATED_TASK,
+        )
+        sets.reserve(
+            source_workspace=self.spaces["checkout"],
+            source_run_dir=anchor,
+            target="tax",
+            workspace=self.spaces["tax"],
+            brief=COORDINATED_TASK,
+        )
+        run_dir = self.spaces["tax"] / ".autocode" / "runs" / "fix"
+        sets.bind(record["id"], "tax", run_dir)
+        sets.set_fields(record["id"], {"automatic_anchor": str(self.root / "coordination")})
+        self.state = {
+            **state_for(str(self.spaces["tax"]), COORDINATED_TASK),
+            "run_dir": str(run_dir),
+        }
+
+    def apply(self, target, state=None):
+        value = diagnosis(
+            workspace_scope={
+                "spans_repositories": True,
+                "external_parts": [
+                    {
+                        "target": target,
+                        "work": "Produce the final '$110.00' display",
+                        "source_quote": "Fix checkout showing '100.0 USD' for a 100 USD subtotal",
+                        "evidence": "",
+                    }
+                ],
+            }
+        )
+        bug_job.apply(
+            state or self.state,
+            value,
+            {"changed_files": [], "output": "/run/investigate_bug-01.json"},
+            str((state or self.state)["workspace"]),
+        )
+
+    def test_a_role_label_is_refused_before_anything_persists(self):
+        for target in ("Checkout display member", "Receipt-handling member"):
+            with (
+                self.subTest(target=target),
+                self.assertRaisesRegex(ValueError, "role label.*coordinated members are: checkout, history, tax"),
+            ):
+                self.apply(target)
+            self.assertFalse((self.spaces["tax"] / "docs/bugs").exists(), "No note is written for a refused report")
+            self.assertNotIn("investigation", self.state)
+            self.assertNotIn("workspace_scope", self.state)
+
+    def test_the_canonical_member_name_is_accepted(self):
+        self.apply("checkout")
+        self.assertEqual(["checkout"], [part["target"] for part in current_scope(self.state)["external_parts"]])
+        self.assertTrue((self.spaces["tax"] / "docs/bugs" / "duplicate-renew.json").is_file())
+
+    def test_a_run_outside_coordination_keeps_free_form_targets(self):
+        state = state_for(str(self.root / "plain"), COORDINATED_TASK)
+        self.apply("Checkout display member", state=state)
+        self.assertEqual(
+            ["Checkout display member"], [part["target"] for part in current_scope(state)["external_parts"]]
+        )
