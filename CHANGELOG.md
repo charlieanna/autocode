@@ -423,6 +423,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode clean-worktrees --yes` forgets the removed worktree's runs in the shared registry, so
+  `autocode runs --all` no longer lists each cleaned-up run as unreadable ("Run state.json is
+  unavailable") for good; the records stay archived and the branch is kept (#2319).
 - `--answer` with an unknown question id, an already answered id or empty text is refused with a sentence
   naming the mistake and the open question ids, instead of one generic "Answer must address one unresolved
   question with nonempty text" for all three (#2313).
