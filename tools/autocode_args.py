@@ -698,6 +698,8 @@ def parse(unit, argv, default_models):
     elif argv and argv[0] in COMMAND_WORDS:
         argv = [f"--{argv[0]}", *argv[1:]]
     parser = build_parser(unit, default_models)
+    if typo := subcommands.task_typed_as_option(argv):
+        parser.error(typo)  # `autocode --task "..."` is --task-preflight to argparse
     args = parser.parse_args(argv)
     # The word may also follow options (`autocode --no-chat resume`): argparse reads it as the task.
     at = _command_word_at(parser, argv, args.task) if args.task in COMMAND_WORDS else None

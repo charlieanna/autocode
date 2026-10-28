@@ -424,6 +424,7 @@ PR template asks for an entry here; a change without one is incomplete.
 ### Fixed
 
 - `--help-all` describes every main-run option: `--workspace`, `--status`, `--dry-run`, `--answer`, `--approve-review`, `--reasoning-effort`, `--pause-after-stage`, `--context-soft-tokens`, `--legacy-iteration-ceiling` and `--migrate-only` printed with no help text; a test now keeps a new main-run option from shipping without one (#2395).
+- `autocode --task "Add a greeting"` is refused in words: there is no `--task` option and the task is the first argument. argparse read `--task` as the abbreviation of `--task-preflight`, took the task as its value and the launcher reported "No AutoCode run found" (#2391).
 - A missing, unreadable or malformed `--edit-goal` file paused the run as `PAUSED_INVALID_OUTPUT` with the OS error as its stop reason; it is now refused as input (`Cannot read the revised goal ...`, exit 2) with the run unchanged, as `--goal-file` already was (#2389).
 - The usage and error lines of `autocode registry`, `output`, `tasks`, `conversation`, `replay`, `checkpoint`, `capture`, `intervention` and other subcommands read `usage: autocode [-h] ...`, as if their arguments belonged to the root command; the dispatcher now names `autocode NAME` as the program for every subcommand (#2387).
 - `autocode bundle` and `autocode prune-run` rejected `--run-dir`, the way every other command names a run; both now accept it as well as the positional `RUN` (#2385).
