@@ -452,6 +452,11 @@ def engine_verdict(
     return Check("engine", MISSING, "; ".join([f"{what} is not ready", *found]), fix)
 
 
+# What AutoCode writes into the project itself and leaves for the person to commit or ignore: its
+# generated .gitignore un-ignores the learned record on purpose, so it is not the person's change (#2350).
+OWN_RECORDS = frozenset({".autocode/project.json"})
+
+
 def workspace_check(workspace: Path, runner=run) -> list[Check]:
     if not workspace.is_dir():
         return [Check("workspace", MISSING, f"{workspace} is not a directory", "pass --workspace PATH")]
@@ -475,9 +480,13 @@ def workspace_check(workspace: Path, runner=run) -> list[Check]:
             )
         ]
     checks = [Check("workspace", OK, f"Git repository at {top.stdout.strip()}")]
-    dirty = runner(["git", "status", "--porcelain"], cwd=workspace).stdout.strip()
+    dirty = [
+        line
+        for line in runner(["git", "status", "--porcelain", "--untracked-files=all"], cwd=workspace).stdout.splitlines()
+        if line.strip() and line[3:].strip().strip('"') not in OWN_RECORDS
+    ]
     if dirty:
-        count = len(dirty.splitlines())
+        count = len(dirty)
         checks.append(
             Check(
                 "workspace:clean",
