@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -12,6 +13,8 @@ from unittest.mock import patch
 
 import autocode_output_cap as output_cap
 import autocode_provider_launch as launch
+import autocode_tool_containment as containment
+import autocode_toolchain as toolchain
 from providers import kilocode
 from providers import kilocode_policy as policy
 
@@ -209,6 +212,189 @@ class KiloPolicyTests(unittest.TestCase):
             ):
                 policy.restrict(argv, child, Path.cwd(), role="requirements")
             self.assertEqual("{}", child["KILO_CONFIG_CONTENT"])
+
+
+class KiloContainmentPolicyTests(unittest.TestCase):
+    """The real restriction/containment seam with deterministic native observations."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.workspace = Path(temporary.name).resolve()
+        self.control = self.workspace / ".autocode" / ("tool-containment-" + "a" * 32)
+        self.scratch = self.control / "scratch"
+        self.scratch.mkdir(parents=True)
+        for name in ("shell", "policy.sb"):
+            (self.control / name).write_text("runner-owned fixture\n")
+        self.run = self.workspace / ".autocode/runs/check"
+        (self.run / "planning").mkdir(parents=True)
+        self.selected = "operator-agent"
+        self.original = {
+            "permission": [
+                {"permission": "*", "pattern": "*", "action": "allow"},
+                {"permission": "bash", "pattern": "git *", "action": "ask"},
+                {"permission": "bash", "pattern": "git status*", "action": "allow"},
+                {"permission": "bash", "pattern": "rm *", "action": "deny"},
+            ],
+            "prompt": "Keep the operator prompt",
+            "steps": 12,
+        }
+        self.probes = ["/usr/bin/git status --short", "/usr/bin/python3 -I -S -B -c 'import json'"]
+
+    def launch(self, *, actual=lambda value: value, probe=lambda params, value: value, handoff=None, private=False):
+        self.calls = []
+        original_configure = containment.configure
+
+        def configure(*args, **kwargs):
+            if handoff is not None:
+                handoff(args, kwargs)
+            return original_configure(*args, **kwargs)
+
+        def native(argv, **kwargs):
+            inline = json.loads(kwargs["env"].get("KILO_CONFIG_CONTENT", "{}"))
+            self.calls.append((list(argv), inline))
+            if argv[-1] == "--version":
+                return subprocess.CompletedProcess(argv, 0, "7.8.3", "")
+            if argv[1:] == ["debug", "config"]:
+                value = {"default_agent": self.selected}
+            elif argv[1:] == ["debug", "agent", self.selected]:
+                value = self.original
+            elif "--params" in argv:
+                params = json.loads(argv[-1])
+                if "conformance-capture" in params["command"]:
+                    (self.scratch / "conformance-capture").touch()
+                value = probe(
+                    params, {"input": params, "result": {"metadata": {"exit": 0}, "output": "Permission denied"}}
+                )
+            else:
+                definition = inline["agent"][argv[3]]
+                rules = [
+                    {"permission": tool, "pattern": pattern, "action": action}
+                    for tool, patterns in definition["permission"].items()
+                    for pattern, action in (patterns.items() if isinstance(patterns, dict) else [("*", patterns)])
+                ]
+                value = actual({"permission": rules, "tools": {"bash": True, "read": False}})
+            return subprocess.CompletedProcess(argv, 0, json.dumps(value), "")
+
+        boundary = {
+            "profile": str(self.control / "policy.sb"),
+            "shell": str(self.control / "shell"),
+            "scratch": str(self.scratch),
+        }
+        if private:
+            boundary["private_reads"] = containment.private_run_reads(self.workspace, self.run)
+        with (
+            patch.object(containment, "backend", return_value=containment.SEATBELT),
+            patch.object(containment.shutil, "which", return_value="/owned/kilo"),
+            patch.object(containment.subprocess, "run", side_effect=native),
+            patch.object(containment, "prepare", return_value=boundary),
+            patch.object(containment, "configure", side_effect=configure),
+            patch.object(containment, "verify"),
+            patch.object(toolchain, "discover", return_value={"read_roots": [], "probes": self.probes}),
+        ):
+            return policy.restrict(
+                ["kilo", "run", "--model", "openai/gpt-6.1-sol", "--variant", "medium", "--session", "old"],
+                {"PATH": "/bin", "KILO_CONFIG_CONTENT": "{}"},
+                self.workspace,
+                role="sol",
+                request={"private_run": str(self.run)} if private else {},
+            )
+
+    def test_one_selected_and_one_final_resolution_preserve_all_native_probes(self):
+        argv, child = self.launch(private=True)
+        non_tool = [args for args, _ in self.calls if "--params" not in args]
+        self.assertEqual(
+            [["debug", "config"], ["debug", "agent", self.selected], ["--version"], ["debug", "agent", argv[-1]]],
+            [args[1:] for args in non_tool],
+        )
+        definition = json.loads(child["KILO_CONFIG_CONTENT"])["agent"][argv[-1]]
+        self.assertEqual(
+            [("*", "allow"), ("git *", "deny"), ("git status*", "allow"), ("rm *", "deny")],
+            list(definition["permission"]["bash"].items()),
+        )
+        self.assertEqual(self.original["prompt"], definition["prompt"])
+        self.assertEqual(12, definition["steps"])
+        self.assertEqual("openai/gpt-6.1-sol", definition["model"])
+        self.assertEqual("medium", argv[argv.index("--variant") + 1])
+        self.assertNotIn("--session", argv)
+        probes = [json.loads(args[-1])["command"] for args, _ in self.calls if "--params" in args]
+        proof = json.loads((self.control / "conformance.json").read_text())
+        self.assertEqual([proof["command"], proof["private_reads"]["command"], *self.probes], probes)
+        self.assertEqual(self.probes, [row["command"] for row in proof["toolchain_checks"]])
+        self.assertEqual("passed", proof["native_receipt"]["status"])
+        self.assertEqual("kilocode", proof["transport"])
+
+    def test_changed_final_policy_or_tools_refuses_before_any_probe(self):
+        def action(value, selected):
+            value["permission"][1]["action"] = selected
+            return value
+
+        def reordered(value):
+            value["permission"][2:4] = reversed(value["permission"][2:4])
+            return value
+
+        cases = [
+            lambda value: action(value, "deny"),
+            lambda value: action(value, "ask"),
+            lambda value: {**value, "permission": value["permission"][:2]},
+            reordered,
+            lambda value: {**value, "permission": None},
+            lambda value: {**value, "tools": {"bash": True, "read": True}},
+            lambda value: [],
+        ]
+        for change in cases:
+            with self.subTest(change=change), self.assertRaises(RuntimeError):
+                self.launch(actual=change)
+            self.assertFalse(any("--params" in args for args, _ in self.calls))
+            self.assertFalse((self.control / "conformance.json").exists())
+
+    def test_stale_or_malformed_handoff_cannot_replace_the_inline_policy(self):
+        def change_policy(args, kwargs, value):
+            kwargs["resolved_shell_policy"] = value
+
+        for value in ({}, {"*": "deny", "bash": {"*": "allow"}, "external_directory": "deny"}):
+            with self.subTest(value=value), self.assertRaisesRegex(RuntimeError, "Kilo shell policy"):
+                self.launch(handoff=lambda args, kwargs: change_policy(args, kwargs, value))
+            self.assertFalse(any("--params" in args for args, _ in self.calls))
+
+    def test_resolved_policy_is_limited_to_ordinary_readonly_kilo(self):
+        for options in (
+            {"transport": "opencode", "allow_write": False},
+            {"transport": "kilocode", "allow_write": True},
+            {"transport": "kilocode", "allow_write": False, "retain_launch_identity": True},
+        ):
+            with self.subTest(options=options), patch.object(containment.subprocess, "run") as run:
+                with self.assertRaises(ValueError):
+                    containment.configure([], {}, self.workspace, request={}, resolved_shell_policy={}, **options)
+                run.assert_not_called()
+
+    def test_every_launch_resolves_the_current_default_agent_and_permissions(self):
+        self.launch()
+        self.selected = "new-operator-agent"
+        self.original["permission"].append({"permission": "bash", "pattern": "git push*", "action": "deny"})
+        self.original["prompt"] = "Changed operator prompt"
+        argv, child = self.launch()
+        self.assertEqual(["debug", "config"], self.calls[0][0][1:])
+        self.assertEqual(["debug", "agent", self.selected], self.calls[1][0][1:])
+        definition = json.loads(child["KILO_CONFIG_CONTENT"])["agent"][argv[-1]]
+        self.assertEqual("deny", definition["permission"]["bash"]["git push*"])
+        self.assertEqual(self.original["prompt"], definition["prompt"])
+
+    def test_each_failed_native_probe_still_refuses(self):
+        for description in (
+            "AutoCode kernel containment conformance (no model)",
+            "AutoCode private run-state read denial (no model)",
+            "AutoCode selected toolchain startup check (no model)",
+        ):
+
+            def fail(params, value):
+                if params["description"] == description:
+                    value["result"]["metadata"]["exit"] = 1
+                return value
+
+            with self.subTest(description=description), self.assertRaises(RuntimeError):
+                self.launch(probe=fail, private=True)
+            self.assertFalse((self.control / "conformance.json").exists())
 
 
 @unittest.skipUnless(
