@@ -105,6 +105,21 @@ def add_arguments(parser):
     )
 
 
+def engine_provider(args, parser) -> None:
+    """Reconcile ``--engine`` with ``--provider`` before a run starts.
+
+    Claude Code is the built-in claude provider on the facade engine (#717). Codex is an engine, not a
+    provider config: ``--provider codex`` used to fail only after the worktree was created, asking for a
+    TOML file for a tool AutoCode already runs (#2330).
+    """
+    if args.engine == "claude":
+        if args.provider not in (None, "claude"):
+            parser.error(f"engine claude runs the built-in claude provider; it cannot run --provider {args.provider}")
+        args.engine, args.provider = "opencode", "claude"
+    elif args.provider == "codex":
+        parser.error("codex is an engine, not a provider config: run with --engine codex and no --provider")
+
+
 def guard(args, state: RunState):
     """Reject a saved binding change before the ordinary configure path mutates anything."""
     settings = state.get("settings")

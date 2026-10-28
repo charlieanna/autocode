@@ -423,6 +423,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The root `--help` names `--engine` (opencode, codex or claude) as the way to choose the coding agent
+  instead of `--provider`, and `--provider codex` is refused before any worktree is created, naming
+  `--engine codex`, instead of failing afterwards with "create ~/.config/autocode/providers/codex.toml" for
+  a tool AutoCode already runs (#2330).
 - The human-review gate reads in prose: each criterion to review with its text and verification
   method (and whether the independent check passed it), a few-line validation summary with the record's
   path, then the approval command, instead of the request and the whole validation record as JSON that
