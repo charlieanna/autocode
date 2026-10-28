@@ -1621,6 +1621,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#registry-forget-deleted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        registry forget-deleted
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#registry-import" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1931,6 +1942,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#registry-forget-deleted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        registry forget-deleted
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#registry-import" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1962,7 +1984,7 @@
 
 
 <h1 id="browser-registry-api">Browser registry API<a class="headerlink" href="#browser-registry-api" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/35bc465ee117140d014cc0ed6c12cc98c88bec23/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/79bb58bfb363108dbd66a51560593999e8d30620/README.md">← Back to README</a></p>
 <p>Autocode automatically records every real new run and ordinary resumed run before a
 provider can start. The registry is a small per-user pointer index, not a copy of
 <code>state.json</code>, logs, prompts, credentials, or provider configuration. It is stored at
@@ -2012,6 +2034,13 @@ return an <code>error</code> object and exit 2 without replacing existing record
 dummy task. Use one explicit <code>AUTOCODE_HOME</code> for registration, source runs,
 linked runs and change-set commands. Task text and model output never invoke
 registration, and clients' named-action contracts are unchanged.</p>
+<h2 id="registry-forget-deleted">registry forget-deleted<a class="headerlink" href="#registry-forget-deleted" title="Permanent link">&para;</a></h2>
+<p><code>autocode registry forget-deleted --workspace /path/to/project --run-dir /path/to/project/.autocode/runs/RUN [--json]</code>
+drops the registry entry of one run whose directory no longer exists: a run the person
+deleted by hand, or one removed with its worktree by an older <code>clean-worktrees</code>. It
+never deletes files, and refuses (<code>invalid_deleted_run</code>) while the run directory
+exists, so the entry of a run recreated meanwhile is kept. <code>autocode runs --all</code> names
+this command on the row of such a run.</p>
 <h2 id="registry-import">registry import<a class="headerlink" href="#registry-import" title="Permanent link">&para;</a></h2>
 <p><code>registry import</code> discovers and registers existing runs. It requires an
 explicit selected directory, resolves that root canonically, and searches the root at
