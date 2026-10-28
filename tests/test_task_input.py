@@ -59,6 +59,10 @@ class TaskInputTests(unittest.TestCase):
         for text in ("", " \r\n\t"):
             with self.subTest(text=text), self.assertRaisesRegex(ValueError, "non-whitespace"):
                 task_input.load(None, brief="-", brief_file=None, stdin=io.StringIO(text))
+        # #2404: a blank positional task started a worktree and a run; "" already stops at "a task is needed".
+        for text in ("", "   ", " \r\n\t"):
+            with self.subTest(text=text), self.assertRaisesRegex(ValueError, "The task is blank"):
+                task_input.load(text, brief=None, brief_file=None, stdin=io.StringIO())
         stream = io.TextIOWrapper(io.BytesIO(b"\xff"), encoding="utf-8")
         with self.assertRaises(UnicodeDecodeError):
             task_input.load(None, brief="-", brief_file=None, stdin=stream)

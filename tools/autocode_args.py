@@ -724,7 +724,7 @@ def parse(unit, argv, default_models):
     try:
         args.task = task_input.load(args.task, brief=args.brief, brief_file=args.brief_file, stdin=sys.stdin)
     except (OSError, UnicodeError, ValueError) as error:
-        parser.error(f"Cannot read brief: {error}")
+        parser.error(str(error) if args.task is not None else f"Cannot read brief: {error}")
     resolve_token_env_placeholders(args, parser)
     explicit, rest = set(), []
     budget_flags = {flag for flags in BUDGET_ARGUMENTS.values() for flag in flags}
