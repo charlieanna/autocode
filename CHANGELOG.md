@@ -423,6 +423,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A status read that straddles the controller's atomic receipt write reads the receipt again instead of
+  reporting "Controller ownership could not be inspected: Controller receipt changed while inspected" and
+  offering `--resume-paused` on a run that is running (#2304).
 - A launch the host refused before any provider started (a root shell's `PAUSED_PROCESS_CLEANUP`, or an
   unsupported host) no longer leaves the admitted attempt behind as an uncertain stage, so a plain
   `--resume-paused` carries on once the host admits sessions instead of holding until `--abandon-stage`
