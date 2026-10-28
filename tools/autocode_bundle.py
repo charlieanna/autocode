@@ -93,9 +93,33 @@ def run_files(run_dir: Path) -> dict[str, tuple[Path, int | None]]:
 
 
 def _workspace(run_dir: Path) -> Path:
-    if run_dir.parent.name != "runs" or run_dir.parent.parent.name != ".autocode":
-        raise ValueError("the run directory must be WORKSPACE/.autocode/runs/RUN")
-    return run_dir.parent.parent.parent
+    """The workspace whose host checks and default bundle path the run takes.
+
+    A live run sits at WORKSPACE/.autocode/runs/RUN. `autocode clean-worktrees` copies a finished
+    task worktree's records to PROJECT/.autocode/archive/TREE/ (#2377), so an archived run sits at
+    PROJECT/.autocode/archive/TREE/runs/RUN and takes the project.
+    """
+    if run_dir.parent.name == "runs" and run_dir.parent.parent.name == ".autocode":
+        return run_dir.parent.parent.parent
+    if _archive(run_dir) is not None:
+        return run_dir.parents[4]
+    raise ValueError(
+        "the run directory must be WORKSPACE/.autocode/runs/RUN, or an archived PROJECT/.autocode/archive/TREE/runs/RUN"
+    )
+
+
+def _archive(run_dir: Path) -> dict | None:
+    """The archived worktree's saved task record (its branch and base commit) when ``run_dir`` is archived."""
+    if run_dir.parent.name != "runs" or len(run_dir.parents) < 4 or run_dir.parents[2].name != "archive":
+        return None
+    if run_dir.parents[3].name != ".autocode":
+        return None
+    record = run_dir.parents[1] / "task-workspace.json"
+    try:
+        loaded = json.loads(record.read_text()) if record.is_file() else {}
+    except (OSError, ValueError):
+        loaded = {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def _doctor(workspace: Path) -> dict:
@@ -115,13 +139,28 @@ def _recording(run_dir: Path, scratch: Path) -> Path:
     return replay.export_saved(run_dir, scratch / "recording")
 
 
-def _diff(workspace: Path, state: RunState) -> tuple[str, str]:
-    """The run's diff: against its base commit when it recorded one, else the uncommitted work."""
+def _diff(workspace: Path, state: RunState, archive: dict | None = None) -> tuple[str, str]:
+    """The run's diff: against its base commit when it recorded one, else the uncommitted work.
+
+    An archived run's worktree is gone; its kept branch holds the work, so the diff is the base
+    commit against that branch.
+    """
     base = state.get("base_commit") or "HEAD"
-    result = subprocess.run(["git", "-C", str(workspace), "diff", base], capture_output=True, text=True)
+    if archive is not None:
+        branch = str(archive.get("branch") or "")
+        base = state.get("base_commit") or str(archive.get("base_commit") or "")
+        if not branch or not base:
+            raise ValueError(
+                "this archived run's worktree was removed and its archive names no branch and base commit;"
+                " bundle it without --with-diff"
+            )
+        target: list[str] = [base, branch]
+    else:
+        target = [base]
+    result = subprocess.run(["git", "-C", str(workspace), "diff", *target], capture_output=True, text=True)
     if result.returncode:
-        raise ValueError(f"git diff {base} failed: {result.stderr.strip()}")
-    return result.stdout, base
+        raise ValueError(f"git diff {' '.join(target)} failed: {result.stderr.strip()}")
+    return result.stdout, "..".join(target)
 
 
 def collect(run_dir, *, with_diff=False, environ=None, doctor=None, recording=None) -> tuple[dict, dict]:
@@ -150,7 +189,7 @@ def collect(run_dir, *, with_diff=False, environ=None, doctor=None, recording=No
         report = {"error": f"{type(error).__name__}: {error}"}
     files["doctor.json"] = util.redact(json.dumps(report, indent=2, sort_keys=True), secrets).encode()
     if with_diff:
-        diff, base = _diff(workspace, state)
+        diff, base = _diff(workspace, state, _archive(run_dir))
         files["diff.patch"] = util.redact(diff, secrets).encode()
         notes["diff_base"] = base
     with tempfile.TemporaryDirectory(prefix="autocode-bundle-") as scratch:
