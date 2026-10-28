@@ -8,6 +8,15 @@ except ImportError:
     from autocode_coordination_store import CoordinationError
 
 
+def uses_native_proof(view):
+    """Only an authenticated completed report may select either verifier path."""
+    report = view.get("evidence_report") or {}
+    document = report.get("document")
+    if not view.get("done") or report.get("availability") != "current" or not isinstance(document, dict):
+        raise CoordinationError("Joint verification requires a current authenticated completion report")
+    return document.get("regression_proof") is not None
+
+
 def capture(run, base):
     """Require freshly authenticated completion and real fail-before/pass-after proof."""
     view = run.status(inspect_evidence=True)

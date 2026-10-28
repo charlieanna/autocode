@@ -72,3 +72,10 @@ legacy proof path; both attempts are retained. The final legacy/fault recovery
 result is recorded in PR #2339's validation section. A separate
 master run-state annotation regression is fixed by #2338 without raising the
 ratchet. Logs and bundles remain in ignored `.scenario-runs/coordination/`.
+
+A final pre-merge refusal guard also requires an authenticated current report
+before selecting the legacy verifier: missing or tampered report bytes cannot
+be mistaken for an older plan without native proof. Its 57 focused evidence,
+coordination and budget checks pass in 5.256 seconds; the saved authenticated
+live view still selects native proof. This refusal-only change was verified
+deterministically after the frozen live run above, without another model call.

@@ -64,6 +64,25 @@ class CoordinationEvidenceTests(unittest.TestCase):
         self.run.status.assert_called_once_with(inspect_evidence=True)
         evidence.require_current(self.run, "baseline", result)
 
+    def test_only_current_legacy_reports_can_select_the_external_verifier(self):
+        self.assertTrue(evidence.uses_native_proof(self.view))
+        self.view["evidence_report"]["document"]["regression_proof"] = {"verdict": "FAIL"}
+        self.assertTrue(evidence.uses_native_proof(self.view))
+        self.view["evidence_report"]["document"]["regression_proof"] = None
+        self.assertFalse(evidence.uses_native_proof(self.view))
+
+    def test_missing_or_invalid_report_cannot_fall_back_to_another_verifier(self):
+        for report in (
+            {},
+            {"availability": "invalid"},
+            {"availability": "stale", "document": {}},
+            {"availability": "current"},
+        ):
+            with self.subTest(report=report):
+                self.view["evidence_report"] = report
+                with self.assertRaisesRegex(CoordinationError, "current authenticated"):
+                    evidence.uses_native_proof(self.view)
+
     def test_missing_stale_wrong_or_partial_proof_never_authorizes_delivery(self):
         changes = [
             lambda v: v.update(done=False),

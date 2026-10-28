@@ -673,8 +673,7 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
         elif kind == "verify":
             active = document["joint"]
             view = handle(active, command=command).status(inspect_evidence=True)
-            report = (view.get("evidence_report") or {}).get("document") or {}
-            if report.get("regression_proof") is not None:
+            if joint_evidence.uses_native_proof(view):
                 active["verification"] = joint_evidence.capture(handle(active, command=command), active["base"])
             else:
                 # Older command-only plans still need the independent external proof.
