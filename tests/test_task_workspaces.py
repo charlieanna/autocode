@@ -51,6 +51,27 @@ class TaskWorkspaces(unittest.TestCase):
         with self.assertRaises(ValueError):
             w.resume_workspace(self.root, one)
 
+    def test_a_removed_worktree_names_its_archive_and_what_still_works(self):
+        """#2402: after merge and clean-worktrees the refusal said only "Saved task worktree is missing"."""
+        one = w.create(self.project, "Archived")
+        tree = Path(one["workspace"])
+        archive = self.project / ".autocode" / "archive" / tree.name
+        shutil.copytree(tree / ".autocode", archive)
+        subprocess.run(["git", "-C", str(self.project), "worktree", "remove", "--force", str(tree)], check=True)
+        with self.assertRaises(ValueError) as refused:
+            w.resume_workspace(self.project, one)
+        message = str(refused.exception)
+        self.assertIn(f"The task worktree {tree} was removed by autocode clean-worktrees", message)
+        self.assertIn(f"after branch {one['branch']} was merged", message)
+        self.assertIn(f"archived in {archive}", message)
+        self.assertIn("autocode bundle --run-dir RUN", message)
+        shutil.rmtree(archive)
+        with self.assertRaises(ValueError) as gone:
+            w.resume_workspace(self.project, one)
+        self.assertEqual(
+            f"Saved task worktree {tree} is missing or does not belong to this project", str(gone.exception)
+        )
+
     def test_discard_unused_keeps_a_worktree_holding_a_run_or_a_change(self):
         saved = w.create(self.project, "Saved")
         run = Path(saved["workspace"]) / ".autocode/runs/one"
