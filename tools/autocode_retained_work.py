@@ -20,12 +20,46 @@ except ImportError:
     import autocode_util as util
 
 
+def _reapproved_scope(state: RunState, previous, task):
+    """Same-turn retained source is only a candidate under fresh equivalent scope approval."""
+    try:
+        current = state.get("goal_contract") or {}
+        if not contracts.approved(state) or set(previous.get("acceptance_criteria") or []) != set(
+            task.get("acceptance_criteria") or []
+        ):
+            return False
+        history = [
+            row for row in state.get("contract_history") or [] if row.get("hash") == previous.get("contract_hash")
+        ]
+        if not history or any(row != history[0] for row in history[1:]):
+            return False
+        old = history[0]
+        if old["task_id"] != current["task_id"] or any(
+            old["body"].get(key) != current["body"].get(key) for key in ("permission_boundaries", "constraints")
+        ):
+            return False
+        approval = contracts.historical_approval(state, old)
+        events = state["user_events"]
+        if approval is None or events.count(current["approval_event"]) != 1:
+            return False
+        boundary = -1
+        if state.get("turns"):
+            event_id = state["turns"][-1]["event_id"]
+            indices = [i for i, event in enumerate(events) if event.get("id") == event_id]
+            if len(indices) != 1:
+                return False
+            boundary = indices[0]
+        return boundary < events.index(approval) < events.index(current["approval_event"])
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return False
+
+
 def _earlier_assignment(state: RunState, record):
     """An unchanged repair may inherit work from the same approved milestone/scope.
 
     Resolver handoffs create a new task ID. That must not erase the snapshots
-    of a Builder that left source before its report failed. Do not carry work
-    across contracts, milestones or changed ownership. This selects a baseline
+    of a Builder that left source before its report failed. Reapproval requires
+    authenticated equivalent scope; milestones and ownership cannot change. This selects a baseline
     for fresh review only, never a previous validation verdict.
     """
     task = state.get("current_task") or {}
@@ -44,6 +78,7 @@ def _earlier_assignment(state: RunState, record):
             previous.get("rolled_back")
             or previous.get("kind") != "implement"
             or previous.get("contract_hash") != contract
+            and not _reapproved_scope(state, previous, task)
             or set(previous.get("milestone_ids") or [previous.get("milestone_id")]) != set(members)
             or {path.rstrip("/") for path in previous.get("affected_paths") or []} != owned
         ):

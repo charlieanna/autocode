@@ -1042,6 +1042,12 @@ class AcceptanceTestsCliTests(unittest.TestCase):
             self.assertEqual({**guard, **cases}[case["id"]], criteria[index]["criterion"])
 
     def test_reapproval_after_builder_retains_fail_first_cases_and_completes_with_fresh_proof(self):
+        self._run_reapproval(document=True)
+
+    def test_reapproval_reviews_retained_candidate_without_artificial_source_edit(self):
+        self._run_reapproval(document=False)
+
+    def _run_reapproval(self, *, document):
         project = without_maintenance(materialize(self.scenario.seed, self.root / "project"))
         flags, environment = fake_setup(self.scenario, self.root, self.scenario.dir / "reference")
         provider = self.root / "bin" / "codex"
@@ -1052,7 +1058,7 @@ class AcceptanceTestsCliTests(unittest.TestCase):
             source.replace(
                 marker,
                 "        built = Path(os.environ['REAPPROVAL_BUILDER_MARKER'])\n"
-                "        if built.exists():\n"
+                "        if built.exists() and os.environ.get('REAPPROVAL_DOCUMENT') == '1':\n"
                 "            product = Path('stock.py')\n"
                 "            product.write_text(product.read_text() + chr(10) + '# Transfers retain the existing validation rules.' + chr(10))\n"
                 "        built.write_text('built')\n" + marker,
@@ -1062,6 +1068,7 @@ class AcceptanceTestsCliTests(unittest.TestCase):
             AUTOCODE_HOME=str(self.root / "registry"),
             PYTHONDONTWRITEBYTECODE="1",
             REAPPROVAL_BUILDER_MARKER=str(self.root / "builder-marker"),
+            REAPPROVAL_DOCUMENT="1" if document else "0",
         )
         environment["PATH"] = os.pathsep.join((str(Path(sys.executable).parent), environment["PATH"]))
         run = taskrun.TaskRun.start(
@@ -1084,6 +1091,7 @@ class AcceptanceTestsCliTests(unittest.TestCase):
                 self.assertEqual({"fails"}, set(view["acceptance_tests"]["results"].values()))
                 original = view["approved_contract"]["token"]
                 original_rows = view["approved_contract"]["body"]["acceptance_criteria"]
+                original_product = (project / "stock.py").read_bytes()
                 queued = subprocess.run(
                     [
                         *run.command,
@@ -1098,7 +1106,11 @@ class AcceptanceTestsCliTests(unittest.TestCase):
                         "--kind",
                         "feedback",
                         "--text",
-                        "Keep every existing behavior, criterion and test binding; document the existing transfer validation in stock.py.",
+                        (
+                            "Keep every existing behavior, criterion and test binding; document the existing transfer validation in stock.py."
+                            if document
+                            else "Keep every existing behavior, criterion and test binding; no new source edits are needed."
+                        ),
                         "--json",
                     ],
                     env={**os.environ, **environment},
@@ -1144,6 +1156,10 @@ class AcceptanceTestsCliTests(unittest.TestCase):
         self.assertEqual({"already passes"}, set(view["acceptance_tests"]["results"].values()))
         self.assertEqual("PASS", view["evidence"]["regression_proof"]["verdict"])
         self.assertTrue(view["evidence"]["regression_proof"]["fail_to_pass"])
+        if not document:
+            self.assertEqual(original_product, (project / "stock.py").read_bytes())
+            self.assertEqual(2, self.stage_order(run).count("builder"))
+            self.assertNotIn("stuck-investigation", self.stage_order(run))
 
     def test_blind_tests_cli_runs_tester_isolates_workspace_and_completes(self):
         # With --blind-tests, Tester writes tests before Builder, but files are archived and isolated

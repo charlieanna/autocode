@@ -116,6 +116,60 @@ class RetainedWorkTests(unittest.TestCase):
         Path(state["stages"][0]["before_ref"]).unlink()
         self.assertIsNone(retained_work.fresh_candidate(state, retry, "r1"))
 
+    def reapproved_assignment(self):
+        state, retry = self.repaired_assignment()
+        events, history = [], []
+        for revision in (1, 2):
+            contract = {
+                "task_id": "goal",
+                "revision": revision,
+                "body": {
+                    "open_blocking_questions": [],
+                    "permission_boundaries": ["Only src/"],
+                    "constraints": ["Keep tests"],
+                    "acceptance_criteria": [{"id": "C1", "criterion": "Source works"}],
+                },
+                "origin": "agent_plan",
+            }
+            contract["hash"] = util.digest({k: contract[k] for k in ("task_id", "revision", "body")})
+            event = {"kind": "goal_approval", "actor": "user_cli", "token": f"r{revision}:{contract['hash']}"}
+            contract.update(approval_status="approved", approval_event=event)
+            events.append(event)
+            history.append(contract)
+        state.update(goal_contract=history[1], contract_history=history[:1], user_events=events, turns=[])
+        state["task_archive"][0].update(contract_hash=history[0]["hash"], acceptance_criteria=["C1"])
+        state["current_task"].update(contract_hash=history[1]["hash"], acceptance_criteria=["C1"])
+        return state, retry
+
+    def test_reapproved_same_scope_retains_real_candidate_only_for_fresh_review(self):
+        state, retry = self.reapproved_assignment()
+        before = copy.deepcopy(state)
+        result = retained_work.fresh_candidate(state, retry, "r1")
+        self.assertEqual(
+            {"source_revision": "r1", "retained_paths": ["src/new.go"], "origin_task_id": "task-1"}, result
+        )
+        self.assertEqual(before, state)
+        state["contract_history"][0].update(approval_status="draft", approval_event=None)
+        self.assertEqual(result, retained_work.fresh_candidate(state, retry, "r1"))
+
+    def test_reapproval_cannot_borrow_unapproved_changed_or_other_turn_work(self):
+        state, retry = self.reapproved_assignment()
+        controls = [
+            lambda s: s["user_events"].pop(0),
+            lambda s: s["goal_contract"].update(approval_status="draft"),
+            lambda s: s["task_archive"][0].update(acceptance_criteria=["C2"]),
+            lambda s: s["task_archive"][0].update(affected_paths=["elsewhere"]),
+            lambda s: s["task_archive"][0].update(milestone_id="M2"),
+            lambda s: s["task_archive"][0].update(rolled_back=True),
+            lambda s: s["contract_history"][0]["body"].update(permission_boundaries=["Other scope"]),
+            lambda s: s.update(turns=[{"event_id": "absent-turn"}]),
+        ]
+        for change in controls:
+            modified = copy.deepcopy(state)
+            change(modified)
+            self.assertIsNone(retained_work.fresh_candidate(modified, retry, "r1"))
+        self.assertIsNone(retained_work.fresh_candidate(state, retry, "changed-source"))
+
     def test_repair_does_not_hide_an_earlier_out_of_scope_edit(self):
         state, retry = self.repaired_assignment()
         after = Path(retry["after_ref"])
