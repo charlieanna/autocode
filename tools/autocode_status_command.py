@@ -350,6 +350,8 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         )
     if getattr(args, "summary", False):
         print(status_summary.text(public_view["summary"]))
+        if block := answer_output.questions(public_view):
+            print(block)  # what the named --answer command answers, with options and default (#2325)
         return
     print(
         json.dumps(
