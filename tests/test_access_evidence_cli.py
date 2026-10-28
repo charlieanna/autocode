@@ -94,8 +94,10 @@ class AccessEvidenceCLI(unittest.TestCase):
         self.assertEqual(2 if repaired else 1, len(requirements), requirements)
         if repaired:
             self.assertTrue(any("report-repair" in name for name in requirements), requirements)
-            archived = list(run.run_dir.glob("iterations/*/archived-requirements-gather-*/requirements-gather-*.json"))
-            self.assertTrue(archived, "The rejected original must remain retained")
+            archived = list(
+                run.run_dir.glob(f"iterations/*/archived-requirements-gather-*/{Path(requirements[0]).name}")
+            )
+            self.assertEqual(1, len(archived), "The exact rejected report must remain retained")
             self.assertNotIn("category", json.loads(archived[0].read_text())["proposed_assumptions"][0])
         self.assertEqual(["demo/builder"], probe_models, "Requirements already paid for demo/reviewer access")
         receipts = json.loads((run.run_dir / "model-preflight.json").read_text())["receipts"]
