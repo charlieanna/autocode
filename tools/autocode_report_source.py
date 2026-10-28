@@ -11,6 +11,10 @@ except ImportError:
 import copy
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_cmd_only_report as cmd_only
@@ -229,7 +233,7 @@ def repair_report_instruction(pending):
     return prompts.get("fragments/report-source/repair-report-instruction.md")
 
 
-def load_stage_report(runtime, record, workspace=None, evidence_record=None, state=None):
+def load_stage_report(runtime, record, workspace=None, evidence_record=None, state: RunState | None = None):
     """Validate provider output, retaining raw bytes before hydrating review IDs."""
     runtime.readonly_events.assert_unchanged_review(record, workspace=workspace)
     if evidence_record:
