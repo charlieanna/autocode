@@ -97,6 +97,7 @@ NEW_RUN_INPUTS = (
 # with no unfinished run they may show a finished one. --show-goal is not one: it takes the lock,
 # migrates and saves the run. --follow-up has its own rule (autocode_run_finder).
 READ_ACTIONS = ("--status", "--explain", "--dry-run")
+EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 # Command words are never a one-word task; after `--` they remain task text.
 COMMAND_WORDS = subcommands.COMMAND_WORDS
 COMMAND_MARK = "\0command-word"
@@ -150,7 +151,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     brief_input = parser.add_mutually_exclusive_group()
     brief_input.add_argument("--brief", help="Task text; use - to read literal UTF-8 text from stdin")
     brief_input.add_argument("--brief-file", type=Path, help="Read literal UTF-8 task text from this file")
-    parser.add_argument("--workspace", type=Path, default=Path.cwd())
+    parser.add_argument("--workspace", type=Path, default=Path.cwd(), help="Project directory (default: current)")
     related_profile.add_arguments(parser)
     parser.add_argument(
         "--unit",
@@ -295,30 +296,24 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "`autocode models --selection` first",
     )
     parser.add_argument(
-        "--glm-reasoning-effort",
-        choices=["low", "medium", "high", "xhigh", "max"],
-        help="Override planner draft and revision reasoning effort",
+        "--glm-reasoning-effort", choices=EFFORTS, help="Override planner draft and revision reasoning effort"
     )
     parser.add_argument("--requirements-model", help="Independent requirements-gatherer model for the saved engine")
     parser.add_argument(
         "--requirements-reasoning-effort",
-        choices=["low", "medium", "high", "xhigh", "max"],
+        choices=EFFORTS,
         help="Override independent requirements-gatherer reasoning effort",
     )
     parser.add_argument("--resolver-model", help="Override the saved Resolver model without changing its engine")
     parser.add_argument(
-        "--resolver-reasoning-effort",
-        choices=["low", "medium", "high", "xhigh", "max"],
-        help="Override the saved Resolver reasoning effort",
+        "--resolver-reasoning-effort", choices=EFFORTS, help="Override the saved Resolver reasoning effort"
     )
     autopilot.stuck.add_arguments(parser)
     parser.add_argument(
         "--plan-reviewer-model", help="Override the independent plan-reviewer model for the saved engine"
     )
     parser.add_argument(
-        "--plan-reviewer-reasoning-effort",
-        choices=["low", "medium", "high", "xhigh", "max"],
-        help="Override independent plan-reviewer reasoning effort",
+        "--plan-reviewer-reasoning-effort", choices=EFFORTS, help="Override independent plan-reviewer reasoning effort"
     )
     utility_route.add_arguments(parser)
 
@@ -374,26 +369,18 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "--completion-provider",
         help="Codex model_provider override for the completion owner; default is the local Codex login",
     )
-    parser.add_argument("--reasoning-effort", choices=["low", "medium", "high", "xhigh", "max"])
+    parser.add_argument("--reasoning-effort", choices=EFFORTS, help="Reasoning effort for roles without a role flag")
     parser.add_argument(
-        "--astra-reasoning-effort",
-        choices=["low", "medium", "high", "xhigh", "max"],
-        help="Override reasoning effort for plan review only",
+        "--astra-reasoning-effort", choices=EFFORTS, help="Override reasoning effort for plan review only"
     )
     parser.add_argument(
-        "--terra-reasoning-effort",
-        choices=["low", "medium", "high", "xhigh", "max"],
-        help="Override reasoning effort for the Builder only",
+        "--terra-reasoning-effort", choices=EFFORTS, help="Override reasoning effort for the Builder only"
     )
     parser.add_argument(
-        "--sol-reasoning-effort",
-        choices=["low", "medium", "high", "xhigh", "max"],
-        help="Override reasoning effort for the Validator only",
+        "--sol-reasoning-effort", choices=EFFORTS, help="Override reasoning effort for the Validator only"
     )
     parser.add_argument(
-        "--completion-reasoning-effort",
-        choices=["low", "medium", "high", "xhigh", "max"],
-        help="Override reasoning effort for the completion owner only",
+        "--completion-reasoning-effort", choices=EFFORTS, help="Override reasoning effort for the completion owner only"
     )
     parser.add_argument(
         "--pin-model-role",
@@ -413,7 +400,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         default=None,
         help="Off by default; on fails closed until compatibility is verified",
     )
-    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--dry-run", action="store_true", help="Read-only preview of the saved run; launches nothing")
     parser.add_argument(
         "--verbose",
         action=argparse.BooleanOptionalAction,
@@ -421,8 +408,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="Stream each stage's live model activity (tools started/finished, new provider text) to stderr "
         "(default: on; --no-verbose or AUTOCODE_VERBOSE=0 turns it off)",
     )
-    parser.add_argument("--migrate-only", action="store_true")
-    parser.add_argument("--status", action="store_true")
+    parser.add_argument("--migrate-only", action="store_true", help="Run the opt-in legacy run migration and stop")
+    parser.add_argument("--status", action="store_true", help="Print the saved run's status as JSON; launches nothing")
     parser.add_argument(
         "--json",
         action="store_true",
@@ -433,16 +420,18 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         action="store_true",
         help="Print a plain-English explanation of why the run stopped and what each offered command does (#715)",
     )
-    parser.add_argument("--pause-after-stage", action="store_true")
+    parser.add_argument("--pause-after-stage", action="store_true", help="Stop at the next saved stage boundary")
     parser.add_argument(
         "--chat",
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Converse with the planner/reviewer and approve the brief here (default: on in an interactive terminal)",
     )
-    parser.add_argument("--context-soft-tokens", type=int)
+    parser.add_argument("--context-soft-tokens", type=int, help="Input tokens after which a stage compacts its context")
     parser.add_argument("--rotate-after-input-tokens", type=int, help="0 disables checkpointed session rotation")
-    parser.add_argument("--legacy-iteration-ceiling", type=int)
+    parser.add_argument(
+        "--legacy-iteration-ceiling", type=int, help="Iteration ceiling when --max-iterations is absent"
+    )
     parser.add_argument(
         "--max-seconds", type=int, help="Total active provider time for the run (new-run default: 43200; 0 disables)"
     )
@@ -608,7 +597,9 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument(
         "--show-goal", action="store_true", help="Display the exact contract revision and approval token"
     )
-    parser.add_argument("--answer", action="append", default=[], metavar="QUESTION_ID=TEXT")
+    parser.add_argument(
+        "--answer", action="append", default=[], metavar="QUESTION_ID=TEXT", help="Answer an open question (repeatable)"
+    )
     parser.add_argument(
         "--feedback",
         metavar="TEXT",

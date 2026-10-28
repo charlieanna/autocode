@@ -7,7 +7,13 @@ except ImportError:
 
 
 def add_arguments(parser):
-    parser.add_argument("--approve-review", action="append", default=[], metavar="CRITERION_ID")
+    parser.add_argument(
+        "--approve-review",
+        action="append",
+        default=[],
+        metavar="CRITERION_ID",
+        help="Record a human-review acceptance of this criterion (repeatable); needs --review-token",
+    )
     parser.add_argument(
         "--reconcile-review",
         metavar="CRITERION_ID=ANSWER_ID",
