@@ -6,10 +6,12 @@ fixtures. No model, allowance, private run-state write or elapsed-time oracle.
 
 import contextlib
 import errno
+import io
 import json
 import os
 import select
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -614,6 +616,93 @@ signal.pause()
                     for fd in (control_r, control_w, ack_r, ack_w):
                         with contextlib.suppress(OSError):  # The admitted keeper closes its owned ends.
                             os.close(fd)
+
+    def dead_provider_metadata(self):
+        """Admission metadata whose provider already exited before arming.
+
+        The identity is captured while the bootstrap lives, exactly as the
+        launcher samples it; the child is then an unreaped zombie, as it stays
+        until its parent (the launcher) is released from the failed launch.
+        """
+        import autocode_supervision_keeper as keeper
+
+        dead = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(0.2)"], start_new_session=True
+        )  # a brief guaranteed-live window for the identity sample below
+        self.addCleanup(dead.wait, timeout=10)
+        provider = supervision._identity(dead.pid)
+        dead.wait(timeout=10)
+        self.assertFalse(processes.live_processes([provider]))
+        metadata = {
+            "schema": 1,
+            "nonce": "b" * 32,
+            "owner": supervision._identity(os.getpid()),
+            "keeper": supervision._identity(os.getpid()),
+            "provider": provider,
+            "receipt": str(self.root / "receipt.json"),
+            "started_at": "initial",
+        }
+        return keeper, metadata
+
+    @unittest.skipUnless(sys.platform == "linux", "requires the native provider session listener")
+    def test_dead_provider_before_its_listener_transfer_names_the_failed_transfer(self):
+        """A bootstrap that died without delivering its listener is refused by name.
+
+        A nested provider listener attempt inside an already-bound provider dies
+        in exactly this window: refused by the inherited filter, the bootstrap
+        exits before the transfer, so the keeper must report the failed listener
+        transfer itself rather than exiting before acknowledgement with no
+        cause, whatever the race order between the two processes was.
+        """
+        keeper, metadata = self.dead_provider_metadata()
+        import autocode_session_boundary as boundary
+
+        channel, peer = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        peer.close()  # the dead bootstrap's end: no descriptor will ever arrive
+        callback, callback_peer = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        control_r, control_w = os.pipe()
+        ack_r, ack_w = os.pipe()
+        try:
+            packet = {
+                "metadata": metadata,
+                "deadline": None,
+                "timing": keeper_timing(None),
+                "cleanup_policy": "freeze_tree",
+                "session_socket": channel.fileno(),
+                "session_callback": callback.fileno(),
+            }
+            os.write(control_w, (json.dumps(packet) + "\n").encode())
+            with patch.object(keeper.boundary, "guardian_harden"):
+                with self.assertRaisesRegex(boundary.BoundaryError, "listener descriptor transfer"):
+                    keeper.main(control_r, ack_w)
+            self.assertFalse(select.select([ack_r], [], [], 0)[0])
+            self.assertFalse((self.root / "receipt.json").exists())
+        finally:
+            for fd in (control_r, control_w, ack_r, ack_w):
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+            for sock in (channel, callback, callback_peer):
+                with contextlib.suppress(OSError):  # the keeper closed the channel it received
+                    sock.close()
+
+    def test_dead_provider_refusal_names_its_cause_on_keeper_stderr(self):
+        """A pre-admission provider death never leaves the keeper exit silent (#815)."""
+        keeper, metadata = self.dead_provider_metadata()
+        control_r, control_w = os.pipe()
+        ack_r, ack_w = os.pipe()
+        captured = io.StringIO()
+        try:
+            packet = {"metadata": metadata, "deadline": None, "timing": keeper_timing(None)}
+            os.write(control_w, (json.dumps(packet) + "\n").encode())
+            with contextlib.redirect_stderr(captured):
+                self.assertEqual(2, keeper.main(control_r, ack_w))
+            self.assertIn("Provider exited before keeper admission", captured.getvalue())
+            self.assertFalse(select.select([ack_r], [], [], 0)[0])
+            self.assertFalse((self.root / "receipt.json").exists())
+        finally:
+            for fd in (control_r, control_w, ack_r, ack_w):
+                with contextlib.suppress(OSError):
+                    os.close(fd)
 
     def test_nonce_or_identity_tampering_is_unknown(self):
         with supervision.launch(
