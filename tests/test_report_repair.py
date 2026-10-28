@@ -918,6 +918,12 @@ class RepairTests(unittest.TestCase):
                 "bytes": len(text.encode("utf-8")),
                 "truncated": False,
                 "format": "text",
+                "parse_error": {
+                    "message": "Expecting property name enclosed in double quotes",
+                    "position": len(text),
+                    "line": 1,
+                    "column": len(text) + 1,
+                },
                 "content": text,
             },
             data["rejected_report"],

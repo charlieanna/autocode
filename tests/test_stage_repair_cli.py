@@ -301,6 +301,18 @@ class StageRepairCLI(unittest.TestCase):
         self.assertEqual([False, True], [row["repair"] for row in attempts], trace)
         self.assertIn("was not changed", attempts[1]["error"])
 
+    def test_json_syntax_location_repairs_the_retained_report_before_plan_approval(self):
+        fixture = self.fixture_for("json-syntax-diagnostic")
+        _, _, view, trace = self.plan(fixture)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        repairs = [row for row in trace if row["stage"] == "glm_revise" and row["repair"]]
+        self.assertEqual(1, len(repairs), trace)
+        self.assertEqual("Expecting ',' delimiter", repairs[0]["parse_error"]["message"])
+        self.assertTrue(repairs[0]["source_hash_matches"])
+        self.assertTrue(repairs[0]["syntax_instruction"])
+        self.assertFalse(any(row["stage"] in ("investigate_stuck", "terra") for row in trace))
+        self.assertFalse(view["done"])
+
     def test_first_repair_reports_independent_missing_protected_text(self):
         fixture = self.fixture_for("batched-protected-diagnostics")
         _, _, view, trace = self.plan(fixture)
