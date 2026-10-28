@@ -180,7 +180,7 @@ class VerifyCliTests(unittest.TestCase):
     def run_cli(self, project, out, criteria, *, nested_import=False, inject_ignored=False, selection=(), base=None):
         environment = dict(
             clean_git_environment(),
-            PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
+            PATH=os.pathsep.join((str(self.bin), str(Path(sys.executable).parent), os.environ["PATH"])),
             AUTOCODE_HOME=str(self.root / "registry"),
             AUTOCODE_ATTENTION_HOME=str(self.root / "attention"),
             CODEX_HOME=str(self.root / "codex-home"),
