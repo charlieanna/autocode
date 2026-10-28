@@ -341,6 +341,9 @@ def resolve(runner, args, parser):
             args.in_place = created = True
             print(f"Created task project: {workspace}", flush=True)
         if not args.in_place and not args.dry_run and not args.status and not args.explain:
+            repeated = run_finder.same_task(workspace, task)
+            if repeated:  # a recalled start command most often means "continue", not "start another" (#2340)
+                print(run_finder.repeated_task_note(repeated), file=sys.stderr, flush=True)
             isolated = task_workspaces.create(workspace, task)
             workspace, fresh = Path(isolated["workspace"]), True
             args._fresh_task_worktree = isolated  # removed again if the launch stops before its first save

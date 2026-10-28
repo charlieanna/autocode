@@ -84,6 +84,7 @@ class Candidate:
     stopped: bool  # an applied durable stop: terminal (autocode_stop)
     owner: str | None  # None or "task flow": the command that drives the run
     reason: str = ""  # why choose() took it; empty in a listing
+    request: str = ""  # the whole task text as saved, for a same-task comparison
 
     @property
     def complete(self) -> bool:
@@ -111,6 +112,31 @@ class _Search:
 def candidates(start) -> list[Candidate]:
     """Every saved run reachable from ``start``, newest first."""
     return _search(start).candidates
+
+
+def same_task(start, task: str) -> list[Candidate]:
+    """The unfinished runs reachable from ``start`` whose request is exactly ``task``: what a repeated
+    start command would duplicate (#2340). Empty where nothing can be searched."""
+    wanted = task.strip()
+    try:
+        found = candidates(start)
+    except RunNotFound:
+        return []
+    return [run for run in found if run.open and run.request.strip() == wanted]
+
+
+def repeated_task_note(runs: list[Candidate]) -> str:
+    """The stderr note a new-task start prints before it creates another run of a task that
+    unfinished runs already carry: the runs and the command that continues each."""
+    count = len(runs)
+    noun = "run" if count == 1 else "runs"
+    return "\n".join(
+        [
+            f"Note: {count} unfinished {noun} of this same task already exist{'s' if count == 1 else ''}; "
+            "this command starts another one. To continue instead (Ctrl-C now, then):",
+            *_entries(runs),
+        ]
+    )
 
 
 def checkout_of(run_dir) -> Path | None:
@@ -444,6 +470,7 @@ def _candidate(run_dir: Path, workspace: Path, state: RunState, owners) -> Candi
         stopped=isinstance(receipts, list)
         and any(isinstance(receipt, dict) and receipt.get("kind") == "stop" for receipt in receipts),
         owner=owner,
+        request=task,
     )
 
 

@@ -325,6 +325,19 @@ class WhichRunIsChosen(Fixture):
                 self.assertNotIn("Finished earlier", message)
                 self.assertEqual(message, self.refused(self.project, action, "--answer 'Q1=CLI only'"))
 
+    def test_a_repeated_start_names_the_unfinished_runs_of_the_same_task(self):
+        """Starting a task again finds its unfinished runs, whole text compared, finished ones left out (#2340)."""
+        _, waiting = self.worktree_run("Add a README\n\nwith a usage section")
+        self.run_in(self.project, task="Add a README\n\nwith a usage section", status="TASK_COMPLETE")
+        self.worktree_run("Add a README")
+        same = finder.same_task(self.project, "Add a README\n\nwith a usage section\n")
+        self.assertEqual([waiting], [run.run_dir for run in same])
+        note = finder.repeated_task_note(same)
+        self.assertIn("1 unfinished run of this same task already exists; this command starts another one", note)
+        self.assertIn(f"autocode --run-dir {waiting}", note)
+        self.assertEqual([], finder.same_task(self.project, "Add a LICENSE"))
+        self.assertEqual([], finder.same_task(self.root / "nowhere", "Add a README"))
+
     def test_a_long_list_is_capped(self):
         for index in range(finder.LIST_LIMIT + 2):
             self.run_in(self.project, task=f"Run {index}")
