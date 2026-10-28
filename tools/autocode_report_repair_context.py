@@ -216,7 +216,13 @@ def historical_author_report(stage: str, original: dict, latest: dict | None) ->
 def sources(pending: dict, read_source) -> tuple[dict, dict]:
     """Load the original and current pinned report once, in their existing order."""
     original = read_source(pending["original"])
-    latest = read_source(pending["latest_rejected"]) if pending.get("latest_rejected") else original
+    latest = (
+        read_source(pending["latest_rejected"], allow_empty=True)
+        if pending.get("latest_rejected") and pending["original"]["stage"] in PLANNING_STAGES
+        else read_source(pending["latest_rejected"])
+        if pending.get("latest_rejected")
+        else original
+    )
     return original, latest
 
 
@@ -283,7 +289,10 @@ def prompt_parts(
         "column are one-based. Use it to locate the syntax defect, then return the complete corrected "
         "report. It may expose further errors after correction; it does not authorize dropping findings, "
         "changing requirements or bypassing schema, evidence or protected-contract validation.\n"
-        if latest.get("format") == "text" and latest.get("parse_error") and not latest.get("truncated")
+        if latest.get("format") == "text"
+        and latest.get("parse_error")
+        and not latest.get("truncated")
+        and not latest.get("empty_response")
         else ""
     )
     review_instruction = prompts.get("fragments/report-repair-context/revision-review.md") if review else ""
@@ -294,6 +303,15 @@ def prompt_parts(
         + review_instruction
         + difference_instruction
         + syntax_instruction
+        + (
+            "EMPTY REPAIR RESPONSE. The latest report-only attempt returned no final report. "
+            "It supplies no replacement content. original_report contains the complete earlier rejected "
+            "report and its parse_error when malformed. Correct that report against the current review, "
+            "clarification context and protected contract; do not repeat the empty response. The original "
+            "remains rejected until all ordinary validation succeeds. Do not invent evidence or approval.\n"
+            if latest.get("empty_response")
+            else ""
+        )
         + (report_edits.RULE if report_edits.eligible(stage, latest) else ""),
         {
             "header": {

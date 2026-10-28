@@ -92,7 +92,7 @@ def _write_json(path, value):
     support.atomic_json(Path(path), value)
 
 
-def repair_report_source(record):
+def repair_report_source(record, *, allow_empty=False):
     """Return a bounded report artifact or an explicitly incomplete transcript."""
     output = Path(record["output"])
     response = Path(record.get("response_text") or output.with_suffix(".response.txt"))
@@ -137,7 +137,8 @@ def repair_report_source(record):
             "inspect the saved artifact instead of truncating or reconstructing it." + REPAIR_INPUT_ROUTE,
         )
     text = path.read_text()
-    if not text.strip():
+    empty = not text.strip()
+    if empty and not (allow_empty and record.get("report_only")):
         raise support.Paused("PAUSED_REPORT_REPAIR_INPUT", f"Repair report is empty: {path}." + REPAIR_INPUT_ROUTE)
     parse_error = None
     try:
@@ -159,11 +160,31 @@ def repair_report_source(record):
         "path": str(path),
         "sha256": support.file_hash(path),
         "format": format_,
+        **({"empty_response": True} if empty else {}),
         **({"parse_error": parse_error} if parse_error is not None else {}),
         "bytes": len(text.encode("utf-8")),
         "truncated": False,
         "content": content,
     }
+
+
+def has_repairable_empty_latest(pending):
+    """A saved planning hold still has its original input; this grants no attempt."""
+    latest = (pending or {}).get("latest_rejected")
+    if (
+        not latest
+        or not latest.get("report_only")
+        or latest.get("exit_code") != 0
+        or latest.get("timed_out")
+        or latest.get("interrupted")
+    ):
+        return False
+    try:
+        original = repair_report_source(pending["original"])
+        current = repair_report_source(latest, allow_empty=True)
+    except (OSError, ValueError, RuntimeError, support.Paused):
+        return False
+    return bool(current.get("empty_response") and not original.get("truncated"))
 
 
 def valid_truncated_report_attempt(record, stage_completed):

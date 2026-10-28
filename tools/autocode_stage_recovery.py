@@ -941,6 +941,15 @@ def prepare_planning_retry(state: RunState, run_dir):
         if not any(row.get("output") == active.get("output") for row in state.get("stages", [])):
             state.setdefault("stages", []).append(copy.deepcopy(active))
         state.pop("active_stage", None)
+    if (
+        status == "PAUSED_REPORT_REPAIR_INPUT"
+        and pending
+        and pending.get("attempts", 0) < records.repair_limit(state)
+        and report_source.has_repairable_empty_latest(pending)
+    ):
+        # The existing next repair still has its original input. Preserve its
+        # pins/usage/allowance; normal dispatch rechecks them before spending.
+        return False
     if pending:
         state.setdefault("report_repair_archive", []).append(
             {

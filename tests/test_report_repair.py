@@ -1506,6 +1506,57 @@ class RepairTests(unittest.TestCase):
                 if stage == "terra":  # the session that wrote the rejected report is not resumed
                     self.assertNotIn("terra", self.state["sessions"])
 
+    def test_terminal_reasoning_only_response_is_input_not_an_accepted_report(self):
+        output = self.run / "empty-repair.json"
+        events = self.run / "empty-repair.jsonl"
+        events.write_text("\n".join(json.dumps(row) for row in [event("step_start"), terminal()]) + "\n")
+        record = {
+            "engine": "opencode",
+            "events": str(events),
+            "output": str(output),
+            "report_only": True,
+            "stage": "glm_revise_report_repair",
+        }
+        with self.assertRaises(support.Paused):
+            runner.repair_report_source(record)
+        source = runner.repair_report_source(record, allow_empty=True)
+        self.assertTrue(source["empty_response"])
+        self.assertEqual("", source["content"])
+        with self.assertRaises(RuntimeError):
+            runner.load_stage_report(record)
+
+    def test_empty_repair_does_not_bypass_original_or_latest_pins(self):
+        self.state["next_stage"] = "glm_revise"
+        pending = self.queue(stage="glm_revise", report='{"summary": "retained",}')
+        pending["attempts"] = 1
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.reject_repair(6, self.FORMAT_ERROR, report="")
+        for record in (pending["original"], pending["latest_rejected"]):
+            path = Path(record["output"])
+            original = path.read_bytes()
+            try:
+                path.write_text("tampered")
+                self.assert_repair_blocked("PAUSED_STALE_VALIDATION")
+            finally:
+                path.write_bytes(original)
+
+    def test_saved_empty_planning_repair_hold_keeps_its_remaining_attempt(self):
+        self.state["settings"]["joint_planning"] = True
+        self.state["next_stage"] = "glm_revise"
+        pending = self.queue(stage="glm_revise", report='{"summary": "retained",}')
+        pending["attempts"] = 1
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.reject_repair(6, self.FORMAT_ERROR, report="")
+        self.state["status"] = "PAUSED_REPORT_REPAIR_INPUT"
+        before = copy.deepcopy(self.state)
+        self.assertFalse(runner.prepare_planning_retry(self.state, self.run))
+        self.assertEqual(before, self.state)
+        data = json.loads(self.repair_request()["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertTrue(data["rejected_report"]["empty_response"])
+        self.assertEqual('{"summary": "retained",}', data["original_report"]["content"])
+        self.assertIn("parse_error", data["original_report"])
+        self.assertEqual(2, self.state["pending_report_repair"]["attempts"])
+
     def test_unlaunchable_repair_without_a_pending_repair_admits_nothing(self):
         self.state["settings"]["joint_planning"] = True
         for stage in ("terra", "astra_finalize"):

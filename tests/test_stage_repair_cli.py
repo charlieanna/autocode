@@ -363,6 +363,31 @@ class StageRepairCLI(unittest.TestCase):
         self.assertEqual([False, True], [row["repair"] for row in attempts], trace)
         self.assertIn("was not changed", attempts[1]["error"])
 
+    def test_empty_planning_repair_uses_original_within_existing_allowance(self):
+        fixture = self.fixture_for("empty-planning-repair")
+        _, state, view, trace = self.plan(fixture)
+        self.assert_approval_boundary(fixture, state, view, trace)
+        revisions = [row for row in trace if row["stage"] == "glm_revise"]
+        self.assertEqual([False, True, True], [row["repair"] for row in revisions])
+        self.assertEqual([True, False], [row["empty"] for row in revisions if row["repair"]])
+        self.assertTrue(revisions[-1]["original_retained"])
+        first_revision = next(i for i, row in enumerate(trace) if row["stage"] == "glm_revise")
+        self.assertFalse(any(row["stage"] == "astra_discovery" for row in trace[first_revision:]))
+        usage = view["usage"]["accounting"]["attempts"]
+        repairs = [row for row in usage if row["stage"] == "glm_revise_report_repair"]
+        self.assertEqual(2, len(repairs))
+        self.assertTrue(any(row["rejected"] for row in repairs))
+
+    def test_empty_original_or_exhausted_empty_repairs_still_stop(self):
+        for suffix, count in (("original-empty", 0), ("always-empty", 2)):
+            with self.subTest(suffix=suffix):
+                fixture = self.fixture_for("empty-planning-repair-" + suffix)
+                _, _, view, trace = self.plan(fixture)
+                self.assertNotEqual("approve_plan", view["needs"]["kind"])
+                self.assertFalse(view["done"])
+                self.assertFalse(any(row["stage"] == "terra" for row in trace))
+                self.assertEqual(count, sum(row["stage"] == "glm_revise" and row["repair"] for row in trace))
+
     def test_json_syntax_location_repairs_the_retained_report_before_plan_approval(self):
         fixture = self.fixture_for("json-syntax-diagnostic")
         _, _, view, trace = self.plan(fixture)
