@@ -25,9 +25,11 @@ Missing evidence is UNVERIFIED, never PASS.
 from __future__ import annotations
 
 try:
+    from . import autocode_joint_inputs as joint_inputs
     from . import autocode_native_check_execution as native_checks
     from . import autocode_source_snapshot as source_snapshot
 except ImportError:
+    import autocode_joint_inputs as joint_inputs
     import autocode_native_check_execution as native_checks
     import autocode_source_snapshot as source_snapshot
 
@@ -1671,12 +1673,7 @@ def execution_identity(
         for name, value in source_snapshot_value.get("files", {}).items()
         if value.startswith("symlink:") and name not in DEPENDENCY_DIRS
     ]
-    source_metadata = {}
-    for name in source_snapshot_value.get("files", {}):
-        path = workspace / name
-        if path.is_file() and not path.is_symlink():
-            stat = path.stat()
-            source_metadata[name] = [stat.st_mode, stat.st_mtime_ns, stat.st_uid, stat.st_gid]
+    source_metadata = source_snapshot.metadata(workspace, source_snapshot_value.get("files", {}))
     environment = test_environment(workspace)
     invocation = python_tests.parse(command)
     if invocation and invocation.prefix:
@@ -1833,6 +1830,7 @@ def execution_identity(
     else:
         copied_inputs, omitted_generated = ignored_inputs.identity, None
     identity = {
+        "joint_inputs": joint_inputs.inventory(workspace),
         "source_revision": source_snapshot_value["revision"],
         "source_metadata": util.digest(source_metadata),
         "unbound_source_symlinks": source_symlinks,

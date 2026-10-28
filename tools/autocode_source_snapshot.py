@@ -144,6 +144,17 @@ def inventory(workspace, *, paths=()):
     return result
 
 
+def metadata(workspace, files):
+    """Observable file metadata used alongside content in execution identity."""
+    result = {}
+    for name in files:
+        path = Path(workspace) / name
+        if path.is_file() and not path.is_symlink():
+            info = path.stat()
+            result[name] = [info.st_mode, info.st_mtime_ns, info.st_uid, info.st_gid]
+    return result
+
+
 def preserve_after(path, current, *, write_json=util.atomic_json):
     """Keep a completed attempt's original snapshot bytes during reconciliation.
 
