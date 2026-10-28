@@ -638,3 +638,57 @@ class ModelsCliTest(unittest.TestCase):
         code, text = self.models(provider=kilo_provider(lists_routes=False, listed=offered))
         self.assertEqual(0, code)
         self.assertIn("Every default route can be used:", text)
+
+
+class ProjectEngineTests(unittest.TestCase):
+    """`autocode models` follows the project's engine when no --provider is given (#2369)."""
+
+    def project(self, engine: str) -> Path:
+        import tempfile
+
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, root, True)
+        (root / ".autocode").mkdir()
+        (root / ".autocode" / "config.toml").write_text(f'engine = "{engine}"\n')
+        return root
+
+    def test_a_codex_project_is_told_its_routes_are_fixed_instead_of_opencode_not_on_path(self):
+        root = self.project("codex")
+        out = io.StringIO()
+        with patch("subprocess.run", side_effect=AssertionError("no tool was to be launched")):
+            with redirect_stdout(out):
+                code = mc.cli(["--workspace", str(root)])
+        self.assertEqual(0, code)
+        self.assertIn(f"this project's engine is codex (set in {root / '.autocode' / 'config.toml'})", out.getvalue())
+        self.assertIn("docs/models.md#default-models", out.getvalue())
+        self.assertIn("--provider opencode", out.getvalue())
+
+    def test_a_claude_project_lists_the_claude_provider(self):
+        import autocode_providers
+
+        root = self.project("claude")
+        resolved = []
+
+        def resolve(name):
+            resolved.append(name)
+            raise RuntimeError("stop here")
+
+        with patch.object(autocode_providers, "resolve", resolve):
+            with redirect_stdout(io.StringIO()):
+                mc.cli(["--workspace", str(root)])
+        self.assertEqual(["claude"], resolved)
+
+    def test_an_explicit_provider_wins_over_the_project_engine(self):
+        import autocode_providers
+
+        root = self.project("codex")
+        resolved = []
+
+        def resolve(name):
+            resolved.append(name)
+            raise RuntimeError("stop here")
+
+        with patch.object(autocode_providers, "resolve", resolve):
+            with redirect_stdout(io.StringIO()):
+                mc.cli(["--workspace", str(root), "--provider", "opencode"])
+        self.assertEqual(["opencode"], resolved)
