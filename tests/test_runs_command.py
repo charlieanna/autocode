@@ -106,6 +106,27 @@ class IssueWorktreeRunsTests(unittest.TestCase):
         listed = {Path(row["run_dir"]).name: Path(row["workspace"]) for row in runs.rows(root)}
         self.assertEqual({"local": root, "issue-run": worktree}, listed)
 
+    def test_a_task_worktrees_run_is_one_of_the_projects_runs(self):
+        """A task started without --in-place runs in .autocode/worktrees/<lane>; --status and resume find it,
+        so `autocode runs` must not answer "No runs found" for it."""
+        root = project(local={"status": "RUNNING"}).resolve()
+        lane = root / ".autocode" / "worktrees" / "add-a-hello-script-0123456789"
+        run_dir = lane / ".autocode" / "runs" / "lane-run"
+        run_dir.mkdir(parents=True)
+        (lane / ".git").write_text("gitdir: elsewhere\n")
+        (lane / ".autocode" / "task-workspace.json").write_text(
+            json.dumps({"workspace": str(lane), "project_workspace": str(root)})
+        )
+        saved = {"version": 3, "workspace": str(lane), "task": "Add a hello script", "status": "WAITING_FOR_USER"}
+        (run_dir / "state.json").write_text(json.dumps(saved))
+        listed = {Path(row["run_dir"]).name: Path(row["workspace"]) for row in runs.rows(root)}
+        self.assertEqual({"local": root, "lane-run": lane}, listed)
+        # Another project's lane, or one whose metadata names a different project, is not this project's run.
+        (lane / ".autocode" / "task-workspace.json").write_text(
+            json.dumps({"workspace": str(lane), "project_workspace": str(root / "elsewhere")})
+        )
+        self.assertEqual({"local"}, {Path(row["run_dir"]).name for row in runs.rows(root)})
+
     def test_the_issue_store_is_the_one_autocode_issue_writes(self):
         import autocode_issue
 

@@ -291,7 +291,7 @@ def _search(start) -> _Search:
         )
         places, looked_in = [], []
         for project in projects:
-            trees = _task_worktrees(project)
+            trees = task_worktrees(project)
             places += [project, *trees]
             looked_in.append(_described(project, trees))
         where = start
@@ -300,7 +300,7 @@ def _search(start) -> _Search:
     elif _worktree_metadata(checkout):
         places, looked_in, where = [checkout], [str(checkout / ".autocode" / "runs")], checkout
     else:
-        trees = _task_worktrees(checkout)
+        trees = task_worktrees(checkout)
         places, looked_in, where = [checkout, *trees], [_described(checkout, trees)], checkout
     found: dict[Path, Candidate] = {}
     for place in places:
@@ -359,8 +359,10 @@ def _worktree_metadata(tree: Path) -> dict | None:
     return data
 
 
-def _task_worktrees(project: Path) -> list[Path]:
-    """The worktrees under ``project/.autocode/worktrees`` whose metadata names ``project``."""
+def task_worktrees(project: Path) -> list[Path]:
+    """The worktrees under ``project/.autocode/worktrees`` whose metadata names ``project`` (resolved).
+
+    What ``--status``, ``resume`` and ``autocode runs`` all count as the project's own task lanes."""
     parent = project / ".autocode" / "worktrees"
     try:
         if parent.is_symlink() or not parent.is_dir() or parent.resolve() != parent:
