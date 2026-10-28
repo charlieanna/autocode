@@ -893,8 +893,8 @@ def run_role(
                 job_source.discard_unadmitted(state, record)
             if state.get("active_stage") is not record:
                 raise  # before admission finished, nothing of this stage was saved
-            interrupted = f"Provider launch interrupted by {str(error) or 'a signal'}; inspect saved artifacts "
-            raise support.Paused("PAUSED_INTERRUPTED", interrupted + "before reconciliation") from error
+            why = f"Provider launch interrupted by {str(error) or 'a signal'}; inspect saved artifacts "
+            raise support.Paused("PAUSED_INTERRUPTED", why + "before reconciliation") from error
         except BaseException:
             if native is None:
                 job_source.discard_unadmitted(state, record)
