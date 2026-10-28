@@ -423,6 +423,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode merge` run again after a successful merge says "already merged: master at ... contains
+  autocode/..." and exits 0, instead of "the base branch moved after this run started; re-validate ...
+  then merge again"; its ancestor checks now read git's exit code, so a diverged base takes the
+  documented merge-commit path instead of always attempting a fast-forward (#2315).
 - `--engine codex` on a host without Codex is refused in words ("Codex is not on PATH; no provider request
   was launched. Run `autocode doctor` ...") instead of a raw "[Errno 2] No such file or directory: 'codex'",
   on a new run and on a resume; the Claude engine's refusal gains the same `autocode doctor` hint (#2307).

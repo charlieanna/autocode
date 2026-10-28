@@ -54,6 +54,20 @@ class WorktreeMergeTests(unittest.TestCase):
         self.assertEqual("master", git(self.project, "symbolic-ref", "--short", "HEAD"))
         self.assertIn("fast-forwarded", message)
 
+    def test_a_second_merge_reports_the_branch_as_already_merged(self):
+        """#2315: the first merge moved the base to the run's own commit, and the second merge read that
+        as "the base branch moved after this run started; re-validate ... then merge again"."""
+        meta = workspaces.create(self.project, "Build a greeting CLI")
+        tree = Path(meta["workspace"])
+        (tree / "b.txt").write_text("two\n")
+        git(tree, "add", "b.txt")
+        git(tree, "-c", "user.name=T", "-c", "user.email=t@e.test", "commit", "-qm", "deliver")
+        self.assertTrue(merge_mod.merge(self.project, tree)[0])
+        ok, message = merge_mod.merge(self.project, tree)
+        self.assertTrue(ok, message)
+        self.assertIn("already merged: master at", message)
+        self.assertNotIn("re-validate", message)
+
     def test_a_moved_base_is_refused_with_the_revalidate_instruction(self):
         meta = workspaces.create(self.project, "Build a greeting CLI")
         tree = Path(meta["workspace"])

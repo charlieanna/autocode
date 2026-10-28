@@ -30,6 +30,14 @@ def _git(root, *args, check=True):
     return result.stdout.strip()
 
 
+def _is_ancestor(root, commit, tip) -> bool:
+    """git merge-base --is-ancestor answers on its exit code and prints nothing (#2315)."""
+    result = subprocess.run(
+        ["git", "-C", str(root), "merge-base", "--is-ancestor", commit, tip], capture_output=True, text=True
+    )
+    return result.returncode == 0
+
+
 def merge(project: Path, tree: Path, *, into: str | None = None) -> tuple[bool, str]:
     """Merge the delivered task branch into ``into`` (default: the base's branch).
 
@@ -57,18 +65,18 @@ def merge(project: Path, tree: Path, *, into: str | None = None) -> tuple[bool, 
             False,
             "nothing delivered on this branch yet; the run must reach TASK_COMPLETE and commit its source first",
         )
-    if (
-        base_commit
-        and target_tip != base_commit
-        and _git(project, "merge-base", "--is-ancestor", base_commit, target_tip, check=False) == ""
-    ):
+    if _is_ancestor(project, delivered, target_tip):
+        # A second merge: the target already holds the delivered commit, so nothing moved past the
+        # run except its own result (#2315).
+        return True, f"already merged: {target} at {target_tip[:12]} contains {branch}"
+    if base_commit and target_tip != base_commit and _is_ancestor(project, base_commit, target_tip):
         # The base moved past the run's start: the completion proof may be stale.
         return False, (
             f"the base branch {target} moved after this run started "
             f"({base_commit[:12]} -> {target_tip[:12]}); re-validate on the current source "
             f"before merging (as --resume-paused does), then merge again"
         )
-    if _git(project, "merge-base", "--is-ancestor", target_tip, delivered, check=False) == "":
+    if _is_ancestor(project, target_tip, delivered):
         # Fast-forward: the delivered branch contains the base tip.
         try:
             _git(project, "checkout", target)
