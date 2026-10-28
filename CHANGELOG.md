@@ -423,6 +423,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- In the line-by-line chat, `/help` and `/quit` typed at "What do you want done?" work (the commands that work before a chat, and leaving) instead of answering "Open or start a chat first"; `//text` starts a chat whose request begins with a slash.
 - `--run-dir` naming a path that is not a saved run is refused in words ("is not a directory" or "has no state.json", what a run directory looks like, and that `autocode runs` lists them) instead of `[Errno 2] No such file or directory: '.../state.json'`.
 - `autocode connections list` and `connections check` print a readable line per connection (state, detail and the command of each offered action) when `--json` is not given; the flag was a no-op and both printed one line of JSON.
 - `autocode merge` without a worktree argument says that the project has no task worktree, or names the ones it has, instead of "there is not exactly one task worktree".
