@@ -891,8 +891,8 @@ def parse(unit, argv, default_models):
     actions = user_actions(args)
     if args.close_finding and not args.run_dir:
         parser.error("--close-finding requires --run-dir")
-    if sum(bool(a) for a in actions.values()) > 1:
-        parser.error("Choose one action per invocation; answering and approving are separate events")
+    if len(given := [flag for flag, present in actions.items() if present]) > 1:
+        parser.error(f"Choose one action per invocation: {' and '.join(given)} were given together")
     if args.retry_builder and any(actions.values()):
         parser.error("--retry-builder is a resume action; do not combine it with another action")
     if (args.delegate_all or args.reject_assumption) and not args.review_token:
