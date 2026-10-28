@@ -424,6 +424,7 @@ PR template asks for an entry here; a change without one is incomplete.
 ### Fixed
 
 - `autocode runs --all` listed every registered project's runs without saying which project each belongs to; each row now names its workspace on the line before its command (#2379).
+- `autocode bundle` refused a run that `clean-worktrees` had archived to `PROJECT/.autocode/archive/TREE/runs/RUN`, so a merged task could not be bundled for a bug report; it now takes the project as the workspace and, with `--with-diff`, diffs the base commit against the kept branch the archive names (#2377).
 - After a person answered a paused run's AutoResolver request, `--status`, the status view's `explanation` and `autocode explain` said only that the response was received; they now also name the cause the run is still held for, and the explanation no longer doubles the stop reason's final period (#2371).
 - The brief printed at every launch and stop now lists each saved answer as one line (the question, the answer, and whether it was delegated) instead of dumping the answer records as JSON, contract tokens included (#2363).
 - `autocode clean-worktrees` no longer tells the person to "finish or abandon" an unfinished run, a verb no command implements; its keep reason now names the steps that work today, `git worktree remove --force` on the worktree and, with a shared registry, `autocode registry forget-deleted` (#2365).
