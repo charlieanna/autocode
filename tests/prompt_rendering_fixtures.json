@@ -80,12 +80,12 @@
     "sha256": "a616d89552c3622eb3f277086e651563a131167fdf0ccf93b8f9d6043d5de85c"
   },
   "execution/terra/v2": {
-    "bytes": 9030,
-    "sha256": "bc1e55fdc6ded63132e6cc40e95c2c857331626813c8fdbeb66bcd2b341ae1de"
+    "bytes": 9662,
+    "sha256": "0170bdc91ef5ca3cc2e12d7e0050f0d387599a1504d72a4094ae70ef39214914"
   },
   "execution/terra/v3": {
-    "bytes": 11731,
-    "sha256": "ecf2833529b44cf544b23a8e428e4a034feaaacb3d35947811e8ca0a7dd7f16c"
+    "bytes": 12363,
+    "sha256": "0678da3d8c05f1af602237b069eec8ea4cfb4b3423957b070d4c54918ba6ad1f"
   },
   "figma/automatic/None": {
     "bytes": 830,
@@ -252,20 +252,20 @@
     "sha256": "dcfe095af42edfa3b39def70204c3e1f08d95c489a975346b86c2d5918f38e71"
   },
   "milestones/terra/False": {
-    "bytes": 15498,
-    "sha256": "af8ab105d84a57f8a5f3102d764c7ab5b035893e9a36350f189063e8c82dca1b"
+    "bytes": 16130,
+    "sha256": "338cd0a38eb191fa365957e00dba0cd6620f4fe7e55043a841ff3dd1526e38f2"
   },
   "milestones/terra/True": {
-    "bytes": 16076,
-    "sha256": "707c67144828b4a51e9fdd585ff7077593bfa87208caadc214b455507ade9c7b"
+    "bytes": 16708,
+    "sha256": "f47e5492de58fae8f6b30e7b4a81a1b17e5ae76728c4251cd31b2e631a60e865"
   },
   "package/investigate_bug": {
     "bytes": 13188,
     "sha256": "ca6a0f448616b85f78d112dc6e02ecec064f12dfc9773cf54c505d259d9f9e15"
   },
   "package/terra": {
-    "bytes": 12868,
-    "sha256": "cbde47b98859cada541401ebdc88c6a954ed55d357526f079bdd57646f0add78"
+    "bytes": 13500,
+    "sha256": "bcf9d1ab2e3e8af960ab3218d315c6f2fd7541967ba8117676ad34abd3b9f78a"
   },
   "planning/astra_challenge/adaptive": {
     "bytes": 45462,
@@ -480,8 +480,8 @@
     "sha256": "946cf6337e599b6172ebf5e27102e4fb1448165b0fdd0591a182d1b907148219"
   },
   "progressive/terra": {
-    "bytes": 13135,
-    "sha256": "03d91bb83b8b13726b727adcdaa70b7dd8d284fb19aa06a84f8afe7fcf6cdaef"
+    "bytes": 13767,
+    "sha256": "22819019636e39cc54bd6fd8ce0e25f626414944d11f6786b2db21610b33782a"
   },
   "provider/command-output-contract/None": {
     "bytes": 1972,
@@ -752,8 +752,8 @@
     "sha256": "02c5f76421cecf31ec59a5fe17febaefefb18a41700a8798aa47fae3a2d9c641"
   },
   "unit/terra": {
-    "bytes": 12062,
-    "sha256": "674a8e4b88358c413f32a329ac0cb344a43b4ca978f7dc5d99c764805d34ed9f"
+    "bytes": 12694,
+    "sha256": "b5e70c573d8be323bcc744ee3f102a3ded392962557fd61e7ac8f9ef86ac61bd"
   },
   "workflow/astra_checkpoint/False": {
     "bytes": 11294,

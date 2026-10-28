@@ -8,6 +8,15 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_builder_capture_guidance_keeps_its_public_capture_consumer(self):
+        consumer = "tests.test_capture_event_contract"
+        selected = run_suite.select_tests(
+            ["tools/prompts/fragments/stage-context/context-packet-04.md"],
+            {consumer: "", "tests.test_unrelated": ""},
+        )
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
     def test_scenario_map_inputs_keep_the_target_discovery_guard(self):
         consumer = "tests.test_run_suite"
         for path in (
