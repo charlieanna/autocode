@@ -765,10 +765,7 @@ def parse(unit, argv, default_models):
         parser.error(f"This entry point runs only {unit}")
     notice = _find_run(parser, args, explicit, resume_only, shlex.join(["resume", *rest] if resume_only else rest))
     explicit |= project_config.for_new_run(parser, args, explicit)  # the project's settings (#707)
-    if args.engine == "claude":  # Claude Code: the built-in claude provider on the facade engine (#717)
-        if args.provider not in (None, "claude"):
-            parser.error(f"engine claude runs the built-in claude provider; it cannot run --provider {args.provider}")
-        args.engine, args.provider = "opencode", "claude"
+    role_transport.engine_provider(args, parser)  # Claude Code facade (#717); codex is an engine (#2330)
     args._explicit_budget_flags = explicit & budget_flags
     args._resume_command = resume_only  # typed as `autocode resume`: who resumed records the word (#722)
     if resume_only and _acknowledges_pause(args):

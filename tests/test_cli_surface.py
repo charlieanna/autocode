@@ -51,6 +51,10 @@ class CliSurfaceTests(unittest.TestCase):
                 self.assertIn(name, listed)
         self.assertIn("--help-all", out)
         self.assertIn("docs/cli.md", out)
+        # #2330: the coding agent is chosen with --engine; --provider (external tools) led people to
+        # `--provider codex`, which fails asking for a TOML file.
+        self.assertIn("--engine", out)
+        self.assertNotIn("--provider", out)
 
     def test_full_help_retains_advanced_options_and_normal_parsing(self):
         code, out, err = self.invoke("--help-all")

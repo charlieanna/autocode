@@ -11,7 +11,7 @@ COMMON_OPTIONS = (
     ("--workspace", "Project directory"),
     ("--run-dir", "Use a saved run"),
     ("--workflow", "Choose the kind of job"),
-    ("--provider", "Choose the coding agent"),
+    ("--engine", "Coding agent: opencode, codex or claude"),
     ("--status", "Read saved status without launching an agent"),
     ("--explain", "Explain a saved stop without launching an agent"),
     ("--no-chat", "Return when the run needs your decision"),

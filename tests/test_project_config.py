@@ -105,6 +105,11 @@ class ProjectConfigTests(unittest.TestCase):
         self.assertEqual(("codex", None), (args.engine, args.provider))
         stderr = self.refused("Build it", "--engine", "claude", "--provider", "kilocode")
         self.assertIn("engine claude runs the built-in claude provider; it cannot run --provider kilocode", stderr)
+        # #2330: codex is an engine; the old refusal asked for ~/.config/autocode/providers/codex.toml.
+        self.write("")
+        stderr = self.refused("Build it", "--provider", "codex")
+        self.assertIn("codex is an engine, not a provider config: run with --engine codex", stderr)
+        self.assertNotIn("codex.toml", stderr)
 
     def test_a_saved_run_never_reads_the_file(self):
         self.write('engine = "codex"\nmax-seconds = 5\n')
