@@ -123,7 +123,7 @@ class OriginalOracleTests(unittest.TestCase):
             self.execute()
 
     def test_explicit_command_only_repair_replays_the_same_original_assertions(self):
-        from .test_protected_commands import CommandRecoveryTests
+        from .test_protected_commands import CommandRecoveryTests, pending_gate_report
 
         (self.project / "test_layout.py").unlink()
         nested = self.project / "repos/a/tests/test_layout.py"
@@ -152,7 +152,10 @@ class OriginalOracleTests(unittest.TestCase):
         )
         contract["hash"] = guard.util.digest({k: contract[k] for k in ("task_id", "revision", "body")})
         contract["approval_event"]["token"] = "r1:" + contract["hash"]
+        pending = copy.deepcopy(pending_gate_report(self.state, self.run / "legacy-report"))
         self.configure(SimpleNamespace(run_dir=self.run, resume_paused=True, revise_protected_tests="@approved-suite"))
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertEqual(pending, self.state["report_repair_archive"][-1]["repair"])
         self.assertEqual(old["files"], self.binding["files"])
         self.assertEqual(archive, Path(old["root"]).read_bytes())
         self.assertNotEqual(old["binding_hash"], self.binding["binding_hash"])

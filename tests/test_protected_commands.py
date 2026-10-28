@@ -12,6 +12,27 @@ import autocode_run_view as run_view
 import autocode_util as util
 
 
+def pending_gate_report(state, run_dir):
+    run_dir.mkdir(parents=True, exist_ok=True)
+    original = {"stage": "sol", "exit_code": 0, "finished_at": "saved", "source_revision": "source", "task_id": "task"}
+    pins = {}
+    for key in ("events", "output", "before_ref", "after_ref", "schema"):
+        path = run_dir / (key + ".json")
+        path.write_text("{}")
+        original[key] = str(path)
+        pins[str(path)] = util.file_hash(path)
+    state.update(run_dir=str(run_dir), current_task={"id": "task", "source_revision": "source"})
+    pending = {
+        "original": original,
+        "pins": pins,
+        "contract_hash": state["goal_contract"]["hash"],
+        "attempts": 0,
+        "error": "Protected tests changed and the original gate did not pass on this implementation.",
+    }
+    state["pending_report_repair"] = pending
+    return pending
+
+
 class CommandRecoveryTests(unittest.TestCase):
     def fixture(self):
         temp = tempfile.TemporaryDirectory()
@@ -37,7 +58,7 @@ class CommandRecoveryTests(unittest.TestCase):
         return (
             {
                 "workspace": str(root),
-                "status": "PAUSED_OPERATOR_REQUEST",
+                "status": "PAUSED_INTERVENTION",
                 "next_stage": "sol",
                 "goal_contract": contract,
                 "user_events": [event],
@@ -94,6 +115,37 @@ class CommandRecoveryTests(unittest.TestCase):
         state, record, _ = self.fixture()
         state["current_task"] = {"validation_plan": ["python3 -m pytest repos/a/tests tests -v"]}
         self.assertIsNone(commands.proposal(state, record))
+
+    def test_only_authenticated_completed_gate_reports_can_be_retired(self):
+        state, record, _ = self.fixture()
+        pending = pending_gate_report(state, Path(state["workspace"]) / "run")
+        original = copy.deepcopy(state)
+        self.assertIsNotNone(commands.proposal(state, record))
+        self.assertEqual(original, state)
+        for change in ({"exit_code": 1}, {"interrupted": True}, {"finished_at": None}, {"task_id": "other"}):
+            saved = copy.deepcopy(pending["original"])
+            pending["original"].update(change)
+            self.assertIsNone(commands.proposal(state, record))
+            pending["original"] = saved
+        pending["contract_hash"] = "other"
+        self.assertIsNone(commands.proposal(state, record))
+        pending["contract_hash"] = state["goal_contract"]["hash"]
+        Path(next(iter(pending["pins"]))).write_text("corrupt")
+        self.assertIsNone(commands.proposal(state, record))
+
+    def test_an_executed_gate_failure_cannot_queue_paid_formatting_repair(self):
+        import autocode_report_repair_queue as repair
+
+        state = {"settings": {"report_repair": {"max_attempts": 2}}}
+        self.assertFalse(
+            repair.queue(
+                state,
+                {"exit_code": 0, "source_revision": "r"},
+                commands.OriginalGateFailure("gate failed"),
+                completed=lambda: True,
+            )
+        )
+        self.assertNotIn("pending_report_repair", state)
 
     def test_an_existing_or_executable_marker_cannot_trigger_correction(self):
         state, record, _ = self.fixture()

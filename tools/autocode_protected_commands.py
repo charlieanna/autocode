@@ -6,14 +6,49 @@ from pathlib import Path, PurePosixPath
 try:
     from . import autocode_contract_identity as contracts
     from . import autocode_python_tests as python_tests
+    from . import autocode_util as util
     from . import autocode_verification_plan as plan
 except ImportError:
     import autocode_contract_identity as contracts
     import autocode_python_tests as python_tests
+    import autocode_util as util
     import autocode_verification_plan as plan
 
 
 SELECTOR = "@approved-suite"
+
+
+class OriginalGateFailure(plan.PlannedCheckFailure):
+    """An executed original gate failed; JSON report repair cannot change it."""
+
+
+def completed_gate_repair(state):
+    """Authenticate a legacy completed report queued only for the failed original gate."""
+    pending = state.get("pending_report_repair") or {}
+    original, task = pending.get("original") or {}, state.get("current_task") or {}
+    pins = pending.get("pins") or {}
+    if (
+        not str(pending.get("error", "")).startswith("Protected tests changed and the original gate did not pass")
+        or original.get("stage") not in ("sol", "astra_checkpoint")
+        or original.get("exit_code") != 0
+        or not original.get("finished_at")
+        or original.get("timed_out")
+        or original.get("interrupted")
+        or original.get("task_id") != task.get("id")
+        or not original.get("source_revision")
+        or original.get("source_revision") != task.get("source_revision")
+        or pending.get("contract_hash") != (state.get("goal_contract") or {}).get("hash")
+        or not all(original.get(key) in pins for key in ("events", "output", "before_ref", "after_ref", "schema"))
+    ):
+        return False
+    try:
+        run_dir = Path(state["run_dir"]).resolve()
+        return all(
+            Path(path).resolve().is_relative_to(run_dir) and util.file_hash(path) == digest
+            for path, digest in pins.items()
+        )
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
 
 
 def initial_command(files, command):
@@ -44,19 +79,19 @@ def proposal(state, record):
     """
     if (
         not record
-        or state.get("status")
-        not in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED", "PAUSED_OPERATOR_REQUEST", "PAUSED_AFTER_STAGE")
+        or state.get("status") not in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED")
         or state.get("next_stage") not in ("sol", "astra_checkpoint")
         or any(
             state.get(key)
             for key in (
                 "active_stage",
-                "pending_report_repair",
                 "uncertain_artifacts",
                 "runner_check",
                 "active_runner_check",
             )
         )
+        or state.get("pending_report_repair")
+        and not completed_gate_repair(state)
         or not contracts.approved(state)
     ):
         return None

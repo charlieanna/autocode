@@ -102,6 +102,7 @@ def reconcile(state: RunState, settings, args, workspace, run_dir, *, is_test_pa
     revision = getattr(args, "revise_protected_tests", None)
     previous = settings.get("protected_tests")
     if revision:
+        command_only = revision == commands.SELECTOR
         if not getattr(args, "run_dir", None) or not getattr(args, "resume_paused", False):
             raise ValueError("--revise-protected-tests requires a saved pause and --resume-paused")
         if (
@@ -111,18 +112,18 @@ def reconcile(state: RunState, settings, args, workspace, run_dir, *, is_test_pa
                 state.get(key)
                 for key in (
                     "active_stage",
-                    "pending_report_repair",
                     "uncertain_artifacts",
                     "active_runner_check",
                     "runner_check",
                 )
             )
+            or state.get("pending_report_repair")
+            and not (command_only and commands.completed_gate_repair(state))
         ):
             raise ValueError("Reconcile the attempt and stop before independent validation to revise protected tests")
         if not previous:
             raise ValueError("This saved run has no original protected-test binding; start a new run")
         verify_binding(previous)
-        command_only = revision == commands.SELECTOR
         proposal = commands.proposal(state, previous) if command_only else util.read_object(revision)
         if proposal is None:
             raise ValueError("No approved command-only protected-test correction is available")
@@ -159,6 +160,13 @@ def reconcile(state: RunState, settings, args, workspace, run_dir, *, is_test_pa
             }
         )
         settings["protected_tests"] = current
+        if command_only and state.get("pending_report_repair"):
+            state.setdefault("report_repair_archive", []).append(
+                {
+                    "reason": "Explicit original-suite command correction requires fresh validation, not report formatting",
+                    "repair": state.pop("pending_report_repair"),
+                }
+            )
     elif not getattr(args, "run_dir", None):
         files = inventory(workspace, is_test_path, package=package_scope.of(settings))
         explicit = (settings.get("regression") or {}).get("test_command")
@@ -272,7 +280,7 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout):
     result["receipt_sha256"] = util.file_hash(receipt)
     if result["verdict"] != "PASS":
         tail = (result.get("original") or {}).get("tail", "")[-500:]
-        raise ValueError(
+        raise commands.OriginalGateFailure(
             "Protected tests changed and the original gate did not pass on this implementation. "
             "Repair the implementation; a modified assertion is not proof. "
             + result.get("error", "")
