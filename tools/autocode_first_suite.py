@@ -228,6 +228,67 @@ def absent_base_suite(base_receipt, candidate_receipt, *, document_only):
     )
 
 
+def empty_collection(base_receipt) -> bool:
+    """The base suite ran to completion and honestly collected no test.
+
+    Python 3.14 unittest and pytest exit 5 for an empty collection; other runners exit 0.
+    """
+    results = base_receipt.get("results")
+    return bool(
+        results is not None
+        and base_receipt.get("results_expected") is True
+        and (
+            base_receipt.get("exit_code") == 0
+            or (
+                base_receipt.get("exit_code") == 5
+                and schedule.collection_kind(base_receipt.get("command", "")) in ("unittest", "pytest")
+            )
+        )
+        and results.get("complete") is True
+        and results.get("total") == 0
+        and all(results.get(key) == [] for key in ("passed", "failed", "skipped", "collection_errors"))
+    )
+
+
+UNTESTED_BASE = (
+    "The original code has no tests, so preservation of existing behavior is unproven; "
+    "add tests of the existing behavior this change touches that pass on the original code and on the change"
+)
+UNTESTED_BASE_KEPT = "The original code has no tests; the change's tests that pass on it and on the change keep it"
+
+
+def no_base_evidence(untested, *, ran=True) -> str:
+    """Why preservation is unproven; for a base with no test, what the Builder can add to prove it."""
+    if untested:
+        return UNTESTED_BASE
+    if not ran:
+        return "The base suite could not run; preservation of existing behavior is unproven"
+    return "The base suite provided no complete passing-test evidence; preservation of existing behavior is unproven"
+
+
+def no_base_suite(base_receipt) -> bool:
+    """The base had no suite to run: an empty collection, or a known collector that found nothing to start.
+
+    A missing test directory makes unittest exit 1 with no per-test results (absent_base_suite).
+    """
+    return empty_collection(base_receipt) or bool(
+        base_receipt.get("results_expected") is True
+        and base_receipt.get("results") is None
+        and base_receipt.get("exit_code") == 1
+        and base_receipt.get("timed_out") is False
+    )
+
+
+def untested_base_kept(base_receipt, candidate_receipt, kept, *, untested) -> bool:
+    """A base with code but no test file: the change's own tests stand in for the suite it lacks (#2259).
+
+    ``kept`` are the change's tests that ran and passed on the original code and still pass
+    (the proof's pass_to_pass). The base must have had no suite to run (no_base_suite), hold no
+    test path (``untested``), and the candidate suite pass completely.
+    """
+    return bool(untested and kept and no_base_suite(base_receipt) and _candidate_passed(candidate_receipt))
+
+
 def _candidate_passed(candidate_receipt):
     candidate = candidate_receipt.get("results") or {}
     return bool(
