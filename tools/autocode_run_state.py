@@ -562,6 +562,11 @@ class RunState(TypedDict, total=False):
     retained_candidate_handoffs: Any
     review: Any  # review_job writes outcome, report digest and post-report source_revision; status inspects freshness
     session_rotations: Any
+    # Person-authorized exact rewords of authenticated peer exclusions (#2467):
+    # appended only by autocode_scope_question.record_installed_corrections through
+    # goals.install_draft; read only by autocode_scope_question, which re-binds each
+    # receipt to the scope identity, turn and assignment digest it was recorded under.
+    scope_exclusion_corrections: list[dict]
     source_revision: Any
     git_delivery: Any  # controller-owned commit + receipt pin; completion gate reads it
     source_snapshot: Any

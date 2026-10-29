@@ -25,7 +25,7 @@ changed scope enforces the original instead (#2467).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -53,7 +53,7 @@ EXCLUSION_PREFIX = "Not covered: changes in "
 # or replacement draft gains nothing by declaring one; read only by
 # effective_exclusions, which re-binds every receipt to the workspace-scope
 # identity, the turn and the authenticated assignment digest it was recorded under.
-CORRECTIONS_KEY = "scope_exclusion_corrections"
+CORRECTIONS_KEY: Final = "scope_exclusion_corrections"
 
 
 def _scope(state: RunState) -> dict:
