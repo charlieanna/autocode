@@ -640,6 +640,41 @@ def raw_events(path):
     return rows
 
 
+def _duplicate_empty_machine_resolutions(final):
+    """Recover only the observed redundant empty parameter after one complete JSON report (#2452)."""
+    suffix = '<parameter name="machine_resolutions">[]</parameter>'
+    if not final.startswith("{") or not final.endswith(suffix):
+        return None
+
+    def unique_object(pairs):
+        result = {}
+        for name, value in pairs:
+            if name in result:
+                raise ValueError("Duplicate report key")
+            result[name] = value
+        return result
+
+    def non_json_constant(_value):
+        raise ValueError("Non-JSON report constant")
+
+    try:
+        report, end = json.JSONDecoder(object_pairs_hook=unique_object, parse_constant=non_json_constant).raw_decode(
+            final
+        )
+    except ValueError:
+        return None
+    if (
+        final[end:].strip() != suffix
+        or not isinstance(report, dict)
+        or type(report.get("machine_resolutions")) is not list
+        or report["machine_resolutions"]
+    ):
+        return None
+    # The suffix contributes no data: the complete object already names exactly that empty field.
+    # Do not fill absent fields, choose between conflicting values or rewrite any report content.
+    return report
+
+
 def _trailing_report(final, *, copies=1):
     """Recover a reply of prose followed by the complete JSON report and nothing else.
 
@@ -698,6 +733,9 @@ def final_report(path, *, recover_wrapped=False, response_path=None):
     try:
         report = json.loads(final)
     except ValueError:
+        report = _duplicate_empty_machine_resolutions(final)
+        if report is not None:
+            return report  # Raw terminal response was captured above; ordinary runner validation still follows.
         # OpenCode can emit commentary and the final report as distinct text
         # parts under the same completed message. Accept the final complete JSON
         # part only when there is exactly one JSON-object part in that message.
