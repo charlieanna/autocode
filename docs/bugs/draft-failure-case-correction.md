@@ -43,3 +43,30 @@ pinned schemas. The public TaskRun fake tests in
 `tests/test_draft_failure_correction_cli.py` cover ordinary and adaptive review plus a
 stale receipt refusal on supported Linux. These fixtures test the protocol and guards;
 they do not establish model judgment quality, receipt adoption or a live latency gain.
+
+## Composing an independently allowed assumption update
+
+Live verification on merged `4f9064af4` exposed a second refusal. The fresh first
+review emitted a valid receipt, and the revision applied the exact pair, but it
+also updated an obsolete receipt-status statement in a model-written interpretation
+of saved feedback. The existing feedback-interpretation rule independently permits
+that update. Requiring the whole assumption list to be identical discarded the
+valid receipt and misleadingly reported missing user authority. The following
+repair calls added their own output-format errors; their whole duration is not
+attributed solely to this composition check. Redacted evidence manifest:
+`bc50be9a2f360258b56478dac2c52031f83ae243257a480791a54b266032785d`.
+
+The revision guard now passes its already-computed interpretation corrections to
+the receipt check. Only a recognized old interpretation may change text at the same
+list position, with identical basis, source ID and all other fields. List length,
+other assumptions, delegated decisions, protected lists and existing proofs remain
+unchanged. The ordinary assumption guard still runs; the failure-case receipt
+grants no assumption authority. A forbidden adjacent edit reports its actual
+field instead of implying that the matching receipt lacks authority.
+
+A public TaskRun regression reproduces the refusal on `4f9064af4` and reaches
+disclosed exact-token approval on the fix, with zero repairs and no Builder.
+Unit and wire-admission negatives retain rejection of changed sources, quoted or
+human-backed assumptions, added/dropped/reordered rows, stale receipts and weakened
+proofs. These checks do not yet establish a successful live continuation or a
+measured overall speedup.

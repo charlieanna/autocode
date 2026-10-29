@@ -430,6 +430,11 @@ PR template asks for an entry here; a change without one is incomplete.
 - Planning generation now requires an empty `conflict_resolutions` list when known Requirements and
   source-stable history contain no eligible conflict (#2457). Real conflicts, saved user authority,
   historical source checks and unknown legacy contexts keep their existing rules.
+- A reviewed correction of a model-invented failure case now composes with an independently permitted
+  update to the model's interpretation of saved feedback (#2453). The receipt grants no authority over
+  assumptions: their source, position and other fields stay fixed, and the existing interpretation guard
+  must allow the text update. Unsupported adjacent edits name the actual mismatch in the repair error.
+
 - A first Plan Reviewer can explicitly identify a mistaken `important_failure_cases` inference in an
   unapproved model draft and bind its exact correction to that draft and its saved intent sources (#2453).
   The revision preserves other protected text, existing criteria, proofs and citations; stale receipts,

@@ -23,10 +23,22 @@ RATIONALE = (
     "pager.py returns [] for page([], 1, 3); the task and confirmed Requirements concern the greeting CLI "
     "and request no paging behavior change. The first draft invented the IndexError preservation claim."
 )
+FEEDBACK = (
+    "The repository returns an empty list. Request fresh independent review; "
+    "this grants no behavior change or plan approval."
+)
+BEFORE_INTERPRETATION = (
+    "The empty-input description is mistaken, but no saved first-review correction receipt exists yet; "
+    "keep existing behavior."
+)
+AFTER_INTERPRETATION = (
+    "A saved first-review correction receipt now permits correcting the mistaken description while "
+    "preserving existing behavior; no behavior change or plan approval is granted."
+)
 
 
 class DraftFailureCorrectionCliTests(unittest.TestCase):
-    def start(self, *, stale=False, adaptive=False):
+    def start(self, *, stale=False, adaptive=False, compose=False):
         workspace, env = fixture_workspace(self)
         (workspace / "pager.py").write_text(
             "def page(items, number, size):\n"
@@ -58,6 +70,10 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
                 witness.write(json.dumps({{"stage": stage, "repair": repairing, "error": repair_error}}) + "\\n")
             if stage == "astra_discovery":
                 report["contract"]["important_failure_cases"].append({WRONG!r})
+                if {compose!r}:
+                    feedback = next(row for row in data["brief_feedback"] if row["text"] == {FEEDBACK!r})
+                    report["contract"]["accepted_assumptions"].append({{
+                        "text": {BEFORE_INTERPRETATION!r}, "basis": "user_feedback", "answer_id": feedback["id"]}})
             elif stage == "astra_challenge" and ({stale!r} or {WRONG!r} in data.get("goal_contract", {{}}).get("body", {{}}).get("important_failure_cases", [])):
                 receipt = {{
                     "snapshot": data.get("draft_failure_correction_snapshot", "missing snapshot"),
@@ -79,6 +95,13 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
                 report["contract_changes"] = [{{
                     "item": {WRONG!r}, "change": "reworded", "basis": "agent_proposed",
                     "answer_id": "", "replacement": {CORRECT!r}, "example_correction": None}}]
+                if {compose!r}:
+                    for assumption in report["contract"]["accepted_assumptions"]:
+                        if assumption["text"] == {BEFORE_INTERPRETATION!r}:
+                            assumption["text"] = {AFTER_INTERPRETATION!r}
+                    report["contract_changes"].append({{
+                        "item": {BEFORE_INTERPRETATION!r}, "change": "reworded", "basis": "agent_proposed",
+                        "answer_id": "", "replacement": {AFTER_INTERPRETATION!r}, "example_correction": None}})
                 report["responses"] = [{{
                     "concern_id": "C3", "response": "The exact reviewer-backed correction is applied",
                     "evidence_refs": ["pager.py"], "change": "Corrected the failure-case inference",
@@ -96,7 +119,17 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
         self.assertEqual(1, source.count(marker))
         provider.write_text(source.replace(marker, textwrap.indent(amendment, "    ") + "\n" + marker))
         options = (*FIXTURE_OPTIONS, "--adaptive-planning" if adaptive else "--no-adaptive-planning")
+        if compose:
+            options = (*options, "--spec-first")
         run = taskrun.TaskRun.start(workspace, BRIEF, options=options, env=env, timeout=180)
+        if compose:
+            self.assertEqual("answer", run.status()["needs"]["kind"])
+            run.feedback(FEEDBACK)
+            requirements = run.advance_until_input()
+            self.assertEqual("answer", requirements["needs"]["kind"], self.diagnostic(requirements, trace))
+            question = requirements["needs"]["questions"][-1]
+            self.assertTrue(question["id"].startswith("requirements-review-"))
+            run.answer(question["id"], "plan", resolver_token=requirements["needs"]["resolver_token"])
         view = run.advance_until_input()
         if evidence := os.environ.get("DRAFT_FAILURE_EVIDENCE_DIR"):
             destination = Path(evidence) / self._testMethodName
@@ -152,6 +185,37 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
         with self.assertRaises(taskrun.TaskRunError):
             run.approve_plan("r0:stale")
         self.assertNotEqual("approve_plan", (run.status().get("needs") or {}).get("kind"))
+
+    def test_receipt_composes_with_independently_allowed_feedback_interpretation(self):
+        run, view, trace, workspace = self.start(compose=True, adaptive=True)
+        self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), self.diagnostic(view, trace))
+        shown = run.show_goal()
+        failures = shown.split("\nImportant failure cases:\n", 1)[1].split("\nAcceptance criteria:\n", 1)[0]
+        assumptions = shown.split("\nAccepted assumptions:\n", 1)[1].split("\nDelegated decisions:\n", 1)[0]
+        self.assertIn(CORRECT, failures)
+        self.assertNotIn(WRONG, failures)
+        self.assertIn(AFTER_INTERPRETATION, assumptions)
+        self.assertNotIn(BEFORE_INTERPRETATION, assumptions)
+        self.assertIn("user_feedback", assumptions)
+        self.assertIn(WRONG + " -> " + CORRECT, shown)
+        self.assertIn("Plan Reviewer concern C3", shown)
+        self.assertIn(RATIONALE, shown)
+        self.assertIn("draft-failure-v1:", shown)
+        attempts = self.attempts(trace)
+        planning = {"astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"}
+        self.assertEqual(
+            ["astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"],
+            [row["stage"] for row in attempts if row["stage"] in planning],
+        )
+        self.assertFalse(any(row["repair"] for row in attempts), attempts)
+        self.assertFalse(any(row["stage"] == "terra" for row in attempts), attempts)
+        self.assertFalse((workspace / "greet.py").exists())
+        token = view["needs"]["token"]
+        with self.assertRaises(taskrun.TaskRunError):
+            run.approve_plan("r0:stale")
+        self.assertEqual(token, run.status()["needs"]["token"])
+        self.assertEqual(token, run.approve_plan(token)["approved_contract"]["token"])
+        self.assertFalse(any(row["stage"] == "terra" for row in self.attempts(trace)))
 
     def test_adaptive_final_review_keeps_disclosure_without_an_extra_correction_round(self):
         run, view, trace, workspace = self.start(adaptive=True)

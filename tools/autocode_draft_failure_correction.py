@@ -185,27 +185,44 @@ def receipts(state: RunState, report):
     return allowed
 
 
-def _retains_obligations(before, after, replacements):
-    # A receipt never permits weakening another protected list or an existing proof.
-    for key in (*LISTS, "accepted_assumptions", "delegated_decisions"):
+def _obligation_mismatch(before, after, replacements, interpretation_corrections):
+    # The failure receipt grants no authority over adjacent obligations. Only the caller's
+    # existing feedback-interpretation guard may independently permit an assumption text update.
+    for key in (*LISTS, "delegated_decisions"):
         if before.get(key) != after.get(key):
-            return False
+            return key
+    old_assumptions = before.get("accepted_assumptions", [])
+    new_assumptions = after.get("accepted_assumptions", [])
+    if len(old_assumptions) != len(new_assumptions):
+        return "accepted_assumptions"
+    for index, (old, new) in enumerate(zip(old_assumptions, new_assumptions, strict=True)):
+        if old == new:
+            continue
+        if not (
+            isinstance(old, dict)
+            and isinstance(new, dict)
+            and old.get("text") in interpretation_corrections
+            and isinstance(new.get("text"), str)
+            and new["text"].strip()
+            and {**old, "text": new["text"]} == new
+        ):
+            return f"accepted_assumptions[{index}]"
     expected = [replacements.get(item, item) for item in before.get("important_failure_cases", [])]
     if expected != after.get("important_failure_cases", []):
-        return False
+        return "important_failure_cases outside the exact receipted replacements"
     new_criteria = {row["id"]: row for row in after.get("acceptance_criteria", [])}
     for old in before.get("acceptance_criteria", []):
         new = new_criteria.get(old["id"])
         if new is None or {k: v for k, v in old.items() if k != "sources"} != {
             k: v for k, v in new.items() if k != "sources"
         }:
-            return False
+            return f"acceptance_criteria[{old['id']}]"
         if any(source not in new.get("sources", []) for source in old.get("sources", [])):
-            return False
-    return True
+            return f"acceptance_criteria[{old['id']}].sources"
+    return None
 
 
-def corrections(state: RunState, body, changes, origin):
+def corrections(state: RunState, body, changes, origin, *, interpretation_corrections=()):
     """Authority for exact glm_revise pairs only; every other change uses its existing guard."""
     if origin != "glm_revise":
         return {}
@@ -231,8 +248,21 @@ def corrections(state: RunState, body, changes, origin):
             and item not in body.get("important_failure_cases", [])
         ):
             allowed[item] = binding
+    if not allowed:
+        return {}
     replacements = {item: binding["receipt"]["after"] for item, binding in allowed.items()}
     contract = cast(dict, state["goal_contract"])  # revision_guard has already established the previous contract
-    if not _retains_obligations(contract["body"], body, replacements):
-        return {}
+    mismatch = _obligation_mismatch(contract["body"], body, replacements, interpretation_corrections)
+    if mismatch:
+        hint = (
+            " An assumption text update must independently qualify under the feedback-interpretation rule "
+            "and retain its list position, basis and answer_id."
+            if mismatch.startswith("accepted_assumptions")
+            else " Keep that obligation unchanged."
+        )
+        raise ValueError(
+            f"Draft failure correction receipt matches, but adjacent {mismatch} is not retained."
+            + hint
+            + " The receipt authorizes only its exact failure-case replacement."
+        )
     return allowed

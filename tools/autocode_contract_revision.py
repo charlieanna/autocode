@@ -605,7 +605,9 @@ def revision_guard(state: RunState, body, changes, origin):
         protected_changes.append(raw)
     _reject_unchanged_rewordings(previous, body, protected_changes)
     own_text = reviewer_requested_own_text(state, previous_contract, previous, protected_changes, origin)
-    failure_receipts = failure_correction.corrections(state, body, protected_changes, origin)
+    failure_receipts = failure_correction.corrections(
+        state, body, protected_changes, origin, interpretation_corrections=interpretation_corrections
+    )
     own_text.update({item: [binding["concern_id"]] for item, binding in failure_receipts.items()})
     for raw in protected_changes:
         if raw.get("item") in failure_receipts:
