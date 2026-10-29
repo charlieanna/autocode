@@ -48,6 +48,7 @@ except ImportError:
 
 try:
     from . import autocode_access_evidence as access_evidence
+    from . import autocode_access_identity as access_identity
     from . import autocode_agent_env as agent_env
     from . import autocode_cost as cost
     from . import autocode_preflight_attempts as attempts
@@ -60,6 +61,7 @@ try:
     from . import provider_conformance_transport as transport
 except ImportError:
     import autocode_access_evidence as access_evidence
+    import autocode_access_identity as access_identity
     import autocode_agent_env as agent_env
     import autocode_cost as cost
     import autocode_preflight_attempts as attempts
@@ -505,22 +507,47 @@ def check(
         if record.get("preflight_complete") and record.get("accounted") and record.get("preflight_outcome")
     ]
     receipts: list[tuple] = []
+    publication: list[dict] = []
     for facade, routes, identity in groups:
         probed: dict[str, dict] = {}
+        equivalent = access_identity.equivalents(state, identity)
+        current_probed: dict[str, dict] = {}
         if identity is not None:
-            probed = next((dict(entry["probed"]) for entry in saved if entry["identity"] == identity), {})
-            # The charged checkpoint is authoritative if marker publication was interrupted.
+            # A current marker, including failure, takes precedence over older locations.
+            current_probed = next((dict(entry["probed"]) for entry in saved if entry["identity"] == identity), {})
+            for alias in reversed(equivalent):
+                for entry in saved:
+                    if entry["identity"] == alias:
+                        probed.update(entry["probed"])
+            # Charged attempts are chronological and authoritative after interrupted
+            # marker publication. An old location cannot erase a current marker.
             for record in charged:
-                if record.get("preflight_identity") == identity:
+                bound = record.get("preflight_identity")
+                if bound in equivalent and (bound == identity or record["model"] not in current_probed):
                     probed[record["model"]] = record["preflight_outcome"]
+                    if bound == identity:
+                        current_probed[record["model"]] = record["preflight_outcome"]
         # A real, completed call already demonstrated access on this exact launch
         # identity. Missing legacy bindings never borrow the current configuration.
         # Completed-stage entries are revalidated from their original artifacts,
         # never promoted into permanent probe receipts. Explicit probe failures
         # remain authoritative over earlier successful task calls.
         probed = {model: outcome for model, outcome in probed.items() if outcome.get("source") != "completed_stage"}
-        for model, outcome in access_evidence.passed(state.get("stages", []), identity, run_dir).items():
+        for model, outcome in access_evidence.passed(
+            state.get("stages", []), identity, run_dir, equivalent=equivalent
+        ).items():
             probed.setdefault(model, outcome)
+        # Preserve each relocated receipt's original binding on disk. Only calls
+        # actually earned under this location may be published under its identity.
+        current_probed = {
+            model: outcome for model, outcome in current_probed.items() if outcome.get("source") != "completed_stage"
+        }
+        for model, outcome in access_evidence.passed(state.get("stages", []), identity, run_dir).items():
+            current_probed.setdefault(model, outcome)
+        publication.extend(
+            entry for entry in saved if entry["identity"] in equivalent and entry["identity"] != identity
+        )
+        publication.append({"identity": identity, "probed": current_probed})
         wanted = [
             model
             for model in distinct_models({"roles": routes})
@@ -548,11 +575,7 @@ def check(
             ) from error
 
     def publish():
-        rows = [
-            {"identity": identity, "probed": probed}
-            for _facade, _routes, identity, probed, _wanted, _efforts, _roles in receipts
-        ]
-        atomic_json(marker, {"version": MARKER_VERSION, "receipts": rows})
+        atomic_json(marker, {"version": MARKER_VERSION, "receipts": publication})
 
     pending = [
         (adapter, identity, probed, model, efforts.get(model), roles.get(model))
@@ -600,6 +623,9 @@ def check(
             raise
         outcome = attempt.finish(outcome)
         probed[model] = outcome
+        for entry in publication:
+            if entry["identity"] == identity:
+                entry["probed"][model] = outcome
         certify(state, model, effort, outcome, checkpoint)
         publish()
         # Stop wins over budget and must also apply after the final probe.
