@@ -1105,14 +1105,16 @@ def _review_needs_proof(state: RunState, workspace):
     )
 
 
-def complete(state: RunState, current_revision, *, all_due=False, require_changed_code=True):
+def complete(state: RunState, current_revision, *, all_due=False, require_changed_code=True, include_changed_code=True):
     """Authenticate a passing proof for this source and its required cases.
 
     Stage containment uses the current checkpoint; final completion sets all_due.
+    Skipping the independent line assessment still requires runner proof of a
+    product change. Only the earlier Builder self-check may omit that obligation.
     """
     if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
         return False
-    if not required(state, all_due=all_due, include_changed_code=require_changed_code):
+    if not required(state, all_due=all_due, include_changed_code=include_changed_code):
         return True
     proof = state.get("regression_proof") or {}
     if proof.get("verdict") != verify.PASS or proof.get("source_revision") != current_revision:

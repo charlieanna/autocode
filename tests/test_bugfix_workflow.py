@@ -148,6 +148,18 @@ class BugfixWorkflow(unittest.TestCase):
         self.assertEqual(1, sum(row["stage"] == "regression_proof" for row in final["stages"]))
         self.assertEqual("PASS", final["regression_proof"]["changed_code_evidence"]["status"])
 
+    def test_build_without_passing_runner_proof_keeps_its_automatic_repair_finding(self):
+        self.env["AUTOCODE_FIXTURE_TASK_KIND"] = "build"
+        self.builder_writes({"greet.py": references.BUGFIX_REFERENCE["greet.py"]})
+        _, _, final, _ = self.run_to_end(2)
+        self.assertNotEqual("TASK_COMPLETE", final["status"])
+        self.assertEqual("FAIL", final["regression_proof"]["verdict"])
+        findings = [row for row in final["findings_ledger"] if row.get("regression_proof")]
+        self.assertEqual(["open"], [row["status"] for row in findings])
+        self.assertIn("No regression test", findings[0]["finding"])
+        self.assertTrue(final.get("stuck_investigations"))
+        self.assertNotEqual("PAUSED_COMPLETION_GATE", final["status"])
+
 
 class ProvenanceDefaults(unittest.TestCase):
     def record(self, stage, properties):

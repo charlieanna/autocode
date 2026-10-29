@@ -129,7 +129,8 @@ class ChangedCodeTriggerTests(unittest.TestCase):
         state = {"changed_files": ["calc.py"], "goal_contract": {"body": {"task_kind": "build"}}}
         self.assertTrue(regression.required(state))
         self.assertFalse(regression.required(state, include_changed_code=False))
-        self.assertTrue(regression.complete(state, "candidate", require_changed_code=False))
+        self.assertTrue(regression.complete(state, "candidate", require_changed_code=False, include_changed_code=False))
+        self.assertFalse(regression.complete(state, "candidate", require_changed_code=False))
         self.assertFalse(regression.complete(state, "candidate"))
         for body in (
             {"task_kind": "bugfix"},
@@ -141,7 +142,9 @@ class ChangedCodeTriggerTests(unittest.TestCase):
             with self.subTest(body=body):
                 state["goal_contract"]["body"] = body
                 self.assertTrue(regression.required(state, include_changed_code=False))
-                self.assertFalse(regression.complete(state, "candidate", require_changed_code=False))
+                self.assertFalse(
+                    regression.complete(state, "candidate", require_changed_code=False, include_changed_code=False)
+                )
                 self.assertFalse(regression.complete(state, "candidate"))
 
     # Missing test infrastructure is diagnostic evidence, never completion authority (#2474).
@@ -153,6 +156,7 @@ class ChangedCodeTriggerTests(unittest.TestCase):
         self.assertEqual(trigger.UNMEASURABLE, trigger.unmeasurable(self.state))
         self.assertTrue(regression.required(self.state, all_due=True))
         self.assertFalse(regression.complete(self.state, "candidate", all_due=True))
+        self.assertFalse(regression.complete(self.state, "candidate", all_due=True, require_changed_code=False))
         regression.record_unmeasured(self.state)
         self.assertEqual(
             {"version": 1, "decision": "unmeasured", "reason": trigger.UNMEASURABLE},
