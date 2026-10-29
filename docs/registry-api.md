@@ -8,6 +8,14 @@ provider can start. The registry is a small per-user pointer index, not a copy o
 `$AUTOCODE_HOME/registry.json`; when `AUTOCODE_HOME` is unset, the storage root is
 `~/.autocode`. Set `AUTOCODE_HOME` for isolated installations and tests.
 
+A task started without `AUTOCODE_HOME` records its run in its project's own registry,
+`<project>/.autocode/registry/registry.json`, including a run in a default task
+worktree under `.autocode/worktrees`. So, with `AUTOCODE_HOME` unset, `registry list`
+and `autocode runs --all` run inside a project read that project's registry as well as
+`~/.autocode`; a run in both is listed once, and an unreadable project registry is
+reported as a `project_registry_unreadable` diagnostic. With `AUTOCODE_HOME` set they
+read only that registry.
+
 The browser application should invoke these commands as argument arrays, without a
 shell, using the same environment as the runner:
 

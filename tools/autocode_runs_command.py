@@ -210,7 +210,7 @@ def _pairs(workspace: Path, all_workspaces: bool) -> list[tuple[Path, Path]]:
         worktrees = sorted(p for p in issues.iterdir() if p.is_dir()) if issues.is_dir() else []
         worktrees += run_finder.task_worktrees(Path(workspace).resolve())
         return _local(workspace) + [pair for worktree in worktrees for pair in _local(worktree)]
-    records = registry.listing()["runs"]
+    records = registry.listing(also=registry.project_storage(workspace))["runs"]
     return [
         (Path(record["run_dir"]), Path(record["workspace"]))
         for record in records
