@@ -431,6 +431,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A spec-first run no longer sends the Tester to rewrite a test whose criterion did not change (#2464, item 2).
+  A reapproval or a follow-up installs a new contract hash, and acceptance-test receipts are keyed by the hash
+  they were written under, so every case was due again and the Tester re-ran for all of them. A case whose
+  criterion row is unchanged apart from its sources, whose receipt belongs to an approved earlier contract,
+  whose archive is intact and which the current diagnosis does not reproduce now inherits that receipt: it is
+  covered, its file stays fixed for the Builder, and the status view's `acceptance_tests` shows it. A changed
+  criterion is still rewritten, and a bug's reproduction tests are still written against the unfixed code.
 - Moving an identical bundled provider configuration can reuse the run's proven model-access receipts
   after normal transport acceptance. Real configuration, tool or route changes still require fresh access
   evidence; original receipts and per-launch admission checks stay intact (#2477).

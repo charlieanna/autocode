@@ -183,6 +183,10 @@ class AcceptanceProvenanceTests(AcceptanceFixture, unittest.TestCase):
 
     def test_context_distinguishes_delivered_tests_from_new_current_baseline_cases(self):
         acceptance.route(self.state)
+        # A delivered case whose criterion did not change inherits its receipt and is not due (#2464).
+        self.assertEqual({"AC1"}, set(acceptance.inherited(self.state)))
+        self.assertEqual(["AC2"], [row["id"] for row in job.packet(self.state)["cases"]])
+        self.legacy_pending()
         packet = job.packet(self.state)
         kinds = {row["id"]: row["kind"] for row in packet["cases"]}
         self.assertIn("already delivered", kinds["AC1"])
@@ -191,8 +195,14 @@ class AcceptanceProvenanceTests(AcceptanceFixture, unittest.TestCase):
         self.state["acceptance_tests"]["receipts"].clear()
         self.assertEqual("test: must fail today", job.packet(self.state)["cases"][0]["kind"])
 
+    def legacy_pending(self):
+        """A job an older run routed with the delivered case due again; #2464 inherits it, the job still
+        accepts such a report and its already-passing claim is authenticated as before."""
+        self.state["acceptance_tests"]["pending_case_ids"] = ["AC1", "AC2"]
+
     def apply(self, *, new_passes=False):
         acceptance.route(self.state)
+        self.legacy_pending()
         value = {
             "tests": self.reports,
             "cannot_write": [],
@@ -289,6 +299,7 @@ class AcceptanceProvenanceTests(AcceptanceFixture, unittest.TestCase):
 
 class AcceptanceReapprovalProvenanceTests(AcceptanceFixture, unittest.TestCase):
     apply = AcceptanceProvenanceTests.apply
+    legacy_pending = AcceptanceProvenanceTests.legacy_pending
 
     def setUp(self):
         super().setUp()
@@ -405,6 +416,7 @@ class AcceptanceRecoveryFixture(AcceptanceFixture):
         self.reseal()
         self.approved = copy.deepcopy(self.state["goal_contract"])
         acceptance.route(self.state)
+        AcceptanceProvenanceTests.legacy_pending(self)
         self.value = {
             "summary": "One inherited test and one new test",
             "tests": self.reports,
