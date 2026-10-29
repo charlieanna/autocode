@@ -19,7 +19,6 @@ import sys
 import types
 import unittest
 from pathlib import Path
-
 try:
     from .autocode_python_tests import TEST_MODULE
 except ImportError:
@@ -183,6 +182,22 @@ def orchestrate(root, selected, components, repos):
     return code
 
 
+def demote_script_directory():
+    """The collector's own directory must never outrank the project's imports (#2456).
+
+    The detected suite command runs this file by absolute path, so Python puts this
+    directory first on sys.path — ahead of the workspace roots the runner supplies
+    on PYTHONPATH — and unittest discovery does not move a root already there. A
+    project module named like a sibling here (``run_suite`` is one) would then
+    import AutoCode's file instead of the project's. The family and member passes
+    prepend their own component paths; the root pass has no such prepend, so the
+    script directory itself moves to the end and the workspace's precedence stands.
+    """
+    here = Path(__file__).resolve().parent
+    if sys.path and Path(sys.path[0]).resolve() == here:
+        sys.path.append(sys.path.pop(0))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("-v", action="store_true")
@@ -239,4 +254,5 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    demote_script_directory()
     raise SystemExit(main())

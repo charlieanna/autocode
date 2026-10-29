@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -666,6 +667,119 @@ class ReposCollectionTests(unittest.TestCase):
         # Original member tests are byte-identical after the whole proof, not merely
         # behaviorally similar: their content hashes are unchanged.
         self.assertEqual(preserved_before, {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in preserved})
+
+
+class CollectorImportPrecedenceTests(unittest.TestCase):
+    """The collector's own directory must not shadow project imports (#2456).
+
+    The detected suite command runs autocode_component_tests.py by absolute path,
+    which puts its directory first on sys.path — ahead of the workspace roots the
+    runner's environment supplies on PYTHONPATH — and unittest discovery does not
+    move a root already on sys.path. A project module named like a collector
+    sibling (run_suite here) must still resolve to the project's file, in the
+    source tools/ layout and in an installed flat-package layout alike.
+    """
+
+    BOOTSTRAP = "import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(__file__).resolve().parents[1]))\n"
+
+    HELPER = "SENTINEL = 'project-suite-helper'\n"
+
+    IMPORTER = (
+        "import unittest\nfrom pathlib import Path\nimport run_suite\n"
+        "class SuiteCollection(unittest.TestCase):\n"
+        "    def test_root_import_resolves_to_the_project_module(self):\n"
+        "        self.assertEqual('project-suite-helper', run_suite.SENTINEL)\n"
+        "        project = next(p for p in Path(__file__).resolve().parents if (p / 'run_suite.py').is_file())\n"
+        "        self.assertEqual(project / 'run_suite.py', Path(run_suite.__file__).resolve())\n"
+    )
+
+    def project_files(self, helper=HELPER, importer=IMPORTER):
+        return {
+            "run_suite.py": helper,
+            "test_top.py": importer,
+            "tests/test_suite_collection.py": importer,
+            "components/alpha/tests/test_alpha.py": (
+                "import unittest\nclass Alpha(unittest.TestCase):\n def test_alpha(self): pass\n"
+            ),
+            "repos/beta-1c2d3e4f/beta.py": "def value():\n    return 'beta'\n",
+            "repos/beta-1c2d3e4f/tests/test_beta.py": self.BOOTSTRAP
+            + "import unittest\nfrom beta import value\n\n"
+            "class Beta(unittest.TestCase):\n def test_beta_value(self): self.assertEqual('beta', value())\n",
+        }
+
+    def collect(self, files, command=None):
+        project = Project(files)
+        self.addCleanup(project.close)
+        if command is None:
+            framework = verify.detect_framework(project.root, python=sys.executable)
+            self.assertIn("autocode_component_tests.py", framework.suite)
+            self.assertIn("--components alpha", framework.suite)
+            self.assertIn("--repos beta-1c2d3e4f", framework.suite)
+            self.assertIn("--root .", framework.suite)
+        else:
+            framework = verify.Framework("unittest", command, python=sys.executable)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "collector", timeout=120)
+        return receipt, Path(receipt["output"]).read_text()
+
+    def test_project_root_modules_shadow_the_collectors_own_directory(self):
+        receipt, text = self.collect(self.project_files())
+        self.assertEqual(0, receipt["exit_code"], text)
+        # Both root shapes (a root-level module and the markerless tests/ directory)
+        # plus each family member ran exactly once, and both root imports resolved
+        # to the project's run_suite.py, not AutoCode's collector sibling.
+        self.assertEqual(4, receipt["results"]["total"], text)
+        self.assertEqual(4, len(receipt["results"]["passed"]), text)
+        self.assertEqual(2, text.count("test_root_import_resolves_to_the_project_module ("), text)
+        for fragment in ("test_top.SuiteCollection", "test_suite_collection.SuiteCollection"):
+            self.assertTrue(any(fragment in name for name in receipt["results"]["passed"]), text)
+        for fragment in ("components.alpha", "test_alpha", "repos.beta-1c2d3e4f", "test_beta_value"):
+            self.assertTrue(any(fragment in name for name in receipt["results"]["passed"]), text)
+
+    def test_genuine_import_failures_still_fail_after_the_precedence_correction(self):
+        for kind in ("missing", "broken"):
+            with self.subTest(kind=kind):
+                files = self.project_files()
+                if kind == "missing":
+                    files["test_top.py"] = "import missing_project_helper\n"
+                    files["tests/test_suite_collection.py"] = "import missing_project_helper\n"
+                else:
+                    files["run_suite.py"] = "raise RuntimeError('broken project helper')\n"
+                receipt, text = self.collect(files)
+                self.assertEqual(1, receipt["exit_code"], text)
+                self.assertIn("missing_project_helper" if kind == "missing" else "broken project helper", text)
+                # The member suites still ran: only the genuinely broken root import failed.
+                self.assertTrue(any("test_alpha" in name for name in receipt["results"]["passed"]), text)
+                self.assertTrue(any("test_beta_value" in name for name in receipt["results"]["passed"]), text)
+
+    def test_an_installed_flat_package_layout_keeps_the_project_precedence(self):
+        # The wheel installs tools/ flat as autocode_cli, so the installed collector
+        # runs from a directory that also holds run_suite.py. A copied mini package —
+        # the collector, the shadowing sibling and both import closures — proves the
+        # same correction holds there.
+        package = tempfile.TemporaryDirectory(prefix="installed-collector-")
+        self.addCleanup(package.cleanup)
+        needed = ["autocode_component_tests.py", "run_suite.py"]
+        seen = set()
+        while needed:
+            name = needed.pop()
+            if name in seen or not (TOOLS / name).is_file():
+                continue
+            seen.add(name)
+            source = TOOLS / name
+            shutil.copy(source, Path(package.name) / name)
+            needed += [
+                f"{match}.py"
+                for match in re.findall(r"^[ \t]*(?:from|import)\s+([A-Za-z_]\w*)", source.read_text(), re.M)
+                if (TOOLS / f"{match}.py").is_file()
+            ]
+        command = shlex.join(
+            [sys.executable, str(Path(package.name) / "autocode_component_tests.py"), "-v", "--root", ".",
+             "--components", "alpha", "--repos", "beta-1c2d3e4f"]
+        )
+        receipt, text = self.collect(self.project_files(), command=command)
+        self.assertEqual(0, receipt["exit_code"], text)
+        self.assertEqual(4, receipt["results"]["total"], text)
+        self.assertEqual(2, text.count("test_root_import_resolves_to_the_project_module ("), text)
 
 
 class PreservationEvidenceCase(unittest.TestCase):
