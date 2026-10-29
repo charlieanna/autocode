@@ -70,3 +70,33 @@ def owes(state: RunState) -> bool:
         return bool(_product(changes))
     except (OSError, ValueError, RuntimeError, TypeError, KeyError, subprocess.SubprocessError):
         return known
+
+
+UNMEASURABLE = (
+    "The project has no test command and no test files, so its changed product lines cannot be "
+    "measured; the changed-code obligation is recorded as unmeasured instead of blocking completion."
+)
+
+
+def unmeasurable(state: RunState) -> str | None:
+    """Why changed product lines cannot be measured in this project, or None when they can.
+
+    AGENTS.md ("AutoCode delivers no untested code"): where coverage cannot be measured,
+    AutoCode chooses the fallback deterministically and records it in evidence. A project
+    with no configured test command and no test file in the workspace (tracked or not, as
+    test detection reads it) gives the proof nothing to run, so requiring one would only
+    loop review until a person is asked. Anything uncertain keeps the obligation.
+    """
+    settings = state.get("settings") or {}
+    if ((settings.get("regression") or {}) if isinstance(settings, dict) else {}).get("test_command"):
+        return None
+    workspace = state.get("workspace")
+    if not isinstance(workspace, str) or not workspace:
+        return None
+    try:
+        listed = verify._git(Path(workspace), "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+        return None
+    if any(verify.is_test_path(path) for path in listed.split("\0") if path):
+        return None
+    return UNMEASURABLE

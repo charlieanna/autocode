@@ -165,7 +165,7 @@ def required(state: RunState, *, all_due=False):
     return (
         goals.task_kind(state) == "bugfix"
         or bool(test_cases.contract_cases(state, all_due=all_due))
-        or changed_code_trigger.owes(state)
+        or (changed_code_trigger.owes(state) and not changed_code_trigger.unmeasurable(state))
     )
 
 
@@ -1043,6 +1043,15 @@ def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ign
         proof["verdict"] = verify.FAIL
 
 
+def record_unmeasured(state: RunState):
+    """Record, in the run's evidence, that changed product code went unmeasured and why (#2474)."""
+    reason = changed_code_trigger.unmeasurable(state) if changed_code_trigger.owes(state) else None
+    if reason is None:
+        state.pop("changed_code_fallback", None)
+    elif (state.get("changed_code_fallback") or {}).get("reason") != reason:
+        state["changed_code_fallback"] = {"version": 1, "decision": "unmeasured", "reason": reason}
+
+
 def before_review(state: RunState, stage, workspace, run_dir):
     """Refresh proof before independent validation or completion review in either dispatch path.
 
@@ -1057,6 +1066,7 @@ def before_review(state: RunState, stage, workspace, run_dir):
     # Due-now scope even for astra_review: it also reviews each milestone before advancing, where a later
     # milestone's unbuilt tests would fail the proof and the owner note would demand REWORK. Final
     # completion still needs every case, enforced by complete(all_due=True).
+    record_unmeasured(state)
     if not required(state):
         return
     if stage in ("sol", "astra_checkpoint") or stage == "astra_review" and _review_needs_proof(state, workspace):
