@@ -121,7 +121,14 @@ class PackageRunCLI(unittest.TestCase):
         # #2475: the refused proof is itself a second open blocking runner finding, separate from the
         # package violation, so both public rows keep the run from completing; its correction route
         # sends the completion back, and the fixture Investigator cannot diagnose, so the run pauses.
-        [proof_finding] = [found for found in self.runner_findings(view) if found["id"] != row["id"]]
+        # Each finding is selected by its own public wording; another legitimate runner finding
+        # would not blur either one.
+        [proof_finding] = [
+            found
+            for found in self.runner_findings(view)
+            if found["finding"].startswith("The runner's regression proof does not pass")
+        ]
+        self.assertNotEqual(row["id"], proof_finding["id"])
         self.assertEqual(
             ("open", True, "high"), (proof_finding["status"], proof_finding["blocking"], proof_finding["severity"])
         )
