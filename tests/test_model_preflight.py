@@ -197,6 +197,80 @@ class PreflightCheckTests(unittest.TestCase):
             "access_preflight_identity": {"schema": 1, "identity": self.run_identity(), "model": "plan/glm"},
         }
 
+    def relocate(self):
+        previous = copy.deepcopy(self.state["settings"])
+        selected = copy.deepcopy(previous)
+        selected["transport_identities"]["opencode"]["config_path"] = "/relocated/provider.toml"
+        self.state["settings"] = selected
+        self.state["configuration_changes"] = [{"previous": previous, "selected": copy.deepcopy(selected)}]
+
+    def test_relocation_reuses_paid_receipts_without_rewriting_history(self):
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+        stages = copy.deepcopy(self.state["stages"])
+        marker = self.run_dir / "model-preflight.json"
+        original = marker.read_bytes()
+        self.relocate()
+        self.calls.clear()
+        self.assertFalse(self.check({}))
+        self.assertEqual([], self.calls)
+        self.assertEqual(stages, self.state["stages"])
+        self.assertEqual(original, marker.read_bytes())
+
+    def test_relocated_completed_call_still_requires_original_events(self):
+        record = self.successful_stage()
+        self.state["stages"] = [record]
+        self.relocate()
+        self.assertTrue(self.check({"plan/mimo": OK_EVENTS}))
+        self.assertEqual(["plan/mimo"], self.calls)
+        self.calls.clear()
+        Path(record["events"]).unlink()
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS}))
+        self.assertEqual(["plan/glm"], self.calls)
+
+    def test_new_probe_keeps_old_paid_receipts_bound_to_original_location(self):
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+        original = copy.deepcopy(receipt_sets(self.run_dir))
+        self.relocate()
+        # A newly due model has no access receipt, even though the old models do.
+        self.state["settings"]["roles"]["astra"]["model"] = "plan/new"
+        self.state["configuration_changes"][0]["previous"]["roles"]["astra"]["model"] = "plan/new"
+        self.state["configuration_changes"][0]["selected"]["roles"]["astra"]["model"] = "plan/new"
+        self.state["next_stage"] = "astra_plan"
+        self.calls.clear()
+        self.assertTrue(self.check({"plan/new": OK_EVENTS}))
+        self.assertEqual(["plan/new"], self.calls)
+        rows = receipt_sets(self.run_dir)
+        self.assertEqual(original, [row for row in rows if row["identity"] == original[0]["identity"]])
+        current = next(row for row in rows if row["identity"] == self.run_identity())
+        self.assertEqual({"plan/new"}, set(current["probed"]))
+
+    def test_current_failed_probe_cannot_be_erased_by_old_location_success(self):
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+        self.relocate()
+        marker = self.run_dir / "model-preflight.json"
+        rows = receipt_sets(self.run_dir)
+        rows.append({"identity": self.run_identity(), "probed": {"plan/glm": {"status": "uncertain"}}})
+        marker.write_text(json.dumps({"version": 3, "receipts": rows}))
+        self.calls.clear()
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS}))
+        self.assertEqual(["plan/glm"], self.calls)
+
+    def test_later_failed_stage_invalidates_success_from_old_location(self):
+        record = self.successful_stage()
+        self.relocate()
+        failed = {
+            **record,
+            "exit_code": 1,
+            "access_preflight_identity": {
+                "schema": 1,
+                "identity": self.run_identity(),
+                "model": "plan/glm",
+            },
+        }
+        self.state["stages"] = [record, failed]
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+        self.assertEqual(["plan/glm", "plan/mimo"], self.calls)
+
     def test_successful_real_requirements_call_avoids_duplicate_probe_only_for_that_route(self):
         self.state["stages"] = [self.successful_stage()]
         self.assertTrue(self.check({"plan/mimo": OK_EVENTS}))

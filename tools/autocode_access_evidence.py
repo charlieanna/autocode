@@ -71,8 +71,8 @@ def _completed_events(record, run_dir) -> bool:
         return False
 
 
-def passed(records, identity, run_dir) -> dict[str, dict]:
-    """Only clean, charged real calls under the exact requested identity qualify.
+def passed(records, identity, run_dir, *, equivalent=()) -> dict[str, dict]:
+    """Only clean, charged real calls under the requested or proven equivalent identity qualify.
 
     An accepted report-only repair is also a real request to that route. Its own
     launch binding and terminal events prove access; the rejected original does
@@ -80,6 +80,7 @@ def passed(records, identity, run_dir) -> dict[str, dict]:
     """
     if not isinstance(identity, dict) or not isinstance(records, list):
         return {}
+    identities = [identity, *equivalent]
     outcomes: dict[str, dict] = {}
     for record in records:
         if not isinstance(record, dict) or record.get("engine") != "opencode":
@@ -87,7 +88,7 @@ def passed(records, identity, run_dir) -> dict[str, dict]:
         binding = record.get("access_preflight_identity")
         if not isinstance(binding, dict) or set(binding) != {"schema", "identity", "model"}:
             continue
-        if type(binding["schema"]) is not int or binding["schema"] != 1 or binding["identity"] != identity:
+        if type(binding["schema"]) is not int or binding["schema"] != 1 or binding["identity"] not in identities:
             continue
         model = binding["model"]
         route = record.get("launch_route") or {}

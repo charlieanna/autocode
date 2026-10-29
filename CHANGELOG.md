@@ -431,6 +431,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Moving an identical bundled provider configuration can reuse the run's proven model-access receipts
+  after normal transport acceptance. Real configuration, tool or route changes still require fresh access
+  evidence; original receipts and per-launch admission checks stay intact (#2477).
+
 - A saved user correction that changes an exactly named bug case between restore and preservation
   now refreshes the accepted investigation before a draft can be approved (#2468). The refresh keeps
   the original report and correction evidence, reruns reproduction and counterexample checks, and

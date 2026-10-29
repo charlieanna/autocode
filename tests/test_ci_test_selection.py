@@ -549,6 +549,18 @@ class DynamicDependenciesTests(unittest.TestCase):
             dependencies.dependencies("tools/autocode_model_preflight.py"),
         )
 
+    def test_preflight_relocation_keeps_its_public_consumer_even_when_slow(self):
+        consumer = "tests.test_preflight_relocation_cli"
+        for path in (
+            "tools/autocode_access_identity.py",
+            "tools/autocode_access_evidence.py",
+            "tools/autocode_model_preflight.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
     def test_chat_projection_keeps_its_public_cli_consumer(self):
         for path in ("tools/autocode_chat_view.py", "tools/autocode_run_view.py"):
             self.assertIn("tests.test_chat_cli", dependencies.dependencies(path))

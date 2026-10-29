@@ -726,6 +726,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (("tools/autocode_model_preflight",), ("tests.test_provider_credentials",)),
     (
+        ("tools/autocode_access_identity", "tools/autocode_access_evidence", "tools/autocode_model_preflight"),
+        ("tests.test_preflight_relocation_cli", "tests.test_model_preflight"),
+    ),
+    (
         ("tools/autocode_run_records.py",),
         (*CORE_CONSUMERS, *PUBLIC_FLOW_CONSUMERS, "tests.test_paused_approval_cli"),
     ),
