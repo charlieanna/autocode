@@ -1984,12 +1984,19 @@
 
 
 <h1 id="browser-registry-api">Browser registry API<a class="headerlink" href="#browser-registry-api" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/e0fd061adeff59560ad66df54b9f96b5d09e9310/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/d2d060ed9082e4c51cb32c211f7572df608db32f/README.md">← Back to README</a></p>
 <p>Autocode automatically records every real new run and ordinary resumed run before a
 provider can start. The registry is a small per-user pointer index, not a copy of
 <code>state.json</code>, logs, prompts, credentials, or provider configuration. It is stored at
 <code>$AUTOCODE_HOME/registry.json</code>; when <code>AUTOCODE_HOME</code> is unset, the storage root is
 <code>~/.autocode</code>. Set <code>AUTOCODE_HOME</code> for isolated installations and tests.</p>
+<p>A task started without <code>AUTOCODE_HOME</code> records its run in its project's own registry,
+<code>&lt;project&gt;/.autocode/registry/registry.json</code>, including a run in a default task
+worktree under <code>.autocode/worktrees</code>. So, with <code>AUTOCODE_HOME</code> unset, <code>registry list</code>
+and <code>autocode runs --all</code> run inside a project read that project's registry as well as
+<code>~/.autocode</code>; a run in both is listed once, and an unreadable project registry is
+reported as a <code>project_registry_unreadable</code> diagnostic. With <code>AUTOCODE_HOME</code> set they
+read only that registry.</p>
 <p>The browser application should invoke these commands as argument arrays, without a
 shell, using the same environment as the runner:</p>
 <pre><code class="language-text">[&quot;autocode&quot;, &quot;registry&quot;, &quot;location&quot;, &quot;--json&quot;]
