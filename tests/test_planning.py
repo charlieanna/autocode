@@ -314,7 +314,7 @@ class PlanningTests(unittest.TestCase):
         lifecycle.validate_body(state, {**draft, "initial_task": {**task, "kind": "validate"}})
 
     def test_a_validate_task_naming_no_paths_checks_its_milestones(self):
-        draft = body()  # M1 owns greet.py
+        draft = body()  # M1 owns greet.py and its test (the fixture's changed-line proof, #2474)
         task = {
             "objective": "Check it",
             "affected_paths": [],
@@ -332,7 +332,7 @@ class PlanningTests(unittest.TestCase):
             "validate",
             lifecycle.assign_task(state, goals.initial_decision(state["goal_contract"]["body"]), {"revision": "draft"}),
         )
-        self.assertEqual(["greet.py"], state["current_task"]["affected_paths"])
+        self.assertEqual(["greet.py", "test_greeting.py"], state["current_task"]["affected_paths"])
 
     def test_new_plan_review_route_uses_opencode_cursor_opus(self):
         args = SimpleNamespace(astra_model=None, terra_model=None, sol_model=None, glm_model=None)
@@ -1431,14 +1431,20 @@ class JointFlow(unittest.TestCase):
         self.launch([*args, "--no-chat"], 0)
         final = self.saved()[1]
         self.assertEqual("COMPLETE", final["phase"])
-        self.assertEqual(["orchestrator", "terra", "sol", "astra_review"], [r["stage"] for r in final["stages"][6:]])
-        self.assertEqual(["runner", "opencode", "opencode", "opencode"], [r["engine"] for r in final["stages"][6:]])
-        sol = final["stages"][8]
+        # A build that changes product code owes the runner's proof (#2474), recorded as its own stage.
+        self.assertEqual(
+            ["orchestrator", "terra", "regression_proof", "sol", "astra_review"],
+            [r["stage"] for r in final["stages"][6:]],
+        )
+        self.assertEqual(
+            ["runner", "opencode", "runner", "opencode", "opencode"], [r["engine"] for r in final["stages"][6:]]
+        )
+        sol = final["stages"][9]
         self.assertEqual("openai/gpt-6-sol", sol["command"][sol["command"].index("--model") + 1])
         self.assertEqual("high", sol["command"][sol["command"].index("--variant") + 1])
         config = json.loads(Path(sol["output"]).with_suffix(".opencode.json").read_text())
         self.assertEqual("deny", config["agent"]["autocode_sol"]["permission"]["edit"])
-        completion = final["stages"][9]
+        completion = final["stages"][10]
         self.assertEqual("astra", completion["role"])
         self.assertEqual("completion", completion["route_role"])
         self.assertEqual("openai/gpt-6-sol", completion["command"][completion["command"].index("--model") + 1])
@@ -1460,11 +1466,14 @@ class JointFlow(unittest.TestCase):
             [
                 "orchestrator",
                 "terra",
+                "regression_proof",
                 "sol",
+                "regression_proof",
                 "astra_review",
                 "astra_resolve",
                 "orchestrator",
                 "terra",
+                "regression_proof",
                 "sol",
                 "astra_review",
             ],
@@ -1826,7 +1835,8 @@ class NativeJointFlow(unittest.TestCase):
         final = self.saved()[1]
         self.assertEqual("TASK_COMPLETE", final["status"])
         self.assertEqual(
-            ["orchestrator", "terra", "sol", "astra_review"], [record["stage"] for record in final["stages"][6:]]
+            ["orchestrator", "terra", "regression_proof", "sol", "astra_review"],
+            [record["stage"] for record in final["stages"][6:]],
         )
         self.assertEqual(3, len({final["sessions"][role] for role in ("plan_reviewer", "sol", "completion")}))
 
