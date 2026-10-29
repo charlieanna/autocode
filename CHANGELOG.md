@@ -427,6 +427,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A mistyped command is refused before any worktree is created (#2450): `autocode stauts`, `autocode resum`
+  or `autocode registry-list` now says which command the word looks like and to describe a task in more than one
+  word, in quotes. Before, the word became a one-word brief and, with a provider installed, started a run on it.
+  After `--` the word is still task text.
 - Planning response schemas name only the current review concerns, avoiding synthetic passed-audit
   decisions that the core discards. Older reports still load without a repair; real concerns, new
   blockers, full contract review and exact user approval remain enforced (#2440).

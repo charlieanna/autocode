@@ -38,7 +38,7 @@ class VerboseTests(unittest.TestCase):
         import autocode_opencode as opencode
 
         def parse(*argv):
-            autocode_args.parse(None, ["task", *argv], opencode.DEFAULT_MODELS)
+            autocode_args.parse(None, ["Add a task", *argv], opencode.DEFAULT_MODELS)
             return verbose.enabled()
 
         self.assertTrue(parse())
