@@ -154,11 +154,12 @@ class PackageRunCLI(unittest.TestCase):
         self.assertIn(
             f"changed: README.md (modified), {OTHER}/notes.md (added), {OTHER}/other.py (modified). ", row["finding"]
         )
-        # Closing the finding accepts nothing: --accept-completion, once its own guards pass, checks again.
+        # Closing the finding supplies no passing proof. That earlier independent-evidence
+        # guard refuses acceptance before the separate package boundary guard can speak.
         self.launch(["--run-dir", str(run), "--close-finding", row["id"], "--close-reason", "the edits are fine"], 0)
+        self.assertFalse(self.view(run)["done"])
         refused = self.launch(["--run-dir", str(run), "--accept-completion"], 2)
-        self.assertIn("Completion acceptance requires no change outside the package", refused.stderr)
-        self.assertIn("README.md (modified)", refused.stderr)
+        self.assertIn("Completion acceptance requires current passing independent evidence", refused.stderr)
         self.assertFalse(self.view(run)["done"])
 
     def test_a_nested_repository_a_busy_checkout_held_at_launch_is_not_the_builders_change(self):
