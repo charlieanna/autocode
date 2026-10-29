@@ -701,20 +701,33 @@ class TallReplyAnchorTests(unittest.TestCase):
     def test_a_tall_plan_keeps_its_head_at_its_question_despite_the_pointer_after_it(self):
         ui = self.ui("y", "\x03")  # Ctrl-C leaves the question's view in place: an answer would re-follow the tail
         ui.say("You: y")  # the prepare-plan answer: reading restarts here
-        ui.say("AutoCode: " + "\n".join(["Plan to approve:", *[f"  step {number}" for number in range(1, 21)]]))
-        ui.say("AutoCode: (Everything the plan records: autocode --show-goal)")
-        ui.say("AutoCode: Approve every plan of the change set together first.")  # the closing hint
+        # Exactly what approve() says: render_plan's unprefixed text, the pointer, a change-set hint.
+        ui.say(
+            "\nPlan to approve:\n"
+            "  [C1] Greeting contract holds\n"
+            "      Checked by: Execute greeting and invalid-input regression checks\n"
+            "  Milestone M1 (proves C1): Deliver and verify the greeting CLI\n"
+            "Constraints:\n  - Python standard library only\n"
+            "What it may do:\n  - Read and edit only this fixture Git workspace\n"
+            "Not covered:\n  - Web service\n  - Deployment\n"
+            "Steps in order:\n  1. Run greet.py with one name\n  2. Read Hello, NAME or a usage error"
+        )
+        ui.say("(Everything the plan records: autocode --show-goal --run-dir /p/.autocode/runs/r1)")
+        ui.say(
+            "This run is in a change set with api. /changeset shows every run's plan and approves "
+            "them together; approving here releases this run alone."
+        )
         with self.assertRaises(KeyboardInterrupt):
-            ui.ask("Approve this plan? [y/N]")
+            ui.ask("Approve this plan? [y/N], or type what to change: ")
         shown = self.shown(ui)
         self.assertIn("Plan to approve:", shown, "the anchored first page opens at the plan's head")
-        self.assertNotIn("step 20", shown, "the plan's end is paged to, not drawn over its head")
+        self.assertNotIn("Steps in order", shown, "the flow's steps are paged to, not on the plan's first page")
+        self.assertNotIn("Run greet.py", shown)
         ui._handle(tui.curses.KEY_NPAGE, asking=True)
-        ui._handle(tui.curses.KEY_NPAGE, asking=True)  # this plan is two pages deep
         paged = self.shown(ui)
-        self.assertIn("step 20", paged, "PageDown walks forward through the plan")
+        self.assertIn("Steps in order", paged, "PageDown walks forward through the plan")
+        self.assertIn("Read Hello, NAME or a usage error", paged)
         self.assertNotIn("Plan to approve:", paged)
-        ui._handle(tui.curses.KEY_PPAGE, asking=True)
         ui._handle(tui.curses.KEY_PPAGE, asking=True)
         self.assertIn("Plan to approve:", self.shown(ui), "PageUp walks back to the plan's head")
 
@@ -724,7 +737,9 @@ class TallReplyAnchorTests(unittest.TestCase):
         ui = self.ui()
         ui.say("You: /pause")
         ui.say("AutoCode: " + "\n".join(["head of the listing", *[f"  row {number}" for number in range(1, 25)]]))
-        ui.say("AutoCode: Pausing after this step. This viewer does not interrupt the external worker.")
+        ui.say(
+            "Pausing after this step. This viewer does not interrupt the external worker."
+        )  # unprefixed, as request_pause says it
         shown = self.shown(ui)
         self.assertIn("external worker", shown)
         self.assertNotIn("head of the listing", shown, "the tall listing is paged to, not pinned over the answer")
@@ -758,7 +773,9 @@ class TallReplyAnchorTests(unittest.TestCase):
         ui._transcript.info(
             "/details", "\n".join(["head of the listing", *[f"  row {number}" for number in range(1, 25)]])
         )
-        ui.say("AutoCode: Pausing after this step. This viewer does not interrupt the external worker.")
+        ui.say(
+            "Pausing after this step. This viewer does not interrupt the external worker."
+        )  # unprefixed, as request_pause says it
         with self.assertRaises(KeyboardInterrupt):
             ui.ask("Anything else? ")
         shown = self.shown(ui)

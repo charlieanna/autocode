@@ -686,7 +686,10 @@ class ChatTUI:
         spoken = max((index for index, (role, _) in enumerate(blocks) if role == "user"), default=-1)
         first = 0 if for_question else len(starts) - 1
         for index in range(len(starts) - 1, first - 1, -1):
-            if index <= spoken or blocks[index][0] != "assistant":
+            # The run's own spoken reply — prefixed words and the unprefixed plans and
+            # acknowledgements the client says — anchors; a listing the person asked for
+            # (/details, /runs) is theirs to page, and operational notices never pin the view.
+            if index <= spoken or blocks[index][0] not in ("assistant", "plain"):
                 continue
             start = starts[index]
             end = starts[index + 1] if index + 1 < len(starts) else len(lines)
