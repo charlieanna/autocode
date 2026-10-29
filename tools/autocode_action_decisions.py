@@ -329,10 +329,13 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
             for assumption_id in args.reject_assumption:
                 goals.reject_assumption(candidate, assumption_id, args.review_token)
             if args.feedback is not None:
+                # The answered semantic blocker's own authority is the pause-authority predicate;
+                # goals.feedback admits it through this pass, never on its own (#2434).
+                semantic_hold = pause_authority.answered_blocker_decision(candidate)
                 refusal = pause_authority.feedback_refusal(candidate)
                 if refusal:
                     raise ValueError(refusal)
-                goals.feedback(candidate, args.feedback)
+                goals.feedback(candidate, args.feedback, semantic_hold=semantic_hold)
             requirements_chat.adopt_reply(candidate)
             if args.follow_up is not None:
                 follow_up.accept(candidate, args.follow_up, workspace, runner.now())

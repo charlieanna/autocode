@@ -85,6 +85,20 @@ class TranscriptTests(unittest.TestCase):
         transcript.add("AutoCode: done")
         self.assertEqual("", transcript.activity)
 
+    def test_lines_name_where_the_newest_block_begins(self):
+        # The body anchors a block taller than the screen to its top, so a long approval
+        # reads from its first line instead of losing its head to the tail clip (#2434).
+        transcript = tui.Transcript()
+        transcript.add("AutoCode: first")
+        transcript.add("You: a reply that is long enough to matter for anchoring")
+        rows = transcript.lines(80)
+        self.assertEqual(6, len(rows))
+        self.assertEqual(3, transcript.last_block_start)
+        self.assertEqual(("user-label", "You"), rows[transcript.last_block_start])
+        transcript2 = tui.Transcript()
+        transcript2.lines(80)
+        self.assertIsNone(transcript2.last_block_start)
+
     def test_the_closing_words_are_everything_said_after_the_conversation(self):
         transcript = tui.Transcript()
         transcript.add("AutoCode: the plan is ready")
@@ -660,6 +674,144 @@ class AskTests(unittest.TestCase):
             with mock.patch.object(tui.curses, "flushinp", side_effect=lambda: calls.append("flush")):
                 self.assertEqual("", ui.ask("Approve this plan? [y/N]"))
         self.assertEqual(["flush", "read"], calls)
+
+
+class TallReplyAnchorTests(unittest.TestCase):
+    """#2434: a plan carrying milestones and flow outgrows the body, and the person pages it."""
+
+    def setUp(self):
+        for name in ("curs_set", "flushinp"):
+            patcher = mock.patch.object(tui.curses, name, create=True)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def ui(self, *keys, rows=20, cols=100):
+        ui = screen_ui(*keys)
+        ui._screen.getmaxyx.return_value = (rows, cols)
+        return ui
+
+    def shown(self, ui):
+        """The body's visible rows: what the person reads, from the scroll state _body draws."""
+        layout = ui._layout(*ui._size())
+        lines = ui._transcript.lines(layout.body_width or layout.width)
+        height = max(0, layout.body_end - layout.body_start)
+        end = len(lines) - ui._scroll
+        return " ".join(text for _, text in lines[max(0, end - height) : end])
+
+    def test_a_tall_plan_keeps_its_head_at_its_question_despite_the_pointer_after_it(self):
+        ui = self.ui("y", "\x03")  # Ctrl-C leaves the question's view in place: an answer would re-follow the tail
+        ui.say("You: y")  # the prepare-plan answer: reading restarts here
+        # Exactly what approve() says: render_plan's unprefixed text, the pointer, a change-set hint.
+        ui.say(
+            "\nPlan to approve:\n"
+            "  [C1] Greeting contract holds\n"
+            "      Checked by: Execute greeting and invalid-input regression checks\n"
+            "  Milestone M1 (proves C1): Deliver and verify the greeting CLI\n"
+            "Constraints:\n  - Python standard library only\n"
+            "What it may do:\n  - Read and edit only this fixture Git workspace\n"
+            "Not covered:\n  - Web service\n  - Deployment\n"
+            "Steps in order:\n  1. Run greet.py with one name\n  2. Read Hello, NAME or a usage error"
+        )
+        ui.say("(Everything the plan records: autocode --show-goal --run-dir /p/.autocode/runs/r1)")
+        ui.say(
+            "This run is in a change set with api. /changeset shows every run's plan and approves "
+            "them together; approving here releases this run alone."
+        )
+        with self.assertRaises(KeyboardInterrupt):
+            ui.ask("Approve this plan? [y/N], or type what to change: ")
+        shown = self.shown(ui)
+        self.assertIn("Plan to approve:", shown, "the anchored first page opens at the plan's head")
+        self.assertNotIn("Steps in order", shown, "the flow's steps are paged to, not on the plan's first page")
+        self.assertNotIn("Run greet.py", shown)
+        ui._handle(tui.curses.KEY_NPAGE, asking=True)
+        paged = self.shown(ui)
+        self.assertIn("Steps in order", paged, "PageDown walks forward through the plan")
+        self.assertIn("Read Hello, NAME or a usage error", paged)
+        self.assertNotIn("Plan to approve:", paged)
+        ui._handle(tui.curses.KEY_PPAGE, asking=True)
+        self.assertIn("Plan to approve:", self.shown(ui), "PageUp walks back to the plan's head")
+
+    def test_a_short_acknowledgement_after_a_tall_listing_stays_visible(self):
+        """The attached-viewer pause bug: a tall listing must not pin the view over the
+        acknowledgement said after it, once no question asks for the listing's head."""
+        ui = self.ui()
+        ui.say("You: /pause")
+        ui.say("AutoCode: " + "\n".join(["head of the listing", *[f"  row {number}" for number in range(1, 25)]]))
+        ui.say(
+            "Pausing after this step. This viewer does not interrupt the external worker."
+        )  # unprefixed, as request_pause says it
+        shown = self.shown(ui)
+        self.assertIn("external worker", shown)
+        self.assertNotIn("head of the listing", shown, "the tall listing is paged to, not pinned over the answer")
+
+    def test_the_persons_paged_place_survives_a_new_block(self):
+        ui = self.ui()
+        ui.say("AutoCode: " + "\n".join([f"row {number}" for number in range(1, 25)]))
+        ui._scroll_by(-ui._page())  # the person pages forward from the anchored top, part way
+        self.assertFalse(ui._anchored)
+        ui.say("AutoCode: a new short block")
+        shown = self.shown(ui)
+        self.assertIn("row 10", shown, "their window holds")
+        self.assertNotIn("a new short block", shown, "a new block does not pull the person's view away")
+
+    def test_an_old_tall_block_the_person_answered_is_not_reached_back_for(self):
+        ui = self.ui("y", "\x03")
+        ui.say("AutoCode: " + "\n".join(["first line of the understanding", *["understanding"] * 20]))
+        ui.say("You: y")
+        ui.say("AutoCode: short follow-up")
+        with self.assertRaises(KeyboardInterrupt):
+            ui.ask("Approve this plan? [y/N]")
+        shown = self.shown(ui)
+        self.assertIn("short follow-up", shown)
+        self.assertNotIn("first line of the understanding", shown, "the person answered it; the tail is followed")
+
+    def test_a_listing_the_person_asked_for_is_theirs_to_page_not_the_questions_anchor(self):
+        """The CI failure's shape: /details' tall listing is the person's own command result;
+        neither its reply's tail nor a later question reaches back into it."""
+        ui = self.ui("y", "\x03")
+        ui.say("You: /pause")
+        ui._transcript.info(
+            "/details", "\n".join(["head of the listing", *[f"  row {number}" for number in range(1, 25)]])
+        )
+        ui.say(
+            "Pausing after this step. This viewer does not interrupt the external worker."
+        )  # unprefixed, as request_pause says it
+        with self.assertRaises(KeyboardInterrupt):
+            ui.ask("Anything else? ")
+        shown = self.shown(ui)
+        self.assertIn("external worker", shown)
+        self.assertNotIn("head of the listing", shown, "a listing is paged, never pinned by a question")
+
+    def test_running_pause_from_a_paged_place_shows_its_answer(self):
+        ui = self.ui()
+        ui.say("AutoCode: " + "\n".join([f"row {number}" for number in range(1, 25)]))
+        ui._scroll_by(-ui._page())  # the person pages forward from the anchored top, part way
+        self.assertGreater(ui._scroll, 0)
+        ui._run("/pause", asking=False)
+        self.assertEqual((0, False), (ui._scroll, ui._anchored), "a command the person ran answers at the tail")
+
+    def test_tab_switch_carries_scroll_ownership_with_the_position(self):
+        """A tab's paged place and the chat's own anchor are one display context: neither
+        leaks across a switch to change how the next block is shown."""
+        ui = self.ui("y", "\x03")
+        ui.observe({"workspace": "/p", "run_dir": "/p/.autocode/runs/r1"})
+        ui.say("You: y")
+        ui.say("AutoCode: " + "\n".join([f"row {number}" for number in range(1, 25)]))
+        with self.assertRaises(KeyboardInterrupt):
+            ui.ask("Approve this plan? [y/N]")
+        self.assertTrue(ui._anchored, "the reply's tall block anchored this tab")
+        ui.switch(Path("/p"), Path("/p/.autocode/runs/r2"))
+        self.assertEqual((0, False), (ui._scroll, ui._anchored), "a fresh tab follows the tail")
+        ui.say("AutoCode: " + "\n".join([f"line {number}" for number in range(1, 25)]))
+        ui._scroll_by(-ui._page())  # the person pages this tab forward, owning its view
+        self.assertFalse(ui._anchored)
+        ui.switch(Path("/p"), Path("/p/.autocode/runs/r1"))
+        self.assertTrue(ui._anchored, "the first tab's own anchor survived the switch")
+        ui.say("AutoCode: short follow-up")
+        self.assertEqual(0, ui._scroll, "the anchored tab returns to the tail for a short block")
+        ui.switch(Path("/p"), Path("/p/.autocode/runs/r2"))
+        self.assertFalse(ui._anchored, "the paged tab kept the person's ownership")
+        self.assertGreater(ui._scroll, 0, "the paged tab kept its place")
 
 
 class WindowTests(unittest.TestCase):

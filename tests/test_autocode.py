@@ -3,6 +3,7 @@
 import contextlib
 import copy
 import io
+import itertools
 import json
 import os
 import shlex
@@ -541,15 +542,19 @@ class RetrofitTest(unittest.TestCase):
             s.assert_no_legacy_process(self.run, self.root)
 
     def test_active_legacy_guard_and_process_check_failure(self):
-        result = subprocess.CompletedProcess([], 0, stdout=f"101 python tools/autocode.py --run-dir {self.run}\n")
+        # A fake listing pid that can never be this test's own runner or its parent:
+        # the guard skips both by design, and a container runner may really hold pid 101 (#2446).
+        pid = next(candidate for candidate in itertools.count(101) if candidate not in (os.getpid(), os.getppid()))
+        result = subprocess.CompletedProcess([], 0, stdout=f"{pid} python tools/autocode.py --run-dir {self.run}\n")
         with patch.object(s.subprocess, "run", return_value=result):
-            with self.assertRaisesRegex(s.Paused, "101"):
+            with self.assertRaisesRegex(s.Paused, str(pid)):
                 s.assert_no_legacy_process(self.run, self.root)
         with patch.object(s.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, stdout="")):
             with self.assertRaisesRegex(s.Paused, "Cannot inspect"):
                 s.assert_no_legacy_process(self.run, self.root)
 
     def test_legacy_guard_scopes_run_paths_without_matching_another_workspace(self):
+        pid = next(candidate for candidate in itertools.count(101) if candidate not in (os.getpid(), os.getppid()))
         relative = os.path.relpath(self.run, self.root)
         for command in (
             f"python tools/autocode.py --run-dir /another-workspace/{relative}",
@@ -559,7 +564,7 @@ class RetrofitTest(unittest.TestCase):
             with (
                 self.subTest(command=command),
                 patch.object(
-                    s.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=f"101 {command}\n")
+                    s.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=f"{pid} {command}\n")
                 ),
             ):
                 s.assert_no_legacy_process(self.run, self.root)
@@ -574,10 +579,10 @@ class RetrofitTest(unittest.TestCase):
             with (
                 self.subTest(command=command),
                 patch.object(
-                    s.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=f"101 {command}\n")
+                    s.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=f"{pid} {command}\n")
                 ),
             ):
-                with self.assertRaisesRegex(s.Paused, "Existing run process 101"):
+                with self.assertRaisesRegex(s.Paused, f"Existing run process {pid}"):
                     s.assert_no_legacy_process(self.run, self.root)
 
     def test_process_guard_allows_isolated_workspace_when_sandbox_denies_process_listing(self):

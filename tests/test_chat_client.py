@@ -15,6 +15,7 @@ import autocode_chat_client as chat
 import autocode_client_actions as actions
 import autocode_run_view as run_view
 
+from tests.terminal_screen import TerminalScreen, require_tmux
 from tests.test_agent_step import ask_one_question_once, fixture_workspace
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
@@ -236,6 +237,64 @@ class NamedActionTests(unittest.TestCase):
         self.assertIs(plan, actions.plan_for_approval(view))
         self.assertIsNone(actions.plan_for_approval({**view, "needs": {"kind": "approve_plan", "token": "r3:h"}}))
         self.assertIsNone(actions.plan_for_approval({**view, "displayed_plan": {**plan, "constraints": None}}))
+
+    def test_the_completion_order_is_showable_when_present_and_malformed_never(self):
+        # Milestones and the flow are optional in legacy plans but must be showable when the
+        # plan carries them: a client never asks a person to approve what it cannot render (#2434).
+        legacy = {
+            "token": "r2:h",
+            "acceptance_criteria": [{"id": "C1", "criterion": "c", "verification_method": "m", "human_review": False}],
+            "constraints": [],
+            "permission_boundaries": [],
+        }
+        view = {"needs": {"kind": "approve_plan", "token": "r2:h"}, "displayed_plan": legacy}
+        self.assertIs(legacy, actions.plan_for_approval(view))
+        modern = {
+            **legacy,
+            "milestones": [
+                {"id": "M1", "objective": "Finish the member's local gates", "acceptance_criteria": ["C1"]},
+                {"id": "M2", "objective": "Coordinator-owned joint proof", "acceptance_criteria": []},
+            ],
+            "end_to_end_flow": ["Local gates", "The coordinator's joint check"],
+        }
+        self.assertIs(modern, actions.plan_for_approval(view | {"displayed_plan": modern}))
+        for malformed in (
+            {**modern, "milestones": [{"id": "M1"}]},
+            {**modern, "milestones": [{"id": "M1", "objective": None}]},
+            {**modern, "end_to_end_flow": ["a step", 7]},
+            {**modern, "end_to_end_flow": "local then joint"},
+        ):
+            with self.subTest(malformed=sorted(malformed)[:1]):
+                self.assertIsNone(actions.plan_for_approval(view | {"displayed_plan": malformed}))
+
+    def test_render_plan_shows_the_completion_order_not_only_criteria(self):
+        plan = {
+            "token": "r2:h",
+            "acceptance_criteria": [
+                {"id": "AC1", "criterion": "Local gates", "verification_method": "m", "human_review": False},
+                {
+                    "id": "AC5",
+                    "criterion": "Joint proof by the whole-set check",
+                    "verification_method": "m",
+                    "human_review": False,
+                },
+            ],
+            "constraints": [],
+            "permission_boundaries": [],
+            "milestones": [
+                {"id": "M1", "objective": "Finish the member's local gates", "acceptance_criteria": ["AC1"]},
+                {"id": "M2", "objective": "Coordinator-owned joint proof", "acceptance_criteria": ["AC5"]},
+            ],
+            "end_to_end_flow": ["Finish this member's local gates", "The coordinator's joint check discharges AC5"],
+        }
+        shown = chat.render_plan(plan)
+        # The circular dependency a member plan once hid is exactly what the screen now names.
+        self.assertIn("Milestone M2 (proves AC5): Coordinator-owned joint proof", shown)
+        self.assertIn("Steps in order:\n  1. Finish this member's local gates", shown)
+        self.assertIn("2. The coordinator's joint check discharges AC5", shown)
+        legacy = {key: value for key, value in plan.items() if key not in ("milestones", "end_to_end_flow")}
+        self.assertNotIn("Milestone", chat.render_plan(legacy))
+        self.assertNotIn("Steps in order", chat.render_plan(legacy))
 
 
 DONE = {"status": "TASK_COMPLETE", "done": True, "needs": None, "next_command": None, "chat": {}}
@@ -1818,6 +1877,63 @@ class TerminalChatTests(unittest.TestCase):
         self.assertIn(b"Plan to approve:", seen)
         self.assertIn(b"Done.", seen)
         self.assertTrue((self.workspace / "greet.py").is_file())
+
+    def test_a_plan_taller_than_the_screen_opens_at_its_top_and_pages_to_its_end(self):
+        """#2434: an approval also carries its milestones and flow, so the plan can outgrow the
+        screen. It opens at its top beside the approval prompt, PageDown reaches its end, PageUp
+        returns to its head, and only then does the person approve — nothing is hidden, only paged."""
+        tmux = require_tmux(self)
+        argv = [
+            sys.executable,
+            str(AUTOCODE),
+            "chat",
+            "--workspace",
+            str(self.workspace),
+            BRIEF,
+            "--",
+            *FIXTURE_OPTIONS,
+        ]
+        with TerminalScreen(argv, cwd=self.workspace, env=self.env, cols=100, rows=20, tmux=tmux) as screen:
+            for gate in ("Approve understanding", "Prepare plan?"):
+                screen.wait_for(gate, 300)
+                screen.type("y")
+                screen.keys("Enter")
+            screen.wait_for(
+                lambda shown: (
+                    "Approve this plan" in shown
+                    and "Plan to approve:" in shown
+                    and "Greeting contract holds" in shown
+                    and "Steps in order" not in shown
+                    and "Run greet.py" not in shown
+                ),
+                300,
+                what="the plan's first page at its approval prompt, without its paged-away steps",
+            )
+            screen.keys("NPage")
+            screen.wait_for(
+                lambda shown: (
+                    "Steps in order" in shown
+                    and "Read Hello, NAME or a usage error" in shown
+                    and "Plan to approve:" not in shown
+                ),
+                60,
+                what="the plan's last flow steps after PageDown, past its head",
+            )
+            screen.keys("PPage")
+            screen.wait_for(
+                lambda shown: (
+                    "Approve this plan" in shown and "Plan to approve:" in shown and "Greeting contract holds" in shown
+                ),
+                60,
+                what="the plan's head after PageUp, with the approval prompt still shown",
+            )
+            screen.type("y")
+            screen.keys("Enter")
+            screen.wait_for("Anything else?", 300)
+            screen.keys("Enter")
+            self.assertEqual(0, screen.exit_status())
+            screen.wait_for("Done.", what="the closing words after the screen closes")
+            self.assertTrue((self.workspace / "greet.py").is_file())
 
     def test_plain_autocode_in_a_terminal_opens_the_full_screen_chat(self):
         seen, code = self.run_terminal(until=b"What do you want done?")

@@ -430,6 +430,17 @@ def plan_for_approval(view: dict) -> dict | None:
         for rows in (plan.get("constraints"), plan.get("permission_boundaries"), plan.get("scope_exclusions", []))
     ):
         return None
+    # The completion order a person approves (#2434): optional in older cores, but when the plan
+    # carries milestones or an end-to-end flow they must be showable, never silently dropped.
+    milestones = plan.get("milestones", [])
+    if not isinstance(milestones, list) or not all(
+        isinstance(row, dict) and isinstance(row.get("id"), str) and isinstance(row.get("objective"), str)
+        for row in milestones
+    ):
+        return None
+    flow = plan.get("end_to_end_flow", [])
+    if not isinstance(flow, list) or not all(isinstance(text, str) for text in flow):
+        return None
     return plan
 
 

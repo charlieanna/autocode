@@ -5,6 +5,7 @@ Pure functions over saved state, no processes. The CLI behaviour they decide is 
 tests.test_operational_pause_authority (a slow module); docs/bugs/2026-10-06-operational-pause-authority.md.
 """
 
+import copy
 import unittest
 
 import autocode_pause_authority as pause_authority
@@ -265,6 +266,203 @@ class PlanningReconsiderationTests(unittest.TestCase):
                     else:
                         self.assertEqual(2, result)
                         publish.assert_called_once()
+
+
+def answered_blocker_state():
+    """The #2434 live shape: a semantic blocker answered with information, holding its pause for
+    the contract decision it asked about. The authenticated pieces are the consumed entry with its
+    ask-time binding, the response that consumed it, and the frontier holding the current pause."""
+    contract = {"task_id": "t1", "revision": 3, "hash": "h3", "approval_status": "approved"}
+    response = {
+        "request_id": "req-1",
+        "request_token": "tok",
+        "action": "provide_information",
+        "text": "Finish the member's local gates; keep joint proof as the whole-set gate",
+        "actor": "user_cli",
+        "at": "2026-10-28T20:45:00+00:00",
+    }
+    return {
+        "status": "PAUSED_RESOLVER",
+        "goal_contract": contract,
+        "resolver_human_request": None,
+        "resolver_human_proposal": None,
+        "resolver": {
+            "human_escalations": {
+                "req-1": {
+                    "status": "consumed",
+                    "identity": {
+                        "issuer": "resolver",
+                        "binding": {"contract": {"hash": "h3", "revision": 3, "approval_status": "approved"}},
+                        "proposal": {
+                            "scope": "blocker",
+                            "origin": {},
+                            "previous_status": "PAUSED_RESOLVER",
+                            "request": {"kind": "blocker", "options": ["Provide evidence", "Revise the contract"]},
+                        },
+                    },
+                    "response": response,
+                }
+            },
+            "human_response_frontier": {
+                "request_id": "req-1",
+                "pause_status": "PAUSED_RESOLVER",
+                "binding": {"contract": {"hash": "h3", "revision": 3, "approval_status": "approved"}},
+            },
+            "pending_human_response": None,
+        },
+    }
+
+
+class AnsweredBlockerDecisionTests(unittest.TestCase):
+    """The hold an answered semantic blocker keeps is its contract decision's own authority (#2434)."""
+
+    def test_the_answered_blocker_admits_its_correction(self):
+        state = answered_blocker_state()
+        self.assertTrue(pause_authority.answered_blocker_decision(state))
+        self.assertTrue(pause_authority.feedback_acknowledges(state, "PAUSED_RESOLVER"))
+        self.assertIsNone(pause_authority.feedback_refusal(state))
+        self.assertIsNone(pause_authority.correction_refusal(state, "An edited goal"))
+        self.assertIsNone(pause_authority.correction_refusal(state, "A plan file"))
+
+    def test_the_pending_response_window_needs_the_consumed_entrys_exact_record(self):
+        state = answered_blocker_state()
+        response = state["resolver"]["human_escalations"]["req-1"]["response"]
+        state["resolver"].pop("human_response_frontier")
+        state["resolver"]["pending_human_response"] = copy.deepcopy(response)
+        self.assertTrue(pause_authority.answered_blocker_decision(state))
+        stale = {**response, "text": "an older reply naming the same request"}
+        state["resolver"]["pending_human_response"] = stale
+        self.assertFalse(pause_authority.answered_blocker_decision(state))
+        state["resolver"]["pending_human_response"] = {**response, "request_id": "req-2"}
+        self.assertFalse(pause_authority.answered_blocker_decision(state))
+
+    def test_only_the_current_authenticated_answer_qualifies(self):
+        def break_it(name):
+            state = answered_blocker_state()
+            entry = state["resolver"]["human_escalations"]["req-1"]
+            if name == "request still pending":
+                entry["status"] = "pending"
+            elif name == "operational scope":
+                entry["identity"]["proposal"]["scope"] = "operational_exhaustion"
+            elif name == "leave_paused reply":
+                entry["response"] = {**entry["response"], "action": "leave_paused"}
+                state["resolver"]["pending_human_response"] = entry["response"]
+                state["resolver"].pop("human_response_frontier")
+            elif name == "response names another request":
+                entry["response"] = {**entry["response"], "request_id": "req-2"}
+            elif name == "response actor is not the person":
+                entry["response"] = {**entry["response"], "actor": "resolver"}
+            elif name == "a live published request":
+                state["resolver_human_request"] = {"request_id": "req-9", "scope": "blocker"}
+            elif name == "a queued proposal":
+                state["resolver_human_proposal"] = {
+                    "scope": "operational_exhaustion",
+                    "origin": {"stage": "astra_resolve", "pause_status": "PAUSED_RESOLVER"},
+                }
+            elif name == "the decision was already taken":
+                state["goal_contract"]["approval_status"] = "draft"
+            elif name == "the contract changed since the ask":
+                state["goal_contract"] = {
+                    **state["goal_contract"],
+                    "revision": 4,
+                    "hash": "h4",
+                    "approval_status": "approved",
+                }
+            elif name == "the frontier holds another pause":
+                state["resolver"]["human_response_frontier"]["pause_status"] = "PAUSED_COMPLETION_GATE"
+            elif name == "another pause holds the run":
+                # A pause intervention interrupted the hold: its recorded intent governs (#379).
+                state["pause_intent"] = {"held_pause": {"status": "PAUSED_RESOLVER"}}
+                state["status"] = "PAUSED_INTERVENTION"
+            elif name == "a bound pause held the blocker":
+                entry["identity"]["proposal"]["previous_status"] = "PAUSED_TIME_LIMIT"
+                state["status"] = "PAUSED_TIME_LIMIT"
+                state["resolver"]["human_response_frontier"]["pause_status"] = "PAUSED_TIME_LIMIT"
+            elif name == "a refusal pause held the blocker":
+                entry["identity"]["proposal"]["previous_status"] = "PAUSED_PROVIDER_UNCERTAIN"
+                state["status"] = "PAUSED_PROVIDER_UNCERTAIN"
+                state["resolver"]["human_response_frontier"]["pause_status"] = "PAUSED_PROVIDER_UNCERTAIN"
+            elif name == "no binding recorded at the ask":
+                entry["identity"]["binding"] = {}
+            else:
+                raise AssertionError(name)
+            return state
+
+        for name in (
+            "request still pending",
+            "operational scope",
+            "leave_paused reply",
+            "response names another request",
+            "response actor is not the person",
+            "a live published request",
+            "a queued proposal",
+            "the decision was already taken",
+            "the contract changed since the ask",
+            "the frontier holds another pause",
+            "another pause holds the run",
+            "a bound pause held the blocker",
+            "a refusal pause held the blocker",
+            "no binding recorded at the ask",
+        ):
+            with self.subTest(name=name):
+                state = break_it(name)
+                self.assertFalse(pause_authority.answered_blocker_decision(state))
+                self.assertFalse(pause_authority.feedback_acknowledges(state, state["status"]))
+                refusal = pause_authority.feedback_refusal(state)
+                if state["status"] not in ("PAUSED_TIME_LIMIT", "PAUSED_PROVIDER_UNCERTAIN"):
+                    self.assertIsNotNone(refusal)
+                self.assertIsNotNone(pause_authority.correction_refusal(state, "An edited goal"))
+
+    def test_every_other_pause_a_blocker_can_arise_at_keeps_its_own_authority(self):
+        """The decision's exception is the Resolver's own pause, an allow-list entry; protected
+        operational holds admit no correction through an answered blocker's ledger record."""
+        protected = (
+            "PAUSED_BUDGET",
+            "PAUSED_OUTPUT_CAP",
+            "PAUSED_CONTEXT_WINDOW",
+            "PAUSED_REPORT_REPAIR_LIMIT",
+            "PAUSED_RATE_LIMIT",
+            "PAUSED_REPEATED_FAILURE",
+            "PAUSED_RESOLVER_OPERATIONAL",
+            "PAUSED_BUILDER_RETRY_LIMIT",
+            "PAUSED_TIME_LIMIT",
+            "PAUSED_PROVIDER_UNCERTAIN",
+            "PAUSED_UNCERTAIN_STAGE",
+        )
+        for pause in protected:
+            with self.subTest(pause=pause):
+                state = answered_blocker_state()
+                entry = state["resolver"]["human_escalations"]["req-1"]
+                entry["identity"]["proposal"]["previous_status"] = pause
+                entry["identity"]["proposal"]["origin"] = {"pause_status": pause}
+                state["status"] = pause
+                state["resolver"]["human_response_frontier"]["pause_status"] = pause
+                self.assertFalse(pause_authority.answered_blocker_decision(state))
+                self.assertFalse(pause_authority.feedback_acknowledges(state, pause))
+                self.assertIn("does not acknowledge", pause_authority.feedback_refusal(state))
+                self.assertIn("does not acknowledge", pause_authority.correction_refusal(state, "An edited goal"))
+
+    def test_the_planning_budget_pause_keeps_its_own_feedback_authority(self):
+        # Pre-existing, separately admitted (#1294); the answered-blocker exception neither
+        # widens nor narrows it.
+        self.assertTrue(
+            pause_authority.feedback_acknowledges({"status": "PAUSED_PLANNING_BUDGET"}, "PAUSED_PLANNING_BUDGET")
+        )
+        state = answered_blocker_state()
+        state["status"] = "PAUSED_PLANNING_BUDGET"
+        self.assertFalse(pause_authority.answered_blocker_decision(state))
+
+    def test_an_operational_answer_keeps_its_information_path_only(self):
+        state = answered_blocker_state()
+        entry = state["resolver"]["human_escalations"]["req-1"]
+        entry["identity"]["proposal"]["scope"] = "operational_exhaustion"
+        entry["identity"]["proposal"]["previous_status"] = "PAUSED_REPEATED_FAILURE"
+        entry["identity"]["proposal"]["origin"] = {"pause_status": "PAUSED_REPEATED_FAILURE"}
+        state["status"] = "PAUSED_REPEATED_FAILURE"
+        state["resolver"]["human_response_frontier"]["pause_status"] = "PAUSED_REPEATED_FAILURE"
+        self.assertFalse(pause_authority.answered_blocker_decision(state))
+        self.assertIn("does not acknowledge", pause_authority.feedback_refusal(state))
+        self.assertIn("does not acknowledge", pause_authority.correction_refusal(state, "An edited goal"))
 
 
 if __name__ == "__main__":

@@ -7,10 +7,11 @@ resolver response). A budget flag for any other bound is a settings write, not t
 and neither is a pause intervention, queued feedback, a requested pause or enabling joint
 planning (autocode_stop records the pause an intervention interrupted). A correction (brief
 feedback, an edited goal, a design reference revision) is a pause's own authority only where
-that pause offers feedback (feedback_acknowledges): the exhausted plan-review budget, and the
-validation-only stop, whose request names --feedback. Elsewhere it would put a human gate in
-place of the pause, which an answer or approval with --resume-paused then dispatches past at
-once (#509).
+that pause offers feedback (feedback_acknowledges): the exhausted plan-review budget, the
+validation-only stop, whose request names --feedback, and the hold an answered semantic blocker
+keeps while its contract decision is untaken (answered_blocker_decision). Elsewhere it would put
+a human gate in place of the pause, which an answer or approval with --resume-paused then
+dispatches past at once (#509).
 
 held_origin() names the pause from the run's own records: its live or queued operational
 request, the request its answer consumed, else its saved status. interrupted() is the pause an
@@ -93,6 +94,12 @@ BUDGET_FLAGS = {
     "milestone_max_replans": ("max_milestone_replans",),
     "no_progress_batches": ("no_progress_limit",),
 }
+# The one semantic checkpoint an answered blocker's contract decision may hold (#2434): the
+# Resolver's own pause. Every other pause a blocker can arise at — budget, output, context,
+# rate, report-repair, repeated-failure, builder-retry, refusal and uncertainty holds — keeps
+# its own authority; an allow-list names the exception, not an incomplete deny-list of theirs.
+# PAUSED_PLANNING_BUDGET's existing feedback authority (FEEDBACK_ACKNOWLEDGES) is untouched.
+DECISION_PAUSE = "PAUSED_RESOLVER"
 
 
 def _entry_proposal(entry):
@@ -182,6 +189,81 @@ def requested_only(state: RunState) -> bool:
     )
 
 
+def answered_blocker_decision(state: RunState) -> bool:
+    """Whether the pause holding ``state`` is an answered semantic blocker waiting for its decision.
+
+    A blocker is the Resolver's semantic diagnosis asking a person; ``provide_information`` on it is
+    retained, never applied to the contract, and the hold that remains exists to take the contract
+    decision the request asked about (``contract_decision_advice`` names its paths, #675). Only the
+    current authenticated answer qualifies: the response frontier holds this pause and this
+    contract (or the response still waits for that review and the run still sits at the pause it
+    left), the ledger entry it names is consumed with matching request, actor and action, its scope
+    is ``blocker``, and the contract the decision revises is still approved. A pending or queued
+    request of any kind, a ``leave_paused`` reply, a bound, refusal or uncertain-call pause (their
+    own authorities), an interrupted pause, and a contract already changed by the taken decision
+    all keep the ordinary refusal.
+    """
+    resolver = state.get("resolver")
+    status = state.get("status")
+    if not isinstance(resolver, dict) or not isinstance(status, str):
+        return False
+    if status != DECISION_PAUSE:
+        # The decision holds the Resolver's own semantic pause and nothing else; a blocker
+        # answered at any protected operational hold leaves that hold its own authority.
+        return False
+    contract = state.get("goal_contract") or {}
+    if contract.get("approval_status") != "approved":
+        # The decision revises an approved contract; once feedback or an edited goal made it a
+        # draft, the decision was taken and the ordinary approval flow owns what happens next.
+        return False
+    # A newer decision owns the run: with a live published request or a queued proposal, the
+    # answered blocker no longer holds the frontier, whatever its ledger entry still records.
+    if isinstance(state.get(RESOLVER_REQUEST_KEY), dict) or isinstance(state.get(RESOLVER_PROPOSAL_KEY), dict):
+        return False
+    frontier = resolver.get("human_response_frontier")
+    pending_event = None
+    if isinstance(frontier, dict) and frontier.get("pause_status") == status:
+        source = frontier.get("request_id")
+        if not isinstance(source, str) or not source:
+            return False
+        bound = (frontier.get("binding") or {}).get("contract") or {}
+        if bound.get("hash") != contract.get("hash") or bound.get("revision") != contract.get("revision"):
+            return False  # the frontier the response holds is not this contract's
+    else:
+        pending_event = resolver.get("pending_human_response")
+        if not (
+            isinstance(pending_event, dict)
+            and pending_event.get("actor") == "user_cli"
+            and pending_event.get("action") == "provide_information"
+        ):
+            return False
+        source = pending_event.get("request_id")
+    if not isinstance(source, str) or not source:
+        return False
+    entry = (resolver.get("human_escalations") or {}).get(source)
+    if not isinstance(entry, dict) or entry.get("status") != "consumed":
+        return False
+    proposal = _entry_proposal(entry)
+    response = entry.get("response") or {}
+    if pending_event is not None and response != pending_event:
+        # The response awaiting review must be exactly the consumed entry's own record,
+        # not a stale or mismatched one naming the same request.
+        return False
+    asked = ((entry.get("identity") or {}).get("binding") or {}).get("contract") or {}
+    if asked.get("hash") != contract.get("hash") or asked.get("revision") != contract.get("revision"):
+        return False  # the request asked about a different contract than the one now approved
+    previous = (proposal.get("origin") or {}).get("pause_status") or proposal.get("previous_status")
+    # The pause respond_operational left the run at; anything else holding now is not this decision.
+    left = previous if isinstance(previous, str) and previous.startswith("PAUSED_") else "PAUSED_RESOLVER"
+    return (
+        proposal.get("scope") == "blocker"
+        and status == left == DECISION_PAUSE
+        and response.get("request_id") == source
+        and response.get("actor") == "user_cli"
+        and response.get("action") == "provide_information"
+    )
+
+
 def feedback_acknowledges(state: RunState, pause_status):
     """Whether brief feedback is ``pause_status``'s own authority.
 
@@ -189,8 +271,13 @@ def feedback_acknowledges(state: RunState, pause_status):
     it: the validation-only stop (autocode_validation_rounds) names --feedback as the way to
     continue, and it alone carries ``finding_ids``. The request is the one holding the run, else
     the latest asked for that pause (a withdrawn one, while queued input is applied under it).
+    It also is for the hold an answered semantic blocker keeps while its contract decision is
+    untaken: the person's explicit correction is that decision, so it restarts planning toward a
+    fresh approval instead of queueing under the pause (#2434).
     """
     if pause_status in FEEDBACK_ACKNOWLEDGES:
+        return True
+    if pause_status == state.get("status") and answered_blocker_decision(state):
         return True
     proposal = _held_proposal(state)
     if (proposal.get("origin") or {}).get("pause_status") != pause_status:

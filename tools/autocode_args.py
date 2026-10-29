@@ -707,8 +707,10 @@ def parse(unit, argv, default_models):
         resume_only = resume_only or args.task == "resume"
         argv = argv[:at] + ([] if args.task == "resume" else [f"--{args.task}"]) + argv[at + 1 :]
         args = parser.parse_args(argv)
-    if typo := subcommands.option_typed_as_task(parser, argv, args.task):
-        parser.error(typo)  # `autocode approve-goal` is not a task
+    if typo := subcommands.option_typed_as_task(parser, argv, args.task) or subcommands.command_typed_with_a_typo(
+        argv, args.task
+    ):
+        parser.error(typo)  # `autocode approve-goal` and `autocode stauts` are not tasks
     if (args.brief is not None or args.brief_file is not None) and (args.run_dir or resume_only):
         parser.error("--brief and --brief-file start a new run; they cannot accompany a saved run or resume")
     if args.reconcile_only is not None:

@@ -13,6 +13,13 @@ deliver only the API half.
 
 ## Automatic bug fixes from terminal chat
 
+This flow is part of current master and is not in the published **0.8.2**
+release: the `pipx`/Homebrew commands in the README install a tagged release
+without it. Install from master with the [checkout
+installation](install.md#advanced-install-from-a-checkout) first, and connect a
+backend your chat can use — including Kilo, which the [default-provider
+guide](install.md#default-provider) covers with its pinned Linux release.
+
 Start `autocode chat` in the repository where you see the symptom. On a supported
 Linux host, use an owned chat (the default), set up your coding backend with `/connect`, then authorize the local
 Git checkouts AutoCode may use:
