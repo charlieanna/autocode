@@ -32,6 +32,7 @@ def before_review(state: RunState, stage, workspace, run_dir):
     regression.before_review(state, stage, workspace, run_dir)
     if stage not in ("sol", "astra_checkpoint", "astra_review"):
         return
+    _reconcile_proof_finding(state, workspace)
     try:
         if delivery.requirement((state.get("goal_contract") or {}).get("body") or {}) is None:
             return
@@ -44,6 +45,53 @@ def before_review(state: RunState, stage, workspace, run_dir):
             regression.before_review(state, stage, workspace, run_dir)
     except (OSError, ValueError) as error:
         raise Paused("PAUSED_COMPLETION_GATE", "Git delivery required: " + str(error)) from error
+
+
+def _proof_routing(state: RunState) -> bool:
+    """Runs whose unproven regression is carried by a runner finding (autocode_proof_findings)."""
+    try:
+        from . import autocode_workflow as workflow
+    except ImportError:
+        import autocode_workflow as workflow
+    return state.get("version", 2) >= 3 and not workflow.enabled(state)
+
+
+def _reconcile_proof_finding(state: RunState, workspace):
+    try:
+        from . import autocode_proof_findings as proof_findings
+        from . import autocode_regression as regression
+        from . import autocode_source_scope as source_scope
+    except ImportError:
+        import autocode_proof_findings as proof_findings
+        import autocode_regression as regression
+        import autocode_source_scope as source_scope
+    if not _proof_routing(state):
+        return
+    revision = source_scope.snapshot(workspace, state)["revision"]
+    required = regression.required(state, all_due=True)
+    proved = required and regression.complete(state, revision, all_due=True)
+    reason = "" if proved or not required else regression.rejection(state)
+    proof_findings.reconcile(state, revision, required=required, proved=proved, reason=reason)
+
+
+def _send_back_unproven(state: RunState, current, record, regression_complete):
+    """Fields that return a completion request to review while the runner's proof finding is open, or None."""
+    try:
+        from . import autocode_proof_findings as proof_findings
+    except ImportError:
+        import autocode_proof_findings as proof_findings
+    if (
+        record.get("stage") != "astra_review"
+        or not _proof_routing(state)
+        or not proof_findings.open_rows(state)
+        or regression_complete(state, current["revision"], all_due=True)
+    ):
+        return None
+    return {
+        "next_stage": "astra_review",
+        "iteration": state.get("iteration", 0) + 1,
+        **proof_findings.send_back(state, current["revision"]),
+    }
 
 
 def check_source_verdict(decision):
@@ -132,6 +180,11 @@ def apply(
         **({"scope_authority": prepared_completion.scope_authority} if prepared_completion is not None else {}),
     )
     prepare_progressive_completion(state, current, record, product_findings=blocking_entries(state))
+    if modern and (sent_back := _send_back_unproven(state, current, record, regression_complete)):
+        commit_fields(sent_back)
+        record_decision(state, decision)
+        save_record(state, record)
+        return True
     if modern and blocking_entries(state):
         raise paused("PAUSED_COMPLETION_GATE", ledger_rejection(state))
     if modern and missing_human_reviews(state):
