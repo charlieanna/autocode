@@ -3,6 +3,7 @@
 A documentation-only tree, or a tree with no Go project when the suite is Go.
 """
 
+import subprocess
 from pathlib import PurePosixPath
 
 try:
@@ -102,6 +103,59 @@ def data_file(path) -> bool:
     return PurePosixPath(str(path)).suffix.lower() in DATA_SUFFIXES
 
 
+# Extensionless files that a build or container tool runs by name.
+BUILD_FILES = frozenset(
+    {
+        "Makefile",
+        "GNUmakefile",
+        "makefile",
+        "Dockerfile",
+        "Containerfile",
+        "Procfile",
+        "Rakefile",
+        "Justfile",
+        "justfile",
+        "Vagrantfile",
+        "Jenkinsfile",
+        "Brewfile",
+        "Earthfile",
+        "Tiltfile",
+        "Snakefile",
+        "BUILD",
+        "WORKSPACE",
+    }
+)
+NOTE_LIMIT = 4096
+
+
+def plain_note(path, content) -> bool:
+    """A short extensionless text file that nothing runs: a stray note a person left (#2259).
+
+    Content decides, not the name: it must be UTF-8 text without NUL bytes or a
+    ``#!`` line, at most NOTE_LIMIT bytes, and not a build file a tool runs by name.
+    """
+    name = PurePosixPath(str(path))
+    if name.suffix or name.name.startswith(".") or name.name in BUILD_FILES or content is None:
+        return False
+    if len(content) > NOTE_LIMIT or b"\0" in content or content.lstrip().startswith(b"#!"):
+        return False
+    try:
+        content.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+def blob_reader(workspace, revision):
+    """``read(path)``: the bytes of path at revision, or None when Git cannot show it."""
+
+    def read(path):
+        shown = subprocess.run(["git", "cat-file", "blob", f"{revision}:{path}"], cwd=workspace, capture_output=True)
+        return shown.stdout if shown.returncode == 0 else None
+
+    return read
+
+
 DESIGN_DIRECTORY = PurePosixPath("docs", "design")
 PROSE_DOCUMENT_SUFFIXES = (".rst", ".adoc")
 
@@ -127,7 +181,7 @@ def manifest(path) -> bool:
     )
 
 
-def inert_base_file(path, size, *, separate, source) -> bool:
+def inert_base_file(path, size, *, separate, source, read=None) -> bool:
     """True when a pinned base entry holds no behavior a suite could run.
 
     README.md is always accepted. In a separate checkout (the candidate cannot
@@ -139,6 +193,8 @@ def inert_base_file(path, size, *, separate, source) -> bool:
     source still needs passing-test evidence. A non-Markdown prose document in
     the design workflow's directory is not one of those data files: the workflow
     writes Markdown, so another format there is not the approved design (#2069).
+    In the same base, a short extensionless text note (plain_note, its content
+    supplied by ``read``) holds no behavior either (#2259).
     """
     if path == "README.md":
         return True
@@ -150,6 +206,7 @@ def inert_base_file(path, size, *, separate, source) -> bool:
         or name.suffix == ".md"
         or size == 0
         or (not source and (manifest(path) or (data_file(path) and not non_markdown_design_document(path))))
+        or (not source and read is not None and size <= NOTE_LIMIT and plain_note(path, read(path)))
     )
 
 
@@ -169,6 +226,67 @@ def absent_base_suite(base_receipt, candidate_receipt, *, document_only):
         and base_receipt.get("timed_out") is False
         and _candidate_passed(candidate_receipt)
     )
+
+
+def empty_collection(base_receipt) -> bool:
+    """The base suite ran to completion and honestly collected no test.
+
+    Python 3.14 unittest and pytest exit 5 for an empty collection; other runners exit 0.
+    """
+    results = base_receipt.get("results")
+    return bool(
+        results is not None
+        and base_receipt.get("results_expected") is True
+        and (
+            base_receipt.get("exit_code") == 0
+            or (
+                base_receipt.get("exit_code") == 5
+                and schedule.collection_kind(base_receipt.get("command", "")) in ("unittest", "pytest")
+            )
+        )
+        and results.get("complete") is True
+        and results.get("total") == 0
+        and all(results.get(key) == [] for key in ("passed", "failed", "skipped", "collection_errors"))
+    )
+
+
+UNTESTED_BASE = (
+    "The original code has no tests, so preservation of existing behavior is unproven; "
+    "add tests of the existing behavior this change touches that pass on the original code and on the change"
+)
+UNTESTED_BASE_KEPT = "The original code has no tests; the change's tests that pass on it and on the change keep it"
+
+
+def no_base_evidence(untested, *, ran=True) -> str:
+    """Why preservation is unproven; for a base with no test, what the Builder can add to prove it."""
+    if untested:
+        return UNTESTED_BASE
+    if not ran:
+        return "The base suite could not run; preservation of existing behavior is unproven"
+    return "The base suite provided no complete passing-test evidence; preservation of existing behavior is unproven"
+
+
+def no_base_suite(base_receipt) -> bool:
+    """The base had no suite to run: an empty collection, or a known collector that found nothing to start.
+
+    A missing test directory makes unittest exit 1 with no per-test results (absent_base_suite).
+    """
+    return empty_collection(base_receipt) or bool(
+        base_receipt.get("results_expected") is True
+        and base_receipt.get("results") is None
+        and base_receipt.get("exit_code") == 1
+        and base_receipt.get("timed_out") is False
+    )
+
+
+def untested_base_kept(base_receipt, candidate_receipt, kept, *, untested) -> bool:
+    """A base with code but no test file: the change's own tests stand in for the suite it lacks (#2259).
+
+    ``kept`` are the change's tests that ran and passed on the original code and still pass
+    (the proof's pass_to_pass). The base must have had no suite to run (no_base_suite), hold no
+    test path (``untested``), and the candidate suite pass completely.
+    """
+    return bool(untested and kept and no_base_suite(base_receipt) and _candidate_passed(candidate_receipt))
 
 
 def _candidate_passed(candidate_receipt):

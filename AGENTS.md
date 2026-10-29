@@ -33,6 +33,55 @@ implementation and verification decisions already delegated here. Exact-plan
 binding, independent verification, evidence checks and the thin-client interface
 remain required.
 
+## What a person is asked
+
+**Owner decision, 2026-10-29:** a person using AutoCode is involved only in
+gathering requirements, reviewing and approving the plan, and clarifying genuine
+ambiguity in the requirements or the plan. AutoCode never asks a person about its
+own machinery: regression proofs and baselines, evidence gaps, retries, recovery,
+report repair, routing, stage scheduling, or any pause AutoCode can settle itself.
+
+- When AutoCode can decide, it decides deterministically and records the decision
+ and its reason in the run's evidence, where reviewers and the report show it.
+- When it cannot decide safely, it fixes or reports the gap in the core, the CLI or
+ the view. It does not hand the person a question about machinery, and a client
+ never shows a person an internal flag, token or command to type.
+- A run that today stops to ask a person about machinery is a defect. Fix it the
+ same way, in any issue, not only in new code. Do not add a new person question,
+ flag or confirmation for machinery to work around one.
+
+Spending caps, model routes the owner chose, publishing and merging remain the
+owner's, as above.
+
+## AutoCode delivers no untested code
+
+**Owner decision, 2026-10-29:** for the task a person gave it, AutoCode delivers
+no untested code. A line merely executed is not tested, so the rule is about
+behavior and evidence, not a 100% line count:
+
+- **Every changed behavior has a test that fails without it.** The regression
+ proof already requires this for the task: the new tests fail on base and pass on
+ the candidate.
+- **Every changed product line is executed by a test the proof runs, or carries a
+ recorded reason it is not** (for example, a defensive branch unreachable from
+ public input). AutoCode decides the reason itself; the Code Reviewer checks it.
+ Neither is a question for the person.
+- **The tests must notice a broken line.** The mutation check on changed lines
+ (`autocode_mutation_check`, `autocode_review_mutation`) shows that a test fails
+ when the line is broken, so a test that executes code without asserting
+ anything does not count.
+- **A line with neither a test nor a reason sends the Builder back**, with the
+ exact lines as feedback, within a bounded number of rounds. When those run out,
+ the Investigator takes it, never the person, and the report says why.
+- Where coverage cannot be measured (no coverage tool in the project, an
+ unmeasured file), AutoCode chooses the fallback deterministically and records
+ it in evidence. It never installs a tool into the project.
+
+Diff coverage (`tools/autocode_diff_coverage.py`, #701) measures executed lines
+today but only reports them. An uncovered hunk never changes the verdict, so
+enforcing this rule is outstanding work (#2474). The same holds for changes to this
+repository: a fix adds a test for the behavior it changes (see Testing).
+
 ## Layout
 
 | Path | What it is |
