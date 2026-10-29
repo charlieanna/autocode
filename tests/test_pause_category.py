@@ -48,6 +48,7 @@ class PauseCategoryTests(unittest.TestCase):
             ("PAUSED_STAGE_TIMEOUT", "autocode"),
             ("PAUSED_VERIFICATION_PREPARATION", "autocode"),
             ("PAUSED_REPORT_REPAIR_INPUT", "autocode"),
+            ("PAUSED_STALE_DIAGNOSIS", "autocode"),
             ("PAUSED_STALE_HANDOFF", "autocode"),
             ("PAUSED_COMPLETION_GATE", "autocode"),
             ("RESOLVER_PENDING", "autocode"),
