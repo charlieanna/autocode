@@ -841,6 +841,15 @@ def render(state: RunState, run_dir=None):
             lines.append(
                 f"  - {row.get('change')}: {row.get('item')}{replaced} (basis: {row.get('basis')}{asked}{earlier})"
             )
+            correction = row.get("draft_failure_correction")
+            if isinstance(correction, dict):
+                lines.append(
+                    "    First reviewer judged this an unapproved model inference: "
+                    + correction["rationale"]
+                    + " (draft/source snapshot: "
+                    + correction["snapshot"]
+                    + ")"
+                )
     history = state.get("contract_history", [])
     if history:
         lines += ["", "Contract delta:"] + list(

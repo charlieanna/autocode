@@ -427,6 +427,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A first Plan Reviewer can explicitly identify a mistaken `important_failure_cases` inference in an
+  unapproved model draft and bind its exact correction to that draft and its saved intent sources (#2453).
+  The revision preserves other protected text, existing criteria, proofs and citations; stale receipts,
+  approved or edited history, and human-backed text remain protected. Final review still precedes exact
+  human plan approval, which shows the correction and its rationale. Old reports grant no new authority.
 - A Planner report followed by exactly one redundant empty `machine_resolutions` parameter tag is read
   without a model repair when the complete JSON already contains that empty field. The report, citations and
   raw evidence are preserved; conflicting or other parameter tails remain rejected (#2452).

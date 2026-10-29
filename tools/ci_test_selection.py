@@ -67,6 +67,11 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tools/autocode_draft_failure_correction.py", ("tests.test_draft_failure_correction_cli",)),
+    (
+        "tools/prompts/fragments/autoplanner/draft-failure-correction.md",
+        ("tests.test_draft_failure_correction", "tests.test_draft_failure_correction_cli"),
+    ),
     *((path, ("tests.test_run_suite",)) for path in sorted(SCENARIO_SELECTION_INPUTS)),
     # The suite collector is executed by the verifier as a dynamic runner resource; its
     # own imports are invisible to the import selector (#2414).
