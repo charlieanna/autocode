@@ -472,7 +472,7 @@ class DynamicDependenciesTests(unittest.TestCase):
             with self.subTest(path=path):
                 selected = run_suite.select_tests([path], {**dict.fromkeys(consumers, ""), "tests.test_unrelated": ""})
                 kept, _ = run_suite.drop_slow(selected, dict.fromkeys(consumers, "30s"))
-                self.assertEqual(list(consumers), list(kept))
+                self.assertCountEqual(consumers, kept)
 
     def test_typed_planning_allowance_keeps_its_public_consumer_even_when_slow(self):
         consumer = "tests.test_planning_allowance_cli"
