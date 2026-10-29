@@ -17,6 +17,7 @@ try:
     from . import autocode_contract_delta as delta
     from . import autocode_current_behavior as current_behavior
     from . import autocode_draft_examples as examples
+    from . import autocode_draft_failure_correction as failure_correction
     from . import autocode_protected_text as protected
     from . import autocode_python_tests as python_tests
     from . import autocode_requirement_cues as cues
@@ -27,6 +28,7 @@ except ImportError:
     import autocode_contract_delta as delta
     import autocode_current_behavior as current_behavior
     import autocode_draft_examples as examples
+    import autocode_draft_failure_correction as failure_correction
     import autocode_protected_text as protected
     import autocode_python_tests as python_tests
     import autocode_requirement_cues as cues
@@ -37,7 +39,8 @@ PLANNER_ORIGINS = {"glm_draft", "glm_revise", "astra_finalize", "astra_discovery
 PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
 # The lists a revision may change on its own when the Plan Reviewer blocked the draft and the line is the
 # Planner's own (reviewer_requested_own_text): a constraint or a permission boundary that only restates how the
-# Planner split the work. required_behaviors, scope_exclusions and important_failure_cases stay the person's.
+# Planner split the work. Other lists stay protected; failure_correction separately binds a fresh independent
+# review's exact correction of an unapproved model inference, retaining the rest of the contract.
 PLANNER_OWN_LISTS = ("constraints", "permission_boundaries")
 # The person's own words. A delegated decision is the Planner's choice made on the person's behalf, so
 # the Planner may revise it like its own proposal; a delegated answer can still authorize a change.
@@ -398,7 +401,8 @@ def reviewer_requested_own_text(state: RunState, previous_contract: dict, previo
     concern, the change is declared as the Planner's own (``agent_proposed``) with its replacement, and the line
     repeats none of the person's sentences (quotes_person_text). The declared change is shown at approval with
     the concern that asked for it, and the final review judges it. Anything the person wrote, every other
-    protected list and every approved contract keep the saved-basis rule."""
+    protected list and every approved contract keep the saved-basis rule here; failure_correction owns its
+    separately receipted exception."""
     if (
         origin != "glm_revise"
         or previous_contract.get("approval_status") != "draft"
@@ -601,7 +605,11 @@ def revision_guard(state: RunState, body, changes, origin):
         protected_changes.append(raw)
     _reject_unchanged_rewordings(previous, body, protected_changes)
     own_text = reviewer_requested_own_text(state, previous_contract, previous, protected_changes, origin)
+    failure_receipts = failure_correction.corrections(state, body, protected_changes, origin)
+    own_text.update({item: [binding["concern_id"]] for item, binding in failure_receipts.items()})
     for raw in protected_changes:
+        if raw.get("item") in failure_receipts:
+            raw[failure_correction.FIELD] = failure_receipts[raw["item"]]["receipt"]
         if raw.get("item") in own_text:  # shown at approval: the concern that asked for the Planner's own change
             raw["review_concerns"] = own_text[raw["item"]]
     unbacked = [

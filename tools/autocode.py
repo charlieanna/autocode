@@ -1200,7 +1200,7 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
         + repair_report_instruction(pending)
         + prompts.get("fragments/autocode/execute-report-repair-14.md")
         + report_repair_context.baseline_instruction(original["stage"])
-        + planning.repair_rules(original["stage"], support.read(Path(original["schema"])))
+        + planning.repair_rules(original["stage"], (repair_schema := support.read(Path(original["schema"]))))
         + prompts.get("fragments/autocode/execute-report-repair-13.md")
         + stuck_repair_context.evidence_instruction(original["stage"])
         + prompts.get("fragments/autocode/execute-report-repair-12.md")
@@ -1263,7 +1263,7 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
                 ),
                 "protected_contract": context_handoff["protected_contract"],
                 "requirement_trace_rows": planning.trace_rows(state, original["stage"]) or None,
-                **planning.repair_citation_context(state, original["stage"], workspace),
+                **planning.repair_citation_context(state, original["stage"], workspace, repair_schema),
                 "report_identity": {
                     "contract_hash": (state.get("goal_contract") or {}).get("hash"),
                     "contract_revision": (state.get("goal_contract") or {}).get("revision"),

@@ -33,6 +33,7 @@ try:
     from .. import autocode_compact_planning as compact_planning
     from .. import autocode_design_plan as design_plan
     from .. import autocode_draft_examples as examples
+    from .. import autocode_draft_failure_correction as failure_correction
     from .. import autocode_failures as failures
     from .. import autocode_follow_up as follow_up
     from .. import autocode_goals as goals
@@ -73,6 +74,7 @@ except ImportError:
     import autocode_compact_planning as compact_planning
     import autocode_design_plan as design_plan
     import autocode_draft_examples as examples
+    import autocode_draft_failure_correction as failure_correction
     import autocode_failures as failures
     import autocode_follow_up as follow_up
     import autocode_goals as goals
@@ -227,7 +229,7 @@ def repair_source_inventory(state: RunState, stage):
     return source_inventory(state) if stage in CITATION_STAGES else None
 
 
-def repair_citation_context(state: RunState, stage, workspace):
+def repair_citation_context(state: RunState, stage, workspace, schema=None):
     """The handoff's citation context: source sentences, plus the citable files a Requirements repair may name.
 
     The Requirements handoff check requires a complete report to cite an existing workspace file (#1822);
@@ -235,6 +237,12 @@ def repair_citation_context(state: RunState, stage, workspace):
     .autocode/ log. workspace_inventory names the files the runner will accept, and SOURCE_REFS_RULE
     states the same rule the stage prompt carries."""
     context = {"source_inventory": repair_source_inventory(state, stage)}
+    if (
+        stage == "astra_challenge"
+        and failure_correction.offered(schema or {})
+        and (correction_snapshot := failure_correction.snapshot(state))
+    ):
+        context["draft_failure_correction_snapshot"] = correction_snapshot
     if stage == "requirements_gather":
         context["workspace_inventory"] = workspace_inventory(workspace, state.get("task", ""))
         context["source_refs_rule"] = SOURCE_REFS_RULE
@@ -420,6 +428,8 @@ CONCERN = obj(
         "blocking": {"type": "boolean"},
     }
 )
+FIRST_CONCERN = copy.deepcopy(CONCERN)
+FIRST_CONCERN["properties"][failure_correction.FIELD] = failure_correction.RECEIPT_SCHEMA
 RESPONSE = obj({"concern_id": S, "response": S, "evidence_refs": SS, "change": S, "acceptance_test": S})
 DECISION = obj({"concern_id": S, "decision": S, "rationale": S, "acceptance_test": S, "resolved": {"type": "boolean"}})
 REQUIREMENT = obj({"id": S, "text": S, "source_quote": S})
@@ -509,7 +519,7 @@ SCHEMAS = {
             "requirement_trace": {"type": "array", "items": TRACE},
         }
     ),
-    "astra_challenge": obj({"summary": S, "concerns": {"type": "array", "items": CONCERN}}),
+    "astra_challenge": obj({"summary": S, "concerns": {"type": "array", "items": FIRST_CONCERN}}),
     "glm_revise": obj(
         {
             "contract": goals.BODY_SCHEMA,
@@ -1153,6 +1163,12 @@ def progressive_policy(stage):
 def repair_rules(stage, schema):
     """Repeat planning semantics only for fields allowed by the saved repair schema."""
     fields = schema.get("properties", {})
+    if stage == "astra_challenge":
+        return (
+            prompts.get("fragments/autoplanner/draft-failure-correction.md")
+            if failure_correction.offered(schema)
+            else ""
+        )
     if stage not in (*TRACE_STAGES, "plan", "plan_revise", "plan_finalize") or "contract" not in fields:
         return ""
     if "retain_contract" in fields["contract"].get("properties", {}):
@@ -1160,10 +1176,16 @@ def repair_rules(stage, schema):
             "Use clarification_context.retained_contract as the current reference and "
             "clarification_context.retained_criteria for retained criterion identities.\n"
             + retention.final_rule(schema)
+            + (prompts.get("fragments/autoplanner/draft-failure-correction.md") if stage == "astra_finalize" else "")
             + report_policy.concern_rule(schema)
         )
     return (
         REVISION_CONFLICT_RULE
+        + (
+            prompts.get("fragments/autoplanner/draft-failure-correction.md")
+            if stage in ("glm_revise", "astra_finalize")
+            else ""
+        )
         + report_policy.concern_rule(schema)
         + (retention.revision_reference.RULE if retention.revision_reference.offered(schema) else "")
         + (retention.delta_rule(schema) if retention.allows_delta(schema) else "")
@@ -1278,6 +1300,8 @@ def context(state: RunState, stage, state_path):
         "budget": prompts.get("fragments/autoplanner/context.md").format(review_call_limit(state) or "Unlimited"),
         "recovery_context": state.get("recovery_context"),
     }
+    if stage == "astra_challenge" and (correction_snapshot := failure_correction.snapshot(state)):
+        packet["draft_failure_correction_snapshot"] = correction_snapshot
     coordinated = stage_context.coordination_context.context(state)
     if coordinated:
         packet["coordinated_member"] = coordinated
@@ -1414,6 +1438,8 @@ def context(state: RunState, stage, state_path):
             + ("" if compact_final or stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE)
         )
     )
+    if stage in ("astra_challenge", "glm_revise", "astra_finalize"):
+        planning_policy += prompts.get("fragments/autoplanner/draft-failure-correction.md")
     if stage != "requirements_gather":
         planning_policy += prompts.get("fragments/autoplanner/proof-reference-rule.md")
     progressive_rule = (
@@ -1725,6 +1751,7 @@ def proxy_concerns(state: RunState, value):
 def after_challenge(state: RunState, value, record):
     """Where the first review leads. In an adaptive run, a review with no blocking concern approves
     the Planner's draft as the final plan (autocode_adaptive_planning); otherwise the Planner revises."""
+    failure_correction.receipts(state, value)
     compact = compact_planning.reviewing(state)
     if not adaptive.enabled(state):
         if compact:  # the runner's draft has no Planner to revise it: the full path plans afresh (#2021)

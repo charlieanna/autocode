@@ -1,12 +1,13 @@
 
 PROTECTED REVISION CONFLICTS: outside the narrow allowed draft corrections — a proof correction, or the
-Planner's own criterion wording that keeps every request quote — a
+Planner's own criterion wording that keeps every request quote, or the exact important_failure_cases pair
+bound by a saved first-review draft_failure_correction receipt — a
 reviewer's requested behavior change still needs a saved user answer or feedback event, even in
 an unapproved model-written draft. Without that basis, retain the protected text and add a blocking decision
 to contract.open_blocking_questions, explaining the conflict and proposed correction in the response/summary.
 Set contract.initial_task.kind=none, technical_approach=[] and milestones=[] while blocked; do not claim the
 conflict is resolved or the plan ready.
-Do not use agent_proposed or original_request as authorization for a protected revision, or invent a user event.
+Do not use agent_proposed or original_request by itself as authorization for a protected revision, or invent a user event.
 An accepted_assumptions or delegated_decisions text saved from a user_answer or user_feedback basis is the person's
 own text and follows the same rule; a replacement they authorized keeps that basis and answer_id. An assumption you
 proposed yourself, or a decision the person delegated to you, is engineering detail: correct or replace it, with no

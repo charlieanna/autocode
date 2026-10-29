@@ -427,6 +427,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A first Plan Reviewer can explicitly identify a mistaken `important_failure_cases` inference in an
+  unapproved model draft and bind its exact correction to that draft and its saved intent sources (#2453).
+  The revision preserves other protected text, existing criteria, proofs and citations; stale receipts,
+  approved or edited history, and human-backed text remain protected. Final review still precedes exact
+  human plan approval, which shows the correction and its rationale. Old reports grant no new authority.
 - A mistyped command is refused before any worktree is created (#2450): `autocode stauts`, `autocode resum`
   or `autocode registry-list` now says which command the word looks like and to describe a task in more than one
   word, in quotes. Before, the word became a one-word brief and, with a provider installed, started a run on it.
