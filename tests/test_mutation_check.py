@@ -502,7 +502,35 @@ class ProofTests(unittest.TestCase):
             "investigation": {"outcome": "reproduced", "test_cases": [case]},
         }
 
-    def test_a_weak_proving_test_passes_the_proof_and_its_survivors_are_reported_per_case(self):
+    def test_generated_test_output_does_not_invalidate_unchanged_product_inputs(self):
+        self.state["investigation"]["test_cases"][0]["then"] = "returns 9"
+        source = "def limit(n):\n    if n > 10:\n        return 9\n    return n\n"
+        (self.root / "calc.py").write_text(source)
+        test = WEAK_TEST.replace("self.assertEqual(10, limit(50))", "self.assertEqual(9, limit(50))")
+        test += "        self.assertEqual(9, limit(11))\n        self.assertEqual(10, limit(10))\n"
+        test += '        with open("suite-result.json", "w") as stream:\n            stream.write("generated report")\n'
+        (self.root / "tests/test_calc.py").write_text(test)
+        proof = regression.prove(self.state, self.root, self.run_dir)
+        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual("PASS", proof["changed_code_evidence"]["status"], proof["changed_code_evidence"])
+        self.assertEqual(source, (self.root / "calc.py").read_text())
+        self.assertFalse((self.root / "suite-result.json").exists(), "checks stay in owned scratch trees")
+
+    def test_test_writes_cannot_change_a_delivered_input_and_keep_line_authority(self):
+        self.state["investigation"]["test_cases"][0]["then"] = "returns 9"
+        (self.root / "fixture-input.json").write_text("original input")
+        (self.root / "calc.py").write_text("def limit(n):\n    if n > 10:\n        return 9\n    return n\n")
+        test = WEAK_TEST.replace("self.assertEqual(10, limit(50))", "self.assertEqual(9, limit(50))")
+        test += "        self.assertEqual(9, limit(11))\n        self.assertEqual(10, limit(10))\n"
+        test += '        with open("fixture-input.json", "w") as stream:\n            stream.write("changed input")\n'
+        (self.root / "tests/test_calc.py").write_text(test)
+        proof = regression.prove(self.state, self.root, self.run_dir)
+        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual("UNVERIFIED", proof["changed_code_evidence"]["status"])
+        self.assertIsNone(proof["changed_code_inputs"]["inventory"])
+        self.assertEqual("original input", (self.root / "fixture-input.json").read_text())
+
+    def test_a_weak_proving_test_keeps_its_pass_and_survivors_but_cannot_complete(self):
         before = (self.root / "calc.py").read_bytes()
         proof = regression.prove(self.state, self.root, self.run_dir)
         self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
@@ -516,12 +544,30 @@ class ProofTests(unittest.TestCase):
             ],
             texts,
         )
-        # Report only: the mutant runs are not receipts of the proof, and the workspace never changed.
+        # Mutation captures stay separate from the named regression checks; the workspace never changed.
         self.assertFalse([label for label in proof["checks"] if "mutant" in label or "unmutated" in label])
         saved = json.loads(Path(proof["path"]).read_text())
         self.assertEqual(proof["mutation_check"], saved["mutation_check"])
         self.assertFalse([label for label in saved["checks"] if "mutant" in label or "unmutated" in label])
-        self.assertTrue(regression.complete(self.state, proof["source_revision"], all_due=True))
+        changed = proof["changed_code_evidence"]
+        self.assertEqual("UNVERIFIED", changed["status"])
+        gaps = [row for row in changed["obligations"] if row["status"] == "reason_required"]
+        self.assertEqual([("calc.py", 2)], [(row["path"], row["line"]) for row in gaps])
+        survivors = [
+            (file["path"], row)
+            for file in proof["changed_code_inputs"]["mutation"]["files"]
+            for row in file["mutants"]
+            if row["outcome"] == "survived"
+        ]
+        self.assertEqual(
+            {("calc.py", 2, "swap_bound"), ("calc.py", 2, "shift_bound")},
+            {(path, row["line"], row["operator"]) for path, row in survivors},
+        )
+        for _, row in survivors:
+            self.assertTrue(row["evidence"], row)
+            self.assertTrue(set(row["evidence"]) <= set(gaps[0]["evidence"]))
+            self.assertTrue(all(Path(ref).is_file() for ref in row["evidence"]), row)
+        self.assertFalse(regression.complete(self.state, proof["source_revision"], all_due=True))
         self.assertEqual(before, (self.root / "calc.py").read_bytes())
         logs = sorted(path.name for path in Path(proof["path"]).parent.joinpath("mutation-check").glob("*.log"))
         # The unmutated run and five mutants: `return n` (line 4) is unchanged from the base, so never mutated.

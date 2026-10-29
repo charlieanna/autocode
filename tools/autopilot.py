@@ -16,6 +16,7 @@ except ImportError:
 
 
 import copy
+from functools import partial
 from pathlib import Path
 
 try:
@@ -24,6 +25,8 @@ try:
     from . import autocode_brief_obligations as brief_obligations
     from . import autocode_builder_failure as builder_failure
     from . import autocode_builder_policy as builder_policy
+    from . import autocode_changed_code_review_application as changed_code_review_application
+    from . import autocode_changed_code_rework as changed_code_rework
     from . import autocode_check_refs as check_refs
     from . import autocode_check_replay as check_replay
     from . import autocode_completion as completion_gate
@@ -73,6 +76,8 @@ except ImportError:
     import autocode_brief_obligations as brief_obligations
     import autocode_builder_failure as builder_failure
     import autocode_builder_policy as builder_policy
+    import autocode_changed_code_review_application as changed_code_review_application
+    import autocode_changed_code_rework as changed_code_rework
     import autocode_check_refs as check_refs
     import autocode_check_replay as check_replay
     import autocode_completion as completion_gate
@@ -688,23 +693,12 @@ def recover_retained_candidate(state: RunState, workspace):
     return True
 
 
-def route_builder_failure(state: RunState, evidence, reason, *, completed_record=None):
-    """Interpret non-execution actions before any assignment or strong-model mutation."""
-    row = milestones.progress(state)
-    if row and row.get("needs_replan") and state.get("workspace"):
-        current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=support.snapshot)
-        if current["revision"] == evidence["record"].get("source_revision") and milestones.fresh_validation(
-            state, current
-        ):
-            evidence.update(checkpoint={"decision": "needs_replan"}, checkpoint_verified=True)
-    return builder_failure.route(
-        state,
-        evidence,
-        reason,
-        enabled=stuck.enabled(state),
-        reassess=milestones.request_builder_reassessment,
-        completed_record=completed_record,
-    )
+route_builder_failure = partial(
+    builder_failure.route_in_context,
+    milestones=milestones,
+    snapshot=lambda workspace: support.snapshot(workspace),
+    enabled=lambda state: stuck.enabled(state),
+)
 
 
 def apply_build_result(runtime, state: RunState, value, record, workspace, run_dir):
@@ -906,6 +900,9 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
     )
     efficiency.observe_replay(state, validation["check_replay"], attempt_id=record.get("events") or record["output"])
     validation["evidence_hashes"].update(check_replay.evidence_pins(validation["check_replay"]))
+    changed_code_review_application.accept(
+        state, validation, record, pin=lambda refs: support.evidence_hashes(refs, workspace, run_dir)
+    )
     if stage == "sol" and (record.get("visual_runtime") or visual_runtime.requested(state)):
         visual_receipt = visual_runtime.accept_review(
             record.get("visual_runtime"),
@@ -962,6 +959,8 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
             {"question": state.pop("targeted_consultation"), "report": state.pop("validation")}
         )
         state["next_stage"] = "terra"
+    elif not correction_open:
+        changed_code_review_application.route(state, validation, record, investigation_enabled=stuck.enabled(state))
 
 
 def queue_resolution(state: RunState, decision, record, *, source_stage="astra_review", source_report=False):
@@ -1135,7 +1134,8 @@ def _apply_result(runtime, state: RunState, stage, value, record, workspace, run
                     continuation=True,
                 )
             else:
-                route_builder_failure(state, evidence, continuation["reason"])
+                action = route_builder_failure(state, evidence, continuation["reason"])
+                changed_code_rework.diagnosed(state, evidence, continuation["diagnosis"], record, action)
         return save_record(state, record)
     if stage == "astra_resolve":
         unit_module(stage).validate(state, value, record, workspace)

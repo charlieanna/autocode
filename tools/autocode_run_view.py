@@ -744,7 +744,9 @@ def evidence(state: RunState) -> dict:
                 "case_tests",
                 "follow_up_baseline",
                 "unstable",
+                "changed_code_evidence",
             )
+            if key != "changed_code_evidence" or proof.get(key) is not None
         }
         if isinstance(proof, dict)
         else None,
