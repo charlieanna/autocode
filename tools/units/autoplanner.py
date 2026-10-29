@@ -1597,6 +1597,12 @@ def _model_report_schema(schema, state: RunState):
             result.get("properties", {}).pop(field, None)
             if field in result.get("required", []):
                 result["required"].remove(field)
+    result = report_policy.conflict_schema(
+        result,
+        (state.get("requirements_handoff") or {}).get("report"),
+        adaptive.feedback_requirements(state),
+        state.get("requirements_history", []),
+    )
     review_stage = "plan_review" if role_names.planning_flow(state) == "v2" else "astra_challenge"
     review = (((state.get("planning") or {}).get("reports") or {}).get(review_stage) or {}).get("report")
     return report_policy.concern_schema(result, review)
