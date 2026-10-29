@@ -1614,6 +1614,32 @@ class RetrofitTest(unittest.TestCase):
         self.assertEqual("a-session", self.state["sessions"]["astra"])
 
     def test_complete_resume_loop_and_no_replay_of_completed_stages(self):
+        import scenario_references as references
+        import task_scenarios as scenarios
+
+        # This resume fixture owes the same real source/test proof as a fresh run.
+        references.write(scenarios.BUGFIX_SEED, self.root)
+        subprocess.run(["git", "-C", str(self.root), "add", "greet.py", "test_greet.py", "README.md"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.root),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "-qm",
+                "greeting baseline",
+            ],
+            check=True,
+        )
+        self.state["base_commit"] = subprocess.check_output(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"], text=True
+        ).strip()
+        command = shlex.join([sys.executable, "-m", "unittest", "discover", "-v"])
+        self.state["settings"]["regression"] = {"test_command": command}
         # v3 deliberately requires an actual displayed-revision user approval.
         approve_fixture(self.state, goals)
         local = {"auth_mode": "fixture"}
@@ -1631,17 +1657,20 @@ class RetrofitTest(unittest.TestCase):
             out = self.run / f"{stage}.json"
             ev = self.run / f"{stage}.jsonl"
             if stage == "terra":
-                (self.root / "source.rb").write_text("fixed")
+                for name in ("greet.py", "test_greet.py"):
+                    (self.root / name).write_text(references.BUGFIX_REFERENCE[name])
                 value = {
                     "summary": "fixed",
-                    "changed_files": ["source.rb"],
-                    "commands_run": ["ruby test.rb"],
-                    "results": ["pass"],
+                    "changed_files": ["greet.py", "test_greet.py"],
+                    "commands_run": [],
+                    "results": ["Greeting guard and regression test written"],
                     "remaining_risks": [],
                     "evidence_refs": [str(self.evidence)],
                 }
                 ev.write_text('{"type":"turn.completed"}\n')
             elif stage == "sol":
+                check = subprocess.run(shlex.split(command), cwd=self.root, capture_output=True, text=True)
+                self.assertEqual(0, check.returncode, check.stdout + check.stderr)
                 ev.write_text(
                     json.dumps(
                         {
@@ -1649,9 +1678,9 @@ class RetrofitTest(unittest.TestCase):
                             "item": {
                                 "id": "check",
                                 "type": "command_execution",
-                                "command": "grep -q fixed source.rb",
-                                "exit_code": 0,
-                                "aggregated_output": "",
+                                "command": command,
+                                "exit_code": check.returncode,
+                                "aggregated_output": check.stdout + check.stderr,
                             },
                         }
                     )
@@ -1659,7 +1688,7 @@ class RetrofitTest(unittest.TestCase):
                 )
                 value = {
                     "verdict": "PASS",
-                    "checks_run": ["grep -q fixed source.rb"],
+                    "checks_run": [command],
                     "findings": [],
                     "unverified_criteria": [],
                     "end_to_end_result": {
@@ -1667,11 +1696,11 @@ class RetrofitTest(unittest.TestCase):
                         "summary": "Full fixture flow checked",
                         "evidence_refs": ["event:check"],
                     },
-                    "checks": [{"command": "grep -q fixed source.rb", "exit_code": 0, "evidence_ref": "event:check"}],
+                    "checks": [{"command": command, "exit_code": check.returncode, "evidence_ref": "event:check"}],
                     "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}],
                 }
             else:
-                value = self.decision("TASK_COMPLETE")
+                value = {**self.decision("TASK_COMPLETE"), "affected_paths": ["greet.py", "test_greet.py"]}
                 ev.write_text('{"type":"turn.completed"}\n')
             value.update(envelope(kwargs["state"]))
             s.atomic_json(out, value)
@@ -1681,7 +1710,7 @@ class RetrofitTest(unittest.TestCase):
                 "iteration": 5,
                 "output": str(out),
                 "events": str(ev),
-                "changed_files": ["source.rb"] if stage == "terra" else [],
+                "changed_files": ["greet.py", "test_greet.py"] if stage == "terra" else [],
                 "after_ref": str(self.evidence),
                 "source_revision": s.snapshot(self.root)["revision"],
                 "duration_seconds": 0.01,
@@ -1705,9 +1734,15 @@ class RetrofitTest(unittest.TestCase):
         ):
             self.assertEqual(0, runner.main())
             self.assertEqual(["terra", "sol", "astra_review"], called)
-            self.assertEqual("TASK_COMPLETE", s.read(self.run / "state.json")["status"])
+            saved = s.read(self.run / "state.json")
+            self.assertEqual("TASK_COMPLETE", saved["status"])
+            proof = saved["regression_proof"]
+            self.assertEqual("PASS", proof["verdict"], proof)
+            self.assertEqual(["test_greet.TestGreet.test_blank_name_rejected"], proof["fail_to_pass"])
+            self.assertEqual("PASS", proof["changed_code_evidence"]["status"], proof)
             self.assertEqual(0, runner.main())
             self.assertEqual(3, len(called))
+            self.assertEqual(proof, s.read(self.run / "state.json")["regression_proof"])
 
     def test_serial_dispatch_blocks_paused_builder_lane_before_launch(self):
         # Admission parity on the production path: autocode.main's dispatch

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -9,12 +10,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 
-def write_greeting_source(workspace, *, revision=None):
-    """A real fixture artifact; revision markers vary source without breaking behavior."""
-    marker = f"# Fixture revision: {revision}\n" if revision is not None else ""
-    (Path(workspace) / "greet.py").write_text(
-        marker
-        + """import sys
+GREETING_SOURCE = """import sys
 
 def main():
     if len(sys.argv) != 2 or not sys.argv[1].strip():
@@ -26,21 +22,16 @@ def main():
 if __name__ == "__main__":
     raise SystemExit(main())
 """
-    )
 
 
-def seed_greeting_workspace(workspace):
-    """Give check-replay a discoverable suite that exercises the fixture contract."""
-    root = Path(workspace)
-    write_greeting_source(root)
-    (root / "test_greeting.py").write_text("""from pathlib import Path
+GREETING_TESTS = """from pathlib import Path
 import subprocess
 import sys
 import unittest
 
 class GreetingTests(unittest.TestCase):
-    def invoke(self, name):
-        return subprocess.run([sys.executable, str(Path(__file__).with_name("greet.py")), name],
+    def invoke(self, *args):
+        return subprocess.run([sys.executable, str(Path(__file__).with_name("greet.py")), *args],
                               capture_output=True, text=True)
 
     def test_greets_a_valid_name(self):
@@ -50,13 +41,70 @@ class GreetingTests(unittest.TestCase):
         self.assertEqual("", result.stderr)
 
     def test_rejects_empty_and_whitespace_names(self):
-        for name in ("", "   "):
-            with self.subTest(name=name):
-                result = self.invoke(name)
+        for args in (("",), ("   ",), (), ("Ada", "Lovelace")):
+            with self.subTest(args=args):
+                result = self.invoke(*args)
                 self.assertEqual(2, result.returncode)
                 self.assertEqual("", result.stdout)
                 self.assertIn("nonempty name", result.stderr)
-""")
+"""
+
+
+def write_greeting_source(workspace, *, revision=None):
+    """A real fixture artifact; revision markers vary source without breaking behavior."""
+    marker = f"# Fixture revision: {revision}\n" if revision is not None else ""
+    (Path(workspace) / "greet.py").write_text(marker + GREETING_SOURCE)
+
+
+def seed_greeting_workspace(workspace):
+    """Give check-replay a discoverable suite that exercises the fixture contract."""
+    root = Path(workspace)
+    write_greeting_source(root)
+    (root / "test_greeting.py").write_text(GREETING_TESTS)
+
+
+def greeting_changed_code_reasons(data):
+    """Specific independent judgments for the exact tested default fake CLI only."""
+    proof = data.get("regression_proof") or {}
+    try:
+        source = Path("greet.py").read_text()
+        tests = Path("test_greeting.py").read_text()
+    except OSError:
+        return []
+    body = source.partition("\n")[2] if source.startswith("# Fixture revision: ") else source
+    if body != GREETING_SOURCE or tests != GREETING_TESTS or not proof.get("path"):
+        return []
+    reasons = {
+        "import sys": "No supported import mutation. The tests execute sys.argv, stderr and process exits; removing this import breaks the observed CLI flows.",
+        'print("A nonempty name is required", file=sys.stderr)': "No supported call mutation. test_rejects_empty_and_whitespace_names asserts the nonempty-name diagnostic on stderr for four invalid inputs; deleting or redirecting this call fails those assertions.",
+        'print("Hello, " + sys.argv[1])': "No supported call mutation. test_greets_a_valid_name asserts exact Hello, Ada plus newline on stdout and empty stderr; suppressing or redirecting this call fails the test.",
+        'if __name__ == "__main__":': "Entrypoint guards are excluded by the mutator. Both test methods invoke the CLI as a process and require its greeting or rejection; disabling this guard fails those assertions.",
+        "raise SystemExit(main())": "No supported exit-adapter mutation. Both test methods check exit status, including exit 2 for empty, whitespace, missing and extra names; discarding main's result fails those checks.",
+    }
+    digest, lines = hashlib.sha256(source.encode()).hexdigest(), source.splitlines()
+    decisions = []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        line = row.get("line")
+        if (
+            row.get("status") != "reason_required"
+            or row.get("path") != "greet.py"
+            or row.get("sha256") != digest
+            or type(line) is not int
+            or not 0 < line <= len(lines)
+            or row.get("mutation_outcomes")
+        ):
+            continue
+        if reason := reasons.get(lines[line - 1].strip()):
+            decisions.append(
+                {
+                    "gap_id": row["gap_id"],
+                    "decision": "accept",
+                    "reason_kind": "instrumentation_unavailable",
+                    "reason": reason,
+                    "evidence_refs": [proof["path"], "greet.py"],
+                }
+            )
+    return decisions
 
 
 def assert_operational_wait(test, state: RunState, pause_status):
@@ -85,7 +133,7 @@ def body(*, questions=False, human=False, task_kind="build") -> dict[str, Any]:
                 "objective": "Deliver and verify the greeting flow",
                 "acceptance_criteria": ["C1"],
                 "depends_on": [],
-                "affected_paths": ["greet.py"],
+                "affected_paths": ["greet.py", "test_greeting.py"],
             }
         ],
         "deliverables": ["greet.py", "CLI regression tests"],

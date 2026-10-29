@@ -133,6 +133,10 @@ def activate_final(state: RunState, *, approval_source):
 def implementation_schema(schema_dir):
     schema = goals.role_schema(support.read(schema_dir / "v2/terra-report.schema.json"), "terra")
     review = goals.role_schema(support.read(schema_dir / "v2/sol-report.schema.json"), "sol")
+    # A Builder self-assessment cannot issue independent changed-line reasons.
+    # Remove the field before the strict provider schema is made, not only in
+    # the prompt projection: final-only Builders use this canonical schema.
+    review["properties"].pop("changed_code_exceptions", None)
     schema["properties"]["continuation"] = goals.obj(
         {
             "action": {

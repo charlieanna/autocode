@@ -14,6 +14,7 @@ try:
     from . import autocode_changed_code_measurement as measurement
     from . import autocode_command_receipt as command_receipt
     from . import autocode_mutation_check as mutation
+    from . import autocode_package_scope as package_scope
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_util as util
     from . import autocode_verify as verify
@@ -22,11 +23,12 @@ except ImportError:
     import autocode_changed_code_measurement as measurement
     import autocode_command_receipt as command_receipt
     import autocode_mutation_check as mutation
+    import autocode_package_scope as package_scope
     import autocode_source_snapshot as source_snapshot
     import autocode_util as util
     import autocode_verify as verify
 
-VERSION = 1
+VERSION = 2
 
 
 def collect(proof, result, framework, workspace, out, tree, execution_context, *, source_paths=()):
@@ -54,10 +56,18 @@ def collect(proof, result, framework, workspace, out, tree, execution_context, *
     )
     receipts = []
     evidence = Path(out) / "mutation-check"
-    baseline = source_snapshot.snapshot(tree, paths=source_paths)["files"]
-    expected = source_snapshot.snapshot(workspace, paths=source_paths)["files"]
+    # Scratch copies contain the nested repository's files, not its Git
+    # metadata. Compare copyable file inventories rather than a submodule's
+    # revision token against a flattened directory. Still pin the full original
+    # workspace identity so its nested Git/source boundaries cannot drift.
+    expected = source_snapshot.inventory(workspace, paths=source_paths)
+    baseline = source_snapshot.copied_files(tree, expected)
+    original_workspace = source_snapshot.snapshot(workspace, paths=source_paths)
+    package, suite = package_scope.split(framework, (result.get("commands") or {}).get("suite"))
 
     def run(command, label, limit):
+        if package:
+            command = package_scope.command(package, command)
         receipt = verify.run_suite(framework, command, tree, evidence, label, timeout=limit)
         # Ownership uncertainty must retain the scratch tree and stop normal
         # cleanup. A truncated/missing capture is never a killed mutant.
@@ -71,7 +81,7 @@ def collect(proof, result, framework, workspace, out, tree, execution_context, *
     report = (
         mutation.collect_selected_tests(
             (result.get("framework") or {}).get("name"),
-            (result.get("commands") or {}).get("suite"),
+            suite,
             selected,
             tree,
             evidence,
@@ -91,14 +101,22 @@ def collect(proof, result, framework, workspace, out, tree, execution_context, *
         receipts=receipts,
         root=out,
     )
-    observed = source_snapshot.snapshot(tree, paths=source_paths)["files"]
+    observed = source_snapshot.copied_files(tree, expected)
     # Tests may create reports or fixtures inside their owned scratch tree.
     # They are not delivered inputs. Every actual workspace input must retain
     # its bytes, and the workspace itself must remain exactly as measured.
+    custody_gaps = [
+        f"{name} ({phase})"
+        for phase, inputs in (("before checks", baseline), ("after checks", observed))
+        for name, digest in expected.items()
+        if inputs.get(name) != digest
+    ]
     if (
-        any(baseline.get(name) != digest or observed.get(name) != digest for name, digest in expected.items())
-        or source_snapshot.snapshot(workspace, paths=source_paths)["files"] != expected
+        source_snapshot.inventory(workspace, paths=source_paths) != expected
+        or source_snapshot.snapshot(workspace, paths=source_paths) != original_workspace
     ):
+        custody_gaps.append("original workspace changed during checks")
+    if custody_gaps:
         # A test changed the measured inputs. Preserve every observation but
         # grant no execution or mutation authority from this tree.
         coverage = {"source_revision": source_revision, "proof_context": context, "files": []}
@@ -111,11 +129,14 @@ def collect(proof, result, framework, workspace, out, tree, execution_context, *
         source_revision=source_revision,
         proof_context=context,
     )
+    if custody_gaps:
+        assessment["reason"] = "Changed-code input custody failed: " + ", ".join(custody_gaps[:20])
     proof["changed_code_inputs"] = {
         "inventory": inventory,
         "coverage": coverage,
         "mutation": mutated,
         "command_outputs": [receipt["output"] for receipt in proof["changed_code_receipts"]],
+        "custody_gaps": custody_gaps,
     }
     proof["changed_code_evidence"] = assessment
     return mutation.final(report, proof["verdict"], proof.get("case_tests"))
@@ -125,7 +146,7 @@ def reviewed(proof, exceptions):
     """Reassess using only exceptions admitted from an independent source-bound report."""
     inputs = proof.get("changed_code_inputs") or {}
     original = proof.get("changed_code_evidence") or {}
-    return policy.assess(
+    result = policy.assess(
         inputs.get("inventory"),
         inputs.get("coverage"),
         inputs.get("mutation"),
@@ -133,6 +154,9 @@ def reviewed(proof, exceptions):
         proof_context=original.get("proof_context"),
         exceptions=exceptions,
     )
+    if inputs.get("inventory") is None and inputs.get("custody_gaps"):
+        result["reason"] = "Changed-code input custody failed: " + ", ".join(inputs["custody_gaps"][:20])
+    return result
 
 
 def intact(proof, result):

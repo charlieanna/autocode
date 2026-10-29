@@ -1,5 +1,6 @@
 """Stability of named proof (#700) and report-only diff coverage of the proving tests (#701)."""
 
+import shlex
 import shutil
 import subprocess
 import sys
@@ -156,6 +157,43 @@ class JudgingTests(unittest.TestCase):
         self.assertIsNone(stability.narrow("unittest", "python3 -m unittest -v tests/test_x.py", []))
 
 
+class UnittestDiscoverySelectionTests(unittest.TestCase):
+    def test_selected_discovered_tests_keep_their_import_root_and_exclude_other_tests(self):
+        for start, top in (("tests", None), ("components/gateway", None), ("tests", ".")):
+            with self.subTest(start=start, top=top), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                directory = root / start
+                directory.mkdir(parents=True)
+                (directory / "__init__.py").write_text("")
+                (directory / "test_selected.py").write_text(
+                    "import unittest\nclass Selected(unittest.TestCase):\n"
+                    " def test_target(self): self.assertEqual(2 + 2, 4)\n"
+                    " def test_unselected(self): self.fail('must not run')\n"
+                )
+                owner = "tests.test_selected" if top else "test_selected"
+                test = owner + ".Selected::test_target"
+                command = shlex.join(
+                    [
+                        sys.executable,
+                        "-m",
+                        "unittest",
+                        "discover",
+                        "-v",
+                        "-s",
+                        start,
+                        "-k",
+                        "test_unselected",
+                        *(["-t", top] if top else []),
+                    ]
+                )
+                narrowed = stability.narrow("unittest", command, [test])
+                result = subprocess.run(shlex.split(narrowed), cwd=root, capture_output=True, text=True)
+                self.assertEqual(0, result.returncode, result.stderr)
+                observed = verify._unittest_results(result.stderr)
+                self.assertEqual([test.replace("::", ".")], [name.replace("::", ".") for name in observed["passed"]])
+                self.assertEqual(1, observed["total"])
+
+
 class DiffCoverageTests(unittest.TestCase):
     DIFF = (
         "diff --git a/app.py b/app.py\n+++ b/app.py\n@@ -0,0 +1,4 @@\n+def live():\n+    return 1\n"
@@ -256,10 +294,14 @@ class ProofRunTests(unittest.TestCase):
             "regression_proof": {key: result.get(key) for key in regression.SUMMARY_KEYS},
         }
         self.assertFalse(regression.complete(state, result["source_revision"]))
+        self.assertFalse(regression.complete(state, result["source_revision"], require_changed_code=False))
         shown = run_view.evidence(state)
         self.assertEqual(unstable, shown["proof_stability"]["unstable"])
         self.assertEqual(unstable, shown["regression_proof"]["unstable"])
-        self.assertFalse(shown["diff_coverage"]["collected"])
+        # Coverage may still be collected when the project has the tool. It is
+        # an execution observation, not authority to pass an unstable proof.
+        self.assertEqual(result["diff_coverage"], shown["diff_coverage"])
+        self.assertEqual("FAIL", shown["regression_proof"]["verdict"])
 
 
 @unittest.skipIf(

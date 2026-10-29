@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 
 import inprocess_cli
+from blackbox_build_provider import HELLO_SOURCE, HELLO_TESTS
 
 from tests import test_build_blackbox as build_fixture
 
@@ -110,7 +111,10 @@ class FailureRoutingCLI(unittest.TestCase):
             check
             or "import subprocess,sys; assert subprocess.check_output([sys.executable,'main.py'],text=True) == 'hello\\n'"
         )
-        spec = build_fixture.plan([([], objective, [deliverable])], {"M1": {deliverable: payload}}, {"M1": check}, goal)
+        files = {deliverable: payload}
+        if deliverable == "main.py" and payload == HELLO_SOURCE:
+            files["test_main.py"] = HELLO_TESTS
+        spec = build_fixture.plan([([], objective, list(files))], {"M1": files}, {"M1": check}, goal)
         spec["complete_product"] = complete
         if criterion is not None:
             spec["contract"]["acceptance_criteria"][0]["criterion"] = criterion

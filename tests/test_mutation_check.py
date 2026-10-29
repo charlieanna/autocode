@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import autocode_changed_code_proof as changed_code_proof
 import autocode_check_replay as check_replay
 import autocode_diff_coverage as diff_coverage
 import autocode_mutation_check as mutation_check
@@ -528,6 +529,10 @@ class ProofTests(unittest.TestCase):
         self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
         self.assertEqual("UNVERIFIED", proof["changed_code_evidence"]["status"])
         self.assertIsNone(proof["changed_code_inputs"]["inventory"])
+        self.assertIn("fixture-input.json (after checks)", proof["changed_code_inputs"]["custody_gaps"])
+        reassessed = changed_code_proof.reviewed(proof, [])
+        self.assertEqual("UNVERIFIED", reassessed["status"])
+        self.assertIn("fixture-input.json (after checks)", reassessed["reason"])
         self.assertEqual("original input", (self.root / "fixture-input.json").read_text())
 
     def test_a_weak_proving_test_keeps_its_pass_and_survivors_but_cannot_complete(self):

@@ -74,18 +74,17 @@ def owes(state: RunState) -> bool:
 
 UNMEASURABLE = (
     "The project has no test command and no test files, so its changed product lines cannot be "
-    "measured; the changed-code obligation is recorded as unmeasured instead of blocking completion."
+    "measured yet. Record that diagnostic and retain the behavioral-proof obligation; the Builder must add meaningful tests before completion."
 )
 
 
 def unmeasurable(state: RunState) -> str | None:
     """Why changed product lines cannot be measured in this project, or None when they can.
 
-    AGENTS.md ("AutoCode delivers no untested code"): where coverage cannot be measured,
-    AutoCode chooses the fallback deterministically and records it in evidence. A project
-    with no configured test command and no test file in the workspace (tracked or not, as
-    test detection reads it) gives the proof nothing to run, so requiring one would only
-    loop review until a person is asked. Anything uncertain keeps the obligation.
+    A project with no configured command or test file has no measurement yet.
+    This diagnostic grants no completion authority: the Builder must supply
+    meaningful tests, or the ordinary bounded proof-recovery path must diagnose
+    the missing infrastructure. Anything uncertain keeps the obligation.
     """
     settings = state.get("settings") or {}
     if ((settings.get("regression") or {}) if isinstance(settings, dict) else {}).get("test_command"):

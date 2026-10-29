@@ -30,6 +30,11 @@ def route(state: RunState, record, *, investigation_enabled):
     if (actual, record.get("role")) not in (("sol", "sol"), ("astra_checkpoint", "astra")):
         return False
     proof = state.get("regression_proof") or {}
+    # Missing/failing ordinary proof remains owned by its existing failure
+    # workflow. Its measurements did not run, so treating their absence as a
+    # separate line-evidence defect misdiagnoses the failure and changes routing.
+    if proof.get("verdict") != "PASS":
+        return False
     assessment = proof.get("changed_code_evidence") or {}
     if not assessment or assessment.get("status") == "PASS":
         return False

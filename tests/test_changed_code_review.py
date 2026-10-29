@@ -91,6 +91,9 @@ class ChangedCodeReviewTests(unittest.TestCase):
         field = wire("astra_checkpoint")["properties"]["validation"]["properties"][review.FIELD]
         self.assertEqual([self.gap["gap_id"]], field["items"]["properties"]["gap_id"]["enum"])
         builder = workflow.implementation_schema(SCHEMAS)
+        self.assertNotIn(
+            review.FIELD, builder["properties"]["continuation"]["properties"]["self_assessment"]["properties"]
+        )
         before = copy.deepcopy(builder)
         result = reports.review_generation_schema(
             builder, {"regression_proof": {"changed_code_evidence": self.assessment}}, "terra"
