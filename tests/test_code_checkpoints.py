@@ -637,7 +637,7 @@ class RealCheckpointFlow(unittest.TestCase):
         rows = view["code_checkpoints"]["rows"]
         self.assertEqual(1, len(rows), rows)
         self.assertTrue(rows[0]["available"], rows[0])
-        self.assertEqual(["greet.py"], rows[0]["changed_files"])
+        self.assertEqual(["greet.py", "test_greeting.py"], rows[0]["changed_files"])
         compared = client.compare_checkpoint(rows[0]["id"])
         self.assertEqual([], compared["changed_files"])
         self.assertTrue(compared["expected_token"])

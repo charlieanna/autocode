@@ -1111,7 +1111,7 @@ class OpenCodeFlow(unittest.TestCase):
         }
         for record in state["stages"]:
             if record.get("runner_owned"):
-                self.assertIn(record["stage"], ("orchestrator", "resolver"))
+                self.assertIn(record["stage"], ("orchestrator", "resolver", "regression_proof"))
                 self.assertEqual("runner", record["engine"])
                 self.assertNotIn("command", record)
                 if record["stage"] == "resolver":

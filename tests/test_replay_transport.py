@@ -2095,8 +2095,16 @@ class CurrentProofRefusalTests(unittest.TestCase):
             "path": str(proof_path),
             "receipt_sha256": util.file_hash(proof_path),
         }
-        self.assertTrue(regression.complete(self.state, self.current["revision"], all_due=True))
+        # This handcrafted legacy receipt covers ordinary proof authentication,
+        # not the new independently measured changed-line completion gate.
+        self.assertTrue(
+            regression.complete(self.state, self.current["revision"], all_due=True, require_changed_code=False)
+        )
+        self.assertFalse(regression.complete(self.state, self.current["revision"], all_due=True))
         self.simulated()
+        self.assertFalse(
+            regression.complete(self.state, self.current["revision"], all_due=True, require_changed_code=False)
+        )
         self.assertFalse(regression.complete(self.state, self.current["revision"], all_due=True))
 
     def test_canonical_document_declines_recorded_progress_or_simulated_archival_result(self):

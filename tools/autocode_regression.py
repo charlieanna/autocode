@@ -159,13 +159,17 @@ def mutation_note(proof) -> str:
     return MUTATION_NOTE if (((proof or {}).get("mutation_check") or {}).get("survivors")) else ""
 
 
-def required(state: RunState, *, all_due=False):
-    """Whether a regression proof is owed: a bug fix, or test criteria due now (every one with ``all_due``, as at
-    final completion, so a criterion of a milestone not yet reached cannot be skipped, #1112)."""
+def required(state: RunState, *, all_due=False, include_changed_code=True):
+    """Whether a bug fix, due test criterion or cumulative product diff owes proof.
+
+    A Builder self-check precedes the runner's changed-line proof and independent
+    audit. It may exclude that new obligation, never a bug fix or named criterion.
+    """
     return (
         goals.task_kind(state) == "bugfix"
         or bool(test_cases.contract_cases(state, all_due=all_due))
-        or (changed_code_trigger.owes(state) and not changed_code_trigger.unmeasurable(state))
+        or include_changed_code
+        and changed_code_trigger.owes(state)
     )
 
 
@@ -1101,14 +1105,16 @@ def _review_needs_proof(state: RunState, workspace):
     )
 
 
-def complete(state: RunState, current_revision, *, all_due=False, require_changed_code=True):
+def complete(state: RunState, current_revision, *, all_due=False, require_changed_code=True, include_changed_code=True):
     """Authenticate a passing proof for this source and its required cases.
 
     Stage containment uses the current checkpoint; final completion sets all_due.
+    Skipping the independent line assessment still requires runner proof of a
+    product change. Only the earlier Builder self-check may omit that obligation.
     """
     if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
         return False
-    if not required(state, all_due=all_due):
+    if not required(state, all_due=all_due, include_changed_code=include_changed_code):
         return True
     proof = state.get("regression_proof") or {}
     if proof.get("verdict") != verify.PASS or proof.get("source_revision") != current_revision:

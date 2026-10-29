@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 import autocode_changed_code_trigger as trigger
+import autocode_regression as regression
 
 
 class ChangedCodeTriggerTests(unittest.TestCase):
@@ -124,14 +125,38 @@ class ChangedCodeTriggerTests(unittest.TestCase):
             diff.assert_called_once_with(self.root, "original-base", source_paths=["approved/"])
         self.assertEqual(before, self.state)
 
-    # A project with nothing to measure records the fallback instead of owing an impossible proof (#2474).
-    def test_no_test_command_and_no_test_file_is_unmeasured_and_recorded(self):
+    def test_builder_self_check_can_reach_independent_audit_without_waiving_delivery_proof(self):
+        state = {"changed_files": ["calc.py"], "goal_contract": {"body": {"task_kind": "build"}}}
+        self.assertTrue(regression.required(state))
+        self.assertFalse(regression.required(state, include_changed_code=False))
+        self.assertTrue(regression.complete(state, "candidate", require_changed_code=False, include_changed_code=False))
+        self.assertFalse(regression.complete(state, "candidate", require_changed_code=False))
+        self.assertFalse(regression.complete(state, "candidate"))
+        for body in (
+            {"task_kind": "bugfix"},
+            {
+                "task_kind": "build",
+                "acceptance_criteria": [{"id": "C1", "verification_method": "test: test_c1_answer"}],
+            },
+        ):
+            with self.subTest(body=body):
+                state["goal_contract"]["body"] = body
+                self.assertTrue(regression.required(state, include_changed_code=False))
+                self.assertFalse(
+                    regression.complete(state, "candidate", require_changed_code=False, include_changed_code=False)
+                )
+                self.assertFalse(regression.complete(state, "candidate"))
+
+    # Missing test infrastructure is diagnostic evidence, never completion authority (#2474).
+    def test_no_test_command_and_no_test_file_still_owes_behavioral_proof(self):
         import autocode_regression as regression
 
         (self.root / "calc.py").write_text("def answer():\n    return 2\n")
         self.assertTrue(trigger.owes(self.state))
         self.assertEqual(trigger.UNMEASURABLE, trigger.unmeasurable(self.state))
-        self.assertFalse(regression.required(self.state, all_due=True))
+        self.assertTrue(regression.required(self.state, all_due=True))
+        self.assertFalse(regression.complete(self.state, "candidate", all_due=True))
+        self.assertFalse(regression.complete(self.state, "candidate", all_due=True, require_changed_code=False))
         regression.record_unmeasured(self.state)
         self.assertEqual(
             {"version": 1, "decision": "unmeasured", "reason": trigger.UNMEASURABLE},
