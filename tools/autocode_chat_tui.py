@@ -540,6 +540,7 @@ class ChatTUI:
         self._asking = False
         self.idle: Callable[[], None] | None = None
         self._scroll = 0
+        self._anchored = False  # the tail-anchor this chat chose itself; the person's paging owns the scroll otherwise
         self._closed = False
         self._context = ""
         self._glyphs = UNICODE_GLYPHS if _unicode_terminal() else ASCII_GLYPHS
@@ -650,20 +651,30 @@ class ChatTUI:
             anchor = self._history_anchor()
             added = self._transcript.add(text)
             self._keep_history_anchor(anchor)
-            if added and anchor is None:
+            if added and (anchor is None or self._anchored):
+                # While the reply grows, only the newest block anchors: a short block after a
+                # tall one (a pause acknowledgement, the next command's answer) takes the view
+                # back to the tail so it is not hidden below the fold. The person's own paged
+                # position (anchor kept, not anchored) is never disturbed.
+                self._scroll = 0
+                self._anchored = False
                 self._anchor_tall_block()
             self._draw()
 
-    def _anchor_tall_block(self) -> None:
-        """Open the reply's first block taller than the body at its top, in the scroll's own coordinates.
+    def _anchor_tall_block(self, *, for_question: bool = False) -> None:
+        """Open the reply's tall block at its top, in the scroll's own coordinates.
 
         A long approval now carries its milestones and flow (#2434); following the tail would
-        draw only its end. Only the blocks since the person last spoke are candidates — what
-        they were last asked to read — so a short block the client adds after a tall one (where
-        the recorded plan lives) does not hide it, and older blocks a person already answered
-        are never reached back for. The anchor is plain scroll state, so the History header
-        shows it, PageDown walks forward through the block toward the live tail, PageUp walks
-        back, and the tail is followed again exactly when the person pages back to it.
+        draw only its end. The candidates are the run's own spoken blocks since the person last
+        replied — the reply they were last asked to read: a listing the person asked for
+        (/details, /runs) is theirs to page, and a block they answered before that reply is
+        never reached back for. While the reply grows, only its newest block anchors, so a short
+        block after a tall one (a pause acknowledgement, the next command's answer) takes the
+        view back to the tail and stays visible; a question may cross the reply's closing
+        blocks (where the recorded plan lives, a change-set hint) to open the tall plan they
+        follow. The anchor is plain scroll state, so the History header shows it, PageDown
+        walks forward through the block toward the live tail, PageUp walks back, and the tail
+        is followed again exactly when the person pages back to it.
         """
         layout = self._layout(*self._size())
         lines = self._transcript.lines(layout.body_width or layout.width)
@@ -673,11 +684,15 @@ class ChatTUI:
         if not height or not starts:
             return
         spoken = max((index for index, (role, _) in enumerate(blocks) if role == "user"), default=-1)
-        for index in range(len(starts) - 1, spoken, -1):
+        first = 0 if for_question else len(starts) - 1
+        for index in range(len(starts) - 1, first - 1, -1):
+            if index <= spoken or blocks[index][0] != "assistant":
+                continue
             start = starts[index]
             end = starts[index + 1] if index + 1 < len(starts) else len(lines)
             if end - start > height:
                 self._scroll = len(lines) - start - height
+                self._anchored = True
                 return
 
     def _history_anchor(self) -> tuple[int, int] | None:
@@ -759,6 +774,7 @@ class ChatTUI:
                 "_log",
                 "_live",
                 "_scroll",
+                "_anchored",
                 "_launched",
                 "_live_on",
                 "_panel_on",
@@ -783,7 +799,7 @@ class ChatTUI:
             else:
                 self._transcript, self._composer = Transcript(), Composer()
                 self._log, self._live = panel.StageLog(), panel.LiveLog()
-                self._scroll, self._launched = 0, False
+                self._scroll, self._anchored, self._launched = 0, False, False
                 self._live_on, self._panel_on = None, None
                 self._prompt, self._draft_context = "", None
                 self._history_file, self._unsaved = None, []
@@ -948,11 +964,13 @@ class ChatTUI:
                 self._composer.reset()
             if not keep_context:
                 self._scroll = 0
+                self._anchored = False
                 # The question's own rows shrink the body after say() anchored the reply with
                 # the taller layout, and this prompt is where the person reads it: re-anchor,
-                # so a reply that outgrows the screen still opens at its top when its
-                # question shows. A reply that fits keeps following the tail.
-                self._anchor_tall_block()
+                # across the reply's closing blocks, so a reply that outgrows the screen still
+                # opens at its top when its question shows. A reply that fits keeps following
+                # the tail.
+                self._anchor_tall_block(for_question=True)
             self._restored_session = False
             self._draft_context = current_context
             self._frame = 0
@@ -1145,6 +1163,9 @@ class ChatTUI:
         """A ``/`` command: "pause" goes back to the client, /diff and /undo are the client's,
         the rest only change what is shown."""
         if name == "/pause":
+            # A command the person ran answers at the tail, like every other command here:
+            # the pause's acknowledgement must not land below a view they paged to.
+            self._scroll, self._anchored = 0, False
             return "pause"
         if name in panel.CLIENT_COMMANDS and self._act is not None:
             result = self._act(name, argument)
@@ -1156,7 +1177,7 @@ class ChatTUI:
                 self._pending = result
             else:
                 self._transcript.info(name, result)
-            self._scroll = 0
+            self._scroll, self._anchored = 0, False
             return None
         if name == "/quit":
             raise EOFError
@@ -1174,7 +1195,7 @@ class ChatTUI:
         if name == "/details":
             text += "\n\n" + self._observation.details(time.monotonic())
         self._transcript.info(name, text)
-        self._scroll = 0
+        self._scroll, self._anchored = 0, False
         return None
 
     def _live_command(self, argument: str) -> None:
@@ -1193,13 +1214,13 @@ class ChatTUI:
                 self._transcript.info("/live", f"Nothing matches {word!r} yet. Agents so far: {agents}.")
         if self._live_on and not self._live_visible(*self._size()):
             self._transcript.info("/live", self._live.text())
-            self._scroll = 0
+            self._scroll, self._anchored = 0, False
 
     def _decide(self, pending: panel.Confirm) -> None:
         """The person's answer to a client command's question; anything but yes changes nothing."""
         self._pending = None
         reply = self._composer.submit().strip().lower()
-        self._scroll = 0
+        self._scroll, self._anchored = 0, False
         if reply not in ("y", "yes"):
             self._transcript.info(pending.question, "Nothing changed.")
             return
@@ -1229,7 +1250,7 @@ class ChatTUI:
             self._save_history(text)
         if text:
             self._transcript.add(f"You: {text}")
-        self._scroll = 0
+        self._scroll, self._anchored = 0, False
         self._asking = False
         self._frame = 0
         return text
@@ -1239,6 +1260,7 @@ class ChatTUI:
         return max(1, (layout.body_end - layout.body_start) - 1)
 
     def _scroll_by(self, delta: int) -> None:
+        self._anchored = False  # the person's paging owns the view from here
         self._scroll = max(0, self._scroll + delta)
 
     # ---- drawing ---------------------------------------------------------------------------

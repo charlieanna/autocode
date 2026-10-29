@@ -703,6 +703,7 @@ class TallReplyAnchorTests(unittest.TestCase):
         ui.say("You: y")  # the prepare-plan answer: reading restarts here
         ui.say("AutoCode: " + "\n".join(["Plan to approve:", *[f"  step {number}" for number in range(1, 21)]]))
         ui.say("AutoCode: (Everything the plan records: autocode --show-goal)")
+        ui.say("AutoCode: Approve every plan of the change set together first.")  # the closing hint
         with self.assertRaises(KeyboardInterrupt):
             ui.ask("Approve this plan? [y/N]")
         shown = self.shown(ui)
@@ -717,6 +718,27 @@ class TallReplyAnchorTests(unittest.TestCase):
         ui._handle(tui.curses.KEY_PPAGE, asking=True)
         self.assertIn("Plan to approve:", self.shown(ui), "PageUp walks back to the plan's head")
 
+    def test_a_short_acknowledgement_after_a_tall_listing_stays_visible(self):
+        """The attached-viewer pause bug: a tall listing must not pin the view over the
+        acknowledgement said after it, once no question asks for the listing's head."""
+        ui = self.ui()
+        ui.say("You: /pause")
+        ui.say("AutoCode: " + "\n".join(["head of the listing", *[f"  row {number}" for number in range(1, 25)]]))
+        ui.say("AutoCode: Pausing after this step. This viewer does not interrupt the external worker.")
+        shown = self.shown(ui)
+        self.assertIn("external worker", shown)
+        self.assertNotIn("head of the listing", shown, "the tall listing is paged to, not pinned over the answer")
+
+    def test_the_persons_paged_place_survives_a_new_block(self):
+        ui = self.ui()
+        ui.say("AutoCode: " + "\n".join([f"row {number}" for number in range(1, 25)]))
+        ui._scroll_by(-ui._page())  # the person pages forward from the anchored top, part way
+        self.assertFalse(ui._anchored)
+        ui.say("AutoCode: a new short block")
+        shown = self.shown(ui)
+        self.assertIn("row 10", shown, "their window holds")
+        self.assertNotIn("a new short block", shown, "a new block does not pull the person's view away")
+
     def test_an_old_tall_block_the_person_answered_is_not_reached_back_for(self):
         ui = self.ui("y", "\x03")
         ui.say("AutoCode: " + "\n".join(["first line of the understanding", *["understanding"] * 20]))
@@ -727,6 +749,52 @@ class TallReplyAnchorTests(unittest.TestCase):
         shown = self.shown(ui)
         self.assertIn("short follow-up", shown)
         self.assertNotIn("first line of the understanding", shown, "the person answered it; the tail is followed")
+
+    def test_a_listing_the_person_asked_for_is_theirs_to_page_not_the_questions_anchor(self):
+        """The CI failure's shape: /details' tall listing is the person's own command result;
+        neither its reply's tail nor a later question reaches back into it."""
+        ui = self.ui("y", "\x03")
+        ui.say("You: /pause")
+        ui._transcript.info(
+            "/details", "\n".join(["head of the listing", *[f"  row {number}" for number in range(1, 25)]])
+        )
+        ui.say("AutoCode: Pausing after this step. This viewer does not interrupt the external worker.")
+        with self.assertRaises(KeyboardInterrupt):
+            ui.ask("Anything else? ")
+        shown = self.shown(ui)
+        self.assertIn("external worker", shown)
+        self.assertNotIn("head of the listing", shown, "a listing is paged, never pinned by a question")
+
+    def test_running_pause_from_a_paged_place_shows_its_answer(self):
+        ui = self.ui()
+        ui.say("AutoCode: " + "\n".join([f"row {number}" for number in range(1, 25)]))
+        ui._scroll_by(-ui._page())  # the person pages forward from the anchored top, part way
+        self.assertGreater(ui._scroll, 0)
+        ui._run("/pause", asking=False)
+        self.assertEqual((0, False), (ui._scroll, ui._anchored), "a command the person ran answers at the tail")
+
+    def test_tab_switch_carries_scroll_ownership_with_the_position(self):
+        """A tab's paged place and the chat's own anchor are one display context: neither
+        leaks across a switch to change how the next block is shown."""
+        ui = self.ui("y", "\x03")
+        ui.observe({"workspace": "/p", "run_dir": "/p/.autocode/runs/r1"})
+        ui.say("You: y")
+        ui.say("AutoCode: " + "\n".join([f"row {number}" for number in range(1, 25)]))
+        with self.assertRaises(KeyboardInterrupt):
+            ui.ask("Approve this plan? [y/N]")
+        self.assertTrue(ui._anchored, "the reply's tall block anchored this tab")
+        ui.switch(Path("/p"), Path("/p/.autocode/runs/r2"))
+        self.assertEqual((0, False), (ui._scroll, ui._anchored), "a fresh tab follows the tail")
+        ui.say("AutoCode: " + "\n".join([f"line {number}" for number in range(1, 25)]))
+        ui._scroll_by(-ui._page())  # the person pages this tab forward, owning its view
+        self.assertFalse(ui._anchored)
+        ui.switch(Path("/p"), Path("/p/.autocode/runs/r1"))
+        self.assertTrue(ui._anchored, "the first tab's own anchor survived the switch")
+        ui.say("AutoCode: short follow-up")
+        self.assertEqual(0, ui._scroll, "the anchored tab returns to the tail for a short block")
+        ui.switch(Path("/p"), Path("/p/.autocode/runs/r2"))
+        self.assertFalse(ui._anchored, "the paged tab kept the person's ownership")
+        self.assertGreater(ui._scroll, 0, "the paged tab kept its place")
 
 
 class WindowTests(unittest.TestCase):
