@@ -31,9 +31,18 @@ class InteractionTiming(TypedDict):
 
 # Every key tools/ reads or writes on a run state dict.
 # Generated from the source; add a new one here in the same change that introduces it.
+# scope_exclusion_corrections (#2467): person-authorized exact rewords of authenticated
+# peer exclusions. Written only by autocode_goal_lifecycle.install_draft (through
+# autocode_scope_question.record_installed_corrections, which validates each declared
+# reword independently of the revision guard: saved person basis, current authenticated
+# assignment, exact current boundary text, same-peer replacement present in the installed
+# body); read only by autocode_scope_question.effective_exclusions, which re-binds every
+# receipt to the workspace-scope identity, the turn and the assignment-membership digest
+# it was recorded under.
 KEYS: frozenset[str] = frozenset(
     {
         "_authorized_bound_change",
+        "scope_exclusion_corrections",
         "runner",
         "_fixture_accepted",
         "_fixture_attempt",
@@ -553,6 +562,11 @@ class RunState(TypedDict, total=False):
     retained_candidate_handoffs: Any
     review: Any  # review_job writes outcome, report digest and post-report source_revision; status inspects freshness
     session_rotations: Any
+    # Person-authorized exact rewords of authenticated peer exclusions (#2467):
+    # appended only by autocode_scope_question.record_installed_corrections through
+    # goals.install_draft; read only by autocode_scope_question, which re-binds each
+    # receipt to the scope identity, turn and assignment digest it was recorded under.
+    scope_exclusion_corrections: list[dict]
     source_revision: Any
     git_delivery: Any  # controller-owned commit + receipt pin; completion gate reads it
     source_snapshot: Any

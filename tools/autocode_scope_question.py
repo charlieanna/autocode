@@ -14,11 +14,18 @@ nondelegable question before any plan, and reads the person's answer back:
 A run in the other repository is linked outside this run (``autocode changeset link``,
 autocode_changeset); this run still records that part as not covered here. Depends only on
 workspace-scope policy, so the question gate and contract checks can both use it.
+
+The person may correct one authenticated boundary's wording with a saved answer
+(``effective_exclusions``): the exact item moves to the replacement text, which still names the
+same peer target and stays enforced in every later draft. The correction is recorded as a
+receipt bound to its scope and assignment when a contract that carries the replacement installs
+(``record_installed_corrections``); a removal, a moved boundary, an unbacked declaration or a
+changed scope enforces the original instead (#2467).
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -27,16 +34,26 @@ from pathlib import Path
 
 try:
     from . import autocode_scope_assignment as assignment
+    from . import autocode_user_authority as user_authority
     from . import autocode_util as util
     from . import autocode_workspace_scope_state as workspace_scope
 except ImportError:
     import autocode_scope_assignment as assignment
+    import autocode_user_authority as user_authority
     import autocode_util as util
     import autocode_workspace_scope_state as workspace_scope
 
 PREFIX = "workspace-scope-"
 THIS_REPOSITORY = "This repository only"
 EXCLUSION_PREFIX = "Not covered: changes in "
+# Receipts for person-authorized exact rewords of authenticated peer exclusions (#2467).
+# Run-state key ``scope_exclusion_corrections``: written only by
+# autocode_goal_lifecycle.install_draft through record_installed_corrections, which
+# validates each row independently of the revision guard so an unguarded discovery
+# or replacement draft gains nothing by declaring one; read only by
+# effective_exclusions, which re-binds every receipt to the workspace-scope
+# identity, the turn and the authenticated assignment digest it was recorded under.
+CORRECTIONS_KEY: Final = "scope_exclusion_corrections"
 
 
 def _scope(state: RunState) -> dict:
@@ -146,13 +163,16 @@ def exclusion(part: dict) -> str:
     return f"{EXCLUSION_PREFIX}{part['target']}: {part.get('work', '')}".rstrip(": ")
 
 
-def retain_assigned_exclusions(state: RunState, contract):
+def retain_assigned_exclusions(state: RunState, contract, changes=()):
     """Keep exact core-owned edit boundaries in an automatic member's draft.
 
     Assignment authenticates every label to an existing peer run. Those factual
     exclusions need no model inference or user waiver. Preserve every work item,
     including differently worded items for aliases of one peer, and every authored
-    entry. Manual choices and malformed drafts retain their ordinary checks.
+    entry. A person-authorized exact rewording keeps the boundary and moves it to
+    the corrected text (``effective_exclusions``): the corrected string is what is
+    retained, never the superseded one. Manual choices and malformed drafts retain
+    their ordinary checks.
     """
     if not isinstance(contract, dict):
         return contract
@@ -161,25 +181,222 @@ def retain_assigned_exclusions(state: RunState, contract):
         return contract
     if decision(state) != "linked_repositories":
         return contract
-    missing = [row for row in dict.fromkeys(exclusion(part) for part in uncovered(state)) if row not in listed]
+    missing = [row for row in dict.fromkeys(effective_exclusions(state, contract, changes)) if row not in listed]
     return {**contract, "scope_exclusions": [*listed, *missing]} if missing else contract
 
 
-def exclusion_errors(state: RunState, contract: dict) -> list[str]:
-    """One error per uncovered part the contract's scope_exclusions do not name."""
+def _assignment_digest(state: RunState):
+    """A comparison token for the authenticated assignment's member and alias mapping.
+
+    None when no current assignment authenticates the scope. Only the digest is
+    stored and compared; member run destinations and aliases never become path or
+    remote authority through this binding.
+    """
+    receipt = assignment.current(state)
+    if not isinstance(receipt, dict):
+        return None
+    return util.digest({"members": receipt.get("members") or {}, "aliases": receipt.get("aliases") or {}})[:16]
+
+
+def _installed_corrections(state: RunState):
+    """Correction receipts that still bind to the current scope and assignment, oldest first.
+
+    A receipt exists only for a correction ``record_installed_corrections`` established
+    when a contract installed; a draft's own declaration, or a row merely sitting in
+    contract history, is model prose until then. Each receipt names the workspace-scope
+    identity and turn it was installed under and a digest of the assignment receipt that
+    authenticated the scope then, so a renewed turn, new feedback intent, or a
+    coordinator re-assignment with different member destinations or aliases can never
+    borrow an older correction. Malformed rows are inert.
+    """
+    scope = _scope(state)
+    if not scope.get("spans_repositories"):
+        return []
+    binding = {"scope_identity": workspace_scope.identity(state), "turn": scope.get("turn")}
+    applicable = []
+    for receipt in state.get(CORRECTIONS_KEY) or []:
+        if (
+            not isinstance(receipt, dict)
+            or set(receipt) != {"item", "replacement", "scope_identity", "turn", "assignment", "revision"}
+            or not isinstance(receipt.get("item"), str)
+            or not isinstance(receipt.get("replacement"), str)
+            or not receipt["item"]
+            or not receipt["replacement"]
+            or receipt.get("scope_identity") != binding["scope_identity"]
+            or receipt.get("turn") != binding["turn"]
+            or not isinstance(receipt.get("assignment"), str)
+            or receipt["assignment"] != _assignment_digest(state)
+        ):
+            continue
+        applicable.append({"item": receipt["item"], "replacement": receipt["replacement"]})
+    return applicable
+
+
+def _candidate_corrections(state: RunState, contract, changes):
+    """The report's own reword declarations that carry a saved person's basis and replacement.
+
+    The report being checked counts only here, in the pass that performs the
+    correction: expansion and the scope gate run before the revision guard consumes
+    those rows, so without this the superseded text would be re-added and the
+    person's correction refused (#2467). A candidate row must declare itself a
+    ``reworded`` change — a removal or any other declared type never becomes a
+    correction, whatever text accompanies it — cite a basis the person actually
+    saved, and carry its replacement in the contract being checked; whether it names
+    one current part's exact effective text and stays inside that peer's target is
+    judged by ``_advance``, and anything else fails closed to the original
+    obligation instead of adopting a new one.
+    """
+    listed = contract.get("scope_exclusions") if isinstance(contract, dict) else None
+    if not isinstance(listed, list) or not isinstance(changes, list):
+        return []
+    candidates = []
+    for row in changes:
+        if not isinstance(row, dict) or row.get("change") != "reworded":
+            continue
+        replacement = str(row.get("replacement") or "").strip()
+        if (
+            not isinstance(row.get("item"), str)
+            or not row["item"]
+            or not replacement
+            or replacement not in listed
+            or not user_authority.saved_user_basis(state, row.get("basis"), row.get("answer_id"))
+        ):
+            continue
+        candidates.append({"item": row["item"], "replacement": replacement})
+    return candidates
+
+
+def _advance(effective, found, rows):
+    """Move each validated exact reword onto every exact instance of its boundary text.
+
+    An accumulated scope can hold two parts of one peer whose effective exclusion
+    text is currently identical; a correction of that exact text moves every
+    instance, while any distinct other peer, work item or alias stays untouched.
+    Only rows that matched at least one current text are returned as applied.
+    """
+    applied = []
+    for row in rows:
+        matched = False
+        for index, part in enumerate(found):
+            if row["item"] == effective[index] and _names_target(row["replacement"], str(part["target"])):
+                effective[index] = row["replacement"]
+                matched = True
+        if matched:
+            applied.append(row)
+    return applied
+
+
+def record_installed_corrections(state: RunState, body, changes, revision):
+    """Record the exact-reword receipts an installed contract established (#2467).
+
+    Single writer, called by ``install_draft`` with the installed body and the
+    declared changes the report carried: no other path may add a receipt. The
+    revision guard stays the ordinary gate for guarded origins; this validator
+    independently establishes the same facts for every origin, so a discovery or
+    replacement draft whose declarations the guard never judged still records
+    nothing unless the row declares a reword, the person's saved basis, the current
+    authenticated assignment, the part's exact current text, a same-peer
+    replacement and that replacement's presence in the installed body all hold.
+    Each receipt is bound to the workspace-scope identity, the turn, and a digest
+    of the assignment receipt that authenticated the scope when it was recorded,
+    and one logical transition is recorded once.
+    """
+    listed = body.get("scope_exclusions") if isinstance(body, dict) else None
+    if not isinstance(listed, list) or not isinstance(changes, list):
+        return
+    found = uncovered(state)
+    if not found or decision(state) != "linked_repositories":
+        return
+    binding = {
+        "scope_identity": workspace_scope.identity(state),
+        "turn": len(state.get("turns") or []),
+        "assignment": _assignment_digest(state),
+    }
+    if binding["assignment"] is None:
+        return
+    effective = [exclusion(part) for part in found]
+    _advance(effective, found, _installed_corrections(state))
+    recorded = state.setdefault(CORRECTIONS_KEY, [])
+    for row in _advance(effective, found, _candidate_corrections(state, body, changes)):
+        if any(
+            existing.get("item") == row["item"]
+            and existing.get("replacement") == row["replacement"]
+            and existing.get("scope_identity") == binding["scope_identity"]
+            and existing.get("turn") == binding["turn"]
+            and existing.get("assignment") == binding["assignment"]
+            for existing in recorded
+        ):
+            continue
+        recorded.append(
+            {
+                "item": row["item"],
+                "replacement": row["replacement"],
+                "scope_identity": binding["scope_identity"],
+                "turn": binding["turn"],
+                "assignment": binding["assignment"],
+                "revision": revision,
+            }
+        )
+
+
+def _names_target(text: str, target: str) -> bool:
+    """Whether an exclusion string describes work in exactly ``target`` and nothing wider."""
+    if not text.startswith(f"{EXCLUSION_PREFIX}{target}"):
+        return False
+    rest = text[len(EXCLUSION_PREFIX) + len(target) :]
+    # exclusion() drops a trailing ": " when a part carries no work text; both that
+    # shape and ": <work>" name this target alone. A longer target that merely starts
+    # with this name (an alias) does not.
+    return rest == "" or (rest.startswith(":") and bool(rest[1:].strip()))
+
+
+def effective_exclusions(state: RunState, contract=None, changes=()) -> list[str]:
+    """The exclusion strings this run's current authenticated scope must list.
+
+    Each uncovered part contributes ``exclusion(part)`` unless the person's saved
+    answer or feedback authorized an exact rewording of that exact string to a
+    replacement that still names the same peer target; the boundary then moves to
+    the corrected text instead of disappearing. Corrections apply only while a
+    current core-owned assignment authenticates the scope. Installed receipts come
+    first (oldest first, so a chain of corrections follows in order); the report
+    being checked contributes its own validated declarations only while its
+    contract carries each replacement (``contract``), which expansion and the scope
+    gate pass because they run before the revision guard consumes those rows. A
+    removal, a cross-target replacement, an unbacked or stale basis, a missing
+    replacement, or a row naming anything but the part's current exact string
+    changes nothing: the original obligation stays enforced for the guard to
+    refuse or the person to settle. Receipts are bound to the workspace-scope
+    identity, the turn and the authenticated assignment they were recorded under,
+    so a repeated replan or a reopen in the same scope keeps a correction while a
+    changed assignment, a renewed turn or new feedback intent does not (#2467).
+    """
+    found = uncovered(state)
+    if not found or decision(state) != "linked_repositories":
+        return [exclusion(part) for part in found]
+    effective = [exclusion(part) for part in found]
+    installed = _installed_corrections(state)
+    _advance(effective, found, installed)
+    if contract is not None:
+        candidates = _candidate_corrections(state, contract, list(changes or []))
+        _advance(effective, found, candidates)
+    return effective
+
+
+def exclusion_errors(state: RunState, contract: dict, changes=()) -> list[str]:
+    """One error per uncovered part whose effective exclusion the contract does not name."""
     listed = set(str(row) for row in (contract or {}).get("scope_exclusions") or [])
     return [
-        f"scope_exclusions must record that this run does not cover {part['target']}; add {exclusion(part)!r}"
-        for part in uncovered(state)
-        if exclusion(part) not in listed
+        f"scope_exclusions must record that this run does not cover {part['target']}; add {text!r}"
+        for part, text in zip(uncovered(state), effective_exclusions(state, contract, changes), strict=True)
+        if text not in listed
     ]
 
 
-def check(state: RunState, contract: dict) -> None:
+def check(state: RunState, contract: dict, changes=()) -> None:
     """Refuse a plan that does not record each part the person left out of this run."""
     if question(state):
         raise ValueError("Work in another repository needs the person's current scope decision before planning")
-    errors = exclusion_errors(state, contract)
+    errors = exclusion_errors(state, contract, changes)
     if errors:
         raise ValueError("; ".join(errors))
 

@@ -1363,9 +1363,11 @@ def context(state: RunState, stage, state_path):
     rows = trace_rows(state, stage)
     if rows:
         packet["requirement_trace_rows"] = rows
-    left_out = [scope_question.exclusion(part) for part in scope_question.uncovered(state)]
+    left_out = list(dict.fromkeys(scope_question.effective_exclusions(state)))
     if left_out and stage in TRACE_STAGES:
-        # The person kept this run to this repository (#2066): each entry goes in scope_exclusions verbatim.
+        # The person kept this run to this repository (#2066): each entry goes in scope_exclusions
+        # verbatim. An installed person-authorized exact rewording contributes its corrected text
+        # instead of the superseded one (#2467).
         packet["scope_exclusions_required"] = left_out
     earlier = previous_review(state) if stage == "astra_challenge" else None
     if earlier:

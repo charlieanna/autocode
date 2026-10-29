@@ -141,12 +141,15 @@ def expand_report(state: RunState, stage, value):
     Runner-derived baseline text and authenticated peer edit exclusions must be
     present before saving the canonical report; otherwise exact trace inheritance
     sees a different body.
+    An authorized exact rewording in this report's own contract_changes is honored
+    here already, because expansion runs before the revision guard consumes those
+    rows (#2467).
     The original provider artifact and authored outcome remain unchanged.
     """
     result = retention.expand(state, stage, value)
     body = result.get("contract")
     if isinstance(body, dict):
-        prepared = scope_question.retain_assigned_exclusions(state, body)
+        prepared = scope_question.retain_assigned_exclusions(state, body, value.get("contract_changes") or [])
         prepared = current_behavior.prepare_body(state, prepared, stage)
         if prepared is not body:
             result = {**result, "contract": prepared}

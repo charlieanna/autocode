@@ -1959,7 +1959,11 @@ text is refused, and `--feedback TEXT` changes the request instead. After that a
 plan must record each uncovered part in `scope_exclusions` as
 `Not covered: changes in TARGET: WORK`, and `displayed_plan.scope_exclusions` shows it on
 the approval screen. The Planner's packet names the exact entries
-(`scope_exclusions_required`).
+(`scope_exclusions_required`). A saved answer may correct one authenticated boundary's
+exact wording: a user-backed `reworded` declaration whose replacement still names the same
+peer moves that entry to the corrected text in every later draft and packet, while the
+scope and assignment it was recorded under stay the same; a removal, a moved boundary or an
+unbacked declaration keeps the original entry (#2467).
 
 ### Linked runs
 

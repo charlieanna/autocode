@@ -68,6 +68,7 @@ try:
     from . import autocode_resolver_human as human
     from . import autocode_resolver_recommendation as recommendation
     from . import autocode_risk_obligations as risk_obligations
+    from . import autocode_scope_question as scope_question
     from . import autocode_source_log as source_log
     from . import autocode_task_feasibility as task_feasibility
     from . import autocode_test_cases as test_cases
@@ -119,6 +120,7 @@ except ImportError:
     import autocode_resolver_human as human
     import autocode_resolver_recommendation as recommendation
     import autocode_risk_obligations as risk_obligations
+    import autocode_scope_question as scope_question
     import autocode_source_log as source_log
     import autocode_task_feasibility as task_feasibility
     import autocode_test_cases as test_cases
@@ -381,6 +383,10 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
         created_at=s.now(),
         declared_changes=copy.deepcopy(changes or []),
     )
+    # The only authenticated record of a person-authorized exact exclusion reword: each
+    # row is validated against the current assignment and the installed body, whatever
+    # the revision guard did or skipped for this origin (#2467).
+    scope_question.record_installed_corrections(state, body, changes or [], revision)
     state["goal_contract"] = contract
     if origin in ("user_cli_edit", "resolver_recommendation"):
         # An authenticated scope change is new user intent.
