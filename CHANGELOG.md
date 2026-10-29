@@ -431,6 +431,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A spec-first run no longer sends the Tester to rewrite a test whose criterion did not change (#2464, item 2).
+  A reapproval or a follow-up installs a new contract hash, and acceptance-test receipts are keyed by the hash
+  they were written under, so every case was due again and the Tester re-ran for all of them. A case whose
+  criterion row is unchanged apart from its sources, whose receipt belongs to an approved earlier contract,
+  whose archive is intact and which the current diagnosis does not reproduce now inherits that receipt: it is
+  covered, its file stays fixed for the Builder, and the status view's `acceptance_tests` shows it. A changed
+  criterion is still rewritten, and a bug's reproduction tests are still written against the unfixed code.
 - `--grant-recovery` works again in the same invocation that corrects `--max-stage-seconds`,
   `--max-idle-seconds` or any other saved limit (#2479): the `limit_change` events the correction
   appends (#2412) are bound into the published request's identity, so recording them before the
@@ -438,7 +445,6 @@ PR template asks for an entry here; a change without one is incomplete.
   now wait for the grant's validation and travel with its single save, so an accepted grant is never
   persisted without the configuration change that accompanied it, and a refused grant still persists
   neither the corrected limits, their events nor any allowance.
-
 - Moving an identical bundled provider configuration can reuse the run's proven model-access receipts
   after normal transport acceptance. Real configuration, tool or route changes still require fresh access
   evidence; original receipts and per-launch admission checks stay intact (#2477).

@@ -86,15 +86,79 @@ def _cases(state: RunState, *, all_due: bool = False) -> list[dict]:
     return found + [case for case in planned if case["id"] not in known]
 
 
+def _semantic(row: dict) -> dict:
+    """A criterion as the Tester tested it: without citations, which a revision may add."""
+    return {key: value for key, value in row.items() if key != "sources"}
+
+
+def _intact(receipt: dict) -> bool:
+    """Every file the receipt archived is still the file the Tester wrote."""
+    try:
+        return all(
+            entry.get("sha256") and util.file_hash(entry["archive"]) == entry["sha256"]
+            for entry in (receipt.get("files") or {}).values()
+        )
+    except (OSError, KeyError, TypeError):
+        return False
+
+
+def inherited(state: RunState) -> dict[str, dict]:
+    """The cases an earlier approved contract's receipt still covers, {case id: receipt} (#2464).
+
+    A reapproval or a follow-up installs a new contract hash, and a receipt is keyed by the hash it was
+    written under; re-writing a test whose criterion did not change cost a model stage on every turn.
+    A case is inherited when its criterion row is the same as in the receipt's contract apart from its
+    sources, that contract is in the history with a saved approval event, the receipt's archive is intact, and
+    the case is not one the current diagnosis reproduces (a bug's reproduction must fail again on the
+    unfixed code). The Builder keeps an inherited file fixed as it keeps the Tester's own."""
+    contract = state.get("goal_contract") or {}
+    current = contract.get("hash")
+    rows = {
+        row["id"]: _semantic(row)
+        for row in (contract.get("body") or {}).get("acceptance_criteria") or []
+        if isinstance(row, dict) and row.get("id")
+    }
+    # The history copy of a revised contract carries no approval (feedback revokes it before the copy);
+    # its saved goal_approval event, bound to its token, is the authority (autocode_contract_identity).
+    tokens = {
+        event.get("token")
+        for event in state.get("user_events") or []
+        if isinstance(event, dict) and event.get("kind") == "goal_approval"
+    }
+    approved = {
+        old["hash"]: {
+            row["id"]: _semantic(row)
+            for row in (old.get("body") or {}).get("acceptance_criteria") or []
+            if isinstance(row, dict) and row.get("id")
+        }
+        for old in state.get("contract_history") or []
+        if isinstance(old, dict)
+        and old.get("hash")
+        and old.get("hash") != current
+        and f"r{old.get('revision')}:{old['hash']}" in tokens
+    }
+    reproduced = {case.get("id") for case in test_cases.diagnosis_cases(state)}
+    found: dict[str, dict] = {}
+    for receipt in receipts(state).values():
+        old = approved.get(receipt.get("contract_hash"))
+        if old is None or not _intact(receipt):
+            continue
+        for cid in receipt.get("case_ids") or []:
+            if cid in reproduced or cid not in rows or old.get(cid) != rows[cid]:
+                continue
+            found[cid] = receipt
+    return found
+
+
 def covered(state: RunState) -> set[str]:
-    """Case ids whose tests the Tester already wrote under the current contract."""
+    """Case ids whose tests the Tester already wrote: under the current contract, or inherited unchanged."""
     current = (state.get("goal_contract") or {}).get("hash")
     return {
         cid
         for row in receipts(state).values()
         if row.get("contract_hash") == current
         for cid in row.get("case_ids") or []
-    }
+    } | set(inherited(state))
 
 
 def due(state: RunState, wave=None) -> list[dict]:
@@ -200,13 +264,18 @@ def record_send_back(state: RunState, case_ids: list[str], output) -> None:
     )
 
 
-def all_files(state: RunState) -> dict[str, dict]:
-    """The Tester's files under the current contract: {path: {"sha256", "archive"}}."""
+def _current_and_inherited(state: RunState) -> list[dict]:
+    """The receipts in force: inherited ones first, so a current-contract receipt for the same path wins."""
     current = (state.get("goal_contract") or {}).get("hash")
+    kept = list({id(receipt): receipt for receipt in inherited(state).values()}.values())
+    return kept + [receipt for receipt in receipts(state).values() if receipt.get("contract_hash") == current]
+
+
+def all_files(state: RunState) -> dict[str, dict]:
+    """The Tester's files under the current contract, and inherited ones: {path: {"sha256", "archive"}}."""
     files: dict[str, dict] = {}
-    for receipt in receipts(state).values():
-        if receipt.get("contract_hash") == current:
-            files.update(receipt.get("files") or {})
+    for receipt in _current_and_inherited(state):
+        files.update(receipt.get("files") or {})
     return files
 
 
@@ -330,9 +399,8 @@ def builder_note(state: RunState) -> str:
 
 
 def view(state: RunState) -> dict | None:
-    """Current-contract tests and its most recently recorded generation result, or None."""
-    current = (state.get("goal_contract") or {}).get("hash")
-    rows = [row for row in receipts(state).values() if row.get("contract_hash") == current]
+    """Current-contract tests, inherited ones included, and the most recently recorded generation result, or None."""
+    rows = _current_and_inherited(state)
     if not rows:
         return None
     order = {row.get("output"): index for index, row in enumerate(state.get("stages") or [])}
@@ -462,11 +530,9 @@ def check_candidate(state: RunState, workspace, run_dir=None, scratch_run=None, 
     scratch_dir = Path(run_dir) / "blind-tests" / util.digest({"revision": revision, "files": sorted(files)})
 
     overlay_files = {path: entry["archive"] for path, entry in files.items()}
-    current = (state.get("goal_contract") or {}).get("hash")
     last_receipt = None
-    for receipt in receipts(state).values():
-        if receipt.get("contract_hash") == current:
-            last_receipt = receipt
+    for receipt in _current_and_inherited(state):
+        last_receipt = receipt
     cmd = (last_receipt or {}).get("command") or None
 
     receipt = runner_scratch(
