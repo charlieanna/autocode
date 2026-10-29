@@ -9,6 +9,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- A saved user correction that changes an exactly named bug case between restore and preservation
+  now refreshes the accepted investigation before a draft can be approved (#2468). The refresh keeps
+  the original report and correction evidence, reruns reproduction and counterexample checks, and
+  preserves every unaffected case. A reviewer's prose cannot replace the effective diagnosis;
+  missing authority or stale report/source pins hold the run without starting implementation.
+
 ### Added
 
 - `autocode status --summary` prints a run in one sentence: needs you, working, done or stopped, then the

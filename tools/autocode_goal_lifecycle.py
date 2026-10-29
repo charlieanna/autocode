@@ -15,12 +15,16 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_component_plan as component_plan
+    from . import autocode_diagnosis_refresh as diagnosis_refresh
     from . import autocode_roles as roles
+    from . import autocode_run_status as run_status
     from . import autocode_source_scope as source_scope
     from . import autocode_technical_questions as technical_questions
 except ImportError:
     import autocode_component_plan as component_plan
+    import autocode_diagnosis_refresh as diagnosis_refresh
     import autocode_roles as roles
+    import autocode_run_status as run_status
     import autocode_source_scope as source_scope
     import autocode_technical_questions as technical_questions
 
@@ -969,6 +973,60 @@ def present(state: RunState, run_dir=None):
     return rendered
 
 
+def refresh_diagnosis(state: RunState, workspace):
+    """Route an admitted exact feedback correction through the existing Investigator.
+
+    Only a safe planning boundary may do this. Approval and operational holds are
+    never silently converted to execution or new recovery/spending authority.
+    """
+    if state.get("status") not in (
+        "RUNNING",
+        "AWAITING_GOAL_APPROVAL",
+        "PAUSED_REQUESTED",
+        "PAUSED_INTERVENTION",
+        "PAUSED_GOAL_UNAPPROVED",
+        "PAUSED_STALE_DIAGNOSIS",
+    ) or any(
+        state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair", "pending_questions")
+    ):
+        return False
+    if (state.get("investigation_refresh") or {}).get("pending"):
+        return False
+    if not diagnosis_refresh.conflicts(state):
+        return False
+    # An approved plan requires its existing explicit revision path. This barrier
+    # never revokes that approval or substitutes a new investigation behind it.
+    if (state.get("goal_contract") or {}).get("approval_status") != "draft":
+        return False
+    public = human.current(state)
+    proposal = state.get(human.PRIVATE) or {}
+    if (public and public.get("scope") != "goal_approval") or (proposal and proposal.get("scope") != "goal_approval"):
+        return False
+    try:
+        prepared = diagnosis_refresh.prepare(state, workspace)
+    except ValueError as error:
+        prepared = None
+        reason = str(error)
+    if public:
+        entry = state["resolver"]["human_escalations"][public["request_id"]]
+        entry.update(
+            status="superseded",
+            superseded_at=s.now(),
+            superseded_reason="Accepted diagnosis conflicts with the corrected draft",
+        )
+    state.pop(human.PUBLIC, None)
+    state.pop(human.PRIVATE, None)
+    state.pop("user_request", None)
+    state.pop("displayed_goal", None)
+    cast(dict, state.get("planning", {})).pop("final_token", None)
+    if prepared is None:
+        run_status.pause(state, "PAUSED_STALE_DIAGNOSIS", reason)
+    else:
+        diagnosis_refresh.queue(state, prepared)
+        run_status.running(state, "INVESTIGATING", next_stage="investigate_bug")
+    return True
+
+
 def approve(state: RunState, selected, *, initial_assignment_proof=None, source=None):
     # Assignment/eligibility may still reject after seal preflight. Publish no
     # approval, retirement or active pointer unless the whole boundary succeeds.
@@ -993,6 +1051,8 @@ def approval_boundary_refusal(state: RunState):
 def _approve(state: RunState, selected, *, initial_assignment_proof=None, source=None):
     if reason := approval_boundary_refusal(state):
         raise ValueError(reason)
+    if diagnosis_refresh.conflicts(state) or (state.get("investigation_refresh") or {}).get("pending"):
+        raise ValueError("The accepted diagnosis conflicts with this draft; resume to refresh it before plan approval")
     contract = cast(dict, state["goal_contract"])
     if not sealed(contract) or selected != token(contract) or state.get("displayed_goal") != selected:
         raise ValueError("Approve only the current displayed draft token; show the goal again")

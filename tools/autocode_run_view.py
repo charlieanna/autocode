@@ -43,6 +43,7 @@ try:
     from . import autocode_cost as cost
     from . import autocode_criterion_changes as criterion_changes
     from . import autocode_design_coverage as design_coverage
+    from . import autocode_diagnosis_refresh as diagnosis_refresh
     from . import autocode_efficiency, autocode_usage
     from . import autocode_effort_question as effort_question
     from . import autocode_escalation_view as escalation_view
@@ -94,6 +95,7 @@ except ImportError:
     import autocode_cost as cost
     import autocode_criterion_changes as criterion_changes
     import autocode_design_coverage as design_coverage
+    import autocode_diagnosis_refresh as diagnosis_refresh
     import autocode_efficiency
     import autocode_effort_question as effort_question
     import autocode_escalation_view as escalation_view
@@ -1193,6 +1195,12 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                 answer["retry_action"] = retry
         return answer
     if status == "AWAITING_GOAL_APPROVAL":
+        if (state.get("goal_contract") or {}).get("approval_status") == "draft" and diagnosis_refresh.conflicts(state):
+            return {
+                "kind": "resume",
+                "action": "--resume-paused",
+                "reason": "Refresh the conflicting accepted diagnosis before plan approval",
+            }
         # The approval token is saved when the CLI displays the plan; until then, relaunch to display it.
         return (
             {"kind": "approve_plan", "token": state["displayed_goal"]}

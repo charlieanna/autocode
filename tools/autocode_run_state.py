@@ -139,6 +139,7 @@ KEYS: frozenset[str] = frozenset(
         "interaction_timing",
         "intervention_capability",
         "investigation",
+        "investigation_refresh",
         "investigation_request",
         "iteration",
         "job_failure",
@@ -481,6 +482,7 @@ class RunState(TypedDict, total=False):
     intake_input_hash: Any
     intervention_ack_pending: Any
     intervention_capability: Any
+    investigation_refresh: dict  # diagnosis_refresh owns pending report/feedback/source pins and accepted history
     investigation: Any  # bug_job report; investigation_evidence owns nested discovery_evidence, read by planning
     investigation_request: Any
     job_retry_authorization: Any

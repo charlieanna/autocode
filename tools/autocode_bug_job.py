@@ -49,8 +49,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_diagnosis_refresh as diagnosis_refresh
     from . import autocode_prompts as prompts
 except ImportError:
+    import autocode_diagnosis_refresh as diagnosis_refresh
     import autocode_prompts as prompts
 
 
@@ -211,6 +213,7 @@ def packet(state: RunState, inventory: dict | None = None, engine: str | None = 
         data["coordinated_member"] = coordinated
     if retry := investigation_retry.context(state):
         data["prior_failed_attempt"] = retry
+    data.update(diagnosis_refresh.prompt_context(state))
     return data
 
 
@@ -228,6 +231,8 @@ def prompt(
     (autocode_package_writes.context), handed over as ``package_scope``."""
     instruction = PROMPT
     data = packet(state, inventory, engine)
+    if data.get("diagnosis_correction"):
+        instruction += "\n" + prompts.get("fragments/bug-job/diagnosis-correction.md")
     if package_context:
         data["package_scope"] = package_context
     if scratch_workspace is not None:
@@ -319,31 +324,17 @@ def check_cases(cases: list) -> None:
         raise ValueError(f"A test case kind is restore or preserve: {bad_kinds}")
 
 
+def repair_context(state: RunState) -> dict:
+    """A repaired refresh report remains bound to the original correction and proof rules."""
+    return diagnosis_refresh.prompt_context(state)
+
+
 def safe_path(path: str) -> bool:
     parts = Path(path).parts
     return bool(path.strip()) and not Path(path).is_absolute() and ".." not in parts and ".git" not in parts
 
 
-def note(value: dict) -> dict:
-    """The diagnosis as saved in the repository. ``changed`` is always empty: nothing is fixed yet."""
-    return {
-        "reproduced": value["outcome"] == "reproduced",
-        "observed": value["observed"],
-        "reproduction": value["reproduction"],
-        "root_cause": value["root_cause"],
-        "affected_paths": value["affected_paths"],
-        "test_paths": value["test_paths"],
-        "invariant": value["invariant"],
-        "test_cases": list(value.get("test_cases") or []),
-        "conclusion": value["conclusion"],
-        "fix_size": value["fix_size"],
-        "fix_plan": value["fix_plan"],
-        "questions": value["questions"],
-        "tests_run": value["tests_run"],
-        "changed": [],
-        "probe": value.get("probe", ""),
-        "untestable": value.get("untestable", ""),
-    }
+note = diagnosis_refresh.note  # shared projection also authenticates the prior runner note
 
 
 def diagnosis_artifact(state: RunState, workspace) -> dict | None:
@@ -395,6 +386,7 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None,
     rather than trusted."""
     # The diagnosis note itself stays under docs/bugs/ at the repository root, inside or outside a package.
     check(value, record.get("changed_files"), package_scope.of(state.get("settings")))
+    diagnosis_refresh.check(state, value, workspace)
     repeated = bug_questions.repeated_answers(state, value["questions"])
     if repeated:
         raise ValueError(
@@ -433,6 +425,8 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None,
         if probe
         else []
     )
+    # Commands may take time: recheck correction pins before replacing the accepted note.
+    diagnosis_refresh.check(state, value, workspace)
     # Keep the exact accepted report for diagnosis-artifact identity. Only the
     # runner-owned scope record contains normalized, grounded obligations.
     target = Path(workspace) / value["note_path"]
@@ -446,6 +440,7 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None,
         "source_revision": record.get("source_revision"),
         "probe_result": shown[0] if shown else None,
     }
+    diagnosis_refresh.accepted(state, state["investigation"])
     workspace_scope.record(state, scope, record, stage=STAGE, dropped=dropped)
     if bug_questions.has_questions(state):
         state.pop("completed_at", None)
