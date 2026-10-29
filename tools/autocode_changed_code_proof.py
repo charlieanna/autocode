@@ -91,7 +91,14 @@ def collect(proof, result, framework, workspace, out, tree, execution_context, *
         receipts=receipts,
         root=out,
     )
-    if baseline != expected or source_snapshot.snapshot(tree, paths=source_paths)["files"] != baseline:
+    observed = source_snapshot.snapshot(tree, paths=source_paths)["files"]
+    # Tests may create reports or fixtures inside their owned scratch tree.
+    # They are not delivered inputs. Every actual workspace input must retain
+    # its bytes, and the workspace itself must remain exactly as measured.
+    if (
+        any(baseline.get(name) != digest or observed.get(name) != digest for name, digest in expected.items())
+        or source_snapshot.snapshot(workspace, paths=source_paths)["files"] != expected
+    ):
         # A test changed the measured inputs. Preserve every observation but
         # grant no execution or mutation authority from this tree.
         coverage = {"source_revision": source_revision, "proof_context": context, "files": []}

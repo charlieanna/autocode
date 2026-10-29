@@ -502,6 +502,34 @@ class ProofTests(unittest.TestCase):
             "investigation": {"outcome": "reproduced", "test_cases": [case]},
         }
 
+    def test_generated_test_output_does_not_invalidate_unchanged_product_inputs(self):
+        self.state["investigation"]["test_cases"][0]["then"] = "returns 9"
+        source = "def limit(n):\n    if n > 10:\n        return 9\n    return n\n"
+        (self.root / "calc.py").write_text(source)
+        test = WEAK_TEST.replace("self.assertEqual(10, limit(50))", "self.assertEqual(9, limit(50))")
+        test += "        self.assertEqual(9, limit(11))\n        self.assertEqual(10, limit(10))\n"
+        test += '        with open("suite-result.json", "w") as stream:\n            stream.write("generated report")\n'
+        (self.root / "tests/test_calc.py").write_text(test)
+        proof = regression.prove(self.state, self.root, self.run_dir)
+        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual("PASS", proof["changed_code_evidence"]["status"], proof["changed_code_evidence"])
+        self.assertEqual(source, (self.root / "calc.py").read_text())
+        self.assertFalse((self.root / "suite-result.json").exists(), "checks stay in owned scratch trees")
+
+    def test_test_writes_cannot_change_a_delivered_input_and_keep_line_authority(self):
+        self.state["investigation"]["test_cases"][0]["then"] = "returns 9"
+        (self.root / "fixture-input.json").write_text("original input")
+        (self.root / "calc.py").write_text("def limit(n):\n    if n > 10:\n        return 9\n    return n\n")
+        test = WEAK_TEST.replace("self.assertEqual(10, limit(50))", "self.assertEqual(9, limit(50))")
+        test += "        self.assertEqual(9, limit(11))\n        self.assertEqual(10, limit(10))\n"
+        test += '        with open("fixture-input.json", "w") as stream:\n            stream.write("changed input")\n'
+        (self.root / "tests/test_calc.py").write_text(test)
+        proof = regression.prove(self.state, self.root, self.run_dir)
+        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual("UNVERIFIED", proof["changed_code_evidence"]["status"])
+        self.assertIsNone(proof["changed_code_inputs"]["inventory"])
+        self.assertEqual("original input", (self.root / "fixture-input.json").read_text())
+
     def test_a_weak_proving_test_keeps_its_pass_and_survivors_but_cannot_complete(self):
         before = (self.root / "calc.py").read_bytes()
         proof = regression.prove(self.state, self.root, self.run_dir)
