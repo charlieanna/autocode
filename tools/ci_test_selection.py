@@ -67,6 +67,10 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "tools/live_fixture_provider.py",
+        ("tests.test_live_fixture_changed_code", "tests.test_taskrun", "tests.test_agent_step"),
+    ),
     *(
         (path, ("tests.test_changed_code_evidence_cli",))
         for path in (
