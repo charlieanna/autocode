@@ -172,6 +172,10 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             print(
                 "Milestone checkpoints enabled at a safe boundary; continuing with independent validation.", flush=True
             )
+        if autopilot.lifecycle.refresh_diagnosis(current, workspace):
+            runner.write_json(state_path, current)
+            if current["status"] != "RUNNING":
+                raise support.Paused(current["status"], current["stop_reason"])
         workflow.guard(current)
         # spec-first: the Tester writes the tests before the Builder, for a parallel batch's whole wave (#1200)
         acceptance_tests.route(current, wave=lambda: dispatch.select(current))

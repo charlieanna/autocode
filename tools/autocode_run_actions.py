@@ -209,6 +209,11 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
 
     It runs only when no user decision was given: action_decisions.apply stops for every one.
     """
+    if args.resume_paused and lifecycle.refresh_diagnosis(state, workspace):
+        runner.write_json(state_path, state)
+        if state["status"] == "PAUSED_STALE_DIAGNOSIS":
+            print(f"{state['status']}: {state['stop_reason']}")
+            return 2
     if state["status"] == "TASK_COMPLETE":
         runner.recheck_completion(state, workspace, run_dir=run_dir)
         if state["status"] != "TASK_COMPLETE":

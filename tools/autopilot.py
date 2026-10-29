@@ -1160,7 +1160,7 @@ def _apply_result(runtime, state: RunState, stage, value, record, workspace, run
     if planning.is_planning(state, stage) or (modern and stage == "astra_discovery"):
         apply_planning_result(state, stage, value, record, run_dir=run_dir)
         save_record(state, record)
-        return
+        return lifecycle.refresh_diagnosis(state, workspace)
     if modern:
         if progressive_state.enabled(state):
             progressive_state.check_result_binding(

@@ -52,6 +52,18 @@ class StopExplanationTests(unittest.TestCase):
                         for misleading in ("stopped", "environment", "resume", "wrong deliverable"):
                             self.assertNotIn(misleading, text["explanation"].lower())
 
+    def test_stale_diagnosis_view_explains_retained_proof_and_conditional_resume(self):
+        reason = "Accepted diagnosis note changed"
+        view = run_view.view({"status": "PAUSED_STALE_DIAGNOSIS", "stop_reason": reason})
+        text = view["explanation"]
+        self.assertEqual("resume", view["needs"]["kind"])
+        self.assertIn("--resume-paused", view["next_command"])
+        self.assertIn(reason, text["what_happened"])
+        self.assertIn("original proof cases remain required", text["what_it_means"])
+        self.assertIn("otherwise the run stays paused", text["what_the_command_does"])
+        self.assertIn("still needs approval", text["what_the_command_does"])
+        self.assertNotIn("--approve-goal", view["next_command"])
+
     def test_preparation_timeout_names_the_prelaunch_copy_and_preserves_budgets(self):
         text = stop_explanations.explain("PAUSED_VERIFICATION_PREPARATION", stop_reason="source pack timed out")
         self.assertIn("before the model started", text["what_it_means"])

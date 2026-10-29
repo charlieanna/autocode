@@ -517,6 +517,22 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   - **Compatibility.** Runs whose diagnosis has no cases, including bug fixes
     planned without an Investigator and older saved runs, behave as before.
 
+If same-chat feedback corrects a named case from restored behavior to preserved
+behavior (or the reverse), the old diagnosis cannot be superseded by a sentence
+in the plan. Before approval, AutoCode checks that the corrected draft cites the
+saved feedback and an admitted change record. With unchanged source and diagnosis
+evidence, it sends that exact correction through the Investigator once, then
+returns to planning and independent review. Old reports and usage remain saved;
+unaffected cases, file scope, reproduction checks and exact-plan approval remain
+required. An already displayed conflicting draft offers Resume instead of an
+approval that cannot succeed.
+
+This refresh handles uniquely named case-kind contradictions. It does not infer
+arbitrary semantic changes or reinvestigate harmless wording. Missing authority,
+ambiguous names or changed evidence hold the run at `PAUSED_STALE_DIAGNOSIS`.
+Repeated resumes do not renew the same correction's allowance, and an approved
+plan still requires the ordinary explicit revision path.
+
 ### Features: tests in plain English
 
 A feature gets the same kind of proof from its plan. The Planner writes every

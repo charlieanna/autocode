@@ -157,6 +157,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/prompts/fragments/autoplanner/bug-diagnosis-rule.md", ("tests.test_bugfix_workflow",)),
     ("tools/prompts/bug-investigation.md", ("tests.test_bug_job",)),
     (
+        "tools/prompts/fragments/bug-job/diagnosis-correction.md",
+        ("tests.test_diagnosis_refresh", "tests.test_stale_diagnosis_feedback_cli"),
+    ),
+    (
         "tools/autocode_prices.json",
         ("tests.test_prices", "tests.test_cost", "tests.test_cost_cap", "tests.test_route_selector"),
     ),
@@ -760,6 +764,18 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     # A mapped path no longer gets the fake flows every unmapped tools/ module selects (``dependencies``); these
     # two had them before the row above, and keep them.
     (("tools/autocode_bug_job", "tools/units/autoresolver"), (*CORE_CONSUMERS, *PUBLIC_FLOW_CONSUMERS)),
+    (
+        (
+            "tools/autocode_diagnosis_refresh",
+            "tools/autocode_run_view",
+            "tools/autocode_bug_job",
+            "tools/autocode_goal_lifecycle",
+            "tools/autocode_run_actions",
+            "tools/autocode_build_loop",
+            "tools/autopilot",
+        ),
+        ("tests.test_stale_diagnosis_feedback_cli",),
+    ),
 )
 
 SUITE_PATHS = (

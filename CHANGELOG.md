@@ -431,6 +431,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A saved user correction that changes an exactly named bug case between restore and preservation
+  now refreshes the accepted investigation before a draft can be approved (#2468). The refresh keeps
+  the original report and correction evidence, reruns reproduction and counterexample checks, and
+  preserves every unaffected case. A reviewer's prose cannot replace the effective diagnosis;
+  missing authority or stale report/source pins hold the run without starting implementation.
 - Discovery report repairs now offer the existing exact-source-bound object and malformed-JSON edits
   (#2469), so small corrections can retain the rest of the rejected report without retranscribing it.
   Complete schema, provenance, protected-contract and evidence checks still run after reconstruction;
