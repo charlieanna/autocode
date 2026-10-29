@@ -146,6 +146,7 @@ STATUS_GROUPS = MappingProxyType(
                 "PAUSED_SKELETON_UNVERIFIED",
                 "PAUSED_STAGE_ABANDONED",
                 "PAUSED_STAGE_TIMEOUT",
+                "PAUSED_STALE_DIAGNOSIS",
                 "PAUSED_STALE_GOAL",
                 "PAUSED_STALE_HANDOFF",
                 "PAUSED_STALE_REPORT_ROUTE",
