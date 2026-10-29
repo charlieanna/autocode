@@ -141,6 +141,16 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         base.update(
             affected_paths=state.get("affected_paths", []), actionable_findings=state.get("unresolved_findings", [])
         )
+        changed_code = (state.get("regression_proof") or {}).get("changed_code_evidence")
+        if changed_code and changed_code.get("status") != "PASS":
+            base["changed_code_evidence"] = changed_code
+            try:
+                from . import autocode_changed_code_rework as changed_code_rework
+            except ImportError:
+                import autocode_changed_code_rework as changed_code_rework
+            guidance = changed_code_rework.guidance(state, current["revision"])
+            if guidance:
+                base["changed_code_investigation"] = guidance
         repair = state.get("repair_plan") or {}
         if any(
             task.get("id") == cast(dict, state.get("current_task", {})).get("id") for task in repair.get("tasks", [])

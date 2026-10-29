@@ -145,6 +145,18 @@ class InterceptTests(unittest.TestCase):
 
 
 class BuilderFailureClassificationTests(unittest.TestCase):
+    def test_changed_line_investigation_does_not_offer_a_person_question(self):
+        state = {
+            "stuck_investigation": {
+                "mode": "builder_failure",
+                "failure_evidence": {"diagnosis": {"changed_code_evidence": {"status": "UNVERIFIED"}}},
+            }
+        }
+        fields = stuck.schema(state)["properties"]
+        self.assertNotIn("needs_user", fields["cause"]["enum"])
+        self.assertEqual([""], fields["user_question"]["enum"])
+        self.assertIn("needs_user", stuck.SCHEMA["properties"]["cause"]["enum"])
+
     def fixture(self, root):
         workspace = Path(root) / "workspace"
         workspace.mkdir()

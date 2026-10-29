@@ -8,6 +8,7 @@ nothing from the runner; the caller runs the commands and passes the diff.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -251,10 +252,26 @@ def collect(framework, command, tree, evidence_dir, diff_text, run) -> dict:
     spec = prepare(framework, command, tree, evidence_dir)
     if spec is None:
         return skipped()
-    run(spec["command"], Path(evidence_dir) / "run.log")
+    report_path = Path(spec["report"])
+    # Each proof owns its directory. Never accept a pre-existing or redirected
+    # report as the output of this invocation.
+    if report_path.is_symlink():
+        return skipped("the coverage report is a symlink; no measurement was accepted")
+    report_path.unlink(missing_ok=True)
+    receipts = [run(spec["command"], Path(evidence_dir) / "run.log")]
     if spec["finalize"]:
-        run(spec["finalize"], Path(evidence_dir) / "report.log")
-    return finish(spec["tool"], spec["report"], tree, text)
+        receipts.append(run(spec["finalize"], Path(evidence_dir) / "report.log"))
+    result = finish(spec["tool"], report_path, tree, text)
+    result.update(
+        command_receipts=receipts,
+        command_outputs=[row.get("output") for row in receipts],
+        report_path=str(report_path),
+        report_fresh=True,
+        source_root=str(Path(tree).resolve()),
+    )
+    if report_path.is_file() and not report_path.is_symlink():
+        result["report_sha256"] = hashlib.sha256(report_path.read_bytes()).hexdigest()
+    return result
 
 
 def finish(tool, report_path, tree, diff_text) -> dict:
@@ -271,4 +288,13 @@ def finish(tool, report_path, tree, diff_text) -> dict:
             executed, missing = parse_coverage_json(json.loads(path.read_text()), tree)
     except (OSError, ValueError, TypeError, AttributeError):
         return skipped(f"the {tool} report could not be read; diff coverage was not collected")
-    return {"collected": True, "tool": tool, "note": None, **intersect(hunks(diff_text), executed, missing)}
+    return {
+        "collected": True,
+        "tool": tool,
+        "note": None,
+        "measured_lines": {
+            name: {"executed": sorted(executed.get(name, ())), "missing": sorted(missing.get(name, ()))}
+            for name in sorted(executed.keys() | missing.keys())
+        },
+        **intersect(hunks(diff_text), executed, missing),
+    }
