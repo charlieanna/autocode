@@ -66,7 +66,9 @@ sign-in, a new Git project, route checks and common setup errors.
 
 ## A bug that turns out to span repositories
 
-On a supported Linux host, open terminal chat:
+On a supported Linux host, open terminal chat. This flow needs current master,
+not the published **0.8.2** release, so use the [master or development-checkout
+installation](docs/install.md#advanced-install-from-a-checkout) first:
 
 ```sh
 cd /path/to/your/project
