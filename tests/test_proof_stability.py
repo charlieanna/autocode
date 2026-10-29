@@ -294,10 +294,14 @@ class ProofRunTests(unittest.TestCase):
             "regression_proof": {key: result.get(key) for key in regression.SUMMARY_KEYS},
         }
         self.assertFalse(regression.complete(state, result["source_revision"]))
+        self.assertFalse(regression.complete(state, result["source_revision"], require_changed_code=False))
         shown = run_view.evidence(state)
         self.assertEqual(unstable, shown["proof_stability"]["unstable"])
         self.assertEqual(unstable, shown["regression_proof"]["unstable"])
-        self.assertFalse(shown["diff_coverage"]["collected"])
+        # Coverage may still be collected when the project has the tool. It is
+        # an execution observation, not authority to pass an unstable proof.
+        self.assertEqual(result["diff_coverage"], shown["diff_coverage"])
+        self.assertEqual("FAIL", shown["regression_proof"]["verdict"])
 
 
 @unittest.skipIf(
