@@ -9,7 +9,12 @@ from pathlib import Path
 import autocode as runner
 import autocode_resolver_recommendation as recommendation
 import autocode_role_schema as role_schema
-from autocode_report_schema import hydrate_review_report, review_generation_schema, review_validation_schema
+from autocode_report_schema import (
+    hydrate_review_report,
+    normalize_absent_authority,
+    review_generation_schema,
+    review_validation_schema,
+)
 from autocode_util import model_output_schema, validate_schema
 from units import autoplanner
 
@@ -232,6 +237,81 @@ class ReportAuthorityCompatibilityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "recovery_change"):
             runner.load_stage_report(record)
         self.assertEqual({"recovery_change": "expand permissions"}, json.loads(output.read_text()))
+
+
+class DraftFailureReceiptCompatibilityTests(unittest.TestCase):
+    def setUp(self):
+        self.schema = model_output_schema(
+            role_schema.obj(
+                {key: autoplanner.SCHEMAS["astra_challenge"]["properties"][key] for key in ("summary", "concerns")}
+            )
+        )
+        self.raw = {
+            "summary": "Review",
+            "concerns": [
+                {
+                    "id": "C1",
+                    "concern": "Check a boundary",
+                    "evidence_refs": ["goal_contract.body"],
+                    "requested_change": "Keep the existing boundary",
+                    "acceptance_test": "Verify the boundary",
+                    "blocking": True,
+                }
+            ],
+        }
+
+    def test_absent_receipt_defaults_only_in_supported_first_review_or_its_repair(self):
+        before = copy.deepcopy((self.raw, self.schema))
+        for record in (
+            {"stage": "astra_challenge"},
+            {"stage": "astra_challenge_report_repair"},
+            {"stage": "astra_challenge_report_repair", "original_stage": "astra_challenge"},
+        ):
+            with self.subTest(record=record):
+                normalized = normalize_absent_authority(self.raw, self.schema, record)
+                self.assertIsNone(normalized["concerns"][0]["draft_failure_correction"])
+                validate_schema(normalized, self.schema)
+        self.assertEqual(before, (self.raw, self.schema))
+
+    def test_old_nonnullable_and_other_stage_schemas_are_not_changed(self):
+        old = model_output_schema(autoplanner.SCHEMAS["plan_review"])
+        self.assertEqual(self.raw, normalize_absent_authority(self.raw, old, {"stage": "astra_challenge"}))
+        validate_schema(self.raw, old)
+        nonnullable = copy.deepcopy(self.schema)
+        nonnullable["properties"]["concerns"]["items"]["properties"]["draft_failure_correction"]["type"] = "object"
+        for schema, record in (
+            (nonnullable, {"stage": "astra_challenge"}),
+            (self.schema, {"stage": "plan_review"}),
+            (self.schema, {"stage": "astra_challenge_report_repair", "original_stage": "plan_review"}),
+        ):
+            with self.subTest(record=record, nullable=schema == self.schema):
+                normalized = normalize_absent_authority(self.raw, schema, record)
+                self.assertEqual(self.raw, normalized)
+                with self.assertRaisesRegex(ValueError, "missing draft_failure_correction"):
+                    validate_schema(normalized, schema)
+
+    def test_supplied_receipts_and_malformed_rows_are_never_replaced(self):
+        valid = {
+            "snapshot": "opaque-snapshot",
+            "judgment": "unapproved_model_inference",
+            "before": "Before",
+            "after": "After",
+            "rationale": "Independent evidence",
+        }
+        for supplied in (None, valid, {}, "inferred", {**valid, "authority": True}):
+            with self.subTest(supplied=supplied):
+                raw = copy.deepcopy(self.raw)
+                raw["concerns"][0]["draft_failure_correction"] = supplied
+                normalized = normalize_absent_authority(raw, self.schema, {"stage": "astra_challenge"})
+                self.assertEqual(raw, normalized)
+                if supplied is None or supplied == valid:
+                    validate_schema(normalized, self.schema)
+                else:
+                    with self.assertRaises(ValueError):
+                        validate_schema(normalized, self.schema)
+        for concerns in (None, "not rows", [None]):
+            raw = {**self.raw, "concerns": concerns}
+            self.assertEqual(raw, normalize_absent_authority(raw, self.schema, {"stage": "astra_challenge"}))
 
 
 class ProjectConventionsReportCompatibilityTests(unittest.TestCase):

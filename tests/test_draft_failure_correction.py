@@ -307,6 +307,42 @@ class DraftFailureCorrectionTests(unittest.TestCase):
         )
         self.assertNotIn(correction.FIELD, planner.CONCERN["properties"])
 
+    def test_legacy_omission_loads_actual_wire_schema_without_granting_correction_authority(self):
+        for stage in ("astra_challenge", "astra_challenge_report_repair"):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as temp:
+                current, review, changed, changes = fixture()
+                review["concerns"][0].pop(correction.FIELD)
+                review["source_trace"] = {"out_of_scope": [], "negation_waivers": []}
+                review["obligation_decisions"] = []
+                root = Path(temp)
+                request = planner.prepare(current, "astra_challenge", root / "state.json", None)
+                schema = runner.util.model_output_schema(request.schema)
+                # This is the exact pre-fix failure: provider generation makes the optional field required.
+                with self.assertRaisesRegex(ValueError, "missing draft_failure_correction"):
+                    runner.util.validate_schema(review, schema)
+                output, schema_path, events = root / "review.json", root / "schema.json", root / "review.jsonl"
+                output.write_text(json.dumps(review))
+                schema_path.write_text(json.dumps(schema))
+                events.write_text('{"type":"turn.completed"}\n')
+                record = {
+                    "stage": stage,
+                    "engine": "codex",
+                    "output": str(output),
+                    "schema": str(schema_path),
+                    "events": str(events),
+                }
+                if stage.endswith("_report_repair"):
+                    record["original_stage"] = "astra_challenge"
+                loaded = runner.load_stage_report(record, state=current)
+                self.assertIsNone(loaded["concerns"][0][correction.FIELD])
+                self.assertEqual(review, json.loads(Path(record["reported_output"]).read_text()))
+                self.assertEqual(schema, json.loads(schema_path.read_text()))
+                self.assertEqual(loaded, runner.load_stage_report(record, state=current))
+                self.admit(current, loaded)
+                self.assertEqual("glm_revise", current["next_stage"])
+                with self.assertRaisesRegex(ValueError, "needs a saved user answer or feedback event"):
+                    lifecycle.install_draft(current, changed, origin="glm_revise", changes=changes)
+
     def test_report_repair_respects_the_pinned_old_or_new_concern_schema(self):
         for supported in (False, True):
             with self.subTest(supported=supported):

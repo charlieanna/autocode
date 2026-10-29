@@ -43,6 +43,15 @@ def normalize_absent_authority(value, schema, record):
             if isinstance(row, dict):
                 row.setdefault("proxy_reason", None)
     stage = str(record.get("original_stage") or record.get("stage", "")).removesuffix("_report_repair")
+    # A missing first-review correction receipt grants no authority. Strict generation makes this optional
+    # field required; accept legacy omissions as null without changing supplied receipts or old schemas.
+    concern_fields = properties.get("concerns", {}).get("items", {}).get("properties", {})
+    kind = concern_fields.get("draft_failure_correction", {}).get("type")
+    nullable = kind == "null" or isinstance(kind, list) and "null" in kind
+    if stage == "astra_challenge" and nullable and isinstance(result.get("concerns"), list):
+        for row in result["concerns"]:
+            if isinstance(row, dict):
+                row.setdefault("draft_failure_correction", None)
     if stage in ("requirements_gather", "requirements") and "project_conventions" in properties:
         result.setdefault("project_conventions", [])
     request = result.get("user_request")
