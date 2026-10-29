@@ -59,6 +59,10 @@ class Store:
         self.catalog = self.root / "catalog.json"
         self.database = self.root / "results.sqlite3"
 
+    def exists(self) -> bool:
+        """Whether ``initialize`` has created this store."""
+        return self.catalog.exists() and self.database.exists()
+
     @contextlib.contextmanager
     def _transaction(self):
         """One connection per operation: its transaction commits, or rolls back on an error, and the
