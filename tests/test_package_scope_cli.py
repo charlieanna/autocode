@@ -100,18 +100,15 @@ class PackageRunCLI(unittest.TestCase):
 
     def outside_finding(self, run, result):
         """The completion gate refused the Completion Reviewer's COMPLETE on the runner's one open package
-        finding, as the status view shows it."""
+        finding, as the status view shows it. The unpassed regression proof is itself a separate public
+        runner finding (#2475), so the package violation is selected by its public wording; each test
+        then asserts the stop surface its own completion route produces."""
         view = self.view(run)
         self.assertFalse(view["done"], result.stdout + result.stderr)
         self.assertNotEqual("TASK_COMPLETE", view["status"])
-        (row,) = self.runner_findings(view)
+        (row,) = [row for row in self.runner_findings(view) if row["finding"].startswith("Files outside the package ")]
         self.assertEqual(("open", True, "high"), (row["status"], row["blocking"], row["severity"]))
         self.assertTrue(row["finding"].startswith("Files outside the package packages/greet/ changed: "), row)
-        self.assertIn(
-            "Completion rejected: the findings ledger still lists open blocking findings", view["stop_reason"]
-        )
-        self.assertIn(row["id"], view["stop_reason"])
-        self.assertIn("Files outside the package packages/greet/ changed", view["stop_reason"])
         return view, row
 
     def test_a_builder_write_to_the_other_package_keeps_the_run_from_completing(self):
@@ -119,6 +116,15 @@ class PackageRunCLI(unittest.TestCase):
         run, _, result = self.run_to_end(2)
         view, row = self.outside_finding(run, result)
         self.assertIn(f"Files outside the package {GREET}/ changed: {OTHER}/other.py (modified). ", row["finding"])
+        # #2475: the refused proof is itself a second open blocking runner finding, separate from the
+        # package violation, so both public rows keep the run from completing; its correction route
+        # sends the completion back, and the fixture Investigator cannot diagnose, so the run pauses.
+        [proof_finding] = [found for found in self.runner_findings(view) if found["id"] != row["id"]]
+        self.assertEqual(
+            ("open", True, "high"), (proof_finding["status"], proof_finding["blocking"], proof_finding["severity"])
+        )
+        self.assertIn("regression proof does not pass", proof_finding["finding"])
+        self.assertIn("asked again to complete while the runner's regression proof does not pass", view["stop_reason"])
         # The proof still says its suite never ran the other package.
         proof = view["evidence"]["regression_proof"]
         self.assertEqual("UNVERIFIED", proof["verdict"])
@@ -142,6 +148,13 @@ class PackageRunCLI(unittest.TestCase):
         run, _, result = self.run_to_end(2)
         view, row = self.outside_finding(run, result)
         self.assertIsNone(view["evidence"]["regression_proof"])
+        # A run that owes no proof has no #2475 proof finding, so its completion still stops at the
+        # findings ledger's own gate, naming the open finding.
+        self.assertIn(
+            "Completion rejected: the findings ledger still lists open blocking findings", view["stop_reason"]
+        )
+        self.assertIn(row["id"], view["stop_reason"])
+        self.assertIn("Files outside the package packages/greet/ changed", view["stop_reason"])
         self.assertIn(
             f"changed: README.md (modified), {OTHER}/notes.md (added), {OTHER}/other.py (modified). ", row["finding"]
         )
