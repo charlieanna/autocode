@@ -166,7 +166,9 @@ autocode "Submitting an order records the wrong total" \
 ```
 
 Use your chosen engine consistently; `codex` here is an example. Without an
-explicit `AUTOCODE_HOME`, task startup uses workspace-local registry storage.
+explicit `AUTOCODE_HOME`, task startup uses the project's registry storage (a task
+worktree's project, not the worktree), which `registry list` and `runs --all` read
+when run inside that project.
 For runs already created elsewhere, set the shared home and import their
 existing project roots with `autocode registry import /path/to/project`.
 Import reads saved runs and launches no model.
