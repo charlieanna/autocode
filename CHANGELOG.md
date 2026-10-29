@@ -427,6 +427,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Planning generation now requires an empty `conflict_resolutions` list when known Requirements and
+  source-stable history contain no eligible conflict (#2457). Real conflicts, saved user authority,
+  historical source checks and unknown legacy contexts keep their existing rules.
 - A first Plan Reviewer can explicitly identify a mistaken `important_failure_cases` inference in an
   unapproved model draft and bind its exact correction to that draft and its saved intent sources (#2453).
   The revision preserves other protected text, existing criteria, proofs and citations; stale receipts,

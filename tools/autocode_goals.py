@@ -58,7 +58,7 @@ try:
     from .autocode_requirement_coverage import missing_sentences
     from .autocode_requirement_coverage import requirement_coverage_text as requirement_coverage_text
     from .autocode_requirement_cues import cue_sentences, earlier_job_handoff, scan_texts, source_texts
-    from .autocode_trace_coverage import coverage_errors, unrecorded_conflict_error
+    from .autocode_trace_coverage import coverage_errors, recorded_conflict_sets, unrecorded_conflict_error
 except ImportError:
     import autocode_adaptive_planning as adaptive
     import autocode_answer_options as answer_options
@@ -87,7 +87,7 @@ except ImportError:
     from autocode_requirement_coverage import missing_sentences
     from autocode_requirement_coverage import requirement_coverage_text as requirement_coverage_text
     from autocode_requirement_cues import cue_sentences, earlier_job_handoff, scan_texts, source_texts
-    from autocode_trace_coverage import coverage_errors, unrecorded_conflict_error
+    from autocode_trace_coverage import coverage_errors, recorded_conflict_sets, unrecorded_conflict_error
 
 # The state keys under which a Resolver proposal waits for the user and the request shown to them.
 # autocode_resolver_human owns those records and re-exports these as PRIVATE and PUBLIC; they are
@@ -465,18 +465,7 @@ def check_requirement_trace(state: RunState, report, contract, *, coverage=True)
     if errors:
         raise ValueError("; ".join(errors))
     conflicts = handoff.get("conflicts") or []
-    conflict_sets = {frozenset(row.get("requirement_ids") or []) for row in conflicts}
-    # A refreshed handoff may no longer call a settled pair a conflict. Preserve
-    # its explicit resolution only while the same IDs still cite the same user
-    # text; recycled IDs must not inherit an unrelated historical decision.
-    current_quotes = {row["id"]: str(row.get("source_quote") or "").strip() for row in requirements}
-    for previous in state.get("requirements_history", []):
-        prior = previous.get("report") or {}
-        prior_quotes = {row["id"]: str(row.get("source_quote") or "").strip() for row in prior.get("requirements", [])}
-        for conflict in prior.get("conflicts", []):
-            ids = conflict.get("requirement_ids") or []
-            if ids and all(prior_quotes.get(rid) and prior_quotes[rid] == current_quotes.get(rid) for rid in ids):
-                conflict_sets.add(frozenset(ids))
+    conflict_sets = recorded_conflict_sets(conflicts, requirements, state.get("requirements_history", []))
     resolved = set()
     resolutions = report.get("conflict_resolutions", [])
     if not isinstance(resolutions, list):

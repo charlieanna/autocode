@@ -67,6 +67,9 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tools/autocode_trace_coverage.py", ("tests.test_conflict_generation_cli",)),
+    ("tools/autocode_planning_report_policy.py", ("tests.test_conflict_generation_cli",)),
+    ("tools/units/autoplanner.py", ("tests.test_conflict_generation_cli",)),
     ("tools/autocode_draft_failure_correction.py", ("tests.test_draft_failure_correction_cli",)),
     (
         "tools/prompts/fragments/autoplanner/draft-failure-correction.md",

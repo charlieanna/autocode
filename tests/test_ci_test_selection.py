@@ -8,6 +8,18 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_empty_conflict_generation_keeps_the_public_request_consumer(self):
+        consumer = "tests.test_conflict_generation_cli"
+        for path in (
+            "tools/autocode_trace_coverage.py",
+            "tools/autocode_planning_report_policy.py",
+            "tools/units/autoplanner.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_draft_failure_correction_keeps_its_public_admission_consumer(self):
         consumer = "tests.test_draft_failure_correction_cli"
         for path in (

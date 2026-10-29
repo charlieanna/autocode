@@ -1,4 +1,4 @@
-"""Keep contract-author commands out of a concern-only review's instructions."""
+"""Bind planning generation to known obligations and keep author commands out of concern-only review."""
 
 from __future__ import annotations
 
@@ -7,9 +7,11 @@ import copy
 try:
     from . import autocode_prompts as prompts
     from . import autocode_roles as roles
+    from . import autocode_trace_coverage as trace_coverage
 except ImportError:
     import autocode_prompts as prompts
     import autocode_roles as roles
+    import autocode_trace_coverage as trace_coverage
 
 
 def concern_rule(schema: dict) -> str:
@@ -46,6 +48,47 @@ def concern_schema(schema: dict, review: dict | None) -> dict:
             # Replace this property so the enum cannot leak into rationale or evidence.
             props = rows["items"]["properties"]
             props["concern_id"] = {**props["concern_id"], "enum": ids}
+    return result
+
+
+def conflict_schema(schema: dict, handoff, feedback, history) -> dict:
+    """An explicitly known empty conflict inventory offers only []; unknown legacy context is unchanged.
+
+    This constrains generation, never the static ingestion schema. A real conflict still needs the
+    existing saved user basis, quote and coverage checks, even when generation offers resolution rows.
+    """
+    if "conflict_resolutions" not in schema.get("properties", {}):
+        return schema
+
+    def known(report):
+        return (
+            isinstance(report, dict)
+            and isinstance(report.get("requirements"), list)
+            and isinstance(report.get("conflicts"), list)
+            and all(isinstance(row, dict) and isinstance(row.get("id"), str) for row in report["requirements"])
+            and all(
+                isinstance(row, dict)
+                and isinstance(row.get("requirement_ids"), list)
+                and all(isinstance(rid, str) for rid in row["requirement_ids"])
+                for row in report["conflicts"]
+            )
+        )
+
+    if (
+        not known(handoff)
+        or not isinstance(history, list)
+        or not all(isinstance(entry, dict) and known(entry.get("report")) for entry in history)
+    ):
+        return schema
+    requirements = handoff["requirements"] + feedback
+    if not requirements:  # check_requirement_trace also leaves this legacy case alone
+        return schema
+    ids = {row["id"] for row in requirements}
+    conflicts = trace_coverage.recorded_conflict_sets(handoff["conflicts"], requirements, history)
+    if any(group and group.issubset(ids) for group in conflicts):
+        return schema
+    result = copy.deepcopy(schema)
+    result["properties"]["conflict_resolutions"]["maxItems"] = 0
     return result
 
 
