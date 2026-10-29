@@ -431,6 +431,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode changeset status` and `autocode serve` name a run directory or workspace that does not exist instead of calling it a run in no change set or printing an errno (#2489).
 - A spec-first run no longer sends the Tester to rewrite a test whose criterion did not change (#2464, item 2).
   A reapproval or a follow-up installs a new contract hash, and acceptance-test receipts are keyed by the hash
   they were written under, so every case was due again and the Tester re-ran for all of them. A case whose
