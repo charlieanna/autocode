@@ -87,7 +87,12 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     (
         "tools/live_fixture_provider.py",
-        ("tests.test_live_fixture_changed_code", "tests.test_taskrun", "tests.test_agent_step"),
+        (
+            "tests.test_live_fixture_changed_code",
+            "tests.test_taskrun",
+            "tests.test_agent_step",
+            "tests.test_codex_capture_copy",
+        ),
     ),
     *(
         (path, ("tests.test_changed_code_evidence_cli",))
