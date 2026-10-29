@@ -30,8 +30,9 @@ class DefaultGreetingReasonsTests(unittest.TestCase):
             ]
             data = {"regression_proof": {"path": "proof.json", "changed_code_evidence": {"obligations": rows}}}
             accepted = fixture.greeting_changed_code_reasons(data)
-            self.assertEqual(5, len(accepted))
-            self.assertEqual(5, len({row["reason"] for row in accepted}))
+            self.assertEqual(6, len(accepted))
+            self.assertEqual(6, len({row["reason"] for row in accepted}))
+            self.assertIn("comment", accepted[0]["reason"])
             for mutation in (
                 {"mutation_outcomes": ["survived"]},
                 {"mutation_outcomes": ["not_run"]},
