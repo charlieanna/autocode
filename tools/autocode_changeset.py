@@ -164,6 +164,8 @@ def _approval(summary: dict) -> dict:
 
 def status(run_dir, *, command=taskrun.AUTOCODE) -> dict:
     """The change set ``run_dir`` belongs to, each run with what its own status view says now."""
+    if not Path(run_dir).is_dir():  # a mistyped path is not a run in no change set
+        raise LinkRefused(f"No such run directory: {run_dir}")
     record = store.find(run_dir)
     if record is None:
         raise LinkRefused(f"{Path(run_dir).resolve()} is in no change set")

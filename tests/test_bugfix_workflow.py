@@ -125,13 +125,15 @@ class BugfixWorkflow(unittest.TestCase):
         self.assertEqual("FAIL", proof["verdict"])
         self.assertTrue(any("No regression test" in reason for reason in proof["failures"]))
         stages = [row["stage"] for row in final["stages"]]
-        # Every stage still ran and the gate refused, including the once-only replay of a
-        # failing proof of this source. A runner-owned proof refusal is not a failed model
-        # attempt and must not spend an extra Investigator call merely to explain that the
-        # proof is missing.
-        self.assertEqual(PLANNING + FAILED_PROOF_EXECUTION, stages)
-        self.assertIn("no passing regression proof", final["stop_reason"])
-        self.assertFalse(final.get("stuck_investigations"))
+        # #2475: the refusal is a runner-owned blocking finding the reviewers and the Builder see. This
+        # scripted reviewer asks to complete anyway, so it is sent back once for the source, and a second
+        # request goes to the Investigator: never a completion-gate stop the person can only resume.
+        self.assertEqual(PLANNING + FAILED_PROOF_EXECUTION + ["astra_review", "investigate_stuck"], stages)
+        finding = [row for row in final["findings_ledger"] if row.get("regression_proof")]
+        self.assertEqual(["open"], [row["status"] for row in finding])
+        self.assertIn("No regression test", finding[0]["finding"])
+        self.assertNotEqual("PAUSED_COMPLETION_GATE", final["status"])
+        self.assertTrue(final.get("stuck_investigations"))
 
     def test_build_product_changes_get_the_same_changed_line_proof(self):
         self.env["AUTOCODE_FIXTURE_TASK_KIND"] = "build"

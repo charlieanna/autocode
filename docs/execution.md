@@ -980,6 +980,15 @@ the package, checked before each Tester and Completion Reviewer dispatch (not
 before the Code Reviewer, Designer or Design Reviewer) and by
 `--accept-completion`, and closes it when a later check finds no such change
 ([Monorepo packages](workflow.md#monorepo-packages)).
+When the regression proof owed for completion does not pass on the source about to
+be judged, it raises one naming the proof's reasons, checked before each Tester and
+Completion Reviewer dispatch (`tools/autocode_proof_findings.py`, #2475). It closes
+the finding when the proof passes on a source the finding has not failed on. A
+Completion Reviewer that asks to complete while it is open is sent back once for
+that source to review again; a second request pauses `PAUSED_COMPLETION_REVIEW`,
+which the Investigator takes. The completion gate no longer stops for the person
+to resume an unproven change. Runs with a workflow reviewer routing keep the
+completion gate as before.
 With milestone checkpoints, each finding also records the
 milestone criteria it was raised under, and a report closes it only if that report
 reviewed all of those criteria. A validation of different work, or a report-only
