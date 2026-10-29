@@ -431,6 +431,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `--grant-recovery` works again in the same invocation that corrects `--max-stage-seconds`,
+  `--max-idle-seconds` or any other saved limit (#2479): the `limit_change` events the correction
+  appends (#2412) are bound into the published request's identity, so recording them before the
+  grant was checked made every such grant read as stale and refuse with empty output. The events
+  now wait for the grant's validation and travel with its single save, so an accepted grant is never
+  persisted without the configuration change that accompanied it, and a refused grant still persists
+  neither the corrected limits, their events nor any allowance.
+
 - Moving an identical bundled provider configuration can reuse the run's proven model-access receipts
   after normal transport acceptance. Real configuration, tool or route changes still require fresh access
   evidence; original receipts and per-launch admission checks stay intact (#2477).

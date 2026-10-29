@@ -33,7 +33,7 @@ class RecoveryGrantTests(unittest.TestCase):
         self.persist = Mock()
         self.supersede = Mock()
 
-    def grant(self, amount=1, previous=True):
+    def grant(self, amount=1, previous=True, limit_events=None):
         return grants.grant(
             self.state,
             Path("/run"),
@@ -44,6 +44,7 @@ class RecoveryGrantTests(unittest.TestCase):
             maximum=3,
             supersede=self.supersede,
             persist=self.persist,
+            pending_limit_events=list(limit_events or ()),
         )
 
     def test_settings_change_uses_exact_prior_request_without_resetting_history(self):
@@ -69,6 +70,27 @@ class RecoveryGrantTests(unittest.TestCase):
         self.assertEqual(before, self.state)
         self.persist.assert_not_called()
         self.supersede.assert_not_called()
+
+    def test_the_grants_single_save_already_carries_the_deferred_limit_events(self):
+        # The invocation's limit_change events must not change the frontier before validation, yet
+        # no exit may persist an accepted grant without them (#2479, #2412): one save holds both.
+        saved = []
+        self.persist = Mock(side_effect=lambda path, state: saved.append(copy.deepcopy(state)))
+        raised = [{"kind": "limit_change", "actor": "user_cli", "flag": "--max-stage-seconds"}]
+        self.assertEqual(2, self.grant(limit_events=raised))
+        self.assertEqual(1, self.persist.call_count)
+        kinds = [row["kind"] for row in saved[0]["user_events"]]
+        self.assertEqual(["recovery_grant", "limit_change"], kinds)
+
+    def test_a_refused_grant_persists_neither_limit_events_nor_settings(self):
+        self.state["source_revision"] = "different"
+        before = copy.deepcopy(self.state)
+        raised = [{"kind": "limit_change", "actor": "user_cli", "flag": "--max-stage-seconds"}]
+        with self.assertRaisesRegex(ValueError, "exhausted timeout recovery"):
+            self.grant(limit_events=raised)
+        self.assertEqual(before, self.state)
+        self.assertNotIn("user_events", self.state)
+        self.persist.assert_not_called()
 
     def test_no_prior_settings_cannot_reuse_the_old_request(self):
         before = copy.deepcopy(self.state)
