@@ -53,23 +53,34 @@ report repair, routing, stage scheduling, or any pause AutoCode can settle itsel
 Spending caps, model routes the owner chose, publishing and merging remain the
 owner's, as above.
 
-## Every product line a task adds is tested
+## AutoCode delivers no untested code
 
 **Owner decision, 2026-10-29:** for the task a person gave it, AutoCode delivers
-a test for every product line it adds or changes. A test the task's proof runs
-must execute that line. AutoCode settles a changed line no test runs itself: the
-Builder adds the test and the proof runs again. It is not a question for the
-person and not an acceptable completion.
+no untested code. A line merely executed is not tested, so the rule is about
+behavior and evidence, not a 100% line count:
 
-- Diff coverage (`tools/autocode_diff_coverage.py`, #701) measures this today but
- only reports it: an uncovered hunk never changes the verdict. Making it a
- completion condition is outstanding work under this decision.
-- Where coverage cannot be measured (no coverage tool, an unmeasured file),
- AutoCode decides deterministically how the line is shown to be tested and
- records that in evidence. It neither asks the person nor installs a tool into
- the project.
-- The same holds for changes to this repository: a fix adds a test for the
- behavior it changes (see Testing).
+- **Every changed behavior has a test that fails without it.** The regression
+ proof already requires this for the task: the new tests fail on base and pass on
+ the candidate.
+- **Every changed product line is executed by a test the proof runs, or carries a
+ recorded reason it is not** (for example, a defensive branch unreachable from
+ public input). AutoCode decides the reason itself; the Code Reviewer checks it.
+ Neither is a question for the person.
+- **The tests must notice a broken line.** The mutation check on changed lines
+ (`autocode_mutation_check`, `autocode_review_mutation`) shows that a test fails
+ when the line is broken, so a test that executes code without asserting
+ anything does not count.
+- **A line with neither a test nor a reason sends the Builder back**, with the
+ exact lines as feedback, within a bounded number of rounds. When those run out,
+ the Investigator takes it, never the person, and the report says why.
+- Where coverage cannot be measured (no coverage tool in the project, an
+ unmeasured file), AutoCode chooses the fallback deterministically and records
+ it in evidence. It never installs a tool into the project.
+
+Diff coverage (`tools/autocode_diff_coverage.py`, #701) measures executed lines
+today but only reports them. An uncovered hunk never changes the verdict, so
+enforcing this rule is outstanding work (#2474). The same holds for changes to this
+repository: a fix adds a test for the behavior it changes (see Testing).
 
 ## Layout
 
