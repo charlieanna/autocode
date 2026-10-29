@@ -431,6 +431,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Execution prompts now request criterion definitions only when the response schema contains them
+  (#2463). Builder reports no longer have to copy the entire approved criteria into result prose;
+  completion's ID-only reports and checkpoint/Resolver definition reports retain their own exact
+  identity rules. Approved scope, report validation and independent evidence gates are unchanged.
 - `autocode events` now records a limit raised on resume (#2412): `resume --max-iterations 5` after an
   iteration-ceiling pause, or any other `--max-*`, `--no-progress-limit` or `--unlimited-iterations` change to
   a saved limit, appends a `limit_change` event naming the limit, its flag, the previous and new values and

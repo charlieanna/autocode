@@ -65,11 +65,23 @@ def capped_route(route, cap="medium"):
     return route
 
 
-def execution_request(state: "RunState", stage, state_path, schema_dir):
+def execution_request(state: "RunState", stage, state_path, schema_dir, *, report_stage=None, schema_override=None):
     goals.execution_guard(state)
     state["phase"] = "EXECUTING"
     role = autoplanner.role_for(state, stage)
-    prompt, metrics = stage_context.context_packet(state, stage, state_path)
+    schema = schema_override
+    if schema is None:
+        schema = goals.role_schema(
+            support.read(schema_dir / "v2" / f"{role}-{'decision' if role == 'astra' else 'report'}.schema.json"), role
+        )
+        if stage == "astra_checkpoint":
+            schema = workflow.checkpoint_schema(schema_dir)
+        elif stage == "terra" and workflow.final_only(state):
+            schema = workflow.implementation_schema(schema_dir)
+    # Match the runner's deterministic wire projection without changing the saved report schema.
+    # Resolver jobs borrow review context but have a different final report shape/stage.
+    response_schema = support.review_generation_schema(schema, state, report_stage or stage)
+    prompt, metrics = stage_context.context_packet(state, stage, state_path, response_schema=response_schema)
     if stage == "terra":
         prompt = test_examples.add_to_prompt(prompt, state["workspace"], state.get("current_task"))
         prompt = prompt.replace(
@@ -89,11 +101,4 @@ def execution_request(state: "RunState", stage, state_path, schema_dir):
             1,
         )
         metrics = {**metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4}
-    schema = goals.role_schema(
-        support.read(schema_dir / "v2" / f"{role}-{'decision' if role == 'astra' else 'report'}.schema.json"), role
-    )
-    if stage == "astra_checkpoint":
-        schema = workflow.checkpoint_schema(schema_dir)
-    elif stage == "terra" and workflow.final_only(state):
-        schema = workflow.implementation_schema(schema_dir)
     return ModelRequest(role, autoplanner.route_for(state, stage, role), prompt, metrics, schema, role == "terra")

@@ -13,8 +13,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_execution_prompt as execution_prompt
     from . import autocode_prompts as prompts
 except ImportError:
+    import autocode_execution_prompt as execution_prompt
     import autocode_prompts as prompts
 
 
@@ -52,7 +54,7 @@ except ImportError:
     from autocode_util import criteria_definition
 
 
-def context_packet(state: RunState, stage, state_path):
+def context_packet(state: RunState, stage, state_path, *, response_schema=None):
     try:
         from . import autocode_milestones as checkpoints
     except ImportError:
@@ -255,10 +257,11 @@ def context_packet(state: RunState, stage, state_path):
             {k: entry["validation"].get(k) for k in ("output", "source_revision", "contract_revision", "verdict")}
             for entry in state.get("validation_archive", [])
         ]
+        execution_instruction = goals.EXECUTION_PROMPT + execution_prompt.criteria_instruction(response_schema)
         instruction = (
             goals.DISCOVERY_PROMPT + goals.JOB_TYPE_POLICY + goals.DECISION_PROVENANCE
             if stage == "astra_discovery"
-            else instruction + goals.EXECUTION_PROMPT
+            else instruction + execution_instruction
         )
         if stage == "astra_discovery":
             # A non-joint run has no Plan Reviewer; the discovery draft's criteria
@@ -305,7 +308,7 @@ def context_packet(state: RunState, stage, state_path):
         base["targeted_consultation"] = state.get("targeted_consultation")
         milestone_policy = workflow.POLICY
         if stage == "astra_checkpoint":
-            instruction = workflow.CHECKPOINT + goals.EXECUTION_PROMPT
+            instruction = workflow.CHECKPOINT + execution_instruction
         elif stage == "sol":
             instruction += prompts.get("fragments/stage-context/context-packet-11.md")
         if workflow.final_only(state):

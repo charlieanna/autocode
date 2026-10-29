@@ -8,6 +8,23 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_execution_criteria_resources_keep_prepared_and_public_consumers(self):
+        consumers = {"tests.test_execution_criteria_prompt", "tests.test_builder_criteria_cli"}
+        for path in (
+            "tools/autocode_execution_prompt.py",
+            "tools/autocode_stage_context.py",
+            "tools/autocode_report_schema.py",
+            "tools/units/common.py",
+            "tools/units/autoresolver.py",
+            "tools/prompts/fragments/goals/execution-prompt.md",
+            "tools/prompts/fragments/goals/criteria-definition-output.md",
+            "tools/prompts/fragments/goals/criteria-id-output.md",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {name: "" for name in consumers})
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+
     def test_empty_conflict_generation_keeps_the_public_request_consumer(self):
         consumer = "tests.test_conflict_generation_cli"
         for path in (
