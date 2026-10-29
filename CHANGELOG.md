@@ -439,6 +439,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Discovery report repairs now offer the existing exact-source-bound object and malformed-JSON edits
+  (#2469), so small corrections can retain the rest of the rejected report without retranscribing it.
+  Complete schema, provenance, protected-contract and evidence checks still run after reconstruction;
+  full reports and saved schemas remain compatible.
 - Execution prompts now request criterion definitions only when the response schema contains them
   (#2463). Builder reports no longer have to copy the entire approved criteria into result prose;
   completion's ID-only reports and checkpoint/Resolver definition reports retain their own exact

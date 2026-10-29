@@ -19,7 +19,7 @@ except ImportError:
 
 KEY = "repair_report"
 META = "x-autocode-report-edits"
-STAGES = frozenset({"requirements_gather", "glm_revise"})
+STAGES = frozenset({"requirements_gather", "astra_discovery", "glm_revise"})
 RULE = (
     "BOUNDED REPORT EDITS. When the output schema offers repair_report, prefer that form for a small correction: "
     "return only repair_report with the exact rejected_report.sha256 and up to 32 edits. Each edit has op, path "
