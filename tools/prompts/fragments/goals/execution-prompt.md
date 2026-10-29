@@ -7,9 +7,7 @@ Routine reversible implementation and test-harness corrections needed for the ap
 outcome do not need a new approval unless they cross an explicit boundary. Do not turn
 each discovered repair into a separate permission request. Diagnose within authorized
 scope first; when a real boundary remains, present the concrete minimal scope delta.
-Restate acceptance_criteria entries byte-identical from the contract (same ids, criterion
-text, verification methods, human_review flags); any rewording is rejected as a criteria
-change. Do not weaken criteria, change required behavior or expand scope. The Plan Reviewer may change the
+Do not weaken criteria, change required behavior or expand scope. The Plan Reviewer may change the
 plan inside the goal; a validation task sends preserved implementation straight to the Validator.
 The Builder implements only the authorized batch. The Validator validates the actual current artifact
 and reports evidence for every criterion and an explicit blocking flag on each finding.

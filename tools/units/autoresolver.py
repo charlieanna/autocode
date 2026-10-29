@@ -387,7 +387,7 @@ def prepare(state: RunState, stage, state_path, schema_dir):
     # resolver sessions separate from planning, completion and implementation.
     state["settings"]["roles"].setdefault("resolver", copy.deepcopy(state["settings"]["roles"]["astra"]))
     role_transport.inherit(state.get("settings"), "resolver", "astra")
-    request = execution_request(state, "astra_review", state_path, schema_dir)
+    request = execution_request(state, "astra_review", state_path, schema_dir, report_stage=stage)
     instruction, payload = request.prompt.split("CURRENT HANDOFF DATA\n", 1)
     data = json.loads(payload)
     data.update(
@@ -492,7 +492,9 @@ def prepare_diagnosis(state: RunState, stage, state_path, schema_dir):
     # Reuse the Plan Reviewer's handoff context (current source, task, evidence
     # inventory) for input only; the output schema below is unrelated to and far
     # narrower than the reviewer decision schema that context call would imply.
-    request = execution_request(state, "astra_review", state_path, schema_dir)
+    request = execution_request(
+        state, "astra_review", state_path, schema_dir, report_stage=stage, schema_override=DIAGNOSIS_SCHEMA
+    )
     instruction, payload = request.prompt.split("CURRENT HANDOFF DATA\n", 1)
     data = json.loads(payload)
     data.update(
