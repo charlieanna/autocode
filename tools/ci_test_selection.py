@@ -68,6 +68,24 @@ SCENARIO_SELECTION_INPUTS = {
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
+        "scenarios/harness/fake_changed_code.py",
+        (
+            "tests.test_scenario_changed_code_fixtures",
+            "tests.test_acceptance_tests",
+            "tests.test_acceptance_writer_route",
+            "tests.test_follow_up_acceptance_cli",
+        ),
+    ),
+    (
+        "tools/goal_fixtures.py",
+        (
+            "tests.test_goal_fixture_changed_code",
+            "tests.test_artifact_review",
+            "tests.test_workflow",
+            "tests.test_final_workflow",
+        ),
+    ),
+    (
         "tools/live_fixture_provider.py",
         ("tests.test_live_fixture_changed_code", "tests.test_taskrun", "tests.test_agent_step"),
     ),

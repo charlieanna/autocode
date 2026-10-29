@@ -176,6 +176,7 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
     bindir = root / "bin"
     bindir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(FAKE_PROVIDER, bindir / "codex")
+    shutil.copy2(FAKE_PROVIDER.with_name("fake_changed_code.py"), bindir / "fake_changed_code.py")
     (bindir / "codex").chmod(0o755)
     config = root / "fake-config.json"
     config.write_text(

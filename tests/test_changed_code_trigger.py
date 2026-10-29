@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 import autocode_changed_code_trigger as trigger
+import autocode_regression as regression
 
 
 class ChangedCodeTriggerTests(unittest.TestCase):
@@ -123,3 +124,22 @@ class ChangedCodeTriggerTests(unittest.TestCase):
             base.assert_called_once_with(self.state, self.root)
             diff.assert_called_once_with(self.root, "original-base", source_paths=["approved/"])
         self.assertEqual(before, self.state)
+
+    def test_builder_self_check_can_reach_independent_audit_without_waiving_delivery_proof(self):
+        state = {"changed_files": ["calc.py"], "goal_contract": {"body": {"task_kind": "build"}}}
+        self.assertTrue(regression.required(state))
+        self.assertFalse(regression.required(state, include_changed_code=False))
+        self.assertTrue(regression.complete(state, "candidate", require_changed_code=False))
+        self.assertFalse(regression.complete(state, "candidate"))
+        for body in (
+            {"task_kind": "bugfix"},
+            {
+                "task_kind": "build",
+                "acceptance_criteria": [{"id": "C1", "verification_method": "test: test_c1_answer"}],
+            },
+        ):
+            with self.subTest(body=body):
+                state["goal_contract"]["body"] = body
+                self.assertTrue(regression.required(state, include_changed_code=False))
+                self.assertFalse(regression.complete(state, "candidate", require_changed_code=False))
+                self.assertFalse(regression.complete(state, "candidate"))

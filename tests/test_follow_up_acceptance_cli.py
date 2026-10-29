@@ -24,7 +24,9 @@ SEED_TESTS = (
     " def test_positive(self): self.assertEqual(sum_positive([2]), 2)\n"
 )
 FIRST_TESTS = SEED_TESTS + (
-    " def test_old_negative(self): self.assertEqual(sum_positive([-3, 2]), 2)\n"
+    " def test_old_negative(self):\n"
+    "  self.assertEqual(sum_positive([-3, 2]), 2)\n"
+    "  self.assertEqual(sum_positive([-1, 0.5]), 0.5)\n"
     " def test_empty(self): self.assertEqual(sum_positive([]), 0)\n"
 )
 SECOND_TESTS = FIRST_TESTS + (

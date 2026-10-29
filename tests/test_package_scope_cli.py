@@ -93,6 +93,8 @@ class PackageRunCLI(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", final["status"], result.stdout + result.stderr)
         proof = final["regression_proof"]
         self.assertEqual("PASS", proof["verdict"], proof)
+        self.assertEqual("PASS", proof["changed_code_evidence"]["status"])
+        self.assertTrue(proof["mutation_check"]["collected"])
         self.assertEqual(["test_greet.TestGreet.test_blank_name_rejected"], proof["fail_to_pass"])
         self.assertEqual(protected["command"], proof["commands"]["suite"])
         replay = final["validation"]["check_replay"]["protected_tests"]
@@ -129,7 +131,8 @@ class PackageRunCLI(unittest.TestCase):
         )
 
     def test_a_run_that_owes_no_proof_reports_each_change_outside_the_package(self):
-        # A build whose criteria name no test owes no regression proof, so nothing else judges its diff.
+        # Even a build whose criteria name no test owes changed-product proof;
+        # the package finding must remain visible beside that proof's refusal.
         self.env["AUTOCODE_FIXTURE_TASK_KIND"] = "build"
         self.builder_writes(
             {
@@ -141,7 +144,7 @@ class PackageRunCLI(unittest.TestCase):
         )
         run, _, result = self.run_to_end(2)
         view, row = self.outside_finding(run, result)
-        self.assertIsNone(view["evidence"]["regression_proof"])
+        self.assertEqual("UNVERIFIED", view["evidence"]["regression_proof"]["verdict"])
         self.assertIn(
             f"changed: README.md (modified), {OTHER}/notes.md (added), {OTHER}/other.py (modified). ", row["finding"]
         )
@@ -197,7 +200,8 @@ class PackageRunCLI(unittest.TestCase):
         self.assertEqual({}, final["package_outside_at_launch"])
         view = self.view(run)
         self.assertEqual((True, "TASK_COMPLETE"), (view["done"], view["status"]), result.stdout + result.stderr)
-        self.assertIsNone(view["evidence"]["regression_proof"])
+        self.assertEqual("PASS", view["evidence"]["regression_proof"]["verdict"])
+        self.assertEqual("PASS", view["evidence"]["regression_proof"]["changed_code_evidence"]["status"])
         self.assertEqual([], self.runner_findings(view))
         # And a finished run says so, not that a later edit outside the package is there.
         (self.project / "README.md").write_text("# edited after completion\n")

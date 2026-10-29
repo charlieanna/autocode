@@ -133,13 +133,18 @@ class BugfixWorkflow(unittest.TestCase):
         self.assertIn("no passing regression proof", final["stop_reason"])
         self.assertFalse(final.get("stuck_investigations"))
 
-    def test_build_tasks_get_no_proof_step(self):
+    def test_build_product_changes_get_the_same_changed_line_proof(self):
         self.env["AUTOCODE_FIXTURE_TASK_KIND"] = "build"
-        self.builder_writes({"greet.py": references.BUGFIX_REFERENCE["greet.py"]})
+        self.builder_writes(
+            {
+                "greet.py": references.BUGFIX_REFERENCE["greet.py"],
+                "test_greet.py": references.BUGFIX_REFERENCE["test_greet.py"],
+            }
+        )
         _, _, final, _ = self.run_to_end(0)
         self.assertEqual("TASK_COMPLETE", final["status"])
-        self.assertNotIn("regression_proof", [row["stage"] for row in final["stages"]])
-        self.assertNotIn("regression_proof", final)
+        self.assertEqual(1, sum(row["stage"] == "regression_proof" for row in final["stages"]))
+        self.assertEqual("PASS", final["regression_proof"]["changed_code_evidence"]["status"])
 
 
 class ProvenanceDefaults(unittest.TestCase):

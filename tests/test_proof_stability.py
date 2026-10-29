@@ -1,5 +1,6 @@
 """Stability of named proof (#700) and report-only diff coverage of the proving tests (#701)."""
 
+import shlex
 import shutil
 import subprocess
 import sys
@@ -154,6 +155,43 @@ class JudgingTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(stability.narrow(framework, command, ["t::test_a"]))
         self.assertIsNone(stability.narrow("unittest", "python3 -m unittest -v tests/test_x.py", []))
+
+
+class UnittestDiscoverySelectionTests(unittest.TestCase):
+    def test_selected_discovered_tests_keep_their_import_root_and_exclude_other_tests(self):
+        for start, top in (("tests", None), ("components/gateway", None), ("tests", ".")):
+            with self.subTest(start=start, top=top), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                directory = root / start
+                directory.mkdir(parents=True)
+                (directory / "__init__.py").write_text("")
+                (directory / "test_selected.py").write_text(
+                    "import unittest\nclass Selected(unittest.TestCase):\n"
+                    " def test_target(self): self.assertEqual(2 + 2, 4)\n"
+                    " def test_unselected(self): self.fail('must not run')\n"
+                )
+                owner = "tests.test_selected" if top else "test_selected"
+                test = owner + ".Selected::test_target"
+                command = shlex.join(
+                    [
+                        sys.executable,
+                        "-m",
+                        "unittest",
+                        "discover",
+                        "-v",
+                        "-s",
+                        start,
+                        "-k",
+                        "test_unselected",
+                        *(["-t", top] if top else []),
+                    ]
+                )
+                narrowed = stability.narrow("unittest", command, [test])
+                result = subprocess.run(shlex.split(narrowed), cwd=root, capture_output=True, text=True)
+                self.assertEqual(0, result.returncode, result.stderr)
+                observed = verify._unittest_results(result.stderr)
+                self.assertEqual([test.replace("::", ".")], [name.replace("::", ".") for name in observed["passed"]])
+                self.assertEqual(1, observed["total"])
 
 
 class DiffCoverageTests(unittest.TestCase):

@@ -137,11 +137,36 @@ def inventory(workspace, *, paths=()):
     result = {}
     for name, identity in snapshot(root, paths=paths)["files"].items():
         if identity.startswith("submodule:"):
-            nested = inventory(root / name, paths=nested_paths(root, paths, name))
-            result.update({name + "/" + child: value for child, value in nested.items()})
+            # Git spells an untracked repository as "directory/". Keep the
+            # snapshot's historical identity, but emit canonical file paths.
+            prefix = name.rstrip("/")
+            nested = inventory(root / prefix, paths=nested_paths(root, paths, prefix))
+            result.update({prefix + "/" + child: value for child, value in nested.items()})
         elif identity != "uninitialized-submodule":
             result[name] = identity
     return result
+
+
+def copied_files(workspace, names):
+    """Read known copyable file identities without depending on scratch Git metadata.
+
+    Names come from inventory() of the authoritative source. A clean copy may
+    flatten nested repositories; their copied bytes must still be checked.
+    Missing files and parent symlinks never substitute another input.
+    """
+    root, files = Path(workspace), {}
+    for name in names:
+        if not isinstance(name, str) or not name or "\\" in name or "\x00" in name:
+            raise ValueError("Copied input must have an ordinary relative path")
+        relative = Path(name)
+        if (
+            relative.is_absolute()
+            or ".." in relative.parts
+            or any(part.casefold() in _INTERNAL for part in relative.parts)
+        ):
+            raise ValueError("Copied input crosses the source boundary")
+        _include(root, relative, files)
+    return files
 
 
 def metadata(workspace, files):

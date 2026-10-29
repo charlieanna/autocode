@@ -63,7 +63,7 @@ class BuilderCriteriaCliTests(unittest.TestCase):
         builder = next(row for row in attempts if row["stage"] == "terra")
         self.assertNotIn("acceptance_criteria", builder["schema_properties"])
         self.assertNotIn("acceptance_criteria", builder["report"])
-        self.assertEqual(["4 tests passed"], builder["report"]["results"])
+        self.assertEqual(["6 tests passed"], builder["report"]["results"])
         self.assertEqual(builder["expected_hash"], builder["report"]["contract_hash"])
         self.assertEqual(builder["expected_revision"], builder["report"]["contract_revision"])
         self.assertFalse(builder["asks_criteria_echo"], "Builder prompt requests a field absent from its actual schema")

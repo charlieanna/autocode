@@ -37,8 +37,8 @@ def before_review(state: RunState, stage, workspace, run_dir):
             return
         current = source_scope.snapshot(workspace, state)
         if (
-            regression.required(state, all_due=True)
-            and regression.complete(state, current["revision"], all_due=True)
+            regression.required(state, all_due=True, include_changed_code=False)
+            and regression.complete(state, current["revision"], all_due=True, require_changed_code=False)
             and delivery.prepare(state, workspace, current)
         ):
             regression.before_review(state, stage, workspace, run_dir)
