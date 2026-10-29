@@ -93,6 +93,94 @@ class RegistryTests(unittest.TestCase):
             registry.configure_workspace_storage(workspace)
             self.assertEqual(str(self.home), os.environ["AUTOCODE_HOME"])
 
+    def test_task_worktree_registers_in_the_projects_registry(self):
+        """#2279: a default (no --in-place) run must not bury its index under the lane."""
+        project, _, _ = self.fixture("project")
+        lane = project / ".autocode" / "worktrees" / "add-a-hello-script-0123456789"
+        run = lane / ".autocode" / "runs" / "lane-run"
+        run.mkdir(parents=True)
+        (lane / ".git").write_text("gitdir: ../.git/worktrees/lane\n")
+        (lane / ".autocode" / "task-workspace.json").write_text(
+            json.dumps({"workspace": str(lane.resolve()), "project_workspace": str(project)})
+        )
+        state = {
+            "version": 3,
+            "workspace": str(lane.resolve()),
+            "task": "Add a hello script",
+            "status": "RUNNING",
+            "task_id": "lane-task",
+            "current_task": {"id": "implementation"},
+        }
+        (run / "state.json").write_text(json.dumps(state))
+        project_registry = project / ".autocode" / "registry"
+        with patch.dict(os.environ, {}, clear=True):
+            registry.configure_workspace_storage(lane.resolve())
+            self.assertEqual(str(project_registry), os.environ["AUTOCODE_HOME"])
+            registry.register_run(lane.resolve(), run.resolve(), state)
+            listed = registry.listing()
+        self.assertTrue(listed["registry_exists"])
+        self.assertEqual([str(run.resolve())], [row["run_dir"] for row in listed["runs"]])
+        self.assertFalse((lane / ".autocode" / "registry").exists())
+        with patch.dict(os.environ, {"AUTOCODE_HOME": str(self.home)}, clear=True):
+            registry.configure_workspace_storage(lane.resolve())
+            self.assertEqual(str(self.home), os.environ["AUTOCODE_HOME"])
+        # Foreign or mismatched metadata must not redirect registration.
+        (lane / ".autocode" / "task-workspace.json").write_text(
+            json.dumps({"workspace": str(lane.resolve()), "project_workspace": str(self.root / "elsewhere")})
+        )
+        with patch.dict(os.environ, {}, clear=True):
+            registry.configure_workspace_storage(lane.resolve())
+            self.assertEqual(str(lane.resolve() / ".autocode" / "registry"), os.environ["AUTOCODE_HOME"])
+
+    def test_listing_adds_a_project_registry_beside_the_shared_one(self):
+        """#2279: runs index in their project's registry, but the read commands default to the
+        per-user home; the listing from a project reads both, the shared record winning a key."""
+        shared, shared_run, shared_state = self.fixture("shared")
+        project, project_run, project_state = self.fixture("project")
+        registry.register_run(shared, shared_run, shared_state)
+        project_home = project / ".autocode" / "registry"
+        with patch.dict(os.environ, {"AUTOCODE_HOME": str(project_home)}):
+            registry.register_run(project, project_run, project_state)
+            registry.register_run(shared, shared_run, shared_state)
+        self.assertEqual([str(shared_run)], [row["run_dir"] for row in registry.listing()["runs"]])
+        merged = registry.listing(also=project_home)
+        self.assertEqual({str(shared_run), str(project_run)}, {row["run_dir"] for row in merged["runs"]})
+        self.assertEqual(2, len(merged["runs"]), "a run in both registries is listed once")
+        self.assertEqual({"available"}, {row["availability"] for row in merged["runs"]})
+        self.assertEqual([], merged["diagnostics"])
+        # A broken project registry never hides the shared one.
+        (project_home / "registry.json").write_text("broken\n")
+        broken = registry.listing(also=project_home)
+        self.assertEqual([str(shared_run)], [row["run_dir"] for row in broken["runs"]])
+        self.assertEqual(["project_registry_unreadable"], [item["code"] for item in broken["diagnostics"]])
+        self.assertEqual("broken\n", (project_home / "registry.json").read_text())
+        # Only the project registry exists: still listed.
+        (project_home / "registry.json").unlink()
+        with patch.dict(os.environ, {"AUTOCODE_HOME": str(project_home)}):
+            registry.register_run(project, project_run, project_state)
+        registry.registry_path().unlink()
+        alone = registry.listing(also=project_home)
+        self.assertTrue(alone["registry_exists"])
+        self.assertEqual([str(project_run)], [row["run_dir"] for row in alone["runs"]])
+
+    def test_project_storage_is_read_only_without_an_explicit_home(self):
+        project, _, _ = self.fixture("project")
+        lane = project / ".autocode" / "worktrees" / "lane-0123456789"
+        (lane / "src").mkdir(parents=True)
+        (lane / ".autocode").mkdir()
+        (lane / ".git").write_text("gitdir: ../.git/worktrees/lane\n")
+        (lane / ".autocode" / "task-workspace.json").write_text(
+            json.dumps({"workspace": str(lane), "project_workspace": str(project)})
+        )
+        self.assertIsNone(registry.project_storage(project), "an explicit AUTOCODE_HOME names the one registry")
+        with patch.dict(os.environ, {}, clear=True), patch.object(Path, "home", return_value=self.root):
+            expected = project / ".autocode" / "registry"
+            self.assertEqual(expected, registry.project_storage(project))
+            self.assertEqual(expected, registry.project_storage(project / ".autocode"))
+            self.assertEqual(expected, registry.project_storage(lane / "src"), "a lane reads its project's registry")
+            self.assertIsNone(registry.project_storage(self.root), "outside any repository there is none")
+        self.assertFalse((project / ".autocode" / "registry").exists())
+
     def test_register_deduplicates_canonical_alias_and_lists_checkpoint_summary(self):
         workspace, run, state = self.fixture("workspace")
         first = registry.register_run(workspace, run, state)
