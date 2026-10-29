@@ -6,6 +6,33 @@ cycles, and three naming schemes describe the same roles. The goal right
 now is to make the existing workflow dependable and the code easier to change,
 not to add surface area. See `RELIABILITY.md` for product priorities.
 
+## Agent autonomy for authorized work
+
+**Owner decision, 2026-10-29:** agents working on requested repository fixes and
+their verification may confirm Requirements and approve implementation plans on
+the owner's behalf. Do not stop to request the owner's personal approval at each
+of these gates. Read the actual Requirements and exact plan, check that they fit
+the requested task, correct problems, then take the public confirmation or
+approval action. Bind approval to the exact plan token reviewed, and record it as
+an agent review under this delegation, not as a claim that the owner personally
+read or approved that revision. This delegation also applies when an existing
+gate describes the decision as user-only or person-only.
+
+Handle routine corrective feedback, retries and recovery decisions after
+classifying the failure. Keep attempts, usage and failure evidence. For these
+requested fixes and live verification, the operating agent may make bounded
+active-time extensions within the existing spending cap and use the public CLI
+when the view lacks the corresponding operator control. Record the reason and
+the exact change; report the missing view action separately. This is operator
+authority, not permission to add private-state access or hidden actions to clients.
+
+Keep explicit spending caps and selected model routes unless the owner changes
+or delegates those choices. Ask only when required information or a material
+decision falls outside the authorized task; do not repeatedly ask about ordinary
+implementation and verification decisions already delegated here. Exact-plan
+binding, independent verification, evidence checks and the thin-client interface
+remain required.
+
 ## Layout
 
 | Path | What it is |
@@ -55,7 +82,9 @@ It is a client of the
 - connection checks and sign-in take only the connection view's named
   `actions[].next_command` argument array (`docs/task-run.md#connections-for-clients`);
 - it never launches a model on its own, and binds an approval to the plan token
-  it displayed, so it cannot approve a plan nobody read.
+  it displayed. The owner or the agent acting under the delegation above must
+  review that exact plan before taking the approval action; the owner need not
+  personally approve each revision.
 
 **Terminal chat, approved 2026-10-19 (#1622), in `tools/autocode_chat_client.py`.**
 The same contract as the VS Code client, with the shared rules in
