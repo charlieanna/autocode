@@ -20,6 +20,8 @@ BRIEF = (
     "Python standard library only."
 )
 OPTIONS = (
+    "--evidence-provenance",
+    "fake",
     "--engine",
     "codex",
     "--joint-planning",

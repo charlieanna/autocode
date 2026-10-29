@@ -94,7 +94,13 @@ def greeting_changed_code_reasons(data):
             or row.get("mutation_outcomes")
         ):
             continue
-        if reason := reasons.get(lines[line - 1].strip()):
+        source_line = lines[line - 1].strip()
+        reason = reasons.get(source_line)
+        if reason is None and line == 1 and source.startswith("# Fixture revision: "):
+            # This exact first-line comment is the fixture's source-revision nonce;
+            # it cannot affect execution and is outside the behavioral mutation surface.
+            reason = "This exact fixture revision comment carries no executable behavior. The pinned CLI tests exercise the implementation below it; removing the comment changes only fixture identity."
+        if reason:
             decisions.append(
                 {
                     "gap_id": row["gap_id"],

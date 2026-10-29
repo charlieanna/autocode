@@ -1160,7 +1160,7 @@ class GoalTests(unittest.TestCase):
         lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
         contract = copy.deepcopy(self.state["goal_contract"])
         repair = self.decision("REWORK")
-        repair["affected_paths"] = ["greet.py", "formatting.py", "test_greeting.py"]
+        repair["affected_paths"] = ["greet.py", "test_greeting.py", "formatting.py"]
         repair["next_task"]["requirements"] = ["Correct formatting.py to meet the approved greeting criterion"]
         lifecycle.assign_task(self.state, repair, s.snapshot(self.root))
         prompt, _ = stage_context.context_packet(self.state, "terra", self.run / "state.json")
