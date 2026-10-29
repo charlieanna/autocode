@@ -713,8 +713,7 @@ class CollectorImportPrecedenceTests(unittest.TestCase):
                 "import unittest\nclass Alpha(unittest.TestCase):\n def test_alpha(self): pass\n"
             ),
             "repos/beta-1c2d3e4f/beta.py": "def value():\n    return 'beta'\n",
-            "repos/beta-1c2d3e4f/tests/test_beta.py": self.BOOTSTRAP
-            + "import unittest\nfrom beta import value\n\n"
+            "repos/beta-1c2d3e4f/tests/test_beta.py": self.BOOTSTRAP + "import unittest\nfrom beta import value\n\n"
             "class Beta(unittest.TestCase):\n def test_beta_value(self): self.assertEqual('beta', value())\n",
         }
 
@@ -781,8 +780,17 @@ class CollectorImportPrecedenceTests(unittest.TestCase):
                 if (TOOLS / f"{match}.py").is_file()
             ]
         return shlex.join(
-            [sys.executable, str(Path(package.name) / "autocode_component_tests.py"), "-v", "--root", ".",
-             "--components", "alpha", "--repos", "beta-1c2d3e4f"]
+            [
+                sys.executable,
+                str(Path(package.name) / "autocode_component_tests.py"),
+                "-v",
+                "--root",
+                ".",
+                "--components",
+                "alpha",
+                "--repos",
+                "beta-1c2d3e4f",
+            ]
         )
 
     def test_an_installed_flat_package_layout_keeps_the_project_precedence(self):
