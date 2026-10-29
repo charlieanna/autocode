@@ -178,7 +178,7 @@ class FailureRetryCLITests(unittest.TestCase):
             state["stages"].append(record)
         support.atomic_json(run / "state.json", state)
         history = copy.deepcopy(state["failure_history"])
-        count = len(state["stages"])
+        count = len([row for row in state["stages"] if not row.get("runner_owned")])
         args = ["--run-dir", str(run), "--no-chat", "--resume-paused"]
         self.launch(args, 2)
         self.assertEqual(count, len([r for r in self.saved()[1]["stages"] if not r.get("runner_owned")]))
