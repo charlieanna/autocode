@@ -152,6 +152,43 @@ class FirstPythonSuiteTests(unittest.TestCase):
                     any("no existing behavior to preserve" in note for note in result["notes"]), result["notes"]
                 )
 
+    def test_a_stray_extensionless_note_has_no_behavior_to_preserve(self):
+        # #2259: a first task's base held only a one-line file named "a". The base suite collected no
+        # tests, so the proof waited on passing evidence nobody could supply and the run dead-ended.
+        result = self.prove({"a": "hello\n"})
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertFalse(result["unverified"], result)
+
+    def test_an_extensionless_file_that_can_run_still_requires_preservation(self):
+        for seed in (
+            {"a": "hello\n", "Makefile": "test:\n\techo hi\n"},
+            {"run": "#!/bin/sh\necho hi\n"},
+            {"a": "hello\n", "legacy.py": "VALUE = 1\n"},
+        ):
+            with self.subTest(sorted(seed)):
+                result = self.prove(seed)
+                self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+
+    def test_a_plain_note_is_judged_by_content(self):
+        self.assertTrue(first_suite.plain_note("a", b"hello\n"))
+        self.assertTrue(first_suite.plain_note("docs/NOTES", b"todo\n"))
+        for path, content in (
+            ("run", b"#!/usr/bin/env python3\nprint(1)\n"),
+            ("Dockerfile", b"FROM scratch\n"),
+            ("blob", b"\x00\x01"),
+            ("big", b"x" * (first_suite.NOTE_LIMIT + 1)),
+            ("notes.sh", b"echo hi\n"),
+            (".envrc", b"export A=1\n"),
+            ("a", None),
+        ):
+            with self.subTest(path):
+                self.assertFalse(first_suite.plain_note(path, content))
+        read = {"a": b"hello\n"}.get
+        self.assertTrue(first_suite.inert_base_file("a", 6, separate=True, source=False, read=read))
+        self.assertFalse(first_suite.inert_base_file("a", 6, separate=True, source=True, read=read))
+        self.assertFalse(first_suite.inert_base_file("a", 6, separate=False, source=False, read=read))
+        self.assertFalse(first_suite.inert_base_file("a", 6, separate=True, source=False))
+
     def test_a_data_file_beside_existing_source_still_requires_preservation(self):
         result = self.prove(
             {"README.md": "An existing project.\n", "sample.txt": "the fox\n", "legacy.py": "VALUE = 1\n"}

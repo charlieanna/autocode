@@ -3,6 +3,7 @@
 A documentation-only tree, or a tree with no Go project when the suite is Go.
 """
 
+import subprocess
 from pathlib import PurePosixPath
 
 try:
@@ -102,6 +103,59 @@ def data_file(path) -> bool:
     return PurePosixPath(str(path)).suffix.lower() in DATA_SUFFIXES
 
 
+# Extensionless files that a build or container tool runs by name.
+BUILD_FILES = frozenset(
+    {
+        "Makefile",
+        "GNUmakefile",
+        "makefile",
+        "Dockerfile",
+        "Containerfile",
+        "Procfile",
+        "Rakefile",
+        "Justfile",
+        "justfile",
+        "Vagrantfile",
+        "Jenkinsfile",
+        "Brewfile",
+        "Earthfile",
+        "Tiltfile",
+        "Snakefile",
+        "BUILD",
+        "WORKSPACE",
+    }
+)
+NOTE_LIMIT = 4096
+
+
+def plain_note(path, content) -> bool:
+    """A short extensionless text file that nothing runs: a stray note a person left (#2259).
+
+    Content decides, not the name: it must be UTF-8 text without NUL bytes or a
+    ``#!`` line, at most NOTE_LIMIT bytes, and not a build file a tool runs by name.
+    """
+    name = PurePosixPath(str(path))
+    if name.suffix or name.name.startswith(".") or name.name in BUILD_FILES or content is None:
+        return False
+    if len(content) > NOTE_LIMIT or b"\0" in content or content.lstrip().startswith(b"#!"):
+        return False
+    try:
+        content.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+def blob_reader(workspace, revision):
+    """``read(path)``: the bytes of path at revision, or None when Git cannot show it."""
+
+    def read(path):
+        shown = subprocess.run(["git", "cat-file", "blob", f"{revision}:{path}"], cwd=workspace, capture_output=True)
+        return shown.stdout if shown.returncode == 0 else None
+
+    return read
+
+
 DESIGN_DIRECTORY = PurePosixPath("docs", "design")
 PROSE_DOCUMENT_SUFFIXES = (".rst", ".adoc")
 
@@ -127,7 +181,7 @@ def manifest(path) -> bool:
     )
 
 
-def inert_base_file(path, size, *, separate, source) -> bool:
+def inert_base_file(path, size, *, separate, source, read=None) -> bool:
     """True when a pinned base entry holds no behavior a suite could run.
 
     README.md is always accepted. In a separate checkout (the candidate cannot
@@ -139,6 +193,8 @@ def inert_base_file(path, size, *, separate, source) -> bool:
     source still needs passing-test evidence. A non-Markdown prose document in
     the design workflow's directory is not one of those data files: the workflow
     writes Markdown, so another format there is not the approved design (#2069).
+    In the same base, a short extensionless text note (plain_note, its content
+    supplied by ``read``) holds no behavior either (#2259).
     """
     if path == "README.md":
         return True
@@ -150,6 +206,7 @@ def inert_base_file(path, size, *, separate, source) -> bool:
         or name.suffix == ".md"
         or size == 0
         or (not source and (manifest(path) or (data_file(path) and not non_markdown_design_document(path))))
+        or (not source and read is not None and size <= NOTE_LIMIT and plain_note(path, read(path)))
     )
 
 

@@ -33,6 +33,44 @@ implementation and verification decisions already delegated here. Exact-plan
 binding, independent verification, evidence checks and the thin-client interface
 remain required.
 
+## What a person is asked
+
+**Owner decision, 2026-10-29:** a person using AutoCode is involved only in
+gathering requirements, reviewing and approving the plan, and clarifying genuine
+ambiguity in the requirements or the plan. AutoCode never asks a person about its
+own machinery: regression proofs and baselines, evidence gaps, retries, recovery,
+report repair, routing, stage scheduling, or any pause AutoCode can settle itself.
+
+- When AutoCode can decide, it decides deterministically and records the decision
+ and its reason in the run's evidence, where reviewers and the report show it.
+- When it cannot decide safely, it fixes or reports the gap in the core, the CLI or
+ the view. It does not hand the person a question about machinery, and a client
+ never shows a person an internal flag, token or command to type.
+- A run that today stops to ask a person about machinery is a defect. Fix it the
+ same way, in any issue, not only in new code. Do not add a new person question,
+ flag or confirmation for machinery to work around one.
+
+Spending caps, model routes the owner chose, publishing and merging remain the
+owner's, as above.
+
+## Every product line a task adds is tested
+
+**Owner decision, 2026-10-29:** for the task a person gave it, AutoCode delivers
+a test for every product line it adds or changes. A test the task's proof runs
+must execute that line. AutoCode settles a changed line no test runs itself: the
+Builder adds the test and the proof runs again. It is not a question for the
+person and not an acceptable completion.
+
+- Diff coverage (`tools/autocode_diff_coverage.py`, #701) measures this today but
+ only reports it: an uncovered hunk never changes the verdict. Making it a
+ completion condition is outstanding work under this decision.
+- Where coverage cannot be measured (no coverage tool, an unmeasured file),
+ AutoCode decides deterministically how the line is shown to be tested and
+ records that in evidence. It neither asks the person nor installs a tool into
+ the project.
+- The same holds for changes to this repository: a fix adds a test for the
+ behavior it changes (see Testing).
+
 ## Layout
 
 | Path | What it is |
