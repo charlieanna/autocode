@@ -19,6 +19,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+
 try:
     from .autocode_python_tests import TEST_MODULE
 except ImportError:
