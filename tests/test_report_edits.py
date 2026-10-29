@@ -7,9 +7,11 @@ import unittest
 from pathlib import Path
 
 import autocode as runner
+import autocode_goals as goals
 import autocode_report_edits as edits
 import autocode_report_text_edits as text_edits
 from autocode_util import file_hash, validate_schema
+from goal_fixtures import body
 
 
 class ReportEditsTests(unittest.TestCase):
@@ -77,6 +79,40 @@ class ReportEditsTests(unittest.TestCase):
         )
         self.assertEqual(self.patch, json.loads(Path(self.record["reported_output"]).read_text()))
         self.assertEqual(self.base, json.loads(self.source.read_text()))
+
+    def test_discovery_edits_do_not_authorize_removing_protected_behavior(self):
+        previous = body()
+        base = {"contract": previous, "extra": "bad"}
+        self.source.write_text(json.dumps(base))
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"contract": goals.BODY_SCHEMA},
+            "required": ["contract"],
+        }
+        self.schema.write_text(json.dumps(schema))
+        descriptor = {**self.descriptor, "content": base, "sha256": file_hash(self.source)}
+        offered = edits.prepare(self.schema, descriptor, "astra_discovery")
+        record = {**self.record, "stage": "astra_discovery_report_repair", "schema": str(offered)}
+        patch = {
+            "repair_report": {
+                "sha256": descriptor["sha256"],
+                "edits": [
+                    {"op": "remove", "path": ["extra"], "value": None},
+                    {
+                        "op": "replace",
+                        "path": ["contract", "required_behaviors"],
+                        "value": ["Weaken the requested outcome"],
+                    },
+                ],
+            }
+        }
+        Path(record["output"]).write_text(json.dumps(patch))
+        fixed = runner.load_stage_report(record)
+        state = {"goal_contract": {"body": previous, "approval_status": "approved", "revision": 1}}
+        with self.assertRaisesRegex(ValueError, "without a user-backed contract change"):
+            goals.revision_guard(state, fixed["contract"], [], "astra_discovery")
+        self.assertEqual(base, json.loads(self.source.read_text()))
 
     def test_full_response_stays_compatible_and_semantically_invalid_patch_still_fails(self):
         complete = edits.expand(self.patch, self.record)

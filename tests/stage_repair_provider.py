@@ -229,6 +229,47 @@ def main():
         print(json.dumps({"type": "thread.started", "thread_id": session}))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
         return 0
+    if repair and stage == "astra_discovery" and os.environ["STAGE_REPAIR_CASE"].startswith("discovery-edits"):
+        case = os.environ["STAGE_REPAIR_CASE"]
+        source = data["rejected_report"]
+        text_mode = "-text" in case
+        operations = (
+            [{"find": '"summary":', "replace": ',"summary":'}]
+            if text_mode
+            else [{"op": "remove", "path": ["contract", "contract_changes_placeholder"], "value": None}]
+        )
+        if case.endswith("authority"):
+            if text_mode:
+                operations.append({"find": '"answer_id": "Q1"', "replace": '"answer_id": "missing-answer"'})
+            else:
+                operations.append(
+                    {
+                        "op": "replace",
+                        "path": ["contract", "accepted_assumptions", 0, "answer_id"],
+                        "value": "missing-answer",
+                    }
+                )
+        token = "0" * 64 if case.endswith("stale") else source["sha256"]
+        value = {"repair_report": {"sha256": token, "text_edits" if text_mode else "edits": operations}}
+        schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        output = Path(sys.argv[sys.argv.index("-o") + 1])
+        output.write_text(json.dumps(value))
+        append_trace(
+            {
+                "stage": stage,
+                "repair": True,
+                "error": data.get("error", ""),
+                "patch": value,
+                "output": str(output),
+                "source_path": source["path"],
+                "source_hash": source["sha256"],
+                "offered": "repair_report" in schema.get("properties", {}),
+                "rule": ("BOUNDED JSON TEXT REPAIR" if text_mode else "BOUNDED REPORT EDITS") in prompt,
+            }
+        )
+        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
+        print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}}))
+        return 0
     if repair and stage == "glm_revise" and os.environ["STAGE_REPAIR_CASE"].startswith("bounded-report-edits"):
         case = os.environ["STAGE_REPAIR_CASE"]
         operations = [{"op": "remove", "path": ["acceptance_test"], "value": None}]
@@ -628,7 +669,14 @@ def main():
         )
     if stage == "glm_revise" and case.startswith("bounded-report-edits") and not repair:
         value["acceptance_test"] = "Already covered by the retained criteria"
+    if stage == "astra_discovery" and case.startswith("discovery-edits") and data.get("saved_answers") and not repair:
+        if "-text" not in case:
+            value["contract"]["contract_changes_placeholder"] = None
+        row["discovery_fault"] = True
     text = json.dumps(value)
+    if row.get("discovery_fault") and "-text" in case:
+        assert ', "summary":' in text
+        text = text.replace(', "summary":', '"summary":', 1)
     if stage == "glm_revise" and (case == "json-syntax-diagnostic" or case.startswith("empty-planning-repair")):
         text = json.dumps(value, separators=(",", ":"))
         assert not repair and ',"summary":' in text

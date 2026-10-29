@@ -732,8 +732,11 @@ class RepairTests(unittest.TestCase):
                     json.loads(schema_bytes),
                     runner.report_edits.validation_schema(json.loads(request["schema"].read_text())),
                 )
-                if stage != "glm_revise":
+                if stage not in runner.report_edits.STAGES:
                     self.assertEqual(schema_bytes, request["schema"].read_bytes())
+                else:
+                    self.assertIn("repair_report", json.loads(request["schema"].read_text())["properties"])
+                    self.assertIn("BOUNDED REPORT EDITS", prompt)
                 self.assertFalse(request["allow_write"])
                 self.assertTrue(request["report_only"])
 
