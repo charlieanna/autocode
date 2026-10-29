@@ -693,6 +693,17 @@ class CollectorImportPrecedenceTests(unittest.TestCase):
         "        self.assertEqual(project / 'run_suite.py', Path(run_suite.__file__).resolve())\n"
     )
 
+    MISSING_IMPORTER = (
+        "import unittest\n"
+        "class MissingHelper(unittest.TestCase):\n"
+        "    def test_missing_project_helper_stays_missing(self):\n"
+        "        try:\n"
+        "            import run_suite\n"
+        "        except ModuleNotFoundError:\n"
+        "            return\n"
+        "        self.fail(f'imported {run_suite.__file__} instead of staying missing')\n"
+    )
+
     def project_files(self, helper=HELPER, importer=IMPORTER):
         return {
             "run_suite.py": helper,
@@ -751,11 +762,8 @@ class CollectorImportPrecedenceTests(unittest.TestCase):
                 self.assertTrue(any("test_alpha" in name for name in receipt["results"]["passed"]), text)
                 self.assertTrue(any("test_beta_value" in name for name in receipt["results"]["passed"]), text)
 
-    def test_an_installed_flat_package_layout_keeps_the_project_precedence(self):
-        # The wheel installs tools/ flat as autocode_cli, so the installed collector
-        # runs from a directory that also holds run_suite.py. A copied mini package —
-        # the collector, the shadowing sibling and both import closures — proves the
-        # same correction holds there.
+    def installed_command(self):
+        """A mini installed autocode_cli: the collector, the shadowing sibling, both closures."""
         package = tempfile.TemporaryDirectory(prefix="installed-collector-")
         self.addCleanup(package.cleanup)
         needed = ["autocode_component_tests.py", "run_suite.py"]
@@ -772,14 +780,35 @@ class CollectorImportPrecedenceTests(unittest.TestCase):
                 for match in re.findall(r"^[ \t]*(?:from|import)\s+([A-Za-z_]\w*)", source.read_text(), re.M)
                 if (TOOLS / f"{match}.py").is_file()
             ]
-        command = shlex.join(
+        return shlex.join(
             [sys.executable, str(Path(package.name) / "autocode_component_tests.py"), "-v", "--root", ".",
              "--components", "alpha", "--repos", "beta-1c2d3e4f"]
         )
-        receipt, text = self.collect(self.project_files(), command=command)
+
+    def test_an_installed_flat_package_layout_keeps_the_project_precedence(self):
+        # The wheel installs tools/ flat as autocode_cli, so the installed collector
+        # runs from a directory that also holds run_suite.py; the copied mini package
+        # proves the same correction holds there.
+        receipt, text = self.collect(self.project_files(), command=self.installed_command())
         self.assertEqual(0, receipt["exit_code"], text)
         self.assertEqual(4, receipt["results"]["total"], text)
         self.assertEqual(2, text.count("test_root_import_resolves_to_the_project_module ("), text)
+
+    def test_a_missing_project_module_is_not_satisfied_by_the_collectors_directory(self):
+        # No project run_suite.py exists: the import must stay missing (ModuleNotFoundError
+        # is the suite's normal fallback here), never AutoCode's unrelated module.
+        files = self.project_files()
+        files.pop("run_suite.py")
+        files["test_top.py"] = self.MISSING_IMPORTER
+        files["tests/test_suite_collection.py"] = self.MISSING_IMPORTER
+        for layout in ("source", "installed"):
+            with self.subTest(layout=layout):
+                receipt, text = self.collect(files, command=None if layout == "source" else self.installed_command())
+                self.assertEqual(0, receipt["exit_code"], text)
+                self.assertEqual(4, receipt["results"]["total"], text)
+                self.assertEqual(2, text.count("test_missing_project_helper_stays_missing ("), text)
+                for fragment in ("test_alpha", "test_beta_value"):
+                    self.assertTrue(any(fragment in name for name in receipt["results"]["passed"]), text)
 
 
 class PreservationEvidenceCase(unittest.TestCase):

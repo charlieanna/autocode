@@ -182,20 +182,30 @@ def orchestrate(root, selected, components, repos):
     return code
 
 
-def demote_script_directory():
-    """The collector's own directory must never outrank the project's imports (#2456).
+def discard_script_directory():
+    """The collector's own directory is not a project-module search path (#2456).
 
     The detected suite command runs this file by absolute path, so Python puts this
     directory first on sys.path — ahead of the workspace roots the runner supplies
     on PYTHONPATH — and unittest discovery does not move a root already there. A
-    project module named like a sibling here (``run_suite`` is one) would then
-    import AutoCode's file instead of the project's. The family and member passes
-    prepend their own component paths; the root pass has no such prepend, so the
-    script directory itself moves to the end and the workspace's precedence stands.
+    workspace module named like a sibling here (``run_suite`` is one) then imported
+    AutoCode's file instead of the project's, and with no project file at all it
+    still imported AutoCode's instead of failing. The bootstrap imports above have
+    already resolved, so every sys.path entry for this directory now goes: the
+    workspace's intended precedence stands and a genuinely missing module fails
+    honestly. An entry that is itself the tested workspace — the collector run from
+    inside its own checkout — stays: that root is the workspace's legitimate path,
+    and discovery and the family and member passes establish exactly it anyway.
     """
     here = Path(__file__).resolve().parent
-    if sys.path and Path(sys.path[0]).resolve() == here:
-        sys.path.append(sys.path.pop(0))
+    workspace = Path.cwd().resolve()
+    kept = {workspace, workspace / "src"}
+
+    def own(entry):
+        resolved = Path(entry).resolve()
+        return resolved == here and resolved not in kept
+
+    sys.path[:] = [entry for entry in sys.path if not own(entry)]
 
 
 def main(argv=None):
@@ -254,5 +264,5 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    demote_script_directory()
+    discard_script_directory()
     raise SystemExit(main())
