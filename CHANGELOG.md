@@ -94,6 +94,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Repository agents may review and confirm Requirements and approve exact implementation plans for
+  authorized fixes under the owner's delegation, recording agent review while preserving spending
+  caps, selected model routes, independent verification and evidence checks. Routine recovery and
+  bounded active-time extensions within the spending cap no longer require repeated personal approval.
 - Contained Kilo launches reuse their freshly intersected shell policy within the same launch, removing
   one intermediate agent lookup. The final native permission/tool checks and every sandbox and toolchain
   probe still run; policy order or configuration mismatches stop before the model starts (#2439).
