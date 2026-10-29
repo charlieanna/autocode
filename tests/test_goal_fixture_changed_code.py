@@ -12,6 +12,34 @@ import goal_fixtures as fixture
 
 
 class DefaultGreetingReasonsTests(unittest.TestCase):
+    def test_visual_milestone_goodbye_reason_is_limited_to_exact_fixture_lines(self):
+        with tempfile.TemporaryDirectory() as folder, contextlib.chdir(folder):
+            fixture.seed_greeting_workspace(folder)
+            Path("bye.py").write_text(
+                "import sys\nprint('Goodbye, ' + sys.argv[1])\n# batch 12345678-1234-1234-1234-123456789abc\n"
+            )
+            goodbye = Path("bye.py").read_text()
+            rows = [
+                {
+                    "gap_id": f"bye:{line}",
+                    "path": "bye.py",
+                    "sha256": hashlib.sha256(goodbye.encode()).hexdigest(),
+                    "line": line,
+                    "status": "reason_required",
+                    "mutation_outcomes": [],
+                }
+                for line in (1, 2, 3)
+            ]
+            data = {"regression_proof": {"path": "proof.json", "changed_code_evidence": {"obligations": rows}}}
+            accepted = fixture.greeting_changed_code_reasons(data)
+            self.assertEqual(["bye:1", "bye:2"], [row["gap_id"] for row in accepted])
+
+            rows[1]["mutation_outcomes"] = ["survived"]
+            self.assertEqual(["bye:1"], [row["gap_id"] for row in fixture.greeting_changed_code_reasons(data)])
+            rows[1]["mutation_outcomes"] = []
+            Path("bye.py").write_text(goodbye.replace("Goodbye", "Hello"))
+            self.assertFalse(fixture.greeting_changed_code_reasons(data))
+
     def test_known_fixture_reasons_are_precise_and_cannot_waive_survivors_or_changed_inputs(self):
         with tempfile.TemporaryDirectory() as folder, contextlib.chdir(folder):
             fixture.seed_greeting_workspace(folder)

@@ -721,6 +721,11 @@ def main() -> int:
         if "--output-schema" in sys.argv
         else {}
     )
+    if "failure_class" in schema.get("properties", {}):
+        # Match the schema introduced for builder-failure investigations,
+        # including when the original report is being repaired.
+        report.setdefault("failure_class", "unknown")
+        report.setdefault("failure_id", "offline-fixture-failure")
     saved = _saved_report(data) if repairing else {}
     if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in schema.get("properties", {}):
         report["changed_code_exceptions"] = _changed_code_reasons(data)

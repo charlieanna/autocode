@@ -178,10 +178,11 @@ class FailureRetryCLITests(unittest.TestCase):
             state["stages"].append(record)
         support.atomic_json(run / "state.json", state)
         history = copy.deepcopy(state["failure_history"])
-        count = len([row for row in state["stages"] if not row.get("runner_owned")])
+        stage_count = len(state["stages"])
+        attempt_count = len([row for row in state["stages"] if not row.get("runner_owned")])
         args = ["--run-dir", str(run), "--no-chat", "--resume-paused"]
         self.launch(args, 2)
-        self.assertEqual(count, len([r for r in self.saved()[1]["stages"] if not r.get("runner_owned")]))
+        self.assertEqual(attempt_count, len([r for r in self.saved()[1]["stages"] if not r.get("runner_owned")]))
         self.assertEqual(history, self.saved()[1]["failure_history"])
         # Corrupt only the fixture's validation report, never the artifact: a
         # writing Builder changes the source and therefore the failure identity.
@@ -204,7 +205,9 @@ class FailureRetryCLITests(unittest.TestCase):
             ],
         )
         self.assertEqual(4, retried["failure_history"][record["failure_key"]]["count"])
-        self.assertEqual(["sol"], [row["stage"] for row in retried["stages"][count:] if not row.get("runner_owned")])
+        self.assertEqual(
+            ["sol"], [row["stage"] for row in retried["stages"][stage_count:] if not row.get("runner_owned")]
+        )
         count = len(retried["stages"])
         self.launch(args, 2)
         self.assertEqual(count, len(self.saved()[1]["stages"]))

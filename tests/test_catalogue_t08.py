@@ -19,7 +19,7 @@ import autocode as runner
 import autocode_findings as findings
 import autocode_goals as goals
 import autocode_support as support
-from goal_fixtures import envelope
+from goal_fixtures import envelope, greeting_changed_code_reasons, write_greeting_source
 
 from . import test_catalogue_t06 as t06
 
@@ -124,10 +124,10 @@ class CrashScenarios(CrashCase):
             out = self.run / f"{stage}.json"
             ev = self.run / f"{stage}.jsonl"
             if stage == "terra":
-                (self.root / "source.rb").write_text("fixed")
+                write_greeting_source(self.root, revision="crash-recovery")
                 value = {
                     "summary": "done",
-                    "changed_files": ["source.rb"],
+                    "changed_files": ["greet.py"],
                     "commands_run": [],
                     "results": [],
                     "remaining_risks": [],
@@ -140,16 +140,15 @@ class CrashScenarios(CrashCase):
                             "item": {
                                 "id": "check",
                                 "type": "command_execution",
-                                "command": "ruby t",
+                                "command": "python3 -m unittest test_greeting.py",
                                 "exit_code": 0,
-                                "aggregated_output": "ok",
+                                "aggregated_output": "2 tests passed",
                             },
                         }
                     )
                     + "\n"
                 )
             elif stage == "sol":
-                # A real check the runner can re-run on the Builder's output (autocode_check_replay).
                 ev.write_text(
                     json.dumps(
                         {
@@ -157,23 +156,18 @@ class CrashScenarios(CrashCase):
                             "item": {
                                 "id": "check",
                                 "type": "command_execution",
-                                "command": "grep -q fixed source.rb",
+                                "command": "python3 -m unittest test_greeting.py",
                                 "exit_code": 0,
-                                "aggregated_output": "",
+                                "aggregated_output": "2 tests passed",
                             },
                         }
                     )
                     + "\n"
                 )
-                value = {
-                    "verdict": "PASS",
-                    "checks_run": ["grep -q fixed source.rb"],
-                    "findings": [],
-                    "unverified_criteria": [],
-                    "end_to_end_result": {"status": "PASS", "summary": "flow", "evidence_refs": ["event:check"]},
-                    "checks": [{"command": "grep -q fixed source.rb", "exit_code": 0, "evidence_ref": "event:check"}],
-                    "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}],
-                }
+                value = self.sol_report()
+                value["changed_code_exceptions"] = greeting_changed_code_reasons(
+                    {"regression_proof": kwargs["state"].get("regression_proof")}
+                )
             else:
                 value = CrashCase.decision(self, "COMPLETE")
                 value.update(envelope(kwargs["state"]))
@@ -186,7 +180,7 @@ class CrashScenarios(CrashCase):
                 "iteration": 5,
                 "output": str(out),
                 "events": str(ev),
-                "changed_files": ["source.rb"] if stage == "terra" else [],
+                "changed_files": ["greet.py"] if stage == "terra" else [],
                 "after_ref": str(self.run / "check.log"),
                 "source_revision": support.snapshot(self.root)["revision"],
                 "duration_seconds": 0.01,

@@ -939,5 +939,12 @@ if isinstance(result.get("contract"), dict) and "scope_exclusions" in result["co
     for entry in data.get("scope_exclusions_required") or []:
         if entry not in result["contract"]["scope_exclusions"]:
             result["contract"]["scope_exclusions"] = [*result["contract"]["scope_exclusions"], entry]
+if "failure_class" in schema.get("properties", {}):
+    # Builder-failure investigation reports gained an explicit classification
+    # contract. Keep both the first scripted report and its report-only repair
+    # schema-compliant so these fixtures test recovery rather than malformed
+    # fake-provider output.
+    result.setdefault("failure_class", "unknown")
+    result.setdefault("failure_id", "offline-fixture-failure")
 Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 50}}))

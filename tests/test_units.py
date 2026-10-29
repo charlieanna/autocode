@@ -116,7 +116,9 @@ class ResolverFlow(unittest.TestCase):
         self.launch(["Build greeting", "--chat"], 0, answers="CLI\nyes\n")
         run, state = self.saved()
         self.assertEqual("TASK_COMPLETE", state["status"])
-        stages = [r["stage"] for r in state["stages"]]
+        # Runner-owned regression proof is an independent check, not a unit
+        # handoff or model stage in this orchestration assertion.
+        stages = [r["stage"] for r in state["stages"] if not r.get("runner_owned")]
         self.assertEqual(
             [
                 "recognize_workflow",
