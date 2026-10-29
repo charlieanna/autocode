@@ -261,6 +261,12 @@ TABLE: dict[str, tuple[str, str]] = {
         "The Completion Reviewer asked for a decision before the run can end.",
         "--feedback or --accept-completion answers.",
     ),
+    "PAUSED_STALE_DIAGNOSIS": (
+        "The draft conflicts with its accepted diagnosis, and the saved correction or evidence does not "
+        "currently authorize a refresh. The original proof cases remain required; implementation is held.",
+        "--resume-paused rechecks the saved feedback, draft and diagnosis evidence. Only an eligible correction "
+        "starts a fresh investigation; otherwise the run stays paused. The refreshed plan still needs approval.",
+    ),
     "PAUSED_STALE_VALIDATION": (
         "The saved validation belongs to another source or goal revision.",
         "A fresh validation on the current source is required; --resume-paused starts it.",
