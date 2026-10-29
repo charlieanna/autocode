@@ -434,7 +434,9 @@ def check_requirement_handoff(state: RunState, report):
 def check_requirement_trace(state: RunState, report, contract, *, coverage=True):
     if coverage:
         brief_literals.check(scan_texts(state), contract)
-        scope_question.check(state, contract)  # the plan lists what the person left out of this run (#2066)
+        # the plan lists what the person left out of this run (#2066); the report's own
+        # declared corrections count here because this check runs before they install (#2467)
+        scope_question.check(state, contract, changes=report.get("contract_changes") or [])
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
     requirements = (handoff.get("requirements") or []) + adaptive.feedback_requirements(state)
     if not requirements:

@@ -31,9 +31,18 @@ class InteractionTiming(TypedDict):
 
 # Every key tools/ reads or writes on a run state dict.
 # Generated from the source; add a new one here in the same change that introduces it.
+# scope_exclusion_corrections (#2467): person-authorized exact rewords of authenticated
+# peer exclusions. Written only by autocode_goal_lifecycle.install_draft (through
+# autocode_scope_question.record_installed_corrections, which validates each declared
+# reword independently of the revision guard: saved person basis, current authenticated
+# assignment, exact current boundary text, same-peer replacement present in the installed
+# body); read only by autocode_scope_question.effective_exclusions, which re-binds every
+# receipt to the workspace-scope identity, the turn and the assignment-membership digest
+# it was recorded under.
 KEYS: frozenset[str] = frozenset(
     {
         "_authorized_bound_change",
+        "scope_exclusion_corrections",
         "runner",
         "_fixture_accepted",
         "_fixture_attempt",
