@@ -104,6 +104,38 @@ class PlanningTests(unittest.TestCase):
         self.assertIn("retain the protected text and add a blocking decision", prompt)
         self.assertIn("contract.initial_task.kind=none", prompt)
 
+    def test_citation_stages_state_the_runner_owned_boundary_before_first_output(self):
+        # #2487: code_refs are validated against the runner-owned boundary, so the stages
+        # that cite them hear the rule before their first output, including the
+        # read-versus-cite distinction a joint brief's candidate inputs need. The
+        # requirements-only empty rule stays with Requirements.
+        state = self.state()
+        state["workspace"] = "/fixture"
+        for stage in ("astra_discovery", "glm_revise"):
+            with self.subTest(stage=stage):
+                prompt, _ = planning.context(state, stage, Path("/fixture/state.json"))
+                self.assertIn("code_refs name the actual repository-relative source files you read", prompt)
+                self.assertIn("Never cite .autocode/", prompt)
+                self.assertIn("is a task input, not a citation", prompt)
+                self.assertNotIn("source_refs may be empty only when", prompt)
+        prompt, _ = planning.context(state, "requirements_gather", Path("/fixture/state.json"))
+        self.assertIn("is a task input, not a citation", prompt)
+        self.assertIn("source_refs may be empty only when", prompt)
+
+    def test_cited_file_still_rejects_runner_owned_candidate_inputs(self):
+        # #2487: the guidance change loosens no validator boundary; a joint candidate
+        # copy stays readable in the workspace and uncitable in a report.
+        with tempfile.TemporaryDirectory() as workspace:
+            root = Path(workspace)
+            owned = root / ".autocode" / "candidate-inputs" / "alpha" / "app.py"
+            owned.parent.mkdir(parents=True)
+            owned.write_text("print('candidate')\n")
+            source = root / "app.py"
+            source.write_text("print('baseline')\n")
+            self.assertEqual(source.resolve(), planning.cited_file(root, "app.py", "code_refs", "app.py"))
+            with self.assertRaises(ValueError):
+                planning.cited_file(root, ".autocode/candidate-inputs/alpha/app.py", "code_refs", "owned.py")
+
     def test_finalizer_context_requests_only_legal_obligation_lists(self):
         state = self.state()
         state.update(workspace="/fixture")

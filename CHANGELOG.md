@@ -431,6 +431,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Joint planning no longer has to relearn the citation boundary by rejection (#2487). The joint
+  brief said to read `.autocode/candidate-inputs.json` while the runner rejects `.autocode/`
+  citations, and only Requirements ever heard that rule: discovery and revision cited runner-owned
+  candidate copies and were refused. The brief now says candidate copies are task inputs to read
+  and install but never to cite (cite the lasting `repos/` source; its baseline bytes are still the
+  broken code until a candidate is installed), the discovery and revision prompts and their report
+  repairs carry the same ownership rule for `code_refs`, and the Requirements rule states the same
+  read-versus-cite distinction for `source_refs`. Validator boundaries and report schemas are
+  unchanged: runner-owned citations still reject.
 - A spec-first run no longer sends the Tester to rewrite a test whose criterion did not change (#2464, item 2).
   A reapproval or a follow-up installs a new contract hash, and acceptance-test receipts are keyed by the hash
   they were written under, so every case was due again and the Tester re-ran for all of them. A case whose
