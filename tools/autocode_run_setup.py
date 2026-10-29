@@ -48,6 +48,7 @@ try:
     from . import autocode_job_route as job_route
     from . import autocode_keep_awake as keep_awake
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_limit_events as limit_events
     from . import autocode_milestones as milestones
     from . import autocode_package_scope as package_scope
     from . import autocode_package_writes as package_writes
@@ -94,6 +95,7 @@ except ImportError:
     import autocode_job_route as job_route
     import autocode_keep_awake as keep_awake
     import autocode_launch_inputs as launch_inputs
+    import autocode_limit_events as limit_events
     import autocode_milestones as milestones
     import autocode_package_scope as package_scope
     import autocode_package_writes as package_writes
@@ -791,6 +793,8 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
             cross_check=runner.dispatch.enforce_cross_model_verification,
             configured_tool=getattr(runner.opencode, "CONFIGURED", False),
         )
+        # A limit a person's flag changed is a recorded configuration change, as `autocode events` says (#2412).
+        limit_events.record(state, previous_settings, settings, at=runner.now())
         state["settings"] = settings
         # A recovery novelty hold's stop states the cost cap; the settings saved here may change it (#611).
         resolver_recovery.restate_hold(state)

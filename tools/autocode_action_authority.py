@@ -30,6 +30,7 @@ try:
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_limit_events as limit_events
     from . import autocode_member_stop as member_stop
     from . import autocode_milestones as milestones
     from . import autocode_operational_information as operational_information
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_goals as goals
     import autocode_interventions as interventions
     import autocode_launch_inputs as launch_inputs
+    import autocode_limit_events as limit_events
     import autocode_member_stop as member_stop
     import autocode_milestones as milestones
     import autocode_operational_information as operational_information
@@ -287,13 +289,14 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
         and runner.stale_report_repair(state, workspace)
     ):
         specific_recovery = True
+    # The last decision, not the last event: a limit raised on the same resume is recorded after it (#2412).
+    last_decision = limit_events.last_decision(state) or {}
     acknowledged_planning_extension = (
         args.resume_paused
         and state.get("status") == "PAUSED_PLANNING_BUDGET"
-        and bool(state.get("user_events"))
-        and state["user_events"][-1].get("kind") == "planning_budget_change"
-        and state["user_events"][-1].get("limit") == planning.review_call_limit(state)
-        and state["user_events"][-1].get("calls_used") == cast(dict, state.get("planning", {})).get("astra_calls")
+        and last_decision.get("kind") == "planning_budget_change"
+        and last_decision.get("limit") == planning.review_call_limit(state)
+        and last_decision.get("calls_used") == cast(dict, state.get("planning", {})).get("astra_calls")
     )
     marker: dict = state.get("_authorized_bound_change", {})
     current_request = resolver_human.current(state)
