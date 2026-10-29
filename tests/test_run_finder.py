@@ -504,6 +504,10 @@ class CommandLine(Fixture):
         for argv, expected in (
             (["approve-goal"], "'approve-goal' is the option --approve-goal, not a task. Use --approve-goal"),
             (["--no-chat", "show-goal"], "'show-goal' is the option --show-goal"),
+            (["stauts"], "'stauts' looks like the command status, not a task. Use autocode status, or describe"),
+            (["--no-chat", "resum"], "'resum' looks like the command resume"),
+            (["Status"], "'Status' looks like the command status"),
+            (["registry-list"], "'registry-list' looks like the command registry"),
             (["Add", "a", "hello", "script"], "unrecognized arguments: a hello script. If this was the task, put all"),
             (["Add", "--no-such-flag"], "unrecognized arguments: --no-such-flag\n"),
             (["--task", "Add a hello script"], "there is no --task option: the task is the first argument"),
@@ -518,6 +522,8 @@ class CommandLine(Fixture):
                 self.assertIn(expected, self.parse_error(*argv))
         self.assertNotIn("put all of it in quotes", self.parse_error("Add", "--no-such-flag"))
         self.assertEqual("approve-goal", self.parse("--", "approve-goal")[0].task, "after -- the word is the task")
+        self.assertEqual("stauts", self.parse("--", "stauts")[0].task, "after -- the word is the task")
+        self.assertEqual("Greeting", self.parse("Greeting")[0].task, "a one-word task near no command is a task")
         self.assertEqual("--task", self.parse("--", "--task")[0].task, "after -- the word is the task")
 
     def test_discovered_run_requires_explicit_recovery_with_an_expected_token(self):

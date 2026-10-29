@@ -9,6 +9,7 @@ the parser its cli() reads; `autocode completion` completes the command's option
 from __future__ import annotations
 
 import argparse
+import difflib
 import importlib
 import sys
 import tomllib
@@ -131,6 +132,25 @@ def option_typed_as_task(parser, argv, task) -> str | None:
     if f"--{word}" not in parser._option_string_actions:
         return None
     return f"'{word}' is the option --{word}, not a task. Use --{word}, or write the task in quotes: autocode \"your task\""
+
+
+def command_typed_with_a_typo(argv, task) -> str | None:
+    """`autocode stauts`: a one-word task that is a near miss of a command name is a typo, not a brief to
+    start a worktree and a run for (#2450). The refusal naming the likely command, else None. Exact command
+    words are dispatched before the task parser; after ``--`` the word is task text as typed."""
+    word = (task or "").strip()
+    if "--" in argv or not word or " " in word or word.startswith("-"):
+        return None
+    names = [name for name in command_names() if not name.startswith("-")]
+    if word in names:
+        return None
+    close = difflib.get_close_matches(word.lower(), names, n=1, cutoff=0.75)
+    if not close:
+        return None
+    return (
+        f"'{word}' looks like the command {close[0]}, not a task. "
+        f'Use autocode {close[0]}, or describe the task in more than one word, in quotes: autocode "your task"'
+    )
 
 
 def task_typed_as_option(argv) -> str | None:
