@@ -347,6 +347,25 @@ def check_facts(checks, record, workspace, *, read_events):
     return facts
 
 
+def route_in_context(state: RunState, evidence, reason, *, enabled, snapshot, milestones, completed_record=None):
+    """Use a fresh accepted milestone checkpoint before interpreting a failure."""
+    row = milestones.progress(state)
+    if row and row.get("needs_replan") and state.get("workspace"):
+        current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=snapshot)
+        if current["revision"] == evidence["record"].get("source_revision") and milestones.fresh_validation(
+            state, current
+        ):
+            evidence.update(checkpoint={"decision": "needs_replan"}, checkpoint_verified=True)
+    return route(
+        state,
+        evidence,
+        reason,
+        enabled=enabled(state),
+        reassess=milestones.request_builder_reassessment,
+        completed_record=completed_record,
+    )
+
+
 def route(state: RunState, evidence, reason, *, enabled, reassess, completed_record=None):
     """Consume cause-specific policy actions before assignment or stronger routing."""
     action = policy.failure(

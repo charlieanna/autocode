@@ -63,6 +63,8 @@ if TYPE_CHECKING:
 try:
     from . import autocode_acceptance_tests as acceptance
     from . import autocode_base_patch as operator_patch
+    from . import autocode_changed_code_proof as changed_code
+    from . import autocode_changed_code_trigger as changed_code_trigger
     from . import autocode_component_plan as component_plan
     from . import autocode_follow_up as follow_up
     from . import autocode_follow_up_proof as follow_up_proof
@@ -83,6 +85,8 @@ try:
 except ImportError:
     import autocode_acceptance_tests as acceptance
     import autocode_base_patch as operator_patch
+    import autocode_changed_code_proof as changed_code
+    import autocode_changed_code_trigger as changed_code_trigger
     import autocode_component_plan as component_plan
     import autocode_follow_up as follow_up
     import autocode_follow_up_proof as follow_up_proof
@@ -125,6 +129,9 @@ SUMMARY_KEYS = (
     "diff_coverage",
     "mutation_check",
     "follow_up_baseline",
+    "changed_code_inputs",
+    "changed_code_evidence",
+    "changed_code_receipts",
 )
 
 
@@ -142,17 +149,28 @@ PROMPT_NOTES = {
 }
 # Appended to either note when a mutant survived the proving tests (#699): reported, never a failure.
 MUTATION_NOTE = prompts.get("fragments/regression/mutation-note.md")
+CHANGED_CODE_NOTE = prompts.get("fragments/regression/changed-code-evidence.md")
 
 
 def mutation_note(proof) -> str:
     """The judging stages' note on surviving mutants, or "" when the proof has none."""
+    if isinstance((proof or {}).get("changed_code_evidence"), dict):
+        return CHANGED_CODE_NOTE
     return MUTATION_NOTE if (((proof or {}).get("mutation_check") or {}).get("survivors")) else ""
 
 
-def required(state: RunState, *, all_due=False):
-    """Whether a regression proof is owed: a bug fix, or test criteria due now (every one with ``all_due``, as at
-    final completion, so a criterion of a milestone not yet reached cannot be skipped, #1112)."""
-    return goals.task_kind(state) == "bugfix" or bool(test_cases.contract_cases(state, all_due=all_due))
+def required(state: RunState, *, all_due=False, include_changed_code=True):
+    """Whether a bug fix, due test criterion or cumulative product diff owes proof.
+
+    A Builder self-check precedes the runner's changed-line proof and independent
+    audit. It may exclude that new obligation, never a bug fix or named criterion.
+    """
+    return (
+        goals.task_kind(state) == "bugfix"
+        or bool(test_cases.contract_cases(state, all_due=all_due))
+        or include_changed_code
+        and changed_code_trigger.owes(state)
+    )
 
 
 def _test_only_exception(state: RunState):
@@ -443,6 +461,7 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
     # A repaired test environment must invalidate a prior failure (or PASS)
     # even when the source and acceptance criteria have not changed.
     execution_context = {
+        "changed_code_policy": changed_code.VERSION,
         "python": python,
         "detected_framework": framework.to_dict() if framework else None,
         "test_command": options.get("test_command"),
@@ -483,6 +502,7 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
             if (
                 util.file_hash(saved["path"]) == saved.get("receipt_sha256")
                 and schedule.proof_intact(result["checks"], root=Path(saved["path"]).parent)
+                and changed_code.intact(saved, result)
                 and all(
                     (not row.get("results_expected") or schedule.complete_results(row))
                     for row in result["checks"].values()
@@ -519,6 +539,11 @@ def _prove(
         return _proving(
             state, workspace, run_dir, current, scope, progress, framework, execution_context, inputs, kept, all_due
         )
+    except verify.command_receipt.OwnershipUncertain:
+        # The supervisor could not establish that every child stopped. Keep
+        # the exact tree and command captures for normal ownership recovery.
+        kept.clear()
+        raise
     finally:
         for tree in kept:
             if tree.exists():
@@ -735,11 +760,25 @@ def _proving(
         proof.setdefault("unverified", []).append("Follow-up baseline changed while proving the candidate")
     # Report only (#699): mutants run only once the verdict is final and a pass, so a proof that fails its
     # cases or its context check spends nothing on them; every other proof carries the not-passed note.
-    proof["mutation_check"] = mutation_check.final(
-        _mutation_check(proof, result, due, framework, workspace, out, kept[-1]) if path else None,
-        proof["verdict"],
-        proof.get("case_tests"),
+    proof["mutation_check"] = (
+        changed_code.collect(
+            proof,
+            result,
+            framework,
+            workspace,
+            out,
+            kept[-1],
+            execution_context,
+            source_paths=source_scope.paths(state),
+        )
+        if path and kept and kept[-1].is_dir()
+        else mutation_check.final(None, proof["verdict"], proof.get("case_tests"))
     )
+    if path:
+        proof["checks"] = {
+            label: {key: receipt.get(key) for key in ("command", "exit_code", "timed_out", "output")}
+            for label, receipt in result["checks"].items()
+        }
     proof.update(
         case_scope=scope,
         path=str(path) if path else None,
@@ -785,24 +824,6 @@ def _proving(
         flush=True,
     )
     return proof
-
-
-def _mutation_check(proof, result, cases, framework, workspace, out, tree):
-    """The mutation check's record for a passing proof with due cases, run in the candidate tree verify() left."""
-    if proof["verdict"] != verify.PASS or not cases or not tree.is_dir():
-        return None
-    evidence = out / "mutation-check"
-    return mutation_check.collect(
-        (result.get("framework") or {}).get("name"),
-        (result.get("commands") or {}).get("regression"),
-        cases,
-        proof,
-        tree,
-        evidence,
-        verify.product_files(result.get("changes") or {}),
-        lambda files: verify.product_diff(workspace, result["base"], files),
-        lambda command, label, limit: verify.run_suite(framework, command, tree, evidence, label, timeout=limit),
-    )
 
 
 def rejection(state: RunState):
@@ -1026,6 +1047,15 @@ def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ign
         proof["verdict"] = verify.FAIL
 
 
+def record_unmeasured(state: RunState):
+    """Record, in the run's evidence, that changed product code went unmeasured and why (#2474)."""
+    reason = changed_code_trigger.unmeasurable(state) if changed_code_trigger.owes(state) else None
+    if reason is None:
+        state.pop("changed_code_fallback", None)
+    elif (state.get("changed_code_fallback") or {}).get("reason") != reason:
+        state["changed_code_fallback"] = {"version": 1, "decision": "unmeasured", "reason": reason}
+
+
 def before_review(state: RunState, stage, workspace, run_dir):
     """Refresh proof before independent validation or completion review in either dispatch path.
 
@@ -1040,6 +1070,7 @@ def before_review(state: RunState, stage, workspace, run_dir):
     # Due-now scope even for astra_review: it also reviews each milestone before advancing, where a later
     # milestone's unbuilt tests would fail the proof and the owner note would demand REWORK. Final
     # completion still needs every case, enforced by complete(all_due=True).
+    record_unmeasured(state)
     if not required(state):
         return
     if stage in ("sol", "astra_checkpoint") or stage == "astra_review" and _review_needs_proof(state, workspace):
@@ -1074,14 +1105,16 @@ def _review_needs_proof(state: RunState, workspace):
     )
 
 
-def complete(state: RunState, current_revision, *, all_due=False):
+def complete(state: RunState, current_revision, *, all_due=False, require_changed_code=True, include_changed_code=True):
     """Authenticate a passing proof for this source and its required cases.
 
     Stage containment uses the current checkpoint; final completion sets all_due.
+    Skipping the independent line assessment still requires runner proof of a
+    product change. Only the earlier Builder self-check may omit that obligation.
     """
     if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
         return False
-    if not required(state, all_due=all_due):
+    if not required(state, all_due=all_due, include_changed_code=include_changed_code):
         return True
     proof = state.get("regression_proof") or {}
     if proof.get("verdict") != verify.PASS or proof.get("source_revision") != current_revision:
@@ -1104,6 +1137,7 @@ def complete(state: RunState, current_revision, *, all_due=False):
             and wanted <= set(covered)
             and all(names.get(case_id) for case_id in wanted)
             and schedule.proof_intact(result["checks"], root=Path(proof["path"]).parent)
+            and (not require_changed_code or changed_code.ready(proof, result, state.get("validation")))
         )
     except (OSError, ValueError, TypeError, KeyError):
         return False

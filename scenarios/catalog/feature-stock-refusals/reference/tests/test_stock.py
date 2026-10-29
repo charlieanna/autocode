@@ -98,6 +98,13 @@ class MoveRemoveTests(StockCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.run_cli("show").stdout, "A1 nut 1\n")
 
+    def test_remove_last_holding_drops_the_empty_location(self):
+        self.write_store({"A1": {"bolt": 2}})
+        result = self.run_cli("remove", "bolt", "2", "A1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.run_cli("show").stdout, "")
+        self.assertEqual(json.loads(self.store_bytes()), {})
+
     def test_c3_move_more_than_on_hand_is_refused(self):
         self.write_store({"A1": {"bolt": 1}})
         before = self.store_bytes()

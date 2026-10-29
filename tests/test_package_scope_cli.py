@@ -93,6 +93,8 @@ class PackageRunCLI(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", final["status"], result.stdout + result.stderr)
         proof = final["regression_proof"]
         self.assertEqual("PASS", proof["verdict"], proof)
+        self.assertEqual("PASS", proof["changed_code_evidence"]["status"])
+        self.assertTrue(proof["mutation_check"]["collected"])
         self.assertEqual(["test_greet.TestGreet.test_blank_name_rejected"], proof["fail_to_pass"])
         self.assertEqual(protected["command"], proof["commands"]["suite"])
         replay = final["validation"]["check_replay"]["protected_tests"]
@@ -100,18 +102,15 @@ class PackageRunCLI(unittest.TestCase):
 
     def outside_finding(self, run, result):
         """The completion gate refused the Completion Reviewer's COMPLETE on the runner's one open package
-        finding, as the status view shows it."""
+        finding, as the status view shows it. The unpassed regression proof is itself a separate public
+        runner finding (#2475), so the package violation is selected by its public wording; each test
+        then asserts the stop surface its own completion route produces."""
         view = self.view(run)
         self.assertFalse(view["done"], result.stdout + result.stderr)
         self.assertNotEqual("TASK_COMPLETE", view["status"])
-        (row,) = self.runner_findings(view)
+        (row,) = [row for row in self.runner_findings(view) if row["finding"].startswith("Files outside the package ")]
         self.assertEqual(("open", True, "high"), (row["status"], row["blocking"], row["severity"]))
         self.assertTrue(row["finding"].startswith("Files outside the package packages/greet/ changed: "), row)
-        self.assertIn(
-            "Completion rejected: the findings ledger still lists open blocking findings", view["stop_reason"]
-        )
-        self.assertIn(row["id"], view["stop_reason"])
-        self.assertIn("Files outside the package packages/greet/ changed", view["stop_reason"])
         return view, row
 
     def test_a_builder_write_to_the_other_package_keeps_the_run_from_completing(self):
@@ -119,6 +118,15 @@ class PackageRunCLI(unittest.TestCase):
         run, _, result = self.run_to_end(2)
         view, row = self.outside_finding(run, result)
         self.assertIn(f"Files outside the package {GREET}/ changed: {OTHER}/other.py (modified). ", row["finding"])
+        # #2475: the refused proof is itself a second open blocking runner finding, separate from the
+        # package violation, so both public rows keep the run from completing; its correction route
+        # sends the completion back, and the fixture Investigator cannot diagnose, so the run pauses.
+        [proof_finding] = [found for found in self.runner_findings(view) if found["id"] != row["id"]]
+        self.assertEqual(
+            ("open", True, "high"), (proof_finding["status"], proof_finding["blocking"], proof_finding["severity"])
+        )
+        self.assertIn("regression proof does not pass", proof_finding["finding"])
+        self.assertIn("asked again to complete while the runner's regression proof does not pass", view["stop_reason"])
         # The proof still says its suite never ran the other package.
         proof = view["evidence"]["regression_proof"]
         self.assertEqual("UNVERIFIED", proof["verdict"])
@@ -129,7 +137,8 @@ class PackageRunCLI(unittest.TestCase):
         )
 
     def test_a_run_that_owes_no_proof_reports_each_change_outside_the_package(self):
-        # A build whose criteria name no test owes no regression proof, so nothing else judges its diff.
+        # Even a build whose criteria name no test owes changed-product proof;
+        # the package finding must remain visible beside that proof's refusal.
         self.env["AUTOCODE_FIXTURE_TASK_KIND"] = "build"
         self.builder_writes(
             {
@@ -141,15 +150,16 @@ class PackageRunCLI(unittest.TestCase):
         )
         run, _, result = self.run_to_end(2)
         view, row = self.outside_finding(run, result)
-        self.assertIsNone(view["evidence"]["regression_proof"])
+        self.assertEqual("UNVERIFIED", view["evidence"]["regression_proof"]["verdict"])
         self.assertIn(
             f"changed: README.md (modified), {OTHER}/notes.md (added), {OTHER}/other.py (modified). ", row["finding"]
         )
-        # Closing the finding accepts nothing: --accept-completion, once its own guards pass, checks again.
+        # Closing the finding supplies no passing proof. That earlier independent-evidence
+        # guard refuses acceptance before the separate package boundary guard can speak.
         self.launch(["--run-dir", str(run), "--close-finding", row["id"], "--close-reason", "the edits are fine"], 0)
+        self.assertFalse(self.view(run)["done"])
         refused = self.launch(["--run-dir", str(run), "--accept-completion"], 2)
-        self.assertIn("Completion acceptance requires no change outside the package", refused.stderr)
-        self.assertIn("README.md (modified)", refused.stderr)
+        self.assertIn("Completion acceptance requires current passing independent evidence", refused.stderr)
         self.assertFalse(self.view(run)["done"])
 
     def test_a_nested_repository_a_busy_checkout_held_at_launch_is_not_the_builders_change(self):
@@ -197,7 +207,8 @@ class PackageRunCLI(unittest.TestCase):
         self.assertEqual({}, final["package_outside_at_launch"])
         view = self.view(run)
         self.assertEqual((True, "TASK_COMPLETE"), (view["done"], view["status"]), result.stdout + result.stderr)
-        self.assertIsNone(view["evidence"]["regression_proof"])
+        self.assertEqual("PASS", view["evidence"]["regression_proof"]["verdict"])
+        self.assertEqual("PASS", view["evidence"]["regression_proof"]["changed_code_evidence"]["status"])
         self.assertEqual([], self.runner_findings(view))
         # And a finished run says so, not that a later edit outside the package is there.
         (self.project / "README.md").write_text("# edited after completion\n")

@@ -431,6 +431,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Task completion now requires current behavioral evidence or a precise, independently checked reason for every changed executable product line (#2474). Coverage and mutation observations keep their source and command receipts; a setup failure, an empty survivor list or a stale proof cannot count as a tested line. Missing tools use a recorded fallback without installing project dependencies. Unresolved exact lines return to Builder for bounded repairs, then to Investigator, with their decisions and accepted reasons visible in the status and final report. Existing saved reports remain readable.
 - `autocode arena report`, `propose`, `cases` and `compare` before `arena init` refuse with the store path and the command that creates it instead of a sqlite traceback or an errno (#2491).
 - `autocode changeset status` and `autocode serve` name a run directory or workspace that does not exist instead of calling it a run in no change set or printing an errno (#2489).
 - Joint planning no longer has to relearn the citation boundary by rejection (#2487). The joint

@@ -77,10 +77,15 @@ behavior and evidence, not a 100% line count:
  unmeasured file), AutoCode chooses the fallback deterministically and records
  it in evidence. It never installs a tool into the project.
 
-Diff coverage (`tools/autocode_diff_coverage.py`, #701) measures executed lines
-today but only reports them. An uncovered hunk never changes the verdict, so
-enforcing this rule is outstanding work (#2474). The same holds for changes to this
-repository: a fix adds a test for the behavior it changes (see Testing).
+The changed-code evidence gate (#2474) combines authenticated diff coverage
+(`tools/autocode_diff_coverage.py`, #701), behavioral mutation observations and
+exact per-line reasons checked by the existing independent Tester. Raw coverage
+and old advisory reports alone grant no completion authority. The core records
+its deterministic fallback and bounded Builder/Investigator repair history in
+the public verification view and final report. See
+[named test proof](docs/named-test-proof.md#mutation-check).
+The same rule holds for changes to this repository: a fix adds a test for the
+behavior it changes (see Testing).
 
 ## Layout
 

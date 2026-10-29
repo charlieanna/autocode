@@ -2291,6 +2291,7 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
 
         parser = argparse.ArgumentParser()
         parser.add_argument('--report', type=Path, required=True)
+        parser.add_argument('--schema', type=Path, required=True)
         parser.add_argument('--runtime', type=Path, required=True)
         parser.add_argument('--base-fixture', type=Path, required=True)
         parser.add_argument('--probe', type=Path, required=True)
@@ -2322,7 +2323,8 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
             # Existing handwritten fixture supplies schema-valid plans/reports.
             # Its greeting implementation is exercised by capture below.
             result = subprocess.run(
-                [sys.executable, str(args.base_fixture), 'exec', '-', '--json', '-o', str(args.report)],
+                [sys.executable, str(args.base_fixture), 'exec', '-', '--json', '-o', str(args.report),
+                 '--output-schema', str(args.schema)],
                 input=prompt, text=True, capture_output=True, check=True,
             )
             return json.loads(args.report.read_text()), result.stdout
@@ -2445,6 +2447,8 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
             str(provider),
             "--report",
             "{report}",
+            "--schema",
+            "{schema}",
             "--runtime",
             str(source / "autocode.py"),
             "--base-fixture",
@@ -2571,7 +2575,7 @@ class ExactEventRepairPublicCliTests(unittest.TestCase):
         from pathlib import Path
 
         parser = argparse.ArgumentParser()
-        for name in ('report', 'runtime', 'base-fixture', 'probe'):
+        for name in ('report', 'schema', 'runtime', 'base-fixture', 'probe'):
             parser.add_argument('--' + name, type=Path, required=True)
         parser.add_argument('--fault', required=True)
         parser.add_argument('--sandbox', required=True)
@@ -2650,7 +2654,8 @@ class ExactEventRepairPublicCliTests(unittest.TestCase):
                     verdict=report['verdict'], checks=report['checks'])
         else:
             delegated = subprocess.run(
-                [sys.executable, str(args.base_fixture), 'exec', '-', '--json', '-o', str(args.report)],
+                [sys.executable, str(args.base_fixture), 'exec', '-', '--json', '-o', str(args.report),
+                 '--output-schema', str(args.schema)],
                 input=prompt, text=True, capture_output=True, check=True,
             )
             report = json.loads(args.report.read_text())

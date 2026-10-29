@@ -10,7 +10,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from goal_fixtures import body
+from goal_fixtures import body, greeting_changed_code_reasons, seed_greeting_workspace, write_greeting_source
 
 if sys.argv[1:] == ["login", "status"]:
     print("Logged in using ChatGPT (offline fixture)")
@@ -278,7 +278,7 @@ def adaptive_task(draft, implement):
 
 IMPLEMENT_TASK = {
     "objective": "Implement greeting CLI",
-    "affected_paths": sorted(builder_files) if builder_files else ["greet.py"],
+    "affected_paths": sorted(builder_files) if builder_files else ["greet.py", "test_greeting.py"],
     "kind": "implement",
     "milestone_id": "M1",
     "requirements": ["Greet names; reject empty/whitespace input"],
@@ -474,7 +474,7 @@ elif stage == "astra_finalize":
     }
     draft["initial_task"] = {
         "objective": "Implement greeting CLI",
-        "affected_paths": sorted(builder_files) if builder_files else ["greet.py"],
+        "affected_paths": sorted(builder_files) if builder_files else ["greet.py", "test_greeting.py"],
         "kind": "implement",
         "milestone_id": "M1",
         "requirements": ["Greet names; reject empty/whitespace input"],
@@ -565,7 +565,7 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
         "evidence": ["Validator events"],
         "blocker": "",
         "plan": ["Implement greeting", "Run both cases"],
-        "affected_paths": ["greet.py"],
+        "affected_paths": ["greet.py", "test_greeting.py"],
     }
     if advance:
         result.update(next_objective="Implement goodbye CLI", affected_paths=["bye.py"])
@@ -622,11 +622,8 @@ elif stage == "terra":
         for name, content in builder_files.items():
             Path(name).write_text(content)
     else:
-        Path("greet.py").write_text(
-            "import sys\nif len(sys.argv) != 2 or not sys.argv[1].strip():\n    raise SystemExit(2)\nprint('Hello, ' + sys.argv[1])\n# batch "
-            + batch
-            + "\n"
-        )
+        seed_greeting_workspace(Path.cwd())
+        write_greeting_source(Path.cwd(), revision=batch)
     if os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
         with Path("greet.py").open("a") as fixture_output:
             fixture_output.write("# revision " + str(uuid.uuid4()) + "\n")
@@ -646,6 +643,8 @@ elif stage == "terra":
         result.update(changed_files=["bye.py"], evidence_refs=["bye.py"], summary="Goodbye written")
     elif builder_files:
         result.update(changed_files=sorted(builder_files), evidence_refs=sorted(builder_files))
+    elif mode not in ("stalled", "rework") or data["actionable_findings"]:
+        result.update(changed_files=["greet.py", "test_greeting.py"], evidence_refs=["greet.py", "test_greeting.py"])
 else:
     valid = subprocess.run([sys.executable, "greet.py", "Ada"], capture_output=True, text=True)
     invalid = subprocess.run([sys.executable, "greet.py", ""], capture_output=True, text=True)
@@ -807,7 +806,7 @@ else:
                 "evidence": ["event:check"],
                 "blocker": "",
                 "plan": ["Implement and independently verify"],
-                "affected_paths": ["greet.py"],
+                "affected_paths": ["greet.py", "test_greeting.py"],
             },
         }
 if stage == "astra_review" and os.environ.get("AUTOCODE_FIXTURE_PERMISSION_LOOP"):
@@ -884,7 +883,7 @@ if stage == "terra" and (data.get("workflow") or {}).get("mode") == "glm_final_a
         "next_task": {
             "kind": "implement",
             "objective": "Second Builder batch",
-            "affected_paths": ["greet.py"],
+            "affected_paths": ["greet.py", "test_greeting.py"],
             "milestone_id": "M1",
             "requirements": ["Verify the final greeting"],
             "acceptance_criteria": ["C1"],
@@ -894,6 +893,13 @@ if stage == "terra" and (data.get("workflow") or {}).get("mode") == "glm_final_a
         "question": "Check the empty input boundary" if action == "ESCALATE_SOL" else "",
         "self_assessment": assessment,
     }
+validation_schema = schema.get("properties", {})
+validation_report = result
+if stage == "astra_checkpoint":
+    validation_schema = validation_schema.get("validation", {}).get("properties", {})
+    validation_report = result.get("validation", {})
+if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in validation_schema:
+    validation_report["changed_code_exceptions"] = greeting_changed_code_reasons(data)
 if "--output-schema" in sys.argv:
     if "progressive_checkpoint" in schema.get("properties", {}):
         result.setdefault("progressive_checkpoint", False)

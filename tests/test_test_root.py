@@ -204,11 +204,15 @@ class StoreTests(unittest.TestCase):
                 self.assertEqual(proof["source_revision"], handoff["source_revision"])
                 self.assertTrue(handoff["checks"])
                 revision = regression.source_scope.snapshot(self.project.root, run)["revision"]
-                self.assertTrue(regression.complete(run, revision))
+                # The HTTP flow is real ordinary proof. It is not a complete
+                # per-line audit of this newly added server's other branches.
+                self.assertTrue(regression.complete(run, revision, require_changed_code=False))
+                self.assertFalse(regression.complete(run, revision))
                 self.project.write(
                     {"components/store/server.py": server.replace("self.reply(201, note)", "self.reply(500, note)")}
                 )
                 revision = regression.source_scope.snapshot(self.project.root, run)["revision"]
+                self.assertFalse(regression.complete(run, revision, require_changed_code=False))
                 self.assertFalse(regression.complete(run, revision))
 
     def test_unmarked_test_directory_and_empty_collection(self):

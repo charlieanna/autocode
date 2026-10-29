@@ -891,7 +891,11 @@ agreed plan's token. Reports written before AutoCode cited them have neither fie
 authenticate; a completed run saved again rebuilds its pair with them.
 When the proof's mutation check left survivors, `regression_proof.mutation_survivors` lists
 them per test case, keyed like `case_tests`, and the Markdown names each one under
-the regression proof; they are reported, not gaps. Review-only mutation reports
+the regression proof. For current task proofs, `verification.changed_code_evidence`
+binds execution, mutation observations and independently checked per-line reasons
+to the exact source/proof context. `verification.changed_code_repairs` retains
+the bounded Builder returns and Investigator handoffs. Legacy report-only proofs
+without this field grant no new changed-line evidence. Review-only mutation reports
 are kept separately in `workflow_result.mutation_check`, with survivors keyed
 by the reviewed tests' actual IDs. Local
 artifact paths are references, not hosted evidence. Unknown usage stays unknown;
@@ -1415,8 +1419,10 @@ test, which side, its kind and the run outcomes), `unrepeated`, `next_step` when
 a test disagreed, and `note`; `null` when the proof did not repeat tests.
 `diff_coverage` is the same proof's line coverage of changed product hunks
 (`collected`, `tool`, `note`, `files`, `uncovered`, `unmeasured`); `null` when the
-proof did not record it. It never blocks completion.
-`mutation_check` is the same proof's report-only mutation check (#699, see
+proof did not record it. The raw coverage report alone grants no completion
+authority. Current task proofs combine authenticated producing receipts with
+mutation evidence in `verification.changed_code_evidence` (#2474).
+`mutation_check` is the same proof's mutation check (#699, #2474, see
 [Named test proof](named-test-proof.md#mutation-check)): `collected`, `note`,
 `limit_per_file`, `budget_seconds`, `files` (each `path`, `notes`, and `mutants`
 with `line`, `operator`, `before`, `after`, `outcome` `killed`, `survived`,
@@ -1427,8 +1433,16 @@ case's proving tests that still passed with a product line changed (`test`,
 `path`, `line`, `operator`, `before`, `after`, `text`), `{}` when every mutant
 that ran was killed. Every proof that did not pass, including one refused before
 any test ran, has the note `not run: the proof did not pass` and no survivors;
-`null` when a passing proof had no due test case, or there is no proof. It never
-blocks completion. A review can instead report the original tests in its
+`null` when an older passing proof had no due test case, or there is no proof.
+Current task proofs enumerate eligible Python sites within the existing command
+budget and require observed named-test failures; setup, collection, timeout and
+unrun outcomes never demonstrate a kill. `verification.changed_code_evidence`
+lists exact gap IDs, file hashes/lines, `tested`, `reason_required` or `excepted`,
+the reason/evidence, and the chosen fallback. Missing tools never trigger a
+project install: demonstrated per-line mutation evidence is the deterministic
+fallback, otherwise an explicit independent per-line judgment is required.
+Two direct repairs precede the existing Investigator path within saved run
+limits; no person question is added for these gaps. A review can instead report the original tests in its
 explicit patch: `subject` is `reviewed_patch_tests`, `patch_path` and
 `patch_sha256` identify that patch, `selected_files` and `selected_tests` record
 the independently run pool, and `survivors` is keyed by actual test IDs. These

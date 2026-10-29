@@ -6,6 +6,7 @@ approval, scheduling, processes, worktrees, reports and integration are real.
 """
 
 import copy
+import hashlib
 import json
 import os
 import re
@@ -16,6 +17,43 @@ import sys
 import time
 import uuid
 from pathlib import Path
+
+HELLO_SOURCE = "print('hello')\n"
+HELLO_TESTS = """import subprocess, sys, unittest
+class HelloTests(unittest.TestCase):
+    def test_cli_hello(self):
+        result = subprocess.run([sys.executable, 'main.py'], capture_output=True, text=True)
+        self.assertEqual((0, 'hello\\n', ''), (result.returncode, result.stdout, result.stderr))
+"""
+
+
+def hello_changed_code_reasons(data):
+    """An exact one-line fixture, independently checked by a retained real test."""
+    proof = data.get("regression_proof") or {}
+    try:
+        if Path("main.py").read_text() != HELLO_SOURCE or Path("test_main.py").read_text() != HELLO_TESTS:
+            return []
+    except OSError:
+        return []
+    digest = hashlib.sha256(HELLO_SOURCE.encode()).hexdigest()
+    if not proof.get("path"):
+        return []
+    return [
+        {
+            "gap_id": row["gap_id"],
+            "decision": "accept",
+            "reason_kind": "instrumentation_unavailable",
+            "reason": "This print call has no supported mutation site. The independently executed test_cli_hello requires exact hello plus newline on stdout, empty stderr and exit zero. Removing, changing or redirecting the print fails its assertion; the separate approved CLI check also observes this exact output.",
+            "evidence_refs": [proof["path"], "main.py"],
+        }
+        for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []
+        if row.get("status") == "reason_required"
+        and row.get("path") == "main.py"
+        and row.get("line") == 1
+        and row.get("sha256") == digest
+        and not row.get("mutation_outcomes")
+    ]
+
 
 _NUMBER = re.compile(r"\d+(?:\.\d+)*")
 _NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b", re.I)
@@ -581,6 +619,10 @@ def main():
         request = result.get("user_request")
         if owning == "astra_resolve" and isinstance(request, dict) and nullable:
             request.setdefault("recommended_revision", None)
+    if data["stage"] == "sol":
+        schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        if "changed_code_exceptions" in schema.get("properties", {}):
+            result["changed_code_exceptions"] = hello_changed_code_reasons(data)
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
     record("finish")
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)
