@@ -76,6 +76,26 @@ def configure_workspace_storage(workspace: str | Path) -> None:
     os.environ.setdefault("AUTOCODE_HOME", str(root / ".autocode" / "registry"))
 
 
+def project_storage(start: str | Path) -> Path | None:
+    """The project registry to read beside the shared home from ``start`` (#2279).
+
+    Without ``AUTOCODE_HOME`` a run indexes in its project's registry while the read
+    commands default to the per-user home, so a listing from inside a project reads
+    both. An explicit ``AUTOCODE_HOME`` selects exactly one registry: None.
+    """
+    if os.environ.get("AUTOCODE_HOME") is not None:
+        return None
+    try:
+        here = Path(start).resolve()
+    except (OSError, RuntimeError):
+        return None
+    for directory in (here, *here.parents):
+        if (directory / ".git").exists():
+            root = _registry_project(directory) / ".autocode" / "registry"
+            return None if root == storage_root() else root
+    return None
+
+
 def storage_root() -> Path:
     selected = os.environ.get("AUTOCODE_HOME")
     return Path(selected if selected is not None else Path.home() / ".autocode").expanduser().resolve()
@@ -383,18 +403,36 @@ def location() -> dict[str, Any]:
     }
 
 
-def listing() -> dict[str, Any]:
+def listing(also: Path | None = None) -> dict[str, Any]:
+    """The registry's workspaces and runs; ``also`` adds a project registry (``project_storage``).
+
+    The shared registry's records win on a shared key. An unreadable ``also`` is a diagnostic,
+    never a reason to hide the shared registry.
+    """
+    documents, diagnostics = [], []
     path = registry_path()
-    if not path.exists():
+    if path.exists():
+        documents.append(_read_registry(path))
+    extra = also / "registry.json" if also is not None else None
+    if extra is not None and extra.exists():
+        try:
+            documents.append(_read_registry(extra))
+        except RegistryError as error:
+            diagnostics.append({"code": "project_registry_unreadable", "message": f"{extra}: {error}"})
+    if not documents:
         return {
             "registry_version": REGISTRY_VERSION,
             "operation": "list",
             "registry_exists": False,
             "workspaces": [],
             "runs": [],
-            "diagnostics": [{"code": "registry_absent", "message": "No registry exists yet"}],
+            "diagnostics": [{"code": "registry_absent", "message": "No registry exists yet"}, *diagnostics],
         }
-    document = _read_registry(path)
+    document = _empty()
+    for source in documents:
+        for kind in ("workspaces", "runs"):
+            for key, value in source[kind].items():
+                document[kind].setdefault(key, value)
     workspaces = [_workspace_listing(key, document["workspaces"][key]) for key in sorted(document["workspaces"])]
     runs = []
     for key in sorted(document["runs"]):
@@ -415,7 +453,7 @@ def listing() -> dict[str, Any]:
         "registry_exists": True,
         "workspaces": workspaces,
         "runs": runs,
-        "diagnostics": [],
+        "diagnostics": diagnostics,
     }
 
 
@@ -684,7 +722,7 @@ def cli(argv: list[str]) -> int:
         if args.operation == "location":
             result = location()
         elif args.operation == "list":
-            result = listing()
+            result = listing(also=project_storage(Path.cwd()))
         elif args.operation == "add":
             result = add_project(args.workspace)
         elif args.operation == "forget-deleted":
