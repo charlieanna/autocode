@@ -183,6 +183,32 @@ def orchestrate(root, selected, components, repos):
     return code
 
 
+def discard_script_directory():
+    """The collector's own directory is not a project-module search path (#2456).
+
+    The detected suite command runs this file by absolute path, so Python puts this
+    directory first on sys.path — ahead of the workspace roots the runner supplies
+    on PYTHONPATH — and unittest discovery does not move a root already there. A
+    workspace module named like a sibling here (``run_suite`` is one) then imported
+    AutoCode's file instead of the project's, and with no project file at all it
+    still imported AutoCode's instead of failing. The bootstrap imports above have
+    already resolved, so every sys.path entry for this directory now goes: the
+    workspace's intended precedence stands and a genuinely missing module fails
+    honestly. An entry that is itself the tested workspace — the collector run from
+    inside its own checkout — stays: that root is the workspace's legitimate path,
+    and discovery and the family and member passes establish exactly it anyway.
+    """
+    here = Path(__file__).resolve().parent
+    workspace = Path.cwd().resolve()
+    kept = {workspace, workspace / "src"}
+
+    def own(entry):
+        resolved = Path(entry).resolve()
+        return resolved == here and resolved not in kept
+
+    sys.path[:] = [entry for entry in sys.path if not own(entry)]
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("-v", action="store_true")
@@ -239,4 +265,5 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    discard_script_directory()
     raise SystemExit(main())
