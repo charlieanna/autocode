@@ -23,14 +23,43 @@ from .test_planner_invariants import state
 BEFORE = "Preserve lookup([]) raising LookupError"
 AFTER = "Preserve lookup([]) returning []"
 RATIONALE = "The repository returns []; the first draft inferred an exception absent from the user's requirements."
+# Reduced from the live reports 11 and 13: the observation and no-behavior-change obligation
+# remain; the model's claim that a correction receipt does not exist becomes obsolete.
+FEEDBACK = "The repository returns an empty list. Request fresh review; this grants no behavior change or approval."
+OLD_INTERPRETATION = (
+    "The empty-input description is mistaken, but no saved first-review correction receipt exists yet; "
+    "keep existing behavior."
+)
+NEW_INTERPRETATION = (
+    "A saved first-review correction receipt now permits correcting the mistaken description while preserving "
+    "existing behavior; no behavior change or plan approval is granted."
+)
 
 
-def fixture(*, investigation=None):
+def fixture(*, investigation=None, interpretation=False):
     current = state()
     current["iteration"] = 0
     if investigation:
         current["investigation"] = investigation
     draft = body()
+    if interpretation:
+        draft["acceptance_criteria"][0]["current_behavior"] = ""  # already normalized by discovery admission
+        source_log.save_feedback(
+            current,
+            {
+                "id": "feedback-1",
+                "kind": "brief_feedback",
+                "actor": "user_cli",
+                "text": FEEDBACK,
+            },
+        )
+        draft["accepted_assumptions"].append(
+            {
+                "text": OLD_INTERPRETATION,
+                "basis": "user_feedback",
+                "answer_id": "feedback-1",
+            }
+        )
     draft["important_failure_cases"].append(BEFORE)
     if investigation:
         draft["acceptance_criteria"][0]["verification_method"] = "test: test_c1_lookup"
@@ -68,6 +97,8 @@ def fixture(*, investigation=None):
     }
     changed = copy.deepcopy(current["goal_contract"]["body"])
     changed["important_failure_cases"][-1] = AFTER
+    if interpretation:
+        changed["accepted_assumptions"][-1]["text"] = NEW_INTERPRETATION
     changes = [{"item": BEFORE, "change": "reworded", "basis": "agent_proposed", "answer_id": "", "replacement": AFTER}]
     return current, review, changed, changes
 
@@ -95,6 +126,128 @@ class DraftFailureCorrectionTests(unittest.TestCase):
         self.assertEqual(review["concerns"][0][correction.FIELD], saved[correction.FIELD])
         self.assertEqual("astra_finalize", current["next_stage"])
         self.assertFalse(goals.approved(current))
+
+    def test_saved_revision_composes_independent_assumption_update_and_exact_receipt(self):
+        current, review, changed, changes = fixture(interpretation=True)
+        self.admit(current, review)
+        changed.pop("initial_task")
+        changed["git_delivery"] = None
+        changes[0]["example_correction"] = None
+        report = {
+            "contract": changed,
+            "summary": "Correct the failure inference and obsolete receipt-status interpretation",
+            "code_refs": [],
+            "contract_changes": changes,
+            "requirement_trace": [],
+            "responses": [
+                {
+                    "concern_id": "C3",
+                    "response": "Applied the exact correction",
+                    "evidence_refs": ["goal_contract.body"],
+                    "change": AFTER,
+                    "acceptance_test": "lookup([]) returns []",
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output, schema_path, events = root / "revision.json", root / "schema.json", root / "events.jsonl"
+            request = planner.prepare(current, "glm_revise", root / "state.json", None)
+            schema = runner.util.model_output_schema(request.schema)
+            output.write_text(json.dumps(report))
+            schema_path.write_text(json.dumps(schema))
+            events.write_text('{"type":"turn.completed"}\n')
+            record = {
+                "stage": "glm_revise",
+                "engine": "codex",
+                "output": str(output),
+                "schema": str(schema_path),
+                "events": str(events),
+            }
+            loaded = runner.load_stage_report(record, state=current)
+            self.assertEqual(report, json.loads(Path(record.get("reported_output", output)).read_text()))
+            autopilot.apply_planning(current, "glm_revise", loaded, record)
+        public = run_view.view(current)
+        self.assertEqual("astra_finalize", public["next_stage"])
+        self.assertFalse(goals.approved(current))
+        shown = lifecycle.render(current)
+        self.assertIn(AFTER, shown)
+        self.assertIn(NEW_INTERPRETATION, shown)
+        self.assertIn(RATIONALE, shown)
+        assumptions = shown.split("\nAccepted assumptions:\n", 1)[1].split("\nDelegated decisions:", 1)[0]
+        self.assertNotIn(OLD_INTERPRETATION, assumptions)
+        self.assertIn(OLD_INTERPRETATION, shown)  # the approval diff still retains the original wording
+
+    def test_receipt_does_not_authorize_other_assumption_changes(self):
+        for mutation in ("basis", "source", "metadata", "drop", "add", "reorder", "other", "quoted", "answer"):
+            with self.subTest(mutation=mutation):
+                current, review, changed, changes = fixture(interpretation=True)
+                old = current["goal_contract"]["body"]["accepted_assumptions"][-1]
+                new = changed["accepted_assumptions"][-1]
+                if mutation == "basis":
+                    new.update(basis="agent_proposed", answer_id="")
+                elif mutation == "source":
+                    new["answer_id"] = "feedback-2"
+                elif mutation == "metadata":
+                    new["other_authority"] = True
+                elif mutation == "drop":
+                    changed["accepted_assumptions"].pop()
+                elif mutation == "add":
+                    changed["accepted_assumptions"].append(
+                        {"text": "New assumption", "basis": "agent_proposed", "answer_id": ""}
+                    )
+                elif mutation == "reorder":
+                    changed["accepted_assumptions"].reverse()
+                elif mutation == "other":
+                    changed["accepted_assumptions"][0]["text"] = "Another change beside the independently allowed one"
+                elif mutation == "quoted":
+                    current["brief_feedback"][0]["text"] = OLD_INTERPRETATION
+                else:
+                    old.update(basis="user_answer", answer_id="A1")
+                    new.update(basis="user_answer", answer_id="A1")
+                    current["answers"]["A1"] = {"kind": "answer", "text": OLD_INTERPRETATION}
+                contract = current["goal_contract"]
+                contract["hash"] = runner.util.digest({key: contract[key] for key in ("task_id", "revision", "body")})
+                review["concerns"][0][correction.FIELD]["snapshot"] = correction.snapshot(current)
+                self.admit(current, review)
+                with self.assertRaisesRegex(ValueError, r"receipt matches, but adjacent accepted_assumptions"):
+                    lifecycle.revision_guard(current, changed, changes, "glm_revise")
+
+    def test_independent_assumption_update_does_not_replace_receipt_authority(self):
+        for mutation in ("missing", "stale"):
+            with self.subTest(mutation=mutation):
+                current, review, changed, changes = fixture(interpretation=True)
+                if mutation == "missing":
+                    review["concerns"][0][correction.FIELD] = None
+                self.admit(current, review)
+                if mutation == "stale":
+                    current["task"] += ". Another source observation."
+                with self.assertRaisesRegex(ValueError, "needs a saved user answer or feedback event"):
+                    lifecycle.revision_guard(current, changed, changes, "glm_revise")
+
+    def test_composed_correction_preserves_proofs_and_source_citations(self):
+        for mutation in ("proof", "criterion", "source", "permission", "decision"):
+            with self.subTest(mutation=mutation):
+                current, review, changed, changes = fixture(interpretation=True)
+                self.admit(current, review)
+                expected = "acceptance_criteria"
+                if mutation == "proof":
+                    changed["acceptance_criteria"][0]["verification_method"] = "Skip proof"
+                elif mutation == "criterion":
+                    changed["acceptance_criteria"][0]["criterion"] = "Weaker behavior"
+                elif mutation == "source":
+                    changed["acceptance_criteria"][0]["sources"] = []
+                    expected += r"\[C1\].sources"
+                elif mutation == "permission":
+                    changed["permission_boundaries"].append("May write outside the workspace")
+                    expected = "permission_boundaries"
+                else:
+                    changed["delegated_decisions"].append(
+                        {"text": "New decision", "basis": "delegated", "answer_id": "Q1"}
+                    )
+                    expected = "delegated_decisions"
+                with self.assertRaisesRegex(ValueError, "receipt matches, but adjacent " + expected):
+                    lifecycle.revision_guard(current, changed, changes, "glm_revise")
 
     def test_null_receipt_preserves_legacy_review_admission(self):
         current, review, _, _ = fixture()
@@ -248,7 +401,11 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                     changed["important_failure_cases"].append("Another inferred failure")
                 else:
                     changed["important_failure_cases"] = [AFTER]
-                self.assertEqual({}, correction.corrections(current, changed, changes, origin))
+                if mutation in ("wrong_role", "wrong_pair", "undeclared"):
+                    self.assertEqual({}, correction.corrections(current, changed, changes, origin))
+                else:
+                    with self.assertRaisesRegex(ValueError, "receipt matches, but adjacent"):
+                        correction.corrections(current, changed, changes, origin)
                 with self.assertRaises(ValueError):
                     lifecycle.revision_guard(current, changed, changes, origin)
 
