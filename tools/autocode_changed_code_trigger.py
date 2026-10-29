@@ -70,3 +70,32 @@ def owes(state: RunState) -> bool:
         return bool(_product(changes))
     except (OSError, ValueError, RuntimeError, TypeError, KeyError, subprocess.SubprocessError):
         return known
+
+
+UNMEASURABLE = (
+    "The project has no test command and no test files, so its changed product lines cannot be "
+    "measured yet. Record that diagnostic and retain the behavioral-proof obligation; the Builder must add meaningful tests before completion."
+)
+
+
+def unmeasurable(state: RunState) -> str | None:
+    """Why changed product lines cannot be measured in this project, or None when they can.
+
+    A project with no configured command or test file has no measurement yet.
+    This diagnostic grants no completion authority: the Builder must supply
+    meaningful tests, or the ordinary bounded proof-recovery path must diagnose
+    the missing infrastructure. Anything uncertain keeps the obligation.
+    """
+    settings = state.get("settings") or {}
+    if ((settings.get("regression") or {}) if isinstance(settings, dict) else {}).get("test_command"):
+        return None
+    workspace = state.get("workspace")
+    if not isinstance(workspace, str) or not workspace:
+        return None
+    try:
+        listed = verify._git(Path(workspace), "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+        return None
+    if any(verify.is_test_path(path) for path in listed.split("\0") if path):
+        return None
+    return UNMEASURABLE

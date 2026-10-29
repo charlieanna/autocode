@@ -143,3 +143,38 @@ class ChangedCodeTriggerTests(unittest.TestCase):
                 self.assertTrue(regression.required(state, include_changed_code=False))
                 self.assertFalse(regression.complete(state, "candidate", require_changed_code=False))
                 self.assertFalse(regression.complete(state, "candidate"))
+
+    # Missing test infrastructure is diagnostic evidence, never completion authority (#2474).
+    def test_no_test_command_and_no_test_file_still_owes_behavioral_proof(self):
+        import autocode_regression as regression
+
+        (self.root / "calc.py").write_text("def answer():\n    return 2\n")
+        self.assertTrue(trigger.owes(self.state))
+        self.assertEqual(trigger.UNMEASURABLE, trigger.unmeasurable(self.state))
+        self.assertTrue(regression.required(self.state, all_due=True))
+        self.assertFalse(regression.complete(self.state, "candidate", all_due=True))
+        regression.record_unmeasured(self.state)
+        self.assertEqual(
+            {"version": 1, "decision": "unmeasured", "reason": trigger.UNMEASURABLE},
+            self.state["changed_code_fallback"],
+        )
+
+    def test_a_test_file_or_a_test_command_keeps_the_obligation(self):
+        import autocode_regression as regression
+
+        (self.root / "calc.py").write_text("def answer():\n    return 2\n")
+        with self.subTest("test command"):
+            commanded = {**self.state, "settings": {"regression": {"test_command": "python -m unittest"}}}
+            self.assertIsNone(trigger.unmeasurable(commanded))
+            self.assertTrue(regression.required(commanded, all_due=True))
+        (self.root / "tests").mkdir()
+        (self.root / "tests/test_calc.py").write_text("assert True\n")  # untracked, as a Builder leaves it
+        with self.subTest("test file"):
+            self.assertIsNone(trigger.unmeasurable(self.state))
+            self.assertTrue(regression.required(self.state, all_due=True))
+            self.state["changed_code_fallback"] = {"reason": "stale"}
+            regression.record_unmeasured(self.state)
+            self.assertNotIn("changed_code_fallback", self.state)
+
+    def test_an_unreadable_workspace_keeps_the_obligation(self):
+        self.assertIsNone(trigger.unmeasurable({**self.state, "workspace": str(self.root / "missing")}))
