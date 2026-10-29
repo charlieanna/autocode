@@ -427,6 +427,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Planner report followed by exactly one redundant empty `machine_resolutions` parameter tag is read
+  without a model repair when the complete JSON already contains that empty field. The report, citations and
+  raw evidence are preserved; conflicting or other parameter tails remain rejected (#2452).
 - A mistyped command is refused before any worktree is created (#2450): `autocode stauts`, `autocode resum`
   or `autocode registry-list` now says which command the word looks like and to describe a task in more than one
   word, in quotes. Before, the word became a one-word brief and, with a provider installed, started a run on it.
