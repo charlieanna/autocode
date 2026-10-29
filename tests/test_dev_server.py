@@ -348,6 +348,21 @@ class ServeCliTests(Workspace):
         self.assertIn(".autocode/config.toml", err)
         self.assertFalse((self.run_dir / dev_server.RECORD).exists())
 
+    def test_a_missing_run_directory_or_workspace_is_named_without_an_errno(self):
+        self.save_state({"serve": self.saved()})
+        missing = self.workspace / ".autocode" / "runs" / "missing"
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = serve_cli.cli(["status", "--workspace", str(self.workspace), "--run-dir", str(missing)])
+        self.assertEqual((2, f"autocode serve: No such run directory: {missing}\n"), (code, err.getvalue()))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = serve_cli.cli(
+                ["status", "--workspace", str(self.workspace / "nope"), "--run-dir", str(self.run_dir)]
+            )
+        self.assertEqual(2, code)
+        self.assertEqual(f"autocode serve: No such workspace directory: {self.workspace / 'nope'}\n", err.getvalue())
+
     def test_a_run_outside_the_workspace_is_refused(self):
         self.save_state({"serve": self.saved()})
         with tempfile.TemporaryDirectory() as other:
