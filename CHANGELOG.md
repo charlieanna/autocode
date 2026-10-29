@@ -431,6 +431,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode arena report`, `propose`, `cases` and `compare` before `arena init` refuse with the store path and the command that creates it instead of a sqlite traceback or an errno (#2491).
+- `autocode changeset status` and `autocode serve` name a run directory or workspace that does not exist instead of calling it a run in no change set or printing an errno (#2489).
 - Joint planning no longer has to relearn the citation boundary by rejection (#2487). The joint
   brief said to read `.autocode/candidate-inputs.json` while the runner rejects `.autocode/`
   citations, and only Requirements ever heard that rule: discovery and revision cited runner-owned
