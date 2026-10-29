@@ -427,6 +427,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode events` now records a limit raised on resume (#2412): `resume --max-iterations 5` after an
+  iteration-ceiling pause, or any other `--max-*`, `--no-progress-limit` or `--unlimited-iterations` change to
+  a saved limit, appends a `limit_change` event naming the limit, its flag, the previous and new values and
+  the actor, beside `planning_budget_change`. Before, the new bound was saved and nothing was recorded. The
+  planning-budget resume and the sealed-draft recovery, which read the run's last event, now read its last
+  event that is not a limit change, so a raise between those steps disables neither.
 - Planning generation now requires an empty `conflict_resolutions` list when known Requirements and
   source-stable history contain no eligible conflict (#2457). Real conflicts, saved user authority,
   historical source checks and unknown legacy contexts keep their existing rules.

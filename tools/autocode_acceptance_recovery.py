@@ -19,6 +19,7 @@ try:
     from . import autocode_acceptance_tests_job as job
     from . import autocode_contract_identity as identity
     from . import autocode_conversation_ingress as conversation_ingress
+    from . import autocode_limit_events as limit_events
     from . import autocode_planning_cycle as planning_cycle
     from . import autocode_report_source as report_source
     from . import autocode_resolver_human as resolver_human
@@ -29,6 +30,7 @@ except ImportError:
     import autocode_acceptance_tests_job as job
     import autocode_contract_identity as identity
     import autocode_conversation_ingress as conversation_ingress
+    import autocode_limit_events as limit_events
     import autocode_planning_cycle as planning_cycle
     import autocode_report_source as report_source
     import autocode_resolver_human as resolver_human
@@ -65,7 +67,7 @@ def _evidence(state: RunState, workspace):
             or not identity.sealed(current)
             or not identity.approved(candidate)
             or current["revision"] != approved["revision"] + 1
-            or state["user_events"][-1] != approved["approval_event"]
+            or limit_events.last_decision(state) != approved["approval_event"]  # a limit raise is no decision (#2412)
         ):
             return None
         send_back = state["acceptance_tests"]["send_backs"][-1]
