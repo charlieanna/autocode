@@ -17,7 +17,9 @@ import time
 import unittest
 from pathlib import Path
 
+import autocode_dispatch as dispatch
 import autocode_process as processes
+import autocode_worker_lifeline as lifeline
 import build_product_fixtures as products
 from goal_fixtures import body
 
@@ -293,6 +295,46 @@ class BuildBlackbox(unittest.TestCase):
             for e in map(json.loads, (self.root / "events.jsonl").read_text().splitlines())
             if e["event"] == kind and e["stage"] == stage
         ]
+
+    def settled_workers(self):
+        """(ready, problems) for every launched Builder, by the resume's own rules.
+
+        A Builder publishes its result before its process exits, and its keeper settles
+        only after that (#1183, #2478). A worker is ready only when its result reads
+        BUILT, the identities the saved row records (the worker, its tree, its keeper)
+        are gone, and the authenticated receipt settled adoptably. These are the exact
+        predicates autocode_dispatch applies on resume, so readiness here proves the
+        later resume adopts the work instead of pausing it.
+        """
+        batch = (self.state().get("orchestration_batch") or {}).get("workers") or []
+        ready, problems = [], []
+        for row in batch:
+            milestone = str(row.get("milestone_id", "?"))
+            record = row.get("supervision")
+            if not isinstance(record, dict):
+                problems.append(f"{milestone}: launched without a lifeline record")
+                continue
+            try:
+                result = json.loads((Path(row["run_dir"]) / "result.json").read_text())
+            except (KeyError, TypeError, OSError, ValueError):
+                problems.append(f"{milestone}: no readable completed result")
+                continue
+            status = result.get("status") if isinstance(result, dict) else None
+            settle = lifeline.settled(record)
+            running = dispatch.worker_alive(row)
+            pending = lifeline.pending(record)
+            if status == "BUILT" and not running and settle in lifeline.ADOPTABLE and not pending:
+                ready.append(f"{milestone}: {settle}")
+            else:
+                detail = [f"result {status or '?'}"]
+                if running:
+                    detail.append("worker, tree or keeper still runs")
+                if settle not in lifeline.ADOPTABLE:
+                    detail.append(f"keeper {settle}")
+                elif pending:
+                    detail.append(f"keeper {settle} still settling")
+                problems.append(f"{milestone}: " + ", ".join(detail))
+        return ready, problems
 
     def seed(self, spec=None, checker="gpt-5.6-sol", max_parallel=3, planner_extra=()):
         self.spec = spec or independent()
@@ -612,13 +654,25 @@ class BuildBlackbox(unittest.TestCase):
             # Stop only this test-owned controller; its independently launched workers finish.
             process.send_signal(signal.SIGSTOP)
             (self.root / "release").touch()
+            # A completed Builder publishes its result before its process exits, and its
+            # keeper settles only after that (#1183). Killing the controller while either
+            # still runs lets the keeper's owner-loss SIGTERM overwrite completed work with
+            # a pause (#2478), so hold the kill until every launched worker is ready by the
+            # resume's own rules: BUILT result on disk, its recorded identities gone, its
+            # keeper settled. The controller stays stopped and never adopts the results:
+            # the crash then provably cannot interrupt completed work, only orphan it.
             deadline = time.monotonic() + 30
-            while (
-                len(list(self.project.glob(".autocode/builders/*/*/.autocode/runs/*/result.json"))) < 3
-                and time.monotonic() < deadline
-            ):
+            while time.monotonic() < deadline:
+                ready, problems = self.settled_workers()
+                if len(ready) == 3 and not problems:
+                    break
                 time.sleep(0.02)
-            self.assertEqual(3, len(list(self.project.glob(".autocode/builders/*/*/.autocode/runs/*/result.json"))))
+            else:
+                observation = {"ready": ready, "problems": problems}
+                (self.root / "crash-barrier.json").write_text(json.dumps(observation, indent=2))
+                self.fail(
+                    "Builders did not complete and settle before the controller crash: " + json.dumps(observation)
+                )
             process.kill()
             stdout, stderr = process.communicate(timeout=10)
             (self.root / "crashed-controller.log").write_text(stdout + stderr)

@@ -1362,23 +1362,6 @@ def timeout_recovery_guard(state: RunState):
         raise support.Paused(*reason)
 
 
-def grant_recovery_allowance(state: RunState, run_dir, amount, *, previous_settings=None):
-    result = recovery_grants.grant(
-        state,
-        run_dir,
-        amount,
-        previous_settings=previous_settings,
-        current_request=resolver_human.current,
-        count=recovery_count(state),
-        supersede=resolver_human.supersede_operational,
-        persist=write_json,
-        maximum=MAX_AUTOMATIC_RECOVERIES,
-    )
-    if run_dir is not None:
-        route_advisory.report_changes(previous_settings, state.get("settings"))
-    return result
-
-
 def repeated_failure_resume_guard(state: RunState, workspace, *, authorization=None):
     """A restart or plain resume cannot erase an unchanged repeated failure.
 

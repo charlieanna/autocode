@@ -8,6 +8,7 @@ The status view, the stage artifacts and the workspace are the oracles.
 from __future__ import annotations
 
 import ast
+import copy
 import dataclasses
 import json
 import os
@@ -663,6 +664,57 @@ class RouteTests(unittest.TestCase):
         acceptance.route(state)
         self.assertEqual("terra", state["next_stage"], "a receipt for these cases means the tests exist")
 
+    def test_an_unchanged_case_keeps_its_receipt_across_a_reapproval_and_a_changed_one_is_rewritten(self):
+        """#2464: a reapproval installs a new contract hash; the Tester was sent again for every case."""
+        with tempfile.TemporaryDirectory() as root:
+            archive = Path(root) / "archived-test.py"
+            archive.write_bytes(b"def test_c1(): assert False\n")
+            entry = {"sha256": acceptance.sha256(archive), "archive": str(archive)}
+            state = approved()
+            acceptance.record_receipt(
+                state,
+                acceptance.due(state),
+                {"contract_hash": "h1", "case_ids": sorted(CASES), "files": {"tests/test_stock.py": entry}},
+            )
+            old = {**state["goal_contract"], "revision": 1, "approval_status": "draft", "approval_event": None}
+            state["user_events"] = [{"kind": "goal_approval", "token": "r1:h1"}]
+            cited = [
+                {**row, "sources": ["brief:1"]} if row["id"] == "C1" else dict(row)
+                for row in old["body"]["acceptance_criteria"]
+            ]
+            cited[2] = {**cited[2], "criterion": "A move of more than on hand is refused with a message"}
+            state["goal_contract"] = {
+                "hash": "h2",
+                "approval_status": "approved",
+                "body": {"acceptance_criteria": cited},
+            }
+            state["contract_history"] = [old]
+            self.assertEqual({"C1", "C2"}, set(acceptance.inherited(state)), "C3's criterion changed")
+            acceptance.route(state)
+            self.assertEqual(["C3"], [case["id"] for case in acceptance.job_cases(state)])
+            self.assertEqual({"tests/test_stock.py": entry}, acceptance.protected(state), "inherited files stay fixed")
+            self.assertEqual(["tests/test_stock.py"], acceptance.view(state)["files"], "the view shows inherited files")
+            for broken in (
+                lambda s: s["user_events"].clear(),
+                lambda s: s["contract_history"][0].update(revision=2),
+                lambda s: archive.write_bytes(b"def test_c1(): pass\n"),
+                lambda s: s.update(
+                    investigation={"outcome": "reproduced", "test_cases": [{"id": "C1", "kind": "restore"}]}
+                ),
+            ):
+                with self.subTest(broken=broken):
+                    candidate = copy.deepcopy(state)
+                    archive.write_bytes(b"def test_c1(): assert False\n")
+                    broken(candidate)
+                    self.assertNotIn("C1", acceptance.inherited(candidate))
+            archive.write_bytes(b"def test_c1(): assert False\n")
+            state["next_stage"] = "terra"
+            acceptance.record_receipt(
+                state, acceptance.job_cases(state), {"contract_hash": "h2", "case_ids": ["C3"], "files": {}}
+            )
+            acceptance.route(state)
+            self.assertEqual("terra", state["next_stage"], "every case is covered: two inherited, one rewritten")
+
     def test_a_parallel_wave_and_a_later_milestone_get_only_their_unwritten_cases(self):
         state = approved()
         body = state["goal_contract"]["body"]
@@ -1153,7 +1205,10 @@ class AcceptanceTestsCliTests(unittest.TestCase):
             row["id"]: row["verification_method"] for row in view["approved_contract"]["body"]["acceptance_criteria"]
         }
         self.assertEqual(CASES, methods)
-        self.assertEqual({"already passes"}, set(view["acceptance_tests"]["results"].values()))
+        # The criteria did not change, so the reapproved plan inherits the Tester's receipt instead of sending
+        # the Tester again to find every test already passing (#2464): one generation job, its results kept.
+        self.assertEqual(1, self.stage_order(run).count("acceptance-tests"))
+        self.assertEqual({"fails"}, set(view["acceptance_tests"]["results"].values()))
         self.assertEqual("PASS", view["evidence"]["regression_proof"]["verdict"])
         self.assertTrue(view["evidence"]["regression_proof"]["fail_to_pass"])
         if not document:

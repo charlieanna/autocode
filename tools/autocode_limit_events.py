@@ -49,12 +49,17 @@ def changes(previous: dict, selected: dict) -> list[dict[str, Any]]:
     return rows
 
 
-def record(state: RunState, previous: dict, selected: dict, *, at: str) -> list[dict[str, Any]]:
-    """Append one `limit_change` event per changed limit to the run's events; the events appended."""
-    events = [
+def planned(state: RunState, previous: dict, selected: dict, *, at: str) -> list[dict[str, Any]]:
+    """The `limit_change` events this change appends, built without touching the run's events."""
+    return [
         {"kind": KIND, "actor": "user_cli", "at": at, **row, "stage": state.get("next_stage")}
         for row in changes(previous, selected)
     ]
+
+
+def record(state: RunState, previous: dict, selected: dict, *, at: str) -> list[dict[str, Any]]:
+    """Append one `limit_change` event per changed limit to the run's events; the events appended."""
+    events = planned(state, previous, selected, at=at)
     if events:
         state.setdefault("user_events", []).extend(events)
     return events

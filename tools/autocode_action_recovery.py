@@ -29,8 +29,12 @@ try:
     from . import autocode_job_failure as job_failure
     from . import autocode_job_report_recovery as job_report_recovery
     from . import autocode_job_route as job_route
+    from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_recovery_dispatch as recovery_dispatch
+    from . import autocode_recovery_grants as recovery_grants
+    from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_route_advisory as route_advisory
     from . import autocode_runner_check as runner_check
     from . import autocode_stop as stop
     from . import autocode_support as support
@@ -40,8 +44,12 @@ except ImportError:
     import autocode_job_failure as job_failure
     import autocode_job_report_recovery as job_report_recovery
     import autocode_job_route as job_route
+    import autocode_recovery_accounting as recovery_accounting
     import autocode_recovery_dispatch as recovery_dispatch
+    import autocode_recovery_grants as recovery_grants
+    import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_route_advisory as route_advisory
     import autocode_runner_check as runner_check
     import autocode_stop as stop
     import autocode_support as support
@@ -172,16 +180,30 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
             # Validate the displayed grant before resume bookkeeping changes
             # the user events bound into the resolver request's identity.
             if args.grant_recovery is not None:
+                # Validate the request as issued, then let the grant's single save carry the
+                # accepted settings and the invocation's deferred limit_change events together
+                # (#2479): no exit can persist one without the other (#2412), and a refused
+                # grant persists neither.
                 try:
-                    runner.grant_recovery_allowance(
+                    recovery_grants.grant(
                         state,
                         run_dir,
                         args.grant_recovery,
                         previous_settings=getattr(args, "_recovery_grant_settings", None),
+                        current_request=resolver_human.current,
+                        count=runner.recovery_count(state),
+                        supersede=resolver_human.supersede_operational,
+                        persist=runner.write_json,
+                        maximum=recovery_accounting.MAX_AUTOMATIC_RECOVERIES,
+                        pending_limit_events=getattr(args, "_grant_limit_events", None) or (),
                     )
                 except ValueError as error:
                     print(f"Input rejected: {error}", file=sys.stderr)
                     return 2
+                if run_dir is not None:
+                    route_advisory.report_changes(
+                        getattr(args, "_recovery_grant_settings", None), state.get("settings")
+                    )
             # Reset milestone budget counters when raising the limit
             if args.max_milestone_seconds is not None and not (state.get("progressive") or {}).get("budget"):
                 for row in state.get("milestone_progress", {}).values():

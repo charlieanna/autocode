@@ -460,9 +460,37 @@ class HumanResponseCLITests(unittest.TestCase):
         self.assertEqual(published["request_id"], saved["recovery_grants"][-1]["request_id"])
         self.assertEqual(2, saved["recovery_grants"][-1]["remaining_count"])
 
+    def test_grant_records_corrected_limits_as_events_after_validating_the_request(self):
+        run, exhausted = self.timeout_exhausted_checkpoint()
+        result = self.launch(
+            [
+                "--run-dir",
+                str(run),
+                "--resume-paused",
+                "--grant-recovery",
+                "1",
+                "--max-stage-seconds",
+                "300",
+                "--max-idle-seconds",
+                "120",
+                "--no-chat",
+            ],
+            2,
+        )
+        self.assertIn("Recovery grant recorded: 1", result.stdout)
+        saved = self.saved()[1]
+        raised = [row for row in saved["user_events"] if row.get("kind") == "limit_change"]
+        self.assertEqual(("--max-stage-seconds", "--max-idle-seconds"), tuple(row["flag"] for row in raised))
+        self.assertEqual("user_cli", raised[0]["actor"])
+        # The grant validated the published request as issued, then carried these events in its
+        # own single save (#2479); its event precedes them, and both are recorded (#2412).
+        kinds = [row.get("kind") for row in saved["user_events"]]
+        self.assertLess(kinds.index("recovery_grant"), kinds.index("limit_change"))
+
     def test_changing_limits_cannot_authorize_an_already_stale_grant(self):
         run, _ = self.timeout_exhausted_checkpoint()
         (self.project / "greet.py").write_text("# a different source after the request was issued\n")
+        before = (run / "state.json").read_bytes()
         probe = self.root / "stale-grant-launches.jsonl"
         self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
         result = self.launch(
@@ -483,6 +511,9 @@ class HumanResponseCLITests(unittest.TestCase):
         self.assertIn("requires a run paused for exhausted timeout recovery", result.stderr)
         self.assertFalse(probe.exists(), "a stale source binding must not launch a provider")
         self.assertFalse(self.saved()[1].get("recovery_grants"))
+        # A refused grant is no settings write either (#2479): neither the corrected limits,
+        # their limit_change events nor any allowance may reach the saved run.
+        self.assertEqual(before, (run / "state.json").read_bytes())
 
     def test_grant_recovery_resumes_in_one_invocation_from_a_bare_timeout_pause(self):
         run, paused = self.timeout_exhausted_checkpoint(publish_request=False)
