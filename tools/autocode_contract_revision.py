@@ -23,6 +23,7 @@ try:
     from . import autocode_requirement_cues as cues
     from . import autocode_rewording_question as rewording
     from . import autocode_test_cases as test_cases
+    from .autocode_user_authority import saved_user_basis
 except ImportError:
     import autocode_assumption_provenance as assumption_provenance
     import autocode_contract_delta as delta
@@ -34,6 +35,7 @@ except ImportError:
     import autocode_requirement_cues as cues
     import autocode_rewording_question as rewording
     import autocode_test_cases as test_cases
+    from autocode_user_authority import saved_user_basis
 
 PLANNER_ORIGINS = {"glm_draft", "glm_revise", "astra_finalize", "astra_discovery"}
 PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
@@ -230,20 +232,6 @@ def baseline_corrections(state: RunState, previous_contract, previous, body, pro
                 f"({before[:120]!r})."
             )
     return allowed, consumed, receipts
-
-
-def saved_user_basis(state: RunState, basis, answer_id):
-    if basis == "user_answer":
-        return bool(answer_id) and answer_id in state.get("answers", {})
-    if basis == "delegated":
-        answer = state.get("answers", {}).get(answer_id) if answer_id else None
-        return isinstance(answer, dict) and answer.get("kind") == "delegated"
-    if basis == "user_feedback":
-        return bool(answer_id) and any(
-            event.get("id") == answer_id and event in state.get("user_events", [])
-            for event in state.get("brief_feedback", [])
-        )
-    return False
 
 
 def feedback_interpretations(state: RunState):

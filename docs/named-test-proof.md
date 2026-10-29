@@ -32,6 +32,14 @@ the candidate, with these limits:
 When the change edits no test file, the guards are matched against the base suite's own
 pass-to-pass, by the case id as well as by exact name, so a guard may name several tests; one
 of them failing beside a test it matched breaks the guard.
+
+Preservation normally rests on base tests that still pass. When the original code holds no
+test file and its suite had nothing to run (an empty collection, or a known runner with no test
+directory), the change's own tests stand in (#2259). Any of them that pass on the original
+code and on the change show its existing behavior was kept, and the full candidate suite must
+pass. Without such a test the proof stays `UNVERIFIED`, and its reason tells the Builder to
+add one; no person is asked. A base holding only documents, manifests, data files or a short
+extensionless text note has no behavior to preserve at all.
 An exit code or a printed `PASS test_c1_example` is not enough to identify which
 case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
 Node's built-in `node:test` runner, Vitest 4, and an explicitly configured

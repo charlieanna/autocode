@@ -218,7 +218,7 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
     document (``.md``), a .gitignore, an empty file, or, if no nonempty file in
     the base is code or a test path, a project, dependency or license manifest
     (``first_suite.manifest``: a first project, #1783) or a plain text or data
-    file the deliverable reads (``first_suite.data_file``, #2036); and
+    file the deliverable reads (``first_suite.data_file``, #2036; ``plain_note``, #2259); and
     make_tree copies no git-ignored code into the proof trees (``generated_sources`` of
     ``dependencies_from`` is empty, and so is the launch inventory of an
     in-place run, ``ignored_inputs``: autocode_launch_inputs.Supply).
@@ -273,8 +273,16 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
     # With no code or test file in the base, the suite had nothing to run, so a
     # manifest holds no behavior to preserve (#1783).
     source = any(size and (is_code_path(path) or is_test_path(path)) for path, size in regular)
-    accepted = [first_suite.inert_base_file(path, size, separate=separate, source=source) for path, size in regular]
+    read = first_suite.blob_reader(workspace, base)
+    accepted = [
+        first_suite.inert_base_file(path, size, separate=separate, source=source, read=read) for path, size in regular
+    ]
     return not generated_sources(dependencies_from) and not launched and all(accepted)
+
+
+def _untested_base(workspace, base) -> bool:
+    paths = project_inventory.regular_paths(_git(workspace, "ls-tree", "-r", "-l", "-z", base), executable=True)
+    return paths is not None and not any(is_test_path(path) for path in paths)
 
 
 def _no_go_project(workspace, base, copied) -> bool:
@@ -2705,6 +2713,8 @@ def verify(
                 allow_absent_junit=no_junit_project and comparable is not None and comparable.get("base") == base,
                 base_definition=base_definition,
                 empty_root=empty_root,
+                kept_tests=proof.get("pass_to_pass") or (),
+                untested=bool(base) and _untested_base(workspace, base),
             )
             # make_tree copies ignored test files into both trees, so a guard could rest on a test base never held.
             hidden = [
@@ -3089,8 +3099,10 @@ def _judge_suite(
     allow_absent_junit=False,
     base_definition=None,
     empty_root=None,
+    kept_tests=(),
+    untested=False,
 ):
-    """Nothing that passed on base may fail, be skipped, be deselected or disappear."""
+    """Nothing that passed on base may fail, be skipped, be deselected or disappear (``kept_tests``: first_suite)."""
     if on_candidate["timed_out"]:
         fail.append("The project suite timed out on the candidate")
         return
@@ -3181,18 +3193,7 @@ def _judge_suite(
     # the candidate's new suite actually ran and passed in full.
     empty_base = (
         allow_empty_base
-        and base_results is not None
-        and base_receipt.get("results_expected") is True
-        and (
-            base_receipt.get("exit_code") == 0
-            or (
-                base_receipt.get("exit_code") == 5
-                and schedule.collection_kind(base_receipt.get("command", "")) in ("unittest", "pytest")
-            )
-        )
-        and base_results.get("complete") is True
-        and base_results.get("total") == 0
-        and all(base_results.get(key) == [] for key in ("passed", "failed", "skipped", "collection_errors"))
+        and first_suite.empty_collection(base_receipt)
         and on_candidate["exit_code"] == 0
         and schedule.complete_results(on_candidate)
         and candidate["passed"]
@@ -3206,20 +3207,22 @@ def _judge_suite(
             "it reports no packages on base and passes completely on the candidate"
         )
         return
+    kept = not empty_base and first_suite.untested_base_kept(base_receipt, on_candidate, kept_tests, untested=untested)
+    if kept:
+        notes.append(first_suite.UNTESTED_BASE_KEPT)
     if base_results is not None:
-        if not empty_base and (not schedule.complete_results(base_receipt) or not base_results["passed"]):
-            unverified.append(
-                "The base suite provided no complete passing-test evidence; "
-                "preservation of existing behavior is unproven"
-            )
+        if not (empty_base or kept) and (not schedule.complete_results(base_receipt) or not base_results["passed"]):
+            unverified.append(first_suite.no_base_evidence(untested and first_suite.no_base_suite(base_receipt)))
     elif base_suite is not None and base_suite.get("health") == "broken":
         if first_suite.absent_base_suite(base_receipt, on_candidate, document_only=allow_empty_base):
             notes.append(
                 "The pinned documentation-only base has no existing behavior to preserve; "
                 "its new suite is absent on base and passes completely on the candidate"
             )
-        else:
-            unverified.append("The base suite could not run; preservation of existing behavior is unproven")
+        elif not kept:
+            unverified.append(
+                first_suite.no_base_evidence(untested and first_suite.no_base_suite(base_receipt), ran=False)
+            )
     if candidate is not None and base_results is not None:
         if base_results.get("complete") and not base_receipt.get("timed_out"):
             new = sorted(set(candidate["failed"]) - set(base_results["failed"]))

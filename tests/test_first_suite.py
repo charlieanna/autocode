@@ -68,16 +68,12 @@ class FirstNodeSuiteTests(unittest.TestCase):
     def test_unknown_existing_source_cannot_claim_an_empty_baseline(self):
         _, result = self.prove({"README.md": "Existing project.\n", "legacy": "old behavior\n"})
         self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
-        self.assertIn(
-            "The base suite could not run; preservation of existing behavior is unproven", result["unverified"]
-        )
+        self.assertIn(first_suite.UNTESTED_BASE, result["unverified"])
 
     def test_bugfix_still_requires_a_working_baseline(self):
         _, result = self.prove(new_behavior=False)
         self.assertNotEqual(verify.PASS, result["verdict"], result)
-        self.assertIn(
-            "The base suite could not run; preservation of existing behavior is unproven", result["unverified"]
-        )
+        self.assertIn(first_suite.UNTESTED_BASE, result["unverified"])
 
     def test_preservation_only_does_not_gain_a_new_behavior_exception(self):
         _, result = self.prove(preserve_only=True)
@@ -85,7 +81,7 @@ class FirstNodeSuiteTests(unittest.TestCase):
 
 
 class FirstPythonSuiteTests(unittest.TestCase):
-    def prove(self, seed):
+    def prove(self, seed, extra=None):
         project = Project(seed)
         self.addCleanup(project.close)
         # The run's original checkout: a task worktree proves against it, so the
@@ -98,6 +94,7 @@ class FirstPythonSuiteTests(unittest.TestCase):
                 "tests/test_greet.py": "import unittest\nfrom greet import greet\n\n\n"
                 "class Greet(unittest.TestCase):\n    def test_greet(self):\n"
                 "        self.assertEqual('Hello, bob!', greet('bob'))\n",
+                **(extra or {}),
             }
         )
         command = f"{sys.executable} -m unittest discover -s tests -v"
@@ -152,6 +149,43 @@ class FirstPythonSuiteTests(unittest.TestCase):
                     any("no existing behavior to preserve" in note for note in result["notes"]), result["notes"]
                 )
 
+    def test_a_stray_extensionless_note_has_no_behavior_to_preserve(self):
+        # #2259: a first task's base held only a one-line file named "a". The base suite collected no
+        # tests, so the proof waited on passing evidence nobody could supply and the run dead-ended.
+        result = self.prove({"a": "hello\n"})
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertFalse(result["unverified"], result)
+
+    def test_an_extensionless_file_that_can_run_still_requires_preservation(self):
+        for seed in (
+            {"a": "hello\n", "Makefile": "test:\n\techo hi\n"},
+            {"run": "#!/bin/sh\necho hi\n"},
+            {"a": "hello\n", "legacy.py": "VALUE = 1\n"},
+        ):
+            with self.subTest(sorted(seed)):
+                result = self.prove(seed)
+                self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+
+    def test_a_plain_note_is_judged_by_content(self):
+        self.assertTrue(first_suite.plain_note("a", b"hello\n"))
+        self.assertTrue(first_suite.plain_note("docs/NOTES", b"todo\n"))
+        for path, content in (
+            ("run", b"#!/usr/bin/env python3\nprint(1)\n"),
+            ("Dockerfile", b"FROM scratch\n"),
+            ("blob", b"\x00\x01"),
+            ("big", b"x" * (first_suite.NOTE_LIMIT + 1)),
+            ("notes.sh", b"echo hi\n"),
+            (".envrc", b"export A=1\n"),
+            ("a", None),
+        ):
+            with self.subTest(path):
+                self.assertFalse(first_suite.plain_note(path, content))
+        read = {"a": b"hello\n"}.get
+        self.assertTrue(first_suite.inert_base_file("a", 6, separate=True, source=False, read=read))
+        self.assertFalse(first_suite.inert_base_file("a", 6, separate=True, source=True, read=read))
+        self.assertFalse(first_suite.inert_base_file("a", 6, separate=False, source=False, read=read))
+        self.assertFalse(first_suite.inert_base_file("a", 6, separate=True, source=False))
+
     def test_a_data_file_beside_existing_source_still_requires_preservation(self):
         result = self.prove(
             {"README.md": "An existing project.\n", "sample.txt": "the fox\n", "legacy.py": "VALUE = 1\n"}
@@ -172,6 +206,23 @@ class FirstPythonSuiteTests(unittest.TestCase):
         self.assertTrue(first_suite.inert_base_file("sample.txt", 10, separate=True, source=False))
         self.assertFalse(first_suite.inert_base_file("sample.txt", 10, separate=True, source=True))
         self.assertFalse(first_suite.inert_base_file("sample.txt", 10, separate=False, source=False))
+
+    def test_untested_code_is_kept_by_the_change_tests_that_pass_on_it(self):
+        # #2259: an original program with no tests. The change's test of its existing behavior passes on the
+        # original code and on the change, so it stands in for the suite the base lacked.
+        legacy = "tests/test_legacy.py"
+        check = "import unittest\nimport legacy\n\n\nclass Legacy(unittest.TestCase):\n    def test_value(self):\n"
+        result = self.prove(
+            {"legacy.py": "VALUE = 1\n"}, {legacy: check + "        self.assertEqual(1, legacy.VALUE)\n"}
+        )
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertIn("test_legacy.Legacy.test_value", " ".join(result["pass_to_pass"]))
+        self.assertIn(first_suite.UNTESTED_BASE_KEPT, result["notes"])
+
+    def test_untested_code_without_a_kept_test_tells_the_builder_what_to_add(self):
+        result = self.prove({"legacy.py": "VALUE = 1\n"})
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        self.assertIn(first_suite.UNTESTED_BASE, result["unverified"])
 
     def test_a_manifest_beside_existing_source_still_requires_preservation(self):
         result = self.prove(
