@@ -431,6 +431,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Task completion now requires current behavioral evidence or a precise, independently checked reason for every changed executable product line (#2474). Coverage and mutation observations keep their source and command receipts; a setup failure, an empty survivor list or a stale proof cannot count as a tested line. Missing tools use a recorded fallback without installing project dependencies. Unresolved exact lines return to Builder for bounded repairs, then to Investigator, with their decisions and accepted reasons visible in the status and final report. Existing saved reports remain readable.
+
 - A spec-first run no longer sends the Tester to rewrite a test whose criterion did not change (#2464, item 2).
   A reapproval or a follow-up installs a new contract hash, and acceptance-test receipts are keyed by the hash
   they were written under, so every case was due again and the Tester re-ran for all of them. A case whose
