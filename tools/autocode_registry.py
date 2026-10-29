@@ -39,9 +39,41 @@ class RegistryError(RuntimeError):
         self.code = code
 
 
+def _registry_project(workspace: Path) -> Path:
+    """The project that owns registry storage for ``workspace``.
+
+    A default task worktree (``.autocode/task-workspace.json``) registers under its
+    project so ``registry list`` and ``runs --all`` from that project see the lane
+    (#2279). Invalid or foreign metadata keeps the workspace itself.
+    """
+    meta = workspace / ".autocode" / "task-workspace.json"
+    if not meta.is_file() or meta.is_symlink():
+        return workspace
+    try:
+        data = json.loads(meta.read_text())
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return workspace
+    if not isinstance(data, dict) or not isinstance(data.get("project_workspace"), str):
+        return workspace
+    if data.get("workspace") != str(workspace):
+        return workspace
+    project = Path(data["project_workspace"]).resolve()
+    try:
+        if not workspace.is_relative_to(project / ".autocode" / "worktrees"):
+            return workspace
+    except (OSError, ValueError):
+        return workspace
+    return project
+
+
 def configure_workspace_storage(workspace: str | Path) -> None:
-    """Use workspace-local registry storage unless a shared home was chosen."""
-    os.environ.setdefault("AUTOCODE_HOME", str(Path(workspace).resolve() / ".autocode" / "registry"))
+    """Use project-local registry storage unless a shared home was chosen.
+
+    Task worktrees register through their ``project_workspace`` (#2279). An explicit
+    ``AUTOCODE_HOME`` still wins.
+    """
+    root = _registry_project(Path(workspace).resolve())
+    os.environ.setdefault("AUTOCODE_HOME", str(root / ".autocode" / "registry"))
 
 
 def storage_root() -> Path:

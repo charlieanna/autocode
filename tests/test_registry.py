@@ -93,6 +93,45 @@ class RegistryTests(unittest.TestCase):
             registry.configure_workspace_storage(workspace)
             self.assertEqual(str(self.home), os.environ["AUTOCODE_HOME"])
 
+    def test_task_worktree_registers_in_the_projects_registry(self):
+        """#2279: a default (no --in-place) run must not bury its index under the lane."""
+        project, _, _ = self.fixture("project")
+        lane = project / ".autocode" / "worktrees" / "add-a-hello-script-0123456789"
+        run = lane / ".autocode" / "runs" / "lane-run"
+        run.mkdir(parents=True)
+        (lane / ".git").write_text("gitdir: ../.git/worktrees/lane\n")
+        (lane / ".autocode" / "task-workspace.json").write_text(
+            json.dumps({"workspace": str(lane.resolve()), "project_workspace": str(project)})
+        )
+        state = {
+            "version": 3,
+            "workspace": str(lane.resolve()),
+            "task": "Add a hello script",
+            "status": "RUNNING",
+            "task_id": "lane-task",
+            "current_task": {"id": "implementation"},
+        }
+        (run / "state.json").write_text(json.dumps(state))
+        project_registry = project / ".autocode" / "registry"
+        with patch.dict(os.environ, {}, clear=True):
+            registry.configure_workspace_storage(lane.resolve())
+            self.assertEqual(str(project_registry), os.environ["AUTOCODE_HOME"])
+            registry.register_run(lane.resolve(), run.resolve(), state)
+            listed = registry.listing()
+        self.assertTrue(listed["registry_exists"])
+        self.assertEqual([str(run.resolve())], [row["run_dir"] for row in listed["runs"]])
+        self.assertFalse((lane / ".autocode" / "registry").exists())
+        with patch.dict(os.environ, {"AUTOCODE_HOME": str(self.home)}, clear=True):
+            registry.configure_workspace_storage(lane.resolve())
+            self.assertEqual(str(self.home), os.environ["AUTOCODE_HOME"])
+        # Foreign or mismatched metadata must not redirect registration.
+        (lane / ".autocode" / "task-workspace.json").write_text(
+            json.dumps({"workspace": str(lane.resolve()), "project_workspace": str(self.root / "elsewhere")})
+        )
+        with patch.dict(os.environ, {}, clear=True):
+            registry.configure_workspace_storage(lane.resolve())
+            self.assertEqual(str(lane.resolve() / ".autocode" / "registry"), os.environ["AUTOCODE_HOME"])
+
     def test_register_deduplicates_canonical_alias_and_lists_checkpoint_summary(self):
         workspace, run, state = self.fixture("workspace")
         first = registry.register_run(workspace, run, state)
