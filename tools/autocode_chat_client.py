@@ -1571,6 +1571,12 @@ def render_plan(plan: dict) -> str:
         lines.append(f"      Checked by: {row['verification_method']}")
         if row["human_review"]:
             lines.append("      You check this one yourself.")
+    # The completion order the approval binds (#2434): a milestone can carry work the criteria
+    # text only summarizes, as a coordinator-owned joint proof inside a member plan did.
+    for row in plan.get("milestones") or []:
+        criteria = ", ".join(row.get("acceptance_criteria") or [])
+        suffix = f" (proves {criteria})" if criteria else ""
+        lines.append(f"  Milestone {row['id']}{suffix}: {row['objective']}")
     for title, rows in (
         ("Constraints", plan["constraints"]),
         ("What it may do", plan["permission_boundaries"]),
@@ -1579,6 +1585,10 @@ def render_plan(plan: dict) -> str:
         if rows:
             lines.append(f"{title}:")
             lines.extend(f"  - {text}" for text in rows)
+    flow = plan.get("end_to_end_flow") or []
+    if flow:
+        lines.append("Steps in order:")
+        lines.extend(f"  {number}. {text}" for number, text in enumerate(flow, 1))
     delivery = plan.get("git_delivery")
     if isinstance(delivery, dict) and delivery.get("kind") == "atomic_commit":
         lines.append("Create one local atomic commit: " + delivery["message"])

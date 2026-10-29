@@ -23,6 +23,7 @@ import autocode_interventions as interventions
 import autocode_proof_declarations as proof_declarations
 import autocode_providers as providers
 import autocode_regression as regression
+import autocode_resolver_human as resolver_human
 import autocode_review_rejection as review_rejection
 import autocode_stage_context as stage_context
 import autocode_support as s
@@ -467,6 +468,46 @@ class GoalTests(unittest.TestCase):
                 self.state.update(status=status, next_stage="astra_finalize")
                 self.assertEqual(2, self.invoke("--feedback", "Correct the report"))
                 self.assertIn("does not acknowledge PAUSED_TIME_LIMIT", self.stderr + self.stdout)
+
+    def test_operational_answers_keep_their_protected_holds(self):
+        """An answered operational request and a budget pause still refuse corrections (#2434)."""
+        self.approve()
+        published = resolver_human.current(self.state)
+        if published:
+            runner.finish_human_action(self.state, published)
+        self.state["settings"]["limits"]["max_seconds"] = 1
+        self.state["settings"]["budget_origins"] = {"max_seconds": "user_explicit"}
+        self.state.update(status="PAUSED_TIME_LIMIT", active_seconds=2, stop_reason="Explicit total time exhausted")
+        self.assertTrue(
+            runner.resolver_runtime.record_operational_exhaustion(
+                runner, self.state, self.run, s.Paused("PAUSED_TIME_LIMIT", self.state["stop_reason"])
+            )
+        )
+        self.assertTrue(0 <= self.invoke("--no-chat") <= 2, self.stdout + self.stderr)
+        public = resolver_human.current(self.state)
+        assert public is not None
+        self.assertEqual(
+            0,
+            self.invoke(
+                "--resolver-request",
+                public["request_id"],
+                "--resolver-token",
+                public["request_token"],
+                "--resolver-response",
+                "provide_information",
+                "--resolver-message",
+                "The provider incident was investigated",
+                "--no-chat",
+            ),
+            self.stdout + self.stderr,
+        )
+        goal_file = self.root / "body.json"
+        goal_file.write_text(json.dumps(self.state["goal_contract"]["body"]))
+        for args in (("--feedback", "Correct it"), ("--edit-goal", str(goal_file))):
+            with self.subTest(args=args[0]):
+                self.assertEqual(2, self.invoke(*args))
+                self.assertIn("does not acknowledge", self.stderr + self.stdout)
+                self.assertTrue(g.approved(self.state))
 
     def test_existing_answers_persist_and_cannot_be_asked_again(self):
         self.draft(questions=True)
@@ -2206,6 +2247,35 @@ class GoalTests(unittest.TestCase):
         lifecycle.approve(self.state, g.token(contract))
         self.assertTrue(g.approved(self.state))
         self.assertEqual(original, contract["body"])
+        # The public approval projection stays additive for that sealed legacy body (#2434):
+        # its original fields keep their unconditional shape and the newer completion-order
+        # fields stay absent, so the legacy plan remains showable and approvable as it is.
+        import autocode_client_actions as client_actions
+        import autocode_run_view as run_view
+
+        state = self.state
+        state.update(status="AWAITING_GOAL_APPROVAL", phase="AWAITING_GOAL_APPROVAL")
+        state["displayed_goal"] = g.token(contract)
+        displayed = run_view.view(state)["displayed_plan"]
+        self.assertEqual(
+            {
+                "revision": contract["revision"],
+                "hash": contract["hash"],
+                "token": g.token(contract),
+                "acceptance_criteria": contract["body"]["acceptance_criteria"],
+                "constraints": contract["body"]["constraints"],
+                "permission_boundaries": contract["body"]["permission_boundaries"],
+                "git_delivery": contract["body"].get("git_delivery"),
+                "scope_exclusions": contract["body"].get("scope_exclusions"),
+            },
+            displayed,
+        )
+        self.assertEqual(
+            displayed,
+            client_actions.plan_for_approval(
+                {"displayed_plan": displayed, "needs": {"kind": "approve_plan", "token": g.token(contract)}}
+            ),
+        )
 
     def test_completed_legacy_discovery_recovers_using_its_saved_schema(self):
         draft = body()

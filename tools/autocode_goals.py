@@ -693,15 +693,21 @@ def initial_decision(body):
     }
 
 
-def feedback(state: RunState, text, *, interpret=True):
-    """A free-form brief correction is input to the Plan Reviewer, never authorization to build."""
+def feedback(state: RunState, text, *, interpret=True, semantic_hold=False):
+    """A free-form brief correction is input to the Plan Reviewer, never authorization to build.
+
+    ``semantic_hold`` is the shared pause-authority predicate for an answered semantic blocker
+    (autocode_pause_authority.answered_blocker_decision), passed by the action layer because this
+    module importing the authority would join an import cycle; it admits the correction the
+    checkpoint catalog alone does not know (#2434).
+    """
     if state.get("status") == "PAUSED_COMPONENT_PLAN":
         need = component_plan.recovery(
             state.get("task", ""), (state.get("settings") or {}).get("regression", {}).get("test_root")
         )
         if need.get("new_run_required"):
             raise ValueError(need["recovery_hint"])
-    if not planning_feedback.admitted(state) or not text.strip():
+    if not (semantic_hold or planning_feedback.admitted(state)) or not text.strip():
         raise ValueError("Brief feedback needs nonempty text at a conversation checkpoint")
     if cast(dict, state.get("user_request", {})).get("kind") == "human_review":
         raise ValueError("Record the artifact review with --approve-review or --reject-review, not brief feedback")

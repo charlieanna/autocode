@@ -389,7 +389,13 @@ def view(
                 and state.get("displayed_goal") == contract_identity.token(contract)
                 and contract_identity.sealed(contract)
             ):
-                # Approval consumers need actual fields, not model-authored display text.
+                # Approval consumers need actual fields, not model-authored display text. The
+                # original fields keep their unconditional shape (null when absent), because the
+                # status view only grows additively. Milestones and the end-to-end flow are the
+                # completion order the person is approving — criteria summaries alone hid a
+                # coordinator-owned joint-proof milestone inside a member plan (#2434) — added
+                # only where the contract body carries them: legacy bodies predate both fields
+                # (LEGACY_BODY_SCHEMA omits them) and stay showable and approvable unchanged.
                 result["displayed_plan"] = {
                     "revision": contract["revision"],
                     "hash": contract["hash"],
@@ -404,6 +410,13 @@ def view(
                             "scope_exclusions",
                         )
                     },
+                    **(
+                        {
+                            key: deepcopy(contract["body"][key])
+                            for key in ("milestones", "end_to_end_flow")
+                            if key in contract["body"]
+                        }
+                    ),
                 }
         except (KeyError, TypeError, ValueError):
             pass  # Missing, stale or unsealed plans cannot supply approval authority.

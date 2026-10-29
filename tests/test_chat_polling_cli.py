@@ -99,7 +99,9 @@ class AttachedTerminal(unittest.TestCase):
         help_seconds = time.monotonic() - started
         self.assertIsNone(worker.poll(), "help arrived before the provider gate was released")
         os.write(leader, b"/details\r")
-        read_terminal(leader, until=b"/details", seconds=10)
+        # The command's echo is not its answer: wait for the listing's own last line, so
+        # /pause is typed only after the details response is on screen.
+        read_terminal(leader, until=b"does not measure meaningful work progress", seconds=10)
         os.write(leader, b"/pause\r")
         read_terminal(leader, until=b"external worker", seconds=15)
         self.assertIsNone(worker.poll(), "pause requests do not interrupt the external worker")
