@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import copy
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -40,6 +40,7 @@ SOURCES = (
     "design_constraint",
     "design_review",
 )
+RECEIPT_FIELDS = ("snapshot", "judgment", "before", "after", "rationale")
 RECEIPT_SCHEMA = {
     "type": ["object", "null"],
     "properties": {
@@ -49,7 +50,7 @@ RECEIPT_SCHEMA = {
         "after": {"type": "string"},
         "rationale": {"type": "string"},
     },
-    "required": ["snapshot", "judgment", "before", "after", "rationale"],
+    "required": list(RECEIPT_FIELDS),
     "additionalProperties": False,
 }
 
@@ -106,7 +107,8 @@ def snapshot(state: RunState):
     ):
         return None
     for key in ("requirements_handoff", "investigation", "workflow", "design_constraint", "design_review"):
-        if state.get(key) is not None and not isinstance(state[key], dict):
+        value = state.get(key)
+        if value is not None and not isinstance(value, dict):
             return None
     report = (state.get("requirements_handoff") or {}).get("report", {})
     if not isinstance(report, dict):
@@ -155,7 +157,7 @@ def receipts(state: RunState, report):
             continue
         if (
             not isinstance(receipt, dict)
-            or set(receipt) != set(RECEIPT_SCHEMA["required"])
+            or set(receipt) != set(RECEIPT_FIELDS)
             or any(not isinstance(value, str) or not value.strip() for value in receipt.values())
             or not token
             or receipt.get("snapshot") != token
@@ -230,6 +232,7 @@ def corrections(state: RunState, body, changes, origin):
         ):
             allowed[item] = binding
     replacements = {item: binding["receipt"]["after"] for item, binding in allowed.items()}
-    if not _retains_obligations(state["goal_contract"]["body"], body, replacements):
+    contract = cast(dict, state["goal_contract"])  # revision_guard has already established the previous contract
+    if not _retains_obligations(contract["body"], body, replacements):
         return {}
     return allowed
