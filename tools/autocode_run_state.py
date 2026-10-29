@@ -77,6 +77,7 @@ KEYS: frozenset[str] = frozenset(
         "builder_retries",
         "builder_retry_decisions",
         "builder_retry_key",
+        "changed_code_fallback",
         "changed_files",
         "changeset_approval",
         "checked",
@@ -402,6 +403,9 @@ class RunState(TypedDict, total=False):
     turns: list  # follow_up writes; chat_history reads previous.chat_response for retained completed-turn text
     replay_result: dict | None  # replay_checks owns archival obligation/result; view reads it, never current proof
     regression_proof: dict | None  # the bug-fix fail-before/pass-after proof
+    changed_code_fallback: (
+        dict | None
+    )  # regression.record_unmeasured writes why changed code went unmeasured; evidence only
     active_runner_check: dict | None  # an in-flight runner-owned check
     evidence_export: dict | None  # written only by evidence_export.record; read by public view/TaskRun
     finished_at: str | None  # legacy completion time read by evidence_export; no new writer

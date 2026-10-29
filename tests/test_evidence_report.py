@@ -105,6 +105,199 @@ def value(view=None):
     )
 
 
+class ChangedCodeReportTests(unittest.TestCase):
+    def changed_view(self):
+        import autocode_changed_code_evidence as changed_code
+
+        view = public_view()
+        source, context, digest = "a" * 64, "c" * 64, "d" * 64
+        inventory = [{"path": "src/value.py", "sha256": digest, "lines": [2, 3, 4]}]
+        mutation = {
+            "source_revision": source,
+            "proof_context": context,
+            "files": [
+                {
+                    "path": "src/value.py",
+                    "sha256": digest,
+                    "mutants": [
+                        {
+                            "line": 2,
+                            "outcome": "killed",
+                            "failed_tests": ["tests.Value.test_boundary"],
+                            "evidence": ["owned/mutant.log"],
+                        }
+                    ],
+                }
+            ],
+        }
+        initial = changed_code.assess(inventory, None, mutation, source_revision=source, proof_context=context)
+        gap = initial["obligations"][1]
+        decision = {
+            **{key: gap[key] for key in ("gap_id", "path", "sha256", "line")},
+            "source_revision": source,
+            "proof_context": context,
+            "accepted": True,
+            "reason_kind": "defensive_unreachable",
+            "reason": "Parser excludes this defensive state.",
+            "evidence": ["owned/tester-check.log"],
+            "reviewer": {"stage": "sol", "role": "sol", "output": "owned/tester.json"},
+        }
+        assessment = changed_code.assess(
+            inventory,
+            None,
+            mutation,
+            source_revision=source,
+            proof_context=context,
+            exceptions=[decision],
+        )
+        view["evidence"]["regression_proof"] = {"verdict": "PASS", "changed_code_evidence": assessment}
+        view["verification"]["changed_code_evidence"] = copy.deepcopy(assessment)
+        base = {
+            "kind": "changed_code_rework",
+            "task_id": "task",
+            "contract_hash": "plan",
+            "contract_revision": 1,
+            "source_revision": source,
+            "review_output": "owned/earlier-tester.json",
+            "assessment": initial,
+            "at": "2026-10-29T10:00:00+00:00",
+        }
+        view["verification"]["changed_code_repairs"] = [
+            {**copy.deepcopy(base), "action": "builder"},
+            {
+                **copy.deepcopy(base),
+                "action": "investigator",
+                "investigation": {
+                    "diagnosis": "test_gap",
+                    "guidance": "Assert the surviving boundary value.",
+                    "evidence_refs": ["owned/earlier-tester.json"],
+                    "output": "owned/investigator.json",
+                    "sha256": "e" * 64,
+                },
+            },
+        ]
+        return view
+
+    def test_gate_reports_current_gaps_accepted_reasons_fallback_and_bound_repair_decisions(self):
+        view = self.changed_view()
+        before = copy.deepcopy(view)
+        report = value(view)
+        self.assertEqual(before, view)
+        assessment = report["regression_proof"]["changed_code_evidence"]
+        self.assertEqual(view["evidence"]["regression_proof"]["changed_code_evidence"], assessment)
+        self.assertEqual(view["verification"]["changed_code_repairs"], report["changed_code_repairs"])
+        self.assertTrue(any(reason.startswith("Changed-code evidence gate:") for reason in report["unverified"]))
+        markdown = document.render(report)
+        for phrase in (
+            "Runner gate: **UNVERIFIED**",
+            "Unresolved obligations block completion",
+            "Independently accepted Tester reason",
+            "Parser excludes this defensive state.",
+            "owned/tester.json",
+            "owned/tester-check.log",
+            "mutation_only",
+            "reviewer_reason_required",
+            "Builder",
+            "Investigator",
+            "Assert the surviving boundary value.",
+            "historical decisions retain their own source",
+            "c" * 64,
+            "d" * 64,
+            "e" * 64,
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, markdown)
+        for row in assessment["obligations"]:
+            self.assertIn(row["gap_id"], markdown)
+            self.assertIn(f"src/value.py:{row['line']}", markdown)
+        self.assertEqual(markdown, document.render(json.loads(json.dumps(report, sort_keys=True))))
+
+    def test_new_gate_document_pair_authenticates_and_tampered_decision_is_refused(self):
+        report = value(self.changed_view())
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            anchor = export.write(root, report)
+            found = export.read(root, anchor, expected_binding="binding", current=True, include=True)
+            self.assertEqual("current", found["availability"])
+            self.assertEqual(report, found["document"])
+            self.assertEqual(document.render(report), found["markdown"])
+            path = root / "evidence.json"
+            changed = json.loads(path.read_text())
+            changed["changed_code_repairs"][0]["action"] = "investigator"
+            path.write_text(json.dumps(changed))
+            self.assertNotEqual(
+                "current", export.read(root, anchor, expected_binding="binding", current=True)["availability"]
+            )
+
+    def test_history_binding_includes_only_displayed_new_decisions_and_keeps_legacy_reports(self):
+        state = {"status": "TASK_COMPLETE", "workflow": {"kind": "discuss"}, "base_commit": "base"}
+        legacy = export.binding(state, {})
+        state["regression_proofs"] = [{"verdict": "PASS", "source_revision": "old"}]
+        self.assertEqual(legacy, export.binding(state, {}))
+        state["regression_proofs"] += copy.deepcopy(self.changed_view()["verification"]["changed_code_repairs"])
+        current = export.binding(state, {})
+        self.assertNotEqual(legacy, current)
+        for key, replacement in (
+            ("action", "investigator"),
+            ("source_revision", "changed"),
+            ("review_output", "other"),
+        ):
+            changed = copy.deepcopy(state)
+            changed["regression_proofs"][1][key] = replacement
+            with self.subTest(key=key):
+                self.assertNotEqual(current, export.binding(changed, {}))
+        legacy_view = public_view()
+        expected = value(legacy_view)
+        legacy_view["verification"].update(changed_code_evidence=None, changed_code_repairs=[])
+        self.assertEqual(expected, value(legacy_view))
+        self.assertNotIn("Changed-code evidence gate", document.render(expected))
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            anchor = export.write(root, expected)
+            found = export.read(root, anchor, expected_binding="binding", current=True, include=True)
+            self.assertEqual("current", found["availability"])
+            self.assertEqual(document.render(expected), found["markdown"])
+
+    def test_legacy_proof_projection_preserves_canonical_json_and_markdown(self):
+        legacy_proof = {
+            "verdict": "PASS",
+            "source_revision": "a" * 64,
+            "fail_to_pass": ["tests/test_calc.py::test_answer"],
+            "case_tests": {"T1": ["tests/test_calc.py::test_answer"]},
+        }
+        for optional in ({}, {"changed_code_evidence": None}):
+            with self.subTest(optional=optional):
+                state = {"regression_proof": {**legacy_proof, **optional}}
+                original = copy.deepcopy(state)
+                view = public_view()
+                view["evidence"] = run_view.evidence(state)
+                historical = copy.deepcopy(view)
+                historical["evidence"]["regression_proof"].pop("changed_code_evidence", None)
+                expected = value(historical)
+
+                report = value(view)
+
+                self.assertEqual(expected, report)
+                self.assertEqual(document.render(expected), document.render(report))
+                self.assertNotIn("changed_code_evidence", view["evidence"]["regression_proof"])
+                self.assertNotIn("Changed-code evidence gate", document.render(report))
+                self.assertEqual(original, state)
+
+    def test_new_fields_reject_malformed_status_and_do_not_redact_identity_into_new_authority(self):
+        report = value(self.changed_view())
+        bad = copy.deepcopy(report)
+        bad["regression_proof"]["changed_code_evidence"]["status"] = "maybe"
+        with self.assertRaises(ValueError):
+            document.validate(bad)
+        for key in ("proof_context", "gap_id"):
+            bad = copy.deepcopy(report)
+            assessment = bad["regression_proof"]["changed_code_evidence"]
+            target = assessment if key == "proof_context" else assessment["obligations"][0]
+            target[key] = "ghp_CANARY0123456789abcdef"
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                document.sanitize(bad)
+
+
 class EvidenceDocumentTests(unittest.TestCase):
     def test_accounting_binding_uses_all_rendered_facts_and_gap_conditions(self):
         view = public_view()

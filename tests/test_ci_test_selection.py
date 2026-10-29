@@ -8,6 +8,12 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_scripted_greeting_fixture_keeps_public_task_consumers(self):
+        consumers = {"tests.test_live_fixture_changed_code", "tests.test_taskrun", "tests.test_agent_step"}
+        selected = run_suite.select_tests(["tools/live_fixture_provider.py"], {name: "" for name in consumers})
+        kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+        self.assertEqual(consumers, set(kept))
+
     def test_execution_criteria_resources_keep_prepared_and_public_consumers(self):
         consumers = {"tests.test_execution_criteria_prompt", "tests.test_builder_criteria_cli"}
         for path in (

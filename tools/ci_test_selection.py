@@ -67,6 +67,33 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "tools/live_fixture_provider.py",
+        ("tests.test_live_fixture_changed_code", "tests.test_taskrun", "tests.test_agent_step"),
+    ),
+    *(
+        (path, ("tests.test_changed_code_evidence_cli",))
+        for path in (
+            "tools/autocode_changed_code_evidence.py",
+            "tools/autocode_changed_code_measurement.py",
+            "tools/autocode_changed_code_proof.py",
+            "tools/autocode_changed_code_trigger.py",
+            "tools/autocode_changed_code_review.py",
+            "tools/autocode_changed_code_rework.py",
+            "tools/autocode_changed_code_review_application.py",
+            "tools/prompts/fragments/regression/changed-code-evidence.md",
+            "tools/autocode_diff_coverage.py",
+            "tools/autocode_mutation_check.py",
+            "tools/autocode_regression.py",
+            "tools/autocode_report_schema.py",
+            "tools/autocode_role_schema.py",
+            "tools/autocode_stage_context.py",
+            "tools/autocode_stuck_job.py",
+            "tools/autocode_workflow.py",
+            "tools/autocode_completion.py",
+            "tools/autopilot.py",
+        )
+    ),
     *(
         (path, ("tests.test_execution_criteria_prompt", "tests.test_builder_criteria_cli"))
         for path in (

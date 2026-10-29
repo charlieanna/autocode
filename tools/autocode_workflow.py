@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_changed_code_rework as changed_code_rework
     from . import autocode_completion as completion_gate
     from . import autocode_design_coverage as design_coverage
     from . import autocode_goal_lifecycle as lifecycle
@@ -29,6 +30,7 @@ try:
     from . import autocode_run_status as run_status
     from . import autocode_support as support
 except ImportError:
+    import autocode_changed_code_rework as changed_code_rework
     import autocode_completion as completion_gate
     import autocode_design_coverage as design_coverage
     import autocode_goal_lifecycle as lifecycle
@@ -380,6 +382,11 @@ def apply_checkpoint(runner, state: RunState, value, record, workspace, run_dir)
     runner._apply_result(state, "sol", validation, record, workspace, run_dir)
     cast(dict, state["validation"])["reviewer_role"] = "astra"
     cast(dict, state["validation"])["final_audit"] = final_only(state)
+    if changed_code_rework.queued(state, record):
+        state["stages"] = state.get("stages", [])[:stages]
+        state["history"] = state.get("history", [])[:history]
+        runner.save_record(state, record)
+        return
     if consult["requested"]:
         goals.execution_guard(state, decision)
         if support.criteria_definition(decision["acceptance_criteria"]) != support.criteria_definition(

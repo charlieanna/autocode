@@ -1,4 +1,5 @@
 {
+  "tests.test_changed_code_evidence_cli": "132.9s supported-Linux public changed-line rework, independent reasons and bounded Investigator coverage (#2474)",
   "tests.test_verification_claim_cli": "Public TaskRun Builder and independent verifiers resolve hash-bound claim references, 17.541 s in supported Linux aarch64 container, 2026-10-27; explicit consumer mappings retain this check for affected PR gates.",
   "tests.test_native_event_identity_cli": "Three public TaskRun native-event identity fault flows, 31.086 s in the supported Linux aarch64 test container, 2026-10-27; explicit runtime and fixture mappings retain the module for affected PR gates.",
   "tests.test_coordination_tui_e2e": "Linux public TUI three-repository delivery (356.441 s), incompatible-contract correction and publication restart (638.308 s), plus focused combined verification (9.072 s), Ubuntu container-local files on macOS, 2026-10-26. Required coordination consumer mappings retain this module in affected PR gates.",

@@ -302,11 +302,14 @@ from `tools/autocode_mutants.py`).
   note and the next one takes its place.
   `TYPE_CHECKING` and `__main__` guards, f-strings, annotations and branches that
   already do nothing are left alone.
-- **How many.** At most 6 mutants per changed file, spread over the operators and
-  lines. The same change always gets the same mutants.
+- **How many.** Current task proofs enumerate the eligible sites on every changed
+  line within the existing mutation budget. Unrun sites stay explicit obligations.
+  The older advisory collector and standalone review study retain their six-site
+  sample per file. The same source and selection give the same sites.
 - **How long.** One 900-second budget, the same limit as a check replay, covers
-  one unmutated run of the proving tests and every mutant. Only the proving tests
-  run, selected by name (never the whole suite), each mutant with its own empty
+  one unmutated run and every mutant. Current task proofs select the independently
+  observed passing candidate-suite tests by exact ID; older advisory collectors
+  select only the named proving tests. Each mutant uses its own empty
   bytecode cache and its own modification time, so a compile cached by a Python
   the tests start themselves is never reused. A mutant may take ten times the
   unmutated run's duration, at least 60 seconds, and never more than the budget
@@ -323,14 +326,31 @@ example ``test_partial_last_page_is_counted passes with pager/__init__.py:9
 changed (`>` -> `>=`)``. The status view shows the record as
 `evidence.mutation_check` ([the task-run interface](task-run.md)), the evidence
 report lists each survivor under the regression proof, and the Tester and the
-Completion Reviewer receive it with the proof, with a note to name the survivors
-in their evidence and not to fail the work on them alone.
+Completion Reviewer receive it with the proof. The runner combines exact-source
+coverage and authenticated mutation observations in `changed_code_evidence`
+(#2474). A line merely executed without a meaningful assertion does not pass.
+A named test must actually fail under the mutation; a setup/collection failure,
+missing test, interrupted command or timeout grants no positive evidence.
 
-The check is report only. It never changes the verdict, the failures,
-`case_tests` or completion; its runs are not receipts of the proof; and a proof
-that did not pass runs and reports no mutant. A survivor can be an equivalent mutant (a
-change no test could observe), so it is a reason to read the test, not proof
-that the test is wrong.
+Every changed executable line needs demonstrated mutation evidence or a precise
+reason checked by the existing independent Tester. This is its code-review
+responsibility within the existing workflow, and cannot be self-approved by
+Builder. A survivor can be equivalent (no test could observe the change); the
+Tester can record that specific reason against the current offered gap ID and
+pin its source/test/check evidence. An unavailable tool alone is not a blanket
+exception. Empty survivor lists and the old six-site sample never prove that
+all changed lines were tested.
+
+The core returns unresolved exact lines to Builder for two bounded repair rounds,
+then uses its existing Investigator path and saved run limits. It records those
+decisions and the fallback in the public verification view and final report.
+Missing project coverage tooling uses demonstrated mutation evidence alone where
+available; otherwise the line remains open for independent judgment. No project
+dependency is installed. Blank/comment-only lines, Python declaration-only lines
+and non-executable lines excluded by an authenticated statement map are omitted.
+Legacy proofs and standalone review mutation studies remain advisory records;
+active task completion requires current evidence rather than inferring it from
+those older records. A proof that did not pass runs no mutant.
 
 It complements the check replay's sanity gate (`tools/autocode_test_quality.py`),
 which rejects test bodies that assert nothing at all. A test that asserts

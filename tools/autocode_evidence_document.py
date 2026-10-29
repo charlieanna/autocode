@@ -188,6 +188,9 @@ def build(view, *, run_identity, completed_at, provenance, binding, kind="task",
     if proof.get("verdict") and proof["verdict"] != "PASS":
         unverified.append("Regression proof verdict: " + str(proof["verdict"]))
     unverified += ["Regression proof unverified: " + str(gap) for gap in proof.get("unverified") or []]
+    changed_code = mapping(proof.get("changed_code_evidence"))
+    if changed_code and changed_code.get("status") != "PASS":
+        unverified.append("Changed-code evidence gate: " + str(changed_code.get("reason") or "unverified"))
     if accounting["incomplete"]:
         unverified.append("Reported usage is incomplete or unavailable")
     if provenance.get("kind") in ("fake", "mixed", "unknown"):
@@ -259,6 +262,11 @@ def build(view, *, run_identity, completed_at, provenance, binding, kind="task",
         "usage": accounting["usage"],
         "unverified": unverified,
         "children": deepcopy(list(children)),
+        **(
+            {"changed_code_repairs": deepcopy(verification["changed_code_repairs"])}
+            if verification.get("changed_code_repairs")
+            else {}
+        ),
         **({"approvals": approvals} if approvals is not None else {}),
     }
     validate(document)
@@ -305,7 +313,17 @@ REDACTION_NOTICE = (
     "identify the original raw evidence bytes."
 )
 _AUTH_FIELDS = frozenset(
-    ("binding", "contract_token", "criteria_revision", "source_revision", "base_commit", "prompts_hash", "goal_hash")
+    (
+        "binding",
+        "contract_token",
+        "criteria_revision",
+        "source_revision",
+        "base_commit",
+        "prompts_hash",
+        "goal_hash",
+        "proof_context",
+        "gap_id",
+    )
 )
 
 
@@ -495,6 +513,98 @@ def _plan_lines(plan):
     ]
 
 
+def _changed_code_lines(proof, repairs):
+    """Render recorded gate facts; absent fields preserve historical Markdown."""
+    assessment = mapping(proof.get("changed_code_evidence"))
+    if not assessment and not repairs:
+        return []
+    lines = ["", "## Changed-code evidence gate", ""]
+    if assessment:
+        lines += [
+            "Runner gate: **" + text(assessment.get("status")) + "**. " + text(assessment.get("reason")),
+            "Each changed executable line needs behavioral evidence or an independently accepted Tester reason. "
+            "Unresolved obligations block completion; missing tools do not count as a pass.",
+            f"Source: {text(assessment.get('source_revision'))}. Proof context: {text(assessment.get('proof_context'))}.",
+            "Deterministic fallback: " + text(", ".join(assessment.get("fallback") or []) or "none") + ".",
+            "",
+            "| Gap | File:line (SHA-256) | Status | Execution / mutation | Fallback | Reason / evidence |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+        for row in rows(assessment.get("obligations")):
+            observations = (
+                f"executed={row.get('executed')}; mutation demonstrated={row.get('mutation_demonstrated')}; "
+                + ", ".join(row.get("mutation_outcomes") or [])
+            )
+            reason = row.get("reason") or "not recorded"
+            refs = list(row.get("evidence") or [])
+            accepted = mapping(row.get("exception")) if row.get("status") == "excepted" else {}
+            if accepted:
+                reason = "Independently accepted Tester reason: " + str(accepted.get("reason") or reason)
+                if accepted.get("reason_kind"):
+                    reason += " (" + str(accepted["reason_kind"]) + ")"
+                refs += accepted.get("evidence") or []
+                reviewer = mapping(accepted.get("reviewer"))
+                if reviewer:
+                    reason += "; reviewer record: " + str(reviewer.get("output") or "not recorded")
+            cells = (
+                row.get("gap_id"),
+                f"{row.get('path')}:{row.get('line')} ({row.get('sha256')})",
+                row.get("status"),
+                observations,
+                row.get("fallback"),
+                reason + "; evidence: " + (", ".join(dict.fromkeys(refs)) or "not recorded"),
+            )
+            lines.append("| " + " | ".join(text(cell) for cell in cells) + " |")
+        if not assessment.get("obligations"):
+            lines.append("No line obligations recorded; the gate verdict above still applies.")
+    else:
+        lines.append("Current changed-code assessment not recorded.")
+    if repairs:
+        lines += [
+            "",
+            "### Recorded changed-code repair decisions",
+            "",
+            "These historical decisions retain their own source and proof context; they do not satisfy current gaps.",
+        ]
+        for row in rows(repairs):
+            action = row.get("action")
+            stage = {"builder": "terra", "investigator": "investigate_stuck"}.get(action)
+            label = roles.screen_name(stage) if stage else action
+            prior = mapping(row.get("assessment"))
+            lines += [
+                f"- {text(row.get('at'))}: {text(label)}; source {text(row.get('source_revision'))}; "
+                f"proof context {text(prior.get('proof_context'))}; task {text(row.get('task_id'))}; "
+                f"plan r{text(row.get('contract_revision'))}:{text(row.get('contract_hash'))}.",
+                "  Review record: " + text(row.get("review_output")) + ". " + text(prior.get("reason")),
+                "  Unresolved gaps: "
+                + text(
+                    ", ".join(
+                        str(gap.get("gap_id"))
+                        for gap in rows(prior.get("obligations"))
+                        if gap.get("status") == "reason_required"
+                    )
+                    or "none recorded"
+                )
+                + ".",
+            ]
+            investigation = mapping(row.get("investigation"))
+            if investigation:
+                lines.append(
+                    "  Investigator diagnosis: "
+                    + text(investigation.get("diagnosis"))
+                    + "; guidance: "
+                    + text(investigation.get("guidance"))
+                    + "; evidence: "
+                    + text(", ".join(investigation.get("evidence_refs") or []))
+                    + "; record: "
+                    + text(investigation.get("output"))
+                    + " ("
+                    + text(investigation.get("sha256"))
+                    + ")."
+                )
+    return lines
+
+
 def _render(document):
     validate(document)
     run, revision, plan = document["run"], document["revision"], document["plan"]
@@ -617,6 +727,7 @@ def _render(document):
         lines.append(f"- {text(label)} command: {text(command)}")
     lines += ["- Failure: " + text(failure) for failure in proof.get("failures") or []]
     lines += ["- Unverified: " + text(gap) for gap in proof.get("unverified") or []]
+    lines += _changed_code_lines(proof, document.get("changed_code_repairs") or [])
     lines += ["", "## Review findings", ""]
     lines += [
         f"- {text(row.get('id'))} [{text(row.get('status'))}, {text(row.get('severity'))}]: {text(row.get('finding'))}"
