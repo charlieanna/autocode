@@ -496,7 +496,9 @@ class Tests(unittest.TestCase):
         self.assertIn("persist('task-draft:'+input.dataset.run,input.value)", APP)
         self.assertIn("stored('task-draft:'+run.run)", APP)
         self.assertIn("persist('conversation-draft:'+event.target.dataset.conversation,event.target.value)", APP)
-        self.assertIn("setTimeout(refresh,2000)", APP)
+        # The selected task refreshes every 2 s; the task list is rediscovered every 10 s.
+        self.assertIn("setTimeout(()=>refresh(false,true),2000)", APP)
+        self.assertIn("setTimeout(()=>refresh(true,false),10000)", APP)
         self.assertNotIn("setInterval(refresh", APP)
 
     def make_ws(self, path):

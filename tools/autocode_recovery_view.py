@@ -529,11 +529,12 @@ def project(state: RunState, need=None):
         else None
     )
     uncertain = status in ("PAUSED_PROVIDER_UNCERTAIN", "PAUSED_UNCERTAIN_STAGE")
-    # The public status also prescribes abandonment after quota/limit stops.
+    # The public status also prescribes abandonment after quota/limit stops,
+    # as a resume or, once the core has classified the attempt, as a continue.
     # Bind that advice to this exact saved attempt; pending decisions and the
     # more specific report-repair path must keep their existing precedence.
     prescribed = (
-        need.get("kind") == "resume"
+        need.get("kind") in ("resume", "continue")
         and attempt is not None
         and need.get("abandon_stage") == attempt
         and not need.get("retry_report_attempt")

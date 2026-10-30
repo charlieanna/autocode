@@ -1314,7 +1314,9 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
     role = original["role"]
     route_role = planning.route_for(state, original["stage"], role)
     schema = provider_report_schema.for_route(
-        report_edits.prepare(Path(original["schema"]), rejected_source, original["stage"]), state["settings"], route_role
+        report_edits.prepare(Path(original["schema"]), rejected_source, original["stage"]),
+        state["settings"],
+        route_role,
     )
     try:
         value, record = runtime.run_role(
