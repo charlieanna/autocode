@@ -22,6 +22,9 @@ PR template asks for an entry here; a change without one is incomplete.
   schema when a Requirements report is repaired, instead of the generic JSON-edit schema that the
   gocode structured-output transport rejects before any model response. The repair therefore
   proceeds instead of pausing for operational recovery.
+- `autocode coordinate status` no longer fails with a `KeyError` for a change set whose members
+  were linked from existing runs rather than discovered as local repositories; such a member's
+  `location` is `null`. A shared budget pause on those sets therefore offers its budget choice again.
 
 ## [0.9.0] — 2026-10-30
 

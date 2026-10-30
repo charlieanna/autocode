@@ -547,7 +547,7 @@ def status(run_dir, *, command=tasks.AUTOCODE):
             {
                 "target": row["target"],
                 "workspace": row["workspace"],
-                "location": row["origin"],
+                "location": row.get("origin"),
                 "run_dir": row["run_dir"],
                 "base": row["base"],
                 "role": row.get("role", "member"),
