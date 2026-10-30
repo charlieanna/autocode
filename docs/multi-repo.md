@@ -341,3 +341,5 @@ Without a change set, coordinate the repositories yourself:
    link the two pull requests to each other with the merge order.
 
 Without a change set, nothing checks that the two halves agree.
+
+Configured source roots are workspace search boundaries. Git metadata on a root itself does not hide independent child checkouts. Discovery recognizes Git identities without repository-name prefixes; ordinary discovered checkouts are traversal leaves. Depth, directory and containment limits remain explicit.

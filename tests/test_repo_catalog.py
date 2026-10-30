@@ -64,6 +64,19 @@ class RepositoryCatalogTests(unittest.TestCase):
         self.assertTrue(found["complete"])
         self.assertEqual([], found["diagnostics"])
 
+    def test_git_metadata_at_configured_workspace_root_does_not_hide_child_repositories(self):
+        workspace = self.git_repo(self.root / "workspace")
+        first = self.git_repo(workspace / "arbitrary-service", remote="https://example.test/service.git")
+        second = self.git_repo(workspace / "nested" / "different-name", remote="https://example.test/consumer.git")
+        catalog.add_root(workspace)
+        catalog.add_root(workspace / "nested")
+        with patch.object(Path, "cwd", return_value=self.root / "unrelated-launch"):
+            found = catalog.discover()
+        paths = [row["path"] for row in found["repositories"]]
+        self.assertEqual({str(workspace), str(first), str(second)}, set(paths))
+        self.assertEqual(3, len(paths))
+        self.assertTrue(found["complete"], found["diagnostics"])
+
     def test_worktrees_deduplicate_and_conflicting_clones_remain_visible(self):
         origin = self.git_repo(self.root / "origin", remote="https://example.test/api.git")
         worktree = self.root / "worktree"

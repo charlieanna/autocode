@@ -314,7 +314,11 @@ def discover(*, max_depth: int = MAX_DEPTH, directory_budget: int = DIRECTORY_BU
             except (OSError, subprocess.SubprocessError, CatalogError) as error:
                 result["complete"] = False
                 result["diagnostics"].append({"code": "repository_unreadable", "path": str(directory), "message": str(error)})
-            continue
+            # A configured workspace can itself have Git metadata while holding
+            # independent child checkouts. Inventory its children as well; ordinary
+            # discovered repositories remain leaves of the bounded search.
+            if directory != boundary:
+                continue
         if depth >= max_depth:
             try:
                 has_unvisited_directory = any(
