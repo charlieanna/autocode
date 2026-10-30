@@ -73,6 +73,16 @@ def step(client, view, render_plan):
                 client.say(f"{row['target']}: {row['pr_url']}")
         return 0
     need = summary["needs"]
+    if need["kind"] == "carry_approval":
+        carried = need.get("carried") or {}
+        line = (
+            "The revised plans keep what you approved ("
+            + ", ".join(carried.get("unchanged") or [])
+            + "); continuing under that approval."
+        )
+        if line not in client.said:
+            client.say(line)
+            client.said.add(line)
     if summary.get("next_command"):
         action = summary["next_command"]
         operation = action[2] if isinstance(action, list) and len(action) > 2 else None

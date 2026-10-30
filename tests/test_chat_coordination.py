@@ -126,6 +126,31 @@ class CoordinatedDisplayTests(unittest.TestCase):
         ):
             self.assertIn(value, shown)
 
+    def test_a_carried_approval_is_announced_once_and_taken_as_the_named_advance(self):
+        run_dir = Path("/tmp/coordinated-carry/.autocode/runs/chat").resolve()
+        client = Mock(run_dir=run_dir, said=set())
+        summary = {
+            "version": 1,
+            "anchor": str(run_dir),
+            "done": False,
+            "members": [],
+            "needs": {
+                "kind": "carry_approval",
+                "carried": {"revision": 2, "token": "first", "unchanged": ["api", "history"]},
+            },
+            "next_command": ["autocode", "coordinate", "advance", "--run-dir", str(run_dir), "--json"],
+        }
+        with patch.object(coordination, "read", return_value=summary):
+            self.assertIsNone(coordination.step(client, {}, Mock()))
+            self.assertIsNone(coordination.step(client, {}, Mock()))
+        client.advance.assert_called_with(["coordinate", "advance", "--run-dir", str(run_dir), "--json"])
+        self.assertEqual(2, client.advance.call_count)
+        said = [call.args[0] for call in client.say.call_args_list]
+        self.assertEqual(
+            ["The revised plans keep what you approved (api, history); continuing under that approval."], said
+        )
+        client.ask.assert_not_called()
+
     def test_candidate_binding_takes_the_named_core_action(self):
         run_dir = Path("/tmp/coordinated-bind/.autocode/runs/chat").resolve()
         client = Mock(run_dir=run_dir, said=set())

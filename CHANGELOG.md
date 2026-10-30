@@ -16,6 +16,11 @@ PR template asks for an entry here; a change without one is incomplete.
   `--details` (in the terminal chat, `/details`) for the full brief with its contract diff, file hashes and
   request tokens, then the approve and change commands. `--show-goal`, `--json` and the status view are
   unchanged, and approval still binds to the token of the plan shown.
+- After a joint regression finds that coordinated repository fixes disagree, the corrected plans no
+  longer ask for a second approval when they keep the contract the person approved (acceptance
+  criteria, constraints, permission boundaries, scope exclusions and Git delivery): the coordinator
+  carries the existing approval as its named `carry_approval` step and records it, and the terminal
+  chat says so. A revision that changes any of those, or adds a repository, is shown for approval again.
 ### Fixed
 
 - A run-wide `--provider gocode` (rather than a per-role provider) now sends the plain full-report
