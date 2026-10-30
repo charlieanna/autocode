@@ -48,8 +48,7 @@ a virtual environment in every shell.
 **Already have an engine signed in?** Reuse it. When OpenCode is not installed
 and nothing names an engine (no flag, no `default_provider`, no project
 `engine`), a new run takes the first backend this machine has connected: Claude
-Code signed in to a subscription, then Codex, then the AutoCode direct
-connection (API keys), then Kilo. It prints the choice (`Engine for this run:
+Code signed in to a subscription, then Codex, then Kilo. It prints the choice (`Engine for this run:
 Claude Code. …`), and `autocode doctor` checks that same backend. So with only
 Claude Code or only Codex signed in, skip step 2 and go to the project setup in
 step 3 with no flags. To choose explicitly, add `--engine codex` or `--engine

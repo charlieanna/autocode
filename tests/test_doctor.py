@@ -112,7 +112,8 @@ class EngineTests(unittest.TestCase):
         self.assertIn("OPENAI_API_KEY", check.detail)
         self.assertIn("PAUSED_BILLING_ROUTE", check.detail)
         self.assertIn("unset OPENAI_API_KEY", check.fix)
-        self.assertIn("autocode connections setup", check.fix)
+        self.assertIn("opencode auth login", check.fix)
+        self.assertNotIn("connections setup", check.fix)  # the direct connection is retired (#2049)
 
     def test_a_codex_config_override_is_named_with_its_file(self):
         with tempfile.TemporaryDirectory() as home:

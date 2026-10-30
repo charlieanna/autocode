@@ -50,10 +50,10 @@ def parser():
     check.add_argument("--json", action="store_true", help="Return the public connection view")
     login = actions.add_parser("login", help="Run the backend's own interactive sign-in in this terminal")
     login.add_argument("--provider", required=True, help="Connection to sign in to (an ID from `connections list`)")
-    actions.add_parser("setup", help="Configure AutoCode's MiMo/Z.ai/OpenAI/Claude API connection in this terminal")
-    add = actions.add_parser(
-        "add", help="Add or rotate one API provider's key in this terminal; several providers may be configured at once"
+    actions.add_parser(
+        "setup", help="Retired: configure AutoCode's own API-key connection (use OpenCode or Kilo for API keys)"
     )
+    add = actions.add_parser("add", help="Retired: add or rotate a key on AutoCode's own API-key connection")
     add.add_argument("provider", nargs="?", help="mimo, zai, openai, openrouter, claude or compatible")
     return result
 
@@ -159,12 +159,26 @@ def connection_view(name, *, check=False):
     return row
 
 
+RETIRED = (
+    "The AutoCode direct API-key connection is retired (owner decision 2026-10-30, #2049) and is removed "
+    "in the next release. Add your API keys in OpenCode (`opencode auth login`) or Kilo (`kilo auth login`), "
+    "or sign in to Claude Code or Codex; `autocode connections list` shows what is connected."
+)
+
+
 def view():
-    """Discover connection metadata only; no backend subprocesses or model calls."""
-    names = {*BUILTINS, "autocode"}
+    """Discover connection metadata only; no backend subprocesses or model calls.
+
+    The retired direct connection (``autocode``) is listed only once it is configured, so a person who
+    set it up can still check and rotate it while nobody new is offered it (#2049).
+    """
+    names = set(BUILTINS)
     root = command.user_config_path("discovery").parent
     names.update(path.stem for path in root.glob("*.toml") if command._NAME.fullmatch(path.stem))
     rows = [connection_view(name) for name in sorted(names)]
+    direct_row = connection_view("autocode")
+    if direct_row.get("connection_status") != "setup_required":
+        rows = sorted([*rows, direct_row], key=lambda row: row["id"])
     # The provider new runs use without --provider (AUTOCODE_PROVIDER, then default_provider in the
     # user's config, then OpenCode): display only, so a client can say what a new chat runs on.
     try:
@@ -249,6 +263,8 @@ def text(result) -> str:
 def cli(argv):
     args = parser().parse_args(argv)
     if args.action in ("setup", "add"):
+        # A notice, not a refusal, until the next release deletes it: stderr keeps --json and captured output.
+        print(RETIRED, file=sys.stderr, flush=True)
         try:
             code = direct.setup() if args.action == "setup" else direct.add(args.provider)
         except (KeyboardInterrupt, EOFError):

@@ -364,12 +364,30 @@ class DirectConnectionsTests(unittest.TestCase):
         environment.start()
         self.addCleanup(environment.stop)
 
-    def test_no_external_binary_still_offers_autocode_setup(self):
+    def test_the_retired_direct_connection_is_never_offered_to_a_new_user(self):
+        # #2049: API keys go to OpenCode or Kilo; nobody new is offered AutoCode's own connection, even
+        # on a machine with no backend installed.
         with mock.patch.object(connections.shutil, "which", return_value=None):
             view = connections.view()
-        native = next(row for row in view["connections"] if row["id"] == "autocode")
-        self.assertEqual("setup_required", native["connection_status"])
-        self.assertEqual(["connections", "setup"], native["actions"][0]["next_command"])
+        self.assertNotIn("autocode", [row["id"] for row in view["connections"]])
+        self.assertEqual("setup_required", config.describe()["connection_status"])
+
+    def test_setup_says_the_direct_connection_is_retired_and_where_keys_go(self):
+        replies = iter(["compatible", "https://models.example.invalid/v1", "p", "r"])
+        notice = io.StringIO()
+        with (
+            mock.patch("builtins.input", side_effect=lambda _prompt: next(replies)),
+            mock.patch.object(config.os, "isatty", return_value=True),
+            mock.patch.object(config.getpass, "getpass", return_value="fixture-secret"),
+            contextlib.redirect_stdout(io.StringIO()),
+            contextlib.redirect_stderr(notice),
+        ):
+            self.assertEqual(0, connections.cli(["setup"]))
+        for words in ("retired", "next release", "opencode auth login", "kilo auth login"):
+            self.assertIn(words, notice.getvalue())
+        # A person who already set it up can still check and rotate it until it is removed.
+        row = next(row for row in connections.view()["connections"] if row["id"] == "autocode")
+        self.assertEqual("configured", row["connection_status"])
 
     def test_setup_stores_key_privately_and_never_returns_it_in_view_or_command(self):
         replies = iter(["compatible", "https://models.example.invalid/v1", "fixture/producer", "fixture/reviewer"])

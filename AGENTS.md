@@ -122,8 +122,18 @@ The owner expanded PR #1425 on 2026-10-16 to include sidebar chat, plan
 feedback and follow-ups, reusing Kilo UI components where practical.
 The owner also approved Connections setup: backend selection and delegated
 sign-in through the core connection interface, with credentials owned by the backend.
-Issue #1493 extends that approval to AutoCode-owned direct MiMo, Z.ai, OpenAI and Claude API setup and
-a first-party core runtime when no external coding-agent backend is installed.
+Issue #1493 extended that approval to AutoCode-owned direct MiMo, Z.ai, OpenAI and Claude API setup and
+a first-party core runtime when no external coding-agent backend is installed; that connection is
+retired (below).
+
+**Four backends, owner decision 2026-10-30 (#2049).** AutoCode offers exactly four
+backends: Claude Code (a Claude subscription) and Codex (a ChatGPT login) as engines,
+and OpenCode and Kilo for every other account and API key. A person connects accounts
+there; AutoCode never asks them to choose a model per stage. The AutoCode direct API-key
+connection (#1493) is retired: nothing offers it to a new user or chooses it automatically,
+a configured one keeps working, and it is deleted in the next release. The direction is one
+role policy (the model tier and reasoning effort each role wants) whichever of the four
+tools delivers it. Do not add a fifth backend or a new connection path without the owner's decision.
 The editor still launches only the core CLI and renders its named actions.
 It is a client of the
 [task-run interface](docs/task-run.md) and nothing else:

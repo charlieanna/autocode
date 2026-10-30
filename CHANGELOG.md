@@ -16,8 +16,7 @@ PR template asks for an entry here; a change without one is incomplete.
   Kilo account, and a saved binding to the built-in `claude` provider (identity version 2) is validated
   by its own shape. Binding a role to the run's own tool is refused, as is `--engine codex`.
 - A new run that names no engine takes the backend this machine has connected when OpenCode is not
-  installed (#2049): Claude Code signed in to a subscription, then Codex, then the AutoCode direct
-  connection, then Kilo, in that order. The run prints `Engine for this run: …` with the reason, and
+  installed (#2049): Claude Code signed in to a subscription, then Codex, then Kilo, in that order. The run prints `Engine for this run: …` with the reason, and
   `autocode doctor` checks that same backend and names the choice in its `engine` row and settings. A
   flag, `AUTOCODE_PROVIDER`, `default_provider`, a project `engine` and a saved run's engine always win,
   and nothing changes while OpenCode is installed. Before, a person with only Claude Code or Codex had
@@ -1065,6 +1064,15 @@ PR template asks for an entry here; a change without one is incomplete.
 - Planner revisions can send only changed engineering fields against the exact saved plan, retaining
   unchanged criteria and validated requirement traces before ordinary coverage/authority checks. This
   avoids forced whole-contract rewriting; full reports and older saved repair schemas remain supported (#2374).
+
+### Deprecated
+
+- AutoCode's own direct API-key connection is retired (owner decision 2026-10-30, #2049) and is removed
+  in the next release. AutoCode offers four backends: Claude Code and Codex as engines, OpenCode and
+  Kilo for every other account and API key. A new run never chooses the direct connection on its own,
+  `autocode connections list` shows it only once configured, `connections setup` and `connections add`
+  print the notice and where keys go, and `doctor` points API keys to OpenCode or Kilo. A configured
+  connection and `--provider autocode` keep working until the removal.
 
 ## [0.8.2] — 2026-10-21
 

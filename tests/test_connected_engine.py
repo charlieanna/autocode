@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode_connected_engine as connected
+import autocode_direct_config
 import autocode_providers
 
 LOGGED_IN = {
@@ -73,7 +74,9 @@ class ChooseTests(unittest.TestCase):
         self.assertEqual("claude", skipped["id"])
         self.assertIn("not logged in", skipped["why"])
 
-    def test_a_direct_connection_is_taken_when_no_cli_is_signed_in(self):
+    def test_a_configured_direct_connection_is_never_the_automatic_choice(self):
+        # #2049: the four offered backends are Claude Code, Codex, OpenCode and Kilo; the retired
+        # direct connection runs only when a run names --provider autocode.
         direct = self.config / "autocode" / "direct"
         direct.mkdir(parents=True)
         (direct / "connection.json").write_text(
@@ -92,9 +95,9 @@ class ChooseTests(unittest.TestCase):
         (direct / "auth.json").write_text("{}")
         for path in (direct / "connection.json", direct / "auth.json"):
             path.chmod(0o600)
-        chosen = self.choose(on_path("claude", "codex"), {**LOGGED_OUT, **CODEX_OUT})
-        self.assertEqual(("autocode", "opencode", "autocode"), (chosen["id"], chosen["engine"], chosen["provider"]))
-        self.assertEqual(["claude", "codex"], [row["id"] for row in chosen["skipped"]])
+        self.assertEqual("configured", autocode_direct_config.describe()["connection_status"])
+        self.assertIsNone(self.choose(on_path("claude", "codex"), {**LOGGED_OUT, **CODEX_OUT}))
+        self.assertNotIn("autocode", [entry[0] for entry in connected.ORDER])
 
     def test_nothing_connected_keeps_the_default_and_its_own_refusal(self):
         self.assertIsNone(self.choose(on_path("claude", "codex"), {**LOGGED_OUT, **CODEX_OUT}))

@@ -1,8 +1,10 @@
 """The engine a new run takes from the accounts this machine has connected (#2049).
 
 A person may hold any mix of subscriptions and API keys: a Claude subscription in
-Claude Code, a ChatGPT login in Codex, Z.ai or MiMo keys in the direct connection, a
-Kilo login. Without this module a run that names no engine runs OpenCode, and on a
+Claude Code, a ChatGPT login in Codex, and every other account or API key (Z.ai, MiMo,
+OpenAI, Anthropic) in OpenCode or Kilo. Those four are the backends AutoCode offers (owner
+decision 2026-10-30); the AutoCode direct API-key connection is retired and is never chosen
+here, though a run that names ``--provider autocode`` still runs on it. Without this module a run that names no engine runs OpenCode, and on a
 machine without OpenCode it stops at "opencode is not on PATH" while a ready Claude
 Code sits beside it; the person then has to learn ``--engine claude`` and type it on
 every command.
@@ -27,11 +29,9 @@ import subprocess
 import sys
 
 try:
-    from . import autocode_direct_config as direct_config
     from . import autocode_providers as providers
     from . import autocode_route_discovery as route_discovery
 except ImportError:
-    import autocode_direct_config as direct_config
     import autocode_providers as providers
     import autocode_route_discovery as route_discovery
 
@@ -40,7 +40,6 @@ except ImportError:
 ORDER = (
     ("claude", "opencode", "claude", "Claude Code"),
     ("codex", "codex", None, "Codex"),
-    ("autocode", "opencode", "autocode", "the AutoCode direct connection"),
     ("kilocode", "opencode", "kilocode", "Kilo"),
 )
 EXECUTABLES = {"claude": "claude", "codex": "codex", "kilocode": "kilo"}
@@ -135,11 +134,6 @@ def _not_connected(name, which, runner, workspace, resolve) -> str | None:
             return None
         if name == "codex":
             return None if runner(["codex", "login", "status"]).returncode == 0 else "codex is not logged in"
-        if name == "autocode":
-            row = direct_config.describe()
-            if row.get("connection_status") == "setup_required":
-                return "no API key is configured (autocode connections setup)"
-            return None
         if name == "kilocode":
             facade = resolve("kilocode")
             if route_discovery.discover(facade, workspace)["accounts"]:

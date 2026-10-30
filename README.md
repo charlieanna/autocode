@@ -60,10 +60,9 @@ same project with `autocode resume`; use `autocode --status` to see what it need
 
 For Claude Code use `--engine claude`. Without an explicit choice, the existing
 configured/default route applies: OpenCode when it is installed; otherwise the
-first connected of Claude Code, Codex, the direct API-key connection and Kilo,
-which the run names as `Engine for this run: …`. For API keys,
-`autocode connections setup` configures the built-in runtime; start its tasks
-with `--provider autocode`. The [installation guide](docs/install.md) covers
+first connected of Claude Code, Codex and Kilo, which the run names as
+`Engine for this run: …`. API keys go in OpenCode (`opencode auth login`) or Kilo
+(`kilo auth login`); AutoCode's own direct API-key connection is retired. The [installation guide](docs/install.md) covers
 sign-in, a new Git project, route checks and common setup errors.
 
 ## A bug that turns out to span repositories
