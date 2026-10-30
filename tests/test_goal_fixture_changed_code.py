@@ -101,12 +101,15 @@ class HelloFixtureReasonsTests(unittest.TestCase):
                     },
                 }
             }
-            self.assertEqual(1, len(blackbox.hello_changed_code_reasons(data)))
+            spec = {"payloads": {"M1": {"main.py": blackbox.HELLO_SOURCE, "test_main.py": blackbox.HELLO_TESTS}}}
+            self.assertEqual(1, len(blackbox.scripted_changed_code_reasons(spec, data)))
             data["regression_proof"]["changed_code_evidence"]["obligations"][0]["mutation_outcomes"] = ["not_run"]
-            self.assertEqual([], blackbox.hello_changed_code_reasons(data))
+            self.assertEqual([], blackbox.scripted_changed_code_reasons(spec, data))
             data["regression_proof"]["changed_code_evidence"]["obligations"][0]["mutation_outcomes"] = []
-            Path("test_main.py").write_text("# assertions absent\n")
-            self.assertEqual([], blackbox.hello_changed_code_reasons(data))
+            # A file the fixture did not script, or other bytes than it wrote, get no reason.
+            self.assertEqual([], blackbox.scripted_changed_code_reasons({"payloads": {}}, data))
+            data["regression_proof"]["changed_code_evidence"]["obligations"][0]["sha256"] = "0" * 64
+            self.assertEqual([], blackbox.scripted_changed_code_reasons(spec, data))
 
 
 if __name__ == "__main__":

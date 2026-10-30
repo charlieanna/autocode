@@ -27,30 +27,38 @@ class HelloTests(unittest.TestCase):
 """
 
 
-def hello_changed_code_reasons(data):
-    """An exact one-line fixture, independently checked by a retained real test."""
+def scripted_changed_code_reasons(spec, data):
+    """The fixture Tester's reasons for its own scripted lines that have no mutation site.
+
+    The real Tester records why a changed line without a mutation site (an import, a call, a
+    ``def``) is covered; this fixture does the same for the exact payload bytes the scripted
+    Builder wrote, bound to the gap, file and line, and never for a file it did not script or a
+    line a mutant reached (that line's evidence is the mutant's outcome).
+    """
     proof = data.get("regression_proof") or {}
-    try:
-        if Path("main.py").read_text() != HELLO_SOURCE or Path("test_main.py").read_text() != HELLO_TESTS:
-            return []
-    except OSError:
-        return []
-    digest = hashlib.sha256(HELLO_SOURCE.encode()).hexdigest()
     if not proof.get("path"):
         return []
+    scripted = {
+        name: hashlib.sha256(content.encode()).hexdigest()
+        for files in (spec.get("payloads") or {}).values()
+        for name, content in files.items()
+    }
     return [
         {
             "gap_id": row["gap_id"],
             "decision": "accept",
             "reason_kind": "instrumentation_unavailable",
-            "reason": "This print call has no supported mutation site. The independently executed test_cli_hello requires exact hello plus newline on stdout, empty stderr and exit zero. Removing, changing or redirecting the print fails its assertion; the separate approved CLI check also observes this exact output.",
-            "evidence_refs": [proof["path"], "main.py"],
+            "reason": (
+                f"Scripted fixture: {row['path']}:{row['line']} is the exact scripted content of this delivery; "
+                "the line has no supported mutation site, and the delivery's own tests, run independently by "
+                "the proof, exercise the behavior it takes part in. The approved milestone check observes the "
+                "same behavior."
+            ),
+            "evidence_refs": [proof["path"], row["path"]],
         }
         for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []
         if row.get("status") == "reason_required"
-        and row.get("path") == "main.py"
-        and row.get("line") == 1
-        and row.get("sha256") == digest
+        and scripted.get(row.get("path")) == row.get("sha256")
         and not row.get("mutation_outcomes")
     ]
 
@@ -622,7 +630,7 @@ def main():
     if data["stage"] == "sol":
         schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
         if "changed_code_exceptions" in schema.get("properties", {}):
-            result["changed_code_exceptions"] = hello_changed_code_reasons(data)
+            result["changed_code_exceptions"] = scripted_changed_code_reasons(spec, data)
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
     record("finish")
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)

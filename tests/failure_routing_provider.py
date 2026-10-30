@@ -13,7 +13,8 @@ from pathlib import Path
 
 
 def main():
-    original = runpy.run_path(os.environ["FAILURE_ROUTING_PROVIDER"])["main"]
+    provider = runpy.run_path(os.environ["FAILURE_ROUTING_PROVIDER"])
+    original = provider["main"]
     if sys.argv[1:] == ["login", "status"]:
         return original()
     prompt = sys.stdin.read()
@@ -162,10 +163,12 @@ def main():
         # Scripted model follows the fresh task's corrected approach. This is a
         # provider input fixture, never a contract or runner-state replacement.
         spec = json.loads(Path(os.environ["BUILD_AUDIT_SPEC"]).read_text())
-        spec["payloads"]["M1"] = {"main.py": "print('hello')\n"}
+        # A corrected delivery, like any other, ships the test that proves it (#2474).
+        spec["payloads"]["M1"] = {"main.py": "print('hello')\n", "test_main.py": provider["HELLO_TESTS"]}
         spec["checks"]["M1"] = corrected_check
         spec["complete_product"] = True
         spec["contract"]["milestones"][0]["objective"] = corrected_objective
+        spec["contract"]["milestones"][0]["affected_paths"] = ["main.py", "test_main.py"]
         candidate_spec = log.parent / ("corrected-provider-" + str(os.getpid()) + ".json")
         candidate_spec.write_text(json.dumps(spec))
         os.environ["BUILD_AUDIT_SPEC"] = str(candidate_spec)
