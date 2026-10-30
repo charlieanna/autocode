@@ -1,14 +1,17 @@
 """The engine a new run takes from the accounts this machine has connected (#2049).
 
 A person may hold any mix of subscriptions and API keys: a Claude subscription in
-Claude Code, a ChatGPT login in Codex, Z.ai or MiMo keys in the direct connection, a
-Kilo login. Without this module a run that names no engine runs OpenCode, and on a
+Claude Code, a ChatGPT login in Codex, and every other account or API key (Z.ai, MiMo,
+OpenAI, Anthropic) in OpenCode or Kilo. Those four are the backends AutoCode offers (owner
+decision 2026-10-30); the AutoCode direct API-key connection is retired and is never chosen
+here, though a run that names ``--provider autocode`` still runs on it. Without this module a run that names no engine runs OpenCode, and on a
 machine without OpenCode it stops at "opencode is not on PATH" while a ready Claude
 Code sits beside it; the person then has to learn ``--engine claude`` and type it on
 every command.
 
 ``choose`` fills that one gap and nothing more: when no explicit choice exists and
-OpenCode is not installed, it takes the first connected backend in ORDER and says why.
+OpenCode is not installed, or is installed with no account at all, it takes the first
+connected backend in ORDER and says why.
 It never overrides a choice (a flag, ``AUTOCODE_PROVIDER``, ``default_provider`` in the
 user's config, the project's ``engine``), never touches a saved run, launches no model
 and reads no credential: each check is the backend's own login listing, the one
@@ -22,16 +25,15 @@ controller, the CLI or the configuration module that calls it.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
 
 try:
-    from . import autocode_direct_config as direct_config
     from . import autocode_providers as providers
     from . import autocode_route_discovery as route_discovery
 except ImportError:
-    import autocode_direct_config as direct_config
     import autocode_providers as providers
     import autocode_route_discovery as route_discovery
 
@@ -40,7 +42,6 @@ except ImportError:
 ORDER = (
     ("claude", "opencode", "claude", "Claude Code"),
     ("codex", "codex", None, "Codex"),
-    ("autocode", "opencode", "autocode", "the AutoCode direct connection"),
     ("kilocode", "opencode", "kilocode", "Kilo"),
 )
 EXECUTABLES = {"claude": "claude", "codex": "codex", "kilocode": "kilo"}
@@ -100,9 +101,14 @@ def choose(*, which=shutil.which, runner=_run, workspace=None, resolve=providers
     (the run's existing OpenCode refusal names what to install). An injected ``which`` and
     ``runner`` (doctor, tests) are the only things consulted; no host command runs then.
     """
-    if which("opencode"):
-        return None
     skipped: list[dict] = []
+    if which("opencode"):
+        if not _opencode_has_no_account(runner):
+            return None
+        skipped.append(
+            {"id": "opencode", "label": "OpenCode", "why": "opencode has no connected account (opencode auth login)"}
+        )
+    absent = "OpenCode has no connected account" if skipped else "OpenCode is not installed"
     for name, engine, provider, label in ORDER:
         why = _not_connected(name, which, runner, workspace, resolve)
         if why is None:
@@ -112,7 +118,7 @@ def choose(*, which=shutil.which, runner=_run, workspace=None, resolve=providers
                 "provider": provider,
                 "label": label,
                 "reason": (
-                    f"{label} is connected and no engine is configured (OpenCode is not installed); "
+                    f"{label} is connected and no engine is configured ({absent}); "
                     "pass --engine or --provider, or set default_provider in ~/.config/autocode/config.toml, "
                     "to choose another"
                 ),
@@ -120,6 +126,23 @@ def choose(*, which=shutil.which, runner=_run, workspace=None, resolve=providers
             }
         skipped.append({"id": name, "label": label, "why": why})
     return None
+
+
+def _opencode_has_no_account(runner) -> bool:
+    """True only when ``opencode auth list`` answers, says ``0 credentials`` and lists no row at all.
+
+    Any listed credential, an environment-variable row included, or a listing that fails or reads
+    otherwise keeps OpenCode the default: passing it over is only for the plainly empty case (#2049).
+    """
+    try:
+        result = runner(["opencode", "auth", "list"])
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode != 0:
+        return False
+    output = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", (result.stdout or "") + (result.stderr or ""))
+    empty = re.search(r"\b0 credentials\b", output) is not None
+    return empty and not re.search(r"^\s*[●•]\s+\S", output, re.MULTILINE)
 
 
 def _not_connected(name, which, runner, workspace, resolve) -> str | None:
@@ -135,11 +158,6 @@ def _not_connected(name, which, runner, workspace, resolve) -> str | None:
             return None
         if name == "codex":
             return None if runner(["codex", "login", "status"]).returncode == 0 else "codex is not logged in"
-        if name == "autocode":
-            row = direct_config.describe()
-            if row.get("connection_status") == "setup_required":
-                return "no API key is configured (autocode connections setup)"
-            return None
         if name == "kilocode":
             facade = resolve("kilocode")
             if route_discovery.discover(facade, workspace)["accounts"]:

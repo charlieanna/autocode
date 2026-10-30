@@ -268,7 +268,8 @@ def codex_billing_check(*, environ=None, config_path=None) -> Check:
         "billing:codex",
         MISSING,
         "; ".join(gaps) + "; a Codex joint-planning run pauses (PAUSED_BILLING_ROUTE) rather than bill another route",
-        "; ".join(fixes) + "; to run on API keys instead: `autocode connections setup`",
+        "; ".join(fixes)
+        + "; to run on API keys instead, add them in OpenCode (`opencode auth login`) or Kilo (`kilo auth login`)",
     )
 
 

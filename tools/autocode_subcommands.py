@@ -58,6 +58,7 @@ SUBCOMMANDS = {
     "compare-baseline": "autocode_baseline",
     "visual-check": "autocode_visual_check",
     "doctor": "autocode_doctor",
+    "setup": "autocode_setup",
     "forget": "autocode_forget",
     "clean-worktrees": "autocode_worktrees",
     "prune-run": "autocode_prune_run",

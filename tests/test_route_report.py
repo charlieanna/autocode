@@ -116,12 +116,17 @@ class ConnectionRoutesTests(unittest.TestCase):
 
     def test_without_json_the_listing_is_text_a_person_can_read(self):
         """`autocode connections list` printed one line of JSON; `--json` was a no-op."""
-        with mock.patch.object(connections.subprocess, "run", side_effect=AssertionError("the listing ran a backend")):
+        with (
+            mock.patch.object(connections.subprocess, "run", side_effect=AssertionError("the listing ran a backend")),
+            mock.patch.object(
+                connections.shutil, "which", side_effect=lambda name: f"/bin/{name}" if name == "opencode" else None
+            ),
+        ):
             code, output = self.call("list")
         self.assertEqual(0, code)
         self.assertNotIn("{", output)
-        self.assertIn("AutoCode · Direct connection:", output)
-        self.assertIn("Check setup: autocode connections check --provider autocode\n", output)
+        self.assertIn("OpenCode:", output)
+        self.assertIn("Check connection: autocode connections check --provider opencode\n", output)
         self.assertIn("autocode connections list --routes", output)
         self.assertNotIn("--json", output)
         with mock.patch.object(

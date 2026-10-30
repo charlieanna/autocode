@@ -112,7 +112,8 @@ class EngineTests(unittest.TestCase):
         self.assertIn("OPENAI_API_KEY", check.detail)
         self.assertIn("PAUSED_BILLING_ROUTE", check.detail)
         self.assertIn("unset OPENAI_API_KEY", check.fix)
-        self.assertIn("autocode connections setup", check.fix)
+        self.assertIn("opencode auth login", check.fix)
+        self.assertNotIn("connections setup", check.fix)  # the direct connection is retired (#2049)
 
     def test_a_codex_config_override_is_named_with_its_file(self):
         with tempfile.TemporaryDirectory() as home:
@@ -699,7 +700,9 @@ class ContainmentTests(unittest.TestCase):
         with self.host():
             checks = doctor.all_checks(self.workspace, None, on_path("opencode"), runner, self.resolve, found=found)
         status = found["containment"]
-        self.assertEqual([(("opencode", "--version"), self.workspace)], [c for c in calls if c[0][0] == "opencode"])
+        self.assertEqual(
+            [(("opencode", "--version"), self.workspace)], [c for c in calls if c[0][:2] == ("opencode", "--version")]
+        )
         rows = {c.name: c for c in checks}
         self.assertEqual("OpenCode 1.18.33", rows["engine:opencode"].detail)
         self.assertEqual(doctor.containment_check(status), rows["containment"])
