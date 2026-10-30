@@ -407,6 +407,19 @@ class PausedSourceEditTests(unittest.TestCase):
         self.assertEqual([("sol", False)], [(call["stage"], call["report_only"]) for call in calls])
         self.assertEqual(pending, self.state["report_repair_archive"][-1]["repair"])
 
+    def test_explicit_resume_archives_a_repair_whose_owning_stage_is_no_longer_next(self):
+        self.approve()
+        lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
+        pending = self.queue_validator_report_repair()
+        self.state.update(status="PAUSED_STALE_REPORT_ROUTE", next_stage="astra_review")
+
+        message = runner.archive_stale_report_repair(self.state, self.run, self.root)
+
+        self.assertIn("astra_review is now next", message)
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual(pending, self.state["report_repair_archive"][-1]["repair"])
+
     def test_resume_keeps_a_report_repair_whose_pinned_evidence_changed(self):
         self.approve()
         lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))

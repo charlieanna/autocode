@@ -611,6 +611,17 @@ class DiagnosedMilestoneScopeTests(unittest.TestCase):
     def test_an_unknown_milestone_keeps_every_case_due(self):
         self.assertEqual(["T1", "T2", "T3"], self.ids(self.planned("unknown")))
 
+    def test_checkpoint_rejection_names_only_currently_due_cases(self):
+        state = self.planned()
+        state["regression_proof"] = {
+            "verdict": "PASS",
+            "case_scope": ["T1"],
+            "case_tests": {"T1": "test_t1_subtracts"},
+        }
+
+        self.assertIn("T2, T3", regression.rejection(state))
+        self.assertNotIn("T2", regression.rejection(state, all_due=False))
+
     def test_native_go_test_names_bind_without_prefix_collisions(self):
         state = self.planned()
         for row, name in zip(
@@ -649,6 +660,7 @@ class DiagnosedMilestoneScopeTests(unittest.TestCase):
         self.assertFalse(regression.complete(state, proof["source_revision"], all_due=True))
         self.assertEqual(["T1"], regression.handoff(state)["case_scope"])
         self.assertIn("T2, T3", regression.rejection(state))
+        self.assertNotIn("T2, T3", regression.rejection(state, all_due=False))
         state["current_task"] = {"milestone_id": "M2"}
         state["milestone_progress"] = {"M1": {"id": "M1", "accepted": True, "contract_hash": "h"}}
         proof = regression.prove(state, project.root, project.root / ".autocode" / "runs" / "m2")
