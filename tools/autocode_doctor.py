@@ -61,12 +61,14 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 try:
+    from . import autocode_connected_engine as connected_engine
     from . import autocode_install_drift
     from . import autocode_session_boundary as session_boundary
     from . import autocode_storage_budget as storage_budget
     from . import autocode_tool_containment as tool_containment
     from . import autocode_util as util
 except ImportError:  # direct-script mode has no package parent
+    import autocode_connected_engine as connected_engine
     import autocode_install_drift
     import autocode_session_boundary as session_boundary
     import autocode_storage_budget as storage_budget
@@ -420,7 +422,7 @@ def engine_verdict(
     status = {c.name: c.status for c in checks}
     if wanted == "codex":
         ok = status.get("engine:codex") == OK
-        what = f"engine codex (set in {origin})" if origin else "--engine codex"
+        what = f"engine codex ({_where(origin)})" if origin else "--engine codex"
         return Check(
             "engine",
             OK if ok else MISSING,
@@ -429,7 +431,7 @@ def engine_verdict(
         )
     tool = "engine:opencode" if provider == "opencode" else f"provider:{provider}"
     what = ("OpenCode" if provider == "opencode" else f"provider {provider}") + (
-        " (what --engine opencode runs)" if wanted else " (the default for a new run)"
+        f" ({origin})" if origin else " (what --engine opencode runs)" if wanted else " (the default for a new run)"
     )
     if status.get(tool) == OK and status.get("routes") != MISSING:
         return Check("engine", OK, f"{what} is ready")
@@ -498,13 +500,45 @@ def workspace_check(workspace: Path, runner=run) -> list[Check]:
     return checks
 
 
+def connected_choice(workspace: Path, engine, which, runner, resolve) -> dict | None:
+    """What autocode_connected_engine.choose picks for a new run here, with doctor's injected commands,
+    or None: an engine is already named, the user's config names a provider, or nothing applies."""
+    if engine is not None:
+        return None
+    try:
+        if autocode_providers.default_choice()[1] != "built-in default":
+            return None
+    except (OSError, ValueError):
+        return None  # the engine verdict reports the unreadable setting
+    return connected_engine.choose(
+        which=which, runner=runner, workspace=workspace if workspace.is_dir() else None, resolve=resolve
+    )
+
+
+def connected_origin(connected: dict) -> str:
+    return f"chosen from your connected accounts: {connected['label']} is connected and OpenCode is not installed"
+
+
+def _where(origin: str) -> str:
+    # An origin is a file the engine was set in, or the connected-account choice above.
+    return origin if origin.startswith("chosen from") else f"set in {origin}"
+
+
 def opencode_checks(
-    checks: list[Check], workspace: Path, wanted: str | None, resolve, which=shutil.which, runner=run
+    checks: list[Check],
+    workspace: Path,
+    wanted: str | None,
+    resolve,
+    which=shutil.which,
+    runner=run,
+    provider: str | None = None,
+    origin: str | None = None,
 ) -> Check:
     """The OpenCode engine's provider, as the runner picks it, and its default routes: appended to
-    ``checks``; returns the verdict."""
+    ``checks``; returns the verdict. ``provider`` names one chosen from the connected accounts
+    (``origin`` says so) instead of the configured default."""
     try:
-        provider = default_provider()
+        provider = provider or default_provider()
     except (OSError, ValueError) as error:  # no run can start either
         return Check(
             "engine",
@@ -519,7 +553,7 @@ def opencode_checks(
     tool = "engine:opencode" if provider == "opencode" else f"provider:{provider}"
     if any(c.name == tool and c.status == OK for c in checks):
         checks.append(route_check(provider, workspace if workspace.is_dir() else None, resolve))
-    return engine_verdict(checks, wanted, provider, claude_on_path=bool(which("claude")))
+    return engine_verdict(checks, wanted, provider, origin=origin, claude_on_path=bool(which("claude")))
 
 
 def claude_checks(
@@ -581,7 +615,7 @@ def claude_checks(
     status = {c.name: c.status for c in checks}
     ok = status.get("engine:claude") == OK and status.get("routes") != MISSING
     if origin:
-        what = f"engine claude (set in {origin})"
+        what = f"engine claude ({_where(origin)})"
     else:
         what = "--engine claude" if wanted == "claude" else "provider claude (the default for a new run)"
     fix = "" if ok else "fix engine:claude above"
@@ -871,10 +905,21 @@ def all_checks(
     origin = None
     if engine is None:
         engine, origin = project_engine(workspace)
+    # Still nothing, and no OpenCode to default to: the run takes the backend this machine has
+    # connected (autocode_connected_engine, #2049), so doctor checks that one and says so.
+    connected = connected_choice(workspace, engine, which, runner, resolve)
+    if connected:
+        engine, origin = connected["id"], connected_origin(connected)
+    if found is not None:
+        found["connected"] = connected
     if engine == "codex":
         verdict = engine_verdict(checks, engine, origin=origin)
     elif engine == "claude":
         verdict = claude_checks(checks, workspace, engine, which, runner, resolve, origin)
+    elif connected:
+        verdict = opencode_checks(
+            checks, workspace, None, resolve, which=which, runner=runner, provider=engine, origin=origin
+        )
     else:
         verdict = opencode_checks(checks, workspace, None if origin else engine, resolve, which=which, runner=runner)
     containment = containment_status(opencode_version) if builtin_opencode(engine) else None
@@ -966,7 +1011,7 @@ def project_engine(workspace: Path) -> tuple[str | None, str | None]:
     return (value, str(source)) if value in ENGINES else (None, None)
 
 
-def project_settings(workspace: Path) -> tuple[Check, list[dict]]:
+def project_settings(workspace: Path, connected: dict | None = None) -> tuple[Check, list[dict]]:
     """Where a new run in ``workspace`` takes each setting from, when no flag gives it (#707): the
     project's files (autocode_project_config), the user's provider choice, or the built-in default.
     A project file a run would refuse is missing; the rows then hold only the provider."""
@@ -1002,9 +1047,16 @@ def project_settings(workspace: Path) -> tuple[Check, list[dict]]:
         return check, rows
     try:
         name, source = autocode_providers.default_choice()
-        rows.append({"key": "provider", "value": name, "source": source})
     except (OSError, ValueError):
-        pass  # the provider check reports it
+        return check, rows  # the provider check reports it
+    if connected and source == "built-in default":
+        # The run's own choice from the connected accounts (autocode_connected_engine), shown as a run makes it.
+        source = "connected accounts"
+        for row in rows:
+            if row["key"] == "engine" and row["value"] is None:
+                row.update(value="codex" if connected["engine"] == "codex" else connected["id"], source=source)
+        name = connected["provider"] or "opencode"
+    rows.append({"key": "provider", "value": name, "source": source})
     return check, rows
 
 
@@ -1051,7 +1103,7 @@ def cli(argv: list[str] | None = None) -> int:
     found: dict = {}
     checks = all_checks(args.workspace.resolve(), args.engine, found=found)
     ok = passed(checks)
-    settings = project_settings(args.workspace.resolve())[1]
+    settings = project_settings(args.workspace.resolve(), found.get("connected"))[1]
     memory = project_memory_snapshot(args.workspace.resolve())
     if args.json:
         print(

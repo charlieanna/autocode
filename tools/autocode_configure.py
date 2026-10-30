@@ -399,6 +399,9 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
     if started and "provider" not in saved_provider:
         saved_provider["provider"] = "opencode"
     saved_engine = state.get("settings", {}).get("engine") or ("codex" if started else None)
+    # A new run that nobody routed takes the backend this machine has connected when OpenCode is
+    # not installed (#2049): the CLI applies that choice to args before it resolves the provider
+    # facade (autocode_native_invocation.select_provider), so here it already reads as explicit.
     engine = getattr(args, "engine", None) or saved_engine or DEFAULT_ENGINE
     if engine not in ("codex", "opencode"):
         raise ValueError(
