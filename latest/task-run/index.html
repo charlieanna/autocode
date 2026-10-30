@@ -2338,7 +2338,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/2bb3abe5ff6fd76ed47820506935d5297135566d/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/f6f37f2fcda701c01b6a3617153542ce569fb62d/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3246,7 +3246,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/2bb3abe5ff6fd76ed47820506935d5297135566d/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/f6f37f2fcda701c01b6a3617153542ce569fb62d/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3874,7 +3874,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/2bb3abe5ff6fd76ed47820506935d5297135566d/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/f6f37f2fcda701c01b6a3617153542ce569fb62d/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4397,7 +4397,7 @@ run is waiting for:</p>
 <tr>
 <td><code>resume</code></td>
 <td>a person to inspect a pause and resolve its cause</td>
-<td><code>reason</code>; <code>new_run_required</code> with <code>action=fresh_run</code> preserves an immutable caller-binding failure and requires a new run; <code>edit_required</code> at a repairable component-plan stop prescribes <code>action</code> (<code>--edit-goal FILE</code>) or <code>feedback_action</code> (<code>--feedback TEXT</code>), then fresh approval; at <code>PAUSED_ACCEPTANCE_TESTS</code> (the Tester's pause) <code>action</code> is <code>--feedback 'WHAT TO CHANGE'</code>, which revises the plan and returns the run to plan approval, <code>chat.input</code> offers the same <code>feedback</code> message, and <code>guidance</code> says that <code>--resume-paused</code> reruns the Tester unchanged and helps only once the code changed; otherwise <code>action</code> when one command continues, such as <code>--resume-paused --no-progress-limit N</code> at a <code>PAUSED_NO_PROGRESS</code> its unchanged-batch limit caused, with <code>no_progress_batches</code>, the retained count N must exceed (or N is <code>0</code>), or <code>--resume-paused --retry-builder M</code> at a parallel Builder member's quota, content-filter or output-limit stop whose request was answered without a model, or <code>--resume-paused --retry-failed-stage</code> (also as <code>retry_action</code>) at a recovery novelty hold whose request is not yet published, where a plain resume would hold again; when that hold cannot take the retry yet, <code>retry_unavailable</code> instead says why (an owned or uncertain attempt to reconcile, or a different pending decision), the same reason the CLI gives; at a <code>PAUSED_REPEATED_FAILURE</code> whose active attempt, uncertain artifacts or pending report repair its retry gate will not authorize over, <code>retry_unavailable</code> carries that CLI refusal verbatim and <code>action</code> is the plain <code>--resume-paused</code>, never the rejected <code>--retry-failed-stage</code> (#1897)</td>
+<td><code>reason</code>; <code>new_run_required</code> with <code>action=fresh_run</code> preserves an immutable caller-binding failure and requires a new run; <code>edit_required</code> at a repairable component-plan stop prescribes <code>action</code> (<code>--edit-goal FILE</code>) or <code>feedback_action</code> (<code>--feedback TEXT</code>), then fresh approval; at <code>PAUSED_ACCEPTANCE_TESTS</code> (the Tester's pause) <code>action</code> is <code>--feedback 'WHAT TO CHANGE'</code>, which revises the plan and returns the run to plan approval, <code>chat.input</code> offers the same <code>feedback</code> message, and <code>guidance</code> says that <code>--resume-paused</code> reruns the Tester unchanged and helps only once the code changed; otherwise <code>action</code> when one command continues, such as <code>--resume-paused --no-progress-limit N</code> at a <code>PAUSED_NO_PROGRESS</code> its unchanged-batch limit caused, with <code>no_progress_batches</code>, the retained count N must exceed (or N is <code>0</code>), or <code>--resume-paused --retry-builder M</code> at a parallel Builder member's quota, content-filter or output-limit stop whose request was answered without a model, or <code>--resume-paused --retry-failed-stage</code> (also as <code>retry_action</code>) at a recovery novelty hold whose request is not yet published, where a plain resume would hold again; when that hold cannot take the retry yet, <code>retry_unavailable</code> instead says why (an owned or uncertain attempt to reconcile, or a different pending decision), the same reason the CLI gives; an attempt that exited cleanly with a recorded finish (a verification hold or stale source check stands on its result) keeps <code>abandon_stage</code> and its <code>--abandon-stage ATTEMPT then --resume-paused</code> action as a <code>resume</code>, because archiving it would discard that result; at a <code>PAUSED_REPEATED_FAILURE</code> whose active attempt, uncertain artifacts or pending report repair its retry gate will not authorize over, <code>retry_unavailable</code> carries that CLI refusal verbatim and <code>action</code> is the plain <code>--resume-paused</code>, never the rejected <code>--retry-failed-stage</code> (#1897)</td>
 <td>Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved</td>
 </tr>
 <tr>
@@ -4408,7 +4408,7 @@ run is waiting for:</p>
 </tr>
 <tr>
 <td><code>continue</code></td>
-<td>no person input; the core may name a deterministic recovery in <code>action</code> (for example, setting aside an uncertain attempt, or resuming bounded recovery when the saved progress ledger proves another slot is unnecessary)</td>
+<td>no person input; the core may name a deterministic recovery in <code>action</code> (for example, setting aside an uncertain attempt that did not finish cleanly, or resuming bounded recovery when the saved progress ledger proves another slot is unnecessary)</td>
 <td><code>action</code> when present</td>
 <td>Run only the named <code>next_command</code>, then read status again</td>
 </tr>
