@@ -1292,7 +1292,6 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         ):
             # The owner projection freshly confirmed stopped supervision and a
             # retained report. Resume rechecks it; abandonment would discard it.
-            need["kind"] = "continue"
             need["action"] = "--resume-paused"
             return need
         # An inventory refusal leaves a retained result available for the usual
@@ -1305,6 +1304,7 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                 # The core has classified this exact retained response as uncertain
                 # and already requires it to be archived before any further work.
                 need["kind"] = "continue"
+                return need
         if stale_report_repair:
             need["action"] = "--resume-paused"
             return need

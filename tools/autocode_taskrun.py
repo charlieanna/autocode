@@ -473,10 +473,12 @@ class TaskRun:
         """
         return self._invoke("export plan", "plan", "--export", str(Path(path).absolute())).stdout.strip()
 
-    def advance(self, *, view: dict | None = None) -> dict:
+    def advance(self) -> dict:
         """Relaunch the run; it works until it completes or stops for input."""
-        if view is None:
-            view = self.status()
+        return self._advance(self.status())
+
+    def _advance(self, view: dict) -> dict:
+        """Take this view's named continue action, or the ordinary ``--no-chat`` relaunch."""
         command = ["--no-chat"]
         secret_env = {}
         if (view.get("needs") or {}).get("kind") == "continue" and view.get("next_command"):
@@ -496,7 +498,7 @@ class TaskRun:
             if view["done"] or view["needs"]["kind"] != "continue":
                 return view
             before = (view["status"], view["next_stage"], view["iteration"], view["phase"])
-            view = self.advance(view=view)
+            view = self._advance(view)
             if (view["status"], view["next_stage"], view["iteration"], view["phase"]) == before:
                 raise TaskRunError(f"no progress at {view['status']} (next stage {view['next_stage']})")
         raise TaskRunError(f"still not stopped after {max_calls} relaunches")
