@@ -1842,8 +1842,14 @@ in a private checkout. Verification preserves the original checkout and index.
 It creates a fresh candidate and a separate review checkout, retaining the
 reports under <code>.autocode/verification/</code> by default. <code>--out PATH</code> selects a fresh
 output directory; an existing destination is refused. Output inside the original
-checkout must be Git-ignored, and symlinked output parents are refused. Ambient
-Git repository or configuration overrides are refused by name before any work.
+checkout must be Git-ignored, and symlinked output parents are refused, except a
+root-owned system link such as macOS's <code>/tmp</code>, which is followed to its target
+(<code>/private/tmp</code>). A refused link is named with the path to use instead. The
+<code>git -c</code> parameters an editor's terminal exports (<code>GIT_CONFIG_COUNT</code>,
+<code>GIT_CONFIG_KEY_n</code>, <code>GIT_CONFIG_VALUE_n</code>) are cleared from verification's own
+environment and their names recorded in <code>verification.json</code> as
+<code>original.cleared_git_config</code>. Other ambient Git repository or configuration
+overrides are refused by name before any work, with the <code>unset</code> to run.
 Authenticated review-artifact and checkout-protection support must be installed
 before a review starts. Selected input using <code>.autocode/</code>, <code>.autocode-ui/</code> or
 <code>review/</code> (including case aliases), <code>__pycache__/</code> paths or <code>.pyc</code> files is
