@@ -25,6 +25,12 @@ PR template asks for an entry here; a change without one is incomplete.
 - `autocode coordinate status` no longer fails with a `KeyError` for a change set whose members
   were linked from existing runs rather than discovered as local repositories; such a member's
   `location` is `null`. A shared budget pause on those sets therefore offers its budget choice again.
+- Once every run of a change set has completed under its approved plan, `changeset status` no longer
+  offers the set approval again, so the terminal chat's `/changeset` offers the set's integration
+  check instead of asking to approve plans that already ran.
+- `autocode coordinate status` reports `phase: joint_regression` again while the joint regression
+  runs over the bound repository candidates. Since the joint plan is approved with the member plans
+  and started early, the phase had stayed at `fixing` through the joint run and its mismatch repair.
 
 ## [0.9.0] — 2026-10-30
 
