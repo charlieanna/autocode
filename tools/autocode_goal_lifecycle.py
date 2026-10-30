@@ -940,7 +940,7 @@ def render(state: RunState, run_dir=None, *, details=True):
 
 
 def approval_summary(state: RunState, *, above=True) -> list[str]:
-    contract = state["goal_contract"]
+    contract = cast(dict, state["goal_contract"])
     return approval_view.summary(
         contract["body"],
         contract["revision"],
