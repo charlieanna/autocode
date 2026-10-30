@@ -640,8 +640,11 @@ class TaskRun:
             resolver_token = need.get("resolver_token")
             if not resolver_token:
                 route = need.get("route") or {}
-                if (not request_options and route.get("cause") == "cross_model"
-                        and route.get("question_id") == question_id):
+                if (
+                    not request_options
+                    and route.get("cause") == "cross_model"
+                    and route.get("question_id") == question_id
+                ):
                     # Derived from current saved routes: the core rechecks independence
                     # and availability; no AutoResolver request or token exists.
                     return self._act("answer", "--answer", f"{question_id}={text}")

@@ -72,10 +72,19 @@ class CoordinationContextTests(unittest.TestCase):
         anchor = str(self.root / "intake/.autocode/runs/fix")
         workspace = coordination_store.root(anchor) / "worktrees/first"
         run = workspace / ".autocode/runs/fix"
-        member = {"target": "first", "workspace": str(workspace), "run_dir": str(run),
-                  "started": False, "reported_work": "Inspect the producer boundary"}
-        document = {"version": 1, "anchor": anchor, "members": [member],
-                    "pending": {"operation": "start", "target": "first"}}
+        member = {
+            "target": "first",
+            "workspace": str(workspace),
+            "run_dir": str(run),
+            "started": False,
+            "reported_work": "Inspect the producer boundary",
+        }
+        document = {
+            "version": 1,
+            "anchor": anchor,
+            "members": [member],
+            "pending": {"operation": "start", "target": "first"},
+        }
         coordination_store.save(document)
         state = {**self.state, "workspace": str(workspace), "run_dir": str(run)}
         found = coordination.context(state)

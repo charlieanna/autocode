@@ -263,16 +263,21 @@ class CrossModelTest(unittest.TestCase):
         import autocode_run_view as run_view
 
         identity = {
-            "engine": "gocode", "identity_version": 1, "executable": "/tools/gocode",
+            "engine": "gocode",
+            "identity_version": 1,
+            "executable": "/tools/gocode",
             "config_sha256": "a" * 64,
         }
         state = {
             "status": "PAUSED_CROSS_MODEL",
             "settings": {
-                "engine": "opencode", "provider": "gocode", "transport_identity": identity,
+                "engine": "opencode",
+                "provider": "gocode",
+                "transport_identity": identity,
                 "transport_identities": {"opencode": identity},
                 "roles": {
-                    "terra": {"model": "gpt-6.1-sol"}, "sol": {"model": "gpt-6.1-sol"},
+                    "terra": {"model": "gpt-6.1-sol"},
+                    "sol": {"model": "gpt-6.1-sol"},
                     "plan_reviewer": {"model": "claude-opus-5-5"},
                     "investigator": {"model": "glm-5"},
                     "architect": {"model": "qwen3-235b-a22b-2507"},
@@ -286,12 +291,18 @@ class CrossModelTest(unittest.TestCase):
         for model in expected:
             self.assertIn(model, view["needs"]["questions"][0]["why"])
         for model in expected:
-            quota_route.validate(state, "sol", model, configured_tool=False, cross_check=quota_route.cross_model_check("sol"))
+            quota_route.validate(
+                state, "sol", model, configured_tool=False, cross_check=quota_route.cross_model_check("sol")
+            )
         with self.assertRaisesRegex(ValueError, "same family openai"):
-            quota_route.validate(state, "sol", "gpt-6-astra", configured_tool=False, cross_check=quota_route.cross_model_check("sol"))
+            quota_route.validate(
+                state, "sol", "gpt-6-astra", configured_tool=False, cross_check=quota_route.cross_model_check("sol")
+            )
         state["settings"]["provider"] = "opencode"
         with self.assertRaisesRegex(ValueError, "OpenCode provider/model"):
-            quota_route.validate(state, "sol", "claude-opus-5-5", configured_tool=False, cross_check=quota_route.cross_model_check("sol"))
+            quota_route.validate(
+                state, "sol", "claude-opus-5-5", configured_tool=False, cross_check=quota_route.cross_model_check("sol")
+            )
 
     def test_the_named_answer_switches_the_verifier_and_is_accepted(self):
         import autocode_quota_route as quota_route

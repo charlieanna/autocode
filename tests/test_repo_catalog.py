@@ -9,8 +9,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import autocode_repo_catalog as catalog
 import autocode_registry as registry
+import autocode_repo_catalog as catalog
 
 
 class RepositoryCatalogTests(unittest.TestCase):
@@ -26,8 +26,22 @@ class RepositoryCatalogTests(unittest.TestCase):
     def git_repo(self, path, *, remote=None, message="base"):
         path.mkdir(parents=True)
         subprocess.run(["git", "init", "-q", str(path)], check=True)
-        subprocess.run(["git", "-C", str(path), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test",
-                        "commit", "--allow-empty", "-qm", message], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(path),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                message,
+            ],
+            check=True,
+        )
         if remote:
             subprocess.run(["git", "-C", str(path), "remote", "add", "origin", remote], check=True)
         return path
@@ -39,12 +53,14 @@ class RepositoryCatalogTests(unittest.TestCase):
         second.mkdir(parents=True)
         catalog.add_root(first)
         catalog.add_root(second)
-        with patch.dict(os.environ, {"AUTOCODE_SOURCE_CATALOG_HOME": str(self.home)}, clear=True), patch.object(
-            Path, "cwd", return_value=first
+        with (
+            patch.dict(os.environ, {"AUTOCODE_SOURCE_CATALOG_HOME": str(self.home)}, clear=True),
+            patch.object(Path, "cwd", return_value=first),
         ):
             from_first = catalog.list_roots()
-        with patch.dict(os.environ, {"AUTOCODE_SOURCE_CATALOG_HOME": str(self.home)}, clear=True), patch.object(
-            Path, "cwd", return_value=self.root
+        with (
+            patch.dict(os.environ, {"AUTOCODE_SOURCE_CATALOG_HOME": str(self.home)}, clear=True),
+            patch.object(Path, "cwd", return_value=self.root),
         ):
             from_unrelated = catalog.list_roots()
         self.assertEqual(from_first, from_unrelated)
@@ -104,16 +120,46 @@ class RepositoryCatalogTests(unittest.TestCase):
     def test_worktrees_deduplicate_and_conflicting_clones_remain_visible(self):
         origin = self.git_repo(self.root / "origin", remote="https://example.test/api.git")
         worktree = self.root / "worktree"
-        subprocess.run(["git", "-C", str(origin), "worktree", "add", "--detach", str(worktree), "HEAD"],
-                       check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(origin), "worktree", "add", "--detach", str(worktree), "HEAD"],
+            check=True,
+            capture_output=True,
+        )
         clone = self.root / "clone"
         subprocess.run(["git", "clone", "-q", str(origin), str(clone)], check=True)
-        subprocess.run(["git", "-C", str(clone), "remote", "set-url", "origin", "https://example.test/api.git"], check=True)
+        subprocess.run(
+            ["git", "-C", str(clone), "remote", "set-url", "origin", "https://example.test/api.git"], check=True
+        )
         (clone / "baseline.txt").write_text("alternate")
-        subprocess.run(["git", "-C", str(clone), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test",
-                        "add", "baseline.txt"], check=True)
-        subprocess.run(["git", "-C", str(clone), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test",
-                        "commit", "-qm", "other baseline"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(clone),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "add",
+                "baseline.txt",
+            ],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(clone),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "-qm",
+                "other baseline",
+            ],
+            check=True,
+        )
         catalog.add_root(self.root)
         found = catalog.discover()
         rows = [row for row in found["repositories"] if row["remote_identity"] == "example.test/api"]
@@ -156,8 +202,21 @@ class RepositoryCatalogTests(unittest.TestCase):
         for index, path in enumerate((first, second, third)):
             (path / "identity.txt").write_text(str(index))
             subprocess.run(["git", "-C", str(path), "add", "identity.txt"], check=True)
-            subprocess.run(["git", "-C", str(path), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test",
-                            "commit", "-qm", f"snapshot {index}"], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(path),
+                    "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=fixture@example.test",
+                    "commit",
+                    "-qm",
+                    f"snapshot {index}",
+                ],
+                check=True,
+            )
         catalog.add_root(self.root)
         found = catalog.discover()
         self.assertEqual(1, len(found["repositories"]))

@@ -61,8 +61,13 @@ class DynamicDependenciesTests(unittest.TestCase):
 
     def test_provider_model_rules_keep_the_public_recovery_consumer(self):
         consumer = "tests.test_provider_route_recovery_cli"
-        for path in ("tools/autocode_role_transport.py", "tools/autocode_quota_route.py",
-                     "tools/autocode_action_resolver.py", "tools/fake_command_tool.py", "tools/autocode_taskrun.py"):
+        for path in (
+            "tools/autocode_role_transport.py",
+            "tools/autocode_quota_route.py",
+            "tools/autocode_action_resolver.py",
+            "tools/fake_command_tool.py",
+            "tools/autocode_taskrun.py",
+        ):
             with self.subTest(path=path):
                 selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
                 kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})

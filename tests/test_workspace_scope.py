@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import autocode_workspace_scope as workspace_scope
 import autocode_scope_question as scope_question
+import autocode_workspace_scope as workspace_scope
 from autocode_util import validate_schema
 
 # A saved Requirements answer for the DTI-12398 shape: one ticket, two separately versioned services.

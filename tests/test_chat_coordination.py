@@ -146,9 +146,7 @@ class CoordinatedDisplayTests(unittest.TestCase):
         }
         with patch.object(coordination, "read", return_value=summary):
             self.assertIsNone(coordination.step(client, {}, Mock()))
-        client.advance.assert_called_once_with(
-            ["coordinate", "bind", "--run-dir", str(run_dir), "--json"]
-        )
+        client.advance.assert_called_once_with(["coordinate", "bind", "--run-dir", str(run_dir), "--json"])
 
     def test_anchor_reads_cannot_replace_the_active_member_and_callbacks_are_restored(self):
         for fail in (False, True):

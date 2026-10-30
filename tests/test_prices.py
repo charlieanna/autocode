@@ -50,9 +50,17 @@ class PriceTableTests(unittest.TestCase):
         self.assertIsNotNone(row, "The selected GoCode route must not start with unknown spend")
         self.assertEqual((2.0, 10.0), (row["input"], row["output"]))
         self.assertIn("caas-gocode-prod", row["source"])
-        self.assertEqual(3.0, prices.estimate("gpt-6.1-sol", {
-            "input_tokens": 1000000, "output_tokens": 100000, "cached_input_tokens": 900000,
-        }))
+        self.assertEqual(
+            3.0,
+            prices.estimate(
+                "gpt-6.1-sol",
+                {
+                    "input_tokens": 1000000,
+                    "output_tokens": 100000,
+                    "cached_input_tokens": 900000,
+                },
+            ),
+        )
 
     def test_every_default_profile_model_has_a_row(self):
         unpriced = sorted(model for model in default_profile_models() if prices.key(model) is None)

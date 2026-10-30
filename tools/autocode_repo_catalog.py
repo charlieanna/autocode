@@ -191,9 +191,7 @@ def remove_repository(path: str | Path) -> dict[str, Any]:
     with _locked():
         document = _read()
         before = len(document["repositories"])
-        document["repositories"] = [
-            row for row in document["repositories"] if row.get("git_common_dir") != str(common)
-        ]
+        document["repositories"] = [row for row in document["repositories"] if row.get("git_common_dir") != str(common)]
         removed = before != len(document["repositories"])
         if removed:
             _save(document)
@@ -279,10 +277,14 @@ def discover(*, max_depth: int = MAX_DEPTH, directory_budget: int = DIRECTORY_BU
     roots = [Path(row["path"]) for row in document["roots"]]
     standalone = [Path(row["path"]) for row in document["repositories"]]
     result: dict[str, Any] = {
-        "catalog": str(catalog_path()), "catalog_identity": catalog_identity,
-        "catalog_roots": list(document["roots"]), "registered_repositories": list(document["repositories"]),
-        "complete": True, "directories_inspected": 0,
-        "repositories": [], "diagnostics": [],
+        "catalog": str(catalog_path()),
+        "catalog_identity": catalog_identity,
+        "catalog_roots": list(document["roots"]),
+        "registered_repositories": list(document["repositories"]),
+        "complete": True,
+        "directories_inspected": 0,
+        "repositories": [],
+        "diagnostics": [],
     }
     found: dict[str, dict[str, Any]] = {}
     seen: set[Path] = set()
@@ -313,7 +315,9 @@ def discover(*, max_depth: int = MAX_DEPTH, directory_budget: int = DIRECTORY_BU
                 found[row["git_common_dir"] + "\0" + (row["remote_identity"] or "") + "\0" + row["tree"]] = row
             except (OSError, subprocess.SubprocessError, CatalogError) as error:
                 result["complete"] = False
-                result["diagnostics"].append({"code": "repository_unreadable", "path": str(directory), "message": str(error)})
+                result["diagnostics"].append(
+                    {"code": "repository_unreadable", "path": str(directory), "message": str(error)}
+                )
             # A configured workspace can itself have Git metadata while holding
             # independent child checkouts. Inventory its children as well; ordinary
             # discovered repositories remain leaves of the bounded search.
@@ -325,8 +329,7 @@ def discover(*, max_depth: int = MAX_DEPTH, directory_budget: int = DIRECTORY_BU
         if depth >= max_depth:
             try:
                 has_unvisited_directory = any(
-                    child.name not in EXCLUDED_DIRECTORIES and child.is_dir()
-                    for child in directory.iterdir()
+                    child.name not in EXCLUDED_DIRECTORIES and child.is_dir() for child in directory.iterdir()
                 )
             except OSError as error:
                 result["complete"] = False
@@ -371,28 +374,34 @@ def discover(*, max_depth: int = MAX_DEPTH, directory_budget: int = DIRECTORY_BU
     for row in found.values():
         # Linked worktrees share an identity. Separate clones with one remote
         # stay together so callers can detect incompatible baselines.
-        identity = "common:" + row["git_common_dir"] if row["remote_identity"] is None else "remote:" + row["remote_identity"]
+        identity = (
+            "common:" + row["git_common_dir"] if row["remote_identity"] is None else "remote:" + row["remote_identity"]
+        )
         groups.setdefault(identity, []).append(row)
     for identity, candidates in sorted(groups.items()):
         by_tree: dict[str, dict[str, Any]] = {}
         for candidate in candidates:
             by_tree.setdefault(candidate["tree"], candidate)
         versions = sorted(by_tree.values(), key=lambda row: (row["path"], row["head"]))
-        result["repositories"].append({
-            "identity": identity,
-            "remote": versions[0]["remote"],
-            "remote_identity": versions[0]["remote_identity"],
-            "path": versions[0]["path"],
-            "ambiguous_baseline": len(versions) > 1,
-            "candidates": versions,
-        })
+        result["repositories"].append(
+            {
+                "identity": identity,
+                "remote": versions[0]["remote"],
+                "remote_identity": versions[0]["remote_identity"],
+                "path": versions[0]["path"],
+                "ambiguous_baseline": len(versions) > 1,
+                "candidates": versions,
+            }
+        )
     result["repositories"].sort(key=lambda row: (row["remote"] or "", row["path"]))
-    result["source_snapshot"] = _digest({
-        "catalog_identity": catalog_identity,
-        "complete": result["complete"],
-        "repositories": result["repositories"],
-        "diagnostics": result["diagnostics"],
-    })
+    result["source_snapshot"] = _digest(
+        {
+            "catalog_identity": catalog_identity,
+            "complete": result["complete"],
+            "repositories": result["repositories"],
+            "diagnostics": result["diagnostics"],
+        }
+    )
     return result
 
 

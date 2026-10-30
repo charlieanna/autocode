@@ -119,25 +119,54 @@ def main():
         # This boundary reads the real pinned file, rather than inventing a citation.
         assert "HISTORY_REPOSITORY" in (Path(selected["path"]) / "client.py").read_text()
         citation = "catalog/" + selected["id"] + "/client.py:3"
-        scope = {"spans_repositories": True, "external_parts": [{
-            "target": "checkout", "work": "Fix checkout total formatting and follow its history dependency",
-            "source_quote": "", "evidence": citation,
-        }]}
+        scope = {
+            "spans_repositories": True,
+            "external_parts": [
+                {
+                    "target": "checkout",
+                    "work": "Fix checkout total formatting and follow its history dependency",
+                    "source_quote": "",
+                    "evidence": citation,
+                }
+            ],
+        }
         report = default(schema)
         if stage == "investigate_bug":
-            report.update(outcome="not_reproduced", note_path="docs/bugs/intake.json",
-                          observed=data["task"], reproduction="The launch checkout contains no checkout implementation",
-                          root_cause="Inspect the catalog checkout implementation and its dependencies",
-                          affected_paths=[], test_paths=[], invariant=data["task"], test_cases=[],
-                          conclusion="Catalog source identifies the checkout entry point", fix_size="none",
-                          fix_plan=[], questions=[], tests_run=[], plan_approval_requested=False,
-                          probe="", untestable="", workspace_scope=scope)
+            report.update(
+                outcome="not_reproduced",
+                note_path="docs/bugs/intake.json",
+                observed=data["task"],
+                reproduction="The launch checkout contains no checkout implementation",
+                root_cause="Inspect the catalog checkout implementation and its dependencies",
+                affected_paths=[],
+                test_paths=[],
+                invariant=data["task"],
+                test_cases=[],
+                conclusion="Catalog source identifies the checkout entry point",
+                fix_size="none",
+                fix_plan=[],
+                questions=[],
+                tests_run=[],
+                plan_approval_requested=False,
+                probe="",
+                untestable="",
+                workspace_scope=scope,
+            )
         elif stage == "requirements_gather":
-            report.update(job="bugfix", clarity="clear", summary=data["task"], intended_outcome=data["task"],
-                          required_behaviors=[data["task"]], acceptance_tests=[SUITE],
-                          constraints=["Preserve existing cases"], source_refs=[citation],
-                          requirements=[{"id": "R1", "text": data["task"], "source_quote": data["task"]}],
-                          open_questions=[], proposed_assumptions=[], workspace_scope=scope)
+            report.update(
+                job="bugfix",
+                clarity="clear",
+                summary=data["task"],
+                intended_outcome=data["task"],
+                required_behaviors=[data["task"]],
+                acceptance_tests=[SUITE],
+                constraints=["Preserve existing cases"],
+                source_refs=[citation],
+                requirements=[{"id": "R1", "text": data["task"], "source_quote": data["task"]}],
+                open_questions=[],
+                proposed_assumptions=[],
+                workspace_scope=scope,
+            )
         else:
             raise RuntimeError("Unrelated intake must never plan or build: " + stage)
         output.write_text(json.dumps(shaped(report, schema)))

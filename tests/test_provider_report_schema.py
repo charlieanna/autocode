@@ -14,8 +14,10 @@ class ProviderReportSchemaTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.path = Path(temp.name) / "report.schema.json"
         self.original = {
-            "type": "object", "additionalProperties": False,
-            "properties": {"summary": {"type": "string"}}, "required": ["summary"],
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"summary": {"type": "string"}},
+            "required": ["summary"],
         }
 
     def test_ordinary_schema_path_and_bytes_are_preserved(self):
@@ -27,7 +29,10 @@ class ProviderReportSchemaTests(unittest.TestCase):
     def test_optional_edits_offer_restores_exact_original_validation(self):
         offered = {
             **self.original,
-            "properties": {**self.original["properties"], "repair_report": {"type": "object", "properties": {"value": {}}}},
+            "properties": {
+                **self.original["properties"],
+                "repair_report": {"type": "object", "properties": {"value": {}}},
+            },
             "required": [],
             "x-autocode-report-edits": {"required": ["summary"], "source_path": "pinned.json", "sha256": "abc"},
         }
@@ -40,8 +45,11 @@ class ProviderReportSchemaTests(unittest.TestCase):
         self.assertEqual(result, reports.full_report(self.path))
 
     def test_optional_required_list_remains_absent_for_legacy_schema(self):
-        offered = {**self.original, "properties": {**self.original["properties"], "repair_report": {}},
-                   "x-autocode-report-edits": {"required": None}}
+        offered = {
+            **self.original,
+            "properties": {**self.original["properties"], "repair_report": {}},
+            "x-autocode-report-edits": {"required": None},
+        }
         self.path.write_text(json.dumps(offered))
         self.assertNotIn("required", json.loads(reports.full_report(self.path).read_text()))
 

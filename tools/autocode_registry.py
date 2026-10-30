@@ -22,11 +22,11 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from . import autocode_util as util
     from . import autocode_repo_catalog as source_catalog
+    from . import autocode_util as util
 except ImportError:
-    import autocode_util as util
     import autocode_repo_catalog as source_catalog
+    import autocode_util as util
 
 
 REGISTRY_VERSION = 1

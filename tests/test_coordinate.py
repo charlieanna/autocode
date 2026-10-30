@@ -20,8 +20,8 @@ import autocode_coordination_repositories as repos
 import autocode_coordination_store as store
 import autocode_github as github
 import autocode_goals as goals
-import autocode_repo_catalog as source_catalog
 import autocode_related_profile as profiles
+import autocode_repo_catalog as source_catalog
 import autocode_run_view as run_view
 import autocode_scope_assignment as assignment
 
@@ -52,7 +52,12 @@ class CoordinationTests(unittest.TestCase):
     def plan_view(self, token):
         body = {
             "acceptance_criteria": [
-                {"id": "fix", "criterion": "Fix the real behavior", "verification_method": "unit tests", "human_review": False}
+                {
+                    "id": "fix",
+                    "criterion": "Fix the real behavior",
+                    "verification_method": "unit tests",
+                    "human_review": False,
+                }
             ],
             "constraints": [],
             "permission_boundaries": [],
@@ -112,6 +117,7 @@ class CoordinationTests(unittest.TestCase):
 
     def test_discovered_normalized_remote_keeps_identity_but_an_actual_remote_change_is_refused(self):
         import autocode_repo_catalog as catalog
+
         self.repository()
         catalog.add_root(self.root)
         entry = next(row for row in repos.catalog() if Path(row["origin"]).name == "api")
@@ -148,9 +154,7 @@ class CoordinationTests(unittest.TestCase):
             "evidence_revision": source["base"],
         }
         self.document["members"] = [{"target": "api", **source}]
-        self.document["initial_scope"] = [
-            {"target": "history", "work": "Store the new result", **grounding}
-        ]
+        self.document["initial_scope"] = [{"target": "history", "work": "Store the new result", **grounding}]
         with patch.object(repos, "catalog", return_value=[entry]):
             found = coordinate.resolve_request(self.document, {})
         self.assertEqual(grounding, found["supporting_evidence"])
@@ -174,7 +178,11 @@ class CoordinationTests(unittest.TestCase):
             "task": "Fix the API response mapping",
             "turn": 4,
         }
-        snapshot = {"catalog_identity": "catalog-1", "source_snapshot": "sources-1", "catalog": "/home/.autocode/source-catalog.json"}
+        snapshot = {
+            "catalog_identity": "catalog-1",
+            "source_snapshot": "sources-1",
+            "catalog": "/home/.autocode/source-catalog.json",
+        }
         with (
             patch.object(coordinate, "anchor_view", return_value=view),
             patch.object(repos, "source_snapshot", return_value=snapshot),
@@ -197,7 +205,11 @@ class CoordinationTests(unittest.TestCase):
         with patch.object(
             repos,
             "source_snapshot",
-            return_value={"catalog_identity": "catalog-2", "source_snapshot": "sources-2", "catalog": "/home/.autocode/source-catalog.json"},
+            return_value={
+                "catalog_identity": "catalog-2",
+                "source_snapshot": "sources-2",
+                "catalog": "/home/.autocode/source-catalog.json",
+            },
         ):
             step = coordinate.next_step(self.document, {})
         self.assertEqual("blocked", step["kind"])
@@ -241,7 +253,11 @@ class CoordinationTests(unittest.TestCase):
         self.document.update(
             anchor=str(self.root / "workspace/.autocode/runs/anchor"),
             revision=4,
-            source_catalog={"catalog_identity": "catalog", "source_snapshot": "sources", "catalog": "/home/.autocode/source-catalog.json"},
+            source_catalog={
+                "catalog_identity": "catalog",
+                "source_snapshot": "sources",
+                "catalog": "/home/.autocode/source-catalog.json",
+            },
             members=[
                 {
                     "target": "history",
@@ -322,8 +338,7 @@ class CoordinationTests(unittest.TestCase):
 
     def test_joint_plan_is_prepared_before_approval_or_any_builder(self):
         self.document["members"] = [
-            {"target": target, "started": True, "run_dir": str(self.root / target)}
-            for target in ("api", "history")
+            {"target": target, "started": True, "run_dir": str(self.root / target)} for target in ("api", "history")
         ]
         views = {target: self.plan_view(target + "-plan") for target in ("api", "history")}
         with patch.object(coordinate.changesets, "status", return_value={"runs": []}):
@@ -359,14 +374,16 @@ class CoordinationTests(unittest.TestCase):
             entry = self.repository(target)
             run_dir = self.root / target / ".autocode/runs/coordinated-fix"
             run_dir.mkdir(parents=True)
-            rows.append({
-                **entry,
-                "target": target,
-                "workspace": str(self.root / target),
-                "run_dir": str(run_dir),
-                "brief": "Fix the actual behavior",
-                "started": True,
-            })
+            rows.append(
+                {
+                    **entry,
+                    "target": target,
+                    "workspace": str(self.root / target),
+                    "run_dir": str(run_dir),
+                    "brief": "Fix the actual behavior",
+                    "started": True,
+                }
+            )
         joint_workspace = self.root / "joint"
         joint_run_dir = joint_workspace / ".autocode/runs/joint-regression"
         joint_run_dir.mkdir(parents=True)
@@ -385,15 +402,22 @@ class CoordinationTests(unittest.TestCase):
 
     def test_member_and_joint_plans_share_one_approval_offer(self):
         self.document["members"] = [
-            {"target": target, "started": True, "run_dir": str(self.root / target)}
-            for target in ("api", "history")
+            {"target": target, "started": True, "run_dir": str(self.root / target)} for target in ("api", "history")
         ]
-        self.document["joint"] = {"workspace": str(self.root / "joint"), "run_dir": str(self.root / "joint/.autocode/runs/joint")}
+        self.document["joint"] = {
+            "workspace": str(self.root / "joint"),
+            "run_dir": str(self.root / "joint/.autocode/runs/joint"),
+        }
         views = {target: self.plan_view(target + "-plan") for target in ("api", "history")}
         plan = {
             "token": "joint-plan-token",
             "acceptance_criteria": [
-                {"id": "joint", "criterion": "Run the combined regression", "verification_method": "pytest", "human_review": False}
+                {
+                    "id": "joint",
+                    "criterion": "Run the combined regression",
+                    "verification_method": "pytest",
+                    "human_review": False,
+                }
             ],
             "constraints": [],
             "permission_boundaries": [],
@@ -437,9 +461,18 @@ class CoordinationTests(unittest.TestCase):
 
     def test_candidate_binding_action_refuses_until_every_member_is_complete(self):
         self.document["members"] = [
-            {"target": "api", "started": True, "workspace": str(self.root / "api"), "run_dir": str(self.root / "api/run")}
+            {
+                "target": "api",
+                "started": True,
+                "workspace": str(self.root / "api"),
+                "run_dir": str(self.root / "api/run"),
+            }
         ]
-        self.document["joint"] = {"workspace": str(self.root / "joint"), "run_dir": str(self.root / "joint/run"), "started": True}
+        self.document["joint"] = {
+            "workspace": str(self.root / "joint"),
+            "run_dir": str(self.root / "joint/run"),
+            "started": True,
+        }
         store.save(self.document)
         with (
             patch.object(coordinate, "observe", return_value={"api": {"done": False}}),
@@ -458,7 +491,11 @@ class CoordinationTests(unittest.TestCase):
             "base": "a" * 40,
         }
         self.document["members"] = [member]
-        self.document["joint"] = {"workspace": str(self.root / "joint"), "run_dir": str(self.root / "joint/run"), "started": True}
+        self.document["joint"] = {
+            "workspace": str(self.root / "joint"),
+            "run_dir": str(self.root / "joint/run"),
+            "started": True,
+        }
         store.save(self.document)
         views = {"api": {"done": True}}
         joint_view = {"done": False, "needs": {"kind": "continue"}}
@@ -476,7 +513,12 @@ class CoordinationTests(unittest.TestCase):
     def test_approved_joint_plan_binds_candidates_before_joint_execution(self):
         body = {
             "acceptance_criteria": [
-                {"id": "joint", "criterion": "Run both components together", "verification_method": "integration test", "human_review": False}
+                {
+                    "id": "joint",
+                    "criterion": "Run both components together",
+                    "verification_method": "integration test",
+                    "human_review": False,
+                }
             ],
             "constraints": [],
             "permission_boundaries": [],
@@ -484,7 +526,14 @@ class CoordinationTests(unittest.TestCase):
         }
         approved = {"token": "joint-plan", "hash": "joint-hash", "revision": 1, "body": body}
         displayed = {"token": "joint-plan", "hash": "joint-hash", "revision": 1, **body}
-        self.document["members"] = [{"target": "api", "started": True, "workspace": str(self.root / "api"), "run_dir": str(self.root / "api/run")}]
+        self.document["members"] = [
+            {
+                "target": "api",
+                "started": True,
+                "workspace": str(self.root / "api"),
+                "run_dir": str(self.root / "api/run"),
+            }
+        ]
         self.document["joint"] = {
             "workspace": str(self.root / "joint"),
             "run_dir": str(self.root / "joint/run"),

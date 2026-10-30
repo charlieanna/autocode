@@ -236,9 +236,7 @@ def remove_joint(source_run_dir, joint_run_dir) -> bool:
         if record is None:
             return False
         kept = [
-            row
-            for row in record["members"]
-            if not (row.get("role") == "joint" and row.get("run_dir") == joint_run_dir)
+            row for row in record["members"] if not (row.get("role") == "joint" and row.get("run_dir") == joint_run_dir)
         ]
         if len(kept) == len(record["members"]):
             return False
@@ -342,8 +340,7 @@ def release_approval(run_dir, token: str) -> None:
                 and (prior.get("observations", {}).get(member) or {}).get("approved")
                 and ((prior.get("observations", {}).get(member) or {}).get("grant") or {}).get("set_token")
                 == prior.get("token")
-                and ((prior.get("observations", {}).get(member) or {}).get("grant") or {}).get("plan_token")
-                == plan
+                and ((prior.get("observations", {}).get(member) or {}).get("grant") or {}).get("plan_token") == plan
                 and ((prior.get("observations", {}).get(member) or {}).get("grant") or {}).get("task_digest")
                 == (prior.get("observations", {}).get(member) or {}).get("task_digest")
                 for prior in record.get("approval_history", [])

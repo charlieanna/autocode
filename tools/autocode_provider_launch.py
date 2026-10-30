@@ -193,7 +193,8 @@ def prepare(
             if developer_tools.is_dir():
                 roots.add(developer_tools.resolve())
             if (
-                not allow_write and not planning_report_recovery
+                not allow_write
+                and not planning_report_recovery
                 and (Path(run_dir) / "planning/source-catalog.json").is_file()
             ):
                 try:

@@ -160,7 +160,14 @@ def plan_for_set(view: dict) -> dict | None:
         or displayed.get("revision") != approved.get("revision")
     ):
         return None
-    for key in ("acceptance_criteria", "constraints", "permission_boundaries", "git_delivery", "milestones", "end_to_end_flow"):
+    for key in (
+        "acceptance_criteria",
+        "constraints",
+        "permission_boundaries",
+        "git_delivery",
+        "milestones",
+        "end_to_end_flow",
+    ):
         if key in displayed and displayed[key] != body.get(key):
             return None
     if displayed.get("scope_exclusions", []) != body.get("scope_exclusions", []):

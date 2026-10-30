@@ -237,9 +237,7 @@ def repositories(history, argument):
     if not isinstance(access, dict):
         raise actions.ClientGap("GitHub readiness is unavailable: " + str(readiness.get("error", "invalid response")))
     rows = [row["path"] for row in listing.get("roots", []) if isinstance(row, dict) and row.get("path")]
-    registered = [
-        row["path"] for row in listing.get("repositories", []) if isinstance(row, dict) and row.get("path")
-    ]
+    registered = [row["path"] for row in listing.get("repositories", []) if isinstance(row, dict) and row.get("path")]
     found = sorted(
         {
             candidate["path"]
@@ -256,7 +254,9 @@ def repositories(history, argument):
         codes = sorted({row.get("code", "incomplete") for row in discovery.get("diagnostics", [])})
         lines.append("Discovery is incomplete" + (": " + ", ".join(codes) if codes else "."))
     if argument.strip():
-        lines.append("The supplied path was not registered. Configure roots once with `autocode registry roots add PATH` or a standalone checkout with `autocode registry repositories add PATH`.")
+        lines.append(
+            "The supplied path was not registered. Configure roots once with `autocode registry roots add PATH` or a standalone checkout with `autocode registry repositories add PATH`."
+        )
     return (
         "Repositories available for automatic discovery:\n"
         + "\n".join(lines)

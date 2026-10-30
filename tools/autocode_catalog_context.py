@@ -43,20 +43,24 @@ def context(state):
     if not discovery["complete"]:
         codes = ", ".join(sorted({row["code"] for row in discovery["diagnostics"]}))
         raise ValueError("Source discovery is incomplete: " + codes)
-    if saved and any(saved.get(key) != discovery.get(key) for key in ("catalog", "catalog_identity", "source_snapshot")):
+    if saved and any(
+        saved.get(key) != discovery.get(key) for key in ("catalog", "catalog_identity", "source_snapshot")
+    ):
         raise ValueError("The task's source catalog or pinned source revisions changed; rediscover the task scope")
     rows = []
     for group in discovery["repositories"]:
         for source in group["candidates"]:
-            rows.append({
-                "id": hashlib.sha256((source["path"] + "\0" + source["head"]).encode()).hexdigest()[:16],
-                "name": Path(source["path"]).name,
-                "path": source["path"],
-                "head": source["head"],
-                "tree": source["tree"],
-                "remote": source.get("remote"),
-                "ambiguous_baseline": group["ambiguous_baseline"],
-            })
+            rows.append(
+                {
+                    "id": hashlib.sha256((source["path"] + "\0" + source["head"]).encode()).hexdigest()[:16],
+                    "name": Path(source["path"]).name,
+                    "path": source["path"],
+                    "head": source["head"],
+                    "tree": source["tree"],
+                    "remote": source.get("remote"),
+                    "ambiguous_baseline": group["ambiguous_baseline"],
+                }
+            )
     if not rows:
         return None
     if len(rows) > 256:
@@ -92,7 +96,7 @@ def evidence(state, reference):
         return None
     cited = parts[2]
     span = re.search(r":([0-9]+)(?:-([0-9]+))?$", cited)
-    relative = cited[:span.start()] if span else cited
+    relative = cited[: span.start()] if span else cited
     root = Path(row["path"])
     path = root / relative
     if not relative or Path(relative).is_absolute() or ".." in Path(relative).parts:
@@ -102,7 +106,8 @@ def evidence(state, reference):
             return None
         source = subprocess.run(
             ["git", "-C", str(root), "show", row["head"] + ":" + relative],
-            capture_output=True, timeout=15,
+            capture_output=True,
+            timeout=15,
         )
         if source.returncode or source.stdout != path.read_bytes():
             return None

@@ -142,7 +142,9 @@ def _cited_name_text(evidence: str, source_refs, workspace) -> str:
     return "\n".join(texts)
 
 
-def validated(scope, *, sources, source_refs, workspace, member_names=(), evidence_resolver=None) -> tuple[dict, list[str]]:
+def validated(
+    scope, *, sources, source_refs, workspace, member_names=(), evidence_resolver=None
+) -> tuple[dict, list[str]]:
     """The grounded ``workspace_scope`` (still valid against SCHEMA, since the saved report is checked
     again later) and the targets of the parts dropped for want of a quote or a real cited file."""
     if not isinstance(scope, dict):

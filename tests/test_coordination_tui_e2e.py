@@ -190,9 +190,21 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
         self.intake = self.root / "unrelated"
         self.intake.mkdir()
         (self.intake / "repository.json").write_text(json.dumps({"name": "intake"}))
-        for arguments in (["init", "-q", "-b", "main"], ["add", "."],
-                          ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test",
-                           "-c", "commit.gpgsign=false", "commit", "-qm", "Unrelated launch"]):
+        for arguments in (
+            ["init", "-q", "-b", "main"],
+            ["add", "."],
+            [
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                "Unrelated launch",
+            ],
+        ):
             subprocess.run(["git", "-C", str(self.intake), *arguments], check=True, capture_output=True)
         setup = chat.History(self.intake, env=self.env)
         setup.read(["registry", "roots", "add", str(self.root / "sources"), "--json"])
@@ -363,8 +375,10 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
                 client.step()
             else:
                 self.fail("The fixture never assigned the discovered repository scope")
-            self.assertFalse(any(row["id"].startswith("requirements-review-")
-                                 for row in view["needs"].get("questions", [])), view["stop_reason"])
+            self.assertFalse(
+                any(row["id"].startswith("requirements-review-") for row in view["needs"].get("questions", [])),
+                view["stop_reason"],
+            )
             self.assertNotEqual("answer", view["needs"]["kind"], view["stop_reason"])
             self.assertEqual(3, len(summary["members"]), "The consumer alias creates no duplicate run")
             for _ in range(20):

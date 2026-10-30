@@ -178,7 +178,9 @@ def request_evidence(document, views, target):
         parts.extend((view.get("scope") or {}).get("external_parts") or [])
     matching = [row for row in parts if isinstance(row, dict) and row.get("target") == target]
     result = {
-        "source_quote": "; ".join(dict.fromkeys(row.get("source_quote", "") for row in matching if row.get("source_quote"))),
+        "source_quote": "; ".join(
+            dict.fromkeys(row.get("source_quote", "") for row in matching if row.get("source_quote"))
+        ),
         "evidence": "; ".join(dict.fromkeys(row.get("evidence", "") for row in matching if row.get("evidence"))),
     }
     for part in matching:
@@ -327,7 +329,9 @@ def sync_set(document):
                 role="joint",
             )
             saved = next(row for row in sets.members(record) if row["target"] == target)
-        elif saved.get("run_dir") and str(Path(saved["run_dir"]).resolve()) != str(Path(joint_run["run_dir"]).resolve()):
+        elif saved.get("run_dir") and str(Path(saved["run_dir"]).resolve()) != str(
+            Path(joint_run["run_dir"]).resolve()
+        ):
             raise store.CoordinationError("The change set has a different joint-plan run for this attempt")
         if not saved.get("run_dir"):
             sets.bind(record["id"], target, joint_run["run_dir"])
@@ -404,8 +408,10 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
             if actions.working(view):
                 return {"kind": "watch", "target": target}
             return {"kind": "advance", "target": target}
-    member_plans_ready = bool(document["members"]) and len(views) == len(document["members"]) and all(
-        changesets.plan_for_set(view) for view in views.values()
+    member_plans_ready = (
+        bool(document["members"])
+        and len(views) == len(document["members"])
+        and all(changesets.plan_for_set(view) for view in views.values())
     )
     if member_plans_ready:
         active = document.get("joint")

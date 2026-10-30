@@ -81,11 +81,27 @@ class ProviderLaunchTests(unittest.TestCase):
             for write, repair in ((False, False), (True, False), (False, True)):
                 adapter = Stub()
                 with mock.patch.object(catalog_context, "read_roots", return_value=["/authorized/external"]) as roots:
-                    launch.prepare(engine="opencode", adapter=adapter, role="astra", route_role="astra",
-                                   workspace=run, run_dir=run, session=None, model="m", effort="medium",
-                                   allow_write=write, planning=True, report=run / "report", schema=run / "schema",
-                                   prompt_file=run / "prompt", sandbox="read-only", transport_args=[],
-                                   chatgpt=False, provider=None, planning_report_recovery=repair)
+                    launch.prepare(
+                        engine="opencode",
+                        adapter=adapter,
+                        role="astra",
+                        route_role="astra",
+                        workspace=run,
+                        run_dir=run,
+                        session=None,
+                        model="m",
+                        effort="medium",
+                        allow_write=write,
+                        planning=True,
+                        report=run / "report",
+                        schema=run / "schema",
+                        prompt_file=run / "prompt",
+                        sandbox="read-only",
+                        transport_args=[],
+                        chatgpt=False,
+                        provider=None,
+                        planning_report_recovery=repair,
+                    )
                 actual = (adapter.containment or {}).get("read_roots", [])
                 self.assertEqual(not write and not repair, "/authorized/external" in actual)
                 self.assertEqual(not write and not repair, roots.called)

@@ -9,11 +9,16 @@ import autocode_role_transport as transport
 class ConfiguredTransportTests(unittest.TestCase):
     def settings(self):
         identity = {
-            "engine": "gocode", "identity_version": 1, "executable": "/tools/gocode",
-            "config_path": "/config/gocode.toml", "config_sha256": "a" * 64,
+            "engine": "gocode",
+            "identity_version": 1,
+            "executable": "/tools/gocode",
+            "config_path": "/config/gocode.toml",
+            "config_sha256": "a" * 64,
         }
         return {
-            "engine": "opencode", "provider": "gocode", "transport_identity": identity,
+            "engine": "opencode",
+            "provider": "gocode",
+            "transport_identity": identity,
             "transport_identities": {"opencode": copy.deepcopy(identity)},
             "roles": {"sol": {"engine": "opencode", "provider": None}},
         }
@@ -35,9 +40,17 @@ class ConfiguredTransportTests(unittest.TestCase):
         self.assertFalse(transport.configured(settings, "sol"))
 
     def test_a_provider_name_alone_or_malformed_identity_grants_no_model_format(self):
-        for identity in (None, {}, {"engine": "gocode"}, {
-            "engine": "other", "identity_version": 1, "executable": "/tools/gocode", "config_sha256": "a" * 64,
-        }):
+        for identity in (
+            None,
+            {},
+            {"engine": "gocode"},
+            {
+                "engine": "other",
+                "identity_version": 1,
+                "executable": "/tools/gocode",
+                "config_sha256": "a" * 64,
+            },
+        ):
             settings = self.settings()
             settings["transport_identity"] = identity
             settings["transport_identities"] = {"opencode": identity}
