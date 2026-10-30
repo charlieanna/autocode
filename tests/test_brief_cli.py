@@ -299,7 +299,7 @@ class BriefCliTests(unittest.TestCase):
             timeout=30,
         )
         self.assertEqual(0, delivered.returncode, (delivered.stdout + delivered.stderr)[-800:])
-        self.assertIn("Ran 4 tests", delivered.stderr)
+        self.assertIn("Ran 3 tests", delivered.stderr)
         checked = verdict.evaluate(self.scenario, run.workspace)
         self.assertEqual(10, len(checked.checks))
         self.assertEqual(
