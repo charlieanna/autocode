@@ -375,7 +375,20 @@ class RunListTests(unittest.TestCase):
     def test_before_a_chat_is_open_only_what_works_without_one_is_offered(self):
         names = [command.name for command in panel.commands(asking=True, run=False)]
         self.assertEqual(
-            ["/runs", "/open", "/new", "/mode", "/engine", "/connect", "/repos", "/attention", "/help", "/quit"], names
+            [
+                "/runs",
+                "/open",
+                "/new",
+                "/mode",
+                "/engine",
+                "/connect",
+                "/stages",
+                "/repos",
+                "/attention",
+                "/help",
+                "/quit",
+            ],
+            names,
         )
 
     def test_opening_and_starting_a_chat_wait_for_a_question(self):

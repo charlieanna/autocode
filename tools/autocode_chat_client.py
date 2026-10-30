@@ -63,6 +63,7 @@ try:
     from . import autocode_chat_panel as panel
     from . import autocode_chat_polling as polling
     from . import autocode_chat_setup as setup
+    from . import autocode_chat_stages as stages
     from . import autocode_chat_worker as worker
     from . import autocode_client_actions as actions
     from . import autocode_events_command as events
@@ -77,6 +78,7 @@ except ImportError:
     import autocode_chat_panel as panel
     import autocode_chat_polling as polling
     import autocode_chat_setup as setup
+    import autocode_chat_stages as stages
     import autocode_chat_worker as worker
     import autocode_client_actions as actions
     import autocode_events_command as events
@@ -234,6 +236,46 @@ class History:
         )  # sign-in or setup prompts on the terminal itself
         return f"{offered.get('label')} finished (exit {code}). Check it with /connect {name} check."
 
+    def stages(self, argument: str):
+        """/stages: the stage view as a drawer (``stages.Menu``), or ``/stages STAGE N LEVEL`` saved at once.
+
+        It lists the backend new chats run on when the person chose one (/engine, /connect NAME use), else
+        the one a new run takes, and takes only the stage's own ``set`` command, filled from its options.
+        """
+        own = setup.flag_value(self.new.options, "--engine") or setup.flag_value(self.new.options, "--provider")
+        listing = ["stages", "list", "--json", *(["--backend", setup.engine_of(self.new.options)] if own else [])]
+        view = self.read(listing)
+        if view.get("version") != 1 or not isinstance(view.get("stages"), list):
+            raise actions.ClientGap("`autocode stages list --json` returned no stage view; update AutoCode.")
+        menu = stages.Menu(view, save=self.save_stage)
+        words = argument.split()
+        if not words:
+            return menu
+        stage = stages.find(view, words[0])
+        if stage is None or len(words) != 3 or not words[1].isdigit():
+            return "Type /stages STAGE N LEVEL, for example /stages builder 2 medium.\n" + str(menu)
+        options = stage.get("options") or []
+        if not 1 <= int(words[1]) <= len(options):
+            return f"The {stage.get('label')} lists models 1 to {len(options)}.\n" + str(menu)
+        model = str(options[int(words[1]) - 1].get("model"))
+        try:
+            saved = self.save_stage(stages.fill(stage, model, words[2].lower()))
+        except ValueError as error:
+            return str(error)
+        return f"New chats run the {stage.get('label')} on {model} at {words[2].lower()}.\n" + stages.text(saved)
+
+    def save_stage(self, argv: list[str]) -> dict:
+        """Run one filled ``set`` command the stage view named; the core's refusal comes back as ValueError."""
+        proc = subprocess.run([*self.command, *argv], capture_output=True, text=True, env=self.env)
+        if proc.returncode != 0:
+            raise ValueError(
+                (proc.stderr.strip().splitlines() or ["The choice was refused."])[-1].removeprefix("autocode stages: ")
+            )
+        try:
+            return json.loads(proc.stdout)
+        except ValueError:
+            raise ValueError("The choice was saved but its view could not be read; /stages reads it again.") from None
+
     def list(self) -> list[dict]:
         """Every project's chats (`runs --all`, the per-user registry), and this project's own runs,
         which are listed even before the registry knows them; grouped by project, this one first."""
@@ -265,9 +307,10 @@ class History:
                 return panel.runs_text(rows, current, here=self.workspace.resolve(), left_out=self.left_out)
             except actions.ClientGap as error:
                 return str(error)
-        if name in ("/mode", "/engine", "/connect"):
+        if name in ("/mode", "/engine", "/connect", "/stages"):
             try:
-                return {"/mode": self.mode, "/engine": self.engine, "/connect": self.connect}[name](argument)
+                chosen = {"/mode": self.mode, "/engine": self.engine, "/connect": self.connect, "/stages": self.stages}
+                return chosen[name](argument)
             except actions.ClientGap as error:
                 return str(error)
         if name == "/new":
@@ -658,7 +701,7 @@ class ChatClient:
             return self.tab(argument)
         if name == "/changeset":
             return self.changeset()
-        if name in ("/runs", "/open", "/new", "/mode", "/engine", "/connect", "/repos"):
+        if name in ("/runs", "/open", "/new", "/mode", "/engine", "/connect", "/stages", "/repos"):
             if self.history is None:
                 return "This chat has no project list."
             self.history.overview = self._overview
@@ -1717,7 +1760,8 @@ def numbers_text(numbers: list[int]) -> str:
 
 FIRST_PROMPT_HELP = (
     "Type what you want done to start a chat, or: /runs lists this project's chats and /open N picks one up; "
-    "/mode, /engine and /connect choose how a new chat runs; /repos registers a checkout; /quit leaves. "
+    "/mode, /engine and /connect choose how a new chat runs, /stages each stage's model; /repos registers a checkout; "
+    "/quit leaves. "
     "// sends a request that starts with /."
 )
 
@@ -1769,7 +1813,7 @@ def open_chat(
             say(FIRST_PROMPT_HELP)
             return None
         answer = slash(name, argument.strip())
-        say(answer if answer is not None else f"{name} needs an open chat. Type what you want done.")
+        say(str(answer) if answer is not None else f"{name} needs an open chat. Type what you want done.")
         return None
 
     try:
