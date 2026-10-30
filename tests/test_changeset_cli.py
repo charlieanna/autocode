@@ -311,6 +311,18 @@ class SetTokenTests(unittest.TestCase):
         task_run.assert_called_once()
         run.approve_plan.assert_called_once_with("new-plan", changeset_token="new-set")
 
+    def test_a_set_whose_every_plan_is_already_approved_offers_no_set_approval(self):
+        runs = [
+            {"target": name, "run_dir": f"/{name}/run", "plan_token": f"{name}-plan", "already_approved": True}
+            for name in ("api", "history")
+        ]
+        approval = changeset._approval({"runs": runs})
+        self.assertIsNone(approval["next_command"])
+        self.assertEqual([], approval["waiting_on"])
+        runs[1]["already_approved"] = False
+        approval = changeset._approval({"runs": runs})
+        self.assertEqual(approval["set_token"], approval["next_command"][-1])
+
 
 if __name__ == "__main__":
     unittest.main()

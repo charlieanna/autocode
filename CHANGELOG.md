@@ -26,6 +26,12 @@ PR template asks for an entry here; a change without one is incomplete.
   stale source check) stays a `resume` for a person instead of the core's own `continue`. TaskRun
   and the clients therefore no longer archive that attempt automatically and discard the result
   the hold stands on; an attempt that did not finish cleanly is still set aside by the core.
+- Once every run of a change set has completed under its approved plan, `changeset status` no longer
+  offers the set approval again, so the terminal chat's `/changeset` offers the set's integration
+  check instead of asking to approve plans that already ran.
+- `autocode coordinate status` reports `phase: joint_regression` again while the joint regression
+  runs over the bound repository candidates. Since the joint plan is approved with the member plans
+  and started early, the phase had stayed at `fixing` through the joint run and its mismatch repair.
 
 ## [0.9.0] — 2026-10-30
 
