@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autocode-supervisor"
-version = "0.8.2"
+version = "0.9.0"
 description = "AutoCode runs your coding agent and won't say 'done' without evidence: independent checks, exact-version approval, and a record of what was verified."
 requires-python = ">=3.11"
 readme = "README.md"

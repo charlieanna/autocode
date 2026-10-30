@@ -9,6 +9,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-10-30
+
 ### Added
 
 - The VS Code extension's **AutoCode: Stage Models** panel (also under **Stage models…** in the chat's engine
@@ -3041,5 +3043,6 @@ completion without evidence.
 - A new task runs in its own Git worktree by default; `--in-place` opts out
   (#724). The person's checkout stays usable while the Builder works.
 
-[Unreleased]: https://github.com/charlieanna/autocode/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/charlieanna/autocode/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/charlieanna/autocode/compare/v0.8.2...v0.9.0
 [0.7.1]: https://github.com/charlieanna/autocode/releases/tag/v0.7.1
