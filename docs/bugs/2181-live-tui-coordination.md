@@ -362,4 +362,151 @@ only the joint idle watchdog from 180 to 600 seconds, verified in its public
 remains 600 seconds, active limit 3600 seconds, and the saved Claude/Codex routes,
 efforts and accounting caps remain unchanged. Reported spend is incomplete,
 including four unpriced Codex attempts; known subtotals are not total spend.
-Live implementation, joint proof and fixture publication are still unverified.
+At that checkpoint, live implementation, joint proof and fixture publication
+were still unverified. The completed qualification below supersedes that status,
+not the retained failures.
+
+## Completed Claude/Codex full-screen qualification (2026-10-30)
+
+The actual full-screen TUI completed after the three direct, test-first fixes
+above (`5f43a13ff`, `a365a7c83`, `ec24e4f5a`). Its final screen displayed
+`Joint regression passed. Linked pull requests are ready:` and all three real
+fixture PR URLs. A fresh public `coordinate status --run-dir "$ANCHOR" --json`
+independently returned `phase: complete`, `done: true`, `verification.verdict:
+PASS`; history, tax, checkout and joint-2 each returned `TASK_COMPLETE` through
+the public run status. The anchor and retired joint-1 remain preserved at their
+input boundaries. All six public usage views have `active_stage: null`; the
+viewer exited with code 0. No completed task was resumed for evidence collection.
+
+### Exact routes, limits and operator actions
+
+The user explicitly changed this qualification from the issue's historical
+MiMo/GLM pairing to Claude/Codex, authorized $100 aggregate spend, and authorized
+linked PRs **only** in the three named disposable repositories, never merging.
+GoCode 0.1.317 served the following unchanged routes throughout this attempt:
+
+| Stage | Model | Effort |
+| --- | --- | --- |
+| Requirements | `claude-sonnet-5-5` | medium |
+| Planner (`glm`) | `claude-sonnet-5-5` | high |
+| Builder (`terra`) | `claude-sonnet-5-5` | medium |
+| Plan Reviewer | `gpt-6.1-sol` | high |
+| Tester (`sol`) | `gpt-6.1-sol` | high |
+| Completion Reviewer | `gpt-6.1-sol` | medium |
+| Resolver (`astra`) and Investigator | `gpt-6.1-sol` | high |
+
+No MiMo/GLM traffic or complementary reverse-routing cohort is claimed. The
+inherited GLM checker setting was unreachable (`strong_model: null`). Provider
+model identifiers above are the actual configured GoCode options, not aliases
+invented for the qualification.
+
+The retained root is
+`.scenario-runs/issue-2208-claude-codex-20261030` (`R` below). The actual terminal
+launch was `.venv/bin/python tools/autocode.py chat --workspace
+"$R/sources/checkout" "$BRIEF" --` followed by:
+
+```text
+--provider gocode --no-auto-select --joint-planning --workflow bugfix
+--max-cost-usd 50 --max-seconds 3600 --max-stage-seconds 600
+--max-idle-seconds 180 --evidence-provenance live
+--requirements-model claude-sonnet-5-5 --requirements-reasoning-effort medium
+--glm-model claude-sonnet-5-5 --glm-reasoning-effort high
+--terra-model claude-sonnet-5-5 --terra-reasoning-effort medium
+--plan-reviewer-model gpt-6.1-sol --plan-reviewer-reasoning-effort high
+--sol-model gpt-6.1-sol --sol-reasoning-effort high
+--completion-model gpt-6.1-sol --completion-reasoning-effort medium
+--astra-model gpt-6.1-sol --astra-reasoning-effort high
+--investigator-model gpt-6.1-sol --investigator-reasoning-effort high
+```
+
+`AUTOCODE_HOME="$R/registry"` isolated the repository catalog. The original brief
+was: “Fix checkout showing the wrong final total for a subtotal of 100; it
+currently shows 100 USD instead of $110.00. Preserve zero as $0.00 and the
+missing-amount KeyError. Follow the existing documented service contracts. Do
+not merge any pull requests.” Resuming the viewer used the same `chat` command
+with `--run-dir "$ANCHOR"`, without reapplying setup flags. `ANCHOR` is
+`$R/sources/checkout/.autocode/runs/20261030-142631-chat-943b24`.
+
+The joint-2 run is
+`$R/registry/coordination/d1bcde307af63f05d20b285d/joint-2/.autocode/runs/joint-regression`.
+Its public completion report records 4279.355 seconds elapsed, from
+21:57:33.699666 to 23:08:53.054327 UTC, including planning, input boundaries,
+timeout recovery, implementation and independent verification. This is wall
+elapsed time, not the 3600-second active-time limit. Its first Builder started
+at 23:03:05.060657 UTC, after reviewed exact-set approval.
+
+The agent reviewed Requirements and exact plans under the repository's recorded
+delegation, including the displayed C1/C2/C5 clarifications and the final joint
+r6 plan. Approval bound to set token
+`f907871ee68be6a825aaf8ebdfec82894c45923f74a73e232ce52b74eaf4e27f`;
+it was agent review, not a claim that the owner personally reviewed that revision.
+All source, requirement, approval, changed-line and proof validators stayed
+intact. The incomplete two-member joint attempt and all failed reviews remain
+retained. Checkout's two later validator idle timeouts also remain in public
+events. A named boundary pause was accepted at 23:01:26.299313 UTC, but completion
+won the race: no checkout watchdog change or additional paid resume was made.
+Only the previously recorded joint-2 idle change from 180 to 600 seconds applied.
+The missing TUI watchdog-setting action remains an operator-interface limitation.
+
+### Joint proof and independently checked publication
+
+The authenticated joint report is current, binding
+`65abd832cdcab7cefbdf40412ef1e313ff4e70cf01886e76d2b3f437c02c15d2`.
+Its regression proof is `PASS`, records 16 fail-to-pass tests, no proof failures
+and no unverified proof cases. Changed-code evidence is also `PASS`, with
+independently checked per-line reasons where needed. The proof ran:
+
+```sh
+.venv/bin/python3 tools/autocode_component_tests.py -v --root . \
+  --repos checkout-c7761e58 history-259aa8ef tax-1ffc0406
+```
+
+The absolute interpreter/tool paths in the actual command refer to this source
+checkout; its working directory was the composed joint workspace. Its preserved
+member suites and real cross-repository regression passed on the candidate,
+with recorded failure on the original baseline. The public joint report records
+both model-report repairs and the final accepted proof rather than discarding
+the unsuccessful attempts. A public redacted `autocode bundle` export has
+manifest SHA-256
+`390febfab7c2f251e7849f5e5320ad8dbd9d3c65c468432b90530b5dc4825854`.
+Raw logs, run output and bundles are not committed.
+
+Authenticated GitHub reads confirmed three open, non-draft, unmerged,
+cross-linked PRs, all confined to the user-authorized fixture repositories:
+
+| Fixture PR | Exact independently cloned head |
+| --- | --- |
+| [charlieanna/autocode-e2e-glm2347-checkout#2](https://github.com/charlieanna/autocode-e2e-glm2347-checkout/pull/2) | `7af854eef40af9ed9ee11809d9c0c6559f8a33d6` |
+| [charlieanna/autocode-e2e-glm2347-history#2](https://github.com/charlieanna/autocode-e2e-glm2347-history/pull/2) | `f94caae968506e7aa2cf5d8503e300075f44baf7` |
+| [charlieanna/autocode-e2e-glm2347-tax#2](https://github.com/charlieanna/autocode-e2e-glm2347-tax/pull/2) | `7f97679e0cb17c9f84c79347db1b39df58c6fbf7` |
+
+Fresh independent clones fetched `refs/pull/2/head`, matched each GitHub head
+SHA and checked it out detached. Running the venv interpreter's
+`-m unittest discover -s tests -v` in each clone passed **7 checkout, 5 history
+and 4 tax tests**, including every original boundary test. A separate composed
+oracle loaded only these fresh production modules, with no mocked service
+boundary. `.venv/bin/python "$R/fresh_head_oracle.py"` passed its harness:
+four expected assertion failures on the original base modules, no baseline
+errors, and all five assertions passing on the published heads. It checks the
+real `$110.00` path, exact `$0.00`, numeric USD history receipts, ten-percent tax
+and `KeyError.args == ('amount',)` for both missing-amount inputs. This supplies
+the fresh-PR-head check missing from every earlier live cohort.
+
+### Accounting and scope limitations
+
+The whole-set configured cap remained $50 within the user's $100 authorization;
+member allocations are not independent spending grants. Final public cost views
+report a **known subtotal of $5.119917 across all six retained runs**, with
+**33 unpriced stages**. GoCode's Codex transport did not provide complete
+request/token accounting. The joint report likewise explicitly says reported
+usage is incomplete. The subtotal is **not total spend**; neither a final bill
+nor compliance of actual charges with the cap can be certified from these
+records. No estimated total or missing usage was fabricated.
+
+This is actual live TUI/provider/GitHub publication evidence on macOS portable
+supervision, not Linux containment qualification. The earlier broader fake
+delivery attempt stopped at `PAUSED_BUILDER_CLASSIFICATION` in 323.022 seconds
+and is still a retained failed check, not relabeled green or established as a
+baseline failure. The focused final regressions above are green. No AutoCode
+source push or PR was authorized or performed, and none of the fixture PRs was
+merged.
