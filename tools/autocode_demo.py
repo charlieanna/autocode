@@ -109,6 +109,8 @@ def _prepare(root: Path, name: str, *, failed_check=False) -> TaskRun:
         "GIT_CONFIG_GLOBAL": os.devnull,
         "AUTOCODE_FIXTURE_MODE": "standard",
     }
+    if os.environ.get("AUTOCODE_NO_CAPABILITY_DROP") == "1":
+        environment["AUTOCODE_NO_CAPABILITY_DROP"] = "1"
     if failed_check:
         environment.update(AUTOCODE_FIXTURE_MODE="no-human", AUTOCODE_FIXTURE_UNREPRODUCIBLE_CHECK="1")
     for args in (

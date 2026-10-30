@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 import sys
 
 try:
+    from . import autocode_capability_startup as capability_startup
     from . import autocode_connected_engine as connected_engine
     from . import autocode_controller_owner as controller_owner
     from . import autocode_native_calls as native_calls
@@ -23,6 +24,7 @@ try:
     from . import autocode_visual_profile as native_profile
     from . import autocode_worker_binding as worker_binding
 except ImportError:
+    import autocode_capability_startup as capability_startup
     import autocode_connected_engine as connected_engine
     import autocode_controller_owner as controller_owner
     import autocode_native_calls as native_calls
@@ -37,6 +39,7 @@ except ImportError:
 
 def main(base, unit=None):
     """Restore the invocation's provider and output streams before returning to the caller."""
+    capability_startup.prepare()
     launched_at = base.now()
     source_host.install()  # opt-in warm snapshots (#1707)
     saved_opencode = base.opencode

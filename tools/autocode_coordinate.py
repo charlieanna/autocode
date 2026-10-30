@@ -210,7 +210,10 @@ def request_evidence(document, views, target):
             (row for row in document.get("members", []) if row.get("target") in source_targets),
             next(iter(document.get("members", [])), None),
         )
-        if source_member:
+        if "Joint regression" in source_targets and (active := document.get("joint")):
+            result["evidence_repository"] = active["workspace"]
+            result["evidence_revision"] = active["base"]
+        elif source_member:
             result["evidence_repository"] = source_member["origin"]
             result["evidence_revision"] = source_member["base"]
     return result
@@ -421,7 +424,13 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
         return {"kind": "complete"}
     if document.get("phase") == "publishing":
         return {"kind": "publish"}
-    discovery = resolve_request(document, views)
+    discovery_views = views
+    if active := document.get("joint"):
+        joint_view = handle(active, command=command).status()
+        if actions.working(joint_view):
+            return {"kind": "watch", "target": "Joint regression"}
+        discovery_views = {**views, "Joint regression": joint_view}
+    discovery = resolve_request(document, discovery_views)
     if discovery:
         return discovery
     for member in document["members"]:
@@ -430,7 +439,7 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
     by_target = {row["target"]: row for row in document["members"]}
     aliases = repos.member_aliases(document["members"], document["choices"])
     by_target.update({alias: by_target[canonical] for alias, canonical in aliases.items()})
-    for target, view in views.items():
+    for target, view in discovery_views.items():
         scope = view.get("scope") or {}
         if scope.get("external_parts") and not scope.get("decision"):
             required = {part["target"] for part in scope["external_parts"]}
@@ -446,7 +455,7 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
                         else {}
                     ),
                 }
-        if (view.get("needs") or {}).get("kind") == "continue":
+        if target in views and (view.get("needs") or {}).get("kind") == "continue":
             if actions.working(view):
                 return {"kind": "watch", "target": target}
             return {"kind": "advance", "target": target}
@@ -778,7 +787,10 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
         observe_dependencies(document, views)
         document["active"] = step.get("target") or kind.replace("_", " ")
         store.save(document)
-        member = next((row for row in document["members"] if row["target"] == step.get("target")), None)
+        member = next(
+            (row for row in document["members"] if row["target"] == step.get("target")),
+            document.get("joint") if step.get("target") == "Joint regression" else None,
+        )
         if kind == "resolve":
             add_member(
                 document,
@@ -788,6 +800,10 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
                 reported_work=step["work"],
                 supporting_evidence=step.get("supporting_evidence"),
             )
+            if active := document.get("joint"):
+                if document.get("changeset"):
+                    sets.remove_joint(document["members"][0]["run_dir"], active["run_dir"])
+                document["joint_attempts"][-1] = document.pop("joint")
             sync_set(document)
         elif kind == "alias":
             document["choices"][step["target"]] = step["origin"]

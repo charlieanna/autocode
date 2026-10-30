@@ -157,6 +157,11 @@ jobs:
           python3 -m venv .venv
           .venv/bin/python -m pip install -e '.[visual,test]'
 
+      - name: Verify privileged Linux CLI startup
+        if: runner.os == 'Linux' && needs.scope.outputs.suite == 'true'
+        run: |
+          sudo env AUTOCODE_TEST_PRIVILEGED_STARTUP=1 .venv/bin/python -m unittest tests.test_capability_startup.LinuxCapabilityStartupTests tests.test_demo
+
       - name: Prepare pinned Java scenario dependencies
         if: needs.scope.outputs.scenarios == 'true'
         run: |
