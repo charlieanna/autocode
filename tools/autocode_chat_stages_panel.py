@@ -5,6 +5,7 @@ It covers the conversation area and leaves the composer's draft as it was, as th
 
 import contextlib
 import curses
+import textwrap
 
 
 def show(ui, menu):
@@ -41,8 +42,9 @@ def draw(ui, layout, truncate):
     for row in range(first, bottom):
         ui._put(row, 0, " " * width)
     ui._put(first, 0, truncate(menu.title(), width), ui._style("brand"))
-    detail = menu.detail()
-    room = max(0, bottom - first - 3 - len(detail))
+    # What the stage does, the advice and the note are wrapped, not cut: a refusal's reason names the stage to change.
+    below = [line for text in [*menu.detail(), menu.note] for line in textwrap.wrap(text, max(1, width)) or [""]]
+    room = max(0, bottom - first - 2 - len(below))
     rows = menu.rows()
     ui._stage_top = min(ui._stage_top, menu.selected)
     if room and menu.selected >= ui._stage_top + room:
@@ -52,6 +54,5 @@ def draw(ui, layout, truncate):
         prefix = "> " if number == menu.selected else "  "
         style = "brand" if number == menu.selected else ("plain" if available else "dim")
         ui._put(first + 1 + offset, 0, truncate(prefix + label, width), ui._style(style))
-    for offset, line in enumerate(detail):
-        ui._put(bottom - 1 - len(detail) + offset, 0, truncate(line, width), ui._style("dim"))
-    ui._put(bottom - 1, 0, truncate(menu.note, width), ui._style("dim"))
+    for offset, line in enumerate(below[-max(0, bottom - first - 1) :]):
+        ui._put(max(first + 1, bottom - len(below)) + offset, 0, truncate(line, width), ui._style("dim"))

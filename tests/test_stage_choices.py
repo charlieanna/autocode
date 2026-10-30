@@ -116,6 +116,19 @@ class StageChoiceTests(unittest.TestCase):
         self.assertIsNone(claude[OPUS])
         self.assertIn("runs " + HAIKU, claude[HAIKU])
 
+    def test_a_builder_both_checkers_share_names_both_so_changing_one_is_not_a_dead_end(self):
+        both = {"sol": OPUS, "completion": OPUS}
+        self.assertEqual(
+            f"the Tester and the Completion Reviewer check this stage's work and run {OPUS}; change both too",
+            choices.unavailable("terra", OPUS, both, backend="claude"),
+        )
+        family = {"sol": "zai-coding-plan/glm-5.1", "completion": "zai/glm-5.3"}
+        self.assertEqual(
+            "the Tester (runs zai-coding-plan/glm-5.1) and the Completion Reviewer (runs zai/glm-5.3) check this "
+            "stage's work; change both too",
+            choices.unavailable("terra", "zai-coding-plan/glm-5.3", family, backend="opencode"),
+        )
+
     def test_a_choice_is_saved_per_backend_and_offered_back_with_its_reset(self):
         # Claude Code's Tester runs Sonnet by default, so a Sonnet Builder moves the Tester in the same change.
         current = choices.choose("claude", {"terra": (SONNET, "high"), "sol": (OPUS, "high")}, **self.kw)
@@ -126,7 +139,9 @@ class StageChoiceTests(unittest.TestCase):
         )
         unavailable = {row["model"]: row["unavailable"] for row in builder["options"]}
         self.assertEqual({HAIKU: None, SONNET: None}, {model: why for model, why in unavailable.items() if not why})
-        self.assertIn("the Tester checks this stage's work and runs " + OPUS, unavailable[OPUS])
+        self.assertIn(
+            "the Tester and the Completion Reviewer check this stage's work and run " + OPUS, unavailable[OPUS]
+        )
         saved = {"terra": {"model": SONNET, "effort": "high"}, "sol": {"model": OPUS, "effort": "high"}}
         self.assertEqual({"claude": saved}, choices.load(self.file))
         choices.choose("opencode", {"astra": ("opencode/plain", choices.OWN_DEFAULT)}, **self.kw)

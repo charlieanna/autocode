@@ -94,7 +94,7 @@ class MenuTests(unittest.TestCase):
         )
         menu.move(1)
         menu.enter()
-        self.assertIn("not available", menu.note)
+        self.assertEqual("Not available: the Tester runs b.", menu.note, "the reason names the stage to change")
         self.assertEqual("models", menu.level)
         menu.move(-1)
         menu.enter()
@@ -108,6 +108,9 @@ class MenuTests(unittest.TestCase):
         self.assertEqual(["--model", "a", "--effort", "low"], sent[-1][-4:])
         self.assertEqual(("stages", "Saved: the Builder runs a at low in new chats."), (menu.level, menu.note))
         self.assertEqual("Builder: a at low (your choice)", menu.rows()[0][0])
+        menu.enter()
+        self.assertEqual(("models", stages.HINT), (menu.level, menu.note), "the last save's note does not follow")
+        menu.back()
         self.assertFalse(menu.back(), "Esc on the stages list closes the drawer")
 
     def test_a_refusal_or_an_unlisted_backend_is_said_in_the_drawer(self):
@@ -169,7 +172,14 @@ class RealCoreTests(unittest.TestCase):
             self.assertEqual([HAIKU, OPUS, SONNET], [row["model"] for row in menu.current()["options"]])
             ui._handle(DOWN, asking=True)
             ui._handle(ENTER, asking=True)
-            self.assertIn("not available", menu.note, "the Tester and Completion Reviewer run Opus")
+            reason = "the Tester and the Completion Reviewer check this stage's work and run claude-opus-5-5; change both too"
+            self.assertEqual(f"Not available: {reason}.", menu.note)
+            drawn = {}
+            ui._put = lambda row, col, text, attr=0: drawn.__setitem__(row, text)
+            stages_panel.draw(ui, ui._layout(30, 60), tui.truncate)
+            shown = " ".join(text.strip() for _, text in sorted(drawn.items()) if text.strip())
+            self.assertIn(f"Not available: {reason}.", shown, "a narrow drawer wraps the reason instead of cutting it")
+            self.assertIn("Advice: A fast, cheaper model at medium. It makes the most calls", shown)
             for key in (DOWN, ENTER, DOWN, ENTER):  # Sonnet, then one level up from its default medium
                 ui._handle(key, asking=True)
             self.assertEqual(f"Saved: the Builder runs {SONNET} at high in new chats.", menu.note)
