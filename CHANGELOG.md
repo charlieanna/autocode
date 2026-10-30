@@ -18,6 +18,11 @@ PR template asks for an entry here; a change without one is incomplete.
   unchanged, and approval still binds to the token of the plan shown.
 ### Fixed
 
+- Completing a task worktree whose `.gitignore` ignores `.autocode` now commits the delivered
+  source to its branch again. `git add` refuses a pathspec that names an ignored path on
+  git 2.56 and newer, so the delivery commit failed and the completed run's source stayed
+  uncommitted; the exclusions are now applied to the staging index instead of the pathspec.
+
 - A run-wide `--provider gocode` (rather than a per-role provider) now sends the plain full-report
   schema when a Requirements report is repaired, instead of the generic JSON-edit schema that the
   gocode structured-output transport rejects before any model response. The repair therefore
@@ -26,6 +31,9 @@ PR template asks for an entry here; a change without one is incomplete.
   stale source check) stays a `resume` for a person instead of the core's own `continue`. TaskRun
   and the clients therefore no longer archive that attempt automatically and discard the result
   the hold stands on; an attempt that did not finish cleanly is still set aside by the core.
+- `autocode coordinate status` no longer fails with a `KeyError` for a change set whose members
+  were linked from existing runs rather than discovered as local repositories; such a member's
+  `location` is `null`. A shared budget pause on those sets therefore offers its budget choice again.
 - Once every run of a change set has completed under its approved plan, `changeset status` no longer
   offers the set approval again, so the terminal chat's `/changeset` offers the set's integration
   check instead of asking to approve plans that already ran.
