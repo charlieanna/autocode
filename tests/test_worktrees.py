@@ -74,6 +74,17 @@ class DeliverTests(Fixture):
         worktrees.deliver(state, tree)
         self.assertEqual(tip, git(self.project, "rev-parse", f"{data['branch']}^"), "later work stacks on top")
 
+    def test_completion_commits_when_autocode_state_is_gitignored(self):
+        (self.project / ".gitignore").write_text(".autocode/\n.autocode-ui/\n__pycache__/\n*.pyc\n")
+        git(self.project, "add", ".gitignore")
+        git(self.project, "-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "ignore state")
+        data, tree, state = self.task()
+        note = worktrees.deliver(state, tree)
+        self.assertIn("Delivered on branch", note)
+        listed = git(self.project, "ls-tree", "-r", "--name-only", data["branch"])
+        self.assertIn("greet.py", listed)
+        self.assertNotIn(".autocode", listed)
+
     def test_only_completed_task_worktrees_deliver(self):
         data, tree, state = self.task(status="PAUSED_NO_PROGRESS")
         self.assertEqual("", worktrees.deliver(state, tree))

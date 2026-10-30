@@ -18,6 +18,11 @@ PR template asks for an entry here; a change without one is incomplete.
   unchanged, and approval still binds to the token of the plan shown.
 ### Fixed
 
+- Completing a task worktree whose `.gitignore` ignores `.autocode` now commits the delivered
+  source to its branch again. `git add` refuses a pathspec that names an ignored path on
+  git 2.56 and newer, so the delivery commit failed and the completed run's source stayed
+  uncommitted; the exclusions are now applied to the staging index instead of the pathspec.
+
 - A run-wide `--provider gocode` (rather than a per-role provider) now sends the plain full-report
   schema when a Requirements report is repaired, instead of the generic JSON-edit schema that the
   gocode structured-output transport rejects before any model response. The repair therefore
