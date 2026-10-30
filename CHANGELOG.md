@@ -468,6 +468,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Requirements, Discovery or Planner report repair on Claude Code no longer stops the run before any
+  request. The bounded report-edit offer carries AutoCode's own `x-autocode-report-edits` note in its
+  schema file, and Claude Code 2.1.314 refuses a keyword it does not know ("--json-schema is not a valid
+  JSON Schema: strict mode: unknown keyword"), so the repair ended without a result and the run paused for
+  the person. The Claude provider now leaves AutoCode's top-level `x-` annotations out of the schema it
+  passes; the runner still reads them from the file.
 - A new `--engine codex --joint-planning` run that names no Plan Reviewer model no longer stops before the plan to
   ask the person which model the Plan Reviewer should use (#2049). Codex joint planning copied the Resolver's
   model into both the Planner and the Plan Reviewer, so the Plan Reviewer would have graded its own work; a new
