@@ -45,6 +45,15 @@ class PriceTableTests(unittest.TestCase):
                 self.assertGreater(row["output"], 0)
                 self.assertLessEqual(row.get("cached_input", 0), row["input"])
 
+    def test_selected_gocode_sol_route_has_a_sourced_conservative_budget_rate(self):
+        row = prices.rate("gpt-6.1-sol")
+        self.assertIsNotNone(row, "The selected GoCode route must not start with unknown spend")
+        self.assertEqual((2.0, 10.0), (row["input"], row["output"]))
+        self.assertIn("caas-gocode-prod", row["source"])
+        self.assertEqual(3.0, prices.estimate("gpt-6.1-sol", {
+            "input_tokens": 1000000, "output_tokens": 100000, "cached_input_tokens": 900000,
+        }))
+
     def test_every_default_profile_model_has_a_row(self):
         unpriced = sorted(model for model in default_profile_models() if prices.key(model) is None)
         self.assertEqual([], unpriced, "add a dated row to tools/autocode_prices.json for these")
