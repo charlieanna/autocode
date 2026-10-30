@@ -124,10 +124,12 @@ class CrashScenarios(CrashCase):
             out = self.run / f"{stage}.json"
             ev = self.run / f"{stage}.jsonl"
             if stage == "terra":
-                (self.root / "source.rb").write_text("fixed")
+                # A documentation deliverable: this synthetic project has no base commit or tests, so a
+                # product change could not be proved (#2474) and the run would turn to the Investigator.
+                (self.root / "notes.md").write_text("fixed")
                 value = {
                     "summary": "done",
-                    "changed_files": ["source.rb"],
+                    "changed_files": ["notes.md"],
                     "commands_run": [],
                     "results": [],
                     "remaining_risks": [],
@@ -157,7 +159,7 @@ class CrashScenarios(CrashCase):
                             "item": {
                                 "id": "check",
                                 "type": "command_execution",
-                                "command": "grep -q fixed source.rb",
+                                "command": "grep -q fixed notes.md",
                                 "exit_code": 0,
                                 "aggregated_output": "",
                             },
@@ -167,11 +169,11 @@ class CrashScenarios(CrashCase):
                 )
                 value = {
                     "verdict": "PASS",
-                    "checks_run": ["grep -q fixed source.rb"],
+                    "checks_run": ["grep -q fixed notes.md"],
                     "findings": [],
                     "unverified_criteria": [],
                     "end_to_end_result": {"status": "PASS", "summary": "flow", "evidence_refs": ["event:check"]},
-                    "checks": [{"command": "grep -q fixed source.rb", "exit_code": 0, "evidence_ref": "event:check"}],
+                    "checks": [{"command": "grep -q fixed notes.md", "exit_code": 0, "evidence_ref": "event:check"}],
                     "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}],
                 }
             else:
@@ -186,7 +188,7 @@ class CrashScenarios(CrashCase):
                 "iteration": 5,
                 "output": str(out),
                 "events": str(ev),
-                "changed_files": ["source.rb"] if stage == "terra" else [],
+                "changed_files": ["notes.md"] if stage == "terra" else [],
                 "after_ref": str(self.run / "check.log"),
                 "source_revision": support.snapshot(self.root)["revision"],
                 "duration_seconds": 0.01,
