@@ -274,6 +274,11 @@ class Transcript:
     live: str = ""  # an assistant reply still being written (the view's streaming message), shown last
     asked: int = 0  # how many blocks there were when the last question was put to the person
     block_starts: list[int] = field(default_factory=list)  # set by lines(): where each spoken block begins
+    _revision: int = field(default=0, init=False, repr=False)
+    _lines_width: int | None = field(default=None, init=False, repr=False)
+    _lines_revision: int = field(default=-1, init=False, repr=False)
+    _lines_live: str | None = field(default=None, init=False, repr=False)
+    _lines_cache: list[tuple[str, str]] = field(default_factory=list, init=False, repr=False)
 
     @property
     def last_block_start(self) -> int | None:
@@ -294,11 +299,13 @@ class Transcript:
         if role == "user" and self.blocks and _same(self.blocks[-1], (role, text)):
             return False  # the client repeating what the person just typed
         self.blocks.append((role, text))
+        self._revision += 1
         return True
 
     def info(self, title: str, body: str) -> None:
         """What a ``/`` command shows: the chat's own words, not the run's conversation."""
         self.blocks.append(("info", f"{title}\n{safe_text(body)}"))
+        self._revision += 1
 
     def closing(self) -> list[str]:
         """What to leave on the terminal after the screen closes: the client's last words, whole.
@@ -319,6 +326,8 @@ class Transcript:
     def lines(self, width: int) -> list[tuple[str, str]]:
         """The transcript as ``(style, text)`` rows, labels over indented bodies, remembering
         where the newest spoken block begins so a tall one can anchor to its top."""
+        if self._lines_width == width and self._lines_revision == self._revision and self._lines_live is self.live:
+            return self._lines_cache
         rendered: list[tuple[str, str]] = []
         starts: list[int] = []
         for role, text in self.blocks:
@@ -342,6 +351,10 @@ class Transcript:
             rendered.extend(("assistant-body", "  " + line) for line in wrap(text, max(1, width - 2)))
             rendered.append(("plain", ""))
         self.block_starts = starts
+        self._lines_width = width
+        self._lines_revision = self._revision
+        self._lines_live = self.live
+        self._lines_cache = rendered
         return rendered
 
 

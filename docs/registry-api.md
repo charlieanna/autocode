@@ -1,4 +1,4 @@
-# Browser registry API
+# Registry APIs
 
 [← Back to README](../README.md)
 
@@ -56,6 +56,45 @@ workspace writer lock, then obtains the registry lock only for the central
 read/update/write, releases it, and only then proceeds toward a provider stage.
 Registration failures pause the preserved run as `PAUSED_REGISTRY`; fix storage
 and explicitly resume the same `--run-dir` to retry its stable identity.
+
+## Shared source catalog
+
+Cross-repository bug discovery uses a source catalog shared across launch
+directories. Set `AUTOCODE_SOURCE_CATALOG_HOME` to select its AutoCode home; an
+explicit `AUTOCODE_HOME` selects the same home when the source-specific setting
+is absent. With neither set, the catalog lives in `~/.autocode/source-catalog.json`.
+Terminal chat keeps this user-level location even when its ordinary run registry
+defaults to the project. Existing run registries are unchanged.
+
+Authorize locations once:
+
+```text
+autocode registry roots add /work/services
+autocode registry roots add /mnt/fulfillment
+autocode registry repositories add /work/standalone/history-consumer
+autocode registry roots list
+```
+
+`roots add` authorizes bounded recursive discovery beneath one canonical local
+directory. `repositories add` authorizes one committed Git checkout outside the
+roots. Remove entries with `roots remove PATH` or `repositories remove PATH`.
+These commands change only the catalog; they do not start a task, clone a remote,
+or edit a source checkout. `roots discover --max-depth 8 --directory-budget
+20000 --json` performs read-only inventory and reports whether traversal was
+complete. Reaching a bound, an unavailable root, an unreadable repository, or a
+symlink escaping its configured root is explicit in diagnostics.
+
+Discovery validates Git roots and committed revisions, does not follow directory
+symlinks, and prunes common generated/dependency directories. Worktrees and clones
+with the same normalized remote and tree collapse to one baseline; distinct trees
+for one remote remain candidates marked as an ambiguous baseline. The response
+includes `catalog_identity` and `source_snapshot` hashes so a coordinated task can
+bind its scope to the exact catalog and discovered source revisions. A changed
+catalog or baseline must be rediscovered before approval or execution.
+
+The catalog is separate from the run registry. It contains local paths and Git
+identities only. It does not clone repositories or authorize a repository based on
+model output or ticket text.
 
 ## registry add
 

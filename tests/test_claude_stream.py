@@ -27,9 +27,11 @@ from pathlib import Path
 
 import autocode_output_cap as output_cap
 import autocode_provider_env as provider_env
+import autocode_report_edits as report_edits
 import autocode_support as support
 import autocode_usage
 from autocode_activity import ActivityMonitor
+from autocode_util import file_hash
 from providers import claude, claude_stream
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tools" / "fixtures"
@@ -729,6 +731,45 @@ class ProcessTests(TempMixin, unittest.TestCase):
         self.assertEqual(["system", "result", "stderr", "exit"], [row["type"] for row in raw])
         resumed = self.run_stream(fake, "--resumed", "s-ledger")
         self.assertNotIn("cost_usd", json.loads(resumed.stdout.splitlines()[-1]))  # same total: nothing new spent
+
+    def test_a_report_edit_offer_reaches_claude_code_without_autocodes_annotation(self):
+        # Live, Claude Code 2.1.314 refused the Requirements report repair before any request:
+        # "Error: --json-schema is not a valid JSON Schema: strict mode: unknown keyword:
+        # "x-autocode-report-edits"". This fake refuses an unknown top-level keyword the same way.
+        argv_log = self.root / "argv.json"
+        fake = self.fake(
+            f"""
+            schema = json.loads(sys.argv[sys.argv.index("--json-schema") + 1])
+            json.dump(schema, open({str(argv_log)!r}, "w"))
+            unknown = sorted(set(schema) - {{"type", "properties", "required", "additionalProperties"}})
+            if unknown:
+                sys.stderr.write(f'Error: --json-schema is not a valid JSON Schema: strict mode: unknown keyword: "{{unknown[0]}}"\\n')
+                sys.exit(1)
+            print(json.dumps({{"type": "system", "subtype": "init", "session_id": "s-edits"}}))
+            print(json.dumps({{"type": "result", "subtype": "success", "is_error": False, "session_id": "s-edits",
+                               "structured_output": {{"summary": "fixed"}}, "total_cost_usd": 0.01}}))
+            """
+        )
+        source = self.root / "requirements-gather-01.json"
+        source.write_text(json.dumps({"summary": "first"}))
+        original = self.root / "requirements.schema.json"
+        named = {"summary": {"type": "string"}, "x-note": {"type": "string"}}  # a field named x-…, kept
+        original.write_text(json.dumps({"type": "object", "properties": named, "required": ["summary"]}))
+        descriptor = {
+            "path": str(source),
+            "sha256": file_hash(source),
+            "format": "json",
+            "truncated": False,
+            "content": {"summary": "first"},
+        }
+        offered = json.loads(report_edits.prepare(original, descriptor, "requirements_gather").read_text())
+        self.assertIn(report_edits.META, offered)  # the runner reads it back from the file
+        done = self.run_stream(fake, schema=offered)
+        self.assertEqual((0, ""), (done.returncode, done.stderr), done.stdout)
+        sent = json.loads(argv_log.read_text())
+        self.assertEqual({key: value for key, value in offered.items() if key != report_edits.META}, sent)
+        self.assertEqual({"summary", "x-note", report_edits.KEY}, set(sent["properties"]))
+        self.assertEqual("turn.completed", json.loads(done.stdout.splitlines()[-1])["type"])
 
 
 if __name__ == "__main__":

@@ -101,7 +101,12 @@ def members(record: dict) -> list[dict]:
     """Canonical public membership, shared by status, admission and delivery."""
     source = record["source"]
     return [{"role": "source", "target": Path(source["workspace"]).name, **source}] + [
-        {"role": "member", "target": row["target"], "workspace": row["workspace"], "run_dir": row.get("run_dir")}
+        {
+            "role": row.get("role", "member"),
+            "target": row["target"],
+            "workspace": row["workspace"],
+            "run_dir": row.get("run_dir"),
+        }
         for row in record["members"]
     ]
 
@@ -119,8 +124,25 @@ def _touch(record: dict) -> None:
 
 
 def _membership_changed(record: dict) -> None:
+    _archive_released_approval(record)
     record["approval"] = None
     _touch(record)
+
+
+def _archive_released_approval(record: dict, observations=None) -> None:
+    approval = record.get("approval") or {}
+    if not approval.get("released"):
+        return
+    history = record.setdefault("approval_history", [])
+    history.append(
+        {
+            **approval,
+            "observations": json.loads(
+                json.dumps(record.get("approval_observations") or {} if observations is None else observations)
+            ),
+        }
+    )
+    del history[:-16]
 
 
 def find(run_dir) -> dict | None:
@@ -142,8 +164,10 @@ def memberships() -> dict[str, str]:
     }
 
 
-def reserve(*, source_workspace, source_run_dir, target: str, workspace, brief: str) -> dict:
+def reserve(*, source_workspace, source_run_dir, target: str, workspace, brief: str, role="member") -> dict:
     """Add an unstarted member for ``target``; refuse a target that already has one."""
+    if role not in ("member", "joint"):
+        raise ChangesetError("change-set participant role must be member or joint")
     source_run_dir, workspace = str(Path(source_run_dir).resolve()), str(Path(workspace).resolve())
     with _locked() as document:
         existing = _find(document, source_run_dir)
@@ -161,7 +185,14 @@ def reserve(*, source_workspace, source_run_dir, target: str, workspace, brief: 
             raise ChangesetError(f"{target} is already linked in {key}")
         if any(row["workspace"] == workspace for row in members(record)):
             raise ChangesetError(f"{workspace} already belongs to {key}; do not start another member there")
-        member = {"target": target, "workspace": workspace, "run_dir": None, "brief": brief, "linked_at": util.now()}
+        member = {
+            "target": target,
+            "workspace": workspace,
+            "run_dir": None,
+            "brief": brief,
+            "linked_at": util.now(),
+            **({"role": role} if role != "member" else {}),
+        }
         record["members"].append(member)
         _membership_changed(record)
         return {**record, "members": list(record["members"])}
@@ -196,6 +227,24 @@ def release(key: str, target: str) -> None:
             del document["changesets"][key]
 
 
+def remove_joint(source_run_dir, joint_run_dir) -> bool:
+    """Retire one completed internal joint participant and withdraw any old set approval."""
+    source_run_dir = str(Path(source_run_dir).resolve())
+    joint_run_dir = str(Path(joint_run_dir).resolve())
+    with _locked() as document:
+        record = _find(document, source_run_dir)
+        if record is None:
+            return False
+        kept = [
+            row for row in record["members"] if not (row.get("role") == "joint" and row.get("run_dir") == joint_run_dir)
+        ]
+        if len(kept) == len(record["members"]):
+            return False
+        record["members"] = kept
+        _membership_changed(record)
+        return True
+
+
 def linked_for(run_dir) -> list[dict]:
     """The other runs of ``run_dir``'s change set, for the status view's ``scope.linked``.
 
@@ -223,13 +272,13 @@ def linked_for(run_dir) -> list[dict]:
         {
             "changeset": record["id"],
             "target": row["target"],
-            "role": "member",
+            "role": row.get("role", "member"),
             "workspace": row["workspace"],
             "run_dir": row.get("run_dir"),
         }
         for row in record["members"]
     ]
-    return [row for row in rows if row["run_dir"] != wanted]
+    return [row for row in rows if row["run_dir"] != wanted and row["role"] in ("source", "member")]
 
 
 def set_fields(key: str, fields: dict, *, expected_revision: int | None = None) -> dict:
@@ -253,6 +302,9 @@ def begin_approval(run_dir, token: str, plans: dict[str, str], expected_members:
             raise ChangesetError("change-set membership changed; inspect every plan again")
         if set(plans) != {row["run_dir"] for row in members(record)} or not all(plans.values()):
             raise ChangesetError("every change-set member needs a current plan")
+        current = record.get("approval") or {}
+        if current.get("released") and current.get("token") != token:
+            _archive_released_approval(record)
         record["approval"] = {"token": token, "plans": dict(plans), "released": False}
         _touch(record)
 
@@ -272,13 +324,28 @@ def release_approval(run_dir, token: str) -> None:
         for member, plan in approval["plans"].items():
             observation = observations.get(member) or {}
             grant = observation.get("grant") or {}
-            if not (
+            current_receipt = (
                 observation.get("plan_token") == plan
                 and observation.get("approved")
                 and grant.get("set_token") == token
                 and grant.get("plan_token") == plan
                 and grant.get("task_digest") == observation.get("task_digest")
-            ):
+            )
+            historical_receipt = any(
+                prior.get("released")
+                and prior.get("plans", {}).get(member) == plan
+                and (prior.get("observations", {}).get(member) or {}).get("task_digest")
+                == observation.get("task_digest")
+                and (prior.get("observations", {}).get(member) or {}).get("plan_token") == plan
+                and (prior.get("observations", {}).get(member) or {}).get("approved")
+                and ((prior.get("observations", {}).get(member) or {}).get("grant") or {}).get("set_token")
+                == prior.get("token")
+                and ((prior.get("observations", {}).get(member) or {}).get("grant") or {}).get("plan_token") == plan
+                and ((prior.get("observations", {}).get(member) or {}).get("grant") or {}).get("task_digest")
+                == (prior.get("observations", {}).get(member) or {}).get("task_digest")
+                for prior in record.get("approval_history", [])
+            )
+            if not (current_receipt or historical_receipt):
                 raise ChangesetError("not every member durably accepted this set; approvals remain held")
         approval["released"] = True
         _touch(record)
@@ -305,8 +372,11 @@ def publishing_approval(run_dir, observation: dict) -> Iterator[None]:
         if observations.get(key) == observation:
             yield
             return
-        observations.pop(key, None)
+        prior_observations = json.loads(json.dumps(observations))
         approval = record.get("approval")
+        if approval and approval.get("released"):
+            _archive_released_approval(record, observations=prior_observations)
+        observations.pop(key, None)
         if approval:
             approval["released"] = False
         _touch(record)

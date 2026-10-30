@@ -28,16 +28,33 @@ For an unresolved bug with grounded external scope, `view.coordination` names
 `status_command`, `next_command` and `cancel_command`. The terminal client reads
 `autocode coordinate status --run-dir RUN --json` and executes only its named
 actions. It does not read child state, select repositories or compose tests.
-`/repos PATH` uses the public registry API for one-time local checkout access.
+`/repos` displays the shared local source catalog; configure its roots with
+`autocode registry roots add PATH` and standalone repositories with
+`autocode registry repositories add PATH`.
+
+Initial Requirements and Investigator requests receive a pinned, bounded inventory
+of all configured sources, including external roots. The launch directory is
+optional context. Catalog file citations use `catalog/ID/path:line` and are
+accepted only when the cited ordinary file matches the pinned Git blob. The task
+retains the inventory at `planning/source-catalog.json`; changed catalogs,
+revisions or altered receipts cannot silently replace its evidence. Built-in
+read-only intake shells receive only the validated catalog directories as extra
+read roots; this grants no Builder write authority. Clear source-grounded bug
+requirements flow into the complete plan without a separate Requirements
+confirmation. Genuine unresolved business questions still pause for an answer.
 
 The version-1 coordination view identifies the anchor, record revision, phase,
 member workspaces/runs/PRs, `done`, `needs`, and optional `next_command` and
-`approval`. An approval binds the exact currently displayed plans, membership,
-bases and publication branches. Clients reread before approving. Pass its token
-privately as `--token -` with `AUTOCODE_COORDINATION_TOKEN`; providers never receive
-that variable. A missing or changed token authorizes nothing. Repository-choice
-actions exist only for current catalog candidates. Cancellation prevents further
-dispatch and submits only current members' named boundary-pause actions.
+`approval`. The joint-test baseline and plan are prepared before any Builder.
+One approval binds the original request, source-catalog snapshot, repository
+membership and pinned baselines, plus every exact member and joint-plan token.
+Clients reread before approving. Pass its token privately as `--token -` with
+`AUTOCODE_COORDINATION_TOKEN`; providers never receive that variable. A missing
+or changed token authorizes nothing. Repository-choice actions exist only for
+current catalog candidates. After member runs complete, a named
+`coordinate bind` action snapshots exact candidate trees, including deletions,
+for the already-approved joint test. Cancellation prevents further dispatch and
+submits only current members' named boundary-pause actions.
 
 At a settled shared-cost stop, `needs.kind=budget` names the current finite cap,
 known accumulated spend, accounting completeness, `minimum_cap_usd`, and its own
@@ -62,8 +79,10 @@ to a saved run. `TaskRun.assign_linked_scope(identity)` consumes only a current
 core-owned changeset assignment. It retires the exact covered scope question;
 it neither invents a human answer nor approves a plan.
 
-An integration task works on original baselines and candidate copies, generates
-the joint test, and returns differences to members through follow-ups. Publication
+An integration task starts from original baselines, then receives the candidate
+copies only through the named binding action. It runs the approved joint test and
+returns differences to members through follow-ups. A revised plan renews the
+single coordinated approval. Publication
 requires every member's canonical completion evidence, exact matching integration
 copies, and the integration run's current authenticated completion report with
 independent criterion verdicts and runner fail-before/pass-after proof. Approved
@@ -1034,6 +1053,11 @@ is never mistaken for a pause.
 `TaskRun.respond_operational()` uses the separate Resolver response command;
 an operational request cannot be answered with `TaskRun.answer()`, except the
 model question of a quota stop or a content-filter refusal (`needs.route`, see [Models](models.md#when-a-roles-quota-runs-out)):
+At a cross-model independence stop, `TaskRun.answer()` and `assign_model()`
+use the current status view's route question without a resolver token: the core
+derives that decision from saved routes and checks the replacement again. Other
+resolver questions still require their current request token.
+
 `TaskRun.assign_model(role, model)` answers `route-ROLE` with a model a person
 named, updates every existing `--ROLE-model MODEL` or `--ROLE-model=MODEL`
 occurrence in the client's `options`, and leaves the run paused for

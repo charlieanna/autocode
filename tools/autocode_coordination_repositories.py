@@ -13,11 +13,13 @@ from urllib.parse import urlsplit
 try:
     from . import autocode_github as github
     from . import autocode_registry as registry
+    from . import autocode_repo_catalog as source_catalog
     from . import autocode_util as util
     from .autocode_coordination_store import CoordinationError
 except ImportError:
     import autocode_github as github
     import autocode_registry as registry
+    import autocode_repo_catalog as source_catalog
     import autocode_util as util
     from autocode_coordination_store import CoordinationError
 
@@ -107,7 +109,21 @@ def publication_repository(remote):
 
 
 def catalog():
+    """Inventory configured source roots plus legacy explicitly registered workspaces."""
+    discovery = source_catalog.discover()
+    if not discovery["complete"]:
+        codes = ", ".join(sorted({row["code"] for row in discovery["diagnostics"]}))
+        raise CoordinationError("Configured source discovery is incomplete" + (f" ({codes})" if codes else ""))
     entries = {}
+    for group in discovery["repositories"]:
+        for candidate in group["candidates"]:
+            entry = identity(candidate["path"])
+            tree = git(entry["origin"], "rev-parse", "HEAD^{tree}")
+            if entry["base"] != candidate["head"] or tree != candidate["tree"]:
+                raise CoordinationError("Repository changed during authorized source discovery; rediscover it")
+            # Keep the literal Git transport identity. Catalog normalization is
+            # for grouping clones, not a remote change in the selected checkout.
+            entries[entry["git_dir"]] = entry
     for row in registry.listing()["workspaces"]:
         if row.get("availability") != "available":
             continue
@@ -121,6 +137,19 @@ def catalog():
         if old is None or Path(entry["origin"]) / ".git" == Path(key):
             entries[key] = entry
     return list(entries.values())
+
+
+def source_snapshot():
+    """Return the exact shared catalog and source revision snapshot for coordination."""
+    discovery = source_catalog.discover()
+    if not discovery["complete"]:
+        codes = ", ".join(sorted({row["code"] for row in discovery["diagnostics"]}))
+        raise CoordinationError("Configured source discovery is incomplete" + (f" ({codes})" if codes else ""))
+    return {
+        "catalog_identity": discovery["catalog_identity"],
+        "source_snapshot": discovery["source_snapshot"],
+        "catalog": discovery["catalog"],
+    }
 
 
 def candidates(target, entries):

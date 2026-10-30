@@ -178,6 +178,27 @@ class RunViewTests(unittest.TestCase):
             },
             set(run_view.view({"status": "RUNNING"})),
         )
+        external_part = run_view.view(
+            {
+                "status": "RUNNING",
+                "requirements_handoff": {
+                    "report": {
+                        "workspace_scope": {
+                            "spans_repositories": True,
+                            "external_parts": [
+                                {
+                                    "target": "history",
+                                    "work": "Record the result",
+                                    "source_quote": "keep history",
+                                    "evidence": "client.py:8",
+                                }
+                            ],
+                        }
+                    }
+                },
+            }
+        )["scope"]["external_parts"][0]
+        self.assertEqual({"target", "work", "source_quote", "evidence"}, set(external_part))
 
     def test_accounting_attempt_inventory_names_execution_identity(self):
         shown = run_view.view(
@@ -1421,6 +1442,37 @@ class TaskRunTimeoutDetailTests(unittest.TestCase):
 
 
 class TaskRunClientTests(unittest.TestCase):
+    def test_cross_model_answer_uses_the_current_derived_route_without_a_resolver_token(self):
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        need = {
+            "kind": "answer",
+            "questions": [{"id": "route-sol"}],
+            "route": {"question_id": "route-sol", "role": "sol", "cause": "cross_model"},
+        }
+        with (
+            patch.object(run, "status", return_value={"needs": need}),
+            patch.object(run, "_act", return_value={}) as act,
+        ):
+            run.answer("route-sol", "claude-opus-5-5")
+        act.assert_called_once_with("answer", "--answer", "route-sol=claude-opus-5-5")
+
+    def test_only_the_current_cross_model_route_can_answer_without_a_resolver_token(self):
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        for route in (
+            {},
+            {"question_id": "route-sol", "cause": "quota"},
+            {"question_id": "route-completion", "cause": "cross_model"},
+        ):
+            need = {"kind": "answer", "questions": [{"id": "route-sol"}], "route": route}
+            with (
+                self.subTest(route=route),
+                patch.object(run, "status", return_value={"needs": need}),
+                patch.object(run, "_act") as act,
+            ):
+                with self.assertRaisesRegex(taskrun.TaskRunError, "no current AutoResolver request"):
+                    run.answer("route-sol", "claude-opus-5-5")
+                act.assert_not_called()
+
     def test_model_assignment_refreshes_every_saved_override_before_resume(self):
         cases = (
             (

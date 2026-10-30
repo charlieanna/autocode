@@ -81,6 +81,13 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
     coordinated = coordination_context.context(state)
     if coordinated:
         base["coordinated_member"] = coordinated
+    elif stage in ("requirements_gather", "requirements", "recognize_workflow"):
+        try:
+            from . import autocode_catalog_context as source_catalog
+        except ImportError:
+            import autocode_catalog_context as source_catalog
+        if catalog := source_catalog.context(state):
+            base["source_catalog"] = catalog
     if stage in ("requirements_gather", "requirements"):
         try:
             from . import autocode_project_memory_lifecycle as project_memory

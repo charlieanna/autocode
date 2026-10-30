@@ -113,6 +113,66 @@ def main():
     if joint:
         SUITE = "python3 -m pytest -q"
     name = "joint" if joint else json.loads((root / "repository.json").read_text())["name"]
+    if name == "intake":
+        inventory = data["source_catalog"]["repositories"]
+        selected = next(row for row in inventory if row["name"] == "checkout")
+        # This boundary reads the real pinned file, rather than inventing a citation.
+        assert "HISTORY_REPOSITORY" in (Path(selected["path"]) / "client.py").read_text()
+        citation = "catalog/" + selected["id"] + "/client.py:3"
+        scope = {
+            "spans_repositories": True,
+            "external_parts": [
+                {
+                    "target": "checkout",
+                    "work": "Fix checkout total formatting and follow its history dependency",
+                    "source_quote": "",
+                    "evidence": citation,
+                }
+            ],
+        }
+        report = default(schema)
+        if stage == "investigate_bug":
+            report.update(
+                outcome="not_reproduced",
+                note_path="docs/bugs/intake.json",
+                observed=data["task"],
+                reproduction="The launch checkout contains no checkout implementation",
+                root_cause="Inspect the catalog checkout implementation and its dependencies",
+                affected_paths=[],
+                test_paths=[],
+                invariant=data["task"],
+                test_cases=[],
+                conclusion="Catalog source identifies the checkout entry point",
+                fix_size="none",
+                fix_plan=[],
+                questions=[],
+                tests_run=[],
+                plan_approval_requested=False,
+                probe="",
+                untestable="",
+                workspace_scope=scope,
+            )
+        elif stage == "requirements_gather":
+            report.update(
+                job="bugfix",
+                clarity="clear",
+                summary=data["task"],
+                intended_outcome=data["task"],
+                required_behaviors=[data["task"]],
+                acceptance_tests=[SUITE],
+                constraints=["Preserve existing cases"],
+                source_refs=[citation],
+                requirements=[{"id": "R1", "text": data["task"], "source_quote": data["task"]}],
+                open_questions=[],
+                proposed_assumptions=[],
+                workspace_scope=scope,
+            )
+        else:
+            raise RuntimeError("Unrelated intake must never plan or build: " + stage)
+        output.write_text(json.dumps(shaped(report, schema)))
+        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}), flush=True)
+        print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)
+        return
     if (
         os.environ.get("COORDINATION_FIXTURE_MEMBER_CONTEXT")
         and root.parent.name == "worktrees"
@@ -161,7 +221,7 @@ def main():
         payloads[test_path] = JOINT_TEST
         payloads["conftest.py"] = JOINT_SETUP
         payloads["pytest.ini"] = "[pytest]\naddopts = --import-mode=importlib -p no:cacheprovider\n"
-        paths = [*payloads]
+        paths = [*payloads, *[row["path"] for row in json.loads((root / "repositories.json").read_text()).values()]]
     else:
         payloads[source] = PRODUCT[name][1]
         payloads[test_path] = TEST_PREAMBLE + ASSERTIONS[name] + "\n"

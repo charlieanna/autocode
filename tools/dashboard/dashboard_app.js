@@ -5,9 +5,9 @@ let currentView = 'tasks', currentTab = 'now', taskFilter = 'all', projectFilter
 let evidenceRequest = 0, evidenceRun = '', previewRun = '', scrollThreadToEnd = false, pendingThreadAnchorKey = '';
 let taskReturn = {view:'tasks',filter:'all',project:''};
 const evidenceCache = new Map(), criterionDiffReads = new Map();
-let latestData = null, latestRun = null, actionProblem = '', newTaskPending = null, pendingShortRun = '', pendingShortProject = null;
+let latestData = null, latestDataSignature = '', latestRun = null, actionProblem = '', newTaskPending = null, pendingShortRun = '', pendingShortProject = null;
 let taskReadError = '', taskReadAt = null;
-let activeConversation = null, latestConversation = null, refreshPromise = null, refreshAgain = false, refreshTimer = null;
+let activeConversation = null, latestConversation = null, refreshPromise = null, refreshAgain = false, refreshListAgain = false, refreshDetailAgain = false, refreshTimer = null, refreshListTimer = null;
 let creatingConversation = false, conversationRequest = null;
 const conversationPending = new Set(), conversationRetries = new Map(), taskChatPending = new Map(), taskChatErrors = new Map();
 const $ = selector => document.querySelector(selector);
@@ -3380,27 +3380,43 @@ function expireNotices(){
   if(expired(projectNoticeState,'#project-notice')){projectNoticeState=null;renderProjectNotice();}
   if(expired(conversationArchiveNotice,'#conversation-archive-notice')){conversationArchiveNotice=null;renderConversationArchiveNotice();}
 }
-async function refreshOnce(){
+async function refreshOnce(includeList=true,includeDetail=true){
   const mine=seq,selected=currentView==='task-detail'?chosen:null,conversationId=currentView==='draft-conversation'?activeConversation:null;
   // Discovery is independent of the selected read: its latency and failures
   // must never prevent a fresh task response or invalidate one already shown.
-  const listRead=(async()=>{
+  const listRead=includeList?(async()=>{
     try{
-      const data=await api('/api/runs');if(mine!==seq)return;latestData=data;setup(data);if(restorePendingShortRun(data)||restorePendingShortProject(data))return;const focus=captureControls();renderTasks(data);renderConversations(data);expireNotices();restoreFocus(focus);
+      const data=await api('/api/runs');if(mine!==seq)return;
+      if(restorePendingShortRun(data)||restorePendingShortProject(data))return;
+      const signature=JSON.stringify(data),unchanged=signature===latestDataSignature;latestData=data;
+      if(unchanged){expireNotices();if(!selected)$('#sync-state').replaceChildren(Object.assign(n('img'),{src:'/static/connected.svg',alt:'',width:6,height:6}),document.createTextNode('Task list checked just now'));return;}
+      setup(data);const focus=captureControls();renderTasks(data);renderConversations(data);expireNotices();restoreFocus(focus);latestDataSignature=signature;
       if(!selected)$('#sync-state').replaceChildren(Object.assign(n('img'),{src:'/static/connected.svg',alt:'',width:6,height:6}),document.createTextNode('Task list checked just now'));
     }catch(error){if(mine!==seq)return;if(!selected)$('#sync-state').textContent='Task list unavailable';dashboardNotice(actionProblem||error.message);}
-  })();
-  const detailRead=(async()=>{
+  })():Promise.resolve();
+  const detailRead=includeDetail?(async()=>{
     if(conversationId){try{const doc=await api('/api/conversation?id='+encodeURIComponent(conversationId));if(mine!==seq||activeConversation!==conversationId||currentView!=='draft-conversation')return;renderDraftConversation(doc);}catch(error){if(mine===seq&&activeConversation===conversationId&&currentView==='draft-conversation'){latestConversation=null;$('#attach-submit').disabled=true;$('#draft-problem').replaceChildren(Object.assign(n('p',error.message),{className:'error'}));$('#draft-problem').hidden=false;$('#draft-send').disabled=true;}}}
     if(selected){try{const run=await api('/api/run?workspace='+encodeURIComponent(selected.workspace)+'&run='+encodeURIComponent(selected.run));if(mine!==seq||chosen?.run!==selected.run||currentView!=='task-detail')return;if(run.state_error)unavailableRun('Selected run unavailable: '+run.state_error);else showRun(run,captureControls());}catch(error){if(mine===seq&&chosen?.run===selected.run&&currentView==='task-detail')unavailableRun('Selected run unavailable: '+error.message);}}
-  })();
+  })():Promise.resolve();
   await Promise.all([listRead,detailRead]);
 }
-async function refresh(){
-  if(refreshPromise){refreshAgain=true;return refreshPromise;}
-  clearTimeout(refreshTimer);
-  refreshPromise=(async()=>{do{refreshAgain=false;await refreshOnce();}while(refreshAgain);})();
-  try{await refreshPromise;}finally{refreshPromise=null;refreshTimer=setTimeout(refresh,2000);}
+async function refresh(includeList=true,includeDetail=true){
+  if(refreshPromise){refreshAgain=true;refreshListAgain ||= includeList;refreshDetailAgain ||= includeDetail;return refreshPromise;}
+  if(includeDetail)clearTimeout(refreshTimer);
+  if(includeList)clearTimeout(refreshListTimer);
+  let scheduleList=includeList,scheduleDetail=includeDetail,list=includeList,detail=includeDetail;
+  refreshPromise=(async()=>{
+    do{
+      refreshAgain=false;await refreshOnce(list,detail);
+      list=refreshListAgain;detail=refreshDetailAgain;scheduleList||=list;scheduleDetail||=detail;
+      refreshListAgain=false;refreshDetailAgain=false;
+    }while(refreshAgain);
+  })();
+  try{await refreshPromise;}finally{
+    refreshPromise=null;
+    if(scheduleDetail)refreshTimer=setTimeout(()=>refresh(false,true),2000);
+    if(scheduleList)refreshListTimer=setTimeout(()=>refresh(true,false),10000);
+  }
 }
 function restoreSelection() {
   const selection=location.hash.slice(1)||stored('selection','tasks'),params=new URLSearchParams(selection);

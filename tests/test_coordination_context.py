@@ -68,6 +68,37 @@ class CoordinationContextTests(unittest.TestCase):
     def automatic(self):
         store.set_fields(self.record["id"], {"automatic_anchor": str(self.root / "anchor")})
 
+    def test_first_reserved_member_has_context_before_a_second_repository_is_known(self):
+        anchor = str(self.root / "intake/.autocode/runs/fix")
+        workspace = coordination_store.root(anchor) / "worktrees/first"
+        run = workspace / ".autocode/runs/fix"
+        member = {
+            "target": "first",
+            "workspace": str(workspace),
+            "run_dir": str(run),
+            "started": False,
+            "reported_work": "Inspect the producer boundary",
+        }
+        document = {
+            "version": 1,
+            "anchor": anchor,
+            "members": [member],
+            "pending": {"operation": "start", "target": "first"},
+        }
+        coordination_store.save(document)
+        state = {**self.state, "workspace": str(workspace), "run_dir": str(run)}
+        found = coordination.context(state)
+        self.assertIsNotNone(found)
+        self.assertEqual(["first"], found["members"])
+        self.assertEqual("Inspect the producer boundary", found["reported_work"])
+        self.assertIsNone(coordination.context({**state, "run_dir": str(run) + "-other"}))
+        document["pending"] = None
+        coordination_store.save(document)
+        self.assertIsNone(coordination.context(state), "An unstarted reservation grants no context")
+        member["started"] = True
+        coordination_store.save(document)
+        self.assertIsNotNone(coordination.context(state))
+
     def test_manual_sets_and_unbound_or_wrong_workspace_runs_get_no_orchestration_claim(self):
         self.assertIsNone(coordination.context(self.state))
         self.automatic()

@@ -192,6 +192,16 @@ def prepare(
             developer_tools = Path("/Library/Developer/CommandLineTools")
             if developer_tools.is_dir():
                 roots.add(developer_tools.resolve())
+            if (
+                not allow_write
+                and not planning_report_recovery
+                and (Path(run_dir) / "planning/source-catalog.json").is_file()
+            ):
+                try:
+                    from . import autocode_catalog_context as source_catalog
+                except ImportError:
+                    import autocode_catalog_context as source_catalog
+                roots.update(Path(path) for path in source_catalog.read_roots({"run_dir": str(run_dir)}))
             containment = {
                 "source_paths": list(source_paths),
                 "tool_commands": list(tool_commands),

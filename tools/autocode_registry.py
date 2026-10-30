@@ -22,8 +22,10 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_repo_catalog as source_catalog
     from . import autocode_util as util
 except ImportError:
+    import autocode_repo_catalog as source_catalog
     import autocode_util as util
 
 
@@ -682,6 +684,11 @@ def forget_deleted(workspace: Path, run_dir: Path) -> dict[str, Any]:
 
 
 def cli(argv: list[str]) -> int:
+    if argv and argv[0] in ("roots", "repositories"):
+        family, *tail = argv
+        if family == "roots":
+            return source_catalog.cli(tail)
+        return source_catalog.cli(["repositories", *tail])
     parser = argparse.ArgumentParser(description="Read the per-user Autocode run registry")
     subcommands = parser.add_subparsers(dest="operation", required=True)
     for operation in ("location", "list"):

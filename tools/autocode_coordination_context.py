@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -72,6 +73,30 @@ def context(state: RunState):
         return None
     try:
         record = store.find(state["run_dir"])
+        if not record:
+            # Before a second owner is known there is no changeset yet. The
+            # coordinator's durable start intent authenticates its first member.
+            directory = Path(state["workspace"]).resolve().parent.parent
+            candidate = directory / "coordination.json"
+            if candidate.is_file() and not candidate.is_symlink():
+                initial = json.loads(candidate.read_text())
+                anchor = initial.get("anchor")
+                if isinstance(anchor, str) and coordination_store.root(anchor) == directory:
+                    document = coordination_store.read(anchor)
+                    rows = (document or {}).get("members", [])
+                    pending = (document or {}).get("pending") or {}
+                    eligible = [
+                        row
+                        for row in rows
+                        if row.get("started")
+                        or (pending.get("operation") == "start" and pending.get("target") == row.get("target"))
+                    ]
+                    if any(
+                        row.get("run_dir") == str(Path(state["run_dir"]).resolve())
+                        and row.get("workspace") == str(Path(state["workspace"]).resolve())
+                        for row in eligible
+                    ):
+                        record = {"automatic_anchor": anchor, "source": rows[0], "members": rows[1:]}
         if not record or not record.get("automatic_anchor"):
             return None
         member = next(

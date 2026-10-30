@@ -30,6 +30,10 @@ PR template asks for an entry here; a change without one is incomplete.
   (Up/Down, Enter, Esc), like a dropdown; in the line-by-line chat a numbered list and `/stages STAGE N LEVEL`.
   A model a stage cannot run is dimmed, and Enter on it shows the whole reason, naming every checker that runs
   that model (the Tester and the Completion Reviewer both, when both do) so changing one is not a dead end.
+- Each stage in `autocode stages`, `/stages` and the VS Code panel now names the jobs that run on its
+  choice: the Plan Reviewer's model also runs the Investigator that diagnoses a bug, the Analyst, the
+  Designer and the Design Reviewer, and the Tester's also writes the acceptance tests and runs the Code
+  Reviewer. A live bug fix ran its Investigator on the Plan Reviewer's model while no stage said so.
 - `autocode setup` connects the backends AutoCode runs on, once after installing it (#2049): it checks
   Claude Code, Codex, OpenCode and Kilo with each one's own login listing. In a terminal, when neither
   OpenCode nor Kilo is installed, it offers to install OpenCode 1.18.33 with npm (`--install
@@ -469,6 +473,18 @@ PR template asks for an entry here; a change without one is incomplete.
 ### Fixed
 
 - `autocode verify` now runs the review mutation check on the change it verifies (#2506), whether that change is the working tree, a `--branch` or a `--patch`. Before, every verification's `findings.json` said "No explicit patch was supplied; the review mutation check ran no test", because the check only ever read the patch the reviewer named and verification tells the reviewer to name none. The runner now assembles the whole change as one patch of `--base` (untracked files included, kept as `mutation-base/reviewed-change.patch`), applies it to a private copy of the base and runs the change's own test files against mutations of its changed Python product lines once the external-change proof has passed. Surviving mutants appear under `workflow_result.mutation_check` in `evidence.json` and in the "Review test mutation check" section of `evidence.md`, and the check's command captures are pinned with the other evidence. The result is report-only, as in a task run; it changes no verdict.
+- A Requirements, Discovery or Planner report repair on Claude Code no longer stops the run before any
+  request. The bounded report-edit offer carries AutoCode's own `x-autocode-report-edits` note in its
+  schema file, and Claude Code 2.1.314 refuses a keyword it does not know ("--json-schema is not a valid
+  JSON Schema: strict mode: unknown keyword"), so the repair ended without a result and the run paused for
+  the person. The Claude provider now leaves AutoCode's top-level `x-` annotations out of the schema it
+  passes; the runner still reads them from the file.
+- A new `--engine codex --joint-planning` run that names no Plan Reviewer model no longer stops before the plan to
+  ask the person which model the Plan Reviewer should use (#2049). Codex joint planning copied the Resolver's
+  model into both the Planner and the Plan Reviewer, so the Plan Reviewer would have graded its own work; a new
+  Plan Reviewer now takes `gpt-6-astra`, or `gpt-5.6-sol` when the Planner runs `gpt-6-astra`. A named model,
+  a saved stage choice and a saved run's route are kept. `autocode stages` shows the same default, and lists
+  a model's reasoning levels lowest first whatever order the tool's listing printed them in.
 - A repair whose regression test the project already had is proved by that test: when no test changed, the base suite's tests that fail there and pass with the change are the fail-to-pass proof, instead of a refusal for the missing changed test. The offline live-trial fixture reads its output contract from a report-file provider's prompt, so its Tester attaches its changed-line reasons on that transport too. The offline fixture delivers what the changed-line rule (#2474) asks of a Builder, so master's `test_subprocess`, recovery and crash-recovery tests pass again: its second milestone ships its own fail-to-pass test and the Tester's reasons for the lines the mutator cannot break, a stalled attempt cites only the file it wrote, and the runner's proof finding records the proof receipt that closed it.
 - A run no longer stalls at a changed line the mutation check could not reach (#2474). When a project's suite is its own gate script (`python project_gate.py`), which the runner cannot narrow to the proving tests, the check now runs the proof's regression command and the tests it passed on the candidate instead of running nothing. A bool, number or string literal assigned to a name (`TEXT = "hello"`) is now a mutation site, so a line whose whole behavior is the value it binds gets behavioral evidence from the test that reads it rather than being sent back to the Builder for a reason. The offline fixtures' Investigator cites the pinned Builder failure it classifies instead of an unusable report.
 - Replaying a saved run that completed under the changed-line rule works again (#2500): the recording keeps each Tester reason's exact file, bytes and line, and replay re-derives the proof's current gap id from them instead of refusing the recorded one as stale. Recorded-checks replay of such a run also accepts a proof without named cases, the Tester's review of the retained proof, and a suite command whose interpreter lives elsewhere on the replay host.

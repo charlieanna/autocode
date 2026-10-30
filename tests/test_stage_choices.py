@@ -12,6 +12,8 @@ from types import SimpleNamespace
 from unittest import mock
 
 import autocode_configure
+import autocode_role_transport as role_transport
+import autocode_roles as role_names
 import autocode_stage_choices as choices
 import autocode_stages_cli as stages_cli
 
@@ -89,6 +91,22 @@ class StageChoiceTests(unittest.TestCase):
         for stage in current["stages"]:
             self.assertTrue(stage["does"] and stage["advice"], stage["id"])
 
+    def test_each_stage_names_the_jobs_that_run_on_its_choice(self):
+        # A workflow job copies its route from a stage the person chooses (role_transport.DERIVED_ROLES; the Code
+        # Reviewer and Design Reviewer in units/autoreview), so that stage says so. A live bug fix ran its
+        # Investigator on the Plan Reviewer's model while no stage's text named the Investigator.
+        current = choices.view("claude", **self.kw)
+        text = {stage["id"]: f"{stage['label']}: {stage['does']}" for stage in current["stages"]}
+        named = {role: role_names.SCREEN[role_names.ROUTE_JOB[role]] for role in role_transport.DERIVED_ROLES}
+        named["acceptance_tester"] = "acceptance tests"
+        # The utility route is its own --utility-model, never a stage choice.
+        jobs = [
+            (sources[0], named[role]) for role, sources in role_transport.DERIVED_ROLES.items() if role != "utility"
+        ]
+        jobs += [("plan_reviewer", role_names.SCREEN["design_reviewer"]), ("sol", role_names.SCREEN["code_reviewer"])]
+        for stage, job in jobs:
+            self.assertIn(job, text[stage], stage)
+
     def test_a_listed_tool_offers_what_its_accounts_serve_with_each_models_own_levels(self):
         current = choices.view("opencode", **self.kw)
         options = {row["model"]: row for row in self.stage(current, "terra")["options"]}
@@ -115,6 +133,12 @@ class StageChoiceTests(unittest.TestCase):
         }
         self.assertIsNone(claude[OPUS])
         self.assertIn("runs " + HAIKU, claude[HAIKU])
+
+    def test_levels_are_offered_lowest_first_whatever_order_the_listing_prints(self):
+        self.assertEqual(
+            ["low", "high", "max", "turbo"], choices.effort_choices({"levels": ["high", "turbo", "max", "low"]})
+        )
+        self.assertEqual([choices.OWN_DEFAULT], choices.effort_choices({"levels": []}))
 
     def test_a_builder_both_checkers_share_names_both_so_changing_one_is_not_a_dead_end(self):
         both = {"sol": OPUS, "completion": OPUS}
@@ -225,11 +249,15 @@ class StageChoiceTests(unittest.TestCase):
         self.assertEqual(list(choices.CODEX_MODELS), [row["model"] for row in self.stage(current, "terra")["options"]])
         for role, model in autocode_configure.DEFAULT_ROLE_MODELS.items():
             self.assertEqual(model, self.stage(current, role)["default"]["model"], role)
-        # Codex joint planning copies the astra route into the planning roles.
-        for role in ("requirements", "glm", "plan_reviewer"):
+        # Codex joint planning copies the astra route into the Requirements and Planner stages, and gives a
+        # new Plan Reviewer the first model the Planner does not run.
+        for role in ("requirements", "glm"):
             self.assertEqual(
                 autocode_configure.DEFAULT_ROLE_MODELS["astra"], self.stage(current, role)["default"]["model"]
             )
+        self.assertEqual(
+            autocode_configure.CODEX_PLAN_REVIEWER_MODELS[0], self.stage(current, "plan_reviewer")["default"]["model"]
+        )
 
 
 class ApplyTests(unittest.TestCase):

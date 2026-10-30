@@ -33,6 +33,11 @@ def route(stage: dict) -> str:
     return f"{default.get('model')} at {default.get('effort') or 'its own default level'} (default)"
 
 
+def level(effort: str) -> str:
+    """A level as the person reads it: ``default`` is the model's own default level."""
+    return "its own default level" if effort == "default" else effort
+
+
 def facts(option: dict) -> str:
     """A model's family, context window and account, as the view lists them."""
     found = [str(option["family"])] if option.get("family") else []
@@ -196,4 +201,4 @@ class Menu:
             self.note = "The choice was sent but no stage view came back; /stages reads it again."
             return
         self.view, self.level, self.selected = view, "stages", self.stage
-        self.note = f"Saved: the {stage.get('label')} runs {model} at {effort} in new chats."
+        self.note = f"Saved: the {stage.get('label')} runs {model} at {level(effort)} in new chats."

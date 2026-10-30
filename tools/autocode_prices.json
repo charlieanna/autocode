@@ -1,5 +1,5 @@
 {
-  "as_of": "2026-10-25",
+  "as_of": "2026-10-30",
   "currency": "USD",
   "basis": "Standard list price per million text tokens for metered API use, read from each provider's own pricing pages. Not an invoice: a subscription or coding-plan route is billed by its plan, so its row is the metered API price of the same model. Updated by pull request.",
   "models": {
@@ -186,6 +186,13 @@
       "source": "https://kilo.ai/models/anthropic-claude-opus-5-5",
       "retrieved": "2026-10-14",
       "note": "Route alias of kilo/anthropic/claude-opus-5.5. Kilo Gateway charges Anthropic's API rates with no markup. Cache writes 5.00."
+    },
+    "gpt-6.1-sol": {
+      "input": 2.0,
+      "output": 10.0,
+      "source": "https://caas-gocode-prod.caas-prod.prod.onkatana.net/v1/models",
+      "retrieved": "2026-10-30",
+      "note": "GoCode catalog, gocode models --filter gpt-6.1-sol. The route publishes input_usd_per_mtok=2 and output_usd_per_mtok=10; no cache discount is assumed. This is a conservative route estimate, not an invoice."
     }
   }
 }

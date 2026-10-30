@@ -296,6 +296,14 @@ tokens remain withheld even when listed.
 Withholding variables is not a sandbox: an agent with shell access can still read
 files such as `~/.aws/credentials` or `~/.config/gh/hosts.yml`.
 
+Configured tools such as GoCode keep their own model identifiers in saved status
+and model-recovery recommendations. A provider selected for the whole run uses the
+same validation as a per-role transport override; native OpenCode still requires
+`provider/model` identifiers. Recovery recommendations list the run's other saved
+models that satisfy verifier independence. A named replacement is checked against
+the actual provider catalog before it is saved; recommendations never authorize a
+provider switch or bypass the independent-checker rule.
+
 Resuming preserves the saved engine, models and separate role sessions. Start a new
 run when switching between Codex, OpenCode and Claude Code; their session IDs cannot be reused
 across engines. A response with an unexpected session ID pauses the run.
@@ -750,6 +758,15 @@ the cited, verified capture receipt before checking the unchanged report schema.
 It never replaces a supplied exit code, guesses from output text, or resolves
 ambiguous executions. The original report is retained as `.reported.json`, and
 the stage records the derived metadata. Nonzero exits remain failures.
+A strict-schema command wrapper can call
+`autocode_provider_report_schema.full_report(schema_path)` before passing a schema
+to its model API. This keeps an ordinary schema unchanged. For an optional bounded
+report-edit offer, it writes a separate schema restoring the exact original full
+report fields and required list. The saved input schema and source pins remain
+unchanged; the core still validates the complete returned report, provenance and
+evidence. This adapter supports providers that reject arbitrary JSON edit values;
+it grants no weaker validation or approval authority.
+
 For `report_file` tools, capture commands must inherit `AUTOCODE_CAPTURE_CONTEXT`
 from the tool process: the capture helper records it automatically and the
 validator checks it against the saved attempt. Receipts from another attempt,

@@ -71,6 +71,7 @@ def initialize(run_dir, *, command=tasks.AUTOCODE):
     profile = view.get("related_profile")
     if not profile:
         raise store.CoordinationError("This core does not expose the original run's routing and limits")
+    source_info = repos.source_snapshot()
     util.atomic_json(directory / "profile.json", profile)
     document = {
         "version": 1,
@@ -89,14 +90,13 @@ def initialize(run_dir, *, command=tasks.AUTOCODE):
         "pending": None,
         "joint_attempts": [],
         "initial_scope": scope["external_parts"],
+        "source_catalog": source_info,
     }
-    origin = repos.identity(view["workspace"])
-    add_member(document, Path(view["workspace"]).name, origin, view["task"])
     store.save(document)
     return document
 
 
-def add_member(document, target, entry, brief, *, reported_work=None):
+def add_member(document, target, entry, brief, *, reported_work=None, supporting_evidence=None):
     repos.require_clean_product(entry)
     if len(document["members"]) >= MAX_REPOSITORIES:
         raise store.CoordinationError("Automatic repository limit reached; review the discovered scope")
@@ -117,9 +117,11 @@ def add_member(document, target, entry, brief, *, reported_work=None):
         {
             **entry,
             "target": target,
+            "role": "source" if not document["members"] else "member",
             "slug": slug,
             "brief": brief,
             **({"reported_work": reported_work} if reported_work else {}),
+            **({"supporting_evidence": supporting_evidence} if supporting_evidence else {}),
             "workspace": str(workspace),
             "run_dir": str(workspace / ".autocode" / "runs" / "coordinated-fix"),
             "base_branch": base_branch,
@@ -169,6 +171,51 @@ def requests(document, views):
     return {target: work for target, work in requests.items() if target not in existing}
 
 
+def request_evidence(document, views, target):
+    """Carry the validated quote and source-file citations that grounded a repository request."""
+    parts = [*document.get("initial_scope", [])]
+    for view in views.values():
+        parts.extend((view.get("scope") or {}).get("external_parts") or [])
+    matching = [row for row in parts if isinstance(row, dict) and row.get("target") == target]
+    result = {
+        "source_quote": "; ".join(
+            dict.fromkeys(row.get("source_quote", "") for row in matching if row.get("source_quote"))
+        ),
+        "evidence": "; ".join(dict.fromkeys(row.get("evidence", "") for row in matching if row.get("evidence"))),
+    }
+    for part in matching:
+        if str(part.get("evidence", "")).startswith("catalog/"):
+            try:
+                from . import autocode_catalog_context as source_catalog
+            except ImportError:
+                import autocode_catalog_context as source_catalog
+            if citation := source_catalog.evidence({"run_dir": document["anchor"]}, part["evidence"]):
+                result.update(
+                    evidence_repository=citation["repository"],
+                    evidence_revision=citation["revision"],
+                    evidence=citation["file"],
+                    catalog_evidence=part["evidence"],
+                )
+                return result
+    if result["evidence"]:
+        source_targets = [
+            source_target
+            for source_target, view in views.items()
+            if any(
+                part.get("target") == target and part.get("evidence") in result["evidence"]
+                for part in (view.get("scope") or {}).get("external_parts") or []
+            )
+        ]
+        source_member = next(
+            (row for row in document.get("members", []) if row.get("target") in source_targets),
+            next(iter(document.get("members", [])), None),
+        )
+        if source_member:
+            result["evidence_repository"] = source_member["origin"]
+            result["evidence_revision"] = source_member["base"]
+    return result
+
+
 def member_role_identities(document, target, catalog):
     """Legacy already-accepted role-noun labels (#2420): see repos.member_role_identities."""
     return repos.member_role_identities(document["members"], target, catalog)
@@ -179,6 +226,7 @@ def resolve_request(document, views):
     if not wanted:
         return None
     target, work = next(iter(wanted.items()))
+    supporting_evidence = request_evidence(document, views, target)
     catalog = repos.catalog()
     candidates = repos.candidates(target, catalog)
     choice = document["choices"].get(target)
@@ -189,7 +237,13 @@ def resolve_request(document, views):
         member = next((row for row in document["members"] if row["git_dir"] == chosen["git_dir"]), None)
         if member:
             return {"kind": "alias", "target": target, "canonical": member["target"], "origin": member["origin"]}
-        return {"kind": "resolve", "target": target, "work": work, "entry": chosen}
+        return {
+            "kind": "resolve",
+            "target": target,
+            "work": work,
+            "entry": chosen,
+            "supporting_evidence": supporting_evidence,
+        }
     # Only a catalog that matched nothing consults the member role-noun fallback:
     # the catalog's own ambiguity and choices are never overridden (#2420).
     identities = {} if candidates else member_role_identities(document, target, catalog)
@@ -204,7 +258,13 @@ def resolve_request(document, views):
             member = members.get(selected["git_dir"])
             if member:
                 return {"kind": "alias", "target": target, "canonical": member["target"], "origin": member["origin"]}
-            return {"kind": "resolve", "target": target, "work": work, "entry": selected}
+            return {
+                "kind": "resolve",
+                "target": target,
+                "work": work,
+                "entry": selected,
+                "supporting_evidence": supporting_evidence,
+            }
         if len(identities) == 1 and (member := members.get(next(iter(identities)))):
             # A unique, already-linked and still-available identity reuses its member.
             return {"kind": "alias", "target": target, "canonical": member["target"], "origin": member["origin"]}
@@ -252,6 +312,30 @@ def sync_set(document):
         if (member["started"] or starting == member["target"]) and not saved.get("run_dir"):
             sets.bind(record["id"], member["target"], member["run_dir"])
             record = sets.find(source["run_dir"])
+    joint_run = document.get("joint")
+    if joint_run and joint_run.get("started"):
+        target = joint_run.setdefault("set_target", "Joint regression")
+        matching = [row for row in sets.members(record) if row["target"] == target]
+        if any(row["role"] != "joint" for row in matching):
+            raise store.CoordinationError("A repository target conflicts with the joint-plan participant")
+        saved = matching[0] if matching else None
+        if saved is None:
+            record = sets.reserve(
+                source_workspace=source["workspace"],
+                source_run_dir=source["run_dir"],
+                target=target,
+                workspace=joint_run["workspace"],
+                brief="Plan and verify the combined regression for the original request",
+                role="joint",
+            )
+            saved = next(row for row in sets.members(record) if row["target"] == target)
+        elif saved.get("run_dir") and str(Path(saved["run_dir"]).resolve()) != str(
+            Path(joint_run["run_dir"]).resolve()
+        ):
+            raise store.CoordinationError("The change set has a different joint-plan run for this attempt")
+        if not saved.get("run_dir"):
+            sets.bind(record["id"], target, joint_run["run_dir"])
+            record = sets.find(source["run_dir"])
     if record:
         sets.set_fields(
             record["id"],
@@ -263,6 +347,17 @@ def sync_set(document):
 def next_step(document, views, *, command=tasks.AUTOCODE):
     if store.cancelled(document["anchor"]):
         return {"kind": "cancelled"}
+    expected_sources = document.get("source_catalog")
+    if expected_sources:
+        try:
+            current_sources = repos.source_snapshot()
+        except (OSError, ValueError, RuntimeError) as error:
+            return {"kind": "blocked", "reason": "Source catalog is unavailable: " + str(error)}
+        if current_sources != expected_sources:
+            return {
+                "kind": "blocked",
+                "reason": "The source catalog changed after coordination began; rediscover and review the full scope",
+            }
     if document.get("pending"):
         return {"kind": "reconcile", **document["pending"]}
     if (document.get("budget") or {}).get("cap_usd"):
@@ -313,11 +408,54 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
             if actions.working(view):
                 return {"kind": "watch", "target": target}
             return {"kind": "advance", "target": target}
+    member_plans_ready = (
+        bool(document["members"])
+        and len(views) == len(document["members"])
+        and all(changesets.plan_for_set(view) for view in views.values())
+    )
+    if member_plans_ready:
+        active = document.get("joint")
+        if not active:
+            return {"kind": "joint_plan_start"}
+        joint_view = handle(active, command=command).status()
+        need = (joint_view.get("needs") or {}).get("kind")
+        joint_plan_approved = bool(joint_view.get("approved_contract"))
+        if need == "continue" and not joint_plan_approved:
+            return (
+                {"kind": "watch", "target": "Joint regression"}
+                if actions.working(joint_view)
+                else {"kind": "joint_plan_advance"}
+            )
+        if need == "approve_plan":
+            plan = actions.plan_for_approval(joint_view)
+            summary = changesets.status(document["members"][0]["run_dir"], command=command)
+            if not plan:
+                return {"kind": "input", "target": "Joint regression", "view": joint_view}
+            if not (summary.get("approval") or {}).get("set_token"):
+                return {
+                    "kind": "blocked",
+                    "reason": "Every repository and joint plan must be complete before one approval can be offered",
+                }
+            return {"kind": "approval", "summary": summary, "joint_plan": plan}
+        if joint_view.get("done") and not active.get("candidate_binding"):
+            return {
+                "kind": "blocked",
+                "reason": "Joint work completed before the approved candidate inputs were bound",
+            }
+        if not joint_plan_approved:
+            return {"kind": "input", "target": "Joint regression", "view": joint_view}
     if all(view.get("done") for view in views.values()):
         active = document.get("joint")
         if not active:
-            return {"kind": "joint_start"}
+            return {"kind": "joint_plan_start"}
         view = handle(active, command=command).status()
+        if not active.get("candidate_binding") and not active.get("verification"):
+            if (view.get("needs") or {}).get("kind") != "continue" or view.get("done"):
+                return {
+                    "kind": "blocked",
+                    "reason": "The joint plan must be approved before candidate inputs can be bound",
+                }
+            return {"kind": "bind_candidates"}
         if view.get("done"):
             mismatched = joint.mismatches(document, active["workspace"])
             if mismatched:
@@ -344,15 +482,6 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
                 if not actions.working(view)
                 else {"kind": "watch", "target": "Joint regression"}
             )
-        plan = actions.plan_for_approval(view)
-        return (
-            {"kind": "joint_approval", "plan": plan}
-            if plan
-            else {"kind": "input", "target": "Joint regression", "view": view}
-        )
-    if all((view.get("needs") or {}).get("kind") == "approve_plan" for view in views.values()):
-        summary = changesets.status(document["members"][0]["run_dir"], command=command)
-        return {"kind": "approval", "summary": summary}
     for target, view in views.items():
         if not view.get("done") and (view.get("needs") or {}).get("kind") != "approve_plan":
             return {"kind": "input", "target": target, "view": view}
@@ -371,7 +500,8 @@ AUTOMATIC = {
     "alias",
     "assign",
     "advance",
-    "joint_start",
+    "joint_plan_start",
+    "joint_plan_advance",
     "joint_advance",
     "joint_retry",
     "rework",
@@ -404,6 +534,7 @@ def status(run_dir, *, command=tasks.AUTOCODE):
         "version": 1,
         "anchor": document["anchor"],
         "revision": document["revision"],
+        "source_catalog": document.get("source_catalog"),
         "phase": document["phase"],
         "done": step["kind"] == "complete",
         "needs": step,
@@ -416,22 +547,46 @@ def status(run_dir, *, command=tasks.AUTOCODE):
             {
                 "target": row["target"],
                 "workspace": row["workspace"],
+                "location": row["origin"],
                 "run_dir": row["run_dir"],
                 "base": row["base"],
+                "role": row.get("role", "member"),
+                "remote": row.get("remote"),
+                "supporting_evidence": row.get("supporting_evidence", {}),
                 "status": views.get(row["target"], {}).get("status", "STARTING"),
                 "pr_url": row.get("publication", {}).get("url"),
             }
             for row in document["members"]
         ],
-        "next_command": store.command(run_dir, "advance", "--json") if step["kind"] in AUTOMATIC else None,
+        "next_command": store.command(run_dir, "advance", "--json")
+        if step["kind"] in AUTOMATIC
+        else store.command(run_dir, "bind", "--json")
+        if step["kind"] == "bind_candidates"
+        else None,
         "cancel_command": store.command(run_dir, "cancel", "--json"),
     }
     if step["kind"] in ("approval", "joint_approval"):
         binding = {
             "revision": document["revision"],
+            "task": document["task"],
+            "anchor_turn": document.get("anchor_turn"),
+            "anchor_scope": document.get("anchor_scope"),
             "step": step,
+            "source_catalog": document.get("source_catalog"),
             "members": [
-                {key: row[key] for key in ("target", "base", "branch", "repository", "run_dir")}
+                {
+                    key: row[key]
+                    for key in (
+                        "target",
+                        "role",
+                        "origin",
+                        "base",
+                        "branch",
+                        "repository",
+                        "run_dir",
+                        "supporting_evidence",
+                    )
+                }
                 for row in document["members"]
             ],
         }
@@ -527,6 +682,8 @@ def finish_rework_step(document, target):
     document["pending"] = None
     if not progress["remaining"]:
         if document.get("joint"):
+            if document.get("changeset") and document.get("members"):
+                sets.remove_joint(document["members"][0]["run_dir"], document["joint"]["run_dir"])
             document["joint"]["mismatch_targets"] = progress["targets"]
             document["joint_attempts"][-1] = document["joint"]
             document.pop("joint")
@@ -581,6 +738,7 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
                 step["entry"],
                 document["task"],
                 reported_work=step["work"],
+                supporting_evidence=step.get("supporting_evidence"),
             )
             sync_set(document)
         elif kind == "alias":
@@ -595,10 +753,11 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
                 finish_rework_step(document, member["target"])
                 store.save(document)
                 return status(run_dir, command=command)
-            if step.get("operation") == "joint_start":
+            if step.get("operation") in ("joint_start", "joint_plan_start"):
                 handle(document["joint"], command=command).status()
                 document["joint"]["started"] = True
                 document["joint_attempts"][-1] = document["joint"]
+                sync_set(document)
                 document["pending"] = None
                 store.save(document)
                 return status(run_dir, command=command)
@@ -621,7 +780,7 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
             run.options = budget_options(document, views, member["run_dir"], command=command)
             run.advance()
             document["phase"] = "fixing"
-        elif kind == "joint_start":
+        elif kind == "joint_plan_start":
             limits = budget_options(document, views, command=command)
             if len(document["joint_attempts"]) >= MAX_JOINT_ATTEMPTS:
                 raise store.CoordinationError("Joint repair limit reached; inspect the retained mismatch evidence")
@@ -632,11 +791,14 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
                 "run_dir": str(directory / ".autocode/runs/joint-regression"),
                 "base": baseline,
                 "inputs": {row["target"]: repos.fingerprint(row["workspace"]) for row in document["members"]},
+                "set_target": "Joint regression"
+                if not document["joint_attempts"]
+                else f"Joint regression ({len(document['joint_attempts']) + 1})",
             }
             document["joint"] = entry
             document["joint_attempts"].append(entry)
             document["phase"] = "joint_regression"
-            document["pending"] = {"operation": "joint_start"}
+            document["pending"] = {"operation": "joint_plan_start"}
             store.save(document)
             tasks.TaskRun.start(
                 directory,
@@ -647,12 +809,15 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
             )
             entry["started"] = True
             document["pending"] = None
-        elif kind == "joint_advance":
+            sync_set(document)
+        elif kind in ("joint_plan_advance", "joint_advance"):
             run = handle(document["joint"], command=command)
             run.options = budget_options(document, views, run.run_dir.as_posix(), command=command)
             run.advance()
         elif kind == "joint_retry":
             document["joint_feedback"] = joint.failure_feedback(document["joint"]["verification"])
+            if document.get("changeset") and document.get("members"):
+                sets.remove_joint(document["members"][0]["run_dir"], document["joint"]["run_dir"])
             document["joint_attempts"][-1] = document.pop("joint")
             document["phase"] = "correcting_joint_regression"
         elif kind == "refresh":
@@ -778,10 +943,38 @@ def approve(run_dir, token, *, command=tasks.AUTOCODE):
             changesets.approve(
                 document["members"][0]["run_dir"], step["summary"]["approval"]["set_token"], command=command
             )
-        elif step["kind"] == "joint_approval":
-            handle(document["joint"], command=command).approve_plan(step["plan"]["token"])
         else:
             raise store.CoordinationError("No coordinated approval is offered")
+        store.save(document)
+    return status(run_dir, command=command)
+
+
+def bind_candidates(run_dir, *, command=tasks.AUTOCODE):
+    """Bind exact completed member trees only at the coordinator's current named checkpoint."""
+    with store.locked(run_dir) as document:
+        if not document or not document.get("joint"):
+            raise store.CoordinationError("Joint planning has not started")
+        views = observe(document, command=command)
+        if len(views) != len(document["members"]) or not all(view.get("done") for view in views.values()):
+            raise store.CoordinationError("Candidate inputs can be bound only after all repository runs are complete")
+        step = next_step(document, views, command=command)
+        if step.get("kind") != "bind_candidates":
+            raise store.CoordinationError("Candidate binding is not the current named coordination action")
+        joint_view = handle(document["joint"], command=command).status()
+        if (
+            (joint_view.get("needs") or {}).get("kind") != "continue"
+            or joint_view.get("done")
+            or not joint_view.get("approved_contract")
+        ):
+            raise store.CoordinationError("The joint plan must be approved before candidate inputs can be bound")
+        fingerprints = joint.bind_candidates(document, document["joint"]["workspace"])
+        document["joint"]["candidate_binding"] = {
+            "source_catalog": document.get("source_catalog"),
+            "members": {
+                row["target"]: {"base": row["base"], "fingerprint": fingerprints[row["target"]]}
+                for row in document["members"]
+            },
+        }
         store.save(document)
     return status(run_dir, command=command)
 
@@ -789,6 +982,7 @@ def approve(run_dir, token, *, command=tasks.AUTOCODE):
 OPERATION_HELP = {
     "status": "Read the coordination state and its named actions",
     "advance": "Perform one durable core step",
+    "bind": "Bind exact completed repository candidates to the approved joint plan",
     "approve": "Approve the coordinated plans by their exact token",
     "choose": "Resolve an ambiguous repository target to a local checkout",
     "cancel": "Cancel the coordination",
@@ -847,12 +1041,18 @@ def cli(argv=None):
             return 0
         if args.run_dir.parent.name != "runs" or args.run_dir.parent.parent.name != ".autocode":
             raise store.CoordinationError("Use a task run directory under WORKSPACE/.autocode/runs")
+        os.environ.setdefault(
+            "AUTOCODE_SOURCE_CATALOG_HOME",
+            os.environ.get("AUTOCODE_HOME") or str(Path.home() / ".autocode"),
+        )
         # The anchor's normal default, fixed for every related run and status call.
         os.environ.setdefault("AUTOCODE_HOME", str(args.run_dir.resolve().parents[2] / ".autocode" / "registry"))
         if args.operation == "status":
             result = status(args.run_dir)
         elif args.operation == "advance":
             result = advance(args.run_dir)
+        elif args.operation == "bind":
+            result = bind_candidates(args.run_dir)
         elif args.operation == "approve":
             result = approve(
                 args.run_dir, os.environ.get("AUTOCODE_COORDINATION_TOKEN", "") if args.token == "-" else args.token

@@ -21,6 +21,7 @@ import autocode_opencode as oc
 import autocode_planning as planning
 import autocode_planning_cycle as cycle
 import autocode_support as support
+import autocode_verifier_independence as verifier_independence
 import autopilot
 from goal_fixtures import assert_operational_wait, body
 
@@ -1139,6 +1140,31 @@ class PlanningTests(unittest.TestCase):
                 milestones=milestones,
                 autopilot=autopilot,
             )
+
+    def test_a_new_native_plan_reviewer_never_defaults_to_the_planners_model(self):
+        base = {"astra_model": "gpt-5.6-sol", "terra_model": "gpt-5.6-terra", "sol_model": "gpt-5.6-sol"}
+        for extra, expected in (
+            ({}, "gpt-6-astra"),
+            ({"glm_model": "gpt-6-astra"}, "gpt-5.6-sol"),
+            ({"plan_reviewer_model": "gpt-5.6-terra"}, "gpt-5.6-terra"),
+        ):
+            with (
+                self.subTest(extra=extra),
+                patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}),
+            ):
+                settings = autocode_configure.configure(
+                    self.configure_args(engine="codex", joint_planning=True, **base, **extra),
+                    {"workspace": "/tmp/fixture", "iteration": 0},
+                    planning=planning,
+                    milestones=milestones,
+                    autopilot=autopilot,
+                )
+                self.assertEqual(expected, settings["roles"]["plan_reviewer"]["model"])
+                self.assertEqual([], verifier_independence.clashes(settings), "the run need not stop to ask")
+        saved = copy.deepcopy(settings)
+        saved["roles"]["plan_reviewer"]["model"] = "gpt-5.6-sol"
+        autocode_configure.configure_joint(saved, self.configure_args(), fresh=False, planning=planning)
+        self.assertEqual("gpt-5.6-sol", saved["roles"]["plan_reviewer"]["model"], "a saved route is kept")
 
     def test_native_joint_routes_preserve_saved_models_and_check_only_codex_transport(self):
         with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}):
