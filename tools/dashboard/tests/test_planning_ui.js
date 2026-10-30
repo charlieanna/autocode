@@ -172,18 +172,20 @@ for (const text of [
 
 // Simulate a response slower than the two-second refresh cadence. Multiple
 // callers share the in-flight fetch, and one follow-up applies fresh state.
+// refresh(includeList,includeDetail) then re-arms both background reads: the
+// selected task at 2 s and the task list at 10 s.
 async function pollingCheck() {
  const scheduled=[],deferred=[];let calls=0,active=0,maxActive=0;
  const pollContext=vm.createContext({
    clearTimeout:()=>{},setTimeout:(fn,ms)=>{scheduled.push(ms);return 1;},
    refreshOnce:()=>{calls++;active++;maxActive=Math.max(maxActive,active);return new Promise(resolve=>deferred.push(()=>{active--;resolve();}));}
  });
- vm.runInContext('let refreshPromise=null,refreshAgain=false,refreshTimer=null;\n'+source.slice(source.indexOf('async function refresh(){'),source.indexOf('function restoreSelection()')),pollContext);
+ vm.runInContext('let refreshPromise=null,refreshAgain=false,refreshListAgain=false,refreshDetailAgain=false,refreshTimer=null,refreshListTimer=null;\n'+source.slice(source.indexOf('async function refresh('),source.indexOf('function restoreSelection()')),pollContext);
  const first=pollContext.refresh();const second=pollContext.refresh();const third=pollContext.refresh();
  assert.equal(calls,1);assert.equal(scheduled.length,0);
  deferred.shift()();await new Promise(resolve=>setImmediate(resolve));
  assert.equal(calls,2);assert.equal(scheduled.length,0);assert.equal(maxActive,1);
  deferred.shift()();await Promise.all([first,second,third]);
- assert.equal(calls,2);assert.deepEqual(scheduled,[2000]);assert.equal(maxActive,1);
+ assert.equal(calls,2);assert.deepEqual(scheduled,[2000,10000]);assert.equal(maxActive,1);
 }
 pollingCheck().then(()=>console.log('Project-free payloads, question targeting, and slow-response polling passed.')).catch(error=>{console.error(error);process.exitCode=1;});

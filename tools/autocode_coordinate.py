@@ -547,7 +547,7 @@ def status(run_dir, *, command=tasks.AUTOCODE):
             {
                 "target": row["target"],
                 "workspace": row["workspace"],
-                "location": row["origin"],
+                "location": row.get("origin"),
                 "run_dir": row["run_dir"],
                 "base": row["base"],
                 "role": row.get("role", "member"),
@@ -975,6 +975,9 @@ def bind_candidates(run_dir, *, command=tasks.AUTOCODE):
                 for row in document["members"]
             },
         }
+        # The joint plan is approved with the members' plans and started early; the joint
+        # regression itself runs from here, so status names that phase, not the members' fixing.
+        document["phase"] = "joint_regression"
         store.save(document)
     return status(run_dir, command=command)
 

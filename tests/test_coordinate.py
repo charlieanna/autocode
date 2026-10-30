@@ -510,6 +510,36 @@ class CoordinationTests(unittest.TestCase):
                 coordinate.bind_candidates(self.document["anchor"])
         bind.assert_not_called()
 
+    def test_binding_candidates_starts_the_joint_regression_phase(self):
+        self.document["members"] = [
+            {
+                "target": "api",
+                "started": True,
+                "workspace": str(self.root / "api"),
+                "run_dir": str(self.root / "api/run"),
+                "base": "a" * 40,
+            }
+        ]
+        self.document["joint"] = {
+            "workspace": str(self.root / "joint"),
+            "run_dir": str(self.root / "joint/run"),
+            "started": True,
+        }
+        self.document["phase"] = "fixing"  # the members' last advance, after the joint plan started
+        store.save(self.document)
+        joint_view = {"done": False, "needs": {"kind": "continue"}, "approved_contract": {"token": "joint-plan"}}
+        with (
+            patch.object(coordinate, "observe", return_value={"api": {"done": True}}),
+            patch.object(coordinate, "next_step", return_value={"kind": "bind_candidates"}),
+            patch.object(coordinate, "handle", return_value=Mock(status=Mock(return_value=joint_view))),
+            patch.object(joint, "bind_candidates", return_value={"api": "fingerprint"}),
+            patch.object(coordinate, "status", return_value={}),
+        ):
+            coordinate.bind_candidates(self.document["anchor"])
+        saved = store.read(self.document["anchor"])
+        self.assertEqual("joint_regression", saved["phase"])
+        self.assertEqual("fingerprint", saved["joint"]["candidate_binding"]["members"]["api"]["fingerprint"])
+
     def test_approved_joint_plan_binds_candidates_before_joint_execution(self):
         body = {
             "acceptance_criteria": [

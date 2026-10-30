@@ -2045,7 +2045,9 @@ token approves) and `approval`:
 - `set_token` is a digest of every run's identity and own plan token. It is `null` until
   every run offers a complete plan for approval, including a previously approved plan
   still held after an interrupted set approval. `waiting_on` names runs without an offer.
-- `next_command` is the argument array that approves the set, or `null`.
+- `next_command` is the argument array that approves the set, or `null`. It is also `null`
+  when every run has already completed under its approved plan: an unchanged completed run
+  joins a revised set with that plan, but a set with no new plan has nothing to approve.
 
 `autocode changeset approve --run-dir RUN --set-token TOKEN` reads every run's view again.
 It refuses a token that no longer matches, then records a durable hold for the exact

@@ -97,30 +97,36 @@ assert.throws(
 assert.equal(neverProbeCount, 3);
 assert.equal(neverWaitCount, 2);
 
-// Holding the background refresh drops only dashboard_app.js's 2 s re-read,
-// and releasing it restores the original timer and the poll (#314).
+// Holding the background refresh drops only dashboard_app.js's 2 s re-read of
+// the selected task, in the exact form refresh() schedules it (a detail-only
+// arrow around refresh; test_console.py pins that text), and releasing it
+// restores the original timer and the poll (#314). The 10 s task-list read and
+// every other timer keep running while held.
 const scheduled = [];
 const cleared = [];
 const originalSetTimeout = (callback, delay) => { scheduled.push({callback, delay}); return scheduled.length; };
 const page = vm.createContext({setTimeout: originalSetTimeout, clearTimeout: id => { cleared.push(id); }});
-vm.runInContext('let refreshPromise=null,refreshTimer=7;function refresh(){}function restore(){}', page);
+vm.runInContext('let refreshPromise=null,refreshTimer=7,refreshListTimer=null;function refresh(){}function restore(){}', page);
 const inPage = script => vm.runInContext(script, page);
-const pollAfterRefresh = 'refreshTimer=setTimeout(refresh,2000);setTimeout(restore,32);';
+const pollAfterRefresh = 'refreshTimer=setTimeout(()=>refresh(false,true),2000);refreshListTimer=setTimeout(()=>refresh(true,false),10000);setTimeout(restore,32);';
+const isDetailPoll = callback => String(callback).includes('refresh(false,true)');
 
 assert.equal(inPage('(' + holdBackgroundRefreshExpression() + ')()'), true);
 assert.equal(inPage('(' + holdBackgroundRefreshExpression() + ')()'), true, 'holding twice is harmless');
 assert.equal(cleared[0], 7, 'holding cancels the pending background read');
 inPage(pollAfterRefresh);
-assert.deepEqual(scheduled.map(entry => entry.delay), [32], 'only the background read is dropped');
+assert.deepEqual(scheduled.map(entry => entry.delay), [10000, 32], 'only the wrapped detail read is dropped; the list read and other timers stay');
 assert.equal(inPage('refreshTimer'), 0);
+inPage('setTimeout(refresh,2000)');
+assert.deepEqual(scheduled.map(entry => entry.delay), [10000, 32], 'a bare refresh callback is dropped too');
 
 assert.equal(inPage('(' + releaseBackgroundRefreshExpression() + ')()'), true);
 assert.equal(inPage('setTimeout'), originalSetTimeout, 'release restores the original timer');
-assert.equal(inPage('refresh'), scheduled.at(-1).callback, 'release re-arms the background read');
+assert.equal(isDetailPoll(scheduled.at(-1).callback), true, 'release re-arms the detail read as dashboard_app.js schedules it');
 assert.equal(scheduled.at(-1).delay, 2000);
 assert.equal(inPage('refreshTimer'), scheduled.length);
 inPage(pollAfterRefresh);
-assert.deepEqual(scheduled.map(entry => entry.delay), [32, 2000, 2000, 32], 'released polls are scheduled again');
+assert.deepEqual(scheduled.map(entry => entry.delay), [10000, 32, 2000, 2000, 10000, 32], 'released polls are scheduled again');
 
 // A refresh still in flight at release re-arms the poll itself when it settles.
 inPage('(' + holdBackgroundRefreshExpression() + ')();refreshPromise=Promise.resolve();');
