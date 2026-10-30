@@ -219,9 +219,12 @@ def binding(receipt):
     )
 
 
-def evidence_pins(proof, replay, child):
+def evidence_pins(proof, replay, child, mutation_check=None):
     pins = {child["json_path"]: child["json_sha256"], child["markdown_path"]: child["markdown_sha256"]}
-    for row in [*proof.get("checks", {}).values(), *replay.get("checks", [])]:
+    receipts = [*proof.get("checks", {}).values(), *replay.get("checks", [])]
+    # The runner's mutation check ran its own project commands; their captures are evidence too (#2506).
+    receipts += [row for row in (mutation_check or {}).get("command_receipts") or [] if isinstance(row, dict)]
+    for row in receipts:
         pins.update(command_receipt.pins(row))
         if row.get("output") and row.get("output_sha256"):
             pins[row["output"]] = row["output_sha256"]
@@ -242,13 +245,16 @@ def publish(
     original,
     original_index,
     candidate,
+    mutation_check=None,
 ):
     """Use the unchanged completion predicate over explicitly runner-derived facts.
 
     This assertion is not a model Completion Reviewer report, a goal approval or
     an ordinary TASK_COMPLETE. The review child remains a findings-only review.
     External regression proof is mandatory even when the generic gate has no
-    regression obligation for a legacy state.
+    regression obligation for a legacy state. ``mutation_check`` is the runner's
+    own review mutation check of the change (autocode_verify_task.mutation_check),
+    recorded with the review's result as report-only evidence (#2506).
     """
     root = Path(root)
     artifact = child["document"].get("workflow_result") or {}
@@ -265,7 +271,7 @@ def publish(
     human = [row["id"] for row in criteria if row["human_review"]]
     if human:
         reasons.append("Human acceptance is not established: " + ", ".join(human))
-    pins = evidence_pins(proof, replay, child)
+    pins = evidence_pins(proof, replay, child, mutation_check)
     pins[str(artifact_path)] = artifact["artifact_sha256"]
     proof_path = root / "proof.json"
     util.atomic_json(proof_path, proof)
@@ -351,6 +357,7 @@ def publish(
                 "artifact": str(artifact_path),
                 "artifact_sha256": artifact["artifact_sha256"],
                 "summary": "Runner external-change verification; independent review: " + str(review.get("verdict")),
+                **({"mutation_check": mutation_check} if mutation_check is not None else {}),
             },
         },
         "verification": {
