@@ -65,6 +65,30 @@ class ProviderReportSchemaTests(unittest.TestCase):
         self.assertNotEqual(self.path, result)
         self.assertEqual(self.original, json.loads(result.read_text()))
 
+    def test_strict_run_provider_uses_full_report_schema_for_unassigned_role(self):
+        offered = {
+            **self.original,
+            "properties": {
+                **self.original["properties"],
+                "repair_report": {
+                    "type": "object",
+                    "properties": {"edits": {"type": "array", "items": {"properties": {"value": {}}}}},
+                },
+            },
+            "required": [],
+            "x-autocode-report-edits": {"required": ["summary"]},
+        }
+        self.path.write_text(json.dumps(offered))
+
+        result = reports.for_route(
+            self.path,
+            {"engine": "opencode", "provider": "gocode", "roles": {"requirements": {"provider": None}}},
+            "requirements",
+        )
+
+        self.assertNotEqual(self.path, result)
+        self.assertEqual(self.original, json.loads(result.read_text()))
+
     def test_other_transports_keep_optional_report_edits(self):
         offered = {
             **self.original,
