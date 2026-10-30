@@ -80,6 +80,10 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
     # coordinated member's role-noun label refused so the bounded report repair
     # attempts the correction, #2420; never a silent drop).
     coordinated = coordination_context.context(state)
+    try:
+        from . import autocode_catalog_context as source_catalog
+    except ImportError:
+        import autocode_catalog_context as source_catalog
     dropped = None
     if "workspace_scope" in value:
         value["workspace_scope"], dropped = workspace_scope.validated(
@@ -88,6 +92,7 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
             source_refs=value.get("source_refs"),
             workspace=state.get("workspace"),
             member_names=tuple(coordinated["members"]) if coordinated else (),
+            evidence_resolver=lambda ref: source_catalog.evidence(state, ref),
         )
     previous = state.get("requirements_handoff")
     if previous:
@@ -100,12 +105,16 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
     local_refs = [
         ref for ref in value["source_refs"] if ref not in input_refs and not ref.startswith(("https://", "http://"))
     ]
+    catalog_refs = [ref for ref in local_refs if ref.startswith("catalog/")]
+    if any(not source_catalog.evidence(state, ref) for ref in catalog_refs):
+        raise ValueError("Requirements source_refs contains an unverified catalog source citation")
+    local_refs = [ref for ref in local_refs if ref not in catalog_refs]
     # User requirements and constraints can be retained while asking what the
     # outcome means. Until there are behaviors or acceptance tests, that intent
     # clarification needs no unrelated source citation. A complete handoff and
     # every explicitly supplied source reference still go through inspection.
     intent_only = clarification_only and not any(value[key] for key in ("required_behaviors", "acceptance_tests"))
-    if local_refs or (builds_code and not intent_only):
+    if local_refs or (builds_code and not intent_only and not catalog_refs):
         check_code_refs(state, local_refs, "source_refs")
     state["requirements_handoff"] = {"report": copy.deepcopy(value), "output": record["output"]}
     if "workspace_scope" in value:

@@ -142,7 +142,7 @@ def _cited_name_text(evidence: str, source_refs, workspace) -> str:
     return "\n".join(texts)
 
 
-def validated(scope, *, sources, source_refs, workspace, member_names=()) -> tuple[dict, list[str]]:
+def validated(scope, *, sources, source_refs, workspace, member_names=(), evidence_resolver=None) -> tuple[dict, list[str]]:
     """The grounded ``workspace_scope`` (still valid against SCHEMA, since the saved report is checked
     again later) and the targets of the parts dropped for want of a quote or a real cited file."""
     if not isinstance(scope, dict):
@@ -159,7 +159,12 @@ def validated(scope, *, sources, source_refs, workspace, member_names=()) -> tup
             requirement_quotes.ground(_text(part.get("source_quote")), sources) if part.get("source_quote") else None
         )
         evidence = _text(part.get("evidence"))
-        if quote is None and not _workspace_file(evidence, source_refs, workspace):
+        catalog_evidence = (
+            evidence_resolver(evidence)
+            if evidence_resolver and evidence in (source_refs or []) and evidence.startswith("catalog/")
+            else None
+        )
+        if quote is None and not catalog_evidence and not _workspace_file(evidence, source_refs, workspace):
             dropped.append(target)
             continue
         if canonical and target.casefold() not in canonical and ROLE_NOUN.fullmatch(target):

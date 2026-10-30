@@ -121,10 +121,8 @@ def catalog():
             tree = git(entry["origin"], "rev-parse", "HEAD^{tree}")
             if entry["base"] != candidate["head"] or tree != candidate["tree"]:
                 raise CoordinationError("Repository changed during authorized source discovery; rediscover it")
-            if entry["remote"] and candidate.get("remote"):
-                # Preserve a usable transport URL for GitHub validation and
-                # publication, while the source catalog separately groups URL aliases.
-                entry["remote"] = candidate["remote"]
+            # Keep the literal Git transport identity. Catalog normalization is
+            # for grouping clones, not a remote change in the selected checkout.
             entries[entry["git_dir"]] = entry
     for row in registry.listing()["workspaces"]:
         if row.get("availability") != "available":

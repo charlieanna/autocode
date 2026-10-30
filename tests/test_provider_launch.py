@@ -63,6 +63,33 @@ class ProviderLaunchTests(unittest.TestCase):
                 self.assertEqual(report_only, prepare.call_args.kwargs["planning_report_recovery"])
                 self.assertEqual("zai-coding-plan/glm-5.3", prepare.call_args.kwargs["model"])
 
+    def test_catalog_read_authority_is_added_only_to_readonly_intake_launches(self):
+        import autocode_catalog_context as catalog_context
+
+        class Stub:
+            NAME = "stub"
+            CONFIGURED = False
+
+            def launch(self, *args, **kwargs):
+                self.containment = kwargs.get("containment")
+                return ["stub"], {}, {}
+
+        with tempfile.TemporaryDirectory() as temporary:
+            run = Path(temporary)
+            (run / "planning").mkdir()
+            (run / "planning/source-catalog.json").write_text("{}")
+            for write, repair in ((False, False), (True, False), (False, True)):
+                adapter = Stub()
+                with mock.patch.object(catalog_context, "read_roots", return_value=["/authorized/external"]) as roots:
+                    launch.prepare(engine="opencode", adapter=adapter, role="astra", route_role="astra",
+                                   workspace=run, run_dir=run, session=None, model="m", effort="medium",
+                                   allow_write=write, planning=True, report=run / "report", schema=run / "schema",
+                                   prompt_file=run / "prompt", sandbox="read-only", transport_args=[],
+                                   chatgpt=False, provider=None, planning_report_recovery=repair)
+                actual = (adapter.containment or {}).get("read_roots", [])
+                self.assertEqual(not write and not repair, "/authorized/external" in actual)
+                self.assertEqual(not write and not repair, roots.called)
+
     def test_native_handoff_keeps_all_task_input_with_small_owned_manifest_locator(self):
         descriptor = {
             "manifest": "/owned/isolation.json",

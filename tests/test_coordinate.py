@@ -99,6 +99,19 @@ class CoordinationTests(unittest.TestCase):
             repos.git(root, *args)
         return repos.identity(root)
 
+    def test_discovered_normalized_remote_keeps_identity_but_an_actual_remote_change_is_refused(self):
+        import autocode_repo_catalog as catalog
+        self.repository()
+        catalog.add_root(self.root)
+        entry = next(row for row in repos.catalog() if Path(row["origin"]).name == "api")
+        coordinate.add_member(self.document, "api", entry, "Fix the contract")
+        member = self.document["members"][0]
+        repos.prepare(member, member["workspace"])
+        repos.require_identity(member)
+        repos.git(member["workspace"], "remote", "set-url", "origin", "https://github.com/fixture/other.git")
+        with self.assertRaisesRegex(store.CoordinationError, "changed after discovery"):
+            repos.require_identity(member)
+
     def test_only_authorized_exact_matches_resolve_and_ambiguity_is_a_question(self):
         first = self.repository("one/api")
         second = self.repository("two/api", "another")
@@ -936,6 +949,12 @@ class CoordinationTests(unittest.TestCase):
             with self.assertRaisesRegex(store.CoordinationError, "changed after display"):
                 coordinate.approve(self.document["anchor"], "old")
         approve.assert_not_called()
+
+    def test_joint_plan_reserves_candidate_copy_scope_before_inputs_exist(self):
+        text = joint.brief(self.document)
+        self.assertIn("affected_paths", text)
+        self.assertIn("repos/ subtrees", text)
+        self.assertIn("before candidate inputs exist", text)
 
     def test_joint_check_cannot_be_omitted_or_replaced_by_human_review(self):
         for body in ({}, {"acceptance_criteria": [{"human_review": True}]}):

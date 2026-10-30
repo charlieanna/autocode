@@ -181,6 +181,20 @@ def request_evidence(document, views, target):
         "source_quote": "; ".join(dict.fromkeys(row.get("source_quote", "") for row in matching if row.get("source_quote"))),
         "evidence": "; ".join(dict.fromkeys(row.get("evidence", "") for row in matching if row.get("evidence"))),
     }
+    for part in matching:
+        if str(part.get("evidence", "")).startswith("catalog/"):
+            try:
+                from . import autocode_catalog_context as source_catalog
+            except ImportError:
+                import autocode_catalog_context as source_catalog
+            if citation := source_catalog.evidence({"run_dir": document["anchor"]}, part["evidence"]):
+                result.update(
+                    evidence_repository=citation["repository"],
+                    evidence_revision=citation["revision"],
+                    evidence=citation["file"],
+                    catalog_evidence=part["evidence"],
+                )
+                return result
     if result["evidence"]:
         source_targets = [
             source_target

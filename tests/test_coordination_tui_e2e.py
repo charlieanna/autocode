@@ -1,7 +1,7 @@
 """A bug symptom to three verified, cross-linked PRs through the terminal chat.
 
-The only human inputs are one-time /repos setup, the symptom and exact plan
-approvals. Real Git repositories, the production supervised providers/proof
+The only human inputs are one-time source-root setup, the symptom and one exact
+coordinated plan approval. Real Git repositories, the production supervised providers/proof
 runner and a loopback GitHub server exercise every side effect offline.
 """
 
@@ -136,8 +136,8 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
         self.root = Path(temporary.name).resolve()
         self.repos, bare = {}, {}
         for name, (filename, contents) in BROKEN.items():
-            workspace = self.root / name
-            workspace.mkdir()
+            workspace = self.root / "sources" / name
+            workspace.mkdir(parents=True)
             (workspace / filename).write_text(contents)
             (workspace / "repository.json").write_text(json.dumps({"name": name}))
             (workspace / "tests").mkdir()
@@ -187,6 +187,15 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             GITHUB_TOKEN="offline-fixture",
             AUTOCODE_GITHUB_API=f"http://127.0.0.1:{self.github.server.server_port}",
         )
+        self.intake = self.root / "unrelated"
+        self.intake.mkdir()
+        (self.intake / "repository.json").write_text(json.dumps({"name": "intake"}))
+        for arguments in (["init", "-q", "-b", "main"], ["add", "."],
+                          ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test",
+                           "-c", "commit.gpgsign=false", "commit", "-qm", "Unrelated launch"]):
+            subprocess.run(["git", "-C", str(self.intake), *arguments], check=True, capture_output=True)
+        setup = chat.History(self.intake, env=self.env)
+        setup.read(["registry", "roots", "add", str(self.root / "sources"), "--json"])
         self.lines, self.questions = [], []
         self.observed_mismatch = False
         self.reopened = False
@@ -201,12 +210,10 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
         return "yes"
 
     def run_flow(self):
-        history = chat.History(self.repos["checkout"], env=self.env)
-        for workspace in self.repos.values():
-            history.slash("/repos", str(workspace))
+        history = chat.History(self.intake, env=self.env)
         with patch.dict(os.environ, self.env, clear=True):
             client = chat.start(
-                self.repos["checkout"],
+                self.intake,
                 "Fix checkout showing the wrong final total.",
                 ["--workflow", "bugfix"],
                 [*FIXTURE_OPTIONS, "--no-adaptive-planning"],
@@ -254,7 +261,7 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
                 self.fail("TUI coordination failed to reach a terminal result")
             self.assertEqual(0, outcome, "\n".join(self.lines[-30:]))
             self.assertEqual(3, len(self.github.posts))
-            self.assertGreaterEqual(len(self.questions), 2, "Member plans and the generated regression are reviewed")
+            self.assertEqual(1, len(self.questions), "All member and joint plans share one approval")
             summary = coordination.read(client, client.status())
             self.assertEqual("PASS", summary["verification"]["verdict"])
             for row in summary["members"]:
@@ -321,16 +328,14 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
         self.env["COORDINATION_FIXTURE_SCOPE_METADATA"] = "1"
         self.run_flow()
 
-    def test_scope_assignment_keeps_requirements_confirmation_before_bug_investigation(self):
+    def test_scope_assignment_carries_clear_requirements_without_confirmation(self):
         self.env["COORDINATION_FIXTURE_EARLY_SCOPE"] = "1"
         self.env["COORDINATION_FIXTURE_CONSUMER_ALIAS"] = "coordinated"
         self.env["COORDINATION_FIXTURE_MEMBER_CONTEXT"] = "1"
-        history = chat.History(self.repos["checkout"], env=self.env)
-        for workspace in self.repos.values():
-            history.slash("/repos", str(workspace))
+        history = chat.History(self.intake, env=self.env)
         with patch.dict(os.environ, self.env, clear=True):
             client = chat.start(
-                self.repos["checkout"],
+                self.intake,
                 "Fix checkout showing the wrong final total.",
                 ["--workflow", "bugfix"],
                 [*FIXTURE_OPTIONS, "--no-adaptive-planning", "--spec-first"],
@@ -355,22 +360,26 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
                 client.step()
             else:
                 self.fail("The fixture never assigned the discovered repository scope")
-            self.assertEqual("answer", view["needs"]["kind"], view["stop_reason"])
-            [question] = view["needs"]["questions"]
-            self.assertTrue(question["id"].startswith("requirements-review-"), question)
+            self.assertFalse(any(row["id"].startswith("requirements-review-")
+                                 for row in view["needs"].get("questions", [])), view["stop_reason"])
+            self.assertNotEqual("answer", view["needs"]["kind"], view["stop_reason"])
             self.assertEqual(3, len(summary["members"]), "The consumer alias creates no duplicate run")
-            client.step()  # Assign history's exact scope, including its consumer alias.
-            summary = coordination.read(client, client.status())
-            peer = next(row for row in summary["members"] if row["target"] == "history")
-            peer_view = taskrun.TaskRun(Path(peer["workspace"]), Path(peer["run_dir"]), env=self.env).status()
+            for _ in range(20):
+                summary = coordination.read(client, client.status())
+                peer = next(row for row in summary["members"] if row["target"] == "history")
+                peer_view = taskrun.TaskRun(Path(peer["workspace"]), Path(peer["run_dir"]), env=self.env).status()
+                if peer_view["scope"]["decision"] == "linked_repositories":
+                    break
+                client.step()
+            else:
+                self.fail("The peer scope was not assigned through the public coordinator")
             self.assertEqual("Fix checkout showing the wrong final total.", peer_view["task"])
             self.assertEqual("linked_repositories", peer_view["scope"]["decision"])
             self.assertIn(
                 "Coordinated checkout repository", [part["target"] for part in peer_view["scope"]["external_parts"]]
             )
             self.assertEqual([], self.github.posts, "Ownership assignment grants no publication authority")
-            answered = run.answer(question["id"], "plan")
-            self.assertEqual("investigate_bug", answered["next_stage"], answered["stop_reason"])
+            self.assertEqual([], self.questions, "Clear member requirements need no separate confirmation")
 
     def test_combined_suite_preserves_existing_cases_and_proves_the_joint_regression(self):
         from .coordination_provider import ASSERTIONS, JOINT_SETUP, JOINT_TEST, PRODUCT, TEST_PREAMBLE
@@ -504,9 +513,7 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
     def test_an_unrepairable_role_label_stops_the_member_without_catalog_prompts(self):
         self.env["COORDINATION_FIXTURE_MEMBER_CONTEXT"] = "1"
         self.env["COORDINATION_FIXTURE_MEMBER_ROLE_LABEL"] = "stuck"
-        history = chat.History(self.repos["checkout"], env=self.env)
-        for workspace in self.repos.values():
-            history.slash("/repos", str(workspace))
+        history = chat.History(self.intake, env=self.env)
         captured = {}
 
         def decide(question):
@@ -526,7 +533,7 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
 
         with patch.dict(os.environ, self.env, clear=True):
             client = chat.start(
-                self.repos["checkout"],
+                self.intake,
                 "Fix checkout showing the wrong final total.",
                 ["--workflow", "bugfix"],
                 [*FIXTURE_OPTIONS, "--no-adaptive-planning"],

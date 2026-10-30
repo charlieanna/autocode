@@ -32,6 +32,17 @@ actions. It does not read child state, select repositories or compose tests.
 `autocode registry roots add PATH` and standalone repositories with
 `autocode registry repositories add PATH`.
 
+Initial Requirements and Investigator requests receive a pinned, bounded inventory
+of all configured sources, including external roots. The launch directory is
+optional context. Catalog file citations use `catalog/ID/path:line` and are
+accepted only when the cited ordinary file matches the pinned Git blob. The task
+retains the inventory at `planning/source-catalog.json`; changed catalogs,
+revisions or altered receipts cannot silently replace its evidence. Built-in
+read-only intake shells receive only the validated catalog directories as extra
+read roots; this grants no Builder write authority. Clear source-grounded bug
+requirements flow into the complete plan without a separate Requirements
+confirmation. Genuine unresolved business questions still pause for an answer.
+
 The version-1 coordination view identifies the anchor, record revision, phase,
 member workspaces/runs/PRs, `done`, `needs`, and optional `next_command` and
 `approval`. The joint-test baseline and plan are prepared before any Builder.
