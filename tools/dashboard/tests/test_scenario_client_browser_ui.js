@@ -66,10 +66,15 @@ const text=selector=>data('()=>document.querySelector('+q(selector)+').textConte
    for(const other of ids.filter(other=>other!==id))for(const file of Object.keys(fixture.expected[other]))assert.ok(!files.includes(file),id+' does not show '+file+' of '+other);
   }
   // B and C were built in one parallel step: each names both milestones and what it leaves out.
+  // The step's note lists every left-out file once, comma-separated, so read that list rather
+  // than expecting each file to open the sentence (only a one-file milestone could).
+  const leftOutPrefix='Not shown, changed in this step for another milestone: ';
   for(const [id,other] of [['C_B','C_C'],['C_C','C_B']]){
    const shown=text(changes(id));
    assert.match(shown,/milestones B, C/);
-   for(const file of Object.keys(fixture.expected[other]))assert.ok(shown.includes('Not shown, changed in this step for another milestone: '+file),id+' names '+file+' as left out');
+   const leftOut=data('()=>[...document.querySelectorAll('+q(changes(id)+' .field-note')+')].map(e=>e.textContent).filter(t=>t.startsWith('+q(leftOutPrefix)+')).flatMap(t=>t.slice('+leftOutPrefix.length+').split(", "))');
+   for(const file of Object.keys(fixture.expected[other]))assert.ok(leftOut.includes(file),id+' names '+file+' as left out: '+JSON.stringify(leftOut));
+   for(const file of Object.keys(fixture.expected[id]))assert.ok(!leftOut.includes(file),id+' never names its own '+file+' as left out');
   }
   assert.equal(data('()=>document.documentElement.scrollWidth>innerWidth'),false);
   data('()=>{document.querySelector('+q(changes('C_B'))+').scrollIntoView({block:"start",behavior:"instant"});return true}');
