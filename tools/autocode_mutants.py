@@ -18,6 +18,9 @@ Operators, each only on a span that touches a changed line:
   a string empty or ``"x"``, anything else ``None``).
 * ``shift_bound``: an integer literal on either side of ``<``, ``<=``, ``>`` or ``>=`` becomes one more
   (an ``==``, ``!=``, ``is`` or ``in`` operand is not a bound and is left alone).
+* ``constant_assignment``: a bool, number or string literal assigned to a name (``TEXT = "hello"``,
+  ``LIMIT: int = 3``) becomes another constant, as ``constant_return`` chooses it. A line whose whole
+  behavior is the value it binds has no other site, and a test that reads the value sees the change.
 
 ``TYPE_CHECKING`` and ``__main__`` guards, f-strings and annotations are never mutated, and a
 branch that already does nothing is never dropped: those mutants change nothing a test can see.
@@ -40,7 +43,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from typing import Any
 
-OPERATORS = ("negate_condition", "swap_bound", "drop_branch", "constant_return", "shift_bound")
+OPERATORS = ("negate_condition", "swap_bound", "drop_branch", "constant_return", "shift_bound", "constant_assignment")
 PER_FILE_LIMIT = 6
 DISPLAY_CHARS = 60
 NEWLINE = re.compile(rb"\r\n|\r|\n")
@@ -329,6 +332,17 @@ def _sites(tree, body, starts, lines, notes, path):
             start, end = span(node.value)
             replacement = _pad(text, body[start:end], expression=True)
             yield _Site("constant_return", start, end, replacement, node.value, constant, text)
+        if (
+            isinstance(node, (ast.Assign, ast.AnnAssign))
+            and isinstance(node.value, ast.Constant)
+            and type(node.value.value) in (bool, int, float, str)
+            and id(node.value) not in excluded
+            and _touches(lines, node.value.lineno, node.value.end_lineno)
+        ):
+            constant, text = _constant(node.value)
+            start, end = span(node.value)
+            replacement = _pad(text, body[start:end], expression=True)
+            yield _Site("constant_assignment", start, end, replacement, node.value, constant, text)
 
     for node in ast.walk(tree):
         try:
