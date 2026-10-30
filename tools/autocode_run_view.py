@@ -1120,9 +1120,8 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
     issued = state.get("resolver_human_request")
     if recovery_progress.routine_resume(state, issued):
         return {
-            "kind": "resume",
+            "kind": "continue",
             "action": "--resume-paused",
-            "reason": "Saved progress permits bounded recovery without another slot grant",
         }
     questions = state.get("pending_questions") or []
     reviews = [question for question in questions if question.get("review_criteria")]

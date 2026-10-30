@@ -6,8 +6,8 @@ the browser dashboard, and it behaves like the extension: it reads
 (``view["chat"]``), asks the person only for the decisions the view leaves to them,
 and runs exactly the command the view names (autocode_client_actions). It never
 imports the controller, never reads ``state.json`` and never decides on its own what
-the run should do next; where the view names no action it can take, it prints the
-command for the person to run instead.
+the run should do next; where the view names no action it can take, it explains the
+unsupported need without exposing an internal command.
 
     autocode chat "Add a --verbose flag"            start a run here and talk to it
     autocode chat --mode full "Fix the typo"        start with a run mode from `autocode modes list`
@@ -43,7 +43,6 @@ import contextlib
 import json
 import os
 import secrets
-import shlex
 import signal
 import subprocess
 import sys
@@ -1124,7 +1123,7 @@ class ChatClient:
                     finally:
                         self._attached = attached
         except (Left, EOFError):
-            self.say(f"\nLeft the chat; the run is unchanged. Pick it up with: autocode chat --run-dir {self.run_dir}")
+            self.say("\nLeft the chat; the run is unchanged.")
             return 2
         except actions.ClientGap as error:
             self.say(f"\n{error}")
@@ -1182,7 +1181,7 @@ class ChatClient:
             return
         raise actions.ClientGap(
             f"AutoCode made no progress at {before.get('status')} (next stage {before.get('next_stage')}); "
-            f"see autocode --status --run-dir {self.run_dir}"
+            "check the current run status before continuing."
         )
 
     def pace(self, seconds: float) -> float:
@@ -1246,24 +1245,25 @@ class ChatClient:
         return self.confirm(view, command, decided)
 
     def hand_off(self, view: dict) -> bool:
-        """A need this client takes no action for: say why, and the command the view names, if any."""
+        """A need this client cannot act on: explain it without exposing internal commands."""
         need = view.get("needs") or {}
         label = view.get("pause_category_label") or need.get("kind")
         why = need.get("reason") or view.get("stop_reason") or ""
         self.say(f"\nAutoCode needs you for this one ({label}). {why}".rstrip())
-        if view.get("next_command"):
-            self.say(f"Run it yourself:\n  {view['next_command']}")
+        if need.get("kind") == "dependency":
+            self.say("This chat cannot act on the dependency.")
+        elif view.get("next_command"):
+            self.say("This chat cannot safely take the action AutoCode needs; nothing was run.")
         else:
-            self.say(f"There is nothing to run from here; see autocode --explain --run-dir {self.run_dir}")
+            self.say("There is nothing to run from here.")
         return False
 
     def approve(self, view: dict) -> bool:
         token = actions.approval_token(view)
         plan = actions.plan_for_approval(view)
         if not token or plan is None:
-            raise actions.ClientGap("The complete plan is unavailable; review it with autocode --show-goal first")
+            raise actions.ClientGap("The complete plan is unavailable, so it cannot be approved here.")
         self.say("\n" + render_plan(plan))
-        self.say(f"(Everything the plan records: autocode --show-goal --run-dir {self.run_dir})")
         if hint := changeset.approval_hint(view):
             self.say(hint)
         context = (view.get("chat") or {}).get("context") or ""
@@ -1276,7 +1276,7 @@ class ChatClient:
             self.take(actions.named(fresh, self.workspace, self.run_dir))
             return self.continue_after_input()
         if reply.lower() in ("", "n", "no"):
-            self.say(f"Plan not approved. Pick it up with: autocode chat --run-dir {self.run_dir}")
+            self.say("Plan not approved. The chat is available from your run list.")
             return False
         return self.send(reply, context)
 
@@ -1328,7 +1328,7 @@ class ChatClient:
             return self.continue_after_input()
         declined = reply.lower() in ("", "n", "no") if review else not reply
         if declined:
-            self.say(f"Nothing sent. Pick it up with: autocode chat --run-dir {self.run_dir}")
+            self.say("Nothing sent. The chat is available from your run list.")
             return False
         return self.send(reply, context)
 
@@ -1427,7 +1427,7 @@ class ChatClient:
             self.say(f"To raise it instead, type a new {row['label'].lower()} ({row['minimum']} or more).")
         reply = self.ask("\nYour reply (Enter to leave it for now): ")
         if not reply:
-            self.say(f"Nothing sent. The run is paused; pick it up with: autocode chat --run-dir {self.run_dir}")
+            self.say("Nothing sent. The run is still paused.")
             return False
         if offer and reply.strip().isdigit():
             return self.raise_bound(view, offer, reply)
@@ -1449,15 +1449,12 @@ class ChatClient:
                 self.say(f"  [{row['id']}] {row['criterion']}")
                 if row["id"] in changed:  # where to look (#2383), as the CLI's review stop names it (#2360)
                     self.say(f"      Changed: {', '.join(changed[row['id']])}")
-            self.say(f"(The evidence for each: autocode review --show --run-dir {self.run_dir})")
         else:
             self.say(f"\nAutoCode stopped: {label}. {why}".rstrip())
         if need.get("recovery_hint"):
             self.say(need["recovery_hint"])
         answers = {row.key: self.decide(row, need) for row in decided}
         prompt = "Accept these criteria" if need.get("kind") == "review" else "Continue"
-        # On this run, so its paths are left out; an issued token stays out of the terminal too.
-        self.say(f"Next it runs: autocode {shlex.join(actions.fill(view, command, answers).argv)}")
         route = need.get("route") or {}
         # A stopped job's model question, named by the view as a command (#2005): a typed model takes it.
         model_command = route.get("command") if need.get("kind") == "retry_job" and route.get("question_id") else None
@@ -1481,7 +1478,7 @@ class ChatClient:
         if message_offer and answer.strip() and answer.strip().lower() not in (*YES, "n", "no"):
             return self.send(answer, conversation.get("context") or "")
         if answer.lower() not in YES:
-            self.say(f"Left as it is. Pick it up with: autocode chat --run-dir {self.run_dir}")
+            self.say("Left as it is. The run remains paused.")
             return False
         fresh = self.status()
         if fresh.get("needs") != view.get("needs"):
@@ -1506,13 +1503,12 @@ class ChatClient:
         try:
             filled = actions.fill_offer(view, row, command, text)
         except actions.ClientGap as error:
-            self.say(f"{error}. Left as it is. Pick it up with: autocode chat --run-dir {self.run_dir}")
+            self.say(f"{error}. Left as it is.")
             return False
         fresh = self.status()
         if fresh.get("needs") != view.get("needs"):
             self.say("The run changed meanwhile; here is where it stands now.")
             return True
-        self.say(f"Next it runs: autocode {shlex.join(filled.argv)}")
         self.take(filled)
         return True
 
@@ -1523,7 +1519,6 @@ class ChatClient:
         Before this, the typed model was read as a decline and the chat left with the run paused."""
         command = actions.parse(text, *actions.own(view, self.workspace, self.run_dir))
         filled = actions.fill(view, command, {route["question_id"]: model})
-        self.say(f"Next it runs: autocode {shlex.join(filled.argv)}")
         fresh = self.status()
         if fresh.get("needs") != view.get("needs"):
             self.say("The run changed meanwhile; here is where it stands now.")

@@ -41,10 +41,10 @@ REQUIREMENT_MARKS = {
     "unchecked": "·",
 }
 ASCII_MARKS = {"✓": "+", "▸": ">", "·": "-", "✗": "x", "?": "?", "±": "~", "$": "$", "∴": ":", "»": ">"}
-EVENT_MARKS = {"command": "$", "edit": "±", "tool": "·"}  # a live event's mark, by its kind
+EVENT_MARKS = {"edit": "±", "tool": "·"}  # user-facing activity; internal command text stays hidden
 EVENT_ROWS = 6  # how many of the newest events the panel lists
-LIVE_MARKS = {"thinking": "∴", "message": "»", "command": "$", "edit": "±", "tool": "·"}  # a live log entry's mark
-LIVE_KINDS = {"thinking": ("thinking",), "messages": ("message",), "tools": ("command", "edit", "tool")}
+LIVE_MARKS = {"thinking": "∴", "message": "»", "edit": "±", "tool": "·"}  # visible live-log entry kinds
+LIVE_KINDS = {"thinking": ("thinking",), "messages": ("message",), "tools": ("edit", "tool")}
 LIVE_LIMIT = 500  # entries the live log keeps
 
 
@@ -195,7 +195,7 @@ def needs_you(view: dict | None) -> str | None:
 
 
 def events(view: dict | None) -> list[dict]:
-    """The running attempt's recent commands, edits and tool calls, oldest first (``chat.activity``)."""
+    """The running attempt's user-facing edits and tool calls, oldest first (``chat.activity``)."""
     rows = _rows(_mapping(_mapping(view).get("chat")).get("activity"))
     return [row for row in rows if row.get("kind") in EVENT_MARKS and isinstance(row.get("text"), str)]
 
@@ -208,6 +208,9 @@ def event_row(event: dict) -> Row:
 
 def doing(view: dict | None) -> str | None:
     """The newest event as a short phrase for the status row, or None when the view has none."""
+    activity_rows = _rows(_mapping(_mapping(view).get("chat")).get("activity"))
+    if activity_rows and activity_rows[-1].get("kind") == "command":
+        return None
     shown = events(view)
     if not shown:
         return None
@@ -424,7 +427,7 @@ def text(name: str, view: dict | None, log: StageLog) -> str:
 
 
 def log_entries(view: dict | None) -> list[dict]:
-    """The running agents' reasoning, messages and tool calls, oldest first (``chat.log``)."""
+    """The running agents' reasoning, messages and non-command tool activity (``chat.log``)."""
     rows = _rows(_mapping(_mapping(view).get("chat")).get("log"))
     return [
         row
@@ -490,7 +493,7 @@ class StageLog:
     _seen: Counter = field(default_factory=Counter)  # how many times each (kind, text, status) has been in view
 
     def _events(self, view: dict | None) -> list[str]:
-        """A line for each event that is new since the last view: the same command run twice is two lines."""
+        """A line for each new user-facing event; command text is never included."""
         now = Counter((event["kind"], event["text"], event.get("status")) for event in events(view))
         said = []
         for (kind, text, status), count in now.items():

@@ -163,35 +163,38 @@ class LiveEventTests(unittest.TestCase):
 
     def test_the_panel_lists_the_newest_events_under_now_with_their_marks(self):
         shown = self.live(self.EDIT, self.COMMAND, self.FAILED)
-        section = panel.sections(shown)[1]
+        sections = panel.sections(shown)
+        section = sections[1]
         self.assertEqual("Activity", section.title)
         self.assertEqual(
-            [("±", "edited app/greet.py", "plain"), ("$", "pytest -q", "accent"), ("✗", "false", "bad")],
+            [("±", "edited app/greet.py", "plain")],
             [(row.mark, row.text, row.style) for row in section.rows],
         )
+        self.assertNotIn("pytest -q", repr(sections))
+        self.assertNotIn("false", repr(sections))
         many = self.live(*[{"kind": "tool", "text": f"read {n}", "status": "done"} for n in range(12)])
         self.assertEqual(panel.EVENT_ROWS, len(panel.sections(many)[1].rows))
         self.assertEqual(["Now", "Requirements", "Tasks"], [s.title for s in panel.sections(view())])
 
     def test_the_status_row_names_the_newest_event(self):
-        self.assertEqual("Running pytest -q", panel.doing(self.live(self.EDIT, self.COMMAND)))
+        self.assertIsNone(panel.doing(self.live(self.EDIT, self.COMMAND)))
         self.assertEqual("Editing: edited app/greet.py", panel.doing(self.live(self.COMMAND, self.EDIT)))
         self.assertIsNone(panel.doing(view()))
 
     def test_malformed_events_are_ignored(self):
         junk = self.live({"kind": "nope", "text": "x"}, {"kind": "command"}, "text", self.COMMAND)
-        self.assertEqual([self.COMMAND], panel.events(junk))
+        self.assertEqual([], panel.events(junk))
 
-    def test_each_event_is_logged_once_and_a_failure_is_logged_when_it_happens(self):
+    def test_only_non_command_events_are_logged(self):
         log = panel.StageLog()
         log.observe(self.live(self.COMMAND), now=0)
         self.assertFalse(log.observe(self.live(self.COMMAND), now=1))
         log.observe(self.live({**self.COMMAND, "status": "done"}, self.EDIT), now=2)
         log.observe(self.live(self.FAILED), now=3)
         log.observe(self.live(self.FAILED), now=4)
-        said = [line.split(" ", 1)[1] for line in log.lines]
-        events = [line for line in said if line.split(":")[0] in ("Ran", "Edited", "Used", "Failed")]
-        self.assertEqual(["Ran: pytest -q", "Edited: edited app/greet.py", "Ran: false", "Failed: false"], events)
+        self.assertTrue(any("Edited: edited app/greet.py" in line for line in log.lines))
+        self.assertNotIn("pytest -q", "\n".join(log.lines))
+        self.assertNotIn("false", "\n".join(log.lines))
 
     def test_a_view_read_before_the_launched_step_saved_anything_is_not_shown_as_a_request(self):
         waiting = view(headline="Waiting for you", needs="plan approval needed")
@@ -201,14 +204,13 @@ class LiveEventTests(unittest.TestCase):
         self.assertEqual(("Starting the next step…", ()), (now.summary, now.rows))
         self.assertEqual("Builder working", panel.sections(view(), launched=True)[0].summary)
 
-    def test_the_same_command_run_twice_is_logged_twice(self):
+    def test_commands_are_not_logged(self):
         log = panel.StageLog()
         done = {**self.COMMAND, "status": "done"}
         log.observe(self.live(done), now=0)
         log.observe(self.live(done, done), now=1)
         log.observe(self.live(done, done), now=2)
-        ran = [line for line in log.lines if "Ran:" in line]
-        self.assertEqual(2, len(ran), log.lines)
+        self.assertNotIn("pytest -q", "\n".join(log.lines))
 
     def test_a_run_that_continues_by_itself_needs_nobody(self):
         words = "AutoResolver must reconcile retained attempt 001/builder-01 before any provider call"
@@ -269,8 +271,8 @@ class LiveLogTests(unittest.TestCase):
                 self.view(("a:r1", "Builder", "thinking", "Look at greet.py"), ("a:c1", "Builder", "command", "ls"))
             )
         )
-        self.assertFalse(live.observe(self.view(("a:c1", "Builder", "command", "ls"))), "nothing new")
-        self.assertEqual(["Look at greet.py", "ls"], [entry["text"] for entry in live.shown()])
+        self.assertFalse(live.observe(self.view(("a:c1", "Builder", "command", "ls"))), "command is not exposed")
+        self.assertEqual(["Look at greet.py"], [entry["text"] for entry in live.shown()])
 
     def test_malformed_rows_are_ignored(self):
         live = panel.LiveLog()
@@ -286,13 +288,13 @@ class LiveLogTests(unittest.TestCase):
                 ("c:m1", "Plan Reviewer", "message", "three"),
             )
         )
-        self.assertEqual(["Builder · task M1", "Builder · task M2", "Plan Reviewer"], live.agents())
+        self.assertEqual(["Builder · task M1", "Plan Reviewer"], live.agents())
         live.filter = "m2"
-        self.assertEqual(["two"], [entry["text"] for entry in live.shown()])
+        self.assertEqual([], live.shown())
         live.filter = "thinking"
         self.assertEqual(["one"], [entry["text"] for entry in live.shown()])
         live.filter = "tools"
-        self.assertEqual(["two"], [entry["text"] for entry in live.shown()])
+        self.assertEqual([], live.shown())
         self.assertEqual("LIVE · tools", live.title())
 
     def test_only_the_newest_entries_are_kept(self):
