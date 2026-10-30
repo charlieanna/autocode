@@ -478,6 +478,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#choosing-each-stages-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choosing each stage's model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#choosing-models-automatically" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2025,6 +2036,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#choosing-each-stages-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choosing each stage's model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#choosing-models-automatically" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2172,7 +2194,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/7dab5115fca32d18fcf7135679e5ef71c300e839/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2342,7 +2364,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/7dab5115fca32d18fcf7135679e5ef71c300e839/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2426,9 +2448,79 @@ and pauses <code>PAUSED_MILESTONE_BUDGET</code> when it would take the milestone
 names are in saved run state. They are not model choices: <code>--terra-model
 zai-coding-plan/glm-5.3</code> selects the model used for the Builder role.</p>
 </blockquote>
+<h2 id="choosing-each-stages-model">Choosing each stage's model<a class="headerlink" href="#choosing-each-stages-model" title="Permanent link">&para;</a></h2>
+<p>You choose the model and reasoning level of each stage once, and every new task uses them
+(owner decision 2026-10-30). <code>autocode setup</code> offers this right after connecting your
+accounts; <code>autocode stages choose</code> asks again whenever you want to change them, and
+<code>autocode stages</code> lists what each stage runs now. For each stage it says what the stage does,
+gives advice on what suits it, and lists the models your backend offers with the reasoning
+levels each model takes:</p>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>What it does</th>
+<th>What suits it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Requirements</td>
+<td>Turns your idea into requirements; asks you only about real ambiguity</td>
+<td>A capable all-round model at medium</td>
+</tr>
+<tr>
+<td>Planner</td>
+<td>Drafts the plan and revises it after review</td>
+<td>A capable model at high</td>
+</tr>
+<tr>
+<td>Plan Reviewer</td>
+<td>Challenges the plan and makes the final planning call</td>
+<td>Your strongest judge at high, never the Planner's model</td>
+</tr>
+<tr>
+<td>Builder</td>
+<td>Writes the code for one task; several run in parallel</td>
+<td>A fast, cheaper model at medium</td>
+</tr>
+<tr>
+<td>Tester</td>
+<td>Checks each Builder's work and proves its tests fail without the change</td>
+<td>A strong model at high, never the Builder's</td>
+</tr>
+<tr>
+<td>Completion Reviewer</td>
+<td>Decides whether the task is done or goes back for more work</td>
+<td>A strong judge at medium, never the Builder's model</td>
+</tr>
+<tr>
+<td>Resolver and per-task Planner</td>
+<td>Steps in when a stage stops progressing; plans each task's steps</td>
+<td>Your strongest model at high</td>
+</tr>
+</tbody>
+</table>
+<p>The models come from your backend: for OpenCode and Kilo, the models your connected accounts
+serve, with the reasoning levels and family their own listing declares (a model that cannot
+call tools is left out); for Claude Code, Haiku, Sonnet and Opus; for Codex, the GPT models
+AutoCode runs on it. A model the stage's checker or producer already runs is shown as not
+available, with the reason, because a checker never grades its own model's work
+(<a href="#default-models">independence</a>); on Claude Code and Codex two different models of that
+vendor may check each other. No price is read.</p>
+<p>The choices are kept in <code>~/.config/autocode/stages.toml</code>, one table per backend, so switching
+backends uses that backend's own choices. Each new task reads them before it begins, as if you
+had typed that stage's <code>--ROLE-model</code> and <code>--ROLE-reasoning-effort</code> flags, and prints
+<code>Stage choices from …</code> naming the stages it took. A flag on the command line and the project's
+own <code>.autocode/config.toml</code> still win for that run; <code>--single-model</code> takes no saved choice, and
+a shared <code>--reasoning-effort</code> keeps the saved levels out. A task already running keeps the
+routes it started with. A stage you have not chosen keeps its default, or the route automatic
+selection picks for it (below). <code>autocode stages set STAGE --model MODEL --effort LEVEL</code> and
+<code>autocode stages reset [STAGE]</code> change one stage without asking.</p>
 <h2 id="choosing-models-automatically">Choosing models automatically<a class="headerlink" href="#choosing-models-automatically" title="Permanent link">&para;</a></h2>
 <p>New CLI and <code>TaskRun.start</code> runs choose models automatically from the selected tool's
-connected accounts. No model flags or pinned profile are needed. One tool serves the
+connected accounts for every stage you have not <a href="#choosing-each-stages-model">chosen yourself</a>.
+No model flags or pinned profile are needed. One tool serves the
 run by default; explicit per-role tool bindings and model/effort flags still win.
 A fully pinned profile keeps its existing preflight and recovery policy because there
 is no automatic choice to make. <code>--single-model</code> keeps its explicit same-model policy. Saved runs retain their routes

@@ -2338,7 +2338,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/7dab5115fca32d18fcf7135679e5ef71c300e839/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3228,7 +3228,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/7dab5115fca32d18fcf7135679e5ef71c300e839/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3852,7 +3852,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/7dab5115fca32d18fcf7135679e5ef71c300e839/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4897,6 +4897,25 @@ several API providers are configured (issue #2055), the same row instead offers
 an <code>add</code> action with <code>next_command=["connections", "add"]</code>, executed the same
 interactive way; it adds or rotates one provider's key without touching the
 others.</p>
+<h2 id="stage-choices-for-clients">Stage choices for clients<a class="headerlink" href="#stage-choices-for-clients" title="Permanent link">&para;</a></h2>
+<p>A client may let a person choose the model and reasoning level of each stage, as one dropdown per
+stage (<a href="../models/#choosing-each-stages-model">Choosing each stage's model</a>).
+<code>autocode stages list --json [--backend NAME]</code> returns the version-1 view: <code>backend</code>, <code>label</code>, <code>file</code>
+(where the choices are kept), <code>options_stop</code> (why no model could be listed, or null) and <code>stages</code>, in
+the order a task runs them. Each stage has <code>id</code>, <code>label</code>, <code>does</code> (what the stage does), <code>advice</code> (the
+kind of model and level that suits it), <code>flag</code> and <code>effort_flag</code>, <code>default</code> (<code>model</code>, <code>effort</code>, and
+<code>offered</code>: whether the backend offers that model), <code>chosen</code> (the saved <code>model</code> and <code>effort</code>, or null),
+<code>options</code>, <code>set</code> and <code>reset</code>. Each option has <code>model</code>, <code>levels</code> and <code>levels_listed</code> (whether the
+levels come from the tool's own listing), <code>effort_choices</code> (the levels a person may pick, or
+<code>["default"]</code> for a model that lists none), <code>family</code>, <code>context</code>, <code>account</code>, <code>billing</code> and
+<code>unavailable</code>: the reason the stage may not run that model beside the others, or null.</p>
+<p>A client shows <code>label</code>, <code>does</code> and <code>advice</code>, lists the options, and greys out an option whose
+<code>unavailable</code> is set, showing its reason. To save a choice it takes <code>set.next_command</code>, an argument
+array following <code>autocode</code>, replacing <code>MODEL</code> with one of <code>options[].model</code> and <code>EFFORT</code> with one of
+that option's <code>effort_choices</code>, and refuses anything else. <code>reset.next_command</code> (null until a choice
+is saved) forgets the stage's choice. Both print the updated view, and a refused choice exits 2 with
+the reason on stderr and saves nothing. The view launches no model and reads no credential. A new
+task reads the choices when it starts; a running task keeps its own.</p>
 <h2 id="run-modes-for-clients">Run modes for clients<a class="headerlink" href="#run-modes-for-clients" title="Permanent link">&para;</a></h2>
 <p>A client that starts runs may offer a choice of how much planning a new run does
 before the person approves it. <code>autocode modes list --json</code> returns the

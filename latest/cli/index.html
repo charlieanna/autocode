@@ -2460,7 +2460,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/7dab5115fca32d18fcf7135679e5ef71c300e839/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2621,7 +2621,11 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 </tr>
 <tr>
 <td><code>autocode setup [--install opencode\|kilocode] [--json]</code></td>
-<td>Connect the backends AutoCode runs on, once after installing it (#2049): checks Claude Code, Codex, OpenCode and Kilo with each one's own login listing; in a terminal, when neither OpenCode nor Kilo is installed, offers to install OpenCode 1.18.33 with npm (one yes/no; <code>--install</code> installs the named hub without asking); offers each installed, signed-out one its own sign-in, where you connect ChatGPT, GLM, MiMo or API keys; then says which backend new runs use and the route each role takes. It launches no model. Without npm it names the Node.js download and the command to run. <code>--json</code> asks nothing and installs only what <code>--install</code> names and returns <code>backends</code> (the <code>autocode connections</code> rows, checked, with <code>install_command</code> when missing) and <code>new_runs_use</code>. Exit 1 when no backend could start a run.</td>
+<td>Connect the backends AutoCode runs on, once after installing it (#2049): checks Claude Code, Codex, OpenCode and Kilo with each one's own login listing; in a terminal, when neither OpenCode nor Kilo is installed, offers to install OpenCode 1.18.33 with npm (one yes/no; <code>--install</code> installs the named hub without asking); offers each installed, signed-out one its own sign-in, where you connect ChatGPT, GLM, MiMo or API keys; then says which backend new runs use and, in a terminal, offers to choose each stage's model and reasoning level on it (<code>autocode stages choose</code>; the first time Enter means yes); finally it lists each stage's choice, or without one the route each role takes. It launches no model. Without npm it names the Node.js download and the command to run. <code>--json</code> asks nothing and installs only what <code>--install</code> names and returns <code>backends</code> (the <code>autocode connections</code> rows, checked, with <code>install_command</code> when missing) and <code>new_runs_use</code>. Exit 1 when no backend could start a run.</td>
+</tr>
+<tr>
+<td><code>autocode stages [list\|choose\|set\|reset] [STAGE] [--model MODEL] [--effort LEVEL] [--backend NAME] [--workspace PATH] [--json]</code></td>
+<td>See and change the model and reasoning level each stage of a new task runs, kept per backend in <code>~/.config/autocode/stages.toml</code> (<a href="../models/#choosing-each-stages-model">Choosing each stage's model</a>). <code>list</code> (the default) shows each stage, what it does, and its model and level, marked as your choice or the default; <code>choose</code> asks for every stage in turn in a terminal, with advice on what suits it, and saves the answers together; <code>set STAGE --model MODEL --effort LEVEL</code> changes one stage (a stage is its route name, such as <code>terra</code>, or its job, such as <code>builder</code>), refusing a model the backend does not offer, a level the model does not take, or a model the stage's checker or producer runs; <code>reset [STAGE]</code> forgets one stage's choice, or every stage's. Without <code>--backend</code> it uses the backend a new run in <code>--workspace</code> would take. <code>--json</code> returns the view clients render as one dropdown per stage (<a href="../task-run/#stage-choices-for-clients">Stage choices for clients</a>). Every new task reads the choices before it begins; a flag or the project's <code>.autocode/config.toml</code> still wins, and a task already running keeps its own. It launches no model.</td>
 </tr>
 <tr>
 <td><code>autocode doctor [--workspace PATH] [--engine opencode\|codex\|claude] [--json]</code></td>
@@ -2680,7 +2684,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/7dab5115fca32d18fcf7135679e5ef71c300e839/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3286,7 +3290,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/7dab5115fca32d18fcf7135679e5ef71c300e839/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3716,6 +3720,11 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 <td><code>autocode setup</code></td>
 <td><code>--install</code>, <code>--json</code></td>
 <td>Install that hub (<code>opencode</code> or <code>kilocode</code>) with npm without asking when it is missing; report the four backends and what new runs use without asking anything.</td>
+</tr>
+<tr>
+<td><code>autocode stages</code></td>
+<td><code>--model</code>, <code>--effort</code>, <code>--backend</code>, <code>--workspace</code>, <code>--json</code></td>
+<td>For <code>set</code>, the stage's model (one the backend offers) and reasoning level (one that model takes, or <code>default</code> when it lists none); the backend whose choices to read or change (<code>claude</code>, <code>codex</code>, <code>opencode</code>, <code>kilocode</code> or a configured provider; default: the one a new run takes); the project whose <code>engine</code> setting counts; and the stage view as JSON.</td>
 </tr>
 <tr>
 <td><code>autocode doctor</code></td>
@@ -4194,7 +4203,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/7dab5115fca32d18fcf7135679e5ef71c300e839/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
