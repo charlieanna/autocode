@@ -207,6 +207,10 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
             conversation_journal = conversation_protocol.read_journal(run_dir)
         except (OSError, ValueError) as error:
             conversation_journal = {"session_error": str(error)}
+    try:
+        pending = interventions.inspect(workspace, run_dir)["requests"]
+    except interventions.InterventionError:
+        pending = None  # An unreadable inbox cannot accept a request either.
     public_view = runner.run_view.view(
         state,
         completion_current=completion_current,
@@ -223,6 +227,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         dev_server=dev_server.inspect(run_dir, state.get("settings")),
         observation=observation,
         execution_inspection=execution_inspection,
+        stop_pending=any(isinstance(row, dict) and row.get("kind") == "stop" for row in pending or []),
     )
     if public_view.get("workflow") == "review" and state.get("status") == "TASK_COMPLETE":
         result = public_view["evidence"].get("workflow_result")
@@ -232,10 +237,6 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
             )
     public_view["attention"] = attention_status.observed(public_view.get("attention"))
     public_view["job_report_recovery"] = job_report_recovery.offer(runner, state, run_dir, workspace)
-    try:
-        pending = interventions.inspect(workspace, run_dir)["requests"]
-    except interventions.InterventionError:
-        pending = None  # An unreadable inbox cannot accept a request either.
     if pending is not None:
         public_view["pause"] = pause_offer.project(
             state, public_view, pending=pending, run_dir=run_dir, workspace=workspace

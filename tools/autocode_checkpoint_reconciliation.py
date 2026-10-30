@@ -55,10 +55,12 @@ def require_binding(state: RunState, expected):
         raise ValueError("The retained checkpoint changed; refresh its status before reconciling supervision")
 
 
-def offer(state: RunState, inspection, *, controller=None):
+def offer(state: RunState, inspection, *, controller=None, stop_pending=False):
     active = state.get("active_stage")
     if (
         (state.get("execution") or {}).get("mode") == "durable_local"
+        # A stop already applied or still in the inbox comes first: the CLI refuses to reconcile under it.
+        or stop_pending
         or any(row.get("kind") == "stop" for row in state.get("applied_interventions") or [])
         or state.get("ui_run")
         or state.get("status") != "RUNNING"

@@ -479,16 +479,18 @@ class TaskRun:
 
     def _advance(self, view: dict) -> dict:
         """Take this view's named continue action, or the ordinary ``--no-chat`` relaunch."""
-        command = ["--no-chat"]
-        secret_env = {}
-        if (view.get("needs") or {}).get("kind") == "continue" and view.get("next_command"):
+        need = view.get("needs") or {}
+        if need.get("kind") == "continue" and need.get("action") and view.get("next_command"):
             try:
                 from . import autocode_client_actions as actions
             except ImportError:
                 import autocode_client_actions as actions
+            # A named recovery (--abandon-stage, --reconcile-only) is exactly the command the view
+            # names; launch settings belong to a relaunch, and the CLI refuses them on these actions.
             named = actions.named(view, self.workspace, self.run_dir)
-            command, secret_env = named.argv, named.env
-        self._invoke("advance", *command, *self.options, advancing=True, secret_env=secret_env)
+            self._invoke("advance", *named.argv, advancing=True, secret_env=named.env)
+        else:
+            self._invoke("advance", "--no-chat", *self.options, advancing=True, secret_env={})
         return self.status()
 
     def advance_until_input(self, max_calls: int = 20) -> dict:
