@@ -94,6 +94,16 @@ effective `CAP_SYS_PTRACE` or `CAP_SYS_ADMIN` are also refused. The keeper is
 non-dumpable to protect its listener from same-user descriptor access. This is
 a process ownership boundary, not a filesystem or network sandbox.
 
+Before touching run state, the Linux CLI automatically removes only
+`CAP_SYS_PTRACE` and `CAP_SYS_ADMIN` from its bounding set when present, then
+re-executes the same Python invocation once. Root containers therefore normally
+need no `setpriv` prefix. The CLI records the verified drop on stderr and in
+`doctor`'s session row; it never elevates privileges or bypasses session admission.
+Set `AUTOCODE_NO_CAPABILITY_DROP=1` to retain externally managed startup behavior
+(including the offline demo). If `prctl` or re-exec is unavailable or refused,
+the existing admission check and cleanup-pause explanation remain in force.
+A successful drop does not establish other kernel boundary requirements.
+
 Offline native tests cover detached spawning, thread callers, double forks,
 descriptor closure, owner loss and keeper loss. They do not establish live-model
 or provider-version conformance. This policy changes no role models or routes.
@@ -581,8 +591,9 @@ of recorded Claude runs; no Investigator report adoption; `autocode models` list
 ids. `components` and `verify` take `--provider claude` rather than `--engine claude`;
 `tasks` has neither and runs its lanes on Claude Code through `AUTOCODE_PROVIDER=claude`,
 `default_provider = "claude"` or the project's `engine = "claude"`. Claude Code loads `CLAUDE.md` files of the workspace and its ancestors, so keep a
-scenario's `--out` outside this repository. In a root cloud container, prefix runs with
-`setpriv --bounding-set=-sys_admin,-sys_ptrace` ([cloud sessions](../examples/claude-provider/CLOUD-SESSION.md)).
+scenario's `--out` outside this repository. In a root cloud container, the CLI drops the two
+prohibited capabilities automatically; see [provider process ownership](#provider-process-ownership)
+for the opt-out and failure behavior ([cloud sessions](../examples/claude-provider/CLOUD-SESSION.md)).
 
 ## Add a tool
 

@@ -36,8 +36,8 @@ both, such a run is refused at setup unless it is started with --allow-uncontain
 the check warns; it never fails doctor. ``opencode --version`` runs once per doctor.
 
 The ``session`` check fails when this host refuses every supervised stage, by the check each Linux
-stage launch makes (autocode_session_boundary): above all a root shell in a container, VM or CI image
-that holds CAP_SYS_ADMIN or CAP_SYS_PTRACE, which it tells to run as an ordinary user or drop the two.
+stage launch makes (autocode_session_boundary), after CLI startup attempts its capability drop.
+If CAP_SYS_ADMIN or CAP_SYS_PTRACE remains available, it names the ordinary-user or manual-drop fallback.
 
 The ``path`` check (#1761) warns, without failing doctor, when ``autocode`` is not on PATH, so
 a new shell would answer ``command not found``, and names the virtual environment's ``bin``
@@ -61,6 +61,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 try:
+    from . import autocode_capability_startup as capability_startup
     from . import autocode_connected_engine as connected_engine
     from . import autocode_install_drift
     from . import autocode_session_boundary as session_boundary
@@ -68,6 +69,7 @@ try:
     from . import autocode_tool_containment as tool_containment
     from . import autocode_util as util
 except ImportError:  # direct-script mode has no package parent
+    import autocode_capability_startup as capability_startup
     import autocode_connected_engine as connected_engine
     import autocode_install_drift
     import autocode_session_boundary as session_boundary
@@ -632,9 +634,9 @@ UNPRIVILEGED = "setpriv --bounding-set=-sys_admin,-sys_ptrace"
 def session_check(require=session_boundary.require_supported) -> Check:
     """Whether this host admits supervised stages at all, by the check every Linux stage launch makes.
 
-    A Linux shell holding CAP_SYS_ADMIN or CAP_SYS_PTRACE (root in most containers, VMs and CI images) has
-    every stage refused before any provider starts, the demo included, with PAUSED_PROCESS_CLEANUP. Say so
-    here rather than let the first run discover it. macOS runs under portable supervision and passes."""
+    The CLI first attempts to drop CAP_SYS_ADMIN and CAP_SYS_PTRACE. If either remains available,
+    every stage is still refused with PAUSED_PROCESS_CLEANUP. Report observed admission, never a
+    prediction that a drop might succeed. macOS runs under portable supervision and passes."""
     try:
         require()
     except session_boundary.PortableHost:
@@ -652,7 +654,10 @@ def session_check(require=session_boundary.require_supported) -> Check:
             f"{error}: every stage, the offline demo included, is refused before it starts (PAUSED_PROCESS_CLEANUP)",
             fix,
         )
-    return Check("session", OK, "stages can run under supervised session ownership")
+    detail = "stages can run under supervised session ownership"
+    if capability_startup.DROPPED:
+        detail += "; automatically dropped CAP_SYS_PTRACE and CAP_SYS_ADMIN at CLI startup"
+    return Check("session", OK, detail)
 
 
 def shared_host_check(passwd_lines=None, uid=None) -> Check:

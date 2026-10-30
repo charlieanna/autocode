@@ -8,6 +8,14 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_capability_startup_keeps_the_public_demo_consumer(self):
+        consumers = {"tests.test_capability_startup", "tests.test_demo"}
+        for path in ("tools/autocode_capability_startup.py", "tools/autocode_native_invocation.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {name: "" for name in consumers})
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+
     def test_scripted_greeting_fixture_keeps_public_task_consumers(self):
         consumers = {
             "tests.test_live_fixture_changed_code",

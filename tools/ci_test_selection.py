@@ -67,6 +67,8 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tools/autocode_capability_startup.py", ("tests.test_capability_startup", "tests.test_demo")),
+    ("tools/autocode_native_invocation.py", ("tests.test_capability_startup", "tests.test_demo")),
     (
         "scenarios/harness/fake_changed_code.py",
         (
