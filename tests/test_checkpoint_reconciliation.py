@@ -176,7 +176,10 @@ class CheckpointCliTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertTrue(payload["result"]["saved"])
         self.assertFalse(payload["view"]["done"])
-        self.assertNotEqual("continue", payload["view"]["needs"]["kind"])
+        # The now-uncertain attempt is archived next as the core's own named step, never a retry or launch.
+        need = payload["view"]["needs"]
+        self.assertEqual("continue", need["kind"])
+        self.assertEqual("--abandon-stage 001/review-change-01 then --resume-paused", need["action"])
         current = json.loads(self.path.read_text())
         self.assertEqual("PAUSED_UNCERTAIN_STAGE", current["status"], result.stdout + result.stderr)
         for key in (

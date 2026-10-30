@@ -241,7 +241,8 @@ class NativeCleanupGuidanceTests(unittest.TestCase):
     def test_ordinary_cleanup_keeps_original_recovery_guidance(self):
         state = self.state(native=False)
         shown = run_view.view(state)
-        self.assertEqual("resume", shown["needs"]["kind"])
+        # Setting aside the uncertain attempt is the core's own recovery, so no person is asked.
+        self.assertEqual("continue", shown["needs"]["kind"])
         self.assertEqual("--abandon-stage 001/plan-finalize-01 then --resume-paused", shown["needs"]["action"])
         self.assertIn("abandon", [row["kind"] for row in shown["recovery"]["actions"]])
 

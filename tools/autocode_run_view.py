@@ -170,6 +170,7 @@ def view(
     dev_server=None,
     observation=None,
     execution_inspection=None,
+    stop_pending=False,
 ) -> dict:
     """Caller supplies fresh completion, evidence, repair, supervision and design-input inspections."""
     try:
@@ -198,7 +199,7 @@ def view(
         from . import autocode_checkpoint_reconciliation as reconciliation
     except ImportError:
         import autocode_checkpoint_reconciliation as reconciliation
-    reconcile = reconciliation.offer(state, liveness, controller=controller)
+    reconcile = reconciliation.offer(state, liveness, controller=controller, stop_pending=stop_pending)
     if reconcile is not None:
         next_action = {
             "needs": reconcile,
@@ -1299,9 +1300,12 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             attempt = f"{active['iteration']:03d}/{Path(active['output']).stem}"
             need["abandon_stage"] = attempt
             need["action"] = f"--abandon-stage {attempt} then --resume-paused"
-            if not stale_report_repair:
+            held = operational_information.projection(state) or {}
+            if not stale_report_repair and not (held.get("status") == "held" and held.get("action")):
                 # The core has classified this exact retained response as uncertain
                 # and already requires it to be archived before any further work.
+                # A held information review instead names a person's change (another
+                # model after a content-filter refusal), so that pause stays a resume.
                 need["kind"] = "continue"
                 return need
         if stale_report_repair:
