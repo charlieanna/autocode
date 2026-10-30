@@ -150,7 +150,7 @@ Other engines keep their own defaults, set where each engine is configured:
 
 | Engine or provider | Defaults |
 | --- | --- |
-| `--engine codex` | `gpt-5.6-terra` for the Builder; `gpt-5.6-sol` for the Resolver, Tester and Completion Reviewer (`DEFAULT_ROLE_MODELS` in `tools/autocode.py`) |
+| `--engine codex` | `gpt-5.6-terra` for the Builder; `gpt-5.6-sol` for the Resolver, Tester and Completion Reviewer (`DEFAULT_ROLE_MODELS` in `tools/autocode_configure.py`); with `--joint-planning`, Requirements and the Planner take the Resolver's model and a new Plan Reviewer takes `gpt-6-astra`, or `gpt-5.6-sol` when the Planner runs `gpt-6-astra` (`CODEX_PLAN_REVIEWER_MODELS`) |
 | `--engine claude` (or `--provider claude`) | `claude-haiku-4-5-20251001` for the Builder; `claude-sonnet-5-5` for Requirements, the Planner and the Tester; `claude-opus-5-5` for the Plan Reviewer, the Resolver and the Completion Reviewer; every role at `medium` (`tools/providers/claude.py`, [Claude Code provider](providers.md#claude-code-provider)) |
 | `--provider kilocode` | `openai/gpt-5.6-terra` for the Builder, `zai-coding-plan/glm-5.3` for the Planner, `openai/gpt-5.6-sol` for every other role (`tools/providers/configs/kilocode.toml`) |
 | a user-level provider | whatever its `~/.config/autocode/providers/<name>.toml` `[roles]` specify |

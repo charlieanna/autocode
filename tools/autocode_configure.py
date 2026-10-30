@@ -53,6 +53,7 @@ try:
     from . import autocode_transport_recovery as transport_recovery
     from . import autocode_utility_route as utility_route
     from . import autocode_verification_config as verification_config
+    from . import autocode_verifier_independence as independence
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_adaptive_planning as adaptive
@@ -82,6 +83,7 @@ except ImportError:
     import autocode_transport_recovery as transport_recovery
     import autocode_utility_route as utility_route
     import autocode_verification_config as verification_config
+    import autocode_verifier_independence as independence
 
 DEFAULT_ROLE_MODELS = {
     "astra": "gpt-5.6-sol",
@@ -89,6 +91,10 @@ DEFAULT_ROLE_MODELS = {
     "sol": "gpt-5.6-sol",
     "completion": "gpt-5.6-sol",
 }
+# A new native Codex Plan Reviewer that names no model takes the first of these the Planner does not
+# run: copied from the Resolver it would run the Planner's model and stop the run at its own
+# independence check, asking the person which model to use.
+CODEX_PLAN_REVIEWER_MODELS = ("gpt-6-astra", "gpt-5.6-sol")
 # Keep the historical OpenCode default for existing saved/dashboard flows.
 DEFAULT_ENGINE = "opencode"
 
@@ -1066,6 +1072,7 @@ def configure_codex_joint(settings, args, *, planning):
     check_subscription(settings["transport_identity"])
     roles = settings["roles"]
     single_model = getattr(args, "single_model", None)
+    creating_plan_reviewer = "plan_reviewer" not in roles
     for role in ("requirements", "glm", "plan_reviewer"):
         creating_requirements = role == "requirements" and role not in roles
         roles.setdefault(role, copy.deepcopy(roles["astra"]))
@@ -1081,6 +1088,16 @@ def configure_codex_joint(settings, args, *, planning):
             route["model"] = single_model
         elif model:
             route["model"] = model
+        elif role == "plan_reviewer" and creating_plan_reviewer:
+            planner = roles["glm"].get("model")
+            route["model"] = next(
+                (
+                    choice
+                    for choice in CODEX_PLAN_REVIEWER_MODELS
+                    if not independence.shares(planner, choice, vendor_engine=True)
+                ),
+                route.get("model"),
+            )
         if effort:
             route["reasoning_effort"] = effort
     _resolver_override(settings, args)

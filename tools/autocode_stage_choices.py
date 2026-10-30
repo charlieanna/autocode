@@ -109,9 +109,10 @@ LABELS = {
 }
 BACKEND_LABELS = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "kilocode": "Kilo"}
 # Codex has no model listing. These are the bare GPT names AutoCode runs on it (autocode_configure
-# DEFAULT_ROLE_MODELS, whose joint planning copies the astra route; tests keep them in step).
+# DEFAULT_ROLE_MODELS, whose joint planning copies the astra route into Requirements and the Planner
+# and gives the Plan Reviewer CODEX_PLAN_REVIEWER_MODELS[0]; tests keep them in step).
 CODEX_MODELS = ("gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra")
-CODEX_DEFAULTS = {role: "gpt-5.6-sol" for role in ORDER} | {"terra": "gpt-5.6-terra"}
+CODEX_DEFAULTS = {role: "gpt-5.6-sol" for role in ORDER} | {"terra": "gpt-5.6-terra", "plan_reviewer": "gpt-6-astra"}
 # The level a model with no reasoning variants takes: its own default, sent as no level at all.
 OWN_DEFAULT = "default"
 _MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@+/-]{0,199}$")
@@ -249,8 +250,12 @@ def defaults(backend, *, resolve=None) -> dict:
 
 
 def effort_choices(option) -> list[str]:
-    """The levels a person may pick for ``option``: its levels, or its own default when it lists none."""
-    return list(option["levels"]) or [OWN_DEFAULT]
+    """The levels a person may pick for ``option``, lowest first, or its own default when it lists none.
+
+    A listing prints its variants in no useful order; a level outside the scale keeps its place after them.
+    """
+    rank = {level: number for number, level in enumerate(route_fit.SCALE)}
+    return sorted(option["levels"], key=lambda level: rank.get(level, len(rank))) or [OWN_DEFAULT]
 
 
 def unavailable(role, model, effective, *, backend) -> str | None:
