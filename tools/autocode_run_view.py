@@ -1000,8 +1000,6 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      and requires a fresh run with valid caller inputs;
                                                      `edit_required` instead prescribes --edit-goal FILE
                                                      and `feedback_action` when offered, then fresh approval;
-                                                     when `abandon_stage` is set, --abandon-stage
-                                                     ATTEMPT first (the attempt is uncertain);
                                                      `guidance`, when set, says in prose what the
                                                      alternatives do (the Tester's pause: --feedback
                                                      revises the plan, a resume reruns the Tester);
@@ -1033,7 +1031,9 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      producer needs a person or ends; the delivery and
                                                      the resume are the dependency worker's, not a
                                                      person's command on this run
-    continue      nothing; relaunch to proceed      the same command with --run-dir
+    continue      nothing; relaunch to proceed      the same command with --run-dir;
+                                                     a core-classified uncertain attempt may name
+                                                     --abandon-stage ATTEMPT as deterministic recovery
     """
     status = state.get("status", "")
     if status in COMPLETE:
@@ -1120,9 +1120,8 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
     issued = state.get("resolver_human_request")
     if recovery_progress.routine_resume(state, issued):
         return {
-            "kind": "resume",
+            "kind": "continue",
             "action": "--resume-paused",
-            "reason": "Saved progress permits bounded recovery without another slot grant",
         }
     questions = state.get("pending_questions") or []
     reviews = [question for question in questions if question.get("review_criteria")]
@@ -1300,6 +1299,11 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             attempt = f"{active['iteration']:03d}/{Path(active['output']).stem}"
             need["abandon_stage"] = attempt
             need["action"] = f"--abandon-stage {attempt} then --resume-paused"
+            if not stale_report_repair:
+                # The core has classified this exact retained response as uncertain
+                # and already requires it to be archived before any further work.
+                need["kind"] = "continue"
+                return need
         if stale_report_repair:
             need["action"] = "--resume-paused"
             return need

@@ -87,6 +87,20 @@ class PauseCommandTests(unittest.TestCase):
         self.assertNotIn(token, argv)
         self.assertEqual(Path("/tmp/run with spaces"), args.run_dir)
 
+    def test_core_named_deterministic_recovery_is_a_continue_action(self):
+        text = self.command(
+            {
+                "kind": "continue",
+                "abandon_stage": "001/requirements-gather-01",
+                "action": "--abandon-stage 001/requirements-gather-01 then --resume-paused",
+            }
+        )
+        _, argv = self.parse(text)
+        self.assertEqual(
+            ["--run-dir", "/tmp/run with spaces", "--abandon-stage", "001/requirements-gather-01"],
+            argv,
+        )
+
     def test_operational_request_uses_its_response_consumer(self):
         text = self.command(
             {

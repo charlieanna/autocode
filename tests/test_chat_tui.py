@@ -853,6 +853,7 @@ class LivePaneTests(unittest.TestCase):
         "chat": {
             "log": [
                 {"id": "a:r1", "agent": "Builder · task M1", "kind": "thinking", "text": "Read greet.py first"},
+                {"id": "a:e1", "agent": "Builder · task M2", "kind": "edit", "text": "edited greet.py"},
                 {
                     "id": "b:c1",
                     "agent": "Builder · task M2",
@@ -860,6 +861,7 @@ class LivePaneTests(unittest.TestCase):
                     "text": "pytest -q",
                     "status": "failed",
                 },
+                {"id": "c:m1", "agent": "Plan Reviewer", "kind": "message", "text": "Check the output."},
             ]
         }
     }
@@ -882,8 +884,11 @@ class LivePaneTests(unittest.TestCase):
         texts = [text for row, _, text in puts if layout.live_start <= row < layout.panel_end]
         self.assertTrue(any("LIVE · all agents" in text for text in texts))
         self.assertIn("Builder · task M1", texts)
+        self.assertIn("Builder · task M2", texts)
         self.assertTrue(any("Read greet.py first" in text for text in texts))
-        self.assertTrue(any("pytest -q" in text for text in texts))
+        self.assertTrue(any("edited greet.py" in text for text in texts))
+        self.assertTrue(any("Check the output." in text for text in texts))
+        self.assertFalse(any("pytest -q" in text for text in texts))
 
     def test_typing_while_autocode_works_keeps_the_pane(self):
         ui = screen_ui(*"/pl")
@@ -907,7 +912,7 @@ class LivePaneTests(unittest.TestCase):
         self.assertIsNotNone(ui._layout(30, 120).live_start)
         self.assertEqual(["Builder · task M2"], [entry["agent"] for entry in ui._live.shown()])
         ui._run("/live", False, "all")
-        self.assertEqual(2, len(ui._live.shown()))
+        self.assertEqual(3, len(ui._live.shown()))
         ui._run("/live", False, "off")
         self.assertIsNone(ui._layout(30, 120).live_start)
 
@@ -919,6 +924,7 @@ class LivePaneTests(unittest.TestCase):
         [(role, text)] = ui._transcript.blocks[-1:]
         self.assertEqual("info", role)
         self.assertIn("Builder · task M1 ∴ Read greet.py first", text)
+        self.assertNotIn("pytest -q", text)
 
     def test_long_entries_wrap_under_their_agent_and_never_carry_escapes(self):
         ui = screen_ui()

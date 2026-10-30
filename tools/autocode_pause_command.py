@@ -90,6 +90,8 @@ def command(need, *, run_dir=None, workspace=None, resume_flags=None, terminal=F
         if not action and kind == "retry_job":
             action = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
         flags = _action_flags(action or "--resume-paused", need)
+    elif kind == "continue" and need.get("action"):
+        flags = _action_flags(need["action"], need)
     else:
         flags = ["--no-chat"]
     private = {}
