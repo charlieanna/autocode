@@ -2118,7 +2118,7 @@
 
 
 <h1 id="tests-evidence-and-legacy-migration">Tests, evidence, and legacy migration<a class="headerlink" href="#tests-evidence-and-legacy-migration" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/22c5ef4745ff33cc6b40c4c60d8107be6ff952f7/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/README.md">← Back to README</a></p>
 <h2 id="progressive-testing-plan">Progressive testing plan<a class="headerlink" href="#progressive-testing-plan" title="Permanent link">&para;</a></h2>
 <p>See the <a href="../testing-plan/">progressive testing plan</a> for the simple-to-complex
 task ladder, independent pass criteria, failure-injection matrix, evidence format,
@@ -2189,7 +2189,7 @@ guards, and no missing or skipped coverage before Builder. A runner-side host
 admission failure remains a verification blocker. This uses the existing runner;
 it adds no sandbox exemption, test skip or new model call.</p>
 <p>For a provider-backed regression, use a supported Linux checkout of the same
-revision and the <a href="https://github.com/charlieanna/autocode/blob/22c5ef4745ff33cc6b40c4c60d8107be6ff952f7/CONTRIBUTING.md#set-up-a-development-checkout">development setup</a>.
+revision and the <a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/CONTRIBUTING.md#set-up-a-development-checkout">development setup</a>.
 Run as an ordinary user and install only the toolchains the selected test needs.
 For example, this existing fake CLI regression needs no model account:</p>
 <pre><code class="language-sh">.venv/bin/python -m unittest \
@@ -2242,11 +2242,11 @@ For such a shell, use the existing capability drop for a direct focused run:</p>
 are held and <code>setpriv</code> is available. Dropping them does not supply a missing
 kernel feature. Scenario runs in that Linux shell need
 the same prefix.</p>
-<p>The existing <a href="https://github.com/charlieanna/autocode/blob/22c5ef4745ff33cc6b40c4c60d8107be6ff952f7/.github/workflows/tests.yml">Ubuntu CI jobs</a> provide PR and
+<p>The existing <a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/.github/workflows/tests.yml">Ubuntu CI jobs</a> provide PR and
 master checks. Report the exact revision, selected checks and any local checks
 left unrun; PR selection can omit unchanged slow tests, and the harness gate is
 not a pass of the entire fake catalog. Keep focused fakes as the default; a
-<a href="https://github.com/charlieanna/autocode/blob/22c5ef4745ff33cc6b40c4c60d8107be6ff952f7/AGENTS.md#fake-first-verification-and-optional-live-runs">live run remains optional</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/AGENTS.md#fake-first-verification-and-optional-live-runs">live run remains optional</a>.</p>
 <p>PR CI uses the event's fixed base and head commits to select affected tests.
 Python selection includes explicit prompt/schema and public CLI consumers;
 required mapped consumers are retained even when normally slow. Heavy browser,
@@ -2280,7 +2280,7 @@ provider. That provider writes a tiny greeting program, then executes both succe
 failure cases in its validation stage. It never calls a real model or reads credentials.
 Set <code>AUTOCODE_TEST_CLI=/path/to/installed/autocode</code> to test the installed package.
 These tests prove runner behavior, not a model's interviewing quality or semantic
-review accuracy. See <a href="https://github.com/charlieanna/autocode/blob/22c5ef4745ff33cc6b40c4c60d8107be6ff952f7/VALIDATION.md"><code>VALIDATION.md</code></a> for measured results and remaining limits.</p>
+review accuracy. See <a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/VALIDATION.md"><code>VALIDATION.md</code></a> for measured results and remaining limits.</p>
 <p>Runner-owned verification copies keep a detached HEAD at the source snapshot's actual commit and
 an independent pack of its reachable history. Current uncommitted source still overlays that
 history. This lets delivery checks such as <code>git diff-tree -r HEAD</code> inspect the delivered commit.
@@ -2412,7 +2412,7 @@ provider descendants, then records <code>ERROR</code> and scores whatever was de
 does not rewrite a still-<code>RUNNING</code> checkpoint into a successful or paused run.
 Unhandled runner pauses remain honest blockers instead of being blindly resumed.</p>
 <p>The first GLM 5.3 / MiMo v2.6 Pro task-type live trials produced no completed delivery;
-see <a href="https://github.com/charlieanna/autocode/blob/22c5ef4745ff33cc6b40c4c60d8107be6ff952f7/VALIDATION.md">the evidence record</a>. Passing offline controls must not be
+see <a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/VALIDATION.md">the evidence record</a>. Passing offline controls must not be
 presented as live model success.</p>
 <h3 id="diagnosis-trials">Diagnosis trials<a class="headerlink" href="#diagnosis-trials" title="Permanent link">&para;</a></h3>
 <p><code>tools/live_diagnosis_trial.py</code> records a controlled trial of the operator-triggered
@@ -2436,7 +2436,7 @@ real-model diagnosis-validation requirement.</p>
 <code>feature-stock-refusals</code> through <code>astra_resolve</code>: refusal tests that also pass on the
 original code fail the runner's regression proof, and the oracle's <code>diagnosis()</code> scores the
 Resolver's diagnosis and repair task apart from the run verdict (see
-<a href="https://github.com/charlieanna/autocode/blob/22c5ef4745ff33cc6b40c4c60d8107be6ff952f7/scenarios/README.md#diagnosis">the scenario harness</a>). Its scope is narrow. The defect is
+<a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/scenarios/README.md#diagnosis">the scenario harness</a>). Its scope is narrow. The defect is
 a test-validity defect that the runner's model-free proof already flags, naming each vacuous
 test, and in the three real 2026-10-04 Resolver calls the Completion Owner's review had named
 the cause first (<code>review_already_named_cause</code>). A <code>CORRECT</code> therefore shows that AutoResolver
@@ -2444,12 +2444,12 @@ confirms the cause, writes a bounded repair that works and stays read-only; it d
 unaided discovery of a product-logic defect. The scripted runs prove only the route and the
 scoring. In eight natural live runs on 2026-10-05 (seven <code>claude-tiers</code>, one OpenCode) no
 Builder wrote the vacuous tests, so none reached the trap. A hybrid run
-(<code>run --profile NAME --hybrid</code>, see <a href="https://github.com/charlieanna/autocode/blob/22c5ef4745ff33cc6b40c4c60d8107be6ff952f7/scenarios/README.md#hybrid-runs">the scenario harness</a>)
+(<code>run --profile NAME --hybrid</code>, see <a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/scenarios/README.md#hybrid-runs">the scenario harness</a>)
 scripts planning and the first Builder, which delivers the vacuous tests, and keeps the
 Validator, Completion Owner, Resolver and repair Builder live; its results have their own mode
 (<code>NAME-hybrid</code>) and its diagnosis counts only the live Resolver's calls. The live results and
 their limits are in
-<a href="https://github.com/charlieanna/autocode/blob/22c5ef4745ff33cc6b40c4c60d8107be6ff952f7/docs/bugs/2026-10-05-autoresolver-live-diagnosis.md">AutoResolver's live diagnosis</a>. In the 12
+<a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/docs/bugs/2026-10-05-autoresolver-live-diagnosis.md">AutoResolver's live diagnosis</a>. In the 12
 hybrid runs of #59's batches, a hand read found that the Resolver named the vacuous tests and
 the cause in all 12; in 11 of them the Completion Owner had already named the cause (by word
 match). On the fixed product the scorer gave 2 of 6 <code>CORRECT</code> at run time and 6 of 6 once it
@@ -2479,7 +2479,7 @@ archived for inspection and must be revalidated. The Requirements Gatherer uses 
 to ask only material unresolved questions. User decisions are never backdated.
 Completed interrupted stages reconcile before migration; live/uncertain stages
 refuse migration. No migration was applied to the original IdleCampus run.</p>
-<p>See also: <a href="../execution/">Execution</a> · <a href="https://github.com/charlieanna/autocode/blob/22c5ef4745ff33cc6b40c4c60d8107be6ff952f7/RELIABILITY.md">Reliability priorities</a></p>
+<p>See also: <a href="../execution/">Execution</a> · <a href="https://github.com/charlieanna/autocode/blob/c345d905426086aa49dda3c9578ce20aac01d48b/RELIABILITY.md">Reliability priorities</a></p>
 
 
 
