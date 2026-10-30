@@ -95,7 +95,7 @@
         "done": {"type": "boolean", "description": "True when the task completed: status TASK_COMPLETE or COMPLETE, and not a replay with recorded checks."},
         "needs": {
           "type": ["object", "null"],
-          "description": "What must happen next for the run to progress; null when it is complete. `kind` is an open vocabulary (approve_plan, answer, review, resume, continue, ...); `continue` means relaunching the run needs nothing from a person.",
+          "description": "What must happen next for the run to progress; null when it is complete. `kind` is an open vocabulary (approve_plan, answer, review, resume, continue, ...); `continue` means no person input is needed, including when the core names a deterministic recovery action in `next_command`.",
           "required": ["kind"],
           "properties": {
             "kind": {"type": "string"},
