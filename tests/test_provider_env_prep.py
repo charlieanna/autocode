@@ -255,7 +255,7 @@ class ProviderEnvPrepTests(unittest.TestCase):
         ) as refused:
             oc.local_settings(self.workspace, env=empty_mapping)
         # The first-run refusal says what to do next, not only what is missing (onboarding, #2262).
-        self.assertIn("Run `autocode doctor`", str(refused.exception))
+        self.assertIn("Run `autocode setup`", str(refused.exception))
         self.assertIn("--engine claude or --engine codex", str(refused.exception))
 
         fail_bin = self.make_bin("ac6-models-fail-bin")

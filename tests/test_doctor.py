@@ -700,7 +700,9 @@ class ContainmentTests(unittest.TestCase):
         with self.host():
             checks = doctor.all_checks(self.workspace, None, on_path("opencode"), runner, self.resolve, found=found)
         status = found["containment"]
-        self.assertEqual([(("opencode", "--version"), self.workspace)], [c for c in calls if c[0][0] == "opencode"])
+        self.assertEqual(
+            [(("opencode", "--version"), self.workspace)], [c for c in calls if c[0][:2] == ("opencode", "--version")]
+        )
         rows = {c.name: c for c in checks}
         self.assertEqual("OpenCode 1.18.33", rows["engine:opencode"].detail)
         self.assertEqual(doctor.containment_check(status), rows["containment"])

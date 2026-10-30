@@ -245,7 +245,8 @@ class OpenCodeWithoutAccountTests(unittest.TestCase):
 
     def test_any_listed_credential_or_an_unreadable_listing_keeps_opencode(self):
         for listing in (
-            (0, "●  OpenAI oauth\n"),
+            (0, "●  OpenAI oauth\n└  1 credentials\n"),
+            (0, "1.18.33\n"),
             (0, "┌  Environment\n●  Anthropic ANTHROPIC_API_KEY\n"),
             (1, ""),
             (127, ""),

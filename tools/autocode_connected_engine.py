@@ -129,10 +129,10 @@ def choose(*, which=shutil.which, runner=_run, workspace=None, resolve=providers
 
 
 def _opencode_has_no_account(runner) -> bool:
-    """True only when ``opencode auth list`` answers and lists nothing at all.
+    """True only when ``opencode auth list`` answers, says ``0 credentials`` and lists no row at all.
 
-    Any listed credential, an environment-variable row included, or a listing that fails or cannot be
-    read keeps OpenCode the default: passing it over is only for the plainly empty case (#2049).
+    Any listed credential, an environment-variable row included, or a listing that fails or reads
+    otherwise keeps OpenCode the default: passing it over is only for the plainly empty case (#2049).
     """
     try:
         result = runner(["opencode", "auth", "list"])
@@ -141,7 +141,8 @@ def _opencode_has_no_account(runner) -> bool:
     if result.returncode != 0:
         return False
     output = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", (result.stdout or "") + (result.stderr or ""))
-    return not re.search(r"^\s*[●•]\s+\S", output, re.MULTILINE)
+    empty = re.search(r"\b0 credentials\b", output) is not None
+    return empty and not re.search(r"^\s*[●•]\s+\S", output, re.MULTILINE)
 
 
 def _not_connected(name, which, runner, workspace, resolve) -> str | None:
