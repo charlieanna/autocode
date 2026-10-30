@@ -441,13 +441,16 @@ class ConversationTests(unittest.TestCase):
             "next_command": f"autocode {PLACE} --resume-paused",
         }
         client = ScriptedChat(recovery, abandoned)
-        client.show = mock.Mock()
         client.check_others = mock.Mock()
         client.ask = mock.Mock(side_effect=AssertionError("routine recovery must not ask the person"))
 
         self.assertIsNone(client.step())
         self.assertEqual([["--abandon-stage", "001/requirements-gather-01"]], client.taken)
         client.ask.assert_not_called()
+        shown = client.text()
+        self.assertNotIn("--abandon-stage", shown)
+        self.assertNotIn("Next it runs:", shown)
+        self.assertNotIn("Run it yourself:", shown)
 
     def test_named_feedback_at_semantic_stops_is_sent_without_a_resume_or_approval(self):
         for status in ("RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
