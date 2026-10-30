@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `--role-transport ROLE=PROVIDER` works on any base tool of the OpenCode facade engine, not only
+  `--provider opencode` (#2049): a run on Claude Code or on the direct connection can run one role on a
+  Kilo account, and a saved binding to the built-in `claude` provider (identity version 2) is validated
+  by its own shape. Binding a role to the run's own tool is refused, as is `--engine codex`.
 - A new run that names no engine takes the backend this machine has connected when OpenCode is not
   installed (#2049): Claude Code signed in to a subscription, then Codex, then the AutoCode direct
   connection, then Kilo, in that order. The run prints `Engine for this run: …` with the reason, and
