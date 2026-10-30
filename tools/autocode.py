@@ -394,6 +394,15 @@ def reject_completed_stage(state: RunState, run_dir, record, error):
     raise support.Paused(status, message)
 
 
+def _changed_code_proof(state: RunState):
+    """The current changed-line proof's identity, for replay to rebind a recorded Tester's gap ids (#2500)."""
+    assessment = (state.get("regression_proof") or {}).get("changed_code_evidence") or {}
+    revision, context = assessment.get("source_revision"), assessment.get("proof_context")
+    if isinstance(revision, str) and isinstance(context, str) and revision and context:
+        return {"source_revision": revision, "proof_context": context}
+    return None
+
+
 def run_role(
     *,
     role: str,
@@ -557,6 +566,8 @@ def run_role(
             "report_only": report_only,
             "original_stage": original_stage if report_only else None,
             "consumed": sum(isinstance(row.get("replay"), dict) for row in state.get("stages", [])),
+            "changed_code_proof": _changed_code_proof(state),
+            "regression_proof_path": (state.get("regression_proof") or {}).get("path"),
         }
         if state["settings"].get("replay_recording")
         else None,

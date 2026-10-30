@@ -146,7 +146,11 @@ class SubprocessFlow(unittest.TestCase):
         self.launch(["Build greeting and goodbye", "--chat"], 0, answers="CLI\nyes\n")
         run, state = self.saved()
         self.assertEqual("TASK_COMPLETE", state["status"])
-        execution = [r["stage"] for r in state["stages"] if r["stage"] not in ("recognize_workflow", "astra_discovery")]
+        execution = [
+            r["stage"]
+            for r in state["stages"]
+            if r["stage"] not in ("recognize_workflow", "astra_discovery") and not r.get("runner_owned")
+        ]
         self.assertEqual(["astra_plan", "terra", "sol", "astra_review", "terra", "sol", "astra_review"], execution)
         self.assertEqual({"M1", "M2"}, {r["id"] for r in state["milestone_progress"].values() if r["accepted"]})
         first = next(r for r in state["milestone_progress"].values() if r["id"] == "M1")
@@ -217,10 +221,11 @@ class SubprocessFlow(unittest.TestCase):
         self.assertEqual(["FAIL"], [row["validation"]["verdict"] for row in state["validation_archive"]])
         self.assertIn("Keep Unicode support", state["goal_contract"]["body"]["constraints"])
         self.assertEqual(1, sum(e["kind"] == "goal_approval" for e in state["user_events"]))
-        # The Validator's failing finding and the Plan Reviewer's structured REWORK finding share one ledger,
-        # were linked to the correction task, and were closed by the reviewers' next reports.
+        # The Validator's failing finding, the Plan Reviewer's structured REWORK finding and the runner's
+        # proof finding (the first attempt's untested lines, #2474) share one ledger, were linked to the
+        # correction task, and were closed by the reviewers' next reports and the passing proof.
         ledger = state["findings_ledger"]
-        self.assertEqual({"sol", "astra"}, {row["source"] for row in ledger})
+        self.assertEqual({"sol", "astra", "runner"}, {row["source"] for row in ledger})
         self.assertTrue(all(row["status"] == "resolved" and row["resolved_in"] for row in ledger))
         rework_task = [
             t for t in [*state.get("task_archive", []), state["current_task"]] if t.get("decision") == "REWORK"
@@ -233,7 +238,7 @@ class SubprocessFlow(unittest.TestCase):
             ]
         ).read_text()
         handoff = json.loads(rework_prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
-        self.assertEqual({"sol", "astra"}, {row["source"] for row in handoff["open_findings"]})
+        self.assertEqual({"sol", "astra", "runner"}, {row["source"] for row in handoff["open_findings"]})
         self.assertIn("Acceptance evidence:", result.stdout)
         self.assertIn("End-to-end flow: PASS", result.stdout)
         executed = [
@@ -372,7 +377,9 @@ class SubprocessFlow(unittest.TestCase):
         self.assertEqual(stage_count, len(paused["stages"]))
         self.launch([*args, "--resume-paused"], 0)
         _, final = self.saved()
-        self.assertEqual(["sol", "astra_review"], [r["stage"] for r in final["stages"][stage_count:]])
+        self.assertEqual(
+            ["sol", "astra_review"], [r["stage"] for r in final["stages"][stage_count:] if not r.get("runner_owned")]
+        )
         evidence = Path(next(iter(final["validation"]["evidence_hashes"])))
         # Deliberate external corruption bypasses the normal read-only event log guard.
         evidence.chmod(evidence.stat().st_mode | 0o200)

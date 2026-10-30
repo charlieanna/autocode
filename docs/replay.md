@@ -56,6 +56,18 @@ current file. The final tree cannot substitute for a missing intermediate tree.
 A recording that ended before a trustworthy provider exit cannot be emitted as
 a completed attempt.
 
+A recorded answer may name an identity that digests where the original run
+happened, such as the independent Tester's changed-line `gap_id`s (each one
+digests the proof's source revision and execution context). The recording keeps
+what each one stably identifies (the gap's exact file, bytes and line), and
+replay re-derives the current value from that identity. A citation of the proof
+file itself binds to the replay's own proof, whatever its directory is named. A
+gap whose file, bytes or line differ in the replay is not rebound, and a replay whose Tester runs
+without a current changed-line proof refuses rather than guess.
+The archived check commands compare without the interpreter's location: `/usr/bin/python3 -m
+unittest discover -v` on the recording host is the same obligation as the replay host's own
+`python3`.
+
 Replay preserves the Plan Reviewer's archived effective reasoning effort instead
 of reducing it again for a small task. Review allowances still apply, and each
 dispatch must match its recorded route exactly. Optional provider `light_effort`

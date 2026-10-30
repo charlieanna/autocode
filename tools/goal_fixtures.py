@@ -50,6 +50,32 @@ class GreetingTests(unittest.TestCase):
 """
 
 
+GOODBYE_SOURCE = """import sys
+print('Goodbye, ' + sys.argv[1])
+"""
+
+GOODBYE_TESTS = """from pathlib import Path
+import subprocess
+import sys
+import unittest
+
+class GoodbyeTests(unittest.TestCase):
+    def test_says_goodbye_to_a_name(self):
+        result = subprocess.run([sys.executable, str(Path(__file__).with_name("bye.py")), "Ada"],
+                                capture_output=True, text=True)
+        self.assertEqual(0, result.returncode)
+        self.assertEqual("Goodbye, Ada\\n", result.stdout)
+        self.assertEqual("", result.stderr)
+"""
+
+
+def write_goodbye_source(workspace, *, revision=None):
+    """The second milestone's CLI with its own fail-to-pass test; revision markers vary the source."""
+    marker = f"# batch {revision}\n" if revision is not None else ""
+    (Path(workspace) / "bye.py").write_text(GOODBYE_SOURCE + marker)
+    (Path(workspace) / "test_goodbye.py").write_text(GOODBYE_TESTS)
+
+
 def write_greeting_source(workspace, *, revision=None):
     """A real fixture artifact; revision markers vary source without breaking behavior."""
     marker = f"# Fixture revision: {revision}\n" if revision is not None else ""
@@ -63,31 +89,63 @@ def seed_greeting_workspace(workspace):
     (root / "test_greeting.py").write_text(GREETING_TESTS)
 
 
+# The fake Tester's reasons for the lines the mutator cannot break, per fixture CLI: the exact source
+# and tests they describe (comment lines aside, which are never obligations), and each line's reason.
+FIXTURE_REASONS = {
+    "greet.py": (
+        GREETING_SOURCE,
+        "test_greeting.py",
+        GREETING_TESTS,
+        {
+            "import sys": "No supported import mutation. The tests execute sys.argv, stderr and process exits; removing this import breaks the observed CLI flows.",
+            'print("A nonempty name is required", file=sys.stderr)': "No supported call mutation. test_rejects_empty_and_whitespace_names asserts the nonempty-name diagnostic on stderr for four invalid inputs; deleting or redirecting this call fails those assertions.",
+            'print("Hello, " + sys.argv[1])': "No supported call mutation. test_greets_a_valid_name asserts exact Hello, Ada plus newline on stdout and empty stderr; suppressing or redirecting this call fails the test.",
+            'if __name__ == "__main__":': "Entrypoint guards are excluded by the mutator. Both test methods invoke the CLI as a process and require its greeting or rejection; disabling this guard fails those assertions.",
+            "raise SystemExit(main())": "No supported exit-adapter mutation. Both test methods check exit status, including exit 2 for empty, whitespace, missing and extra names; discarding main's result fails those checks.",
+        },
+    ),
+    "bye.py": (
+        GOODBYE_SOURCE,
+        "test_goodbye.py",
+        GOODBYE_TESTS,
+        {
+            "import sys": "No supported import mutation. test_says_goodbye_to_a_name runs the CLI with a name argument; removing this import breaks the observed flow.",
+            "print('Goodbye, ' + sys.argv[1])": "No supported call mutation. test_says_goodbye_to_a_name asserts exact Goodbye, Ada plus newline on stdout and empty stderr; suppressing or redirecting this call fails the test.",
+        },
+    ),
+}
+
+
+def _code_lines(text):
+    return [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+
+
 def greeting_changed_code_reasons(data):
-    """Specific independent judgments for the exact tested default fake CLI only."""
+    """Specific independent judgments for the exact tested fixture CLIs only."""
     proof = data.get("regression_proof") or {}
-    try:
-        source = Path("greet.py").read_text()
-        tests = Path("test_greeting.py").read_text()
-    except OSError:
+    if not proof.get("path"):
         return []
-    body = source.partition("\n")[2] if source.startswith("# Fixture revision: ") else source
-    if body != GREETING_SOURCE or tests != GREETING_TESTS or not proof.get("path"):
-        return []
-    reasons = {
-        "import sys": "No supported import mutation. The tests execute sys.argv, stderr and process exits; removing this import breaks the observed CLI flows.",
-        'print("A nonempty name is required", file=sys.stderr)': "No supported call mutation. test_rejects_empty_and_whitespace_names asserts the nonempty-name diagnostic on stderr for four invalid inputs; deleting or redirecting this call fails those assertions.",
-        'print("Hello, " + sys.argv[1])': "No supported call mutation. test_greets_a_valid_name asserts exact Hello, Ada plus newline on stdout and empty stderr; suppressing or redirecting this call fails the test.",
-        'if __name__ == "__main__":': "Entrypoint guards are excluded by the mutator. Both test methods invoke the CLI as a process and require its greeting or rejection; disabling this guard fails those assertions.",
-        "raise SystemExit(main())": "No supported exit-adapter mutation. Both test methods check exit status, including exit 2 for empty, whitespace, missing and extra names; discarding main's result fails those checks.",
-    }
+    decisions = []
+    for path, (expected_source, test_name, expected_tests, reasons) in FIXTURE_REASONS.items():
+        try:
+            source = Path(path).read_text()
+            tests = Path(test_name).read_text()
+        except OSError:
+            continue
+        if _code_lines(source) != _code_lines(expected_source) or tests != expected_tests:
+            continue
+        decisions.extend(_line_reasons(proof, path, source, reasons))
+    return decisions
+
+
+def _line_reasons(proof, path, source, reasons):
     digest, lines = hashlib.sha256(source.encode()).hexdigest(), source.splitlines()
     decisions = []
     for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
         line = row.get("line")
         if (
             row.get("status") != "reason_required"
-            or row.get("path") != "greet.py"
+            or row.get("path") != path
             or row.get("sha256") != digest
             or type(line) is not int
             or not 0 < line <= len(lines)
@@ -101,7 +159,7 @@ def greeting_changed_code_reasons(data):
                     "decision": "accept",
                     "reason_kind": "instrumentation_unavailable",
                     "reason": reason,
-                    "evidence_refs": [proof["path"], "greet.py"],
+                    "evidence_refs": [proof["path"], path],
                 }
             )
     return decisions

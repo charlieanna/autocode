@@ -1198,7 +1198,7 @@ class ActualApprovalCallbackTests(unittest.TestCase):
             lifecycle.approve(self.state, selected, initial_assignment_proof=proof)
         self.assertEqual(1, len(seen))
         self.assertIs(sentinel, assignment.call_args.kwargs["visual_proof"])
-        self.assertEqual(["greet.py"], self.state["current_task"]["affected_paths"])
+        self.assertEqual(["greet.py", "test_greeting.py"], self.state["current_task"]["affected_paths"])
         self.assertEqual(seen[0]["revision"], self.state["current_task"]["source_revision"])
 
     def test_wrong_token_or_missing_final_review_calls_no_producer(self):
@@ -1218,4 +1218,7 @@ class ActualApprovalCallbackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             feasibility.first_task(self.body, self.state["settings"], workspace=self.root)
         self.body["initial_task"]["kind"] = "validate"
-        self.assertEqual(["greet.py"], feasibility.first_task(self.body, self.state["settings"], workspace=self.root))
+        self.assertEqual(
+            ["greet.py", "test_greeting.py"],
+            feasibility.first_task(self.body, self.state["settings"], workspace=self.root),
+        )

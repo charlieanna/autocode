@@ -447,11 +447,20 @@ def prove(state: RunState, workspace, run_dir, *, all_due=False):
         recorded_checks.require_supported(state)
         if reviewed_patch(state, workspace) or operator_patch.pinned(state):
             raise ValueError("Recorded replay does not support reviewed or operator base patches in v1")
-        suite = options.get("test_command") or (framework.suite if framework else None)
-        if not suite:
+        # The same selection the live proof makes (verify.verify): an explicit command, else the
+        # detected suite and the regression derived from the changed tests, so a recorded proof
+        # whose regression command was derived is compared with the replay's own derivation (#2500).
+        changes = verify.changed_files(workspace, base, source_paths=source_scope.paths(state))
+        commands = verify.select_commands(
+            framework,
+            [path for path, status in changes.items() if verify.is_test_path(path) and status != "deleted"],
+            suite_command=options.get("test_command"),
+            regression_command=options.get("regression_command"),
+        )
+        if not commands["suite"]:
             raise ValueError("Recorded replay requires an exact archived suite command")
         return recorded_checks.regression(
-            state, workspace, case_ids=scope, suite=suite, regression_command=options.get("regression_command")
+            state, workspace, case_ids=scope, suite=commands["suite"], regression_command=commands["regression"]
         )
     operator = operator_patch.pinned(state)
     # The ignored files an in-place run's scratch trees receive: those it started with (#529).
@@ -1113,7 +1122,17 @@ def complete(state: RunState, current_revision, *, all_due=False, require_change
     product change. Only the earlier Builder self-check may omit that obligation.
     """
     if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
-        return False
+        # Recorded simulation never grants current proof; the runner's own archived proof is
+        # authenticated by autocode_replay_checks for the gates that ask only for it (#2500).
+        if require_changed_code or not required(state, all_due=all_due, include_changed_code=include_changed_code):
+            return not require_changed_code
+        try:
+            from . import autocode_replay_checks as recorded_checks
+        except ImportError:
+            import autocode_replay_checks as recorded_checks
+        return recorded_checks.proof_retained(
+            state, current_revision, [case["id"] for case in test_cases.proof_cases(state, all_due=all_due)]
+        )
     if not required(state, all_due=all_due, include_changed_code=include_changed_code):
         return True
     proof = state.get("regression_proof") or {}
