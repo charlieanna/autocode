@@ -12,24 +12,27 @@ from pathlib import Path
 
 try:
     from . import autocode_report_text_edits as text_edits
-    from .autocode_util import atomic_json, file_hash, validate_schema
+    from .autocode_util import atomic_json, file_hash, model_output_schema, validate_schema
 except ImportError:
     import autocode_report_text_edits as text_edits
-    from autocode_util import atomic_json, file_hash, validate_schema
+    from autocode_util import atomic_json, file_hash, model_output_schema, validate_schema
 
 KEY = "repair_report"
 META = "x-autocode-report-edits"
 STAGES = frozenset({"requirements_gather", "astra_discovery", "glm_revise"})
+MAX_EDIT_VALUE_BYTES = 128 * 1024
 RULE = (
     "BOUNDED REPORT EDITS. When the output schema offers repair_report, prefer that form for a small correction: "
     "return only repair_report with the exact rejected_report.sha256 and up to 32 edits. Each edit has op, path "
-    "and value (null for remove). Paths are nonempty arrays of object keys or existing array indices. "
+    "and value_json, a JSON-encoded string (use the literal string \"null\" for remove). Paths are nonempty "
+    "arrays of object keys or existing array indices. "
     "Use add only for an absent object field; remove only an existing object field; replace only an existing "
     "field/item. Do not edit overlapping paths or shift arrays. The runner applies edits to the complete "
     "pinned rejected_report.content and then runs every ordinary schema, provenance, protected-contract and "
     "evidence check. This does not authorize changed requirements, approvals or invented execution. "
-    "A complete corrected report is still accepted. Earlier instructions to return a complete report also "
-    "permit this exact-bound edit form; it retains every unedited value.\n"
+    "A complete corrected report is also accepted as the value of repair_report without sha256 or edits. "
+    "Earlier instructions to return a complete report also permit this exact-bound edit form; it retains "
+    "every unedited value.\n"
 )
 
 
@@ -59,6 +62,17 @@ def validation_schema(schema):
         return schema
     original = copy.deepcopy(schema)
     metadata = original.pop(META)
+    if isinstance(metadata, dict) and isinstance(metadata.get("original_schema"), dict):
+        return copy.deepcopy(metadata["original_schema"])
+    repair = original.get("properties", {}).get(KEY, {})
+    branches = repair.get("anyOf") if isinstance(repair, dict) else None
+    if isinstance(branches, list) and len(branches) == 2:
+        report = copy.deepcopy(branches[1])
+        if metadata["required"] is None:
+            report.pop("required", None)
+        else:
+            report["required"] = metadata["required"]
+        return report
     original["properties"].pop(KEY)
     if metadata["required"] is None:
         original.pop("required", None)
@@ -87,8 +101,12 @@ def prepare(schema_path, source, stage):
     edit = {
         "type": "object",
         "additionalProperties": False,
-        "properties": {"op": {"type": "string", "enum": ["add", "remove", "replace"]}, "path": path, "value": {}},
-        "required": ["op", "path", "value"],
+        "properties": {
+            "op": {"type": "string", "enum": ["add", "remove", "replace"]},
+            "path": path,
+            "value_json": {"type": "string", "maxLength": MAX_EDIT_VALUE_BYTES},
+        },
+        "required": ["op", "path", "value_json"],
     }
     text_mode = source.get("format") == "text"
     field = "text_edits" if text_mode else "edits"
@@ -102,10 +120,17 @@ def prepare(schema_path, source, stage):
         },
         "required": ["sha256", field],
     }
-    offer = copy.deepcopy(original)
-    offer["properties"][KEY] = patch
-    offer["required"] = []  # either full report or edits; full validation follows reconstruction
-    offer[META] = {
+    # OpenAI-compatible structured output requires every object property to be
+    # required. Wrap either accepted report form under one required property so
+    # the model can return a patch or a full corrected report without weakening
+    # the wire schema or duplicating nullable placeholders across the report.
+    offer = {
+        "type": "object",
+        "properties": {KEY: {"anyOf": [patch, original]}},
+        "required": [KEY],
+        "additionalProperties": False,
+    }
+    metadata = {
         "required": original.get("required"),
         "source_path": source["path"],
         "sha256": source["sha256"],
@@ -113,7 +138,10 @@ def prepare(schema_path, source, stage):
         "format": source["format"],
     }
     target = Path(source["path"]).with_name(Path(source["path"]).stem + ".repair-edits.schema.json")
-    atomic_json(target, offer)
+    wire_schema = model_output_schema(offer)
+    metadata["original_schema"] = copy.deepcopy(original)
+    wire_schema[META] = metadata
+    atomic_json(target, wire_schema)
     return target
 
 
@@ -139,7 +167,20 @@ def apply(base, edits):
     result = copy.deepcopy(base)
     seen = []
     for edit in edits:
-        path, op, value = edit["path"], edit["op"], edit["value"]
+        path, op = edit["path"], edit["op"]
+        if "value_json" in edit and "value" not in edit:
+            encoded = edit["value_json"]
+            if not isinstance(encoded, str) or len(encoded.encode("utf-8")) > MAX_EDIT_VALUE_BYTES:
+                raise ValueError("Report edit value_json must be a bounded JSON string")
+            try:
+                value = json.loads(encoded)
+            except (json.JSONDecodeError, TypeError) as exc:
+                raise ValueError("Report edit value_json must contain one valid JSON value") from exc
+        elif "value" in edit and "value_json" not in edit:
+            # Reports already saved with the previous wire schema keep working.
+            value = edit["value"]
+        else:
+            raise ValueError("Report edit must contain exactly one of value_json or legacy value")
         if not path or any(type(part) not in (str, int) or type(part) is int and part < 0 for part in path):
             raise ValueError("Report edits require a nonempty typed path")
         if any(path[: len(old)] == old or old[: len(path)] == path for old in seen):
@@ -177,7 +218,18 @@ def expand(value, record):
         raise ValueError("Report edits belong to a different stage")
     if set(value) != {KEY}:
         raise ValueError("Report edits cannot be mixed with a full report")
-    validate_schema(value[KEY], schema["properties"][KEY])
+    offered = schema["properties"][KEY]
+    branches = offered.get("anyOf") if isinstance(offered, dict) else None
+    if isinstance(branches, list) and len(branches) == 2:
+        patch_schema, full_report_schema = branches
+        try:
+            validate_schema(value[KEY], patch_schema)
+        except ValueError:
+            validate_schema(value[KEY], full_report_schema)
+            return value[KEY]
+    else:
+        # Saved reports from the earlier root-level patch schema remain valid.
+        validate_schema(value[KEY], offered)
     source = Path(meta["source_path"])
     if source.is_symlink() or not source.is_file() or file_hash(source) != meta["sha256"]:
         raise ValueError("Pinned rejected report changed before applying edits")

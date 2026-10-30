@@ -10,7 +10,7 @@ import autocode as runner
 import autocode_goals as goals
 import autocode_report_edits as edits
 import autocode_report_text_edits as text_edits
-from autocode_util import file_hash, validate_schema
+from autocode_util import file_hash, model_output_schema, validate_schema
 from goal_fixtures import body
 
 
@@ -63,8 +63,12 @@ class ReportEditsTests(unittest.TestCase):
             "repair_report": {
                 "sha256": file_hash(self.source),
                 "edits": [
-                    {"op": "remove", "path": ["extra"], "value": None},
-                    {"op": "add", "path": ["proposed_assumptions", 0, "category"], "value": "behavior"},
+                    {"op": "remove", "path": ["extra"], "value_json": "null"},
+                    {
+                        "op": "add",
+                        "path": ["proposed_assumptions", 0, "category"],
+                        "value_json": '"behavior"',
+                    },
                 ],
             }
         }
@@ -79,6 +83,83 @@ class ReportEditsTests(unittest.TestCase):
         )
         self.assertEqual(self.patch, json.loads(Path(self.record["reported_output"]).read_text()))
         self.assertEqual(self.base, json.loads(self.source.read_text()))
+
+    def test_prepared_edit_values_have_a_provider_supported_type(self):
+        schema = json.loads(self.offered.read_text())
+        self.assertEqual(["repair_report"], schema["required"])
+        self.assertEqual(["repair_report"], list(schema["properties"]))
+        repair = schema["properties"]["repair_report"]
+        self.assertEqual(2, len(repair["anyOf"]))
+        edit_properties = repair["anyOf"][0]["properties"]["edits"]["items"]["properties"]
+        self.assertEqual("string", edit_properties["value_json"]["type"])
+        self.assertNotIn("value", edit_properties)
+        strict = model_output_schema(schema)
+        self.assertEqual(set(strict["properties"]), set(strict["required"]))
+        self.assertEqual(strict["required"], schema["required"])
+        for branch in repair["anyOf"]:
+            if branch.get("type") == "object":
+                self.assertEqual(set(branch["properties"]), set(branch["required"]))
+                self.assertFalse(branch["additionalProperties"])
+
+    def test_report_edit_instructions_require_json_encoded_values(self):
+        instruction = edits.instruction("requirements_gather", self.descriptor)
+        self.assertIn("value_json", instruction)
+        self.assertIn("JSON-encoded", instruction)
+        self.assertIn('string "null" for remove', instruction)
+
+    def test_apply_decodes_json_values_without_coercing_their_types(self):
+        result = edits.apply(
+            {"kept": True, "removed": "old"},
+            [
+                {"op": "replace", "path": ["kept"], "value_json": 'false'},
+                {"op": "remove", "path": ["removed"], "value_json": 'null'},
+                {"op": "add", "path": ["added"], "value_json": '{"items":[1,"two"]}'},
+            ],
+        )
+        self.assertEqual({"kept": False, "added": {"items": [1, "two"]}}, result)
+
+    def test_apply_rejects_malformed_or_oversized_json_values(self):
+        for raw in ("{broken", "x" * (edits.MAX_EDIT_VALUE_BYTES + 1)):
+            with self.subTest(raw_length=len(raw)):
+                with self.assertRaisesRegex(ValueError, "value_json"):
+                    edits.apply({"field": 1}, [{"op": "replace", "path": ["field"], "value_json": raw}])
+
+    def test_apply_keeps_saved_raw_value_edit_format_compatible(self):
+        self.assertEqual(
+            {"field": {"kept": [1]}},
+            edits.apply({}, [{"op": "add", "path": ["field"], "value": {"kept": [1]}}]),
+        )
+
+    def test_saved_legacy_patch_schema_and_raw_values_still_expand(self):
+        legacy_schema = json.loads(self.offered.read_text())
+        metadata = legacy_schema[edits.META]
+        metadata.pop("original_schema")
+        repair = legacy_schema["properties"]["repair_report"]["anyOf"][0]
+        edit_schema = repair["properties"]["edits"]["items"]
+        edit_schema["properties"]["value"] = {}
+        edit_schema["properties"].pop("value_json")
+        edit_schema["required"] = ["op", "path", "value"]
+        legacy_schema = {
+            "type": "object",
+            "properties": {**copy.deepcopy(self.original_schema["properties"]), "repair_report": repair},
+            "required": [],
+            "additionalProperties": False,
+            edits.META: metadata,
+        }
+        schema_path = self.root / "legacy-schema.json"
+        schema_path.write_text(json.dumps(legacy_schema))
+        record = {**self.record, "schema": str(schema_path)}
+        patch = copy.deepcopy(self.patch)
+        for operation in patch["repair_report"]["edits"]:
+            operation["value"] = json.loads(operation.pop("value_json"))
+        Path(record["output"]).write_text(json.dumps(patch))
+
+        fixed = runner.load_stage_report(record)
+
+        self.assertEqual(
+            {"summary": "original", "proposed_assumptions": [{"text": "Preserve empty pages", "category": "behavior"}]},
+            fixed,
+        )
 
     def test_discovery_edits_do_not_authorize_removing_protected_behavior(self):
         previous = body()
@@ -98,11 +179,11 @@ class ReportEditsTests(unittest.TestCase):
             "repair_report": {
                 "sha256": descriptor["sha256"],
                 "edits": [
-                    {"op": "remove", "path": ["extra"], "value": None},
+                    {"op": "remove", "path": ["extra"], "value_json": "null"},
                     {
                         "op": "replace",
                         "path": ["contract", "required_behaviors"],
-                        "value": ["Weaken the requested outcome"],
+                        "value_json": '["Weaken the requested outcome"]',
                     },
                 ],
             }
@@ -117,12 +198,19 @@ class ReportEditsTests(unittest.TestCase):
     def test_full_response_stays_compatible_and_semantically_invalid_patch_still_fails(self):
         complete = edits.expand(self.patch, self.record)
         self.assertIs(complete, edits.expand(complete, self.record))
-        for value in ["not-a-category", False]:
+        for value in ['"not-a-category"', "false"]:
             patch = copy.deepcopy(self.patch)
-            patch["repair_report"]["edits"][1]["value"] = value
+            patch["repair_report"]["edits"][1]["value_json"] = value
             Path(self.record["output"]).write_text(json.dumps(patch))
             with self.assertRaises(ValueError):
                 runner.load_stage_report(self.record)
+
+    def test_complete_report_inside_new_repair_wrapper_is_accepted(self):
+        complete = {
+            "summary": "corrected",
+            "proposed_assumptions": [{"text": "Preserve empty pages", "category": "behavior"}],
+        }
+        self.assertEqual(complete, edits.expand({"repair_report": complete}, self.record))
 
     def test_stale_source_hash_stage_or_unoffered_patch_is_rejected(self):
         for kind in ["hash", "source", "stage", "ordinary", "legacy"]:
@@ -147,19 +235,19 @@ class ReportEditsTests(unittest.TestCase):
 
     def test_invalid_or_overlapping_operations_never_apply(self):
         bad = [
-            [{"op": "remove", "path": [], "value": None}],
-            [{"op": "remove", "path": ["proposed_assumptions", 0], "value": None}],
-            [{"op": "replace", "path": ["proposed_assumptions", True], "value": {}}],
-            [{"op": "replace", "path": ["absent", "child"], "value": 0}],
-            [{"op": "add", "path": ["summary"], "value": "new"}],
-            [{"op": "remove", "path": ["extra"], "value": "not null"}],
+            [{"op": "remove", "path": [], "value_json": "null"}],
+            [{"op": "remove", "path": ["proposed_assumptions", 0], "value_json": "null"}],
+            [{"op": "replace", "path": ["proposed_assumptions", True], "value_json": "{}"}],
+            [{"op": "replace", "path": ["absent", "child"], "value_json": "0"}],
+            [{"op": "add", "path": ["summary"], "value_json": '"new"'}],
+            [{"op": "remove", "path": ["extra"], "value_json": '"not null"'}],
             [
-                {"op": "replace", "path": ["proposed_assumptions"], "value": []},
-                {"op": "replace", "path": ["proposed_assumptions", 0], "value": {}},
+                {"op": "replace", "path": ["proposed_assumptions"], "value_json": "[]"},
+                {"op": "replace", "path": ["proposed_assumptions", 0], "value_json": "{}"},
             ],
-            [{"op": "remove", "path": ["extra"], "value": None}] * 2,
+            [{"op": "remove", "path": ["extra"], "value_json": "null"}] * 2,
             [],
-            [{"op": "remove", "path": ["extra"], "value": None}] * 33,
+            [{"op": "remove", "path": ["extra"], "value_json": "null"}] * 33,
         ]
         for operations in bad:
             with self.subTest(operations=operations):
