@@ -2194,7 +2194,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/24925a567926a1b04cefe0e1384dc88c979438a9/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/95d13c0ded37ff3a4905321ca2b121d3c9e159c5/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2364,7 +2364,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/24925a567926a1b04cefe0e1384dc88c979438a9/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/95d13c0ded37ff3a4905321ca2b121d3c9e159c5/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2476,7 +2476,7 @@ levels each model takes:</p>
 </tr>
 <tr>
 <td>Plan Reviewer</td>
-<td>Challenges the plan and makes the final planning call</td>
+<td>Challenges the plan and makes the final planning call; its model also runs the Investigator, the Analyst, the Designer and the Design Reviewer</td>
 <td>Your strongest judge at high, never the Planner's model</td>
 </tr>
 <tr>
@@ -2486,7 +2486,7 @@ levels each model takes:</p>
 </tr>
 <tr>
 <td>Tester</td>
-<td>Checks each Builder's work and proves its tests fail without the change</td>
+<td>Checks each Builder's work and proves its tests fail without the change; its model also writes the acceptance tests and runs the Code Reviewer</td>
 <td>A strong model at high, never the Builder's</td>
 </tr>
 <tr>
@@ -2501,6 +2501,11 @@ levels each model takes:</p>
 </tr>
 </tbody>
 </table>
+<p>The workflow jobs have no list of their own: each starts from the stage that names it. The
+Investigator of a bug fix takes the Plan Reviewer's model and level; the Analyst, the Designer
+and the Design Reviewer take its model at a capped level; the acceptance tests and the Code
+Reviewer run on the Tester's. A Plan Reviewer level you did not choose runs one rung lower on a
+small, clear task (<a href="../adaptive-planning/">adaptive planning</a>); a level you chose is kept.</p>
 <p>The models come from your backend: for OpenCode and Kilo, the models your connected accounts
 serve, with the reasoning levels and family their own listing declares (a model that cannot
 call tools is left out); for Claude Code, Haiku, Sonnet and Opus; for Codex, the GPT models
