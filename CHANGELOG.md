@@ -22,6 +22,8 @@ PR template asks for an entry here; a change without one is incomplete.
   `set` and `reset` change one stage, and `--json` returns the view clients render as one dropdown per
   stage. Route discovery now carries each model's listed family, tool-call and reasoning support, context
   and release date on its candidates; no price is read.
+- The terminal chat's `/stages` shows the same choice: in the full-screen chat a drawer with one list per stage
+  (Up/Down, Enter, Esc), like a dropdown; in the line-by-line chat a numbered list and `/stages STAGE N LEVEL`.
 - `autocode setup` connects the backends AutoCode runs on, once after installing it (#2049): it checks
   Claude Code, Codex, OpenCode and Kilo with each one's own login listing. In a terminal, when neither
   OpenCode nor Kilo is installed, it offers to install OpenCode 1.18.33 with npm (`--install
