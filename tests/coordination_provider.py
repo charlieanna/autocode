@@ -211,6 +211,8 @@ def main():
         raise RuntimeError("Member review must scope the ordinary out-of-checkout proxy rule")
     target = {"checkout": "history", "history": "tax"}.get(name)
     if joint and os.environ.get("COORDINATION_FIXTURE_JOINT_SCOPE"):
+        if data.get("coordinated_member"):
+            raise RuntimeError("Joint proof must not receive circular prerequisite-member instructions")
         if "checkout" not in json.loads((root / "repositories.json").read_text()):
             target = "checkout"
     source = PRODUCT[name][0] if not joint else "repositories.json"

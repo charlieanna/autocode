@@ -334,3 +334,32 @@ in 56.495 seconds: joint Requirements discovers checkout, retires the incomplete
 two-member plan and retains its attempt, without asking a person or publishing.
 The public status of the saved live run now offers checkout discovery without
 another model call; live end-to-end delivery is not yet established.
+
+## Joint proof is not its own prerequisite
+
+The live TUI retest automatically discovered checkout, retained the earlier joint
+attempt and planned a new three-repository joint regression. Independent review
+then found circular authenticated guidance: the separate joint run received the
+ordinary member instructions and appeared among the producers whose completion
+it required. The context builder now selects producers by their authenticated
+participant role, excluding `joint` both from member identity lookup and from the
+prerequisite list. A real member named “Joint regression” still receives member
+guidance. The joint participant remains in the actual change set; composition,
+source, requirement, exact approval and proof validators remain unchanged.
+
+Two focused regressions failed before the correction. The final command
+`.venv/bin/python -m unittest tests.test_coordination_context tests.test_report_repair_context tests.test_requirement_retention tests.test_source_trace tests.test_coordinate tests.test_architecture -q`
+passes all 220 tests (31.689 s). The public fake-provider regression
+`.venv/bin/python -m unittest tests.test_coordination_tui_e2e.CoordinationTuiEndToEnd.test_joint_requirements_discover_a_missing_member_before_any_approval -q`
+also passes (62.871 s), explicitly rejecting circular member instructions in a
+joint prompt. Fixture setup errors from the first unit-test run remain retained.
+
+Two live independent-review attempts had previously hit the explicitly saved
+180-second idle watchdog; automatic retries and failed evidence remain retained.
+After a safe TUI boundary pause, the operator used the public resume CLI to change
+only the joint idle watchdog from 180 to 600 seconds, verified in its public
+`limit_change` event. The TUI has no watchdog-setting action. The stage limit
+remains 600 seconds, active limit 3600 seconds, and the saved Claude/Codex routes,
+efforts and accounting caps remain unchanged. Reported spend is incomplete,
+including four unpriced Codex attempts; known subtotals are not total spend.
+Live implementation, joint proof and fixture publication are still unverified.
