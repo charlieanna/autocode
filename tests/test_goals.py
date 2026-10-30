@@ -2016,7 +2016,7 @@ class GoalTests(unittest.TestCase):
         # Issue #381: the full brief runs to hundreds of lines, so the last screen of the approval
         # stop summarizes the decision, right above the limits and the approve command.
         self.draft(human=True)
-        self.assertEqual(2, self.invoke("--no-chat"))  # the stop a plain run prints (present)
+        self.assertEqual(2, self.invoke("--no-chat", "--details"))  # the full stop a plain run prints (#2535)
         stop = self.stdout
         self.assertEqual(0, self.invoke("--show-goal"))
         revision = self.state["goal_contract"]["revision"]
@@ -2072,6 +2072,66 @@ class GoalTests(unittest.TestCase):
         self.assertNotIn("Before you approve", self.stdout)
         self.assertNotIn("Approval token:", self.stdout)
 
+    def test_approval_stop_leads_with_the_decision_and_keeps_the_machinery_behind_details(self):
+        # Issue #2535: the stop a plain run prints starts with the summary in plain words; the contract
+        # diff, file hashes and request tokens wait behind --details, which prints the full brief as before.
+        self.draft(human=True)
+        self.state["contract_history"] = [copy.deepcopy(self.state["goal_contract"])]
+        self.state["contract_history"][0]["body"]["intended_outcome"] = "An earlier outcome"
+        self.assertEqual(2, self.invoke("--no-chat", "--details"))
+        full = self.stdout
+        self.assertEqual(0, self.invoke("--show-goal"))
+        brief = slice(full.index("Build brief r"), full.rindex("\nState: ") + 1)
+        self.assertEqual(full[brief], self.stdout[self.stdout.index("Build brief r") :][: brief.stop - brief.start])
+        self.assertEqual(2, self.invoke("--no-chat"))
+        shown, contract = self.stdout, self.state["goal_contract"]
+        selected, revision = g.token(contract), contract["revision"]
+        published = self.state["resolver_human_request"]
+        blocks = shown[shown.index("Before you approve") :].split("\n\n")
+        self.assertTrue(blocks[0].startswith(f"Before you approve r{revision}:\nWhat it will do:\n"))
+        self.assertIn("Done when:\n  [C1] Contract holds\n    Checked by: ", blocks[0])
+        self.assertTrue(blocks[1].startswith("Limits in effect: "))
+        pointer = f"autocode --run-dir {shlex.quote(str(self.run))} --details"
+        self.assertEqual(
+            "The full plan, its changes since the last revision and the request tokens: "
+            f"{pointer} (in the chat, /details)",
+            blocks[2],
+        )
+        before = shown[: shown.index(pointer)]
+        for machinery in (
+            "Contract delta:",
+            "+++ current",
+            selected.split(":")[1],
+            "Approval token:",
+            published["request_id"],
+            published["request_token"],
+            "Verification obligations",
+        ):
+            self.assertNotIn(machinery, before)
+            self.assertIn(machinery, full)
+        for machinery in ("Contract delta:", published["request_token"], "Approval token:"):
+            self.assertNotIn(machinery, shown)
+        # Approval still binds to the exact plan shown: the one approve command names its token.
+        commands = re.findall(r"^To approve this plan: (.*)$", shown, re.MULTILINE)
+        self.assertEqual([f"autocode --run-dir {shlex.quote(str(self.run))} --approve-goal {selected}"], commands)
+        self.assertTrue(shown.endswith("\nState: AWAITING_GOAL_APPROVAL / AWAITING_GOAL_APPROVAL\n"))
+        self.assertEqual(0, self.invoke(*shlex.split(commands[0])[1:]))
+        self.assertTrue(g.approved(self.state))
+
+    def test_approval_stop_json_is_unchanged_by_the_short_screen(self):
+        # Issue #2535: only the human rendering changes; --json prints the --status payload either way.
+        self.draft()
+        self.assertEqual(2, self.invoke("--no-chat"))
+        payloads = []
+        for extra in ((), ("--details",)):
+            self.assertEqual(2, self.invoke("--no-chat", "--json", *extra))
+            payloads.append(json.loads(self.stdout))
+            self.assertEqual("AWAITING_GOAL_APPROVAL", payloads[-1]["view"]["status"])
+        for payload in payloads:  # what differs between any two invocations: when, and which controller
+            payload["view"]["controller"].pop("receipt")
+            payload["view"]["observation"].pop("sampled_at")
+        self.assertEqual(payloads[0], payloads[1])
+
     def test_approval_stop_states_what_the_regression_proof_will_require(self):
         # A bug fix planned without an investigation: the proof falls back to the plan's test:/guard:
         # criteria, and the approval stop names them with what each test must show.
@@ -2104,7 +2164,7 @@ class GoalTests(unittest.TestCase):
         plan["acceptance_criteria"][0]["verification_method"] = "test: test_c1_greets"
         self.state["workflow"] = {"kind": "design", "reason": "a design", "signals": [], "source": "model"}
         lifecycle.install_draft(self.state, plan, origin="test")
-        self.assertEqual(2, self.invoke("--no-chat"))
+        self.assertEqual(2, self.invoke("--no-chat", "--details"))
         self.assertIn(
             "\nJob type: design (not a bug fix): no test named in a criterion is run as proof, so nothing "
             "shows that a check would fail without the change.\n",
@@ -2337,6 +2397,23 @@ class GoalTests(unittest.TestCase):
         self.assertEqual("Keep Unicode Support", self.state["brief_feedback"][0]["text"])
         self.assertEqual("astra_discovery", self.state["next_stage"])
         self.assertFalse(g.approved(self.state))
+
+    def test_chat_approval_shows_the_decision_first_and_the_full_brief_on_details(self):
+        # Issue #2535: the chat's approval question follows the short approval screen; /details prints
+        # the full brief and asks again, and approval still binds to the plan shown.
+        self.draft()
+        self.state["contract_history"] = [copy.deepcopy(self.state["goal_contract"])]
+        self.state["contract_history"][0]["body"]["intended_outcome"] = "An earlier outcome"
+        out = io.StringIO()
+        with patch("builtins.input", side_effect=["/details", "y"]), contextlib.redirect_stdout(out):
+            self.assertTrue(runner.chat_checkpoint(self.state))
+        shown = out.getvalue()
+        details = shown.index("\nBuild brief r")
+        self.assertIn("Before you approve r", shown[:details])
+        self.assertNotIn("Contract delta:", shown[:details])
+        self.assertNotIn("Approval token:", shown[:details])
+        self.assertIn("Contract delta:", shown[details:])
+        self.assertTrue(g.approved(self.state))
 
     def test_chat_interruption_preserves_prior_answers_and_never_approves(self):
         draft = body(questions=True)

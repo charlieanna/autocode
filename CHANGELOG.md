@@ -9,6 +9,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Changed
+
+- The plan approval stop leads with the decision in plain words (#2535): what the plan will do, what it may
+  change, each criterion and how it is checked, what passing proves and the limits, then one line naming
+  `--details` (in the terminal chat, `/details`) for the full brief with its contract diff, file hashes and
+  request tokens, then the approve and change commands. `--show-goal`, `--json` and the status view are
+  unchanged, and approval still binds to the token of the plan shown.
+
 ## [0.9.0] — 2026-10-30
 
 ### Added

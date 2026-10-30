@@ -90,6 +90,7 @@ START_FLAGS = (
     "--context-soft-tokens",
     "--conversation-handoff",
     "--conversation-session",
+    "--details",
     "--dry-run",
     "--engine",
     "--evidence-provenance",

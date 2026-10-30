@@ -949,10 +949,17 @@ with the limits in effect and the exact `--approve-goal` and `--feedback` comman
 brief can run to hundreds of lines, so just above the limits it summarizes the decision, quoting
 the plan: its outcome and milestones, every permission boundary, the first three scope
 exclusions, each acceptance criterion with how it is checked (and whether it also needs your
-review), and what passing proves for this job. The last screen reads:
+review), and what passing proves for this job. That is what `--show-goal` and
+`autocode --details` print.
+
+The approval stop itself (`autocode --no-chat`, or the chat's approval question) shows only the
+decision (#2535): the summary first, the limits, one line naming `--details` (in the chat,
+`/details`) for the full brief with its contract diff, file hashes and request tokens, then the
+commands. No hash or token appears before that line except in the approve command, which still
+binds to the token of the plan shown. `--json` and the status view are unchanged. The stop reads:
 
 ```text
-Before you approve r3 (a summary of the plan above):
+Before you approve r3:
 What it will do:
   Provide a deterministic greeting CLI
 Built in 1 milestone: M1.
@@ -969,6 +976,10 @@ What passing proves:
   - Not proven: behavior no criterion describes, or inputs no check exercises.
 
 Limits in effect: 12 h of active time for the run, 1 h per stage, no iteration ceiling, one Builder at a time.
+
+The full plan, its changes since the last revision and the request tokens: autocode --run-dir RUN --details (in the chat, /details)
+
+Plan revision 3 (r3) waits for your approval. Approving it authorizes implementation of exactly this plan: AutoCode may then change files in the workspace to build it.
 To approve this plan: autocode --run-dir RUN --approve-goal r3:<hash>
 To change it instead: autocode --run-dir RUN --feedback 'WHAT TO CHANGE' (the revised plan gets a new token)
 

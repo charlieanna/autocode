@@ -686,8 +686,13 @@ def answer_lines(answers) -> list[str]:
     return lines
 
 
-def render(state: RunState, run_dir=None):
-    """The brief as a person reads it; ``run_dir``, when given, completes the approve command."""
+def render(state: RunState, run_dir=None, *, details=True):
+    """The brief as a person reads it; ``run_dir``, when given, completes the approve command.
+
+    Without ``details``, a plan waiting for approval shows only its short approval screen
+    (``approval_screen``, #2535); every other stop, and ``details``, show the full brief."""
+    if not details and (screen := approval_screen(state, run_dir)):
+        return screen
     contract = state.get("goal_contract")
     if not contract:
         if roles.planning_flow(state) == "v2":
@@ -925,13 +930,7 @@ def render(state: RunState, run_dir=None):
         lines += approval_view.validation_summary(state["validation"] or {})
     if asks_approval:
         # The last screen: the decision in brief, then the limits and the commands (#381).
-        lines += [""] + approval_view.summary(
-            body,
-            contract["revision"],
-            test_cases.proof_cases(state, all_due=True),
-            design_only=test_cases.design_only(state),
-            proxied=trace_coverage.proxied_rows(plan_retention.validated_trace(state)),
-        )
+        lines += [""] + approval_summary(state)
         lines += goal_file.approval_lines(state)
         lines += [""] + approval_view.actions(
             token(contract), state.get("settings") or {}, state.get("iteration", 0), run_dir
@@ -940,7 +939,44 @@ def render(state: RunState, run_dir=None):
     return "\n".join(lines)
 
 
-def present(state: RunState, run_dir=None):
+def approval_summary(state: RunState, *, above=True) -> list[str]:
+    contract = state["goal_contract"]
+    return approval_view.summary(
+        contract["body"],
+        contract["revision"],
+        test_cases.proof_cases(state, all_due=True),
+        design_only=test_cases.design_only(state),
+        proxied=trace_coverage.proxied_rows(plan_retention.validated_trace(state)),
+        above=above,
+    )
+
+
+def approval_screen(state: RunState, run_dir=None) -> str:
+    """The plan approval stop as a person first reads it (#2535): the decision in plain words, the
+    limits, one line naming the full brief (``render``), then the commands. The machinery (the contract
+    diff, file hashes, request tokens) is only in the full brief, and approval still binds to the token
+    of this exact plan. '' when no plan waits for approval."""
+    contract = state.get("goal_contract")
+    public = human.current(state)
+    if not contract or not public or public["scope"] != "goal_approval":
+        return ""
+    lines = approval_summary(state, above=False)
+    if workflows.approval_note(state):
+        lines += ["", workflows.approval_note(state)]
+    lines += [
+        "",
+        approval_view.limits(state.get("settings") or {}, state.get("iteration", 0)),
+        "",
+        approval_view.details(run_dir),
+        "",
+        approval_view.intro(contract["revision"]),
+    ]
+    lines += approval_view.commands(token(contract), run_dir)
+    lines += ["", f"State: {state.get('phase')} / {state['status']}"]
+    return "\n".join(lines)
+
+
+def present(state: RunState, run_dir=None, *, details=True):
     try:
         from . import autocode_changeset_barrier as changeset_barrier
     except ImportError:
@@ -974,7 +1010,7 @@ def present(state: RunState, run_dir=None):
         # Advisory base-revision check (#676): runs the planned commands on the base revision once for each
         # distinct set of planned examples; render() only reads what this recorded.
         base_examples.check(state)
-    rendered = render(state, run_dir)
+    rendered = render(state, run_dir, details=details)
     interaction_timing.presented(state, public, at=s.now())
     return rendered
 
