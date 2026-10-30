@@ -525,7 +525,15 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(["Build a planner.", "Declare the test file in M2."], data["source_texts"])
         self.assertNotIn("Fix an existing test race.", data["source_texts"])
         self.assertEqual(
-            [{"basis": "user_feedback", "event_id": correction["id"], "text": correction["text"]}],
+            # No prior requirement shares the correction's wording, so it names no candidate link.
+            [
+                {
+                    "basis": "user_feedback",
+                    "event_id": correction["id"],
+                    "text": correction["text"],
+                    "previous_requirement_ids": [],
+                }
+            ],
             data["requirements_correction_sources"],
         )
         self.assertIn("current Builder task and approved contract are inherited obligations", prompt)

@@ -102,7 +102,8 @@ finally:
             ):
                 shown = screen.wait_for("Continue? [y/N]")
                 self.assertIn("explicitly accepts the changed connection", shown)
-                self.assertIn("--accept-transport-change", shown)
+                # The person reads the plain-words effect; the chat never shows the internal flag it takes.
+                self.assertNotIn("--accept-transport-change", shown)
                 screen.type(answer)
                 screen.keys("Enter")
                 self.assertEqual(0, screen.exit_status())
