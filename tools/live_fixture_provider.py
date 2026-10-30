@@ -397,6 +397,23 @@ def _source_refs():
     return sorted(set(sources))[:8] or ["task"]
 
 
+def _prompt_schema(prompt: str) -> dict:
+    """The output contract a report-file provider receives in its prompt, not as ``--output-schema``.
+
+    Without it the Tester's changed-line reasons would never be attached on that transport, and the
+    run would send the Builder back for lines it already explained (tests.test_codex_capture_copy).
+    """
+    prefix, marker = prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0], "\nTOOL OUTPUT CONTRACT\n"
+    if marker not in prefix:
+        return {}
+    try:
+        contract = prefix.rsplit(marker, 1)[1]
+        schema, _ = json.JSONDecoder().raw_decode(contract[contract.index("\n{") + 1 :])
+    except (IndexError, ValueError):
+        return {}
+    return schema if isinstance(schema, dict) else {}
+
+
 def main() -> int:
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (offline live-trial fixture)")
@@ -728,7 +745,7 @@ def main() -> int:
     schema = (
         json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
         if "--output-schema" in sys.argv
-        else {}
+        else _prompt_schema(prompt)
     )
     saved = _saved_report(data) if repairing else {}
     if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in schema.get("properties", {}):

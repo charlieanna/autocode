@@ -2002,7 +2002,8 @@ def report_for(stage: str, data: dict) -> dict:
 
         scenario = next(parent for parent in Path(CONFIG["reference"]).parents if (parent / "scenario.toml").is_file())
         provider = runpy.run_path(str(scenario.parents[1] / "harness" / "recovery_novelty_provider.py"))
-        return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
+        # The Tester's changed-line reasons (fake_changed_code) are attached like every other report's.
+        return lazy_citations(provider["report_for"](stage, data, common, CONFIG, run_check, requirements))
     if CONFIG.get("fault", "").startswith("completion_rework_") and stage in (
         "terra",
         "sol",
