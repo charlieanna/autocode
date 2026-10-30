@@ -377,6 +377,24 @@ class ClientDecisionTests(unittest.TestCase):
             self.client.person_command(operational),
         )
 
+    def test_a_named_recovery_after_the_persons_interrupt_keeps_the_pause_theirs(self):
+        # The core names setting aside the interrupted attempt as a continue; the abandoned stop
+        # that follows is still the pause the person caused, so the client resumes it.
+        run_flags = f"autocode --run-dir {self.client.run_dir} --workspace {self.client.project}"
+        recovery = view("continue", f"{run_flags} --abandon-stage 002/builder-01", abandon_stage="002/builder-01")
+        abandoned = view("resume", f"{run_flags} --resume-paused")
+        relaunch = view("continue")
+        done = {**view("continue"), "done": True}
+        taken = []
+        self.client.person_paused = True
+        with (
+            mock.patch.object(self.client, "view", side_effect=[recovery, abandoned, relaunch, done]),
+            mock.patch.object(self.client, "take", side_effect=lambda _view, words, _env, _source: taken.append(words)),
+        ):
+            self.client.until_stopped()
+        self.assertEqual([["--abandon-stage", "002/builder-01"], ["--resume-paused"], ["--no-chat"]], taken)
+        self.assertFalse(self.client.person_paused, "a plain relaunch ends the person's pause")
+
     def test_a_moment_waits_for_the_stage_the_view_shows_working(self):
         moment = Moment("interrupt", "terra", "Builder", after_failed=True)
         working = {"progress": {"stage": "Builder", "headline": "Builder working", "requirements": {"failed": 0}}}
