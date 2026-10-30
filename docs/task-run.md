@@ -1053,6 +1053,11 @@ is never mistaken for a pause.
 `TaskRun.respond_operational()` uses the separate Resolver response command;
 an operational request cannot be answered with `TaskRun.answer()`, except the
 model question of a quota stop or a content-filter refusal (`needs.route`, see [Models](models.md#when-a-roles-quota-runs-out)):
+At a cross-model independence stop, `TaskRun.answer()` and `assign_model()`
+use the current status view's route question without a resolver token: the core
+derives that decision from saved routes and checks the replacement again. Other
+resolver questions still require their current request token.
+
 `TaskRun.assign_model(role, model)` answers `route-ROLE` with a model a person
 named, updates every existing `--ROLE-model MODEL` or `--ROLE-model=MODEL`
 occurrence in the client's `options`, and leaves the run paused for

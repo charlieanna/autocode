@@ -227,8 +227,18 @@ def entry(settings, role):
 
 
 def configured(settings, role, fallback=False):
-    # Overrides are configured providers; legacy Codex model_provider flags are unrelated.
-    return entry(settings, role) is not None or fallback
+    """Recognize role overrides and the saved whole-run provider without loading a live facade."""
+    if entry(settings, role) is not None or fallback:
+        return True
+    settings = settings or {}
+    route = settings.get("roles", {}).get(role, {})
+    provider = route.get("provider") or settings.get("provider")
+    identity = settings.get("transport_identities", {}).get("opencode", settings.get("transport_identity"))
+    return (
+        route.get("engine", settings.get("engine")) == "opencode"
+        and provider not in (None, "opencode", "openai")
+        and valid_identity(identity, provider)
+    )
 
 
 def configure(settings, args, workspace):
