@@ -941,7 +941,11 @@ def bind_candidates(run_dir, *, command=tasks.AUTOCODE):
         if step.get("kind") != "bind_candidates":
             raise store.CoordinationError("Candidate binding is not the current named coordination action")
         joint_view = handle(document["joint"], command=command).status()
-        if (joint_view.get("needs") or {}).get("kind") != "continue" or joint_view.get("done"):
+        if (
+            (joint_view.get("needs") or {}).get("kind") != "continue"
+            or joint_view.get("done")
+            or not joint_view.get("approved_contract")
+        ):
             raise store.CoordinationError("The joint plan must be approved before candidate inputs can be bound")
         fingerprints = joint.bind_candidates(document, document["joint"]["workspace"])
         document["joint"]["candidate_binding"] = {

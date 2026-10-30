@@ -425,6 +425,30 @@ class CoordinationTests(unittest.TestCase):
                 coordinate.bind_candidates(self.document["anchor"])
         bind.assert_not_called()
 
+    def test_candidate_binding_action_requires_the_joint_plan_approval_receipt(self):
+        member = {
+            "target": "api",
+            "started": True,
+            "workspace": str(self.root / "api"),
+            "run_dir": str(self.root / "api/run"),
+            "base": "a" * 40,
+        }
+        self.document["members"] = [member]
+        self.document["joint"] = {"workspace": str(self.root / "joint"), "run_dir": str(self.root / "joint/run"), "started": True}
+        store.save(self.document)
+        views = {"api": {"done": True}}
+        joint_view = {"done": False, "needs": {"kind": "continue"}}
+        with (
+            patch.object(coordinate, "observe", return_value=views),
+            patch.object(coordinate, "next_step", return_value={"kind": "bind_candidates"}),
+            patch.object(coordinate, "handle", return_value=Mock(status=Mock(return_value=joint_view))),
+            patch.object(joint, "bind_candidates", return_value={"api": "fingerprint"}) as bind,
+            patch.object(coordinate, "status", return_value={}),
+        ):
+            with self.assertRaisesRegex(store.CoordinationError, "joint plan must be approved"):
+                coordinate.bind_candidates(self.document["anchor"])
+        bind.assert_not_called()
+
     def test_approved_joint_plan_binds_candidates_before_joint_execution(self):
         body = {
             "acceptance_criteria": [
