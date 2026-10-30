@@ -2338,7 +2338,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/9a85300a26026a5bd0c9d540675d0cf703deca6d/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/fc0178932b7ececd8002997f34cde44e91d492cf/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2361,15 +2361,31 @@ created since can be adopted.</p>
 <code>status_command</code>, <code>next_command</code> and <code>cancel_command</code>. The terminal client reads
 <code>autocode coordinate status --run-dir RUN --json</code> and executes only its named
 actions. It does not read child state, select repositories or compose tests.
-<code>/repos PATH</code> uses the public registry API for one-time local checkout access.</p>
+<code>/repos</code> displays the shared local source catalog; configure its roots with
+<code>autocode registry roots add PATH</code> and standalone repositories with
+<code>autocode registry repositories add PATH</code>.</p>
+<p>Initial Requirements and Investigator requests receive a pinned, bounded inventory
+of all configured sources, including external roots. The launch directory is
+optional context. Catalog file citations use <code>catalog/ID/path:line</code> and are
+accepted only when the cited ordinary file matches the pinned Git blob. The task
+retains the inventory at <code>planning/source-catalog.json</code>; changed catalogs,
+revisions or altered receipts cannot silently replace its evidence. Built-in
+read-only intake shells receive only the validated catalog directories as extra
+read roots; this grants no Builder write authority. Clear source-grounded bug
+requirements flow into the complete plan without a separate Requirements
+confirmation. Genuine unresolved business questions still pause for an answer.</p>
 <p>The version-1 coordination view identifies the anchor, record revision, phase,
 member workspaces/runs/PRs, <code>done</code>, <code>needs</code>, and optional <code>next_command</code> and
-<code>approval</code>. An approval binds the exact currently displayed plans, membership,
-bases and publication branches. Clients reread before approving. Pass its token
-privately as <code>--token -</code> with <code>AUTOCODE_COORDINATION_TOKEN</code>; providers never receive
-that variable. A missing or changed token authorizes nothing. Repository-choice
-actions exist only for current catalog candidates. Cancellation prevents further
-dispatch and submits only current members' named boundary-pause actions.</p>
+<code>approval</code>. The joint-test baseline and plan are prepared before any Builder.
+One approval binds the original request, source-catalog snapshot, repository
+membership and pinned baselines, plus every exact member and joint-plan token.
+Clients reread before approving. Pass its token privately as <code>--token -</code> with
+<code>AUTOCODE_COORDINATION_TOKEN</code>; providers never receive that variable. A missing
+or changed token authorizes nothing. Repository-choice actions exist only for
+current catalog candidates. After member runs complete, a named
+<code>coordinate bind</code> action snapshots exact candidate trees, including deletions,
+for the already-approved joint test. Cancellation prevents further dispatch and
+submits only current members' named boundary-pause actions.</p>
 <p>At a settled shared-cost stop, <code>needs.kind=budget</code> names the current finite cap,
 known accumulated spend, accounting completeness, <code>minimum_cap_usd</code>, and its own
 <code>next_command</code> argument array. Terminal chat shows these, fills only its
@@ -2391,8 +2407,10 @@ and policies, without sessions or approvals. Fresh related runs accept a pinned
 to a saved run. <code>TaskRun.assign_linked_scope(identity)</code> consumes only a current
 core-owned changeset assignment. It retires the exact covered scope question;
 it neither invents a human answer nor approves a plan.</p>
-<p>An integration task works on original baselines and candidate copies, generates
-the joint test, and returns differences to members through follow-ups. Publication
+<p>An integration task starts from original baselines, then receives the candidate
+copies only through the named binding action. It runs the approved joint test and
+returns differences to members through follow-ups. A revised plan renews the
+single coordinated approval. Publication
 requires every member's canonical completion evidence, exact matching integration
 copies, and the integration run's current authenticated completion report with
 independent criterion verdicts and runner fail-before/pass-after proof. Approved
@@ -3228,7 +3246,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/9a85300a26026a5bd0c9d540675d0cf703deca6d/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/fc0178932b7ececd8002997f34cde44e91d492cf/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3468,7 +3486,11 @@ is never mistaken for a pause.
 <code>TaskRun.respond_operational()</code> uses the separate Resolver response command;
 an operational request cannot be answered with <code>TaskRun.answer()</code>, except the
 model question of a quota stop or a content-filter refusal (<code>needs.route</code>, see <a href="../models/#when-a-roles-quota-runs-out">Models</a>):
-<code>TaskRun.assign_model(role, model)</code> answers <code>route-ROLE</code> with a model a person
+At a cross-model independence stop, <code>TaskRun.answer()</code> and <code>assign_model()</code>
+use the current status view's route question without a resolver token: the core
+derives that decision from saved routes and checks the replacement again. Other
+resolver questions still require their current request token.</p>
+<p><code>TaskRun.assign_model(role, model)</code> answers <code>route-ROLE</code> with a model a person
 named, updates every existing <code>--ROLE-model MODEL</code> or <code>--ROLE-model=MODEL</code>
 occurrence in the client's <code>options</code>, and leaves the run paused for
 <code>resume_paused()</code>. A refused model raises and leaves the run paused with the
@@ -3852,7 +3874,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/9a85300a26026a5bd0c9d540675d0cf703deca6d/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/fc0178932b7ececd8002997f34cde44e91d492cf/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.

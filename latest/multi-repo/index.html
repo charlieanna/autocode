@@ -1984,7 +1984,7 @@
 
 
 <h1 id="work-that-spans-several-repositories">Work that spans several repositories<a class="headerlink" href="#work-that-spans-several-repositories" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/9a85300a26026a5bd0c9d540675d0cf703deca6d/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/fc0178932b7ececd8002997f34cde44e91d492cf/README.md">← Back to README</a></p>
 <p>One AutoCode run changes one repository. Its workspace is one Git tree. The
 checkpoints, diffs, protected tests and the Builder's declared changes are all
 bounded to that tree, and a Builder write outside it is treated as a fault.</p>
@@ -1999,24 +1999,28 @@ without it. Install from master with the <a href="../install/#advanced-install-f
 installation</a> first, and connect a
 backend your chat can use — including Kilo, which the <a href="../install/#default-provider">default-provider
 guide</a> covers with its pinned Linux release.</p>
-<p>Start <code>autocode chat</code> in the repository where you see the symptom. On a supported
-Linux host, use an owned chat (the default), set up your coding backend with <code>/connect</code>, then authorize the local
-Git checkouts AutoCode may use:</p>
-<pre><code class="language-text">/repos /path/to/order-api
-/repos /path/to/history-service
-/repos /path/to/tax-service
-Submitting an order records the wrong total.
+<p>Configure the local source roots once. Discovery searches every configured root,
+even when a chat starts elsewhere. Register standalone checkouts that sit outside
+those roots explicitly:</p>
+<pre><code class="language-sh">autocode registry roots add /work/fulfillment
+autocode registry roots add /work/shared-services
+autocode registry repositories add /srv/standalone/history-consumer
+autocode registry roots list
 </code></pre>
-<p>This catalog is setup, not a list you must add to each bug report. <code>/repos</code> shows
-it. Chat setup and related runs share one registry; <code>AUTOCODE_HOME</code> can select a
-shared registry across projects. Checkouts need committed product code, a branch
+<p>Then start <code>autocode chat</code> from any directory and provide the ticket only. On a
+supported Linux host, use an owned chat (the default) and set up your coding
+backend with <code>/connect</code>. AutoCode investigates the configured local catalog;
+<code>/repos</code> displays roots and discovered repositories. This catalog is setup, not
+a repository list to add to each bug. An explicit <code>AUTOCODE_HOME</code> selects the
+same user-level catalog from any launch directory; project-local run registries
+remain in place. Checkouts need committed product code, a branch
 identifying the delivery base, a GitHub <code>origin</code>, Git push authentication, and
 <code>gh auth login</code>, <code>GITHUB_TOKEN</code> or <code>GH_TOKEN</code> for PR creation. <code>/repos</code> shows
 authentication readiness. Before creating a worktree, AutoCode checks repository
 write access and that the local baseline matches the remote delivery branch.
-Missing checkouts must be made
-available before their work starts. Parent-folder scanning and remote cloning
-remain separate catalog work under #2066.</p>
+Missing checkouts must be made available before their work starts. Discovery is
+bounded to configured roots and standalone registrations; it does not clone
+remotes or search the whole disk.</p>
 <p>The Investigator traces the symptom through code. Grounded repository names
 resolve against registered directory, GitHub or package names. A unique match is
 selected automatically; ambiguity or missing access stops for your input.
@@ -2027,23 +2031,26 @@ files remain untouched.</p>
 <p>If the set expands after a member finishes, AutoCode reopens completed peers and
 shows a fresh cohort approval with the new member. Earlier approvals cannot
 release implementation against the expanded set.</p>
-<p>Read and approve the displayed member plans. AutoCode retains the selected role
-routes, efforts and run limits. A configured money cap is shared across sequential
+<p>AutoCode prepares the joint-test plan from the pinned repository baselines before
+any Builder starts. The chat shows every repository plan and that joint plan in
+one approval offer, bound to the original request, discovery snapshot, selected
+repository identities and exact plan tokens. No member or joint Builder runs
+before that approval. AutoCode retains the selected role routes, efforts and run
+limits. A configured money cap is shared across sequential
 launches using the core's known-cost accounting; unknown cost remains unknown.
 If that cap stops the run, chat shows the shared known spend and asks for a finite
 whole-set cap, followed by confirmation. Leaving it blank keeps the set paused.
 The explicit change retains all earlier spending and other limits; it does not
 approve a plan or waive verification. A changed checkpoint must be read again.
-Each member's flow gate covers its own executable local path. The later joint
-test remains a required whole-set obligation in the plan's constraints or required
-behaviors; placing it inside a member's completion flow creates a circular prerequisite.
-After each member passes its checks, a separate
-integration Builder derives a joint regression from the symptom and interfaces.
-Chat displays this plan for approval too; you do not write its test command.
-Corrections discovered in the integration copies return through member follow-ups
-and fresh coordinated approval. A failed independent check also returns its
-diagnostics to a new integration plan, retaining the failed evidence. The limits
-are 12 repositories and three joint attempts.</p>
+Each member's flow gate covers its own executable local path. The joint plan
+names a real combined regression without putting it inside a member's completion
+flow. After each member passes its checks, the core exposes a named
+<code>coordinate bind</code> action that snapshots the exact candidate trees, including
+deletions, into the already-approved joint workspace. The integration Builder
+then runs that plan. Corrections discovered in the integration copies return
+through member follow-ups and a complete revised coordinated plan. A failed
+independent check retains its diagnostics for the bounded retry. The limits are
+12 repositories and three joint attempts.</p>
 <p>Independent review and runner execution must establish fail-before/pass-after
 evidence. Integration copies must match the member trees exactly. Missing checks,
 waivers and individual PASS reports cannot authorize publication. AutoCode commits
@@ -2259,12 +2266,14 @@ discover an arbitrary service dependency.</p>
 <p>These are focused regressions, not one live, end-to-end multi-service production
 trial. Bounded live Kilo MiMo/GLM TUI attempts on 2026-10-27 discovered all three
 fixture repositories but stopped on planning/report validation before builds,
-joint testing or real PR publication. See the <a href="https://github.com/charlieanna/autocode/blob/9a85300a26026a5bd0c9d540675d0cf703deca6d/docs/bugs/2181-live-tui-coordination.md#final-bounded-result-2026-10-27">retained qualification evidence</a>
+joint testing or real PR publication. See the <a href="https://github.com/charlieanna/autocode/blob/fc0178932b7ececd8002997f34cde44e91d492cf/docs/bugs/2181-live-tui-coordination.md#final-bounded-result-2026-10-27">retained qualification evidence</a>
 and <a href="https://github.com/charlieanna/autocode/issues/2208">remaining convergence issue #2208</a>.
 Live end-to-end delivery is not yet verified. The current implementation also has these limits:</p>
 <ul>
-<li>Discovery depends on the model reporting grounded external work; it does not
-  crawl every repository or automatically clone a missing one.</li>
+<li>Discovery inventories repositories beneath configured roots and standalone
+  registrations. The model still has to ground each repository's role in the
+  ticket and source files; AutoCode does not search the whole disk or clone
+  missing repositories.</li>
 <li>Automatic coordination currently supports owned terminal chats on Linux and
   local Git repositories containing ordinary files. Symlinks, submodules and
   <code>durable_local</code> coordination are refused explicitly; saved execution policies
@@ -2274,12 +2283,15 @@ Live end-to-end delivery is not yet verified. The current implementation also ha
   test evidence, the result remains unverified and bounded retries stop with
   diagnostics.</li>
 <li>The manual change-set API leaves linking and the check command to its caller.
-  Automatic TUI coordination supplies them and requires its separate joint gate.
-  A parent folder containing sibling repositories is still unsupported.</li>
+  Automatic TUI coordination discovers and links the repositories, then uses
+  one consolidated approval for member plans and the joint-test plan. A plain
+  parent folder is not itself a multi-repository run; configure it as a local
+  source root for automatic discovery.</li>
 <li>In the manual change-set API, without a named integration command, <code>verification.done</code> means all individual
   runs completed. It does <strong>not</strong> prove the producer and consumer agree. Name the
   check before treating the overall bug as resolved.</li>
-<li>Set approval binds member plans; a separately versioned shared-interface
+<li>Manual change-set approval binds member plans; automatic coordination binds
+  member and joint-test plans together. A separately versioned shared-interface
   contract and the remaining guided onboarding work are tracked in
   <a href="https://github.com/charlieanna/autocode/issues/2066">#2066</a>.</li>
 </ul>
@@ -2300,6 +2312,8 @@ Live end-to-end delivery is not yet verified. The current implementation also ha
    link the two pull requests to each other with the merge order.</li>
 </ol>
 <p>Without a change set, nothing checks that the two halves agree.</p>
+<p>Configured source roots are workspace search boundaries. Git metadata on a root itself does not hide independent child checkouts. Discovery recognizes Git identities without repository-name prefixes; ordinary discovered checkouts are traversal leaves. Depth, directory and containment limits remain explicit.</p>
+<p>Discovery skips generated Python environments identified by <code>pyvenv.cfg</code>, independently of their directory names. File symlinks are not traversed; directory symlinks escaping a configured root still make discovery incomplete.</p>
 
 
 
