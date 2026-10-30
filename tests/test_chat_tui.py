@@ -116,9 +116,9 @@ class TranscriptTests(unittest.TestCase):
             transcript.live = "A streamed response"
             live = transcript.lines(40)
             self.assertIsNot(updated, live, "streamed response updates invalidate rendered lines")
-            self.assertEqual(5, wrapped.call_count)
+            self.assertEqual(7, wrapped.call_count)
             self.assertIs(live, transcript.lines(40))
-            self.assertEqual(5, wrapped.call_count)
+            self.assertEqual(7, wrapped.call_count)
 
     def test_the_closing_words_are_everything_said_after_the_conversation(self):
         transcript = tui.Transcript()
