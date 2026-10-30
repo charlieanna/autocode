@@ -637,9 +637,7 @@ class ConversationTests(unittest.TestCase):
         self.assertNotIn("autocode --approve-review", out)
         self.assertNotIn("=rv", out, "the issued token is never printed")
         self.assertNotIn(str(RUN), out, "the run's own paths are left out")
-        self.assertIn(
-            "\nAccept these criteria? [y/N]: ", out, "the question stays short after the criteria are shown"
-        )
+        self.assertIn("\nAccept these criteria? [y/N]: ", out, "the question stays short after the criteria are shown")
         self.assertEqual([["--approve-review", "C1", "--review-token", "-"]], client.taken)
 
     def test_a_review_names_the_files_each_criterions_steps_changed(self):

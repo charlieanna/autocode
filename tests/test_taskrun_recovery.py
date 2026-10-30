@@ -25,8 +25,7 @@ class RecoveryGrantTests(unittest.TestCase):
                 "action": f"--abandon-stage {attempt} then --resume-paused",
             },
             "next_command": (
-                "autocode --run-dir /repo/.autocode/runs/task --workspace /repo "
-                f"--abandon-stage {attempt}"
+                f"autocode --run-dir /repo/.autocode/runs/task --workspace /repo --abandon-stage {attempt}"
             ),
         }
         stopped = {

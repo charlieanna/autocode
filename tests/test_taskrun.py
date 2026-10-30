@@ -715,7 +715,9 @@ class RunViewTests(unittest.TestCase):
         self.assertEqual("001/terra-01", need["abandon_stage"])
         self.assertIn("--abandon-stage 001/terra-01 then --resume-paused", need["action"])
         shown = run_view.action(state, run_dir=Path("/run"), workspace=Path("/work"))
-        self.assertEqual("autocode --run-dir /run --workspace /work --abandon-stage 001/terra-01", shown["next_command"])
+        self.assertEqual(
+            "autocode --run-dir /run --workspace /work --abandon-stage 001/terra-01", shown["next_command"]
+        )
 
     def test_rejected_validator_report_exposes_exact_retry_attempt(self):
         state = {
