@@ -1316,6 +1316,13 @@ def context(state: RunState, stage, state_path):
     coordinated = stage_context.coordination_context.context(state)
     if coordinated:
         packet["coordinated_member"] = coordinated
+    elif stage in ("requirements_gather", "requirements", "recognize_workflow"):
+        try:
+            from .. import autocode_catalog_context as source_catalog
+        except ImportError:
+            import autocode_catalog_context as source_catalog
+        if catalog := source_catalog.context(state):
+            packet["source_catalog"] = catalog
     interpretations = goals.feedback_interpretation_context(state)
     if interpretations:
         packet["feedback_interpretations"] = interpretations

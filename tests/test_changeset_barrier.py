@@ -121,6 +121,9 @@ class ChangesetBarrierTests(unittest.TestCase):
                 self.assertTrue(barrier.refusal(self.a), "hold is durable before the new state can commit")
                 raise RuntimeError("interrupted")
         self.assertTrue(barrier.refusal(self.a))
+        record = store.find(self.a["run_dir"])
+        self.assertTrue(record["approval_history"][-1]["released"])
+        self.assertEqual(token, record["approval_history"][-1]["token"])
         with self.assertRaisesRegex(store.ChangesetError, "not every member"):
             store.release_approval(self.a["run_dir"], token)
 
@@ -146,6 +149,80 @@ class ChangesetBarrierTests(unittest.TestCase):
         self.a["task"] = "A new follow-up"
         self.save(self.a)
         self.assertTrue(barrier.refusal(self.a))
+
+    def test_automatic_coordinated_members_cannot_be_approved_or_resumed_directly(self):
+        record = store.find(self.a["run_dir"])
+        store.set_fields(record["id"], {"automatic_anchor": str(self.root / "automatic-anchor")})
+        with self.assertRaisesRegex(ValueError, "coordinated plans must be approved together"):
+            barrier.approve(self.a, identity.token(self.a["goal_contract"]), None)
+        self.assertTrue(barrier.refusal(self.a))
+
+    def test_joint_plan_is_a_hidden_coordinated_participant_and_cannot_approve_alone(self):
+        workspace = self.root / "joint-regression"
+        run_dir = workspace / ".autocode" / "runs" / "joint"
+        run_dir.mkdir(parents=True)
+        joint = self.state("joint-regression")
+        joint.update(workspace=str(workspace), run_dir=str(run_dir))
+        record = store.reserve(
+            source_workspace=self.a["workspace"],
+            source_run_dir=self.a["run_dir"],
+            target="Joint regression",
+            workspace=workspace,
+            brief="Exercise the combined candidate",
+            role="joint",
+        )
+        store.bind(record["id"], "Joint regression", run_dir)
+        store.set_fields(record["id"], {"automatic_anchor": str(self.root / "automatic-anchor")})
+        linked = store.linked_for(self.a["run_dir"])
+        self.assertNotIn("Joint regression", {row["target"] for row in linked})
+        self.assertIn("Joint regression", {row["target"] for row in store.members(store.find(run_dir))})
+        with self.assertRaisesRegex(ValueError, "coordinated plans must be approved together"):
+            barrier.approve(joint, identity.token(joint["goal_contract"]), None)
+
+    def test_retiring_an_old_joint_attempt_preserves_repository_members(self):
+        workspace = self.root / "joint-regression"
+        run_dir = workspace / ".autocode" / "runs" / "joint"
+        run_dir.mkdir(parents=True)
+        record = store.reserve(
+            source_workspace=self.a["workspace"],
+            source_run_dir=self.a["run_dir"],
+            target="Joint regression",
+            workspace=workspace,
+            brief="Exercise the combined candidate",
+            role="joint",
+        )
+        store.bind(record["id"], "Joint regression", run_dir)
+        store.remove_joint(self.a["run_dir"], run_dir)
+        active = store.find(self.a["run_dir"])
+        self.assertNotIn("Joint regression", {row["target"] for row in store.members(active)})
+        self.assertEqual({"consumer"}, {row["target"] for row in store.members(active) if row["role"] == "member"})
+
+    def test_revised_joint_plan_reuses_only_unchanged_member_approval_receipts(self):
+        old_token = self.release()
+        workspace = self.root / "joint-regression"
+        run_dir = workspace / ".autocode" / "runs" / "joint"
+        run_dir.mkdir(parents=True)
+        joint = self.state("joint-regression")
+        joint.update(workspace=str(workspace), run_dir=str(run_dir))
+        record = store.reserve(
+            source_workspace=self.a["workspace"],
+            source_run_dir=self.a["run_dir"],
+            target="Joint regression",
+            workspace=workspace,
+            brief="Exercise the combined candidate",
+            role="joint",
+        )
+        store.bind(record["id"], "Joint regression", run_dir)
+        store.set_fields(record["id"], {"automatic_anchor": str(self.root / "automatic-anchor")})
+        rows = [self.a, self.b, joint]
+        plans = {row["run_dir"]: identity.token(row["goal_contract"]) for row in rows}
+        new_token = changeset.set_token([{"run_dir": key, "plan_token": value} for key, value in plans.items()])
+        current = store.find(self.a["run_dir"])
+        store.begin_approval(self.a["run_dir"], new_token, plans, store.members(current))
+        barrier.approve(joint, plans[joint["run_dir"]], new_token)
+        self.save(joint)
+        self.assertNotEqual(old_token, new_token)
+        store.release_approval(self.a["run_dir"], new_token)
 
     def test_reapproval_cannot_bypass_another_pause_or_a_new_planning_turn(self):
         self.accept(self.a, self.begin())

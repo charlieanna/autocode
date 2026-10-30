@@ -211,6 +211,13 @@ def packet(state: RunState, inventory: dict | None = None, engine: str | None = 
     # them exactly as its member context lists them (autocode_coordination_context).
     if coordinated := coordination_context.context(state):
         data["coordinated_member"] = coordinated
+    else:
+        try:
+            from . import autocode_catalog_context as source_catalog
+        except ImportError:
+            import autocode_catalog_context as source_catalog
+        if catalog := source_catalog.context(state):
+            data["source_catalog"] = catalog
     if retry := investigation_retry.context(state):
         data["prior_failed_attempt"] = retry
     data.update(diagnosis_refresh.prompt_context(state))
@@ -398,12 +405,17 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None,
     # report repair attempts to name the owning repository (#2420); the scope is
     # never silently dropped.
     coordinated = coordination_context.context(state)
+    try:
+        from . import autocode_catalog_context as source_catalog
+    except ImportError:
+        import autocode_catalog_context as source_catalog
     scope, dropped = workspace_scope.validated(
         value.get("workspace_scope"),
         sources=requirement_cues.source_texts(state),
         source_refs=[part.get("evidence") for part in (value.get("workspace_scope") or {}).get("external_parts", [])],
         workspace=workspace,
         member_names=tuple(coordinated["members"]) if coordinated else (),
+        evidence_resolver=lambda ref: source_catalog.evidence(state, ref),
     )
     probe = value.get("probe", "").strip()
     shown = (

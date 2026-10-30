@@ -96,7 +96,7 @@ COMMANDS = (
     Command("/engine", "The engine new chats run on: /engine NAME"),
     Command("/connect", "Backends: check one, sign in, or use it for new chats"),
     Command("/stages", "Each stage's model and reasoning level for new chats"),
-    Command("/repos", "Repositories for automatic discovery; /repos PATH authorizes a local checkout"),
+    Command("/repos", "Show configured source roots and discovered repositories"),
     Command("/attention", "Saved alerts: inspect, acknowledge or open (also F8)"),
     Command("/panel", "Show or hide the side panel"),
     Command("/pause", "Ask AutoCode to pause after the current step"),

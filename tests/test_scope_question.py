@@ -65,7 +65,7 @@ class ScopeQuestionTests(unittest.TestCase):
         self.assertEqual(
             {
                 "spans_repositories": True,
-                "external_parts": [{"target": "epp-history", "work": "Store the delivery window"}],
+                "external_parts": [HISTORY],
                 "uncovered": ["epp-history"],
                 "decision": "this_repository",
                 "dropped": ["billing"],

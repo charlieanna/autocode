@@ -42,7 +42,14 @@ class ScopeQuestionCliTests(unittest.TestCase):
             {
                 "identity": question["id"].removeprefix("workspace-scope-"),
                 "spans_repositories": True,
-                "external_parts": [{"target": "greet-history", "work": "Record each greeting"}],
+                "external_parts": [
+                    {
+                        "target": "greet-history",
+                        "work": "Record each greeting",
+                        "source_quote": ELSEWHERE,
+                        "evidence": "",
+                    }
+                ],
                 "uncovered": [],
                 "decision": None,
                 "dropped": [],

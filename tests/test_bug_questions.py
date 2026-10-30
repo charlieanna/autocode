@@ -157,7 +157,14 @@ class InvestigatorQuestionTaskRunTests(unittest.TestCase):
         self.assertEqual(["This repository only"], question["options"])
         self.assertEqual("", question["proposed_default"])
         self.assertEqual(
-            [{"target": "history-service", "work": "Accept the new calculation contract"}],
+            [
+                {
+                    "target": "history-service",
+                    "work": "Accept the new calculation contract",
+                    "source_quote": "",
+                    "evidence": "client.py:1",
+                }
+            ],
             view["scope"]["external_parts"],
         )
         self.assertIn("history-service", [row["repository"] for row in view["scope"]["briefs"]])
