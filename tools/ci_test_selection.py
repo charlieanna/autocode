@@ -181,6 +181,8 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tests/coordination_provider.py", ("tests.test_coordination_tui_e2e",)),
     ("docs/schemas/status-view.schema.json", ("tests.test_json_contract",)),
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture", "tests.test_review_attribution_cli")),
+    ("scenarios/catalog/local-compose-two-services/", ("tests.test_local_compose_scenario",)),
+    ("scenarios/harness/components_driver.py", ("tests.test_local_compose_scenario",)),
     ("scenarios/harness/profiles.py", ("tests.test_kilocode_effort",)),
     ("tools/prompts/acceptance-tests.md", ("tests.test_acceptance_tests", "tests.test_acceptance_runner_handoff")),
     (

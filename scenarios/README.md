@@ -728,6 +728,11 @@ them, then invokes `--run-local`. The component tasks retain ordinary planning,
 review and completion gates. See [task lanes](../docs/task-lanes.md#running-the-combined-system-locally).
 
 `local-compose-two-services` connects a link service to an analytics service.
+Each service's reference solution ships its own `tests/` (its component check
+runs them, as a component that delivers code delivers the tests that prove it
+under the changed-line rule, #2474), and each `broken/` variant ships the
+plausible weak test a wrong Builder would write, so AutoCode believes the
+variant done and only the independent oracle catches it.
 Default `--fake` uses scripted models and a fake Docker CLI transport backed by
 actual stdlib HTTP service processes; it does not contact a real Docker daemon.
 Real containers require explicit `--local-docker`; live component runs without
