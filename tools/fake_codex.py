@@ -919,7 +919,9 @@ if stage == "astra_checkpoint":
     validation_schema = validation_schema.get("validation", {}).get("properties", {})
     validation_report = result.get("validation", {})
 if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in validation_schema:
-    validation_report["changed_code_exceptions"] = greeting_changed_code_reasons(data)
+    # A report repair's schema may allow no reasons (maxItems 0); a schema-following Tester then gives none.
+    cap = validation_schema["changed_code_exceptions"].get("maxItems")
+    validation_report["changed_code_exceptions"] = greeting_changed_code_reasons(data)[:cap]
 if "--output-schema" in sys.argv:
     if "progressive_checkpoint" in schema.get("properties", {}):
         result.setdefault("progressive_checkpoint", False)

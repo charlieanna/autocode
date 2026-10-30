@@ -80,9 +80,6 @@ class VisualRuntimeTests(unittest.TestCase):
             for cid, name in (("C1", "empty"), ("C2", "filled"))
         ]
         approved_body = goal_fixtures.body()
-        # The visual fixture exercises only greet.py; the default greeting goal
-        # now also owns its regression test, which this visual contract does not.
-        approved_body["milestones"][0]["affected_paths"] = ["greet.py"]
         approved_body["acceptance_criteria"] = criteria
         approved_body["milestones"][0]["acceptance_criteria"] = ["C1", "C2"]
         approved_body["constraints"].append('VISUAL_CASE_CRITERIA={"empty":["C1"],"filled":["C2"]}')
