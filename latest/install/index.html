@@ -2150,7 +2150,7 @@
 
 
 <h1 id="install-and-run">Install and run<a class="headerlink" href="#install-and-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/d1b8835c9e447fac27418aad90acf476f2535d6d/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/e53de12f9ad6cffa9a1b2877a8837b4d50f7a1e0/README.md">← Back to README</a></p>
 <h2 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">&para;</a></h2>
 <p>You need macOS or Linux (Windows through WSL), Python 3.11 or newer, Git,
 <a href="https://pipx.pypa.io/">pipx</a>, and npm (Node.js) to install the engine.</p>
@@ -2178,16 +2178,21 @@ autocode demo
 These commands install the tagged release, not current master; this guide's
 <code>latest</code> documentation can describe newer features and fixes. Use the
 <a href="#advanced-install-from-a-checkout">advanced checkout/master installation</a>
-when you need those changes. The <a href="https://github.com/charlieanna/autocode/blob/d1b8835c9e447fac27418aad90acf476f2535d6d/docs/bugs/2026-10-27-release-installation.md">release verification record</a>
+when you need those changes. The <a href="https://github.com/charlieanna/autocode/blob/e53de12f9ad6cffa9a1b2877a8837b4d50f7a1e0/docs/bugs/2026-10-27-release-installation.md">release verification record</a>
 distinguishes distribution smoke checks from task/provider qualification.
 If pipx's Python is older than 3.11, add <code>--python python3.11</code>. The demo is
 offline: no sign-in or model spend. Once installed, you do not need to activate
 a virtual environment in every shell.</p>
-<p><strong>Already have an engine signed in?</strong> Reuse it. With Codex, run
-<code>autocode doctor --engine codex</code> and add <code>--engine codex</code> to your first task.
-With Claude Code use <code>--engine claude</code> on both commands. Skip step 2 and go to
-the project setup in step 3. These flags select a route explicitly; they do not
-change your saved defaults or existing runs.</p>
+<p><strong>Already have an engine signed in?</strong> Reuse it. When OpenCode is not installed
+and nothing names an engine (no flag, no <code>default_provider</code>, no project
+<code>engine</code>), a new run takes the first backend this machine has connected: Claude
+Code signed in to a subscription, then Codex, then the AutoCode direct
+connection (API keys), then Kilo. It prints the choice (<code>Engine for this run:
+Claude Code. …</code>), and <code>autocode doctor</code> checks that same backend. So with only
+Claude Code or only Codex signed in, skip step 2 and go to the project setup in
+step 3 with no flags. To choose explicitly, add <code>--engine codex</code> or <code>--engine
+claude</code> to <code>doctor</code> and to the task; a flag selects a route for that command
+only and never changes your saved defaults or existing runs.</p>
 <p><strong>2. Install the engine and sign in.</strong> The default engine is OpenCode. The terminal
 adapter accepts 1.x and 2.x; this quickstart pins <strong>1.18.33</strong>, the version with
 historical macOS native-tool qualification. Its default routes use two accounts: the
