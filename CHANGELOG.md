@@ -22,6 +22,9 @@ PR template asks for an entry here; a change without one is incomplete.
   schema when a Requirements report is repaired, instead of the generic JSON-edit schema that the
   gocode structured-output transport rejects before any model response. The repair therefore
   proceeds instead of pausing for operational recovery.
+- `autocode coordinate status` reports `phase: joint_regression` again while the joint regression
+  runs over the bound repository candidates. Since the joint plan is approved with the member plans
+  and started early, the phase had stayed at `fixing` through the joint run and its mismatch repair.
 
 ## [0.9.0] — 2026-10-30
 
