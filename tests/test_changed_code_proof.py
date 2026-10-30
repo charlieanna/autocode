@@ -251,3 +251,37 @@ class ChangedCodeProofTests(unittest.TestCase):
         self.assertTrue(proof_policy.ready(proof, result, None))
         Path(killed["output"]).write_text("Changed capture.")
         self.assertFalse(proof_policy.ready(proof, result, None))
+
+
+class SelectedTestsTests(unittest.TestCase):
+    """The mutation check runs the proof command the runner can narrow to the observed proving tests."""
+
+    GATE = "/opt/py/bin/python project_gate.py"
+    SUITE = "/opt/py/bin/python -m unittest discover -v -s tests"
+    REGRESSION = "/opt/py/bin/python -m unittest -v test_greet.py"
+
+    def result(self, suite, regression, suite_passed, regression_passed):
+        return {
+            "framework": {"name": "unittest"},
+            "commands": {"suite": suite, "regression": regression},
+            "checks": {
+                "suite_on_candidate": {"results": {"passed": suite_passed}},
+                "regression_on_candidate": {"results": {"passed": regression_passed}},
+            },
+        }
+
+    def test_a_narrowable_suite_is_preferred(self):
+        result = self.result(self.SUITE, self.REGRESSION, ["tests.test_greet.T.test_ada"], ["test_greet.T.test_ada"])
+        self.assertEqual((None, self.SUITE, ["tests.test_greet.T.test_ada"]), proof_policy.selected_tests(None, result))
+
+    def test_a_project_gate_script_falls_back_to_the_regression_command(self):
+        # A project's own gate (#2474 stall): the runner cannot name tests to `python project_gate.py`,
+        # but the proof's regression command ran the same tests and can be narrowed to them.
+        result = self.result(self.GATE, self.REGRESSION, ["test_greet.T.test_ada"], ["test_greet.T.test_ada"])
+        self.assertEqual((None, self.REGRESSION, ["test_greet.T.test_ada"]), proof_policy.selected_tests(None, result))
+
+    def test_without_a_narrowable_command_the_suite_is_kept_for_the_record(self):
+        result = self.result(self.GATE, "/opt/py/bin/python regress.py", ["test_greet.T.test_ada"], ["t.T.test_a"])
+        self.assertEqual((None, self.GATE, ["test_greet.T.test_ada"]), proof_policy.selected_tests(None, result))
+        result = self.result(self.GATE, self.REGRESSION, ["test_greet.T.test_ada"], [])
+        self.assertEqual((None, self.GATE, ["test_greet.T.test_ada"]), proof_policy.selected_tests(None, result))

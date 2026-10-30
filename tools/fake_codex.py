@@ -314,6 +314,15 @@ elif stage == "investigate_stuck":
         "counterexample": {"file": "", "find": "", "replace": ""},
         "untestable": "",
     }
+    if failure := data.get("builder_failure"):
+        # A Builder-failure classification must cite the pinned failure and its evidence.
+        result.update(
+            failure_class="unknown",
+            example="Offline fixture: it cannot diagnose this failure; it is classified unknown.",
+            untestable="An offline fixture runs no command that could show the cause.",
+            failure_id=failure.get("failure_id", ""),
+            evidence_refs=list(failure.get("evidence_refs") or [])[:1],
+        )
 elif stage == "requirements_gather":
     draft = body(questions=not data["saved_answers"], task_kind=task_kind)
     result = {

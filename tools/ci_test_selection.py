@@ -243,6 +243,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("tests.test_report_repair", "tests.test_requirements_chat"),
     ),
     (
+        "tools/prompts/fragments/autoplanner/code-refs-rule.md",
+        ("tests.test_planning", "tests.test_report_repair"),
+    ),
+    (
         "tools/prompts/fragments/report-repair-context/evidence-probe.md",
         ("tests.test_report_repair", "tests.test_test_cases"),
     ),

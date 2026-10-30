@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -185,13 +186,25 @@ class VerifyCliTests(unittest.TestCase):
         )
         return project
 
-    def run_cli(self, project, out, criteria, *, nested_import=False, inject_ignored=False, selection=(), base=None):
+    def run_cli(
+        self,
+        project,
+        out,
+        criteria,
+        *,
+        nested_import=False,
+        inject_ignored=False,
+        selection=(),
+        base=None,
+        extra_environment=None,
+    ):
         environment = dict(
             clean_git_environment(),
             PATH=os.pathsep.join((str(self.bin), str(Path(sys.executable).parent), os.environ["PATH"])),
             AUTOCODE_HOME=str(self.root / "registry"),
             AUTOCODE_ATTENTION_HOME=str(self.root / "attention"),
             CODEX_HOME=str(self.root / "codex-home"),
+            **(extra_environment or {}),
         )
         if inject_ignored:
             environment["AUTOCODE_TEST_REVIEW_INJECT"] = "1"
@@ -347,6 +360,20 @@ class VerifyCliTests(unittest.TestCase):
         self.assertEqual(2, stale.returncode, stale.stderr)
         self.assertEqual("UNVERIFIED", json.loads(stale.stdout)["verdict"])
         self.assertEqual("stale", json.loads(stale.stdout)["availability"])
+
+    def test_an_editor_terminals_git_config_parameters_are_cleared_and_recorded(self):
+        # Cursor and VS Code export these in their integrated terminals (#2504).
+        secret = "editor-value-that-must-not-be-logged"
+        editor = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": secret}
+        project = self.project("editor-terminal")
+        command = shlex.quote(sys.executable) + " -m unittest discover -s tests -v"
+        out = self.root / "editor-output"
+        result, value = self.run_cli(project, out, contract(command), extra_environment=editor)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("PASS", value["verdict"])
+        receipt = json.loads((out / "verification.json").read_text())
+        self.assertEqual(sorted(editor), receipt["original"]["cleared_git_config"])
+        self.assertNotIn(secret, result.stdout + result.stderr)
 
     def test_a_test_skipped_by_the_change_is_caught_against_the_base_suite(self):
         project = self.project("skipped-guard")
@@ -619,9 +646,8 @@ class VerificationBoundaryTests(unittest.TestCase):
             "GIT_ALTERNATE_OBJECT_DIRECTORIES",
             "GIT_NAMESPACE",
             "GIT_CONFIG",
-            "GIT_CONFIG_COUNT",
-            "GIT_CONFIG_KEY_0",
-            "GIT_CONFIG_VALUE_0",
+            "GIT_CONFIG_GLOBAL",
+            "GIT_CONFIG_PARAMETERS",
         ):
             for arguments in (self.new_arguments(), ["--record", str(self.root / "unavailable-record"), "--json"]):
                 with self.subTest(name=name, saved="--record" in arguments):
@@ -636,8 +662,38 @@ class VerificationBoundaryTests(unittest.TestCase):
                     self.assertEqual(4, result.returncode, result.stdout + result.stderr)
                     self.assertEqual("UNVERIFIED", json.loads(result.stderr)["verdict"])
                     self.assertIn(name, result.stderr)
+                    self.assertIn("unset " + name, result.stderr)
                     self.assertNotIn(secret, result.stdout + result.stderr)
                     self.assert_untouched()
+
+    def test_an_editor_terminals_git_config_parameters_do_not_stop_verification(self):
+        editor = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": "x"}
+        seen = {}
+
+        def launch(*_args, **_kwargs):
+            seen.update({name: os.environ.get(name) for name in editor})
+            raise verifier.TaskRunError("stop")
+
+        args = verifier.parser().parse_args(self.new_arguments())
+        with mock.patch.dict(os.environ, {**self.environment, **editor}, clear=True):
+            with mock.patch.object(verifier.TaskRun, "start", side_effect=launch) as started:
+                result = verifier.verify(args, criteria_policy.load(args.criteria))
+        self.assertEqual("UNVERIFIED", result["verdict"])
+        started.assert_called_once()
+        self.assertEqual(dict.fromkeys(editor), seen)
+
+    def test_output_under_a_system_link_is_created_at_its_target(self):
+        tmp = Path("/tmp")
+        if not (tmp.is_symlink() and tmp.lstat().st_uid == 0):
+            self.skipTest("/tmp is not a root-owned symbolic link on this host (macOS has one)")
+        args = verifier.parser().parse_args(self.new_arguments(tmp / f"autocode-verify-{uuid.uuid4().hex}"))
+        with mock.patch.dict(os.environ, self.environment, clear=True):
+            with mock.patch.object(verifier.TaskRun, "start", side_effect=verifier.TaskRunError("stop")):
+                result = verifier.verify(args, criteria_policy.load(args.criteria))
+        created = Path(result["record"])
+        self.addCleanup(shutil.rmtree, created, True)
+        self.assertEqual(Path(os.path.realpath(tmp)) / args.out.name, created)
+        self.assertTrue(created.is_dir())
 
     def test_git_visible_output_is_refused_before_creation_or_provider_dispatch(self):
         output = self.project / "verification-output"

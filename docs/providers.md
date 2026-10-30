@@ -634,12 +634,15 @@ Changing the config file or the tool version pauses a saved run.
 
 ### A different tool for one role
 
-For a **new** run on `--engine opencode --provider opencode`, repeat
-`--role-transport ROLE=PROVIDER` to select an external configured tool for only
-those roles. `ROLE` is the existing CLI code name, such as `sol` or `completion`;
-`PROVIDER` names its registered TOML config, such as `kilocode`. Each selection
-requires an explicit corresponding model flag. Select its exact model ID from
-that tool's catalogue, including a bare ID when the tool publishes one:
+For a **new** run on the OpenCode facade engine (`--engine opencode` with any
+provider, or `--engine claude`), repeat `--role-transport ROLE=PROVIDER` to run
+only those roles on another connected tool. `ROLE` is the existing CLI code name,
+such as `sol` or `completion`; `PROVIDER` names a tool with its own identity: a
+registered TOML config such as `kilocode`, the built-in `claude` provider, or the
+`autocode` direct connection. It cannot name the run's own tool, and `--engine
+codex` keeps Codex's own transport for every role. Each selection requires an
+explicit corresponding model flag. Select its exact model ID from that tool's
+catalogue, including a bare ID when the tool publishes one:
 
 ```sh
 autocode models --provider opencode
@@ -648,6 +651,9 @@ autocode models --provider kilocode
 autocode "Your task" --engine opencode --provider opencode \
   --role-transport sol=kilocode --sol-model '<MODEL_FROM_KILO_CATALOGUE>' \
   --sol-reasoning-effort high
+# A run on Claude Code with the Tester on a Kilo account (#2049).
+autocode "Your task" --engine claude \
+  --role-transport sol=kilocode --sol-model '<MODEL_FROM_KILO_CATALOGUE>'
 ```
 
 The other roles retain their routes selected by the ordinary model flags and
@@ -1076,7 +1082,17 @@ cross-model guard is for.
 
 ### Default provider
 
-New runs use OpenCode unless you choose otherwise. `--provider <name>` picks the
+New runs use OpenCode unless you choose otherwise. When OpenCode is not
+installed and nothing chooses (no `--engine` or `--provider`, no
+`AUTOCODE_PROVIDER`, no `default_provider`, no project `engine`), a new run
+takes the first connected backend in this order: Claude Code signed in to a
+subscription, Codex signed in, the AutoCode direct connection with a configured
+API key, then Kilo with a connected account (#2049; the order is the proposed
+"default engine" answer in #2054). The run prints `Engine for this run: …` with
+the reason, `doctor` names the same choice in its `engine` row, and a saved run
+keeps the engine it started with. Each check is the backend's own login listing,
+as `autocode connections check` reads it; no model is called and no credential
+is read. `--provider <name>` picks the
 tool for one run. To change the default for every new run and for the dashboard,
 set `AUTOCODE_PROVIDER=kilocode` or add this to `~/.config/autocode/config.toml`:
 

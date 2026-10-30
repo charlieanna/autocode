@@ -88,7 +88,7 @@ When current implementation facts matter to the user's goal, use workspace_inven
 to locate and read the relevant existing code before making those claims. Prefer
 retained context and narrow inspection over a new repository tour each turn.
 A missing package.json or src/ directory does not mean no application exists.
-source_refs must include the actual repository-relative files read (optional :line)
+source_refs must include the actual repository-relative source files read (optional :line)
 when making implementation claims; do not infer inspected behavior from filenames.
 A truncated inventory is not evidence of absence. While only discussing user
 intent and asking clarification questions, source_refs=[] is valid in any workspace.
