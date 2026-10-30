@@ -27,6 +27,10 @@ PR template asks for an entry here; a change without one is incomplete.
   schema when a Requirements report is repaired, instead of the generic JSON-edit schema that the
   gocode structured-output transport rejects before any model response. The repair therefore
   proceeds instead of pausing for operational recovery.
+- A pause over an attempt that exited cleanly (for example an uncertain verification cleanup or a
+  stale source check) stays a `resume` for a person instead of the core's own `continue`. TaskRun
+  and the clients therefore no longer archive that attempt automatically and discard the result
+  the hold stands on; an attempt that did not finish cleanly is still set aside by the core.
 - `autocode coordinate status` no longer fails with a `KeyError` for a change set whose members
   were linked from existing runs rather than discovered as local repositories; such a member's
   `location` is `null`. A shared budget pause on those sets therefore offers its budget choice again.
