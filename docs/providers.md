@@ -744,6 +744,15 @@ the cited, verified capture receipt before checking the unchanged report schema.
 It never replaces a supplied exit code, guesses from output text, or resolves
 ambiguous executions. The original report is retained as `.reported.json`, and
 the stage records the derived metadata. Nonzero exits remain failures.
+A strict-schema command wrapper can call
+`autocode_provider_report_schema.full_report(schema_path)` before passing a schema
+to its model API. This keeps an ordinary schema unchanged. For an optional bounded
+report-edit offer, it writes a separate schema restoring the exact original full
+report fields and required list. The saved input schema and source pins remain
+unchanged; the core still validates the complete returned report, provenance and
+evidence. This adapter supports providers that reject arbitrary JSON edit values;
+it grants no weaker validation or approval authority.
+
 For `report_file` tools, capture commands must inherit `AUTOCODE_CAPTURE_CONTEXT`
 from the tool process: the capture helper records it automatically and the
 validator checks it against the saved attempt. Receipts from another attempt,
