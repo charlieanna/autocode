@@ -233,10 +233,64 @@ def _todo(data, root):
     return accepted
 
 
+DIAMOND_CHECK = "35f1a48f7793f0b6d3f06fa8d39a0907dacd9ee88b9e2daa1a55245b05f36320"
+DIAMOND_TESTS = "f041e5eef4e1c7c8ae5516c7957012e17060cb7e20eb0c7cfca79fd40e35b6b4"
+DIAMOND_REASONS = {
+    "from client.fetch import fetch": "No supported import mutation. test_check_combines_handle_and_fetch asserts "
+    "the exact 'handled D / fetched D' result; without this import check() raises NameError and fails it.",
+    "from server.handler import handle": "No supported import mutation. test_check_combines_handle_and_fetch asserts "
+    "the exact 'handled D / fetched D' result; without this import check() raises NameError and fails it.",
+}
+
+
+def _diamond(data, root):
+    proof = data.get("regression_proof") or {}
+    try:
+        source = (root / "integration/check.py").read_bytes()
+        digest = hashlib.sha256(source).hexdigest()
+        if (
+            digest != DIAMOND_CHECK
+            or hashlib.sha256((root / "integration/test_check.py").read_bytes()).hexdigest() != DIAMOND_TESTS
+        ):
+            return []
+    except OSError:
+        return []
+    if not proof.get("path"):
+        return []
+    lines, accepted = source.decode().splitlines(), []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        line = row.get("line")
+        if (
+            row.get("status") != "reason_required"
+            or row.get("path") != "integration/check.py"
+            or row.get("sha256") != digest
+            or type(line) is not int
+            or not 0 < line <= len(lines)
+            or row.get("mutation_outcomes")
+        ):
+            continue
+        if reason := DIAMOND_REASONS.get(lines[line - 1].strip()):
+            accepted.append(
+                {
+                    "gap_id": row["gap_id"],
+                    "decision": "accept",
+                    "reason_kind": "instrumentation_unavailable",
+                    "reason": reason,
+                    "evidence_refs": [proof["path"], "integration/check.py"],
+                }
+            )
+    return accepted
+
+
 def judgments(data, root=None):
     root = Path.cwd() if root is None else Path(root)
     return (
-        _stock(data, root) + _totals(data, root) + _greeting(data, root) + _greeting_js(data, root) + _todo(data, root)
+        _stock(data, root)
+        + _totals(data, root)
+        + _greeting(data, root)
+        + _greeting_js(data, root)
+        + _todo(data, root)
+        + _diamond(data, root)
     )
 
 
