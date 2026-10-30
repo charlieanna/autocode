@@ -29,6 +29,10 @@ import re
 import shutil
 import subprocess
 import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_providers as providers
@@ -67,7 +71,7 @@ def explicit_choice(args) -> bool:
         return True
 
 
-def apply(args, state, workspace=None, *, say=None) -> dict | None:
+def apply(args, state: RunState, workspace=None, *, say=None) -> dict | None:
     """Route a new run that nobody routed, in place on ``args``, and say so once.
 
     For a run with saved settings, sessions or history nothing changes: it keeps its engine.

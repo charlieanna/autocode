@@ -50,6 +50,19 @@ OPTIONS = (
 )
 
 
+BASE_GREETING = """import sys
+
+def main():
+    if len(sys.argv) != 2 or not sys.argv[1].strip():
+        print("A nonempty name is required", file=sys.stderr)
+        return 2
+    raise SystemExit("Greeting not implemented yet")
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+"""
+
+
 def _save(path, value):
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
 
@@ -58,7 +71,9 @@ def _prepare(root: Path, name: str, *, failed_check=False) -> TaskRun:
     project = root / name
     project.mkdir()
     (project / "README.md").write_text("# Offline greeting demo\n\nNo model or account is used.\n")
-    (project / "greet.py").write_text('import sys\nraise SystemExit("Greeting not implemented yet")\n')
+    # The original code already rejects invalid input. The delivered rejection test passes on it and
+    # on the change, so it proves that behavior is kept for code that had no tests (#2259).
+    (project / "greet.py").write_text(BASE_GREETING)
     # Git also receives the isolated environment, never the user's configuration.
     home = root / (name + "-environment")
     home.mkdir()

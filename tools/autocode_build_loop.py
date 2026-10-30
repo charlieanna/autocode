@@ -412,6 +412,11 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             ):
                 # Found the checkout busy at launch (autocode_run_setup.launch_base): it starts from here.
                 regression.start(state, workspace, run_dir)
+                if "launch_sources" in state and state["launch_sources"].get("base_commit") is None:
+                    # The launch record vouched for no base. Retake it for this base, under the same lock and
+                    # before any provider, as an idle launch takes both together; otherwise supply() distrusts
+                    # it and the proof cannot tell an inert base from behavior to preserve.
+                    launch_inputs.record(state, workspace, run_dir)
                 runner.write_json(state_path, state)
             runner.orchestrator.drive(
                 state,
