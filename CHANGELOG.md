@@ -30,6 +30,10 @@ PR template asks for an entry here; a change without one is incomplete.
   (Up/Down, Enter, Esc), like a dropdown; in the line-by-line chat a numbered list and `/stages STAGE N LEVEL`.
   A model a stage cannot run is dimmed, and Enter on it shows the whole reason, naming every checker that runs
   that model (the Tester and the Completion Reviewer both, when both do) so changing one is not a dead end.
+- Each stage in `autocode stages`, `/stages` and the VS Code panel now names the jobs that run on its
+  choice: the Plan Reviewer's model also runs the Investigator that diagnoses a bug, the Analyst, the
+  Designer and the Design Reviewer, and the Tester's also writes the acceptance tests and runs the Code
+  Reviewer. A live bug fix ran its Investigator on the Plan Reviewer's model while no stage said so.
 - `autocode setup` connects the backends AutoCode runs on, once after installing it (#2049): it checks
   Claude Code, Codex, OpenCode and Kilo with each one's own login listing. In a terminal, when neither
   OpenCode nor Kilo is installed, it offers to install OpenCode 1.18.33 with npm (`--install

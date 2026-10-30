@@ -53,7 +53,8 @@ except ImportError:
 
 # The stages a person chooses for, in the order a task runs them: (role, job, what it does, advice).
 # The role is the run's route name, so its flags are --ROLE-model and --ROLE-reasoning-effort; the job
-# is its screen name in autocode_roles. The Resolver's route starts as a copy of astra (docs/models.md).
+# is its screen name in autocode_roles. The Resolver's route starts as a copy of astra (docs/models.md), and
+# the workflow jobs copy theirs from the stage that names them (autocode_role_transport.DERIVED_ROLES).
 STAGES = (
     (
         "requirements",
@@ -72,7 +73,8 @@ STAGES = (
     (
         "plan_reviewer",
         "plan_reviewer",
-        "Challenges the plan before you see it and makes the final planning call.",
+        "Challenges the plan before you see it and makes the final planning call. Its model also runs the "
+        "Investigator that diagnoses a bug, the Analyst that answers a question, and the Designer and Design Reviewer.",
         "Your strongest judge at high. It never runs the Planner's model, so it catches what the Planner missed.",
     ),
     (
@@ -85,7 +87,8 @@ STAGES = (
     (
         "sol",
         "tester",
-        "Checks each Builder's work in a separate session and proves its new tests fail without the change.",
+        "Checks each Builder's work in a separate session and proves its new tests fail without the change. "
+        "Its model also writes the acceptance tests and runs the Code Reviewer when you ask for a review.",
         "A strong model at high, never the Builder's. A bug caught here costs less than one caught at completion.",
     ),
     (
