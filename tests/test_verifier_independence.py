@@ -54,6 +54,13 @@ class VerifierIndependenceTests(unittest.TestCase):
         self.assertNotEqual([], independence.violations(same))
         self.assertEqual([], independence.violations({**same, "single_model_mode": True}))
 
+    def test_a_workflow_without_producers_has_no_pairs_to_break(self):
+        same = settings(terra=GLM, sol=GLM, completion=GLM, glm=MIMO, plan_reviewer=MIMO)
+        self.assertEqual([], independence.clashes(same, "review"))
+        self.assertEqual([], independence.violations(same, "review"))
+        self.assertEqual(3, len(independence.violations(same, "build")))
+        self.assertEqual(3, len(independence.violations(same)))
+
     def test_another_providers_openai_prefix_may_share_but_does_not_clash(self):
         # The guard refuses only proven clashes; moving a checker covers the possible ones too.
         self.assertFalse(independence.shares("openai/custom-model", "custom-model"))

@@ -160,6 +160,22 @@ class CrossModelTest(unittest.TestCase):
         state["settings"]["single_model_mode"] = True
         dispatch.enforce_cross_model_verification(state)  # explicit single-subscription opt-in
 
+    def test_a_review_run_has_no_builder_whose_work_its_tester_could_grade(self):
+        # `autocode verify --engine codex --model gpt-5.6-terra` (#2502): the Codex Builder default
+        # is the same model, but a review run never launches the Builder.
+        state = roles(terra="gpt-5.6-terra", sol="gpt-5.6-terra", completion="gpt-5.6-terra")
+        state["settings"]["engine"] = "codex"
+        state["workflow"] = {"kind": "review", "source": "user"}
+        dispatch.enforce_cross_model_verification(state)
+
+        for kind in ("build", "bugfix", None):
+            with self.subTest(kind=kind):
+                state["workflow"] = {"kind": kind}
+                with self.assertRaises(support.Paused) as ctx:
+                    dispatch.enforce_cross_model_verification(state)
+                self.assertEqual("PAUSED_CROSS_MODEL", ctx.exception.status)
+                self.assertIn("Builder/Tester: identical model gpt-5.6-terra", str(ctx.exception))
+
     def test_run_role_is_an_unskippable_chokepoint(self):
         """Even if before_code_stage/dispatch are bypassed, run_role must pause."""
         import autocode as runner
