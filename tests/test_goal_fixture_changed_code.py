@@ -79,6 +79,61 @@ class DefaultGreetingReasonsTests(unittest.TestCase):
                     Path(name).write_text(original)
 
 
+class ScriptedBuilderFilesReasonsTests(unittest.TestCase):
+    def test_only_scripted_bytes_on_lines_without_a_mutation_site_receive_a_reason(self):
+        oracle = "import unittest\nclass T(unittest.TestCase):\n    def test_x(self):\n        self.assertTrue(f())\n"
+        digest = hashlib.sha256(oracle.encode()).hexdigest()
+        rows = [
+            {
+                "gap_id": f"gap:{line}",
+                "path": "shared/oracle.py",
+                "sha256": digest,
+                "line": line,
+                "status": "reason_required",
+                "mutation_outcomes": [],
+            }
+            for line in (3, 4)
+        ]
+        data = {
+            "regression_proof": {
+                "path": "proof.json",
+                "changed_code_evidence": {"obligations": rows},
+                "mutation_check": {
+                    "collected": True,
+                    "files": [{"path": "shared/oracle.py", "sha256": digest, "mutants": [{"line": 3}]}],
+                },
+            }
+        }
+        files = {"shared/oracle.py": oracle}
+        accepted = fixture.scripted_files_changed_code_reasons(data, files)
+        self.assertEqual(["gap:4"], [row["gap_id"] for row in accepted])
+        self.assertIn("shared/oracle.py:4", accepted[0]["reason"])
+        self.assertEqual(["proof.json", "shared/oracle.py"], accepted[0]["evidence_refs"])
+        for name, change in (
+            ("unscripted file", lambda d, f: f.clear()),
+            ("other bytes", lambda d, f: f.update({"shared/oracle.py": oracle + "\n"})),
+            (
+                "mutation check not collected",
+                lambda d, f: d["regression_proof"]["mutation_check"].update(collected=False),
+            ),
+            ("mutant reached the line", lambda d, f: rows_of(d)[1].update(mutation_outcomes=["survived"])),
+            ("line inside a mutant's span", lambda d, f: mutants_of(d).append({"line": 4, "end_line": 4})),
+            ("not a reason_required gap", lambda d, f: rows_of(d)[1].update(status="tested")),
+        ):
+            changed, changed_files = copy.deepcopy(data), dict(files)
+            change(changed, changed_files)
+            with self.subTest(name):
+                self.assertEqual([], fixture.scripted_files_changed_code_reasons(changed, changed_files))
+
+
+def rows_of(data):
+    return data["regression_proof"]["changed_code_evidence"]["obligations"]
+
+
+def mutants_of(data):
+    return data["regression_proof"]["mutation_check"]["files"][0]["mutants"]
+
+
 class HelloFixtureReasonsTests(unittest.TestCase):
     def test_only_the_known_observed_print_call_can_receive_a_reason(self):
         with tempfile.TemporaryDirectory() as folder, contextlib.chdir(folder):

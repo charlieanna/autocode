@@ -254,7 +254,10 @@ def _entry(root, name, limit=None):
 
 
 def record(state: RunState, workspace, run_dir):
-    """Capture once for a new in-place run, before any provider or prerequisite."""
+    """Capture for a new in-place run, before any provider or prerequisite.
+
+    Taken at launch, and again when a busy launch pins its base later (autocode_build_loop).
+    """
     workspace, store = Path(workspace), Path(run_dir) / STORE
     if store.is_symlink():
         raise ValueError("Launch input storage must not be a symlink")
@@ -287,7 +290,8 @@ def record(state: RunState, workspace, run_dir):
         _fresh(source_anchor, workspace)
         _fresh(run_anchor, run_dir)
         # The base this record vouches for: the one pinned at launch, or None when the checkout was busy and
-        # the base is pinned later (autocode_build_loop); supply() trusts the record only for its own base.
+        # the base is pinned later; autocode_build_loop then retakes the record for that base before any
+        # provider. supply() trusts the record only for its own base.
         state["launch_sources"] = {
             "manifest_sha256": hashlib.sha256(data).hexdigest(),
             "base_commit": state.get("base_commit"),

@@ -170,7 +170,7 @@ class RiskCliTests(unittest.TestCase):
 
     def test_process_local_lease_tokens_cannot_complete_after_restart(self):
         self.mutant_restart(
-            "ladder-18-durable-lease-queue", "broken/process-local-tokens", "Restart reused a lease token", 2
+            "ladder-18-durable-lease-queue", "broken/process-local-tokens", "Restart reused a lease token", 5
         )
 
     def test_exception_only_outbox_rollback_cannot_complete_after_restart(self):
