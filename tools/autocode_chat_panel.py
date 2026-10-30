@@ -95,6 +95,7 @@ COMMANDS = (
     Command("/mode", "The mode new chats start in: /mode ID"),
     Command("/engine", "The engine new chats run on: /engine NAME"),
     Command("/connect", "Backends: check one, sign in, or use it for new chats"),
+    Command("/stages", "Each stage's model and reasoning level for new chats"),
     Command("/repos", "Show configured source roots and discovered repositories"),
     Command("/attention", "Saved alerts: inspect, acknowledge or open (also F8)"),
     Command("/panel", "Show or hide the side panel"),
@@ -114,7 +115,8 @@ def _rows(value) -> list[dict]:
 
 # The commands the chat client carries out: /diff and /undo through actions its fresh status view
 # names, /runs, /open and /new through the run lists (`autocode runs --json`), /mode, /engine and
-# /connect through `modes list --json` and `connections list --json` (autocode_chat_setup), /changeset
+# /connect through `modes list --json` and `connections list --json` (autocode_chat_setup), /stages through
+# `stages list --json` (autocode_chat_stages), /changeset
 # through `changeset status --json` (autocode_chat_changeset).
 CLIENT_COMMANDS = (
     "/repos",
@@ -128,6 +130,7 @@ CLIENT_COMMANDS = (
     "/mode",
     "/engine",
     "/connect",
+    "/stages",
     "/attention",
 )
 # Leaving a working run requires its current durable-detach capability.

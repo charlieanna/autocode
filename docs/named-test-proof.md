@@ -289,24 +289,34 @@ from `tools/autocode_mutants.py`).
   cookie spells it), files that do not parse with the runner's Python and files
   with a carriage return no line feed follows (Python and git number their lines
   differently) are never changed; the record notes why.
-- **What.** Five operators: negate a condition (`if`, `while`, a conditional
+- **What.** Six operators: negate a condition (`if`, `while`, a conditional
   expression, `assert`, a comprehension filter or a `case` guard); swap a bound
   (`<` and `<=`, `>` and `>=`); drop a branch (an `if` body or its `else` becomes
   `pass`, a decorated definition with its decorators; an `elif` is mutated as
-  its own `if`); return a constant instead of the value; and shift an integer
+  its own `if`); return a constant instead of the value; shift an integer
   bound by one: a literal beside `<`, `<=`, `>` or `>=` (an `==`, `!=`, `is` or
-  `in` operand is not a bound). Each mutant replaces the bytes of one syntax node,
+  `in` operand is not a bound); and bind another constant where a bool, number
+  or string literal is assigned to a name (`TEXT = "hello"` becomes `TEXT = ""`),
+  so a line whose whole behavior is the value it binds has a site a test can
+  see. Each mutant replaces the bytes of one syntax node,
   keeps every line number, must compile, and must change its statement exactly as
   intended; a site that fails one of these, or cannot be checked at all (a
   statement nested too deep, an integer too long to print), is skipped with a
   note and the next one takes its place.
   `TYPE_CHECKING` and `__main__` guards, f-strings, annotations and branches that
   already do nothing are left alone.
-- **How many.** At most 6 mutants per changed file, spread over the operators and
-  lines. The same change always gets the same mutants.
+- **How many.** Current task proofs enumerate the eligible sites on every changed
+  line within the existing mutation budget. Unrun sites stay explicit obligations.
+  The older advisory collector and standalone review study retain their six-site
+  sample per file. The same source and selection give the same sites.
 - **How long.** One 900-second budget, the same limit as a check replay, covers
-  one unmutated run of the proving tests and every mutant. Only the proving tests
-  run, selected by name (never the whole suite), each mutant with its own empty
+  one unmutated run and every mutant. Current task proofs select the independently
+  observed passing candidate-suite tests by exact ID; when the suite is a command
+  the runner cannot narrow to those tests (a project's own gate script, such as
+  `python project_gate.py`), they select the proof's regression command and the
+  tests it passed on the candidate instead, so a project gate does not leave every
+  changed line without evidence. Older advisory collectors
+  select only the named proving tests. Each mutant uses its own empty
   bytecode cache and its own modification time, so a compile cached by a Python
   the tests start themselves is never reused. A mutant may take ten times the
   unmutated run's duration, at least 60 seconds, and never more than the budget
@@ -323,14 +333,31 @@ example ``test_partial_last_page_is_counted passes with pager/__init__.py:9
 changed (`>` -> `>=`)``. The status view shows the record as
 `evidence.mutation_check` ([the task-run interface](task-run.md)), the evidence
 report lists each survivor under the regression proof, and the Tester and the
-Completion Reviewer receive it with the proof, with a note to name the survivors
-in their evidence and not to fail the work on them alone.
+Completion Reviewer receive it with the proof. The runner combines exact-source
+coverage and authenticated mutation observations in `changed_code_evidence`
+(#2474). A line merely executed without a meaningful assertion does not pass.
+A named test must actually fail under the mutation; a setup/collection failure,
+missing test, interrupted command or timeout grants no positive evidence.
 
-The check is report only. It never changes the verdict, the failures,
-`case_tests` or completion; its runs are not receipts of the proof; and a proof
-that did not pass runs and reports no mutant. A survivor can be an equivalent mutant (a
-change no test could observe), so it is a reason to read the test, not proof
-that the test is wrong.
+Every changed executable line needs demonstrated mutation evidence or a precise
+reason checked by the existing independent Tester. This is its code-review
+responsibility within the existing workflow, and cannot be self-approved by
+Builder. A survivor can be equivalent (no test could observe the change); the
+Tester can record that specific reason against the current offered gap ID and
+pin its source/test/check evidence. An unavailable tool alone is not a blanket
+exception. Empty survivor lists and the old six-site sample never prove that
+all changed lines were tested.
+
+The core returns unresolved exact lines to Builder for two bounded repair rounds,
+then uses its existing Investigator path and saved run limits. It records those
+decisions and the fallback in the public verification view and final report.
+Missing project coverage tooling uses demonstrated mutation evidence alone where
+available; otherwise the line remains open for independent judgment. No project
+dependency is installed. Blank/comment-only lines, Python declaration-only lines
+and non-executable lines excluded by an authenticated statement map are omitted.
+Legacy proofs and standalone review mutation studies remain advisory records;
+active task completion requires current evidence rather than inferring it from
+those older records. A proof that did not pass runs no mutant.
 
 It complements the check replay's sanity gate (`tools/autocode_test_quality.py`),
 which rejects test bodies that assert nothing at all. A test that asserts

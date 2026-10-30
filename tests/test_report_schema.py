@@ -113,7 +113,9 @@ class ReviewReportSchemaTests(unittest.TestCase):
 
         schema = workflow.checkpoint_schema(runner.SCHEMA_DIR)
         bound = review_generation_schema(schema, self.state, "astra_checkpoint")
-        self.assertEqual(schema, bound)
+        expected = copy.deepcopy(schema)
+        expected["properties"]["validation"]["properties"]["changed_code_exceptions"]["maxItems"] = 0
+        self.assertEqual(expected, bound)
         item = bound["properties"]["decision"]["properties"]["acceptance_criteria"]["items"]
         self.assertIn("criterion", item["required"])
         report = {"decision": {"acceptance_criteria": [{"id": "G1"}]}}

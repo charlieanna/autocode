@@ -6,6 +6,7 @@ approval, scheduling, processes, worktrees, reports and integration are real.
 """
 
 import copy
+import hashlib
 import json
 import os
 import re
@@ -16,6 +17,51 @@ import sys
 import time
 import uuid
 from pathlib import Path
+
+HELLO_SOURCE = "print('hello')\n"
+HELLO_TESTS = """import subprocess, sys, unittest
+class HelloTests(unittest.TestCase):
+    def test_cli_hello(self):
+        result = subprocess.run([sys.executable, 'main.py'], capture_output=True, text=True)
+        self.assertEqual((0, 'hello\\n', ''), (result.returncode, result.stdout, result.stderr))
+"""
+
+
+def scripted_changed_code_reasons(spec, data):
+    """The fixture Tester's reasons for its own scripted lines that have no mutation site.
+
+    The real Tester records why a changed line without a mutation site (an import, a call, a
+    ``def``) is covered; this fixture does the same for the exact payload bytes the scripted
+    Builder wrote, bound to the gap, file and line, and never for a file it did not script or a
+    line a mutant reached (that line's evidence is the mutant's outcome).
+    """
+    proof = data.get("regression_proof") or {}
+    if not proof.get("path"):
+        return []
+    scripted = {
+        name: hashlib.sha256(content.encode()).hexdigest()
+        for files in (spec.get("payloads") or {}).values()
+        for name, content in files.items()
+    }
+    return [
+        {
+            "gap_id": row["gap_id"],
+            "decision": "accept",
+            "reason_kind": "instrumentation_unavailable",
+            "reason": (
+                f"Scripted fixture: {row['path']}:{row['line']} is the exact scripted content of this delivery; "
+                "the line has no supported mutation site, and the delivery's own tests, run independently by "
+                "the proof, exercise the behavior it takes part in. The approved milestone check observes the "
+                "same behavior."
+            ),
+            "evidence_refs": [proof["path"], row["path"]],
+        }
+        for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []
+        if row.get("status") == "reason_required"
+        and scripted.get(row.get("path")) == row.get("sha256")
+        and not row.get("mutation_outcomes")
+    ]
+
 
 _NUMBER = re.compile(r"\d+(?:\.\d+)*")
 _NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b", re.I)
@@ -581,6 +627,10 @@ def main():
         request = result.get("user_request")
         if owning == "astra_resolve" and isinstance(request, dict) and nullable:
             request.setdefault("recommended_revision", None)
+    if data["stage"] == "sol":
+        schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        if "changed_code_exceptions" in schema.get("properties", {}):
+            result["changed_code_exceptions"] = scripted_changed_code_reasons(spec, data)
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
     record("finish")
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)

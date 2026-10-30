@@ -12,21 +12,25 @@ if TYPE_CHECKING:
 import sys
 
 try:
+    from . import autocode_connected_engine as connected_engine
     from . import autocode_controller_owner as controller_owner
     from . import autocode_native_calls as native_calls
     from . import autocode_native_launch as native_launch
     from . import autocode_native_stage_recovery as stage_recovery
     from . import autocode_run_destination as run_destination
     from . import autocode_source_host as source_host
+    from . import autocode_stage_choices as stage_choices
     from . import autocode_visual_profile as native_profile
     from . import autocode_worker_binding as worker_binding
 except ImportError:
+    import autocode_connected_engine as connected_engine
     import autocode_controller_owner as controller_owner
     import autocode_native_calls as native_calls
     import autocode_native_launch as native_launch
     import autocode_native_stage_recovery as stage_recovery
     import autocode_run_destination as run_destination
     import autocode_source_host as source_host
+    import autocode_stage_choices as stage_choices
     import autocode_visual_profile as native_profile
     import autocode_worker_binding as worker_binding
 
@@ -212,14 +216,24 @@ def select_provider(base, args, parser, state: "RunState", workspace):
                 import autocode_replay_transport as replay_transport
             base.opencode = replay_transport.facade(args, state)
         else:
+            # A new run nobody routed takes the connected backend when OpenCode is absent (#2049).
+            connected_engine.apply(args, state, workspace)
             selected = base.autocode_providers.select(
                 args.provider, saved, default="opencode" if args.engine == "codex" else None
             )
             base.opencode = base.autocode_providers.resolve(selected)
+            if not (state.get("settings") or state.get("sessions") or state.get("history")):
+                # A new run takes the stages the person chose for this backend (owner decision 2026-10-30).
+                stage_choices.apply(args, "codex" if args.engine == "codex" else selected, say=_notice)
         if not args.run_dir:
             args._model_inventory = base.InvocationInventory(base.opencode, workspace)
     except (RuntimeError, ValueError) as error:
         parser.error(str(error))
+
+
+def _notice(line):
+    # stderr, so --json output and captured reports stay what they were.
+    print(line, file=sys.stderr, flush=True)
 
 
 def dispatch_guard(runtime, state: "RunState", stage):

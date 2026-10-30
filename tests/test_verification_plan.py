@@ -163,6 +163,19 @@ class CommandsTests(unittest.TestCase):
             ("python3 -m unittest discover -s tests -t .", ["python3 -m unittest discover -s tests -t ."]),
             ("python3 -c 'assert f(1, 2) == 3'", ["python3 -c 'assert f(1, 2) == 3'"]),
             ("pytest --verify --output=out.xml tests", ["pytest --verify --output=out.xml tests"]),
+            # A check that sets its own environment with literal values (#2503).
+            (
+                "env GOWORK=off GOFLAGS= go test -count=1 -run '^TestX$' ./pkg/",
+                ["env GOWORK=off GOFLAGS= go test -count=1 -run '^TestX$' ./pkg/"],
+            ),
+            ("Run `env CI=1 npm test`.", ["env CI=1 npm test"]),
+            ("env GOWORK=off", []),
+            ("env go test ./...", []),
+            ("env -i GOWORK=off go test ./...", []),
+            ("env -u GOWORK go test ./...", []),
+            ("env GOPATH=$HOME/go go test ./...", []),
+            ("env A=`id` go test ./...", []),
+            ("env GOWORK=off true", []),
         ):
             with self.subTest(text=text):
                 self.assertEqual(expected, plan.commands(text))

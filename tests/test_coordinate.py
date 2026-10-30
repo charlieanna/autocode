@@ -74,6 +74,17 @@ class CoordinationTests(unittest.TestCase):
         with store.locked(anchor) as released:
             self.assertIsNone(released)
 
+    def test_the_joint_brief_distinguishes_candidate_inputs_from_citable_source(self):
+        # #2487: the brief sends the model to .autocode/candidate-inputs.json, so it must
+        # also say those copies are task inputs it may read but never cite, name the
+        # lasting repos/ source for citations, and warn that a baseline repos/ file still
+        # holds the broken code until its candidate is installed.
+        text = joint.brief(self.document)
+        self.assertIn(".autocode/candidate-inputs.json", text)
+        self.assertIn("task inputs, not source", text)
+        self.assertIn("cite only the lasting repos/ source in source_refs and code_refs", text)
+        self.assertIn("still holds the original broken code until its candidate is installed", text)
+
     def test_exception_releases_the_coordination_lock_and_keeps_saved_record(self):
         anchor = self.document["anchor"]
         with self.assertRaisesRegex(RuntimeError, "operation interrupted"):

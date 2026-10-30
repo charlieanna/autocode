@@ -173,6 +173,26 @@ class ClaudeProviderCliTests(unittest.TestCase):
         rows = self.events(builder)
         self.assertEqual(rows[0]["thread_id"], rows[-1]["claude"]["session_id"])  # the terminal row's diagnostics
 
+    def test_a_run_with_no_engine_takes_the_signed_in_claude_code(self):
+        # #2049: nothing names the engine (no flag, config home is empty, no OpenCode on this PATH), and
+        # Claude Code is signed in, so the run takes it and says so instead of refusing for OpenCode.
+        run = taskrun.TaskRun.start(self.project, BRIEF, options=(), start_options=START, env=self.env, timeout=300)
+        view = run.status()
+        self.assertEqual("claude", view["provider"], view)
+        view = self.finish(run, view)
+        self.assertEqual("TASK_COMPLETE", view["status"], view)
+        self.assertTrue(self.prints())
+        started = subprocess.run(
+            [sys.executable, str(TOOLS / "autocode.py"), "doctor", "--workspace", str(self.project), "--json"],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        checks = {check["name"]: check for check in json.loads(started.stdout)["checks"]}
+        self.assertEqual("ok", checks["engine"]["status"], started.stdout)
+        self.assertIn("chosen from your connected accounts", checks["engine"]["detail"])
+
     def test_format_correction_resumes_the_stage_session_and_bills_it_once(self):
         self.env["AUTOCODE_FIXTURE_CLAUDE_NO_REPORT_STAGE"] = "sol"
         run = self.start()

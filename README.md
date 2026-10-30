@@ -46,7 +46,10 @@ installation](docs/install.md#advanced-install-from-a-checkout). See the
 [release verification record](docs/bugs/2026-10-27-release-installation.md) for
 what was checked and the limits of that evidence.
 
-Choose an engine you have connected. For example, with a logged-in Codex CLI:
+Run `autocode setup` once: it checks Claude Code, Codex, OpenCode and Kilo,
+installs OpenCode if you have no hub yet, offers each one's own sign-in, and says
+which one your tasks will use. Then
+choose an engine you have connected, or pass none. For example, with a logged-in Codex CLI:
 
 ```sh
 cd /path/to/your/committed-git-project
@@ -59,9 +62,10 @@ builds and checks the change, and stops when it needs your decision. Reopen the
 same project with `autocode resume`; use `autocode --status` to see what it needs.
 
 For Claude Code use `--engine claude`. Without an explicit choice, the existing
-configured/default route applies (OpenCode on a fresh install). For API keys,
-`autocode connections setup` configures the built-in runtime; start its tasks
-with `--provider autocode`. The [installation guide](docs/install.md) covers
+configured/default route applies: OpenCode when it is installed; otherwise the
+first connected of Claude Code, Codex and Kilo, which the run names as
+`Engine for this run: …`. API keys go in OpenCode (`opencode auth login`) or Kilo
+(`kilo auth login`); AutoCode's own direct API-key connection is retired. The [installation guide](docs/install.md) covers
 sign-in, a new Git project, route checks and common setup errors.
 
 ## A bug that turns out to span repositories

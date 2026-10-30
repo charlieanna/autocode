@@ -11,6 +11,41 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The VS Code extension's **AutoCode: Stage Models** panel (also under **Stage models…** in the chat's engine
+  picker) shows each stage with what it does and advice on the model and level that suit it, and one model
+  dropdown and one level dropdown per stage; a model the stage may not run beside the others is greyed out
+  with the reason. Saving takes only the stage's own command from `autocode stages list --json`.
+- You choose the model and reasoning level of each stage once, and every new task uses it (owner decision
+  2026-10-30). `autocode setup` offers it after connecting your accounts, and `autocode stages choose` asks
+  again at any time: for each stage it says what the stage does, gives advice on the model and level that
+  suit it, and lists the models your backend offers with the levels each takes (OpenCode and Kilo from their
+  own listings, with each model's family; a model that cannot call tools is left out), marking a model the
+  stage's checker or producer runs as not available. The choices are kept per backend in
+  `~/.config/autocode/stages.toml`; each new task reads them before it begins, a flag or the project's
+  `.autocode/config.toml` still wins, and a running task keeps its own. `autocode stages` lists them,
+  `set` and `reset` change one stage, and `--json` returns the view clients render as one dropdown per
+  stage. Route discovery now carries each model's listed family, tool-call and reasoning support, context
+  and release date on its candidates; no price is read.
+- The terminal chat's `/stages` shows the same choice: in the full-screen chat a drawer with one list per stage
+  (Up/Down, Enter, Esc), like a dropdown; in the line-by-line chat a numbered list and `/stages STAGE N LEVEL`.
+- `autocode setup` connects the backends AutoCode runs on, once after installing it (#2049): it checks
+  Claude Code, Codex, OpenCode and Kilo with each one's own login listing. In a terminal, when neither
+  OpenCode nor Kilo is installed, it offers to install OpenCode 1.18.33 with npm (`--install
+  opencode|kilocode` installs that hub without asking), then offers each installed, signed-out backend
+  its own sign-in, and says which backend new runs use and the route each role takes. It launches no
+  model; `--json` asks nothing and installs only what `--install` names. A run that finds no OpenCode now names `autocode setup`. A new run that names no
+  engine also passes over an installed OpenCode whose `opencode auth list` is plainly empty, to the first
+  connected of Claude Code, Codex and Kilo; any listed credential, or a listing that fails, keeps OpenCode.
+- `--role-transport ROLE=PROVIDER` works on any base tool of the OpenCode facade engine, not only
+  `--provider opencode` (#2049): a run on Claude Code or on the direct connection can run one role on a
+  Kilo account, and a saved binding to the built-in `claude` provider (identity version 2) is validated
+  by its own shape. Binding a role to the run's own tool is refused, as is `--engine codex`.
+- A new run that names no engine takes the backend this machine has connected when OpenCode is not
+  installed (#2049): Claude Code signed in to a subscription, then Codex, then Kilo, in that order. The run prints `Engine for this run: …` with the reason, and
+  `autocode doctor` checks that same backend and names the choice in its `engine` row and settings. A
+  flag, `AUTOCODE_PROVIDER`, `default_provider`, a project `engine` and a saved run's engine always win,
+  and nothing changes while OpenCode is installed. Before, a person with only Claude Code or Codex had
+  to add `--engine` to every command or the run stopped at `OpenCode is not on PATH`.
 - `autocode status --summary` prints a run in one sentence: needs you, working, done or stopped, then the
   exact command the status view names (#2049). The same object is `view.summary` in the `--status` JSON.
   Only a completion verified against the current checkout reads done; a finished run whose evidence no
@@ -431,6 +466,36 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A repair whose regression test the project already had is proved by that test: when no test changed, the base suite's tests that fail there and pass with the change are the fail-to-pass proof, instead of a refusal for the missing changed test. The offline live-trial fixture reads its output contract from a report-file provider's prompt, so its Tester attaches its changed-line reasons on that transport too. The offline fixture delivers what the changed-line rule (#2474) asks of a Builder, so master's `test_subprocess`, recovery and crash-recovery tests pass again: its second milestone ships its own fail-to-pass test and the Tester's reasons for the lines the mutator cannot break, a stalled attempt cites only the file it wrote, and the runner's proof finding records the proof receipt that closed it.
+- A run no longer stalls at a changed line the mutation check could not reach (#2474). When a project's suite is its own gate script (`python project_gate.py`), which the runner cannot narrow to the proving tests, the check now runs the proof's regression command and the tests it passed on the candidate instead of running nothing. A bool, number or string literal assigned to a name (`TEXT = "hello"`) is now a mutation site, so a line whose whole behavior is the value it binds gets behavioral evidence from the test that reads it rather than being sent back to the Builder for a reason. The offline fixtures' Investigator cites the pinned Builder failure it classifies instead of an unusable report.
+- Replaying a saved run that completed under the changed-line rule works again (#2500): the recording keeps each Tester reason's exact file, bytes and line, and replay re-derives the proof's current gap id from them instead of refusing the recorded one as stale. Recorded-checks replay of such a run also accepts a proof without named cases, the Tester's review of the retained proof, and a suite command whose interpreter lives elsewhere on the replay host.
+- The test suite passes again after the changed-line rule (#2474, #2495): the to-do scenario's reference tests now check usage errors, the wrongly shaped store and the unknown-id message, so their mutants fail, and its fixture Tester names why each line without a mutation site is covered. The coordination test checks a joint run that carries its own proof through that run's evidence.
+- Task completion now requires current behavioral evidence or a precise, independently checked reason for every changed executable product line (#2474). Coverage and mutation observations keep their source and command receipts; a setup failure, an empty survivor list or a stale proof cannot count as a tested line. Missing tools use a recorded fallback without installing project dependencies. Unresolved exact lines return to Builder for bounded repairs, then to Investigator, with their decisions and accepted reasons visible in the status and final report. Existing saved reports remain readable.
+- `autocode arena report`, `propose`, `cases` and `compare` before `arena init` refuse with the store path and the command that creates it instead of a sqlite traceback or an errno (#2491).
+- `autocode changeset status` and `autocode serve` name a run directory or workspace that does not exist instead of calling it a run in no change set or printing an errno (#2489).
+- Joint planning no longer has to relearn the citation boundary by rejection (#2487). The joint
+  brief said to read `.autocode/candidate-inputs.json` while the runner rejects `.autocode/`
+  citations, and only Requirements ever heard that rule: discovery and revision cited runner-owned
+  candidate copies and were refused. The brief now says candidate copies are task inputs to read
+  and install but never to cite (cite the lasting `repos/` source; its baseline bytes are still the
+  broken code until a candidate is installed), the discovery and revision prompts and their report
+  repairs carry the same ownership rule for `code_refs`, and the Requirements rule states the same
+  read-versus-cite distinction for `source_refs`. Validator boundaries and report schemas are
+  unchanged: runner-owned citations still reject.
+- A spec-first run no longer sends the Tester to rewrite a test whose criterion did not change (#2464, item 2).
+  A reapproval or a follow-up installs a new contract hash, and acceptance-test receipts are keyed by the hash
+  they were written under, so every case was due again and the Tester re-ran for all of them. A case whose
+  criterion row is unchanged apart from its sources, whose receipt belongs to an approved earlier contract,
+  whose archive is intact and which the current diagnosis does not reproduce now inherits that receipt: it is
+  covered, its file stays fixed for the Builder, and the status view's `acceptance_tests` shows it. A changed
+  criterion is still rewritten, and a bug's reproduction tests are still written against the unfixed code.
+- `--grant-recovery` works again in the same invocation that corrects `--max-stage-seconds`,
+  `--max-idle-seconds` or any other saved limit (#2479): the `limit_change` events the correction
+  appends (#2412) are bound into the published request's identity, so recording them before the
+  grant was checked made every such grant read as stale and refuse with empty output. The events
+  now wait for the grant's validation and travel with its single save, so an accepted grant is never
+  persisted without the configuration change that accompanied it, and a refused grant still persists
+  neither the corrected limits, their events nor any allowance.
 - Moving an identical bundled provider configuration can reuse the run's proven model-access receipts
   after normal transport acceptance. Real configuration, tool or route changes still require fresh access
   evidence; original receipts and per-launch admission checks stay intact (#2477).
@@ -1024,6 +1089,15 @@ PR template asks for an entry here; a change without one is incomplete.
 - Planner revisions can send only changed engineering fields against the exact saved plan, retaining
   unchanged criteria and validated requirement traces before ordinary coverage/authority checks. This
   avoids forced whole-contract rewriting; full reports and older saved repair schemas remain supported (#2374).
+
+### Deprecated
+
+- AutoCode's own direct API-key connection is retired (owner decision 2026-10-30, #2049) and is removed
+  in the next release. AutoCode offers four backends: Claude Code and Codex as engines, OpenCode and
+  Kilo for every other account and API key. A new run never chooses the direct connection on its own,
+  `autocode connections list` shows it only once configured, `connections setup` and `connections add`
+  print the notice and where keys go, and `doctor` points API keys to OpenCode or Kilo. A configured
+  connection and `--provider autocode` keep working until the removal.
 
 ## [0.8.2] — 2026-10-21
 

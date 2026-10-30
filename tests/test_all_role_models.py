@@ -209,15 +209,16 @@ class AllRoleSubprocessTests(unittest.TestCase):
             )
             after_stage = self.saved()[1]
             self.assertEqual(
-                len([row for row in before_stage["stages"] if row["stage"] != "resolver"]) + 1,
-                len([row for row in after_stage["stages"] if row["stage"] != "resolver"]),
+                len([row for row in before_stage["stages"] if row["stage"] not in ("resolver", "regression_proof")])
+                + 1,
+                len([row for row in after_stage["stages"] if row["stage"] not in ("resolver", "regression_proof")]),
             )
         final = self.saved()[1]
         self.assertEqual("COMPLETE", final["phase"])
         self.assertFalse(final.get("direct_rework_assignments"))
         for stage in final["stages"]:
             if stage.get("runner_owned"):
-                self.assertIn(stage["stage"], ("orchestrator", "resolver"))
+                self.assertIn(stage["stage"], ("orchestrator", "resolver", "regression_proof"))
                 self.assertEqual("runner", stage["engine"])
                 self.assertNotIn("command", stage)
                 if stage["stage"] == "resolver":

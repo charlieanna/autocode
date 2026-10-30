@@ -289,6 +289,9 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
                     self.assertEqual(selected_profile["limits"][limit], related["limits"][limit])
             if self.env.get("COORDINATION_FIXTURE_MEMBER_CONTEXT"):
                 self.assertEqual("task_run", summary["verification"]["kind"])
+            # A joint run whose change owes the changed-line proof (#2474) is verified by its own native
+            # proof (#2339); only a command-only plan has an external verification record (#2495).
+            if summary["verification"].get("kind") == "task_run":
                 inspected = client.cli(
                     ["--run-dir", summary["integration"]["run_dir"], "--status", "--inspect-evidence", "--json"]
                 )

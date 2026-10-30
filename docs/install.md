@@ -15,8 +15,9 @@ this guide. WSL must meet the same Linux kernel requirements.
 
 If prerequisites are missing, on Ubuntu install `python3-venv`, `pipx` and `git`
 with your package manager; on macOS install Python 3.11+, Git and pipx. Node.js/npm
-is needed only when installing an external engine with npm. The built-in
-[API-key connection](providers.md#autocode-direct-connections-issue-1493) does not need it.
+is needed to install Claude Code, Codex, OpenCode or Kilo with npm. API keys go in
+OpenCode or Kilo; the built-in
+[API-key connection](providers.md#autocode-direct-connections-issue-1493) is retired.
 
 **1. Install AutoCode.**
 
@@ -45,11 +46,25 @@ If pipx's Python is older than 3.11, add `--python python3.11`. The demo is
 offline: no sign-in or model spend. Once installed, you do not need to activate
 a virtual environment in every shell.
 
-**Already have an engine signed in?** Reuse it. With Codex, run
-`autocode doctor --engine codex` and add `--engine codex` to your first task.
-With Claude Code use `--engine claude` on both commands. Skip step 2 and go to
-the project setup in step 3. These flags select a route explicitly; they do not
-change your saved defaults or existing runs.
+**Connect your accounts once.** Run `autocode setup` right after installing. It
+checks Claude Code, Codex, OpenCode and Kilo. When neither OpenCode nor Kilo is
+installed it offers to install OpenCode with npm (`--install kilocode` installs Kilo
+instead), then offers the sign-in of each installed one that is not signed in, and
+says which backend your tasks will use. API keys (Z.ai, MiMo, OpenAI, Anthropic) go in OpenCode or
+Kilo. It then asks which model and reasoning level each stage runs, with advice for each, and
+every task uses that choice; change it any time with `autocode stages choose`
+([Choosing each stage's model](models.md#choosing-each-stages-model)). After that a task needs no flags.
+
+**Already have an engine signed in?** Reuse it. When OpenCode is not installed
+and nothing names an engine (no flag, no `default_provider`, no project
+`engine`), or OpenCode is installed with no account at all,
+a new run takes the first backend this machine has connected: Claude
+Code signed in to a subscription, then Codex, then Kilo. It prints the choice (`Engine for this run:
+Claude Code. …`), and `autocode doctor` checks that same backend. So with only
+Claude Code or only Codex signed in, skip step 2 and go to the project setup in
+step 3 with no flags. To choose explicitly, add `--engine codex` or `--engine
+claude` to `doctor` and to the task; a flag selects a route for that command
+only and never changes your saved defaults or existing runs.
 
 **2. Install the engine and sign in.** The default engine is OpenCode. The terminal
 adapter accepts 1.x and 2.x; this quickstart pins **1.18.33**, the version with

@@ -67,6 +67,56 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "scenarios/harness/fake_changed_code.py",
+        (
+            "tests.test_scenario_changed_code_fixtures",
+            "tests.test_acceptance_tests",
+            "tests.test_acceptance_writer_route",
+            "tests.test_follow_up_acceptance_cli",
+        ),
+    ),
+    (
+        "tools/goal_fixtures.py",
+        (
+            "tests.test_goal_fixture_changed_code",
+            "tests.test_artifact_review",
+            "tests.test_workflow",
+            "tests.test_final_workflow",
+        ),
+    ),
+    (
+        "tools/live_fixture_provider.py",
+        (
+            "tests.test_live_fixture_changed_code",
+            "tests.test_taskrun",
+            "tests.test_agent_step",
+            "tests.test_codex_capture_copy",
+        ),
+    ),
+    *(
+        (path, ("tests.test_changed_code_evidence_cli",))
+        for path in (
+            "tools/autocode_changed_code_evidence.py",
+            "tools/autocode_changed_code_measurement.py",
+            "tools/autocode_changed_code_proof.py",
+            "tools/autocode_changed_code_trigger.py",
+            "tools/autocode_changed_code_review.py",
+            "tools/autocode_changed_code_rework.py",
+            "tools/autocode_changed_code_review_application.py",
+            "tools/prompts/fragments/regression/changed-code-evidence.md",
+            "tools/autocode_diff_coverage.py",
+            "tools/autocode_mutation_check.py",
+            "tools/autocode_regression.py",
+            "tools/autocode_report_schema.py",
+            "tools/autocode_role_schema.py",
+            "tools/autocode_stage_context.py",
+            "tools/autocode_stuck_job.py",
+            "tools/autocode_workflow.py",
+            "tools/autocode_completion.py",
+            "tools/autopilot.py",
+        )
+    ),
     *(
         (path, ("tests.test_execution_criteria_prompt", "tests.test_builder_criteria_cli"))
         for path in (
@@ -131,6 +181,8 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tests/coordination_provider.py", ("tests.test_coordination_tui_e2e",)),
     ("docs/schemas/status-view.schema.json", ("tests.test_json_contract",)),
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture", "tests.test_review_attribution_cli")),
+    ("scenarios/catalog/local-compose-two-services/", ("tests.test_local_compose_scenario",)),
+    ("scenarios/harness/components_driver.py", ("tests.test_local_compose_scenario",)),
     ("scenarios/harness/profiles.py", ("tests.test_kilocode_effort",)),
     ("tools/prompts/acceptance-tests.md", ("tests.test_acceptance_tests", "tests.test_acceptance_runner_handoff")),
     (
@@ -191,6 +243,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "tools/prompts/fragments/autoplanner/source-refs-rule.md",
         ("tests.test_report_repair", "tests.test_requirements_chat"),
+    ),
+    (
+        "tools/prompts/fragments/autoplanner/code-refs-rule.md",
+        ("tests.test_planning", "tests.test_report_repair"),
     ),
     (
         "tools/prompts/fragments/report-repair-context/evidence-probe.md",

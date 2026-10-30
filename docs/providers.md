@@ -11,7 +11,7 @@ Connecting one account is enough. Automatic selection reads the tool's own model
 login listings, prefers subscriptions, and keeps the producer and checker roles on
 independent models ([automatic model selection](models.md#choosing-models-automatically)).
 
-`autocode connections setup` ends by naming the route each role will use, from that
+`autocode connections list --routes` names the route each role will use, from that
 local listing and without launching anything:
 
 ```text
@@ -408,8 +408,8 @@ route for the child. Unset them in the shell that launches `autocode` or
 strips them before the stage. `autocode doctor` names this gate on a Codex
 setup before any run pauses: the `billing:codex` check lists the exported
 variables or the `model_provider`/`openai_base_url` lines in Codex's own
-config, with the exact `unset` command and `autocode connections setup` as the
-API-key alternative (#2055).
+config, with the exact `unset` command, and points API keys to OpenCode or Kilo
+(#2055).
 
 Put `-o {report}` (or `--output-last-message {report}`) in the **command list**
 as its own argv slot, not only inside a `sh -c` string. When Autocode sees that
@@ -634,12 +634,15 @@ Changing the config file or the tool version pauses a saved run.
 
 ### A different tool for one role
 
-For a **new** run on `--engine opencode --provider opencode`, repeat
-`--role-transport ROLE=PROVIDER` to select an external configured tool for only
-those roles. `ROLE` is the existing CLI code name, such as `sol` or `completion`;
-`PROVIDER` names its registered TOML config, such as `kilocode`. Each selection
-requires an explicit corresponding model flag. Select its exact model ID from
-that tool's catalogue, including a bare ID when the tool publishes one:
+For a **new** run on the OpenCode facade engine (`--engine opencode` with any
+provider, or `--engine claude`), repeat `--role-transport ROLE=PROVIDER` to run
+only those roles on another connected tool. `ROLE` is the existing CLI code name,
+such as `sol` or `completion`; `PROVIDER` names a tool with its own identity: a
+registered TOML config such as `kilocode`, the built-in `claude` provider, or the
+`autocode` direct connection. It cannot name the run's own tool, and `--engine
+codex` keeps Codex's own transport for every role. Each selection requires an
+explicit corresponding model flag. Select its exact model ID from that tool's
+catalogue, including a bare ID when the tool publishes one:
 
 ```sh
 autocode models --provider opencode
@@ -648,6 +651,9 @@ autocode models --provider kilocode
 autocode "Your task" --engine opencode --provider opencode \
   --role-transport sol=kilocode --sol-model '<MODEL_FROM_KILO_CATALOGUE>' \
   --sol-reasoning-effort high
+# A run on Claude Code with the Tester on a Kilo account (#2049).
+autocode "Your task" --engine claude \
+  --role-transport sol=kilocode --sol-model '<MODEL_FROM_KILO_CATALOGUE>'
 ```
 
 The other roles retain their routes selected by the ordinary model flags and
@@ -1085,7 +1091,16 @@ cross-model guard is for.
 
 ### Default provider
 
-New runs use OpenCode unless you choose otherwise. `--provider <name>` picks the
+New runs use OpenCode unless you choose otherwise. When OpenCode is not
+installed and nothing chooses (no `--engine` or `--provider`, no
+`AUTOCODE_PROVIDER`, no `default_provider`, no project `engine`), a new run
+takes the first connected backend in this order: Claude Code signed in to a
+subscription, Codex signed in, then Kilo with a connected account (#2049; the order is the proposed
+"default engine" answer in #2054). The run prints `Engine for this run: …` with
+the reason, `doctor` names the same choice in its `engine` row, and a saved run
+keeps the engine it started with. Each check is the backend's own login listing,
+as `autocode connections check` reads it; no model is called and no credential
+is read. `--provider <name>` picks the
 tool for one run. To change the default for every new run and for the dashboard,
 set `AUTOCODE_PROVIDER=kilocode` or add this to `~/.config/autocode/config.toml`:
 
@@ -1151,6 +1166,14 @@ no guessed sign-in command. Provider files are trusted user configuration; files
 in a project are never discovered as connection definitions.
 
 ### AutoCode direct connections (issue #1493)
+
+**Retired (owner decision 2026-10-30, #2049); removed in the next release.** AutoCode offers
+four backends: Claude Code and Codex as engines, and OpenCode and Kilo for every other account
+and API key. Add API keys there (`opencode auth login`, `kilo auth login`). A direct connection
+that is already configured still appears in `autocode connections list`, and `--provider
+autocode` still runs on it until then; nothing offers it to a new user, and `connections setup`
+and `connections add` print that notice first. The rest of this section describes it until it
+is removed.
 
 AutoCode includes its own text/tool runtime. It does not require Kilo, OpenCode,
 Codex, Claude Code, or another coding-agent executable. In VS Code open

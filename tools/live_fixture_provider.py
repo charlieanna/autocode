@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import hashlib
 import json
 import os
 import re
@@ -68,6 +69,15 @@ class TestGreet(unittest.TestCase):
 
     def test_unicode(self):
         self.assertEqual(greet("Zoë"), "Hello, Zoë")
+
+    def test_cli_success(self):
+        proc = subprocess.run([sys.executable, "greet.py", "Ada"], capture_output=True, text=True)
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, "Hello, Ada\\n", ""))
+
+    def test_cli_empty_name(self):
+        proc = subprocess.run([sys.executable, "greet.py", ""], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("usage", proc.stderr.lower())
 
 
 if __name__ == "__main__":
@@ -300,6 +310,60 @@ def _write_files() -> list[str]:
     return ["greet.py", "test_greet.py", "README.md"]
 
 
+def _changed_code_reasons(data):
+    """Independent judgments for this one handwritten, actually tested fixture.
+
+    Do not turn this into a generic waiver for scripted providers. Each accepted
+    line must match the exact known product/tests, have no surviving observed
+    mutant, and have a specific semantic reason supported by the runner proof.
+    Unknown files, edits and weak/missing tests receive no exception.
+    """
+    proof = data.get("regression_proof") or {}
+    assessment = proof.get("changed_code_evidence") or {}
+    try:
+        product = Path("greet.py").read_bytes()
+        tests = Path("test_greet.py").read_text()
+    except OSError:
+        return []
+    if product != GREET_PY.encode() or tests != TEST_GREET_PY or not proof.get("path"):
+        return []
+    reasons = {
+        "import sys": "Standard-library import with no supported mutation site. The CLI success and invalid-argument tests execute its argv/stderr/exit uses; deleting this import makes those CLI assertions fail.",
+        'USAGE = "usage: greet.py NAME"': "The shared usage literal has no supported mutation site. test_no_arg and test_cli_empty_name assert a usage message on stderr and exit 2; an empty or unrelated literal fails those assertions.",
+        "def greet(name: str) -> str:": "This line declares the function and builtin type annotations only. Its behavior is the separately checked return line; test_greet and test_unicode assert both results. There is no additional CLI behavior in this declaration to exercise.",
+        "def main(argv=None) -> int:": "This function header declares an optional argv argument and builtin return annotation. CLI tests exercise the default argument, parsing, output and exit behavior on the separately checked body lines; the header adds no separate task behavior.",
+        "print(greet(argv[0]))": "The output call has no supported mutation site. test_cli_success requires exact Hello, Ada plus newline on stdout with empty stderr; deleting or suppressing this call fails that assertion.",
+        'if __name__ == "__main__":': "The mutation tool deliberately excludes entrypoint guards. The module imports without exiting in the function tests, and the CLI tests invoke the entrypoint and check exact output and both success/error exits; disabling the guard fails those checks.",
+        "raise SystemExit(main())": "The entrypoint exit adapter has no supported mutation site. CLI tests require exit 0 for Ada and exit 2 for missing, multiple and empty arguments; omitting the adapter or discarding main's result fails these exit assertions.",
+    }
+    source = product.decode().splitlines()
+    digest = hashlib.sha256(product).hexdigest()
+    result = []
+    for row in assessment.get("obligations") or []:
+        line = row.get("line")
+        if (
+            row.get("status") != "reason_required"
+            or row.get("path") != "greet.py"
+            or row.get("sha256") != digest
+            or type(line) is not int
+            or not 0 < line <= len(source)
+            or row.get("mutation_outcomes")
+        ):
+            continue
+        reason = reasons.get(source[line - 1].strip())
+        if reason:
+            result.append(
+                {
+                    "gap_id": row["gap_id"],
+                    "decision": "accept",
+                    "reason_kind": "instrumentation_unavailable",
+                    "reason": reason,
+                    "evidence_refs": [proof["path"], "greet.py"],
+                }
+            )
+    return result
+
+
 def _source_refs():
     """Cite the tracked and ordinary untracked inputs in the source inventory."""
     result = subprocess.run(
@@ -333,6 +397,23 @@ def _source_refs():
     return sorted(set(sources))[:8] or ["task"]
 
 
+def _prompt_schema(prompt: str) -> dict:
+    """The output contract a report-file provider receives in its prompt, not as ``--output-schema``.
+
+    Without it the Tester's changed-line reasons would never be attached on that transport, and the
+    run would send the Builder back for lines it already explained (tests.test_codex_capture_copy).
+    """
+    prefix, marker = prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0], "\nTOOL OUTPUT CONTRACT\n"
+    if marker not in prefix:
+        return {}
+    try:
+        contract = prefix.rsplit(marker, 1)[1]
+        schema, _ = json.JSONDecoder().raw_decode(contract[contract.index("\n{") + 1 :])
+    except (IndexError, ValueError):
+        return {}
+    return schema if isinstance(schema, dict) else {}
+
+
 def main() -> int:
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (offline live-trial fixture)")
@@ -362,7 +443,7 @@ def main() -> int:
                     "type": "command_execution",
                     "command": "python3 -m unittest test_greet.py",
                     "exit_code": 0,
-                    "aggregated_output": "4 tests passed",
+                    "aggregated_output": "6 tests passed",
                 },
             }
         ),
@@ -417,6 +498,15 @@ def main() -> int:
             "probe": "",
             "untestable": "",
         }
+        if failure := data.get("builder_failure"):
+            # A Builder-failure classification must cite the pinned failure and its evidence.
+            report.update(
+                failure_class="unknown",
+                example="Offline fixture: it cannot diagnose this failure; it is classified unknown.",
+                untestable="An offline fixture runs no command that could show the cause.",
+                failure_id=failure.get("failure_id", ""),
+                evidence_refs=list(failure.get("evidence_refs") or [])[:1],
+            )
     elif stage == "requirements_gather":
         report = {
             "summary": "Handwritten greeting requirements; no model planning",
@@ -582,7 +672,7 @@ def main() -> int:
             "summary": "Delivered greeting CLI",
             "changed_files": changed,
             "commands_run": ["python3 -m unittest test_greet.py"],
-            "results": ["4 tests passed"],
+            "results": ["6 tests passed"],
             "remaining_risks": [],
             "evidence_refs": ["event:check"],
             "addressed_requirements": ["C1"],
@@ -655,9 +745,16 @@ def main() -> int:
     schema = (
         json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
         if "--output-schema" in sys.argv
-        else {}
+        else _prompt_schema(prompt)
     )
+    if "failure_class" in schema.get("properties", {}):
+        # Match the schema introduced for builder-failure investigations,
+        # including when the original report is being repaired.
+        report.setdefault("failure_class", "unknown")
+        report.setdefault("failure_id", "offline-fixture-failure")
     saved = _saved_report(data) if repairing else {}
+    if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in schema.get("properties", {}):
+        report["changed_code_exceptions"] = _changed_code_reasons(data)
     handoff = (data.get("requirements_handoff") or {}).get("report") or {}
     if "requirement_trace" in report and any(row.get("id") == "R5" for row in handoff.get("requirements", [])):
         report["requirement_trace"].extend(_trace(("R5", "Python standard library only")))

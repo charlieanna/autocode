@@ -101,10 +101,25 @@ def plan(rows, payloads, checks, title):
 
 
 def independent():
+    # Each component that delivers code delivers the test that proves it (#2474); the packages'
+    # __init__.py files let the project suite discover those tests.
     files = {
-        "M1": {"server/health.py": "def health(): return {'status': 'ok'}\n"},
+        "M1": {
+            "server/__init__.py": "",
+            "server/health.py": "def health(): return {'status': 'ok'}\n",
+            "server/test_health.py": "import unittest\nfrom server.health import health\n\n\n"
+            "class HealthTests(unittest.TestCase):\n    def test_health_is_ok(self):\n"
+            "        self.assertEqual({'status': 'ok'}, health())\n",
+        },
         "M2": {"web/about/index.html": "<h1>About this app</h1>\n"},
-        "M3": {"cli/version.py": "print('1.0.0')\n"},
+        "M3": {
+            "cli/__init__.py": "",
+            "cli/version.py": "print('1.0.0')\n",
+            "cli/test_version.py": "import subprocess\nimport sys\nimport unittest\n\n\n"
+            "class VersionTests(unittest.TestCase):\n    def test_version_is_printed(self):\n"
+            "        result = subprocess.run([sys.executable, 'cli/version.py'], capture_output=True, text=True)\n"
+            "        self.assertEqual((0, '1.0.0\\n', ''), (result.returncode, result.stdout, result.stderr))\n",
+        },
     }
     return plan(
         [
@@ -128,18 +143,44 @@ def notes():
     listing = "from notes.storage import load\ndef listing(p): return '\\n'.join(load(p))\n"
     cli = "import sys\nfrom notes.add import add\nfrom notes.listing import listing\nif sys.argv[1]=='add': add(sys.argv[2],sys.argv[3])\nelif sys.argv[1]=='list': print(listing(sys.argv[2]))\nelse: raise SystemExit(2)\n"
     prefix = "import tempfile; from pathlib import Path; "
+    # Each milestone delivers the test that proves it (#2474); every mutant of its module fails one.
+    head = "import tempfile\nimport unittest\nfrom pathlib import Path\n"
+    tests = {
+        "test_storage.py": head + "from notes.storage import load, save\n\n\nclass StorageTests(unittest.TestCase):\n"
+        "    def test_saved_notes_reload_and_a_missing_file_is_empty(self):\n"
+        "        with tempfile.TemporaryDirectory() as folder:\n            p = Path(folder) / 'n'\n"
+        "            self.assertEqual([], load(p))\n            save(p, ['a', 'b'])\n"
+        "            self.assertEqual(['a', 'b'], load(p))\n",
+        "test_add.py": head + "from notes.add import add\nfrom notes.storage import load\n\n\n"
+        "class AddTests(unittest.TestCase):\n    def test_adds_notes_and_rejects_blank_ones(self):\n"
+        "        with tempfile.TemporaryDirectory() as folder:\n            p = Path(folder) / 'n'\n"
+        "            add(p, 'a')\n            add(p, 'b')\n            self.assertEqual(['a', 'b'], load(p))\n"
+        "            with self.assertRaises(ValueError):\n                add(p, '  ')\n"
+        "            self.assertEqual(['a', 'b'], load(p))\n",
+        "test_listing.py": head + "from notes.listing import listing\nfrom notes.storage import save\n\n\n"
+        "class ListingTests(unittest.TestCase):\n    def test_lists_notes_in_insertion_order(self):\n"
+        "        with tempfile.TemporaryDirectory() as folder:\n            p = Path(folder) / 'n'\n"
+        "            save(p, ['a', 'b'])\n            self.assertEqual('a\\nb', listing(p))\n",
+        "test_main.py": head + "import subprocess\nimport sys\n\n\nclass CliTests(unittest.TestCase):\n"
+        "    def test_add_then_list_and_unknown_commands_exit_2(self):\n"
+        "        with tempfile.TemporaryDirectory() as folder:\n            p = str(Path(folder) / 'n')\n"
+        "            subprocess.run([sys.executable, 'main.py', 'add', p, 'hello'], check=True)\n"
+        "            listed = subprocess.run([sys.executable, 'main.py', 'list', p], capture_output=True, text=True)\n"
+        "            self.assertEqual((0, 'hello\\n'), (listed.returncode, listed.stdout))\n"
+        "            self.assertEqual(2, subprocess.run([sys.executable, 'main.py', 'drop', p]).returncode)\n",
+    }
     return plan(
         [
-            ([], "Persist and reload notes as JSON", ["notes/storage.py"]),
-            (["M1"], "Add a note and reject empty input", ["notes/add.py"]),
-            (["M1"], "List stored notes in insertion order", ["notes/listing.py"]),
-            (["M2", "M3"], "CLI integrates add and list", ["main.py"]),
+            ([], "Persist and reload notes as JSON", ["notes/storage.py", "test_storage.py"]),
+            (["M1"], "Add a note and reject empty input", ["notes/add.py", "test_add.py"]),
+            (["M1"], "List stored notes in insertion order", ["notes/listing.py", "test_listing.py"]),
+            (["M2", "M3"], "CLI integrates add and list", ["main.py", "test_main.py"]),
         ],
         {
-            "M1": {"notes/storage.py": storage},
-            "M2": {"notes/add.py": add},
-            "M3": {"notes/listing.py": listing},
-            "M4": {"main.py": cli},
+            "M1": {"notes/storage.py": storage, "test_storage.py": tests["test_storage.py"]},
+            "M2": {"notes/add.py": add, "test_add.py": tests["test_add.py"]},
+            "M3": {"notes/listing.py": listing, "test_listing.py": tests["test_listing.py"]},
+            "M4": {"main.py": cli, "test_main.py": tests["test_main.py"]},
         },
         {
             "M1": prefix
@@ -455,7 +496,7 @@ class BuildBlackbox(unittest.TestCase):
         self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
         handoff = self.events("decision", stage="astra_review")[-1]
         self.assertEqual("M2", handoff["next_task"]["milestone_id"])
-        self.assertEqual(["notes/storage.py"], handoff["affected_paths"])
+        self.assertEqual(["notes/storage.py", "test_storage.py"], handoff["affected_paths"])
 
         # M1 has already started; require both new Builder processes before either finishes.
         self.env["BUILD_AUDIT_OVERLAP"] = "3"
@@ -483,8 +524,8 @@ class BuildBlackbox(unittest.TestCase):
         self.candidate()
         last = self.events()[-1]
         self.assertEqual("M4", last["milestone"])
-        self.assertEqual(["main.py"], last["task_paths"])
-        self.assertEqual(["main.py"], last["affected_paths"])
+        self.assertEqual(["main.py", "test_main.py"], last["task_paths"])
+        self.assertEqual(["main.py", "test_main.py"], last["affected_paths"])
         self.assertTrue({"notes/add.py", "notes/listing.py"} <= set(last["inputs"]))
         self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
         # The completion owner requests one final read-only validation of all criteria.

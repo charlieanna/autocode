@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -232,6 +233,14 @@ class ChangesetCliTests(unittest.TestCase):
             "continue", self.run.status()["needs"]["kind"], "explicit standalone approval releases this run"
         )
         self.assertIsNone(member.status().get("approved_contract"))
+
+
+class StatusRefusalTests(unittest.TestCase):
+    def test_a_missing_run_directory_is_named_not_called_a_run_in_no_change_set(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            missing = Path(temporary) / "runs" / "missing"
+            with self.assertRaisesRegex(changeset.LinkRefused, f"No such run directory: {missing}"):
+                changeset.status(missing)
 
 
 class SetTokenTests(unittest.TestCase):

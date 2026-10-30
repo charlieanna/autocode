@@ -34,6 +34,8 @@ try:
     from . import autocode_chat_context as contexts
     from . import autocode_chat_observation as observation
     from . import autocode_chat_panel as panel
+    from . import autocode_chat_stages as stages
+    from . import autocode_chat_stages_panel as stages_panel
     from . import autocode_chat_verification as verification
 except ImportError:
     import autocode_chat_attention as attention
@@ -41,6 +43,8 @@ except ImportError:
     import autocode_chat_context as contexts
     import autocode_chat_observation as observation
     import autocode_chat_panel as panel
+    import autocode_chat_stages as stages
+    import autocode_chat_stages_panel as stages_panel
     import autocode_chat_verification as verification
 
 PROGRESS_PREFIX = "· "
@@ -536,6 +540,8 @@ class ChatTUI:
         self._attention_view: dict = {}
         self._attention_menu: attention.Menu | None = None
         self._attention_top = 0
+        self._stage_menu: stages.Menu | None = None  # /stages: one list per stage, like a dropdown
+        self._stage_top = 0
         self._prompt = ""
         self._asking = False
         self.idle: Callable[[], None] | None = None
@@ -814,6 +820,7 @@ class ChatTUI:
             self._view, self._pending, self._queued, self._menu_index = None, None, [], 0
             self._launch_execution = None
             self._attention_menu = None
+            self._stage_menu = None
             self._run_open = run_dir is not None
             self.set_context(workspace, run_dir)
             return saved is not None
@@ -1039,6 +1046,9 @@ class ChatTUI:
         if self._attention_menu is not None:
             attention_panel.handle(self, key, asking=asking)
             return None
+        if self._stage_menu is not None:
+            stages_panel.handle(self, key)
+            return None
         if key == curses.KEY_F8 and self._act is not None:
             self._run("/attention", asking)
             return None
@@ -1174,6 +1184,9 @@ class ChatTUI:
             result = self._act(name, argument)
             if isinstance(result, attention.Menu):
                 attention_panel.show(self, result)
+                return None
+            if isinstance(result, stages.Menu):
+                stages_panel.show(self, result)
                 return None
             if isinstance(result, panel.Confirm):
                 self._transcript.info(name, result.text)
@@ -1347,6 +1360,7 @@ class ChatTUI:
                 self._question_or_status(layout)
                 self._command_menu(layout)
                 attention_panel.draw(self, layout, truncate)
+                stages_panel.draw(self, layout, truncate)
                 self._composer_box(layout)
                 self._hints(layout)
                 screen.refresh()

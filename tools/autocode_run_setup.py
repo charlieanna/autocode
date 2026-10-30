@@ -794,7 +794,14 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
             configured_tool=getattr(runner.opencode, "CONFIGURED", False),
         )
         # A limit a person's flag changed is a recorded configuration change, as `autocode events` says (#2412).
-        limit_events.record(state, previous_settings, settings, at=runner.now())
+        # A grant re-validates the published request against the frontier as it was issued, and that
+        # request's binding digests user_events (#2479): with --grant-recovery the events this change
+        # appends are held back and travel with the grant's own single save once it is accepted; a
+        # refused grant persists neither the corrected limits nor their events.
+        if args.grant_recovery is None:
+            limit_events.record(state, previous_settings, settings, at=runner.now())
+        else:
+            args._grant_limit_events = limit_events.planned(state, previous_settings, settings, at=runner.now())
         state["settings"] = settings
         # A recovery novelty hold's stop states the cost cap; the settings saved here may change it (#611).
         resolver_recovery.restate_hold(state)

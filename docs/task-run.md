@@ -910,7 +910,11 @@ agreed plan's token. Reports written before AutoCode cited them have neither fie
 authenticate; a completed run saved again rebuilds its pair with them.
 When the proof's mutation check left survivors, `regression_proof.mutation_survivors` lists
 them per test case, keyed like `case_tests`, and the Markdown names each one under
-the regression proof; they are reported, not gaps. Review-only mutation reports
+the regression proof. For current task proofs, `verification.changed_code_evidence`
+binds execution, mutation observations and independently checked per-line reasons
+to the exact source/proof context. `verification.changed_code_repairs` retains
+the bounded Builder returns and Investigator handoffs. Legacy report-only proofs
+without this field grant no new changed-line evidence. Review-only mutation reports
 are kept separately in `workflow_result.mutation_check`, with survivors keyed
 by the reviewed tests' actual IDs. Local
 artifact paths are references, not hosted evidence. Unknown usage stays unknown;
@@ -1434,8 +1438,10 @@ test, which side, its kind and the run outcomes), `unrepeated`, `next_step` when
 a test disagreed, and `note`; `null` when the proof did not repeat tests.
 `diff_coverage` is the same proof's line coverage of changed product hunks
 (`collected`, `tool`, `note`, `files`, `uncovered`, `unmeasured`); `null` when the
-proof did not record it. It never blocks completion.
-`mutation_check` is the same proof's report-only mutation check (#699, see
+proof did not record it. The raw coverage report alone grants no completion
+authority. Current task proofs combine authenticated producing receipts with
+mutation evidence in `verification.changed_code_evidence` (#2474).
+`mutation_check` is the same proof's mutation check (#699, #2474, see
 [Named test proof](named-test-proof.md#mutation-check)): `collected`, `note`,
 `limit_per_file`, `budget_seconds`, `files` (each `path`, `notes`, and `mutants`
 with `line`, `operator`, `before`, `after`, `outcome` `killed`, `survived`,
@@ -1446,8 +1452,16 @@ case's proving tests that still passed with a product line changed (`test`,
 `path`, `line`, `operator`, `before`, `after`, `text`), `{}` when every mutant
 that ran was killed. Every proof that did not pass, including one refused before
 any test ran, has the note `not run: the proof did not pass` and no survivors;
-`null` when a passing proof had no due test case, or there is no proof. It never
-blocks completion. A review can instead report the original tests in its
+`null` when an older passing proof had no due test case, or there is no proof.
+Current task proofs enumerate eligible Python sites within the existing command
+budget and require observed named-test failures; setup, collection, timeout and
+unrun outcomes never demonstrate a kill. `verification.changed_code_evidence`
+lists exact gap IDs, file hashes/lines, `tested`, `reason_required` or `excepted`,
+the reason/evidence, and the chosen fallback. Missing tools never trigger a
+project install: demonstrated per-line mutation evidence is the deterministic
+fallback, otherwise an explicit independent per-line judgment is required.
+Two direct repairs precede the existing Investigator path within saved run
+limits; no person question is added for these gaps. A review can instead report the original tests in its
 explicit patch: `subject` is `reviewed_patch_tests`, `patch_path` and
 `patch_sha256` identify that patch, `selected_files` and `selected_tests` record
 the independently run pool, and `survivors` is keyed by actual test IDs. These
@@ -2391,6 +2405,28 @@ several API providers are configured (issue #2055), the same row instead offers
 an `add` action with `next_command=["connections", "add"]`, executed the same
 interactive way; it adds or rotates one provider's key without touching the
 others.
+
+## Stage choices for clients
+
+A client may let a person choose the model and reasoning level of each stage, as one dropdown per
+stage ([Choosing each stage's model](models.md#choosing-each-stages-model)).
+`autocode stages list --json [--backend NAME]` returns the version-1 view: `backend`, `label`, `file`
+(where the choices are kept), `options_stop` (why no model could be listed, or null) and `stages`, in
+the order a task runs them. Each stage has `id`, `label`, `does` (what the stage does), `advice` (the
+kind of model and level that suits it), `flag` and `effort_flag`, `default` (`model`, `effort`, and
+`offered`: whether the backend offers that model), `chosen` (the saved `model` and `effort`, or null),
+`options`, `set` and `reset`. Each option has `model`, `levels` and `levels_listed` (whether the
+levels come from the tool's own listing), `effort_choices` (the levels a person may pick, or
+`["default"]` for a model that lists none), `family`, `context`, `account`, `billing` and
+`unavailable`: the reason the stage may not run that model beside the others, or null.
+
+A client shows `label`, `does` and `advice`, lists the options, and greys out an option whose
+`unavailable` is set, showing its reason. To save a choice it takes `set.next_command`, an argument
+array following `autocode`, replacing `MODEL` with one of `options[].model` and `EFFORT` with one of
+that option's `effort_choices`, and refuses anything else. `reset.next_command` (null until a choice
+is saved) forgets the stage's choice. Both print the updated view, and a refused choice exits 2 with
+the reason on stderr and saves nothing. The view launches no model and reads no credential. A new
+task reads the choices when it starts; a running task keeps its own.
 
 ## Run modes for clients
 

@@ -16,8 +16,14 @@ in a private checkout. Verification preserves the original checkout and index.
 It creates a fresh candidate and a separate review checkout, retaining the
 reports under `.autocode/verification/` by default. `--out PATH` selects a fresh
 output directory; an existing destination is refused. Output inside the original
-checkout must be Git-ignored, and symlinked output parents are refused. Ambient
-Git repository or configuration overrides are refused by name before any work.
+checkout must be Git-ignored, and symlinked output parents are refused, except a
+root-owned system link such as macOS's `/tmp`, which is followed to its target
+(`/private/tmp`). A refused link is named with the path to use instead. The
+`git -c` parameters an editor's terminal exports (`GIT_CONFIG_COUNT`,
+`GIT_CONFIG_KEY_n`, `GIT_CONFIG_VALUE_n`) are cleared from verification's own
+environment and their names recorded in `verification.json` as
+`original.cleared_git_config`. Other ambient Git repository or configuration
+overrides are refused by name before any work, with the `unset` to run.
 Authenticated review-artifact and checkout-protection support must be installed
 before a review starts. Selected input using `.autocode/`, `.autocode-ui/` or
 `review/` (including case aliases), `__pycache__/` paths or `.pyc` files is
@@ -46,9 +52,11 @@ The criteria file is a JSON object. Inline `--criteria` accepts the same object:
 
 Every criterion needs its own ID, wording, explicit executable check command and
 `human_review` boolean. Commands run from the candidate's root in fresh scratch
-checkouts. Use a command that demonstrates the promised behavior. Prose,
-empty criteria, duplicate IDs or keys, and nonbehavioral placeholder commands
-are refused. Criteria and the exact candidate source are bound to the report.
+checkouts. Use a command that demonstrates the promised behavior. A check that
+needs its own environment names it with literal values, as in
+`env GOWORK=off GOFLAGS= go test -count=1 ./pkg/`; the assignments are part of
+the recorded command. Prose, empty criteria, duplicate IDs or keys, expansions in
+an `env` assignment and nonbehavioral placeholder commands are refused. Criteria and the exact candidate source are bound to the report.
 
 The independent Code Reviewer uses the existing review workflow. It judges the
 selected change against the caller's criteria and cannot repair the candidate.

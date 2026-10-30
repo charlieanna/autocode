@@ -39,7 +39,7 @@ def before_review(state: RunState, stage, workspace, run_dir):
         current = source_scope.snapshot(workspace, state)
         if (
             regression.required(state, all_due=True)
-            and regression.complete(state, current["revision"], all_due=True)
+            and regression.complete(state, current["revision"], all_due=True, require_changed_code=False)
             and delivery.prepare(state, workspace, current)
         ):
             regression.before_review(state, stage, workspace, run_dir)
@@ -69,7 +69,10 @@ def _reconcile_proof_finding(state: RunState, workspace):
         return
     revision = source_scope.snapshot(workspace, state)["revision"]
     required = regression.required(state, all_due=True)
-    proved = required and regression.complete(state, revision, all_due=True)
+    # The runner's own proof only: an equivalent-mutant or unreachable-line reason is the independent
+    # reviewer's to give in the review this precedes (#2474), and a missing one has its own Builder route
+    # (autocode_changed_code_rework), so it must not open a proof finding the Builder cannot clear.
+    proved = required and regression.complete(state, revision, all_due=True, require_changed_code=False)
     reason = "" if proved or not required else regression.rejection(state)
     proof_findings.reconcile(state, revision, required=required, proved=proved, reason=reason)
 

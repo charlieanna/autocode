@@ -435,6 +435,8 @@ def main(argv=None):
         if args.action == "init":
             store.initialize()
             result = {"initialized": str(store.root)}
+        elif not store.exists():  # one message for every action, not an errno or a sqlite traceback
+            raise ArenaError(f"No arena store at {store.root}; run autocode arena init first")
         elif args.action == "cases":
             result = {
                 "cases": [

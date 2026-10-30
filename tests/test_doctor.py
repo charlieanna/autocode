@@ -112,7 +112,8 @@ class EngineTests(unittest.TestCase):
         self.assertIn("OPENAI_API_KEY", check.detail)
         self.assertIn("PAUSED_BILLING_ROUTE", check.detail)
         self.assertIn("unset OPENAI_API_KEY", check.fix)
-        self.assertIn("autocode connections setup", check.fix)
+        self.assertIn("opencode auth login", check.fix)
+        self.assertNotIn("connections setup", check.fix)  # the direct connection is retired (#2049)
 
     def test_a_codex_config_override_is_named_with_its_file(self):
         with tempfile.TemporaryDirectory() as home:
@@ -468,6 +469,32 @@ class ClaudeTests(unittest.TestCase):
         self.assertEqual("OpenCode (the default for a new run) is not ready", checks["engine"].detail)
         self.assertNotIn("--engine claude", checks["engine"].fix)
 
+    def test_a_logged_in_claude_code_is_the_engine_when_nothing_chose_one_and_opencode_is_absent(self):
+        # #2049: no flag, no config, no OpenCode. The run takes Claude Code, and doctor checks that.
+        checks = self.checks(None, on_path("claude"), self.LOGGED_IN)
+        self.assertEqual(doctor.OK, checks["engine:claude"].status)
+        self.assertEqual(doctor.OK, checks["engine"].status)
+        self.assertEqual(
+            "engine claude (chosen from your connected accounts: Claude Code is connected and OpenCode is not "
+            "installed) is ready",
+            checks["engine"].detail,
+        )
+        # Codex alone, logged in: the same rule names the Codex engine.
+        checks = self.checks(None, on_path("codex"), {("codex", "login", "status"): (0, "")})
+        self.assertEqual(doctor.OK, checks["engine"].status)
+        self.assertTrue(checks["engine"].detail.startswith("engine codex (chosen from your connected accounts"))
+        # The settings rows say what a run would use, as the run says it.
+        found = {}
+        doctor.all_checks(self.config, None, on_path("claude"), fake_runner(self.LOGGED_IN), found=found)
+        rows = {row["key"]: row for row in doctor.project_settings(self.config, found["connected"])[1]}
+        self.assertEqual(("claude", "connected accounts"), (rows["engine"]["value"], rows["engine"]["source"]))
+        self.assertEqual(("claude", "connected accounts"), (rows["provider"]["value"], rows["provider"]["source"]))
+        # An explicit default provider is never overridden by the connected accounts.
+        with patch.dict(os.environ, {"AUTOCODE_PROVIDER": "fixturetool"}):
+            checks = self.checks(None, on_path("claude"), self.LOGGED_IN)
+        self.assertIn("provider fixturetool", checks["engine"].detail)
+        self.assertNotIn("engine:claude", checks)
+
     def test_a_claude_default_provider_takes_the_same_checks(self):
         with patch.dict(os.environ, {"AUTOCODE_PROVIDER": "claude"}):
             checks = self.checks(None, on_path("claude", "opencode"), self.LOGGED_IN)
@@ -673,7 +700,9 @@ class ContainmentTests(unittest.TestCase):
         with self.host():
             checks = doctor.all_checks(self.workspace, None, on_path("opencode"), runner, self.resolve, found=found)
         status = found["containment"]
-        self.assertEqual([(("opencode", "--version"), self.workspace)], [c for c in calls if c[0][0] == "opencode"])
+        self.assertEqual(
+            [(("opencode", "--version"), self.workspace)], [c for c in calls if c[0][:2] == ("opencode", "--version")]
+        )
         rows = {c.name: c for c in checks}
         self.assertEqual("OpenCode 1.18.33", rows["engine:opencode"].detail)
         self.assertEqual(doctor.containment_check(status), rows["containment"])

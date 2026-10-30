@@ -19,12 +19,14 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 try:
+    from . import autocode_changed_code_evidence as line_evidence
     from . import autocode_replay_bindings as identity_bindings
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
     from . import autocode_workflows as workflows
 except ImportError:
+    import autocode_changed_code_evidence as line_evidence
     import autocode_replay_bindings as identity_bindings
     import autocode_source_snapshot as source_snapshot
     import autocode_test_cases as test_cases
@@ -98,6 +100,8 @@ SYMBOLS = frozenset(
         "task_id",
         "contract_hash",
         "capture_nonce",
+        "changed_code_gap",
+        "regression_proof",
     }
 )
 
@@ -408,7 +412,7 @@ def validate_bindings(bindings):
         raise RecordingError("Recording bindings must be explicit")
     seen = set()
     for binding in bindings:
-        _object(binding, {"pointer", "symbol", "original_valid"}, {"suffix"})
+        _object(binding, {"pointer", "symbol", "original_valid"}, {"suffix", "gap"})
         pointer = binding["pointer"]
         if (
             not isinstance(pointer, str)
@@ -416,11 +420,37 @@ def validate_bindings(bindings):
             or pointer in seen
             or binding["symbol"] not in SYMBOLS
             or type(binding["original_valid"]) is not bool
+            or ("gap" in binding) != (binding["symbol"] == "changed_code_gap")
         ):
             raise RecordingError("Recording binding is invalid")
         seen.add(pointer)
         if binding.get("suffix"):
             relative_path(binding["suffix"])
+        if "gap" in binding:
+            gap = binding["gap"]
+            _object(gap, {"path", "sha256", "line"})
+            if not isinstance(gap["path"], str) or not gap["path"] or type(gap["line"]) is not int or gap["line"] < 1:
+                raise RecordingError("Recording changed-line binding is invalid")
+            _hash(gap["sha256"])
+            relative_path(gap["path"], source=True)
+
+
+def _current_gap(proof, gap):
+    """The replay proof's id for the recorded gap's exact file, bytes and line (#2500).
+
+    ``proof`` is the current assessment's ``source_revision`` and ``proof_context``; a replay whose
+    Tester runs before any changed-line proof has none, and the recorded reason then has no current
+    gap to name.
+    """
+    if (
+        not isinstance(proof, dict)
+        or not isinstance(proof.get("source_revision"), str)
+        or not isinstance(proof.get("proof_context"), str)
+    ):
+        raise RecordingError("Replay has no current changed-line proof for a recorded Tester reason")
+    return line_evidence.gap_id(
+        proof["source_revision"], proof["proof_context"], gap["path"], gap["sha256"], gap["line"]
+    )
 
 
 def rebind(value, bindings, symbols):
@@ -451,6 +481,10 @@ def rebind(value, bindings, symbols):
             replacement = symbols[binding["symbol"]]
             if binding.get("suffix"):
                 replacement = str(Path(replacement) / binding["suffix"])
+            if "gap" in binding:
+                replacement = _current_gap(replacement, binding["gap"])
+            elif binding["symbol"] == "regression_proof" and not (isinstance(replacement, str) and replacement):
+                raise RecordingError("Replay has no current regression proof for a recorded citation of one")
             owner[key] = replacement
         except (KeyError, IndexError, TypeError, ValueError):
             raise RecordingError("Recording binding does not name an existing field") from None
@@ -997,7 +1031,16 @@ def export(projection, destination, secret_values=()):
             source_contexts = [
                 {"revision": util.digest({"head": snap["head"], "files": snap["files"]})} for snap in (before, after)
             ]
-            row["bindings"] = identity_bindings.bindings(payload, record, row, workspace, run_root, source_contexts)
+            row["bindings"] = identity_bindings.bindings(
+                payload,
+                record,
+                row,
+                workspace,
+                run_root,
+                source_contexts,
+                gaps=identity_bindings.changed_line_gaps(packet),
+                proof=identity_bindings.proof_path(packet),
+            )
         document["dispatches"].append(row)
     revisions = list(dict.fromkeys([*projection["revisions"], *[row["head"] for row in snapshots]]))
     for snapshot in snapshots:

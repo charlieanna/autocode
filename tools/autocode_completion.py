@@ -176,7 +176,13 @@ def completion_ready(
         from . import autocode_regression as regression
     except ImportError:
         import autocode_regression as regression
-    if not regression.complete(state, current["revision"], all_due=True):
+    if not regression.complete(
+        state,
+        current["revision"],
+        all_due=True,
+        require_changed_code=require_independent,
+        include_changed_code=require_independent,
+    ):
         return False  # a bug fix needs the runner's passing regression proof for this exact source
     return all(Path(p).is_file() and file_hash(p) == h for p, h in pins.items())
 

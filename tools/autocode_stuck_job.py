@@ -166,6 +166,14 @@ def schema(state: RunState):
     result["properties"].update(
         failure_class={"type": "string", "enum": ["plan", "execution", "operational", "unknown"]}, failure_id=TEXT
     )
+    failure = (state.get("stuck_investigation") or {}).get("failure_evidence") or {}
+    if (failure.get("diagnosis") or {}).get("changed_code_evidence"):
+        # Test gaps are internal repair work. The Investigator can diagnose a
+        # bounded stop, but cannot manufacture a question for the person.
+        result["properties"]["cause"]["enum"] = [
+            value for value in result["properties"]["cause"]["enum"] if value != "needs_user"
+        ]
+        result["properties"]["user_question"] = {"type": "string", "enum": [""]}
     return result
 
 

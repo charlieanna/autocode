@@ -76,11 +76,25 @@ behavior and evidence, not a 100% line count:
 - Where coverage cannot be measured (no coverage tool in the project, an
  unmeasured file), AutoCode chooses the fallback deterministically and records
  it in evidence. It never installs a tool into the project.
+- **A fake provider in a test is a Tester too.** The scripted Testers
+ (`tools/fake_codex.py`, `tools/live_fixture_provider.py`,
+ `tools/fixtures/multicomponent_fake.py`, the scenario harness fakes) must give
+ `changed_code_exceptions` for the lines they themselves write that have no
+ mutation site, bound to the exact gap, file bytes and line, and never for a
+ file they did not script (`goal_fixtures.FIXTURE_REASONS` is the pattern). A
+ fixture-driven test that stops at `PAUSED_BUILDER_CLASSIFICATION` with a
+ `reason_required` line is that gap, or a line the mutator cannot reach: fix
+ the fixture's reasons or the mutator, never the gate.
 
-Diff coverage (`tools/autocode_diff_coverage.py`, #701) measures executed lines
-today but only reports them. An uncovered hunk never changes the verdict, so
-enforcing this rule is outstanding work (#2474). The same holds for changes to this
-repository: a fix adds a test for the behavior it changes (see Testing).
+The changed-code evidence gate (#2474) combines authenticated diff coverage
+(`tools/autocode_diff_coverage.py`, #701), behavioral mutation observations and
+exact per-line reasons checked by the existing independent Tester. Raw coverage
+and old advisory reports alone grant no completion authority. The core records
+its deterministic fallback and bounded Builder/Investigator repair history in
+the public verification view and final report. See
+[named test proof](docs/named-test-proof.md#mutation-check).
+The same rule holds for changes to this repository: a fix adds a test for the
+behavior it changes (see Testing).
 
 ## Layout
 
@@ -108,8 +122,18 @@ The owner expanded PR #1425 on 2026-10-16 to include sidebar chat, plan
 feedback and follow-ups, reusing Kilo UI components where practical.
 The owner also approved Connections setup: backend selection and delegated
 sign-in through the core connection interface, with credentials owned by the backend.
-Issue #1493 extends that approval to AutoCode-owned direct MiMo, Z.ai, OpenAI and Claude API setup and
-a first-party core runtime when no external coding-agent backend is installed.
+Issue #1493 extended that approval to AutoCode-owned direct MiMo, Z.ai, OpenAI and Claude API setup and
+a first-party core runtime when no external coding-agent backend is installed; that connection is
+retired (below).
+
+**Four backends, owner decision 2026-10-30 (#2049).** AutoCode offers exactly four
+backends: Claude Code (a Claude subscription) and Codex (a ChatGPT login) as engines,
+and OpenCode and Kilo for every other account and API key. A person connects accounts
+there. The AutoCode direct API-key
+connection (#1493) is retired: nothing offers it to a new user or chooses it automatically,
+a configured one keeps working, and it is deleted in the next release. The stages, the advice
+for each and their independence checks are the same whichever of the four tools runs them. Do not
+add a fifth backend or a new connection path without the owner's decision.
 The editor still launches only the core CLI and renders its named actions.
 It is a client of the
 [task-run interface](docs/task-run.md) and nothing else:
@@ -134,6 +158,16 @@ It is a client of the
   it displayed. The owner or the agent acting under the delegation above must
   review that exact plan before taking the approval action; the owner need not
   personally approve each revision.
+
+**Stage choices, owner decision 2026-10-30.** At setup AutoCode asks the person which model
+and reasoning level each stage runs, says what each stage does and what kind of model and level
+suits it, and keeps the answer per backend (`autocode stages`, `tools/autocode_stage_choices.py`).
+The person may change it at any time; every new task reads it before it begins, and a running
+task keeps its own. This is a requirements-level choice the person makes once, not a question
+about machinery. The terminal chat and the VS Code client may read `autocode stages list --json`
+and take only its named `set` and `reset` argument arrays, filled from the view's own options,
+to show one dropdown per stage. Choosing models automatically by measured capability (#2049) is
+paused until the owner revisits it.
 
 **Terminal chat, approved 2026-10-19 (#1622), in `tools/autocode_chat_client.py`.**
 The same contract as the VS Code client, with the shared rules in
@@ -252,6 +286,18 @@ were archived at tag `archive/pre-restructure-2026-09-26`
    cycles.
 6. **The status view is a contract.** Add fields to `autocode_run_view.view`;
    never rename or remove one.
+7. **An identity that digests where a run happened must say how replay re-derives
+   it.** Replay (`docs/replay.md`) runs a saved run's recorded model answers in new
+   directories. A field whose value digests the workspace, run directory or
+   execution context (a changed-line `gap_id`, a capture nonce, the regression proof's
+   freshly named directory) is therefore different in the replay, and a recorded answer that names the old
+   value is rightly refused as stale. Such a field is declared in
+   `autocode_replay_bindings`: what it stably identifies (for a gap, its exact file,
+   bytes and line; for a proof citation, "the run's current proof") is recorded with the
+   answer, and `autocode_replay_recording.rebind` re-derives the current value from that
+   identity alone. Never widen a gate to accept
+   the recorded value, and never derive the new value from model text. A new such
+   identity without its binding breaks `tests.test_saved_run_replay_cli` on master.
 
 ## Names
 

@@ -57,7 +57,19 @@ def eligible(state: RunState, *, previous_settings=None, current_request, count,
     return cause in GRANTABLE_CAUSES or count >= maximum
 
 
-def grant(state: RunState, run_dir, amount, *, previous_settings, current_request, count, supersede, persist, maximum):
+def grant(
+    state: RunState,
+    run_dir,
+    amount,
+    *,
+    previous_settings,
+    current_request,
+    count,
+    supersede,
+    persist,
+    maximum,
+    pending_limit_events=(),
+):
     if type(amount) is not int or amount < 1:
         raise ValueError("recovery allowance must be a positive integer")
     issued = current_request(state)
@@ -85,6 +97,11 @@ def grant(state: RunState, run_dir, amount, *, previous_settings, current_reques
         }
     )
     supersede(state, f"Operator granted {amount} more automatic recoveries")
+    if pending_limit_events:
+        # The invocation's limit_change events waited for the validation above (#2479): they join
+        # the same single save as the grant and the corrected settings, so no exit can persist the
+        # accepted grant without the configuration change that accompanied it (#2412).
+        state.setdefault("user_events", []).extend(list(pending_limit_events))
     persist(run_dir / "state.json", state)
     print(
         f"Recovery grant recorded: {amount} more automatic timeout recoveries authorized "

@@ -854,6 +854,12 @@ class TaskRunTests(unittest.TestCase):
         run.approve_plan(token)
         view = run.advance_until_input()
         self.assertTrue(view["done"], {key: view.get(key) for key in ("status", "needs", "runner_check")})
+        changed_code = view["verification"]["changed_code_evidence"]
+        self.assertEqual("PASS", changed_code["status"], changed_code)
+        self.assertTrue(any(row["status"] == "tested" for row in changed_code["obligations"]))
+        reasons = [row for row in changed_code["obligations"] if row["status"] == "excepted"]
+        self.assertTrue(reasons, changed_code)
+        self.assertTrue(all(not row["mutation_outcomes"] for row in reasons), reasons)
         evidence = run.evidence_report(require_current=False)["document"]
         self.assertEqual(prompts.HASH, evidence["run"]["prompts_hash"])
         model_attempts = [row for row in evidence["attempts"] if not row["runner_owned"]]

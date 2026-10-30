@@ -140,7 +140,14 @@ class CodexCaptureWorkflowTests(unittest.TestCase):
 
     def run_to_validation(self, mutation=""):
         env = {**self.env, "AUTOCODE_FIXTURE_MUTATION": mutation}
-        run = TaskRun.start(self.workspace, BRIEF, options=self.options, env=env, timeout=180)
+        run = TaskRun.start(
+            self.workspace,
+            BRIEF,
+            options=self.options,
+            start_options=("--evidence-provenance", "fake"),
+            env=env,
+            timeout=180,
+        )
         view = run.status()
         self.assertEqual("approve_plan", view["needs"]["kind"], view)
         run.approve_plan(view["needs"]["token"])
@@ -159,7 +166,7 @@ class CodexCaptureWorkflowTests(unittest.TestCase):
         receipt = json.loads(self.receipt.read_text())
         self.assertEqual(shlex.split(self.command), receipt["command"])
         self.assertEqual(0, receipt["exit_code"])
-        self.assertIn("Ran 4 tests", Path(receipt["full_output"]).read_text())
+        self.assertIn("Ran 6 tests", Path(receipt["full_output"]).read_text())
         self.assertIn("verification_copy", receipt)
         self.assertFalse((self.workspace / "other_1.sqlite3").exists())
         launches = [json.loads(line) for line in self.probe.read_text().splitlines()]

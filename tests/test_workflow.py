@@ -2,6 +2,7 @@
 
 import copy
 import json
+import sys
 import unittest
 
 import autocode as runner
@@ -13,6 +14,7 @@ import autocode_workflow as workflow
 from goal_fixtures import approve_fixture, envelope
 
 from . import test_autocode, test_subprocess
+from . import test_changed_code_evidence_cli as changed_code_fixture
 
 
 class WorkflowTests(unittest.TestCase):
@@ -334,3 +336,65 @@ class WorkflowSubprocessTests(unittest.TestCase):
         self.assertNotEqual("COMPLETE", state["phase"])
         self.assertEqual("astra_checkpoint", state["next_stage"])
         self.assertNotIn("sol", [r["stage"] for r in state["stages"]])
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "supervised fake-provider workflow requires supported Linux")
+class ChangedCodeSavedWorkflowTests(unittest.TestCase):
+    """Legacy saved-mode integration, not a public workflow-activation API."""
+
+    start = changed_code_fixture.ChangedCodeEvidenceCliTests.start
+    attempts = changed_code_fixture.ChangedCodeEvidenceCliTests.attempts
+    diagnostic = changed_code_fixture.ChangedCodeEvidenceCliTests.diagnostic
+    export = changed_code_fixture.ChangedCodeEvidenceCliTests.export
+
+    def configure_execution_fixture(self):
+        # As in WorkflowSubprocessTests.prepare, construct the legacy opt-in
+        # record only at this fixture's approved, inactive execution boundary.
+        path = self.run.run_dir / "state.json"
+        state = s.read(path)
+        self.assertFalse(state.get("active_stage"))
+        state["status"] = "PAUSED_REQUESTED"
+        state["stop_reason"] = "Explicit legacy saved-mode fixture boundary"
+        state["settings"].pop("milestone_checkpoints", None)
+        # The modern approval queued orchestration for this already assigned
+        # single task. A legacy saved workflow dispatches that assignment directly.
+        self.assertEqual("implement", state["current_task"]["kind"])
+        self.assertEqual("orchestrator", state["next_stage"])
+        state["next_stage"] = "terra"
+        workflow.activate(state, approval_source="explicit legacy saved-mode fixture approval")
+        s.atomic_json(path, state)
+        self.run.resume_paused()
+
+    def test_checkpoint_rework_precedes_completion_and_nested_reason_binds_current_proof(self):
+        view = self.start(checkpoint=True)
+        self.assertEqual("TASK_COMPLETE", view["status"], self.diagnostic())
+        self.assertEqual(self.approved_token, view["approved_contract"]["token"])
+        attempts = self.attempts()
+        execution = [row for row in attempts if row["stage"] in ("terra", "sol", "astra_checkpoint", "astra_review")]
+        self.assertEqual(
+            ["terra", "astra_checkpoint", "terra", "astra_checkpoint"], [row["stage"] for row in execution]
+        )
+        first, final = [row for row in execution if row["stage"] == "astra_checkpoint"]
+        self.assertEqual(
+            "COMPLETE", first["report"]["decision"]["status"], "The first completion claim cannot overwrite rework"
+        )
+        first_proof = first["handoff"]["regression_proof"]["changed_code_evidence"]
+        final_proof = final["handoff"]["regression_proof"]["changed_code_evidence"]
+        self.assertTrue(
+            any(
+                row["path"] == "calc.py" and row["line"] == 5 and row["status"] == "reason_required"
+                for row in first_proof["obligations"]
+            )
+        )
+        first_decision = first["report"]["validation"]["changed_code_exceptions"][0]
+        final_decision = final["report"]["validation"]["changed_code_exceptions"][0]
+        self.assertNotEqual(first_decision["gap_id"], final_decision["gap_id"])
+        self.assertNotEqual(first_proof["source_revision"], final_proof["source_revision"])
+        changed = view["verification"]["changed_code_evidence"]
+        self.assertEqual("PASS", changed["status"], changed)
+        accepted = next(row for row in changed["obligations"] if row["line"] == 4)
+        self.assertEqual(("excepted", final_decision["gap_id"]), (accepted["status"], accepted["gap_id"]))
+        self.assertEqual(final_decision["reason"], accepted["exception"]["reason"])
+        self.assertEqual(final_proof["source_revision"], changed["source_revision"])
+        self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
+        self.assertFalse(any(row["repair"] for row in attempts), self.diagnostic())

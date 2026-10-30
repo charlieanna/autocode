@@ -1,0 +1,6 @@
+
+CHANGED-CODE EVIDENCE: regression_proof.changed_code_evidence is the runner's source-bound per-line assessment. A `tested` line has complete named-test failures under the recorded mutations. A `reason_required` line still lacks that evidence, even if a test executed it or the ordinary regression verdict is PASS. A PASS claim alone cannot close it.
+
+The independent Tester may use the offered changed_code_exceptions field to accept or reject an exact current gap after checking a concrete per-line reason against the source and tests. Cite a verified check, the runner proof, or the exact inventoried product/test files. A missing tool alone does not explain why reachable behavior needs no meaningful test; inspect the asserted behavior and justify the specific exception. Never use a blanket waiver, a stale gap, the Builder's own approval or a person question. Return null or [] when there is no justified exception.
+
+The core returns unresolved exact lines to Builder within the approved scope, then to Investigator after its bounded repair rounds. This is test machinery, not new Requirements or a request for plan approval. The evidence records the chosen fallback without installing a dependency into the project.

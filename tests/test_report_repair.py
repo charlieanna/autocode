@@ -566,6 +566,34 @@ class RepairTests(unittest.TestCase):
         self.assertIn("Never cite .autocode/", prompt)
         self.assertIn("source_refs may be empty only when the inventory lists no file", prompt)
 
+    def test_a_discovery_citation_repair_receives_the_code_refs_rule_and_citable_files(self):
+        # #2487: a discovery repair that cited a joint candidate input under .autocode/ must
+        # hear the ownership rule and see the citable files, not only the validator error
+        # it would otherwise relearn per rejection.
+        (self.root / "README.md").write_text("Service note.\n")
+        owned = self.root / ".autocode" / "candidate-inputs" / "alpha" / "app.py"
+        owned.parent.mkdir(parents=True)
+        owned.write_text("print('candidate')\n")
+        self.state["settings"]["roles"]["glm"] = {"model": "glm-model"}
+        self.state["next_stage"] = "astra_discovery"
+        rejected = {"summary": "Plan the greeting service.", "code_refs": [".autocode/candidate-inputs/alpha/app.py:1"]}
+        self.queue(
+            stage="astra_discovery",
+            role="glm",
+            error=ValueError(
+                "code_refs entry .autocode/candidate-inputs/alpha/app.py:1 is a file the runner or "
+                "a tool owns (.autocode/, .git/, __pycache__/ and caches): cite source files, which "
+                "outlive the run"
+            ),
+            report=json.dumps(rejected),
+        )
+        prompt = self.repair_request()["prompt"]
+        data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(["README.md"], data["workspace_inventory"]["files"])
+        self.assertIn("Never cite .autocode/", prompt)
+        self.assertIn("code_refs name the actual repository-relative source files you read", prompt)
+        self.assertIn("is a task input, not a citation", prompt)
+
     def test_planner_repair_receives_the_requirements_its_trace_must_cover(self):
         # Without the rows a repair of a trace with a missing requirement_id guessed "R1" (2026-10-02).
         self.state["requirements_handoff"] = {
@@ -2263,6 +2291,7 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
 
         parser = argparse.ArgumentParser()
         parser.add_argument('--report', type=Path, required=True)
+        parser.add_argument('--schema', type=Path, required=True)
         parser.add_argument('--runtime', type=Path, required=True)
         parser.add_argument('--base-fixture', type=Path, required=True)
         parser.add_argument('--probe', type=Path, required=True)
@@ -2294,7 +2323,8 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
             # Existing handwritten fixture supplies schema-valid plans/reports.
             # Its greeting implementation is exercised by capture below.
             result = subprocess.run(
-                [sys.executable, str(args.base_fixture), 'exec', '-', '--json', '-o', str(args.report)],
+                [sys.executable, str(args.base_fixture), 'exec', '-', '--json', '-o', str(args.report),
+                 '--output-schema', str(args.schema)],
                 input=prompt, text=True, capture_output=True, check=True,
             )
             return json.loads(args.report.read_text()), result.stdout
@@ -2417,6 +2447,8 @@ class ReceiptRepairPublicCliTests(unittest.TestCase):
             str(provider),
             "--report",
             "{report}",
+            "--schema",
+            "{schema}",
             "--runtime",
             str(source / "autocode.py"),
             "--base-fixture",
@@ -2543,7 +2575,7 @@ class ExactEventRepairPublicCliTests(unittest.TestCase):
         from pathlib import Path
 
         parser = argparse.ArgumentParser()
-        for name in ('report', 'runtime', 'base-fixture', 'probe'):
+        for name in ('report', 'schema', 'runtime', 'base-fixture', 'probe'):
             parser.add_argument('--' + name, type=Path, required=True)
         parser.add_argument('--fault', required=True)
         parser.add_argument('--sandbox', required=True)
@@ -2622,7 +2654,8 @@ class ExactEventRepairPublicCliTests(unittest.TestCase):
                     verdict=report['verdict'], checks=report['checks'])
         else:
             delegated = subprocess.run(
-                [sys.executable, str(args.base_fixture), 'exec', '-', '--json', '-o', str(args.report)],
+                [sys.executable, str(args.base_fixture), 'exec', '-', '--json', '-o', str(args.report),
+                 '--output-schema', str(args.schema)],
                 input=prompt, text=True, capture_output=True, check=True,
             )
             report = json.loads(args.report.read_text())

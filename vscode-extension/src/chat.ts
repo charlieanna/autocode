@@ -672,6 +672,7 @@ async function pickEngine(): Promise<void> {
       engine,
     })),
     { label: "Connections…", description: "choose the backend", command: "autocode.connections" },
+    { label: "Stage models…", description: "each stage's model and reasoning level", command: "autocode.stages" },
     { label: "Configure in Settings…", command: "workbench.action.openSettings" },
   ];
   const picked = await vscode.window.showQuickPick(choices, {
@@ -682,7 +683,7 @@ async function pickEngine(): Promise<void> {
     await applyEngine(picked.engine);
     return;
   }
-  if (picked.command === "autocode.connections") return void vscode.commands.executeCommand(picked.command);
+  if (picked.command === "autocode.connections" || picked.command === "autocode.stages") return void vscode.commands.executeCommand(picked.command);
   if (picked.command) return void vscode.commands.executeCommand(picked.command, "autocode");
 }
 

@@ -276,7 +276,7 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
             **({"clarity": "vague"} if 'Add "clarity"' in PROMPT else {}),
         }
     if stage == "investigate_stuck":
-        return {
+        report = {
             "diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.",
             "cause": "other",
             "guidance": "",
@@ -287,6 +287,16 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
             "probe": "",
             "untestable": "",
         }
+        if failure := data.get("builder_failure"):
+            # A Builder-failure classification must cite the pinned failure and its evidence.
+            report.update(
+                failure_class="unknown",
+                example="Offline fixture: it cannot diagnose this failure; it is classified unknown.",
+                untestable="An offline fixture runs no command that could show the cause.",
+                failure_id=failure.get("failure_id", ""),
+                evidence_refs=list(failure.get("evidence_refs") or [])[:1],
+            )
+        return report
     if stage == "requirements_gather":
         return {
             "summary": "Scripted component requirements",
@@ -436,6 +446,42 @@ def component_id_for(prompt: str, data: dict) -> str:
     return found
 
 
+def changed_code_reasons(spec: dict, data: dict) -> list:
+    """The fixture Tester's reasons for its own scripted lines that have no mutation site.
+
+    A component whose check is a shell command (``test -f …``) declares no Python test runner, so
+    the runner can neither cover nor mutate the scripted file. The real Tester records why such a
+    line is covered; this fixture does the same, bound to the exact gap, file bytes and line it
+    wrote, and never for a file it did not script.
+    """
+    proof = data.get("regression_proof") or {}
+    if not proof.get("path"):
+        return []
+    scripted = {path: hashlib.sha256(text.encode()).hexdigest() for path, text in (spec.get("files") or {}).items()}
+    decisions = []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        if (
+            row.get("status") != "reason_required"
+            or row.get("mutation_outcomes")
+            or scripted.get(row.get("path")) != row.get("sha256")
+        ):
+            continue
+        decisions.append(
+            {
+                "gap_id": row["gap_id"],
+                "decision": "accept",
+                "reason_kind": "instrumentation_unavailable",
+                "reason": (
+                    f"Scripted fixture: {row['path']}:{row['line']} is the exact scripted content that the "
+                    f"component check {spec['check']!r} verifies; the component declares no Python test "
+                    "runner, so no mutant of this line can be run against a test."
+                ),
+                "evidence_refs": [proof["path"], row["path"]],
+            }
+        )
+    return decisions
+
+
 def complete(value, schema):
     """Give every required field the script leaves out an empty value of its type (same as
     scenarios/harness/fake_codex.py): new report fields then mean "none", not a crash."""
@@ -537,6 +583,8 @@ def main() -> int:
         report = report_for(stage, component_id, spec, data)
     if "--output-schema" in sys.argv:
         schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in schema.get("properties", {}):
+            report["changed_code_exceptions"] = changed_code_reasons(spec, data)
         if "source_verdict" in schema.get("properties", {}):
             report.setdefault(
                 "source_verdict",

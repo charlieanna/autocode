@@ -428,7 +428,164 @@
       "type": [
         "object",
         "null"
-      ]
+      ],
+      "properties": {
+        "changed_code_evidence": {
+          "description": "Source-bound completion gate, distinct from legacy advisory mutation summaries. Missing execution or mutation evidence leaves explicit obligations unless an independent Tester accepted the exact line reason.",
+          "type": "object",
+          "required": [
+            "schema",
+            "source_revision",
+            "proof_context",
+            "status",
+            "reason",
+            "obligations",
+            "fallback"
+          ],
+          "properties": {
+            "schema": {
+              "type": "integer",
+              "enum": [
+                1
+              ]
+            },
+            "source_revision": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "proof_context": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "PASS",
+                "UNVERIFIED"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            },
+            "fallback": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "obligations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "gap_id",
+                  "path",
+                  "sha256",
+                  "line",
+                  "status",
+                  "executed",
+                  "mutation_demonstrated",
+                  "mutation_outcomes",
+                  "evidence",
+                  "fallback",
+                  "reason"
+                ],
+                "properties": {
+                  "gap_id": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "line": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "tested",
+                      "reason_required",
+                      "excepted"
+                    ]
+                  },
+                  "executed": {
+                    "type": "boolean"
+                  },
+                  "mutation_demonstrated": {
+                    "type": "boolean"
+                  },
+                  "mutation_outcomes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "evidence": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "fallback": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "exception": {
+                    "type": "object",
+                    "required": [
+                      "reason",
+                      "evidence"
+                    ],
+                    "properties": {
+                      "reason": {
+                        "type": "string"
+                      },
+                      "evidence": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "reason_kind": {
+                        "type": "string"
+                      },
+                      "reviewer": {
+                        "type": "object",
+                        "required": [
+                          "stage",
+                          "role",
+                          "output"
+                        ],
+                        "properties": {
+                          "stage": {
+                            "type": "string"
+                          },
+                          "role": {
+                            "type": "string"
+                          },
+                          "output": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "test_cases": {
       "type": "array",
@@ -877,6 +1034,88 @@
                   "string",
                   "null"
                 ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "changed_code_repairs": {
+      "description": "Optional source-bound historical Builder/Investigator decisions, copied from the public verification view. Absent from legacy reports. History does not resolve current obligations.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind",
+          "action",
+          "source_revision",
+          "review_output",
+          "assessment"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "changed_code_rework"
+            ]
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "builder",
+              "investigator"
+            ]
+          },
+          "source_revision": {
+            "type": "string"
+          },
+          "review_output": {
+            "type": "string"
+          },
+          "assessment": {
+            "type": "object"
+          },
+          "at": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contract_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contract_revision": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "investigation": {
+            "type": "object",
+            "properties": {
+              "diagnosis": {
+                "type": "string"
+              },
+              "guidance": {
+                "type": "string"
+              },
+              "evidence_refs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "output": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string"
               }
             }
           }
