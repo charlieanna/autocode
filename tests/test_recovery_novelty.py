@@ -2397,19 +2397,36 @@ class RecoveryNoveltyCLI(unittest.TestCase):
     def trace(self):
         return [json.loads(line) for line in (self.root / "rework-trace.jsonl").read_text().splitlines()]
 
-    def test_same_ineffective_edit_holds_before_another_diagnosis_and_plain_resume(self):
+    def assert_autocodes_own_retries(self, driver, view, stages):
+        """#2485: the repeat held the Resolver, then the Builder, and AutoCode took the one scoped retry of
+        each itself (the grants a person used to give with --resume-paused --retry-failed-stage); the
+        retried repair delivered. No stop asked the person for a flag, a token or a packet."""
+        self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason"), stages))
+        self.assertEqual(
+            ["terra", "sol", "astra_review"] * 2 + ["astra_resolve", "terra", "sol", "astra_review"], stages
+        )
+        state = driver.state()
+        grants = state["failure_retry_authorizations"]
+        self.assertEqual(
+            [("autocode", "astra_resolve"), ("autocode", "terra")], [(g["actor"], g["stage"]) for g in grants]
+        )
+        receipts = [row["recovery_novelty"] for row in state["stages"] if row.get("recovery_novelty")]
+        self.assertEqual(
+            [(None, "first_incident"), ("automatic", "explicit_retry"), ("automatic", "explicit_retry")],
+            [(row.get("grant_kind"), row["reason"]) for row in receipts],
+        )
+        self.assertEqual([util.digest(g) for g in grants], [row["grant_id"] for row in receipts[1:]])
+        # The grants are AutoCode's, so no person's authorization event exists and no step printed the
+        # hold's retry route for a person to type.
+        self.assertFalse([row for row in state.get("user_events", []) if row.get("kind") == "failure_retry_authorized"])
+        for step in driver.steps:
+            self.assertNotIn("--retry-failed-stage", step["stdout_tail"] + step["stderr_tail"], step)
+        return state
+
+    def test_same_ineffective_edit_takes_autocodes_own_retries_without_a_person(self):
         driver = self.driver("hold")
         view = driver.drive(self.scenario.brief)
-        self.assertFalse(view["done"], view.get("status"))
-        self.assertIn("No causal progress", view.get("stop_reason", ""))
-        stages = [row["stage"] for row in self.trace()]
-        self.assertEqual(["terra", "sol", "astra_review", "terra", "sol", "astra_review"], stages)
-        source_hash = util.file_hash(self.project / "greet.py")
-        driver.call("plain-resume", "--resume-paused")
-        self.assertEqual(stages, [row["stage"] for row in self.trace()])
-        self.assertEqual(source_hash, util.file_hash(self.project / "greet.py"))
-        driver.call("authorized-retry", "--resume-paused", "--retry-failed-stage", "--pause-after-stage")
-        self.assertEqual(stages + ["astra_resolve"], [row["stage"] for row in self.trace()])
+        self.assert_autocodes_own_retries(driver, view, [row["stage"] for row in self.trace()])
 
     def test_discriminating_fix_executes_then_requires_fresh_independent_acceptance(self):
         driver = self.driver("fix")
@@ -2429,26 +2446,15 @@ class RecoveryNoveltyCLI(unittest.TestCase):
     def test_foreign_proof_does_not_buy_a_diagnosis_or_repair(self):
         driver = self.driver("bad_refs")
         view = driver.drive(self.scenario.brief)
-        self.assertFalse(view["done"], view.get("status"))
         # #418: the foreign refs make the proposal unproven. They used to raise while the
         # Completion review was applied, so the review itself was rejected and archived
-        # (PAUSED_INVALID_OUTPUT). Now the review stands and novelty holds the repeat.
+        # (PAUSED_INVALID_OUTPUT). Now the review stands and novelty holds the repeat, and
+        # the hold is settled by AutoCode's own scoped retries (#2485): the unproven proposal
+        # bought the Resolver no diagnosis and the Builder no novelty of its own, as the
+        # receipts' reasons show, and every status the run passed was its own to settle.
         self.assertNotIn(view.get("status"), ("PAUSED_INVALID_OUTPUT", "PAUSED_STALE_HANDOFF"))
-        self.assertIn("No causal progress", view.get("stop_reason", ""))
-        self.assertIn(
-            "Proposed change is unproven (evidence_refs do not cite pinned originals)", view.get("stop_reason", "")
-        )
-        stages = [row["stage"] for row in self.trace()]
-        self.assertEqual(["terra", "sol", "astra_review"] * 2, stages)
-        # An authorized retry buys one Resolver run. Its own unproven proposal does not reject
-        # its repair either, and buys the Builder no novelty: the same repeat still holds.
-        driver.call("authorized-retry", "--resume-paused", "--retry-failed-stage")
-        self.assertEqual(stages + ["astra_resolve"], [row["stage"] for row in self.trace()])
-        view = driver.view()
-        self.assertEqual("PAUSED_NO_PROGRESS", view.get("status"), view.get("stop_reason"))
-        self.assertIn(
-            "Proposed change is unproven (evidence_refs do not cite pinned originals)", view.get("stop_reason", "")
-        )
+        state = self.assert_autocodes_own_retries(driver, view, [row["stage"] for row in self.trace()])
+        self.assertIn("Proposed change is unproven (evidence_refs do not cite pinned originals)", json.dumps(state))
 
     def test_specific_new_experiment_may_use_one_bounded_diagnosis(self):
         driver = self.driver("question")
@@ -2475,54 +2481,17 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         self.assertTrue(all(check.ok for check in self.scenario.oracle()(self.project, self.scenario)))
 
     @unittest.skipUnless(shutil.which("node"), "JavaScript public control requires Node")
-    def test_nonpython_unproven_novelty_supports_scoped_user_retries_not_a_dead_end(self):
+    def test_nonpython_unproven_novelty_takes_autocodes_own_retries_not_a_dead_end(self):
         driver = self.driver("nonpython")
         try:
             view = driver.drive(self.scenario.brief)
         except Exception as error:
             details = [(step["kind"], step["stdout_tail"], step["stderr_tail"]) for step in driver.steps[-3:]]
             self.fail((str(error), details))
-        self.assertFalse(view["done"])
-        self.assertIn("unsupported grammar", view.get("stop_reason", ""))
-        original = ["terra", "sol", "astra_review"] * 2
-        self.assertEqual(original, [row["stage"] for row in self.trace()])
-        driver.call("authorize-diagnosis", "--resume-paused", "--retry-failed-stage", "--pause-after-stage")
-        self.assertEqual(original + ["astra_resolve"], [row["stage"] for row in self.trace()])
-        # Resume the saved configured escalation, rather than reapplying the
-        # harness's initial model flags and legitimately invalidating its pins.
-        flags = driver.flags
-        driver.flags = [
-            value
-            for index, value in enumerate(flags)
-            if not value.endswith("-model") and not (index and flags[index - 1].endswith("-model"))
-        ]
-        ordinary = driver.call("ordinary-resume", "--resume-paused")
-        self.assertEqual(original + ["astra_resolve"], [row["stage"] for row in self.trace()])
-        # A plain resume only held again, so the public view must name the retry itself, and a
-        # client takes the card's own arguments rather than flags it derives (#1770, #730).
-        held = driver.view()
-        need = held["needs"]
-        self.assertEqual("--resume-paused --retry-failed-stage", need.get("retry_action"), need)
-        if need["kind"] == "resume":
-            self.assertIn("--retry-failed-stage", held["next_command"])
-        card = {row["id"]: row for row in held["recovery"]["actions"]}["retry_failed_stage"]
-        authorized = driver.call("authorize-builder", *card["args"])
-        view = driver.until_stopped()
-        self.assertTrue(
-            view["done"],
-            (
-                view.get("status"),
-                view.get("stop_reason"),
-                ordinary.stdout[-1200:],
-                ordinary.stderr[-1200:],
-                authorized.stdout[-1200:],
-                authorized.stderr[-1200:],
-            ),
-        )
-        self.assertEqual(
-            original + ["astra_resolve", "terra", "sol", "astra_review"], [row["stage"] for row in self.trace()]
-        )
-        self.assertTrue(all(row.ok for row in self.scenario.oracle()(self.project, self.scenario)))
+        # A proposal in a grammar novelty cannot attest is unproven, not a dead end: the repeat holds,
+        # and AutoCode's own scoped retries (#2485) settle the hold without a person.
+        state = self.assert_autocodes_own_retries(driver, view, [row["stage"] for row in self.trace()])
+        self.assertIn("unsupported grammar", json.dumps(state))
 
     def test_oracle_rejects_broken_reference_controls(self):
         from scenarios import run

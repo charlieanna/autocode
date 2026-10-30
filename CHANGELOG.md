@@ -22,6 +22,11 @@ PR template asks for an entry here; a change without one is incomplete.
   schema when a Requirements report is repaired, instead of the generic JSON-edit schema that the
   gocode structured-output transport rejects before any model response. The repair therefore
   proceeds instead of pausing for operational recovery.
+- A run whose incident repeats with nothing new no longer stops to ask the person for recovery flags, an
+  evidence packet path and a token (#2485). AutoCode takes the one scoped retry of the diagnosis and of the
+  repair itself; if the same incident repeats after that, the run ends with a recorded "could not finish"
+  outcome (its reason and the incident's evidence), shown by `--status`, the terminal chat and the VS Code
+  panel as a finished, failed run, the way a stop you asked for is shown.
 
 ## [0.9.0] — 2026-10-30
 

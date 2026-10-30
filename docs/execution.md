@@ -1363,11 +1363,28 @@ Investigator recommends a retry, that retry admits the Builder until one attempt
 returns a result, as an accepted operational diagnosis's does; a spent diagnosis
 retry does not hide it. An investigation of a novelty hold grants nothing.
 
-The explicit `--resume-paused --retry-failed-stage` control can authorize one
-scoped retry of a recorded hold under the existing limits. It retains previous
-attempts and evidence; ordinary resume is not that authorization. Unlike a
-diagnosis's retry, it is spent by the attempt it admits even if that attempt
-times out, and so is a `--retry-builder` grant. The grant does not carry over to
+When the same incident repeats with nothing new (no bounded correction, no
+changed input, no unspent grant), the hold is still raised, but the stage loop's
+recovery chain settles it (`autocode_resolver_recovery.recover_no_progress`,
+#2485): AutoCode records the one scoped retry grant a person used to give with
+`--retry-failed-stage` itself (an `actor: autocode` entry in
+`failure_retry_authorizations`, bound to the packet and the hold's binding), and
+the next dispatch spends it under the existing limits; the dispatch receipt names
+the grant kind `automatic`. A person is never asked to authorize it. If the same
+hold comes back after that retry, nothing automatic is left: the run ends there
+with a finished, failed outcome recorded as a stop receipt AutoCode applied
+itself (`autocode_stop.end`), and the status view shows "AutoCode could not
+finish this task" with the reason and the incident's evidence packet
+(`recovery.outcome`), as it shows a person's own stop. The run launches no
+further stages and offers no retry flag, packet path or token. A hold for another
+reason (a diagnosis without a causal question, a known cause that needs its
+deterministic correction, an unreconciled attempt), or one whose source, settings
+or scope no longer match, still waits as before, and the explicit
+`--resume-paused --retry-failed-stage` control can authorize one scoped retry of
+such a recorded hold under the existing limits. It retains previous attempts and
+evidence; ordinary resume is not that authorization. Unlike a diagnosis's retry,
+it is spent by the attempt it admits even if that attempt times out, and so is a
+`--retry-builder` grant. The grant does not carry over to
 the automatic recovery that follows. A relaunch of the same stage is admitted or
 held by novelty as it would be without the grant; a Builder timeout outside
 final-audit-only routing goes to the Completion Reviewer instead.

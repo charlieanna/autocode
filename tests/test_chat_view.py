@@ -109,6 +109,18 @@ class ChatViewTests(unittest.TestCase):
         self.assertIn("Paused to apply your request", applying)
         self.assertNotIn("couldn’t finish", applying)
 
+    def test_a_run_autocode_ended_itself_says_why_and_asks_nothing(self):
+        # #2485: AutoCode's own end is not "paused as you asked", and names no flag, token or packet.
+        ended = {"status": "PAUSED_INTERVENTION", "recovery": {"outcome": {"reason": "the sol check kept failing: x."}}}
+        text = chat.notice(ended)
+        self.assertEqual(
+            "I couldn’t finish this task: the sol check kept failing: x. Your work so far is saved; new work is a new task.",
+            text,
+        )
+        self.assertIn(
+            "Paused as you asked", chat.notice({"status": "PAUSED_INTERVENTION", "recovery": {"outcome": None}})
+        )
+
     def test_running_notice_gates_on_live_supervision_only(self):
         self.assertEqual(
             "Working on your request…", chat.notice({"status": "RUNNING", "liveness": {"kind": "supervised"}})

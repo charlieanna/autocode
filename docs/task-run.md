@@ -1145,6 +1145,11 @@ one explicit retry of the held step. Before that request is published
 `resume` whose `action` and `retry_action` both name that retry, and the card
 offers the same `retry_failed_stage` (#1770). When the hold cannot take it yet, the
 card offers no retry and `needs.retry_unavailable` names what must happen first.
+A hold for an incident that repeated with nothing new does not reach the card
+while its source, settings and scope still hold: AutoCode takes that one scoped
+retry itself and, if the incident repeats again, ends the run with a recorded
+outcome (`recovery.category` `stopped`, `recovery.outcome` with its reason and
+evidence, #2485), so the card shows a finished, failed run and no retry.
 The view and `--retry-failed-stage` apply one shared admission rule
 (`autocode_recovery_limits.scoped_retry_refusal`), so the view never offers a
 retry the CLI refuses on saved state. A client runs
