@@ -1918,7 +1918,7 @@
 
 
 <h1 id="replay-a-saved-run">Replay a saved run<a class="headerlink" href="#replay-a-saved-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/4dadcf585d5e672464681bdf405f0b31a5ea71f8/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/6b1b4977dfd203b48a7fd78cfd32868239daf4cd/README.md">← Back to README</a></p>
 <p>Replay drives a fresh AutoCode task run with a saved brief, model routes and
 provider events. It makes no model calls. Normal replay runs the current
 verification checks again; a previous PASS cannot establish a current PASS.
@@ -1965,6 +1965,17 @@ can still be recovered from a saved source capture, a Git revision or a matching
 current file. The final tree cannot substitute for a missing intermediate tree.
 A recording that ended before a trustworthy provider exit cannot be emitted as
 a completed attempt.</p>
+<p>A recorded answer may name an identity that digests where the original run
+happened, such as the independent Tester's changed-line <code>gap_id</code>s (each one
+digests the proof's source revision and execution context). The recording keeps
+what each one stably identifies (the gap's exact file, bytes and line), and
+replay re-derives the current value from that identity. A citation of the proof
+file itself binds to the replay's own proof, whatever its directory is named. A
+gap whose file, bytes or line differ in the replay is not rebound, and a replay whose Tester runs
+without a current changed-line proof refuses rather than guess.
+The archived check commands compare without the interpreter's location: <code>/usr/bin/python3 -m
+unittest discover -v</code> on the recording host is the same obligation as the replay host's own
+<code>python3</code>.</p>
 <p>Replay preserves the Plan Reviewer's archived effective reasoning effort instead
 of reducing it again for a small task. Review allowances still apply, and each
 dispatch must match its recorded route exactly. Optional provider <code>light_effort</code>
