@@ -28,7 +28,6 @@ PR template asks for an entry here; a change without one is incomplete.
   proof; an unchanged test that passed in the base suite and still passes is reported as
   pass-to-pass. A change whose only passing tests are existing ones now fails for lacking a test of
   the new behavior instead of passing.
-
 - Automatic multi-repository delivery preserves relocated Git transport helpers, discovers authorized
   repositories requested by the joint regression, and keeps the joint proof out of its own producer
   prerequisites. Expanded repository sets require fresh coordinated approval; earlier attempts and all
