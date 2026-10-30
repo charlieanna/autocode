@@ -10,6 +10,41 @@ from autocode_taskrun import TaskRun, TaskRunError
 
 
 class RecoveryGrantTests(unittest.TestCase):
+    def test_advance_until_input_takes_the_exact_named_deterministic_recovery(self):
+        run = TaskRun(Path("/repo"), Path("/repo/.autocode/runs/task"))
+        attempt = "001/requirements-gather-01"
+        recovery = {
+            "status": "PAUSED_CONTROLLER_EXIT",
+            "done": False,
+            "next_stage": "requirements_gather",
+            "iteration": 1,
+            "phase": "requirements",
+            "needs": {
+                "kind": "continue",
+                "abandon_stage": attempt,
+                "action": f"--abandon-stage {attempt} then --resume-paused",
+            },
+            "next_command": (
+                "autocode --run-dir /repo/.autocode/runs/task --workspace /repo "
+                f"--abandon-stage {attempt}"
+            ),
+        }
+        stopped = {
+            "status": "PAUSED_STAGE_ABANDONED",
+            "done": False,
+            "next_stage": "requirements_gather",
+            "iteration": 1,
+            "phase": "requirements",
+            "needs": {"kind": "resume"},
+            "next_command": "autocode --run-dir /repo/.autocode/runs/task --workspace /repo --resume-paused",
+        }
+        with (
+            patch.object(run, "status", side_effect=[recovery, stopped]),
+            patch.object(run, "_invoke") as invoke,
+        ):
+            self.assertEqual(stopped, run.advance_until_input())
+        invoke.assert_called_once_with("advance", "--abandon-stage", attempt, advancing=True, secret_env={})
+
     def test_grant_resumes_with_exact_positive_allowance_and_returns_public_view(self):
         run = TaskRun(
             Path("/repo"), Path("/repo/.autocode/runs/task"), command=("autocode",), options=("--engine", "opencode")
