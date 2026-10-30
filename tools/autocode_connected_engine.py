@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 
 try:
     from . import autocode_direct_config as direct_config
@@ -65,7 +66,7 @@ def explicit_choice(args) -> bool:
         return True
 
 
-def apply(args, state, workspace=None, *, say=print) -> dict | None:
+def apply(args, state, workspace=None, *, say=None) -> dict | None:
     """Route a new run that nobody routed, in place on ``args``, and say so once.
 
     For a run with saved settings, sessions or history nothing changes: it keeps its engine.
@@ -80,8 +81,13 @@ def apply(args, state, workspace=None, *, say=print) -> dict | None:
     if chosen is None:
         return None
     args.engine, args.provider, args._connected_engine = chosen["engine"], chosen["provider"], chosen
-    say(f"Engine for this run: {chosen['label']}. {chosen['reason']}.", flush=True)
+    # A notice, not a result: stderr, so --json output and captured reports stay what they were.
+    (say or _say)(f"Engine for this run: {chosen['label']}. {chosen['reason']}.")
     return chosen
+
+
+def _say(line):
+    print(line, file=sys.stderr, flush=True)
 
 
 def choose(*, which=shutil.which, runner=_run, workspace=None, resolve=providers.resolve) -> dict | None:

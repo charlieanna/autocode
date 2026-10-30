@@ -31,7 +31,6 @@ try:
     from . import autocode_base_patch as operator_patch
     from . import autocode_budget_recovery as budget_recovery
     from . import autocode_compact_planning as compact_planning
-    from . import autocode_connected_engine as connected_engine
     from . import autocode_design_manifest as design_manifest
     from . import autocode_figma as figma
     from . import autocode_goals as goals
@@ -60,7 +59,6 @@ except ImportError:
     import autocode_base_patch as operator_patch
     import autocode_budget_recovery as budget_recovery
     import autocode_compact_planning as compact_planning
-    import autocode_connected_engine as connected_engine
     import autocode_design_manifest as design_manifest
     import autocode_figma as figma
     import autocode_goals as goals
@@ -402,20 +400,16 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         saved_provider["provider"] = "opencode"
     saved_engine = state.get("settings", {}).get("engine") or ("codex" if started else None)
     # A new run that nobody routed takes the backend this machine has connected when OpenCode is
-    # not installed (#2049). The native invocation applies the same choice before it resolves the
-    # provider facade; here it covers every other caller, and a flag, the user's config, the
-    # project's engine or a saved run always wins.
-    connected = connected_engine.apply(args, state, getattr(args, "workspace", None) or state.get("workspace"))
-    engine = getattr(args, "engine", None) or saved_engine or (connected or {}).get("engine") or DEFAULT_ENGINE
+    # not installed (#2049): the CLI applies that choice to args before it resolves the provider
+    # facade (autocode_native_invocation.select_provider), so here it already reads as explicit.
+    engine = getattr(args, "engine", None) or saved_engine or DEFAULT_ENGINE
     if engine not in ("codex", "opencode"):
         raise ValueError(
             f"Engine {engine!r} is not bundled in this checkout; providers live in "
             "~/.config/autocode/providers/ and run with --provider"
         )
     provider_name = autocode_providers.select(
-        getattr(args, "provider", None) or (connected or {}).get("provider"),
-        saved_provider,
-        default="opencode" if engine == "codex" else None,
+        getattr(args, "provider", None), saved_provider, default="opencode" if engine == "codex" else None
     )
     if engine == "codex" and provider_name != "opencode":
         raise ValueError("--provider requires the OpenCode engine; --engine codex uses its native transport")
