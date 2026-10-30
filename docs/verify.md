@@ -52,9 +52,11 @@ The criteria file is a JSON object. Inline `--criteria` accepts the same object:
 
 Every criterion needs its own ID, wording, explicit executable check command and
 `human_review` boolean. Commands run from the candidate's root in fresh scratch
-checkouts. Use a command that demonstrates the promised behavior. Prose,
-empty criteria, duplicate IDs or keys, and nonbehavioral placeholder commands
-are refused. Criteria and the exact candidate source are bound to the report.
+checkouts. Use a command that demonstrates the promised behavior. A check that
+needs its own environment names it with literal values, as in
+`env GOWORK=off GOFLAGS= go test -count=1 ./pkg/`; the assignments are part of
+the recorded command. Prose, empty criteria, duplicate IDs or keys, expansions in
+an `env` assignment and nonbehavioral placeholder commands are refused. Criteria and the exact candidate source are bound to the report.
 
 The independent Code Reviewer uses the existing review workflow. It judges the
 selected change against the caller's criteria and cannot repair the candidate.

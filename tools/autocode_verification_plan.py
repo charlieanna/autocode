@@ -97,6 +97,10 @@ RUNNERS = frozenset(
         "bash",
     }
 )
+# `env NAME=value ... COMMAND` with literal values: the one way a check sets its own environment, the
+# form autocode_go_tests.parse already reads (a Go repository under a go.work needs GOWORK=off, #2503).
+ENV_WORDS = ("env", "/usr/bin/env", "/bin/env")
+ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=[^$`\\]*")
 
 
 # Every command in backticks in a check plan is replayed as a check that must exit 0 unless its exit status is
@@ -234,6 +238,11 @@ def executable(text):
         return False
     if not words:
         return False
+    if words[0] in ENV_WORDS:
+        rest = words[1:]
+        while rest and ASSIGNMENT.fullmatch(rest[0]):
+            rest = rest[1:]
+        return 0 < len(rest) < len(words) - 1 and executable(shlex.join(rest))
     name = PurePosixPath(words[0]).name
     if name == "autocode":
         return words[1:2] == ["visual-check"]  # a check, not permission to launch another task run

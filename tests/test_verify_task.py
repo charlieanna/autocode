@@ -123,6 +123,14 @@ class CriteriaTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 criteria_policy.load(value)
 
+    def test_a_criterion_may_set_its_check_environment_with_env(self):
+        command = "env GOWORK=off GOFLAGS= go test -count=1 -run '^TestX$' ./pkg/"
+        parsed = criteria_policy.load(json.dumps(contract(command)))
+        self.assertEqual(command, parsed["acceptance_criteria"][0]["verification_method"])
+        for refused in ("GOWORK=off go test ./pkg/", "env GOPATH=$HOME go test ./pkg/"):
+            with self.subTest(refused=refused), self.assertRaises(ValueError):
+                criteria_policy.load(json.dumps(contract(refused)))
+
     def test_caller_criteria_are_pinned_and_human_acceptance_is_retained(self):
         value = contract("python3 -m unittest discover -s tests -v", human=True)
         parsed = criteria_policy.load(json.dumps(value))
