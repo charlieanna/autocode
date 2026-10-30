@@ -377,6 +377,137 @@ class CoordinationTests(unittest.TestCase):
             self.assertEqual(str(Path.home() / ".autocode"), os.environ["AUTOCODE_SOURCE_CATALOG_HOME"])
             self.assertEqual(str(self.root / ".autocode/registry"), os.environ["AUTOCODE_HOME"])
 
+    def joint_scope_fixture(self, target="checkout"):
+        self.document["members"] = [
+            {
+                "target": name, "started": True, "run_dir": str(self.root / name),
+                "origin": str(self.root / name), "base": name + "-base",
+                "git_dir": str(self.root / name / ".git"),
+            }
+            for name in ("history", "tax")
+        ]
+        active = {
+            "workspace": str(self.root / "joint"),
+            "run_dir": str(self.root / "joint/run"),
+            "base": "joint-base", "started": True,
+        }
+        self.document.update(joint=active, joint_attempts=[active])
+        views = {name: self.plan_view(name + "-plan") for name in ("history", "tax")}
+        joint_view = {
+            "needs": {"kind": "answer"},
+            "scope": {
+                "identity": "joint-scope", "decision": None,
+                "external_parts": [{
+                    "target": target, "work": "Fix the real renderer",
+                    "source_quote": "Preserve the original checkout behavior",
+                    "evidence": "repos/history/code.py",
+                }],
+            },
+        }
+        return views, joint_view
+
+    def test_joint_scope_discovers_catalog_repository_with_joint_source_binding(self):
+        entry = self.repository("checkout")
+        views, joint_view = self.joint_scope_fixture()
+        with (
+            patch.object(repos, "catalog", return_value=[entry]),
+            patch.object(coordinate, "handle", return_value=Mock(status=Mock(return_value=joint_view))),
+        ):
+            step = coordinate.next_step(self.document, views)
+        self.assertEqual("resolve", step["kind"])
+        self.assertEqual("checkout", step["target"])
+        self.assertEqual(entry, step["entry"])
+        self.assertEqual({
+            "source_quote": "Preserve the original checkout behavior",
+            "evidence": "repos/history/code.py",
+            "evidence_repository": self.document["joint"]["workspace"],
+            "evidence_revision": "joint-base",
+        }, step["supporting_evidence"])
+
+    def test_joint_source_evidence_is_not_bound_to_the_first_member(self):
+        views, joint_view = self.joint_scope_fixture()
+        evidence = coordinate.request_evidence(self.document, {**views, "Joint regression": joint_view}, "checkout")
+        self.assertEqual(self.document["joint"]["workspace"], evidence["evidence_repository"])
+        self.assertEqual("joint-base", evidence["evidence_revision"])
+
+    def test_joint_scope_never_authorizes_an_uncatalogued_repository(self):
+        views, joint_view = self.joint_scope_fixture()
+        with (
+            patch.object(repos, "catalog", return_value=[]),
+            patch.object(coordinate, "handle", return_value=Mock(status=Mock(return_value=joint_view))),
+        ):
+            step = coordinate.next_step(self.document, views)
+        self.assertEqual("repository", step["kind"])
+        self.assertEqual([], step["candidates"])
+        self.assertIn("authorized local catalog", step["reason"])
+
+    def test_joint_scope_waits_for_running_work_before_expanding_the_cohort(self):
+        entry = self.repository("checkout")
+        views, joint_view = self.joint_scope_fixture()
+        with (
+            patch.object(repos, "catalog", return_value=[entry]),
+            patch.object(coordinate.actions, "working", return_value=True),
+            patch.object(coordinate, "handle", return_value=Mock(status=Mock(return_value=joint_view))),
+        ):
+            step = coordinate.next_step(self.document, views)
+        self.assertEqual({"kind": "watch", "target": "Joint regression"}, step)
+
+    def test_joint_scope_reuses_linked_members_instead_of_asking_to_narrow_scope(self):
+        views, joint_view = self.joint_scope_fixture("history")
+        with patch.object(coordinate, "handle", return_value=Mock(status=Mock(return_value=joint_view))):
+            step = coordinate.next_step(self.document, views)
+        self.assertEqual({
+            "kind": "assign", "target": "Joint regression", "identity": "joint-scope",
+            "members": {"history": str(self.root / "history")},
+        }, step)
+
+    def test_discovery_retires_joint_plan_but_preserves_its_failed_evidence(self):
+        views, _ = self.joint_scope_fixture()
+        active = self.document["joint"]
+        active["verification"] = {"verdict": "FAIL", "reasons": ["missing checkout"]}
+        self.document["changeset"] = "set-1"
+        store.save(self.document)
+        with (
+            patch.object(coordinate, "observe", return_value={key: {"status": "AWAITING_GOAL_APPROVAL"} for key in views}),
+            patch.object(coordinate, "next_step", return_value={
+                "kind": "resolve", "target": "checkout", "entry": {}, "work": "Fix checkout",
+            }),
+            patch.object(coordinate, "add_member"),
+            patch.object(coordinate, "sync_set"),
+            patch.object(coordinate.sets, "remove_joint") as remove,
+            patch.object(coordinate, "status", return_value={}),
+        ):
+            coordinate.advance(self.document["anchor"])
+        saved = store.read(self.document["anchor"])
+        self.assertNotIn("joint", saved)
+        self.assertEqual([active], saved["joint_attempts"])
+        remove.assert_called_once_with(str(self.root / "history"), active["run_dir"])
+
+    def test_joint_scope_assignment_uses_the_joint_run_in_the_changeset(self):
+        views, joint_view = self.joint_scope_fixture("history")
+        store.save(self.document)
+        run = Mock()
+        with (
+            patch.object(coordinate, "observe", return_value={key: {"status": "AWAITING_GOAL_APPROVAL"} for key in views}),
+            patch.object(coordinate, "next_step", return_value={
+                "kind": "assign", "target": "Joint regression", "identity": "joint-scope",
+                "members": {"history": str(self.root / "history")},
+            }),
+            patch.object(coordinate.sets, "find", return_value={"id": "set-1"}) as find,
+            patch.object(coordinate.sets, "set_fields") as fields,
+            patch.object(coordinate, "handle", return_value=run) as handle,
+            patch.object(coordinate, "status", return_value={}),
+        ):
+            coordinate.advance(self.document["anchor"])
+        find.assert_called_once_with(self.document["joint"]["run_dir"])
+        self.assertEqual(self.document["joint"], handle.call_args.args[0])
+        fields.assert_called_once_with("set-1", {"scope_assignments": {
+            self.document["joint"]["run_dir"]: {
+                "identity": "joint-scope", "members": {"history": str(self.root / "history")},
+            },
+        }})
+        run.assign_linked_scope.assert_called_once_with("joint-scope")
+
     def test_joint_plan_is_prepared_before_approval_or_any_builder(self):
         self.document["members"] = [
             {"target": target, "started": True, "run_dir": str(self.root / target)} for target in ("api", "history")

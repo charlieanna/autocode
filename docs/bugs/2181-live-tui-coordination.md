@@ -309,3 +309,28 @@ both the preserved setting and the absence of repository/config overrides.
 The exact failed HTTPS lookup succeeds through the corrected coordination
 helper without a model call. No report, approval, source or proof validator
 is changed.
+
+## Repository discovery from the joint regression
+
+The same live TUI attempt then reached reviewed history and tax plans. Joint
+Requirements correctly identified that the real checkout renderer was also
+needed to prove `$110.00`, `$0.00` and the missing-amount `KeyError`. The
+coordinator only inspected member scopes, however, so it exposed the joint
+run's workspace-scope question instead of discovering the authorized checkout.
+Choosing “this repository only” would have discarded an original obligation.
+
+Joint scopes now use the same catalog resolution and linked-scope assignment
+as member scopes. A joint source citation stays bound to the joint workspace
+and its pinned base, not the first member. Discovery waits for active joint
+work to finish. Expanding the cohort retires the incomplete joint approval
+participant but preserves its attempt and failed evidence; the expanded set
+must receive a freshly composed joint plan and exact coordinated approval.
+Uncatalogued repositories still require access, and no model text authorizes
+a path or remote. Focused regressions cover discovery, source binding, access
+refusal, active work, linked-member reuse and retained attempts: 80 coordination
+tests pass, as do 130 source/requirements/repair/architecture checks. A focused
+fake-provider regression passes through the public chat/coordinator interface
+in 56.495 seconds: joint Requirements discovers checkout, retires the incomplete
+two-member plan and retains its attempt, without asking a person or publishing.
+The public status of the saved live run now offers checkout discovery without
+another model call; live end-to-end delivery is not yet established.

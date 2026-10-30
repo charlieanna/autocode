@@ -115,16 +115,20 @@ def main():
     name = "joint" if joint else json.loads((root / "repository.json").read_text())["name"]
     if name == "intake":
         inventory = data["source_catalog"]["repositories"]
-        selected = next(row for row in inventory if row["name"] == "checkout")
+        entry = "history" if os.environ.get("COORDINATION_FIXTURE_JOINT_SCOPE") else "checkout"
+        selected = next(row for row in inventory if row["name"] == entry)
         # This boundary reads the real pinned file, rather than inventing a citation.
-        assert "HISTORY_REPOSITORY" in (Path(selected["path"]) / "client.py").read_text()
-        citation = "catalog/" + selected["id"] + "/client.py:3"
+        filename, symbol = ("history.py", "TAX_REPOSITORY") if entry == "history" else ("client.py", "HISTORY_REPOSITORY")
+        assert symbol in (Path(selected["path"]) / filename).read_text()
+        citation = "catalog/" + selected["id"] + "/" + filename + ":3"
         scope = {
             "spans_repositories": True,
             "external_parts": [
                 {
-                    "target": "checkout",
-                    "work": "Fix checkout total formatting and follow its history dependency",
+                    "target": entry,
+                    "work": "Follow the actual total and its downstream dependency"
+                    if entry == "history"
+                    else "Fix checkout total formatting and follow its history dependency",
                     "source_quote": "",
                     "evidence": citation,
                 }
@@ -206,6 +210,9 @@ def main():
     ):
         raise RuntimeError("Member review must scope the ordinary out-of-checkout proxy rule")
     target = {"checkout": "history", "history": "tax"}.get(name)
+    if joint and os.environ.get("COORDINATION_FIXTURE_JOINT_SCOPE"):
+        if "checkout" not in json.loads((root / "repositories.json").read_text()):
+            target = "checkout"
     source = PRODUCT[name][0] if not joint else "repositories.json"
     test_path = "tests/test_joint.py" if joint else "tests/test_behavior.py"
     paths = [test_path]
@@ -466,8 +473,8 @@ def main():
                     {
                         "target": target,
                         "work": "Fix the downstream total contract",
-                        "source_quote": "",
-                        "evidence": source + ":3",
+                        "source_quote": data["task"] if joint else "",
+                        "evidence": "" if joint else source + ":3",
                     }
                 ],
             }
