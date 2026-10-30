@@ -2387,6 +2387,28 @@ an `add` action with `next_command=["connections", "add"]`, executed the same
 interactive way; it adds or rotates one provider's key without touching the
 others.
 
+## Stage choices for clients
+
+A client may let a person choose the model and reasoning level of each stage, as one dropdown per
+stage ([Choosing each stage's model](models.md#choosing-each-stages-model)).
+`autocode stages list --json [--backend NAME]` returns the version-1 view: `backend`, `label`, `file`
+(where the choices are kept), `options_stop` (why no model could be listed, or null) and `stages`, in
+the order a task runs them. Each stage has `id`, `label`, `does` (what the stage does), `advice` (the
+kind of model and level that suits it), `flag` and `effort_flag`, `default` (`model`, `effort`, and
+`offered`: whether the backend offers that model), `chosen` (the saved `model` and `effort`, or null),
+`options`, `set` and `reset`. Each option has `model`, `levels` and `levels_listed` (whether the
+levels come from the tool's own listing), `effort_choices` (the levels a person may pick, or
+`["default"]` for a model that lists none), `family`, `context`, `account`, `billing` and
+`unavailable`: the reason the stage may not run that model beside the others, or null.
+
+A client shows `label`, `does` and `advice`, lists the options, and greys out an option whose
+`unavailable` is set, showing its reason. To save a choice it takes `set.next_command`, an argument
+array following `autocode`, replacing `MODEL` with one of `options[].model` and `EFFORT` with one of
+that option's `effort_choices`, and refuses anything else. `reset.next_command` (null until a choice
+is saved) forgets the stage's choice. Both print the updated view, and a refused choice exits 2 with
+the reason on stderr and saves nothing. The view launches no model and reads no credential. A new
+task reads the choices when it starts; a running task keeps its own.
+
 ## Run modes for clients
 
 A client that starts runs may offer a choice of how much planning a new run does

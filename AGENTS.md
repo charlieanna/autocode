@@ -129,11 +129,11 @@ retired (below).
 **Four backends, owner decision 2026-10-30 (#2049).** AutoCode offers exactly four
 backends: Claude Code (a Claude subscription) and Codex (a ChatGPT login) as engines,
 and OpenCode and Kilo for every other account and API key. A person connects accounts
-there; AutoCode never asks them to choose a model per stage. The AutoCode direct API-key
+there. The AutoCode direct API-key
 connection (#1493) is retired: nothing offers it to a new user or chooses it automatically,
-a configured one keeps working, and it is deleted in the next release. The direction is one
-role policy (the model tier and reasoning effort each role wants) whichever of the four
-tools delivers it. Do not add a fifth backend or a new connection path without the owner's decision.
+a configured one keeps working, and it is deleted in the next release. The stages, the advice
+for each and their independence checks are the same whichever of the four tools runs them. Do not
+add a fifth backend or a new connection path without the owner's decision.
 The editor still launches only the core CLI and renders its named actions.
 It is a client of the
 [task-run interface](docs/task-run.md) and nothing else:
@@ -158,6 +158,16 @@ It is a client of the
   it displayed. The owner or the agent acting under the delegation above must
   review that exact plan before taking the approval action; the owner need not
   personally approve each revision.
+
+**Stage choices, owner decision 2026-10-30.** At setup AutoCode asks the person which model
+and reasoning level each stage runs, says what each stage does and what kind of model and level
+suits it, and keeps the answer per backend (`autocode stages`, `tools/autocode_stage_choices.py`).
+The person may change it at any time; every new task reads it before it begins, and a running
+task keeps its own. This is a requirements-level choice the person makes once, not a question
+about machinery. The terminal chat and the VS Code client may read `autocode stages list --json`
+and take only its named `set` and `reset` argument arrays, filled from the view's own options,
+to show one dropdown per stage. Choosing models automatically by measured capability (#2049) is
+paused until the owner revisits it.
 
 **Terminal chat, approved 2026-10-19 (#1622), in `tools/autocode_chat_client.py`.**
 The same contract as the VS Code client, with the shared rules in

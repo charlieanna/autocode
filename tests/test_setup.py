@@ -139,6 +139,63 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(["kilocode"], listed)
         self.assertIn("Claude Code's default model", shown.getvalue())
 
+    def test_setup_offers_the_stage_picker_once_defaulting_to_yes_until_choices_are_saved(self):
+        claude = {"id": "claude", "label": "Claude Code"}
+        for saved, answer, picks in (({}, "", True), ({}, "n", False), ({"claude": {"terra": {}}}, "", False)):
+            asked, chosen = [], []
+            with self.subTest(saved=bool(saved), answer=answer):
+                offered = setup.offer_stages(
+                    claude,
+                    ask=lambda prompt: asked.append(prompt) or answer,
+                    choose=lambda backend: chosen.append(backend) or True,
+                    load=lambda: saved,
+                )
+                self.assertEqual(picks, offered)
+                self.assertEqual(["claude"] if picks else [], chosen)
+                self.assertEqual(1, len(asked))
+                self.assertIn("[y/N]" if saved else "[Y/n]", asked[0])
+        broken = io.StringIO()
+        with contextlib.redirect_stdout(broken):
+            self.assertFalse(setup.offer_stages(claude, ask=None, load=mock.Mock(side_effect=ValueError("bad TOML"))))
+        self.assertIn("cannot be read: bad TOML", broken.getvalue())
+
+    def test_in_a_terminal_setup_ends_with_the_stage_picker_or_the_routes_when_it_is_declined(self):
+        found = [CLAUDE_IN, CODEX_OUT, OPENCODE_MISSING, KILO_MISSING]
+        for offered, code, routes in ((True, 0, []), (False, 0, ["claude"]), (KeyboardInterrupt(), 130, [])):
+            listed = []
+            with (
+                self.subTest(offered=offered),
+                mock.patch.object(setup, "_interactive", return_value=True),
+                mock.patch.object(setup, "rows", return_value=found),
+                mock.patch.object(setup, "_install", return_value=False),
+                mock.patch.object(setup, "_sign_in", return_value=False),
+                mock.patch.object(setup.connected_engine, "choose", return_value=CLAUDE_CHOSEN),
+                mock.patch.object(setup, "offer_stages", side_effect=[offered]) as offer,
+                mock.patch.object(setup, "say_routes", side_effect=lambda use: listed.append(use["id"])),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(code, setup.cli([]))
+                self.assertEqual("claude", offer.call_args.args[0]["id"])
+            self.assertEqual(routes, listed)
+
+    def test_saved_stage_choices_are_what_setup_lists_instead_of_the_selected_routes(self):
+        shown = io.StringIO()
+        current = {"label": "OpenCode", "file": "/x/stages.toml", "options_stop": None, "stages": []}
+        with mock.patch.object(setup.connections, "say_routes", side_effect=AssertionError("listed routes")):
+            setup.say_routes(
+                {"id": "opencode", "label": "OpenCode"},
+                stream=shown,
+                load=lambda: {"opencode": {"terra": {"model": "m", "effort": None}}},
+                view=lambda backend: current,
+            )
+        self.assertIn("Stages on OpenCode", shown.getvalue())
+        unsaved = io.StringIO()
+        setup.say_routes({"id": "claude", "label": "Claude Code"}, stream=unsaved, load=lambda: {})
+        self.assertIn("autocode stages choose", unsaved.getvalue())
+        broken = io.StringIO()
+        setup.say_routes({"id": "claude"}, stream=broken, load=mock.Mock(side_effect=ValueError("bad TOML")))
+        self.assertEqual("Your stage choices cannot be read: bad TOML\n", broken.getvalue())
+
     def test_with_no_hub_installed_setup_offers_opencode_once_and_installs_it_with_npm(self):
         found = [CLAUDE_IN, CODEX_OUT, OPENCODE_MISSING, KILO_MISSING]
         found = [

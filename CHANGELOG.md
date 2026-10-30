@@ -11,6 +11,17 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- You choose the model and reasoning level of each stage once, and every new task uses it (owner decision
+  2026-10-30). `autocode setup` offers it after connecting your accounts, and `autocode stages choose` asks
+  again at any time: for each stage it says what the stage does, gives advice on the model and level that
+  suit it, and lists the models your backend offers with the levels each takes (OpenCode and Kilo from their
+  own listings, with each model's family; a model that cannot call tools is left out), marking a model the
+  stage's checker or producer runs as not available. The choices are kept per backend in
+  `~/.config/autocode/stages.toml`; each new task reads them before it begins, a flag or the project's
+  `.autocode/config.toml` still wins, and a running task keeps its own. `autocode stages` lists them,
+  `set` and `reset` change one stage, and `--json` returns the view clients render as one dropdown per
+  stage. Route discovery now carries each model's listed family, tool-call and reasoning support, context
+  and release date on its candidates; no price is read.
 - `autocode setup` connects the backends AutoCode runs on, once after installing it (#2049): it checks
   Claude Code, Codex, OpenCode and Kilo with each one's own login listing. In a terminal, when neither
   OpenCode nor Kilo is installed, it offers to install OpenCode 1.18.33 with npm (`--install
