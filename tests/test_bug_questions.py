@@ -162,7 +162,7 @@ class InvestigatorQuestionTaskRunTests(unittest.TestCase):
                     "target": "history-service",
                     "work": "Accept the new calculation contract",
                     "source_quote": "",
-                    "evidence": "client.py:1",
+                    "evidence": "history_client.py:1",  # exactly as the Investigator cited it
                 }
             ],
             view["scope"]["external_parts"],
