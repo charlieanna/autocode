@@ -140,7 +140,14 @@ class CodexCaptureWorkflowTests(unittest.TestCase):
 
     def run_to_validation(self, mutation=""):
         env = {**self.env, "AUTOCODE_FIXTURE_MUTATION": mutation}
-        run = TaskRun.start(self.workspace, BRIEF, options=self.options, env=env, timeout=180)
+        run = TaskRun.start(
+            self.workspace,
+            BRIEF,
+            options=self.options,
+            start_options=("--evidence-provenance", "fake"),
+            env=env,
+            timeout=180,
+        )
         view = run.status()
         self.assertEqual("approve_plan", view["needs"]["kind"], view)
         run.approve_plan(view["needs"]["token"])

@@ -919,7 +919,9 @@ if stage == "astra_checkpoint":
     validation_schema = validation_schema.get("validation", {}).get("properties", {})
     validation_report = result.get("validation", {})
 if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in validation_schema:
-    validation_report["changed_code_exceptions"] = greeting_changed_code_reasons(data)
+    # A report repair's schema may allow no reasons (maxItems 0); a schema-following Tester then gives none.
+    cap = validation_schema["changed_code_exceptions"].get("maxItems")
+    validation_report["changed_code_exceptions"] = greeting_changed_code_reasons(data)[:cap]
 if "--output-schema" in sys.argv:
     if "progressive_checkpoint" in schema.get("properties", {}):
         result.setdefault("progressive_checkpoint", False)
@@ -959,5 +961,12 @@ if isinstance(result.get("contract"), dict) and "scope_exclusions" in result["co
     for entry in data.get("scope_exclusions_required") or []:
         if entry not in result["contract"]["scope_exclusions"]:
             result["contract"]["scope_exclusions"] = [*result["contract"]["scope_exclusions"], entry]
+if "failure_class" in schema.get("properties", {}):
+    # Builder-failure investigation reports gained an explicit classification
+    # contract. Keep both the first scripted report and its report-only repair
+    # schema-compliant so these fixtures test recovery rather than malformed
+    # fake-provider output.
+    result.setdefault("failure_class", "unknown")
+    result.setdefault("failure_id", "offline-fixture-failure")
 Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 50}}))
