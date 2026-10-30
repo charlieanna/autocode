@@ -163,8 +163,15 @@ def main():
         # Scripted model follows the fresh task's corrected approach. This is a
         # provider input fixture, never a contract or runner-state replacement.
         spec = json.loads(Path(os.environ["BUILD_AUDIT_SPEC"]).read_text())
-        # A corrected delivery, like any other, ships the test that proves it (#2474).
-        spec["payloads"]["M1"] = {"main.py": "print('hello')\n", "test_main.py": provider["HELLO_TESTS"]}
+        # A corrected delivery, like any other, ships the test that proves it (#2474). The
+        # original goodbye code had no tests, so the delivery also keeps one test of the behavior
+        # it preserves (a clean one-line CLI) that passes on the original and on the fix (#2259).
+        corrected_tests = provider["HELLO_TESTS"] + (
+            "    def test_cli_prints_one_clean_line(self):\n"
+            "        result = subprocess.run([sys.executable, 'main.py'], capture_output=True, text=True)\n"
+            "        self.assertEqual((0, 1, ''), (result.returncode, len(result.stdout.splitlines()), result.stderr))\n"
+        )
+        spec["payloads"]["M1"] = {"main.py": "print('hello')\n", "test_main.py": corrected_tests}
         spec["checks"]["M1"] = corrected_check
         spec["complete_product"] = True
         spec["contract"]["milestones"][0]["objective"] = corrected_objective
@@ -227,6 +234,8 @@ def main():
         result["evidence"] = investigation["report"]["evidence_refs"]
         if correcting:
             result["next_objective"] = corrected_objective
+            # The corrected delivery ships its test (#2474), so the fresh task must own it.
+            result["affected_paths"] = ["main.py", "test_main.py"]
             result["next_task"].update(
                 kind="implement",
                 milestone_id="M1",

@@ -121,10 +121,8 @@ class FailureRoutingCLI(unittest.TestCase):
             or "import subprocess,sys; assert subprocess.check_output([sys.executable,'main.py'],text=True) == 'hello\\n'"
         )
         files = {deliverable: payload}
-        if deliverable == "main.py" and payload.startswith("print('") and payload.endswith("')\n"):
-            # A delivery ships the test that proves it (#2474): the hello test, or the same test of
-            # whatever this payload prints (a wrong approach is still a tested one).
-            files["test_main.py"] = HELLO_TESTS.replace("'hello\\n'", "'" + payload[7:-3] + "\\n'")
+        if deliverable == "main.py" and payload == HELLO_SOURCE:
+            files["test_main.py"] = HELLO_TESTS
         spec = build_fixture.plan([([], objective, list(files))], {"M1": files}, {"M1": check}, goal)
         spec["complete_product"] = complete
         if criterion is not None:
