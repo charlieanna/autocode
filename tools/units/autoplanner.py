@@ -289,8 +289,7 @@ def review_source_sentence_rows(state: RunState):
         criteria=body.get("acceptance_criteria") or [],
     )
     return [
-        {"source_id": row["source_id"], "sentence": row["text"], "criterion_ids": row["criterion_ids"]}
-        for row in rows
+        {"source_id": row["source_id"], "sentence": row["text"], "criterion_ids": row["criterion_ids"]} for row in rows
     ]
 
 
