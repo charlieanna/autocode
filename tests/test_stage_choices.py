@@ -12,6 +12,8 @@ from types import SimpleNamespace
 from unittest import mock
 
 import autocode_configure
+import autocode_role_transport as role_transport
+import autocode_roles as role_names
 import autocode_stage_choices as choices
 import autocode_stages_cli as stages_cli
 
@@ -88,6 +90,22 @@ class StageChoiceTests(unittest.TestCase):
         self.assertEqual("Resolver and per-task Planner", self.stage(current, "astra")["label"])
         for stage in current["stages"]:
             self.assertTrue(stage["does"] and stage["advice"], stage["id"])
+
+    def test_each_stage_names_the_jobs_that_run_on_its_choice(self):
+        # A workflow job copies its route from a stage the person chooses (role_transport.DERIVED_ROLES; the Code
+        # Reviewer and Design Reviewer in units/autoreview), so that stage says so. A live bug fix ran its
+        # Investigator on the Plan Reviewer's model while no stage's text named the Investigator.
+        current = choices.view("claude", **self.kw)
+        text = {stage["id"]: f"{stage['label']}: {stage['does']}" for stage in current["stages"]}
+        named = {role: role_names.SCREEN[role_names.ROUTE_JOB[role]] for role in role_transport.DERIVED_ROLES}
+        named["acceptance_tester"] = "acceptance tests"
+        # The utility route is its own --utility-model, never a stage choice.
+        jobs = [
+            (sources[0], named[role]) for role, sources in role_transport.DERIVED_ROLES.items() if role != "utility"
+        ]
+        jobs += [("plan_reviewer", role_names.SCREEN["design_reviewer"]), ("sol", role_names.SCREEN["code_reviewer"])]
+        for stage, job in jobs:
+            self.assertIn(job, text[stage], stage)
 
     def test_a_listed_tool_offers_what_its_accounts_serve_with_each_models_own_levels(self):
         current = choices.view("opencode", **self.kw)
