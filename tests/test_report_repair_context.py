@@ -648,7 +648,10 @@ class DecisionRepairContextTests(unittest.TestCase):
                 if stage == "requirements_gather":
                     self.assertTrue(instruction.startswith(expected))
                     self.assertIn("requirements_correction_sources", instruction)
-                    self.assertIn("previous_requirement_ids are candidate links based on shared wording, not authority", instruction)
+                    self.assertIn(
+                        "previous_requirement_ids are candidate links based on shared wording, not authority",
+                        instruction,
+                    )
                     self.assertIn("ignored_requirements", instruction)
                 else:
                     self.assertTrue(instruction.startswith(expected))

@@ -21,9 +21,9 @@ try:
     from . import autocode_coordination_context as coordination_context
     from . import autocode_goals as goals
     from . import autocode_plan_retention as retention
-    from . import autocode_requirement_retention as requirement_retention
     from . import autocode_regression_reference as regression_reference
     from . import autocode_report_edits as report_edits
+    from . import autocode_requirement_retention as requirement_retention
     from . import autocode_roles as roles
     from . import autocode_source_trace as source_trace
 except ImportError:
@@ -31,9 +31,9 @@ except ImportError:
     import autocode_coordination_context as coordination_context
     import autocode_goals as goals
     import autocode_plan_retention as retention
-    import autocode_requirement_retention as requirement_retention
     import autocode_regression_reference as regression_reference
     import autocode_report_edits as report_edits
+    import autocode_requirement_retention as requirement_retention
     import autocode_roles as roles
     import autocode_source_trace as source_trace
 
