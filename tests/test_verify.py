@@ -1644,15 +1644,12 @@ class VerifyCase(unittest.TestCase):
                 self.assertTrue(proof["fail_to_pass"])
                 self.assertEqual(1, proof["checks"]["regression_on_base"]["exit_code"])
                 self.assertEqual(0, proof["checks"]["regression_on_candidate"]["exit_code"])
-                # The runner's proof passes either way. The mutation check selects the proving tests only
-                # through a command it understands; behind an opaque explicit command the changed line
-                # waits for the Tester's reason (#2474), so the full gate holds and the proof-only one passes.
+                # The runner's proof passes either way. Behind an opaque explicit command the mutation check
+                # runs the proof's own derived regression command instead, so the changed line has mutation
+                # evidence and the full gate passes too.
                 self.assertTrue(regression.complete(state, proof["source_revision"], require_changed_code=False))
-                self.assertEqual(suite is None, regression.complete(state, proof["source_revision"]))
-                self.assertEqual(
-                    ["mutation_only"] if suite is None else ["reviewer_reason_required"],
-                    proof["changed_code_evidence"]["fallback"],
-                )
+                self.assertTrue(regression.complete(state, proof["source_revision"]))
+                self.assertEqual(["mutation_only"], proof["changed_code_evidence"]["fallback"])
 
     @unittest.skipUnless(shutil.which("node"), "Node is required for named Node proof")
     def test_node_named_case_flip_preserves_original_custom_suite(self):
