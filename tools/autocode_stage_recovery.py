@@ -1102,11 +1102,34 @@ def stale_report_repair(state: RunState, workspace):
 
 
 def archive_stale_report_repair(state: RunState, run_dir, workspace):
-    """On an explicit resume, archive (never delete) a stale report repair so the same stage starts afresh.
+    """On explicit resume, archive report repair that no longer belongs to the source or next stage.
 
-    The role's saved session judged the old source, so it is rotated like an exhausted repair's
-    (prepare_exhausted_execution_report_retry). Returns the message to show, or None when
-    stale_report_repair does not apply."""
+    Source changes rotate the role's saved session, which judged the old source. A stage mismatch
+    instead archives the obsolete repair and preserves the already-selected next stage. Returns
+    the message to show, or None when neither condition applies."""
+    pending = state.get("pending_report_repair") or {}
+    original = pending.get("original") or {}
+    if original and original.get("stage") != state.get("next_stage"):
+        stage = original["stage"]
+        next_stage = state.get("next_stage")
+        message = f"Archived stale {stage} report repair because {next_stage or 'no stage'} is now next."
+        state.setdefault("report_repair_archive", []).append(
+            {
+                "at": records.now(),
+                "reason": "Owning stage changed while paused; pending report repair is no longer next",
+                "repair": state.pop("pending_report_repair"),
+            }
+        )
+        state.setdefault("reconciliation_notes", []).append(
+            {
+                "at": records.now(),
+                "stage": stage,
+                "iteration": original.get("iteration"),
+                "reason": message,
+            }
+        )
+        records.write_json(Path(run_dir) / "state.json", state)
+        return message
     stale = stale_report_repair(state, workspace)
     if not stale:
         return None

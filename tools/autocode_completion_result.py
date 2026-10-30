@@ -68,13 +68,29 @@ def _reconcile_proof_finding(state: RunState, workspace):
     if not _proof_routing(state):
         return
     revision = source_scope.snapshot(workspace, state)["revision"]
-    required = regression.required(state, all_due=True)
+    required = regression.required(state, all_due=False)
+    current_milestone = (state.get("current_task") or {}).get("milestone_id")
+    settle_same_revision_ids = [
+        row["id"]
+        for row in proof_findings.open_rows(state)
+        if current_milestone
+        and (row.get("scope") or {}).get("milestone_id") == current_milestone
+        and revision in (row.get("failed_revisions") or [])
+        and regression.MISSING_CASES_REASON in row.get("finding", "")
+    ]
     # The runner's own proof only: an equivalent-mutant or unreachable-line reason is the independent
     # reviewer's to give in the review this precedes (#2474), and a missing one has its own Builder route
     # (autocode_changed_code_rework), so it must not open a proof finding the Builder cannot clear.
-    proved = required and regression.complete(state, revision, all_due=True, require_changed_code=False)
-    reason = "" if proved or not required else regression.rejection(state)
-    proof_findings.reconcile(state, revision, required=required, proved=proved, reason=reason)
+    proved = required and regression.complete(state, revision, all_due=False, require_changed_code=False)
+    reason = "" if proved or not required else regression.rejection(state, all_due=False)
+    proof_findings.reconcile(
+        state,
+        revision,
+        required=required,
+        proved=proved,
+        reason=reason,
+        settle_same_revision_ids=settle_same_revision_ids,
+    )
 
 
 def _send_back_unproven(state: RunState, current, record, regression_complete):
@@ -87,7 +103,7 @@ def _send_back_unproven(state: RunState, current, record, regression_complete):
         record.get("stage") != "astra_review"
         or not _proof_routing(state)
         or not proof_findings.open_rows(state)
-        or regression_complete(state, current["revision"], all_due=True)
+        or regression_complete(state, current["revision"], all_due=False)
     ):
         return None
     return {

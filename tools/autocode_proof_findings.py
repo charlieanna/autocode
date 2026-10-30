@@ -53,7 +53,7 @@ def open_rows(state: RunState):
     return [row for row in findings_ledger.open_entries(state, SOURCE) if row.get(MARK)]
 
 
-def reconcile(state: RunState, revision, *, required, proved, reason=""):
+def reconcile(state: RunState, revision, *, required, proved, reason="", settle_same_revision_ids=()):
     """Open, refresh or close the proof finding for the source a judge is about to review; returns the open row.
 
     ``required`` and ``proved`` are autocode_regression.required/complete for final completion, and
@@ -65,7 +65,11 @@ def reconcile(state: RunState, revision, *, required, proved, reason=""):
     proof = state.get("regression_proof") or {}
     if proved or not required:
         for row in rows:
-            if not required or revision not in (row.get("failed_revisions") or []):
+            if (
+                not required
+                or revision not in (row.get("failed_revisions") or [])
+                or row.get("id") in settle_same_revision_ids
+            ):
                 # Closed where the other runner findings are: by the receipt that settled it.
                 findings_ledger.settle(
                     row,

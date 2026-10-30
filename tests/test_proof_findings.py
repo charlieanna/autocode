@@ -1,6 +1,11 @@
 import unittest
+from unittest.mock import patch
 
+import autocode_completion_result as completion_result
 import autocode_proof_findings as proof_findings
+import autocode_regression as regression
+import autocode_source_scope as source_scope
+import autocode_workflow as workflow
 
 REASON = "Completion rejected: this change has no passing regression proof for the current source (No regression test)"
 
@@ -61,6 +66,92 @@ class ProofFindingTests(unittest.TestCase):
         second = proof_findings.send_back(state, "r1")
         self.assertEqual("PAUSED_COMPLETION_REVIEW", second["status"])
         self.assertEqual("RUNNING", proof_findings.send_back(state, "r2")["status"])
+
+    def test_milestone_reconciliation_does_not_open_a_finding_for_future_cases(self):
+        state = {
+            "version": 3,
+            "workspace": "/work",
+            "settings": {},
+            "goal_contract": {"hash": "contract", "body": {"milestones": [{"id": "M1"}, {"id": "M2"}]}},
+            "current_task": {"milestone_id": "M1"},
+            "regression_proof": {"source_revision": "r1", "path": "/run/proof.json"},
+        }
+
+        def proof_passes_current_scope(_state, _revision, **options):
+            return options.get("all_due") is False
+
+        with (
+            patch.object(workflow, "enabled", return_value=False),
+            patch.object(source_scope, "snapshot", return_value={"revision": "r1"}),
+            patch.object(regression, "required", return_value=True) as required,
+            patch.object(regression, "complete", side_effect=proof_passes_current_scope) as complete,
+            patch.object(regression, "rejection", return_value="future cases are not due") as rejection,
+        ):
+            completion_result._reconcile_proof_finding(state, "/work")
+
+        required.assert_called_once_with(state, all_due=False)
+        complete.assert_called_once()
+        self.assertIs(complete.call_args.kwargs["all_due"], False)
+        rejection.assert_not_called()
+        self.assertFalse(proof_findings.open_rows(state))
+
+    def test_scoped_proof_retires_legacy_future_case_finding_on_the_same_source(self):
+        state = {
+            "version": 3,
+            "workspace": "/work",
+            "settings": {},
+            "goal_contract": {"hash": "contract", "body": {"milestones": [{"id": "M1"}, {"id": "M2"}]}},
+            "current_task": {"milestone_id": "M1"},
+            "regression_proof": {"source_revision": "r1", "path": "/run/proof.json"},
+        }
+        row = proof_findings.reconcile(
+            state,
+            "r1",
+            required=True,
+            proved=False,
+            reason="Completion rejected: the milestone proof still needs all required cases: AC5, AC6",
+        )
+        row["scope"] = {"milestone_id": "M1", "criteria": ["AC1", "AC2"]}
+
+        with (
+            patch.object(workflow, "enabled", return_value=False),
+            patch.object(source_scope, "snapshot", return_value={"revision": "r1"}),
+            patch.object(regression, "required", return_value=True),
+            patch.object(regression, "complete", return_value=True),
+            patch.object(regression, "rejection") as rejection,
+        ):
+            completion_result._reconcile_proof_finding(state, "/work")
+
+        rejection.assert_not_called()
+        self.assertEqual("resolved", row["status"])
+        self.assertFalse(proof_findings.open_rows(state))
+
+    def test_milestone_completion_request_is_not_sent_back_for_future_cases(self):
+        state = {
+            "version": 3,
+            "settings": {},
+            "goal_contract": {"hash": "contract", "body": {"milestones": [{"id": "M1"}, {"id": "M2"}]}},
+            "current_task": {"milestone_id": "M1"},
+            "regression_proof": {"source_revision": "r1", "path": "/run/proof.json"},
+        }
+        proof_findings.reconcile(state, "r1", required=True, proved=False, reason=REASON)
+
+        def proof_passes_current_scope(_state, _revision, **options):
+            return options.get("all_due") is False
+
+        with (
+            patch.object(workflow, "enabled", return_value=False),
+            patch.object(regression, "complete", side_effect=proof_passes_current_scope) as complete,
+        ):
+            sent_back = completion_result._send_back_unproven(
+                state,
+                {"revision": "r1"},
+                {"stage": "astra_review"},
+                regression.complete,
+            )
+
+        complete.assert_called_once_with(state, "r1", all_due=False)
+        self.assertIsNone(sent_back)
 
 
 if __name__ == "__main__":
