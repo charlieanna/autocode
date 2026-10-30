@@ -1764,8 +1764,8 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
         )
         return True
 
-    def show_handoff():
-        rendered = lifecycle.present(state, run_dir)
+    def show_handoff(details=True):
+        rendered = lifecycle.present(state, run_dir, details=details)
         if run_dir is not None:
             save(run_dir / "state.json", state)
         print(rendered)
@@ -1858,10 +1858,10 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
         if not published or published["scope"] != "goal_approval":
             return False
         print("\nAutoResolver: proposed plan ready for your decision:\n")
-        show_handoff()
+        show_handoff(details=False)  # the decision first; /details shows the full brief (#2535)
         while True:
             try:
-                reply = input("Approve this brief? [y/N], or type planning feedback: ").strip()
+                reply = input("Approve this brief? [y/N], /details, or type planning feedback: ").strip()
             except (EOFError, KeyboardInterrupt):
                 print("\nChat paused; the brief remains available for approval.")
                 return False
@@ -1879,8 +1879,8 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
                 return False
             if reply.startswith("/feedback "):
                 reply = reply[len("/feedback ") :].strip()
-            elif reply.startswith("/"):
-                print("Use /approve, /feedback TEXT or /pause, or type your feedback.")
+            elif reply.startswith("/"):  # /details: the full brief, then the question again
+                show_handoff() if reply.lower() == "/details" else print("Use /approve, /details, /feedback, /pause.")
                 continue
             if reply:
                 action(lambda candidate: goals.feedback(candidate, reply))

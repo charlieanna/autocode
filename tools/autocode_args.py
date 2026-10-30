@@ -597,6 +597,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument(
         "--show-goal", action="store_true", help="Display the exact contract revision and approval token"
     )
+    parser.add_argument("--details", action="store_true", help="Print the full brief at a plan approval stop")
     parser.add_argument(
         "--answer", action="append", default=[], metavar="QUESTION_ID=TEXT", help="Answer an open question (repeatable)"
     )
