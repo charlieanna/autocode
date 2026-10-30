@@ -11,6 +11,8 @@ const { ChatView } = host.load('chat.js');
 const { RunItem, RunsProvider } = host.load('runsView.js');
 const { activate } = host.load('extension.js');
 const { ConnectionsPanel, connectionsHtml } = host.load('connections.js');
+const { StagesPanel, stagesHtml } = host.load('stages.js');
+const { readStages, currentRoute } = host.load('core/stages.js');
 const { engineOf, routeKeyOf, spendTarget, sanitizeRoutes, readSettings, applyEngine } = host.load('settings.js');
 let controller = new RunController(host.log);
 const run = { workspace: '/ws', runDir: '/ws/.autocode/runs/test' };
@@ -390,8 +392,13 @@ test('engine chip shows the engine new chats will use and opens the picker', asy
   await flush();
   assert.equal(ui.sent.at(-1).type, 'engine');
   const [items, options] = picker.mock.calls[0].arguments;
-  assert.deepEqual(items.map((item) => item.label), ['OpenCode', 'Codex', 'Claude Code', 'Connections…', 'Configure in Settings…']);
+  assert.deepEqual(items.map((item) => item.label), ['OpenCode', 'Codex', 'Claude Code', 'Connections…', 'Stage models…', 'Configure in Settings…']);
   assert.ok(options.placeHolder.includes('Codex'), 'names the current engine');
+  const run = t.mock.method(host.vscode.commands, 'executeCommand', async () => {});
+  picker.mock.mockImplementation(async (choices) => choices.find((item) => item.label === 'Stage models…'));
+  ui.document.getElementById('engine-picker').click();
+  await flush();
+  assert.deepEqual(run.mock.calls.at(-1).arguments, ['autocode.stages'], 'the chat opens the stage dropdowns');
 });
 
 test('picking an engine applies the CLI consistency rules to new-chat settings', async (t) => {
@@ -425,6 +432,99 @@ test('connections renders backend text safely and sends only provider and action
     assert.ok(dom.window.document.querySelector('main').textContent.includes('<script>evil()</script>'));
     [...dom.window.document.querySelectorAll('button')].find((button) => button.textContent === 'Sign in / Reconnect').click();
     assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1))), { type: 'action', provider: 'kilocode', action: 'login' });
+  } finally { dom.window.close(); }
+});
+
+function stageView(chosen = null) {
+  const set = ['stages', 'set', 'terra', '--backend', 'claude', '--json', '--model', 'MODEL', '--effort', 'EFFORT'];
+  return { version: 1, backend: 'claude', label: 'Claude Code', options_stop: null, stages: [{
+    id: 'terra', label: 'Builder', does: 'Writes the code.', advice: 'A fast model at medium.',
+    default: { model: 'haiku', effort: 'medium', offered: true }, chosen,
+    options: [
+      { model: 'haiku', effort_choices: ['low', 'medium'], family: 'claude', unavailable: null },
+      { model: 'opus', effort_choices: ['low', 'high'], family: 'claude', unavailable: 'the Completion Reviewer runs opus' },
+      { model: 'sonnet', effort_choices: ['low', 'high'], family: 'claude', unavailable: null },
+    ],
+    set: { next_command: set }, reset: chosen ? { next_command: ['stages', 'reset', 'terra', '--backend', 'claude', '--json'] } : null,
+  }] };
+}
+
+test('stage models lists the backend new chats run on and saves only the stage view\'s own command', async (t) => {
+  const calls = [];
+  let chosen = null;
+  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+    calls.push(argv);
+    if (argv[1] !== 'list') chosen = argv[1] === 'set' ? { model: argv.at(-3), effort: argv.at(-1) } : null;
+    return { ...ok, stdout: JSON.stringify(stageView(chosen)) };
+  });
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  t.mock.method(RunController.prototype, 'list', async () => ({ runs: [], diagnostics: [] }));
+  host.config.set('extraOptions', ['--engine', 'claude']);
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  await host.commands.get('autocode.stages')();
+  const panel = host.panels.at(-1);
+  assert.equal(panel.title, 'AutoCode Stage Models');
+  assert.deepEqual(calls, [['stages', 'list', '--json', '--backend', 'claude']]);
+  assert.equal(panel.webview.messages.at(-1).view.stages[0].now, 'haiku at medium (default)');
+  for (const [model, effort, error] of [['evil', 'low', 'not offered evil'], ['opus', 'low', 'cannot run opus'], ['sonnet', 'max', 'sonnet takes low, high']]) {
+    panel.webview.receive({ type: 'set', stage: 'terra', model, effort, next_command: ['evil'] }); await flush();
+    assert.ok(panel.webview.messages.at(-1).error.includes(error), error);
+  }
+  assert.ok(calls.every((argv) => argv[1] === 'list'), 'nothing the view does not offer is sent');
+  panel.webview.receive({ type: 'set', stage: 'terra', model: 'sonnet', effort: 'high' }); await flush();
+  assert.deepEqual(calls.at(-1), ['stages', 'set', 'terra', '--backend', 'claude', '--json', '--model', 'sonnet', '--effort', 'high']);
+  const saved = panel.webview.messages.at(-1);
+  assert.equal(saved.note, 'New chats run the Builder on sonnet at high.');
+  assert.equal(saved.view.stages[0].now, 'sonnet at high (your choice)');
+  panel.webview.receive({ type: 'reset', stage: 'terra' }); await flush();
+  assert.deepEqual(calls.at(-1), ['stages', 'reset', 'terra', '--backend', 'claude', '--json']);
+  assert.equal(panel.webview.messages.at(-1).note, 'The Builder is back to its default.');
+});
+
+test('stage models shows the core\'s refusal and lists without a backend when none was chosen', async (t) => {
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+    calls.push(argv);
+    return argv[1] === 'set' ? { ...ok, code: 2, stderr: 'autocode stages: the Tester runs sonnet\n' } : { ...ok, stdout: JSON.stringify(stageView()) };
+  });
+  const stages = new StagesPanel();
+  t.after(() => stages.dispose());
+  await stages.show();
+  const panel = host.panels.at(-1);
+  assert.deepEqual(calls[0], ['stages', 'list', '--json']);
+  panel.webview.receive({ type: 'set', stage: 'terra', model: 'sonnet', effort: 'low' }); await flush();
+  assert.ok(panel.webview.messages.at(-1).error.includes('the Tester runs sonnet'));
+  assert.equal(panel.webview.messages.at(-1).busy, false);
+});
+
+test('stage models renders core text safely, one model and level dropdown per stage, and sends only the choice', () => {
+  const sent = [];
+  const dom = new JSDOM(stagesHtml(), { runScripts: 'dangerously', beforeParse(window) {
+    window.acquireVsCodeApi = () => ({ postMessage: (message) => sent.push(message) });
+  } });
+  try {
+    const raw = stageView({ model: 'sonnet', effort: 'high' });
+    raw.stages[0].does = '<img src=x onerror=alert(1)>';
+    const view = readStages(JSON.stringify(raw));
+    view.stages[0].now = currentRoute(view.stages[0]);
+    dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: { view, busy: false } }));
+    const document = dom.window.document;
+    assert.equal(document.querySelectorAll('img').length, 0);
+    assert.ok(document.querySelector('main').textContent.includes('<img src=x onerror=alert(1)>'));
+    const [models, levels] = document.querySelectorAll('select');
+    assert.deepEqual([...models.options].map((row) => [row.value, row.disabled]), [['haiku', false], ['opus', true], ['sonnet', false]]);
+    assert.ok(models.options[1].textContent.includes('not available: the Completion Reviewer runs opus'));
+    assert.equal(models.value, 'sonnet', 'the dropdown opens on what the stage runs now');
+    assert.deepEqual([[...levels.options].map((row) => row.value), levels.value], [['low', 'high'], 'high']);
+    models.value = 'haiku'; models.dispatchEvent(new dom.window.Event('change'));
+    assert.deepEqual([...levels.options].map((row) => row.value), ['low', 'medium'], 'levels follow the chosen model');
+    levels.value = 'medium';
+    [...document.querySelectorAll('button')].find((button) => button.textContent === 'Save').click();
+    assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1))), { type: 'set', stage: 'terra', model: 'haiku', effort: 'medium' });
+    [...document.querySelectorAll('button')].find((button) => button.textContent === 'Use the default').click();
+    assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1))), { type: 'reset', stage: 'terra' });
   } finally { dom.window.close(); }
 });
 

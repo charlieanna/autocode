@@ -117,6 +117,12 @@
         "title": "Connections",
         "category": "AutoCode",
         "icon": "$(plug)"
+      },
+      {
+        "command": "autocode.stages",
+        "title": "Stage Models",
+        "category": "AutoCode",
+        "icon": "$(settings-gear)"
       }
     ],
     "menus": {
