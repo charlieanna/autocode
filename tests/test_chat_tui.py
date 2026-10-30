@@ -99,6 +99,27 @@ class TranscriptTests(unittest.TestCase):
         transcript2.lines(80)
         self.assertIsNone(transcript2.last_block_start)
 
+    def test_rendered_lines_are_reused_until_width_or_transcript_changes(self):
+        transcript = tui.Transcript()
+        transcript.add("AutoCode: hello world")
+        original_wrap = tui.wrap
+        with mock.patch.object(tui, "wrap", wraps=original_wrap) as wrapped:
+            first = transcript.lines(80)
+            self.assertIs(first, transcript.lines(80))
+            self.assertEqual(1, wrapped.call_count)
+            transcript.lines(40)
+            self.assertEqual(2, wrapped.call_count, "a different width needs fresh wrapping")
+            transcript.add("You: a new message")
+            updated = transcript.lines(40)
+            self.assertIsNot(first, updated, "new transcript content invalidates rendered lines")
+            self.assertEqual(4, wrapped.call_count)
+            transcript.live = "A streamed response"
+            live = transcript.lines(40)
+            self.assertIsNot(updated, live, "streamed response updates invalidate rendered lines")
+            self.assertEqual(5, wrapped.call_count)
+            self.assertIs(live, transcript.lines(40))
+            self.assertEqual(5, wrapped.call_count)
+
     def test_the_closing_words_are_everything_said_after_the_conversation(self):
         transcript = tui.Transcript()
         transcript.add("AutoCode: the plan is ready")
