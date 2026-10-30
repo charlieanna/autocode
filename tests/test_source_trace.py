@@ -427,8 +427,12 @@ class ReadyGateTests(unittest.TestCase):
     def test_a_sentence_cannot_be_both_covered_and_out_of_scope(self):
         draft = body([criterion("C1", TASK + " never no", [TASK])])
         out = wrapper(out_of_scope=[{"source_id": "task:0", "quote": "Do not build a web UI.", "reason": "deferred"}])
-        with self.assertRaisesRegex(ValueError, "both covered and out of scope"):
+        with self.assertRaises(ValueError) as caught:
             self.ready(draft, out)
+        message = str(caught.exception)
+        self.assertIn("both covered and out of scope", message)
+        self.assertIn("C1", message)
+        self.assertIn("deferred", message)
 
     def test_an_out_of_scope_quote_that_covers_nothing_is_refused(self):
         draft = body([criterion("C1", TASK + " never no", [TASK])])
@@ -465,6 +469,18 @@ class SentenceIdTests(unittest.TestCase):
             [(row["id"], row["text"], row["requirement_ids"]) for row in rows],
         )
         self.assertEqual({"task:0"}, {row["source_id"] for row in rows})
+
+    def test_sentences_map_to_the_criteria_that_cite_them(self):
+        rows = trace.sentence_rows(
+            self.state,
+            self.records,
+            criteria=[
+                criterion("C1", "Run the command.", ["`cli run FILE` processes up to 5000 rows"]),
+                criterion("C2", "Exclude the web UI.", [self.THIRD]),
+            ],
+        )
+
+        self.assertEqual([[], ["C1"], ["C2"]], [row["criterion_ids"] for row in rows])
 
     def test_a_control_reply_gets_no_sentence_and_numbering_does_not_shift(self):
         event = {"kind": "answer", "actor": "user_cli", "question_id": "requirements-review-0123abcd", "text": "plan"}

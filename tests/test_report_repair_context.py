@@ -15,6 +15,41 @@ from . import test_report_repair as repair_fixtures
 
 
 class ClarificationContextTests(unittest.TestCase):
+    def test_plan_reviewer_repair_includes_source_trace_review_guidance(self):
+        instruction = context.baseline_instruction("astra_challenge")
+
+        self.assertIn("review_source_sentences", instruction)
+        self.assertIn("criterion_ids", instruction)
+
+    def test_requirements_repair_sources_map_saved_feedback_to_previous_requirements(self):
+        feedback = {
+            "id": "feedback-1",
+            "actor": "user_cli",
+            "text": "Zero totals no longer matter. Fix checkout total.",
+        }
+        state = {
+            "requirements_handoff": {
+                "report": {
+                    "requirements": [
+                        {
+                            "id": "R2",
+                            "text": "Preserve existing behavior for a zero total and malformed receipts.",
+                            "source_quote": "Preserve existing behavior for a zero total and malformed receipts.",
+                        }
+                    ]
+                }
+            },
+            "brief_feedback": [feedback],
+            "user_events": [feedback],
+        }
+
+        result = context.requirements_sources(state, "requirements_gather")
+
+        self.assertEqual(
+            ["R2"],
+            result["requirements_correction_sources"][0]["previous_requirement_ids"],
+        )
+
     def test_protected_list_inventory_is_literal_read_only_and_not_an_authority_decision(self):
         protected = {
             "important_failure_cases": ["Keep zero", "Keep negatives"],
@@ -613,6 +648,7 @@ class DecisionRepairContextTests(unittest.TestCase):
                 if stage == "requirements_gather":
                     self.assertTrue(instruction.startswith(expected))
                     self.assertIn("requirements_correction_sources", instruction)
+                    self.assertIn("previous_requirement_ids are candidate links based on shared wording, not authority", instruction)
                     self.assertIn("ignored_requirements", instruction)
                 else:
                     self.assertTrue(instruction.startswith(expected))

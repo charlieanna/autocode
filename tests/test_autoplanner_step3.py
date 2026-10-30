@@ -383,6 +383,29 @@ class UncitedSentenceFlowTests(ObligationCase):
         self.apply("glm_revise", self.revise())
 
 
+class RequirementCorrectionContextTests(ObligationCase):
+    def test_first_requirements_handoff_gets_mapped_saved_correction_sources(self):
+        previous = {
+            "id": "R2",
+            "text": "Preserve existing behavior for a zero total and malformed receipts.",
+            "source_quote": "Preserve existing behavior for a zero total and malformed receipts.",
+        }
+        feedback = {"id": "feedback-1", "actor": "user_cli", "text": "Zero totals no longer matter."}
+        self.state["requirements_handoff"] = {"report": {"requirements": [previous]}}
+        self.state["brief_feedback"] = [feedback]
+        self.state["user_events"] = [feedback]
+
+        prompt, _ = planner.context(self.state, "requirements_gather", Path("/tmp/state.json"))
+        packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+
+        self.assertEqual([previous], packet["previous_requirements"])
+        self.assertEqual(["R2"], packet["requirements_correction_sources"][0]["previous_requirement_ids"])
+        self.assertIn(
+            "candidate links based on shared wording, not authority",
+            " ".join(prompt.split()),
+        )
+
+
 class SentenceIdCitationFlowTests(ObligationCase):
     """A report may cite whole sentences by id; the saved contract and every check see verbatim quotes (#1630)."""
 
@@ -419,6 +442,29 @@ class SentenceIdCitationFlowTests(ObligationCase):
                 prompt, packet = self.packet(stage)
                 self.assertNotIn("source_sentences", packet)
                 self.assertNotIn("SOURCE SENTENCE IDS", prompt)
+                self.assertEqual(
+                    ["C1"],
+                    packet["review_source_sentences"][0]["criterion_ids"],
+                )
+                self.assertEqual(
+                    {"source_id", "sentence", "criterion_ids"},
+                    set(packet["review_source_sentences"][0]),
+                )
+                self.assertIn("review_source_sentences", prompt)
+
+    def test_plan_reviewer_report_repair_gets_sentence_to_criterion_mapping(self):
+        self.apply("astra_discovery", self.discovery(self.by_id(1, 2)))
+
+        packet = planner.repair_citation_context(self.state, "astra_challenge", Path("/workspace"))
+
+        self.assertEqual(
+            {
+                "source_id": "task:0",
+                "sentence": TASK,
+                "criterion_ids": ["C1"],
+            },
+            packet["review_source_sentences"][0],
+        )
 
     def test_ids_are_saved_as_the_verbatim_sentences(self):
         self.apply("astra_discovery", self.discovery(self.by_id(1, 2)))

@@ -21,17 +21,21 @@ try:
     from . import autocode_coordination_context as coordination_context
     from . import autocode_goals as goals
     from . import autocode_plan_retention as retention
+    from . import autocode_requirement_retention as requirement_retention
     from . import autocode_regression_reference as regression_reference
     from . import autocode_report_edits as report_edits
     from . import autocode_roles as roles
+    from . import autocode_source_trace as source_trace
 except ImportError:
     import autocode_contract_revision as contract_revision
     import autocode_coordination_context as coordination_context
     import autocode_goals as goals
     import autocode_plan_retention as retention
+    import autocode_requirement_retention as requirement_retention
     import autocode_regression_reference as regression_reference
     import autocode_report_edits as report_edits
     import autocode_roles as roles
+    import autocode_source_trace as source_trace
 
 PLANNING_STAGES = frozenset(roles.ALL_PLANNING_STAGES)
 DECISION_STAGES = frozenset({"astra_plan", "astra_review", "astra_checkpoint", "astra_resolve"})
@@ -41,20 +45,10 @@ def requirements_sources(state: RunState, stage: str) -> dict:
     """Give a Requirements repair the saved IDs needed to cite a user correction."""
     if stage != "requirements_gather":
         return {"previous_requirements": None}
-    sources = [
-        {"basis": "user_feedback", "event_id": event["id"], "text": event.get("text", "")}
-        for event in state.get("brief_feedback", [])
-        if event.get("id") and event in state.get("user_events", [])
-    ]
-    sources.extend(
-        {"basis": "user_answer", "event_id": key, "text": value.get("text", "") if isinstance(value, dict) else value}
-        for key, value in (state.get("answers") or {}).items()
-    )
+    previous = ((state.get("requirements_handoff") or {}).get("report") or {}).get("requirements", [])
     return {
-        "previous_requirements": copy.deepcopy(
-            ((state.get("requirements_handoff") or {}).get("report") or {}).get("requirements", [])
-        ),
-        "requirements_correction_sources": sources,
+        "previous_requirements": copy.deepcopy(previous),
+        "requirements_correction_sources": requirement_retention.correction_sources(state, previous),
     }
 
 
@@ -65,9 +59,12 @@ def baseline_instruction(stage: str) -> str:
             "fragments/report-repair-context/requirements-corrections.md"
         )
     if stage in PLANNING_STAGES:
-        return prompts.get("fragments/report-repair-context/baseline-instruction-02.md") + prompts.get(
+        instruction = prompts.get("fragments/report-repair-context/baseline-instruction-02.md") + prompts.get(
             "fragments/autoplanner/proof-reference-rule.md"
         )
+        if stage in source_trace.REVIEW_STAGES:
+            instruction += prompts.get("fragments/autoplanner/source-citation-rule.md")
+        return instruction
     if stage in DECISION_STAGES:
         return prompts.get("fragments/report-repair-context/baseline-instruction-03.md")
     return prompts.get("fragments/report-repair-context/baseline-instruction.md")
