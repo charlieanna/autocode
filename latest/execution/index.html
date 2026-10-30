@@ -1475,80 +1475,8 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#budget-ownership-and-human-escalation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Budget ownership and human escalation
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#native-tool-containment" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Native tool containment
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Native tool containment">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#linux-bubblewrap-boundary" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Linux bubblewrap boundary
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#conformance-in-ci" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Conformance in CI
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#secret-redaction" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Secret redaction
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#learned-project-defaults" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Learned project defaults
-      
-    </span>
-  </a>
   
 </li>
       
@@ -2496,80 +2424,8 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#budget-ownership-and-human-escalation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Budget ownership and human escalation
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#native-tool-containment" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Native tool containment
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Native tool containment">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#linux-bubblewrap-boundary" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Linux bubblewrap boundary
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#conformance-in-ci" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Conformance in CI
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#secret-redaction" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Secret redaction
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#learned-project-defaults" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Learned project defaults
-      
-    </span>
-  </a>
   
 </li>
       
@@ -2594,7 +2450,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/f6f37f2fcda701c01b6a3617153542ce569fb62d/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/04cb9cdcd01528ebf7ee8bae01dfb75e6b5e064d/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2950,17 +2806,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and once the work is
   committed and merged it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/f6f37f2fcda701c01b6a3617153542ce569fb62d/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/04cb9cdcd01528ebf7ee8bae01dfb75e6b5e064d/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/f6f37f2fcda701c01b6a3617153542ce569fb62d/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/04cb9cdcd01528ebf7ee8bae01dfb75e6b5e064d/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/f6f37f2fcda701c01b6a3617153542ce569fb62d/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/04cb9cdcd01528ebf7ee8bae01dfb75e6b5e064d/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -3237,7 +3093,7 @@ plan and review approval the harness gave a run must also be listed among that r
 and so must each budget pause the scenario's person acknowledged, as the resume that names it.
 In a components scenario each such gate names the task run it was given to, so an
 approval listed only in another component's run fails
-(<a href="https://github.com/charlieanna/autocode/blob/f6f37f2fcda701c01b6a3617153542ce569fb62d/scenarios/README.md">scenarios/README.md</a>).</p>
+(<a href="https://github.com/charlieanna/autocode/blob/04cb9cdcd01528ebf7ee8bae01dfb75e6b5e064d/scenarios/README.md">scenarios/README.md</a>).</p>
 <h4 id="required-approver">Required approver<a class="headerlink" href="#required-approver" title="Permanent link">&para;</a></h4>
 <p>A team that wants only named people to approve can list their Git email addresses as
 <code>require-approver</code> in its <a href="../cli/#project-settings">project settings</a>:</p>
@@ -3868,11 +3724,28 @@ When the runner rejected such an attempt's output and the stuck-stage
 Investigator recommends a retry, that retry admits the Builder until one attempt
 returns a result, as an accepted operational diagnosis's does; a spent diagnosis
 retry does not hide it. An investigation of a novelty hold grants nothing.</p>
-<p>The explicit <code>--resume-paused --retry-failed-stage</code> control can authorize one
-scoped retry of a recorded hold under the existing limits. It retains previous
-attempts and evidence; ordinary resume is not that authorization. Unlike a
-diagnosis's retry, it is spent by the attempt it admits even if that attempt
-times out, and so is a <code>--retry-builder</code> grant. The grant does not carry over to
+<p>When the same incident repeats with nothing new (no bounded correction, no
+changed input, no unspent grant), the hold is still raised, but the stage loop's
+recovery chain settles it (<code>autocode_resolver_recovery.recover_no_progress</code>,</p>
+<h1 id="2485-autocode-records-the-one-scoped-retry-grant-a-person-used-to-give-with">2485): AutoCode records the one scoped retry grant a person used to give with<a class="headerlink" href="#2485-autocode-records-the-one-scoped-retry-grant-a-person-used-to-give-with" title="Permanent link">&para;</a></h1>
+<p><code>--retry-failed-stage</code> itself (an <code>actor: autocode</code> entry in
+<code>failure_retry_authorizations</code>, bound to the packet and the hold's binding), and
+the next dispatch spends it under the existing limits; the dispatch receipt names
+the grant kind <code>automatic</code>. A person is never asked to authorize it. If the same
+hold comes back after that retry, nothing automatic is left: the run ends there
+with a finished, failed outcome recorded as a stop receipt AutoCode applied
+itself (<code>autocode_stop.end</code>), and the status view shows "AutoCode could not
+finish this task" with the reason and the incident's evidence packet
+(<code>recovery.outcome</code>), as it shows a person's own stop. The run launches no
+further stages and offers no retry flag, packet path or token. A hold for another
+reason (a diagnosis without a causal question, a known cause that needs its
+deterministic correction, an unreconciled attempt), or one whose source, settings
+or scope no longer match, still waits as before, and the explicit
+<code>--resume-paused --retry-failed-stage</code> control can authorize one scoped retry of
+such a recorded hold under the existing limits. It retains previous attempts and
+evidence; ordinary resume is not that authorization. Unlike a diagnosis's retry,
+it is spent by the attempt it admits even if that attempt times out, and so is a
+<code>--retry-builder</code> grant. The grant does not carry over to
 the automatic recovery that follows. A relaunch of the same stage is admitted or
 held by novelty as it would be without the grant; a Builder timeout outside
 final-audit-only routing goes to the Completion Reviewer instead.
