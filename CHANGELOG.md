@@ -22,6 +22,9 @@ PR template asks for an entry here; a change without one is incomplete.
   schema when a Requirements report is repaired, instead of the generic JSON-edit schema that the
   gocode structured-output transport rejects before any model response. The repair therefore
   proceeds instead of pausing for operational recovery.
+- Once every run of a change set has completed under its approved plan, `changeset status` no longer
+  offers the set approval again, so the terminal chat's `/changeset` offers the set's integration
+  check instead of asking to approve plans that already ran.
 
 ## [0.9.0] — 2026-10-30
 
