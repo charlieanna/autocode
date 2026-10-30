@@ -21,6 +21,7 @@ try:
     from . import autocode_coordination_context as coordination_context
     from . import autocode_goals as goals
     from . import autocode_plan_retention as retention
+    from . import autocode_requirement_retention as requirement_retention
     from . import autocode_regression_reference as regression_reference
     from . import autocode_report_edits as report_edits
     from . import autocode_roles as roles
@@ -29,6 +30,7 @@ except ImportError:
     import autocode_coordination_context as coordination_context
     import autocode_goals as goals
     import autocode_plan_retention as retention
+    import autocode_requirement_retention as requirement_retention
     import autocode_regression_reference as regression_reference
     import autocode_report_edits as report_edits
     import autocode_roles as roles
@@ -41,20 +43,10 @@ def requirements_sources(state: RunState, stage: str) -> dict:
     """Give a Requirements repair the saved IDs needed to cite a user correction."""
     if stage != "requirements_gather":
         return {"previous_requirements": None}
-    sources = [
-        {"basis": "user_feedback", "event_id": event["id"], "text": event.get("text", "")}
-        for event in state.get("brief_feedback", [])
-        if event.get("id") and event in state.get("user_events", [])
-    ]
-    sources.extend(
-        {"basis": "user_answer", "event_id": key, "text": value.get("text", "") if isinstance(value, dict) else value}
-        for key, value in (state.get("answers") or {}).items()
-    )
+    previous = ((state.get("requirements_handoff") or {}).get("report") or {}).get("requirements", [])
     return {
-        "previous_requirements": copy.deepcopy(
-            ((state.get("requirements_handoff") or {}).get("report") or {}).get("requirements", [])
-        ),
-        "requirements_correction_sources": sources,
+        "previous_requirements": copy.deepcopy(previous),
+        "requirements_correction_sources": requirement_retention.correction_sources(state, previous),
     }
 
 

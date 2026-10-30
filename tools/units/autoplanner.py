@@ -47,6 +47,7 @@ try:
     from .. import autocode_progressive_state as progressive
     from .. import autocode_regression_reference as regression_reference
     from .. import autocode_requirement_cues as requirement_cues
+    from .. import autocode_requirement_retention as requirement_retention
     from .. import autocode_risk_obligations as risk_obligations
     from .. import autocode_role_route as role_route
     from .. import autocode_roles as role_names
@@ -88,6 +89,7 @@ except ImportError:
     import autocode_progressive_state as progressive
     import autocode_regression_reference as regression_reference
     import autocode_requirement_cues as requirement_cues
+    import autocode_requirement_retention as requirement_retention
     import autocode_risk_obligations as risk_obligations
     import autocode_role_route as role_route
     import autocode_roles as role_names
@@ -1311,6 +1313,17 @@ def context(state: RunState, stage, state_path):
         "budget": prompts.get("fragments/autoplanner/context.md").format(review_call_limit(state) or "Unlimited"),
         "recovery_context": state.get("recovery_context"),
     }
+    if stage == "requirements_gather":
+        previous_requirements = ((state.get("requirements_handoff") or {}).get("report") or {}).get("requirements", [])
+        if previous_requirements:
+            packet["previous_requirements"] = [
+                {key: row.get(key) for key in ("id", "text", "source_quote")}
+                for row in previous_requirements
+                if isinstance(row, dict)
+            ]
+            packet["requirements_correction_sources"] = requirement_retention.correction_sources(
+                state, previous_requirements
+            )
     if stage == "astra_challenge" and (correction_snapshot := failure_correction.snapshot(state)):
         packet["draft_failure_correction_snapshot"] = correction_snapshot
     coordinated = stage_context.coordination_context.context(state)

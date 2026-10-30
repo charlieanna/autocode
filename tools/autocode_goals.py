@@ -427,7 +427,11 @@ def check_requirement_handoff(state: RunState, report):
     validate_assumptions(report.get("proposed_assumptions", []), seen)
     check_delegable(report.get("open_questions", []))
     requirement_retention.check(
-        previous_requirements, report, quote_by_id, lambda basis, event_id: _saved_user_basis(state, basis, event_id)
+        previous_requirements,
+        report,
+        quote_by_id,
+        lambda basis, event_id: _saved_user_basis(state, basis, event_id),
+        requirement_retention.correction_sources(state, previous_requirements),
     )
 
 

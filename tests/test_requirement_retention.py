@@ -4,6 +4,7 @@ import copy
 import unittest
 
 import autocode_goals as goals
+import autocode_requirement_retention as retention
 
 TASK = (
     "Fix checkout showing '100.0 USD' for a 100 USD subtotal when the expected final total is '$110.00'. "
@@ -107,6 +108,52 @@ class RequirementRetentionTests(unittest.TestCase):
         ]
         with self.assertRaisesRegex(ValueError, "needs a saved user answer or feedback event"):
             goals.check_requirement_handoff(state, report)
-        state["brief_feedback"] = [{"id": "feedback-1", "text": "Remove the preservation requirement."}]
+        feedback = {"id": "feedback-1", "text": "Remove the preservation requirement."}
+        state["brief_feedback"] = [feedback]
         state["user_events"] = copy.deepcopy(state["brief_feedback"])
         goals.check_requirement_handoff(state, report)
+
+    def test_unbacked_omission_error_includes_candidate_saved_corrections(self):
+        state = self.state()
+        feedback = {"id": "feedback-1", "text": "Zero totals no longer matter. Fix checkout total."}
+        state["brief_feedback"] = [feedback]
+        state["user_events"] = [feedback]
+
+        with self.assertRaises(ValueError) as caught:
+            goals.check_requirement_handoff(state, {"requirements": [], "ignored_statements": []})
+
+        message = str(caught.exception)
+        self.assertIn("dropped requirement R3", message)
+        self.assertIn("user_feedback:feedback-1", message)
+
+    def test_saved_correction_sources_name_matching_previous_requirements(self):
+        state = self.state()
+        feedback = {"id": "feedback-1", "text": "Zero totals no longer matter."}
+        unrelated = {"id": "feedback-2", "text": "Add a dark theme."}
+        unsaved = {"id": "feedback-3", "text": "Ignore malformed receipts."}
+        state["brief_feedback"] = [feedback]
+        state["user_events"] = [feedback, unrelated]
+        state["brief_feedback"].extend((unrelated, unsaved))
+        state["answers"] = {
+            "answer-1": {"text": "The delivery policies changed."},
+            "answer-2": "The class behavior changed.",
+            "answer-3": {"text": ""},
+        }
+        previous = [
+            {"id": "R1", "text": "Fix checkout total.", "source_quote": TASK},
+            {"id": "R3", "text": TEXT, "source_quote": PRESERVE},
+            {"id": "R4", "text": "Keep the delivery policy.", "source_quote": "Keep the delivery policy."},
+            {"id": "R5", "text": "Keep class behavior.", "source_quote": "Keep class behavior."},
+        ]
+
+        sources = retention.correction_sources(state, previous)
+
+        self.assertEqual(
+            [
+                ("feedback-1", ["R3"]),
+                ("feedback-2", []),
+                ("answer-1", ["R4"]),
+                ("answer-2", ["R5"]),
+            ],
+            [(source["event_id"], source["previous_requirement_ids"]) for source in sources],
+        )
