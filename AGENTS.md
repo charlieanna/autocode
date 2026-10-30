@@ -257,6 +257,18 @@ were archived at tag `archive/pre-restructure-2026-09-26`
    cycles.
 6. **The status view is a contract.** Add fields to `autocode_run_view.view`;
    never rename or remove one.
+7. **An identity that digests where a run happened must say how replay re-derives
+   it.** Replay (`docs/replay.md`) runs a saved run's recorded model answers in new
+   directories. A field whose value digests the workspace, run directory or
+   execution context (a changed-line `gap_id`, a capture nonce, the regression proof's
+   freshly named directory) is therefore different in the replay, and a recorded answer that names the old
+   value is rightly refused as stale. Such a field is declared in
+   `autocode_replay_bindings`: what it stably identifies (for a gap, its exact file,
+   bytes and line; for a proof citation, "the run's current proof") is recorded with the
+   answer, and `autocode_replay_recording.rebind` re-derives the current value from that
+   identity alone. Never widen a gate to accept
+   the recorded value, and never derive the new value from model text. A new such
+   identity without its binding breaks `tests.test_saved_run_replay_cli` on master.
 
 ## Names
 
