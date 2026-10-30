@@ -67,6 +67,25 @@ requires evidence of newly working behavior; `preserve` checks preservation
 without requiring a base failure. These retain the existing proof runner's
 checks rather than accepting a model's claim that tests passed.
 
+Once that proof passes, the runner also runs the review mutation check on the
+change itself, whichever way it was selected (the working tree, `--branch` or
+`--patch`). It assembles the whole change as one patch of `--base`, untracked
+files included, keeps it as `mutation-base/reviewed-change.patch` in the output
+directory, and applies it to a private copy of the base exactly as a reviewer's
+named patch is applied: the test files the change adds or modifies run against
+small mutations of its changed Python product lines, and a test that still
+passes with a line broken is recorded as a surviving mutant. The result is
+`workflow_result.mutation_check` in `evidence.json` and the "Review test
+mutation check" section of `evidence.md`; its command captures are pinned like
+every other check, so a later edit makes the record stale. It is report-only
+and changes no verdict, like the same check in a task run. The check records a
+note instead of running when the proof did not pass, when the change adds or
+modifies no standard Python test file or no Python product line, when the
+project command cannot select those test files alone, or when its budget runs
+out. The independent review's own `findings.json` still says that no explicit
+patch was supplied: the reviewer reads the applied change, and the runner, not
+the reviewer, holds the patch.
+
 A PASS also has to satisfy the existing completion evidence predicate. A
 blocking review, failed proof, failed check, missing evidence or changed source
 cannot pass. A criterion requiring human acceptance remains UNVERIFIED: a model

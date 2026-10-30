@@ -8,6 +8,7 @@ Builder or repairs the user's candidate.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import shutil
@@ -19,6 +20,8 @@ from pathlib import Path
 try:
     from . import autocode_agent_env as agent_env
     from . import autocode_check_replay as check_replay
+    from . import autocode_mutation_check as mutation_record
+    from . import autocode_review_mutation as review_mutation
     from . import autocode_util as util
     from . import autocode_verify as proof_runner
     from . import autocode_verify_contract as criteria_policy
@@ -27,11 +30,15 @@ try:
 except ImportError:
     import autocode_agent_env as agent_env
     import autocode_check_replay as check_replay
+    import autocode_mutation_check as mutation_record
+    import autocode_review_mutation as review_mutation
     import autocode_util as util
     import autocode_verify as proof_runner
     import autocode_verify_contract as criteria_policy
     import autocode_verify_record as records
     from autocode_taskrun import TaskRun, TaskRunError
+
+REVIEWED_PATCH = "reviewed-change.patch"  # the change under review, as the runner assembled it (#2506)
 
 
 def git_result(workspace, *args, accepted=(0,)):
@@ -99,6 +106,50 @@ def copy_changes(workspace, candidate, changes):
                 target.symlink_to(os.readlink(source))
             else:
                 shutil.copy2(source, target)
+
+
+def reviewed_patch(candidate, base):
+    """The whole change under review as one patch of ``base``: committed, copied-in and untracked files.
+
+    ``git diff base --`` leaves out untracked files (the review brief says so), so the candidate's
+    working tree is first written as a dangling commit (commit_worktree: no ref, index or file changes,
+    so the candidate's identity is unchanged). Renames are spelled as a deletion and an addition, the
+    only shapes the review mutation check reads."""
+    head = proof_runner.commit_worktree(candidate)
+    return git_result(
+        candidate, "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--binary", base, head, "--"
+    ).stdout
+
+
+def mutation_check(workspace, root, base, patch, proof_verdict):
+    """Run the review mutation check (autocode_review_mutation) on the change's own tests (#2506).
+
+    The reviewer's ``change_patch`` is empty in a verification (the review checkout already holds
+    the change), so the runner supplies the patch it assembled itself: a bare clone of ``base`` holds
+    it, and the check applies it there exactly as it applies a reviewer-named patch. Report only, as
+    everywhere else: survivors are recorded, never a verdict. Like a task run's check (#699) it runs
+    only once the external-change proof passed, so a failed proof spends nothing on mutants."""
+    if proof_verdict != proof_runner.PASS:
+        return mutation_record.record(
+            "The external-change proof has not passed; the review mutation check ran no test."
+        )
+    mutation_base = Path(root) / "mutation-base"
+    clone(workspace, mutation_base, base)
+    target = mutation_base / REVIEWED_PATCH
+    if target.exists():
+        return mutation_record.record(
+            f"The base already holds {REVIEWED_PATCH}; the review mutation check ran no test."
+        )
+    target.write_text(patch)
+    try:
+        return review_mutation.collect(
+            mutation_base,
+            Path(root) / "review-mutation",
+            REVIEWED_PATCH,
+            functools.partial(proof_runner.scratch_run, dependencies_from=workspace),
+        )
+    except util.Paused as error:  # nothing in a standalone verification can answer a pause
+        return mutation_record.record("The review mutation check stopped: " + str(error))
 
 
 def verify(args, contract):
@@ -265,6 +316,7 @@ def verify(args, contract):
         new_behavior=contract["proof_kind"] == "feature",
         preserve_only=contract["proof_kind"] == "preserve",
     )
+    mutations = mutation_check(workspace, root, base, reviewed_patch(candidate, base), proof.get("verdict"))
     checks = [
         {"command": row["verification_method"], "exit_code": 0, "evidence_ref": "caller-declared-check"}
         for row in contract["acceptance_criteria"]
@@ -311,6 +363,7 @@ def verify(args, contract):
         original=original,
         original_index=original_index,
         candidate=candidate,
+        mutation_check=mutations,
     )
 
 
