@@ -472,6 +472,179 @@ class OwnedTransportTests(unittest.TestCase):
         self.assertEqual("fresh-nonce", emitted["capture_context"]["nonce"])
         self.assertEqual("old-nonce remains in diagnostic", emitted["summary"])
 
+    def test_recorded_changed_line_reasons_rebind_to_the_replay_proofs_gap_ids(self):
+        # A gap id digests the proof's source revision and execution context, so the replay in new
+        # directories computes a new one for the same file, bytes and line (#2500).
+        import autocode_changed_code_evidence as line_evidence
+
+        gap = {"path": "greet.py", "sha256": "a" * 64, "line": 3}
+        report = {
+            "verdict": "PASS",
+            "changed_code_exceptions": [
+                {
+                    "gap_id": "changed-code:" + "0" * 64,
+                    "decision": "accept",
+                    "reason_kind": "instrumentation_unavailable",
+                }
+            ],
+            "summary": "changed-code:" + "0" * 64 + " stays in prose",
+        }
+        bindings = [
+            {
+                "pointer": "/report/changed_code_exceptions/0/gap_id",
+                "symbol": "changed_code_gap",
+                "original_valid": True,
+                "gap": gap,
+            }
+        ]
+        self.tape(report=report, bindings=bindings)
+        tape = self.tape_value
+        row = tape.document["dispatches"][0]
+        context = {key: row[key] for key in (*transport.CONTEXT_KEYS, "task_id", "contract_hash", "criteria_revision")}
+        context["consumed"] = 0
+        proof = {"source_revision": "r" * 64, "proof_context": "c" * 64}
+        result, _ = self.emit(self.prepare(context={**context, "changed_code_proof": proof}))
+        self.assertEqual(0, result.returncode, result.stderr)
+        emitted = json.loads(self.report.read_text())
+        self.assertEqual(
+            line_evidence.gap_id(proof["source_revision"], proof["proof_context"], "greet.py", "a" * 64, 3),
+            emitted["changed_code_exceptions"][0]["gap_id"],
+        )
+        self.assertEqual(report["summary"], emitted["summary"])
+
+    def test_a_recorded_changed_line_reason_has_no_current_gap_without_a_replay_proof(self):
+        bindings = [
+            {
+                "pointer": "/report/changed_code_exceptions/0/gap_id",
+                "symbol": "changed_code_gap",
+                "original_valid": True,
+                "gap": {"path": "greet.py", "sha256": "a" * 64, "line": 3},
+            }
+        ]
+        self.tape(report={"changed_code_exceptions": [{"gap_id": "changed-code:" + "0" * 64}]}, bindings=bindings)
+        row = self.tape_value.document["dispatches"][0]
+        context = {key: row[key] for key in (*transport.CONTEXT_KEYS, "task_id", "contract_hash", "criteria_revision")}
+        context["consumed"] = 0
+        result, _ = self.emit(self.prepare(context={**context, "changed_code_proof": None}))
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Replay transport stopped", result.stderr)
+        self.assertFalse(self.report.exists())
+
+    def test_a_changed_line_binding_needs_its_gap_and_other_symbols_refuse_one(self):
+        for binding in (
+            {"pointer": "/report/x", "symbol": "changed_code_gap", "original_valid": True},
+            {
+                "pointer": "/report/x",
+                "symbol": "output",
+                "original_valid": True,
+                "gap": {"path": "a", "sha256": "b" * 64, "line": 1},
+            },
+            {
+                "pointer": "/report/x",
+                "symbol": "changed_code_gap",
+                "original_valid": True,
+                "gap": {"path": "a", "sha256": "b" * 64, "line": 0},
+            },
+            {
+                "pointer": "/report/x",
+                "symbol": "changed_code_gap",
+                "original_valid": True,
+                "gap": {"path": "../a", "sha256": "b" * 64, "line": 1},
+            },
+        ):
+            with self.assertRaises(recording.RecordingError):
+                recording.validate_bindings([binding])
+
+    def test_export_binds_a_recorded_testers_gap_ids_through_the_handoffs_open_obligations(self):
+        import autocode_replay_bindings as identity_bindings
+
+        packet = {
+            "regression_proof": {
+                "changed_code_evidence": {
+                    "obligations": [
+                        {
+                            "gap_id": "changed-code:" + "1" * 64,
+                            "status": "reason_required",
+                            "path": "greet.py",
+                            "sha256": "a" * 64,
+                            "line": 3,
+                        },
+                        {
+                            "gap_id": "changed-code:" + "2" * 64,
+                            "status": "tested",
+                            "path": "greet.py",
+                            "sha256": "a" * 64,
+                            "line": 4,
+                        },
+                        {
+                            "gap_id": "changed-code:" + "3" * 64,
+                            "status": "reason_required",
+                            "path": "greet.py",
+                            "sha256": "short",
+                            "line": 5,
+                        },
+                    ]
+                }
+            }
+        }
+        gaps = identity_bindings.changed_line_gaps(packet)
+        self.assertEqual({"changed-code:" + "1" * 64: {"path": "greet.py", "sha256": "a" * 64, "line": 3}}, gaps)
+        payload = {
+            "events": [],
+            "report": {
+                "changed_code_exceptions": [
+                    {"gap_id": "changed-code:" + "1" * 64},
+                    {"gap_id": "changed-code:" + "2" * 64},
+                    {"gap_id": "changed-code:" + "9" * 64},
+                ]
+            },
+            "response": None,
+        }
+        proof = str(self.root / "run" / "regression" / "proof-01-0ad27e694f80" / "verification.json")
+        payload["report"]["changed_code_exceptions"][0]["evidence_refs"] = [proof, str(self.root / "run" / "x.log")]
+        packet["regression_proof"]["path"] = proof
+        bound = identity_bindings.bindings(
+            payload, {}, {}, self.root, self.root / "run", [], gaps=gaps, proof=identity_bindings.proof_path(packet)
+        )
+        self.assertEqual(
+            [
+                {
+                    "pointer": "/report/changed_code_exceptions/0/gap_id",
+                    "symbol": "changed_code_gap",
+                    "original_valid": True,
+                    "gap": {"path": "greet.py", "sha256": "a" * 64, "line": 3},
+                },
+                # The proof directory is named afresh in every run: its citation binds to the replay's proof.
+                {
+                    "pointer": "/report/changed_code_exceptions/0/evidence_refs/0",
+                    "symbol": "regression_proof",
+                    "original_valid": True,
+                },
+                {
+                    "pointer": "/report/changed_code_exceptions/0/evidence_refs/1",
+                    "symbol": "run_dir",
+                    "original_valid": True,
+                    "suffix": "x.log",
+                },
+            ],
+            bound,
+        )
+        recording.validate_bindings(bound)
+        self.assertEqual(
+            proof,
+            recording.rebind(
+                {"a": proof},
+                [{"pointer": "/a", "symbol": "regression_proof", "original_valid": True}],
+                {"regression_proof": proof},
+            )["a"],
+        )
+        with self.assertRaises(recording.RecordingError):
+            recording.rebind(
+                {"a": proof},
+                [{"pointer": "/a", "symbol": "regression_proof", "original_valid": True}],
+                {"regression_proof": None},
+            )
+
     def test_existing_provider_overwrite_bug_replays_the_preserved_transport_stream(self):
         # The existing bug note describes an accidental `w` open of the stdout
         # evidence path. Capture that actual attempt, then replay its saved rows.
@@ -1152,8 +1325,14 @@ class RecordedObligationTests(unittest.TestCase):
                     recording.verify_finished(self.tape, bad, consumed_actions=0)
 
 
-def make_retained_run(root, *, regression_cases=False, task=None):
-    """Build a no-source-change attempt and declared, ordered archival checks."""
+def make_retained_run(
+    root, *, regression_cases=False, task=None, changed_lines_only=False, fail_to_pass=("test_greet",)
+):
+    """Build a no-source-change attempt and declared, ordered archival checks.
+
+    ``changed_lines_only`` records the proof a build whose criteria name no test still owes (#2474):
+    no named cases, and the Builder's own fail-to-pass tests.
+    """
     projection = make_export_projection(root)
     attempt = projection["records"][0]
     attempt["before_ref"] = attempt["after_ref"]
@@ -1171,6 +1350,37 @@ def make_retained_run(root, *, regression_cases=False, task=None):
         "source_revision": source["revision"],
     }
     rows = [("independent", "independent_clean_replay", independent)]
+    if changed_lines_only:
+        rows = [
+            (
+                "baseline",
+                "regression_baseline",
+                {
+                    "base": source["head"],
+                    "command": suite,
+                    "health": "broken",
+                    "receipt": {"command": suite, "exit_code": 5},
+                },
+            ),
+            (
+                "proof",
+                "regression_proof",
+                {
+                    "verdict": "PASS",
+                    "source_revision": source["revision"],
+                    "commands": {"suite": suite, "regression": regression_command},
+                    "case_scope": [],
+                    "case_tests": None,
+                    "fail_to_pass": list(fail_to_pass),
+                    "checks": {
+                        "suite_on_candidate": {"command": suite, "exit_code": 0},
+                        "regression_on_candidate": {"command": regression_command, "exit_code": 0},
+                    },
+                    "baseline": {"health": "broken", "exit_code": 5},
+                },
+            ),
+            *rows,
+        ]
     if regression_cases:
         rows = [
             (
@@ -1377,6 +1587,74 @@ class RetainedArchivalReadinessTests(unittest.TestCase):
         self.assertFalse(self.ready(required_case_ids=["B1"]))
 
 
+class ChangedLineOnlyRegressionTests(unittest.TestCase):
+    """A recorded proof without named cases (#2474) replays in recorded-checks mode (#2500)."""
+
+    def run_recorded(self, **fixture):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        tape, workspace, state, record, suite, regression_command = make_retained_run(
+            Path(temporary.name).resolve(), changed_lines_only=True, **fixture
+        )
+        return checks.regression(state, workspace, case_ids=[], suite=suite, regression_command=regression_command)
+
+    def test_a_recorded_proof_without_named_cases_is_the_replays_simulated_proof(self):
+        proof = self.run_recorded()
+        self.assertEqual(([], None, ["test_greet"]), (proof["case_scope"], proof["case_tests"], proof["fail_to_pass"]))
+        self.assertIs(proof["simulated"], True)
+        self.assertIs(proof["current_proof"], False)
+
+    def test_the_testers_review_of_the_retained_proof_is_reused_and_any_other_change_diverges(self):
+        import autocode_changed_code_proof as proof_policy
+
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        tape, workspace, state, record, suite, regression_command = make_retained_run(
+            Path(temporary.name).resolve(), changed_lines_only=True
+        )
+        arguments = {"case_ids": [], "suite": suite, "regression_command": regression_command}
+        proof = checks.regression(state, workspace, **arguments)
+        decisions = [{"gap_id": "changed-code:" + "1" * 64, "accepted": True}]
+        state["validation"] = {"changed_code_decisions": decisions}
+        state["regression_proof"]["changed_code_evidence"] = proof_policy.reviewed(proof, decisions)
+        reviewed = copy.deepcopy(state)
+        self.assertEqual(state["regression_proof"], checks.regression(state, workspace, **arguments))
+        self.assertEqual(reviewed, state)
+        state["validation"] = {}
+        with self.assertRaisesRegex(ValueError, "retained archival summary differs"):
+            checks.regression(state, workspace, **arguments)
+        state["validation"] = {"changed_code_decisions": decisions}
+        state["regression_proof"]["verdict"] = "FAIL"
+        with self.assertRaisesRegex(ValueError, "retained archival summary differs"):
+            checks.regression(state, workspace, **arguments)
+
+    def test_a_recorded_proof_that_proved_nothing_is_a_divergence(self):
+        with self.assertRaisesRegex(ValueError, "named regression or baseline semantics"):
+            self.run_recorded(fail_to_pass=())
+
+    def test_the_interpreters_location_is_the_replay_hosts_environment_not_the_obligation(self):
+        # The recording host resolved `python3` where it was installed; this host resolves its own copy.
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        tape, workspace, state, record, suite, regression_command = make_retained_run(
+            Path(temporary.name).resolve(), changed_lines_only=True
+        )
+        proof = checks.regression(
+            state, workspace, case_ids=[], suite="/opt/venv/bin/python3 suite.py", regression_command=regression_command
+        )
+        self.assertEqual("PASS", proof["verdict"])
+        state["regression_proof"] = {}
+        state["replay_result"] = {}
+        with self.assertRaisesRegex(ValueError, "archived executable obligations differ"):
+            checks.regression(
+                state,
+                workspace,
+                case_ids=[],
+                suite="/opt/venv/bin/python suite.py",
+                regression_command=regression_command,
+            )
+
+
 class RetainedRegressionTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -1417,6 +1695,16 @@ class RetainedRegressionTests(unittest.TestCase):
                         self.regression()
                     path.write_bytes(original)
                     self.assertEqual(self.proof, self.regression())
+
+    def test_the_interpreters_location_does_not_change_the_retained_obligation(self):
+        self.assertEqual(
+            self.proof,
+            self.regression(
+                suite="/opt/venv/bin/python3 suite.py", regression_command="/usr/bin/python3 regression.py"
+            ),
+        )
+        with self.assertRaises(ValueError):
+            self.regression(suite="/opt/venv/bin/python suite.py")
 
     def test_changed_command_or_named_case_scope_cannot_reuse_cached_proof(self):
         for changed in (
