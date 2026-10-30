@@ -1,6 +1,7 @@
 """A coordinated member owns the foreground while anchor polling continues."""
 
 import copy
+import os
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -10,6 +11,18 @@ import autocode_chat_coordination as coordination
 
 
 class CoordinatedDisplayTests(unittest.TestCase):
+    def test_environment_uses_stable_user_catalog_and_preserves_explicit_autocode_home(self):
+        with patch.dict(os.environ, {}, clear=True):
+            first = coordination.environment(Path("/tmp/project-one"))
+            second = coordination.environment(Path("/tmp/project-two"))
+        self.assertEqual(first["AUTOCODE_SOURCE_CATALOG_HOME"], second["AUTOCODE_SOURCE_CATALOG_HOME"])
+        self.assertEqual(str(Path.home() / ".autocode"), first["AUTOCODE_SOURCE_CATALOG_HOME"])
+        self.assertEqual(str(Path("/tmp/project-one/.autocode/registry").resolve()), first["AUTOCODE_HOME"])
+        with patch.dict(os.environ, {"AUTOCODE_HOME": "/shared/autocode"}, clear=True):
+            explicit = coordination.environment(Path("/tmp/project-one"))
+        self.assertEqual("/shared/autocode", explicit["AUTOCODE_SOURCE_CATALOG_HOME"])
+        self.assertEqual("/shared/autocode", explicit["AUTOCODE_HOME"])
+
     def test_anchor_reads_cannot_replace_the_active_member_and_callbacks_are_restored(self):
         for fail in (False, True):
             with self.subTest(child_fails=fail):

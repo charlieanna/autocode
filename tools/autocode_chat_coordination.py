@@ -15,8 +15,14 @@ except ImportError:
 
 
 def environment(workspace, selected=None):
-    """Use the task's existing registry default for setup and every child call."""
+    """Keep repository discovery shared while preserving project-local run storage."""
     result = {**os.environ, **(selected or {})}
+    if not result.get("AUTOCODE_SOURCE_CATALOG_HOME"):
+        # Capture the user's explicit shared home before the chat assigns its
+        # legacy workspace-local AUTOCODE_HOME default below. This makes fresh
+        # repository discovery independent of the directory used to launch chat.
+        selected_home = result.get("AUTOCODE_HOME") or str(Path.home() / ".autocode")
+        result["AUTOCODE_SOURCE_CATALOG_HOME"] = selected_home
     result.setdefault("AUTOCODE_HOME", str(Path(workspace).resolve() / ".autocode" / "registry"))
     return result
 
