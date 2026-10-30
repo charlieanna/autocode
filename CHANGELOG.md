@@ -9,6 +9,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- A run-wide `--provider gocode` (rather than a per-role provider) now sends the plain full-report
+  schema when a Requirements report is repaired, instead of the generic JSON-edit schema that the
+  gocode structured-output transport rejects before any model response. The repair therefore
+  proceeds instead of pausing for operational recovery.
+
 ## [0.9.0] — 2026-10-30
 
 ### Added
