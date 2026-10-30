@@ -296,6 +296,14 @@ tokens remain withheld even when listed.
 Withholding variables is not a sandbox: an agent with shell access can still read
 files such as `~/.aws/credentials` or `~/.config/gh/hosts.yml`.
 
+Configured tools such as GoCode keep their own model identifiers in saved status
+and model-recovery recommendations. A provider selected for the whole run uses the
+same validation as a per-role transport override; native OpenCode still requires
+`provider/model` identifiers. Recovery recommendations list the run's other saved
+models that satisfy verifier independence. A named replacement is checked against
+the actual provider catalog before it is saved; recommendations never authorize a
+provider switch or bypass the independent-checker rule.
+
 Resuming preserves the saved engine, models and separate role sessions. Start a new
 run when switching between Codex, OpenCode and Claude Code; their session IDs cannot be reused
 across engines. A response with an unexpected session ID pauses the run.

@@ -59,6 +59,15 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
                 self.assertEqual([consumer], list(kept))
 
+    def test_provider_model_rules_keep_the_public_recovery_consumer(self):
+        consumer = "tests.test_provider_route_recovery_cli"
+        for path in ("tools/autocode_role_transport.py", "tools/autocode_quota_route.py",
+                     "tools/autocode_action_resolver.py", "tools/fake_command_tool.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_the_quota_worker_keeps_its_dynamically_imported_fixture_consumer(self):
         consumer = "tests.test_quota_worker"
         selected = run_suite.select_tests(["tests/opencode_fixture_cli.py"], {consumer: "", "tests.test_unrelated": ""})
