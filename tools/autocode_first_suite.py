@@ -333,3 +333,96 @@ def absent_go_suite(base_receipt, candidate_receipt, *, no_go_project):
         and base_receipt.get("timed_out") is False
         and _candidate_passed(candidate_receipt)
     )
+
+
+def repairable_failures(base_suite, suite_command):
+    """The base suite's tests that ran and failed there, when its command is the proof's suite command.
+
+    A repair whose regression test the project already had changes no test; whether these pass on the
+    candidate (existing_flip) decides its proof. Collection errors are not tests that ran.
+    """
+    results = ((base_suite or {}).get("receipt") or {}).get("results")
+    if not suite_command or (base_suite or {}).get("command") != suite_command:
+        return []
+    if not isinstance(results, dict) or not results.get("complete"):
+        return []
+    return sorted(set(results["failed"]) - set(results.get("collection_errors") or []))
+
+
+def existing_flip(on_candidate, base_suite, failing, proof, fail, unverified, notes, allow_no_test):
+    """The base suite's own failing tests are the regression tests of a repair that changed no test.
+
+    They ran and failed on the original code (``failing``, repairable_failures); the ones that pass on
+    the candidate are its fail-to-pass proof, the bug reproduced by a test the project already had, and
+    the base's passing tests that still pass are the pass-to-pass set. When none passes now, the change
+    fixed nothing those tests show, and the ordinary missing-test judgement stands.
+    """
+    candidate = on_candidate.get("results")
+    if on_candidate["timed_out"] or not (candidate and candidate.get("complete")):
+        unverified.append(
+            "The project suite on the candidate reported no complete per-test results, "
+            "so the existing failing tests cannot show the repair"
+        )
+        return
+    flipped = sorted(set(failing) & set(candidate["passed"]))
+    if not flipped:
+        (unverified if allow_no_test else fail).append(
+            "No regression test was added or changed, and no test that fails on the original code passes "
+            "with the change, so the bug is not shown to be reproduced"
+        )
+        return
+    base_results = base_suite["receipt"]["results"]
+    proof.update(
+        fail_to_pass=flipped,
+        pass_to_pass=sorted(set(base_results["passed"]) & set(candidate["passed"])),
+        not_run_on_base=[],
+        failed_on_candidate=sorted(candidate["failed"]),
+    )
+    notes.append("Existing tests that fail on the original code pass with the change: " + ", ".join(flipped[:20]))
+
+
+def repaired_all(base_results, repaired, notes) -> bool:
+    """Every failing base test was repaired (existing_flip): a base with no passing test then has nothing lost."""
+    if not repaired or not isinstance(base_results, dict) or not set(base_results["failed"]) <= set(repaired):
+        return False
+    if not base_results["passed"]:
+        notes.append(
+            "Every test of the original code failed there and passes with the change; nothing passing was lost"
+        )
+    return True
+
+
+def suite_guards(on_candidate, base_suite, proof, *, unchanged, with_tests=None):
+    """What the whole suite shows about guards (preserve cases), with complete per-test results on both runs.
+
+    When no test changed (``unchanged``), nothing can flip and the base suite ran the same tests, so the
+    targeted lists stay empty and the guards rest on its tests that pass on base and on the candidate, by
+    id as well as by exact name (autocode_regression.check_cases). Otherwise
+    ``with_tests`` is the suite on the base with the change's test files: its tests that pass there and on
+    the candidate (``suite_pass_to_pass``) ran the same content on the original code and the change, which
+    the pristine base cannot show once a test, fixture or golden file changed. ``failed_on_candidate`` is
+    the candidate's failures: a guard with a failing variant does not hold, even when that variant already
+    failed on base.
+    """
+    candidate = on_candidate.get("results")
+    if not (candidate and candidate.get("complete")):
+        return
+    if unchanged:
+        base = ((base_suite or {}).get("receipt") or {}).get("results")
+        if base and base.get("complete"):
+            proof.update(
+                fail_to_pass=[],
+                pass_to_pass=[],
+                not_run_on_base=[],
+                suite_pass_to_pass=sorted(set(base["passed"]) & set(candidate["passed"])),
+                failed_on_candidate=sorted(candidate["failed"]),
+            )
+        return
+    before = (with_tests or {}).get("results")
+    if before and before.get("complete") and not with_tests.get("timed_out"):
+        proof.update(
+            suite_pass_to_pass=sorted(set(before["passed"]) & set(candidate["passed"])),
+            failed_on_candidate=sorted(candidate["failed"]),
+        )
+    elif with_tests is not None:
+        proof["guard_run_incomplete"] = True  # a guard left without a test is then unproven, not refuted
