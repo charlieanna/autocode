@@ -289,13 +289,16 @@ from `tools/autocode_mutants.py`).
   cookie spells it), files that do not parse with the runner's Python and files
   with a carriage return no line feed follows (Python and git number their lines
   differently) are never changed; the record notes why.
-- **What.** Five operators: negate a condition (`if`, `while`, a conditional
+- **What.** Six operators: negate a condition (`if`, `while`, a conditional
   expression, `assert`, a comprehension filter or a `case` guard); swap a bound
   (`<` and `<=`, `>` and `>=`); drop a branch (an `if` body or its `else` becomes
   `pass`, a decorated definition with its decorators; an `elif` is mutated as
-  its own `if`); return a constant instead of the value; and shift an integer
+  its own `if`); return a constant instead of the value; shift an integer
   bound by one: a literal beside `<`, `<=`, `>` or `>=` (an `==`, `!=`, `is` or
-  `in` operand is not a bound). Each mutant replaces the bytes of one syntax node,
+  `in` operand is not a bound); and bind another constant where a bool, number
+  or string literal is assigned to a name (`TEXT = "hello"` becomes `TEXT = ""`),
+  so a line whose whole behavior is the value it binds has a site a test can
+  see. Each mutant replaces the bytes of one syntax node,
   keeps every line number, must compile, and must change its statement exactly as
   intended; a site that fails one of these, or cannot be checked at all (a
   statement nested too deep, an integer too long to print), is skipped with a
@@ -308,7 +311,11 @@ from `tools/autocode_mutants.py`).
   sample per file. The same source and selection give the same sites.
 - **How long.** One 900-second budget, the same limit as a check replay, covers
   one unmutated run and every mutant. Current task proofs select the independently
-  observed passing candidate-suite tests by exact ID; older advisory collectors
+  observed passing candidate-suite tests by exact ID; when the suite is a command
+  the runner cannot narrow to those tests (a project's own gate script, such as
+  `python project_gate.py`), they select the proof's regression command and the
+  tests it passed on the candidate instead, so a project gate does not leave every
+  changed line without evidence. Older advisory collectors
   select only the named proving tests. Each mutant uses its own empty
   bytecode cache and its own modification time, so a compile cached by a Python
   the tests start themselves is never reused. A mutant may take ten times the
