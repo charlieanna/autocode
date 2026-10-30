@@ -75,10 +75,18 @@ def drive(scenario, args, out, project, flags, env, decisions=None):
         for row in rows:
             cid = row["id"]
             delivered = {name: text for name, text in files.items() if name.startswith(f"components/{cid}/")}
+            # A component that delivers code delivers the tests that prove it (#2474): its check runs
+            # them. A solution without a tests/ directory keeps the compile check.
+            tested = any(name.startswith(f"components/{cid}/tests/") for name in delivered)
+            check = (
+                [sys.executable, "-m", "unittest", "discover", "-v", "-s", f"components/{cid}"]
+                if tested
+                else [sys.executable, "-m", "py_compile", *delivered]
+            )
             manifest[cid] = {
                 "description": row["description"],
                 "files": delivered,
-                "check": shlex.join([sys.executable, "-m", "py_compile", *delivered]),
+                "check": shlex.join(check),
                 "observations": str(out / "component-prompts"),
             }
         path = out / "component-manifest.json"
