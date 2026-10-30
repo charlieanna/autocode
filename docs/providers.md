@@ -1076,7 +1076,17 @@ cross-model guard is for.
 
 ### Default provider
 
-New runs use OpenCode unless you choose otherwise. `--provider <name>` picks the
+New runs use OpenCode unless you choose otherwise. When OpenCode is not
+installed and nothing chooses (no `--engine` or `--provider`, no
+`AUTOCODE_PROVIDER`, no `default_provider`, no project `engine`), a new run
+takes the first connected backend in this order: Claude Code signed in to a
+subscription, Codex signed in, the AutoCode direct connection with a configured
+API key, then Kilo with a connected account (#2049; the order is the proposed
+"default engine" answer in #2054). The run prints `Engine for this run: …` with
+the reason, `doctor` names the same choice in its `engine` row, and a saved run
+keeps the engine it started with. Each check is the backend's own login listing,
+as `autocode connections check` reads it; no model is called and no credential
+is read. `--provider <name>` picks the
 tool for one run. To change the default for every new run and for the dashboard,
 set `AUTOCODE_PROVIDER=kilocode` or add this to `~/.config/autocode/config.toml`:
 

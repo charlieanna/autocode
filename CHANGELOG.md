@@ -11,6 +11,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- A new run that names no engine takes the backend this machine has connected when OpenCode is not
+  installed (#2049): Claude Code signed in to a subscription, then Codex, then the AutoCode direct
+  connection, then Kilo, in that order. The run prints `Engine for this run: …` with the reason, and
+  `autocode doctor` checks that same backend and names the choice in its `engine` row and settings. A
+  flag, `AUTOCODE_PROVIDER`, `default_provider`, a project `engine` and a saved run's engine always win,
+  and nothing changes while OpenCode is installed. Before, a person with only Claude Code or Codex had
+  to add `--engine` to every command or the run stopped at `OpenCode is not on PATH`.
 - `autocode status --summary` prints a run in one sentence: needs you, working, done or stopped, then the
   exact command the status view names (#2049). The same object is `view.summary` in the `--status` JSON.
   Only a completion verified against the current checkout reads done; a finished run whose evidence no
