@@ -199,8 +199,10 @@ levels each model takes:
 The models come from your backend: for OpenCode and Kilo, the models your connected accounts
 serve, with the reasoning levels and family their own listing declares (a model that cannot
 call tools is left out); for Claude Code, Haiku, Sonnet and Opus; for Codex, the GPT models
-AutoCode runs on it. A model the stage's checker or producer already runs is shown as not
-available, with the reason, because a checker never grades its own model's work
+AutoCode runs on it. A configured command provider without declared account routes offers the
+models in its own configured list; AutoCode leaves account and billing details unknown, and the
+provider checks the selected model again before launch. A model the stage's checker or producer
+already runs is shown as not available, with the reason, because a checker never grades its own model's work
 ([independence](#default-models)); on Claude Code and Codex two different models of that
 vendor may check each other. No price is read.
 

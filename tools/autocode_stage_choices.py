@@ -195,7 +195,34 @@ def offers(backend, workspace=None, *, resolve=None, discover=None) -> list[dict
     if backend == "codex":
         return [_option(model, None, account="ChatGPT (Codex login)", billing="subscription") for model in CODEX_MODELS]
     provider = (resolve or providers.resolve)(backend)
-    if callable(getattr(provider, "auth_table", None)) or callable(getattr(provider, "auth_logins", None)):
+    auth_table = getattr(provider, "auth_table", None)
+    if callable(auth_table):
+        table = auth_table()
+        if not table.get("command") and not table.get("routes"):
+            # A configured command provider without an account-routing contract can still expose
+            # the models its own config or models command declares. The provider itself validates
+            # that list again before launch; no billing/account claim is inferred here.
+            listed = provider.available_models(workspace)
+            if listed is None:
+                raise RuntimeError(f"{BACKEND_LABELS.get(backend, backend)} cannot list its models")
+            return [_option(model, None) for model in sorted(listed)]
+        found = (discover or route_discovery.discover)(provider, workspace)
+        rows = []
+        for candidate in found["candidates"]:
+            facts = candidate.get("metadata") or {}
+            if facts.get("toolcall") is False:
+                continue
+            rows.append(
+                _option(
+                    candidate["model"],
+                    candidate.get("levels"),
+                    account=candidate.get("account"),
+                    billing=candidate.get("billing"),
+                    facts=facts,
+                )
+            )
+        return rows
+    if callable(getattr(provider, "auth_logins", None)):
         found = (discover or route_discovery.discover)(provider, workspace)
         rows = []
         for candidate in found["candidates"]:
