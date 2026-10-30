@@ -73,6 +73,10 @@ def notice(public):
         return "Your model connection settings changed. Check Connections before continuing."
     if status == "PAUSED_PROVIDER_UNCERTAIN":
         return "I couldn’t confirm the model connection. Check Connections, then try again."
+    ended = (public.get("recovery") or {}).get("outcome") if status == "PAUSED_INTERVENTION" else None
+    if isinstance(ended, dict) and ended.get("reason"):
+        # AutoCode ended the run itself with a recorded outcome (#2485): say so, with the reason; ask nothing.
+        return f"I couldn’t finish this task: {ended['reason']} Your work so far is saved; new work is a new task."
     if status in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED"):
         # A pause someone asked for is not a failure (#1598).
         return "Paused as you asked. Your work so far is saved; resume when you’re ready."

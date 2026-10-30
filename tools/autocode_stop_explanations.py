@@ -553,6 +553,18 @@ def explain(status: str, *, stop_reason: str = "", needs=None, held_cause: str =
     """
     stop_reason = stop_reason.strip().rstrip(".")
     held_cause = held_cause.strip().rstrip(".")
+    if status == "PAUSED_INTERVENTION" and stop_reason.startswith(run_status.ENDED_PREFIX):
+        # AutoCode ended the run itself with a recorded outcome (autocode_stop.end, #2485): a finished,
+        # failed run, not a person's intervention, and no command continues it.
+        happened = f"The run ended. {stop_reason}."
+        means = "AutoCode could not finish this task on its own and recorded why; no stage runs again in this run."
+        does = "Nothing continues this run. Its saved plan, changes and evidence stay for inspection; new work is a new run."
+        return {
+            "what_happened": happened,
+            "what_it_means": means,
+            "what_the_command_does": does,
+            "explanation": f"{happened} {means} {does}",
+        }
     entry = READY if status == "RUNNING" and ready else TABLE.get(status)
     means, does = (
         entry

@@ -40,6 +40,11 @@ PR template asks for an entry here; a change without one is incomplete.
 - `autocode coordinate status` reports `phase: joint_regression` again while the joint regression
   runs over the bound repository candidates. Since the joint plan is approved with the member plans
   and started early, the phase had stayed at `fixing` through the joint run and its mismatch repair.
+- A run whose incident repeats with nothing new no longer stops to ask the person for recovery flags, an
+  evidence packet path and a token (#2485). AutoCode takes the one scoped retry of the diagnosis and of the
+  repair itself; if the same incident repeats after that, the run ends with a recorded "could not finish"
+  outcome (its reason and the incident's evidence), shown by `--status`, the terminal chat and the VS Code
+  panel as a finished, failed run, the way a stop you asked for is shown.
 
 ## [0.9.0] — 2026-10-30
 

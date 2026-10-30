@@ -42,7 +42,9 @@ try:
     from . import autocode_resolver_retry_route as retry_route
     from . import autocode_retained_work as retained
     from . import autocode_rework_policy as rework
+    from . import autocode_role_names as role_names
     from . import autocode_route_fit as route_fit
+    from . import autocode_stop as stop
     from . import autocode_support as support
     from . import autocode_time_left as time_left
     from . import autocode_tool_containment as containment
@@ -62,7 +64,9 @@ except ImportError:
     import autocode_resolver_retry_route as retry_route
     import autocode_retained_work as retained
     import autocode_rework_policy as rework
+    import autocode_role_names as role_names
     import autocode_route_fit as route_fit
+    import autocode_stop as stop
     import autocode_support as support
     import autocode_time_left as time_left
     import autocode_tool_containment as containment
@@ -962,6 +966,43 @@ def _investigation_grant(state: RunState, request, record):
     )
 
 
+# The actor of the scoped retry grant AutoCode records itself at a no-progress hold (#2485).
+AUTOMATIC_ACTOR = "autocode"
+
+
+def _automatic_grants(state: RunState, packet, stage):
+    """AutoCode's own scoped retry grants of ``packet`` at ``stage`` (recover_no_progress), oldest first."""
+    digest = util.digest(packet)
+    return [
+        row
+        for row in state.get("failure_retry_authorizations") or []
+        if isinstance(row, dict)
+        and row.get("actor") == AUTOMATIC_ACTOR
+        and row.get("stage") == stage
+        and row.get("novelty_packet") == digest
+    ]
+
+
+def _automatic_grant(state: RunState, packet, request: dict, record, prior):
+    """The one scoped retry AutoCode authorized itself at this packet's no-progress hold (#2485), while
+    unspent and still bound to the hold's source, settings, contract and scope. Any dispatch it admits
+    spends it, as a person's --retry-failed-stage grant is spent."""
+    held = request.get("novelty_hold") or {}
+    revision = packet["binding"]["source_revision"]
+    for grant in reversed(_automatic_grants(state, packet, record["stage"])):
+        ident = util.digest(grant)
+        if any(row.get("grant_id") == ident for row in prior):
+            continue
+        if (
+            grant.get("binding") == packet["binding"]
+            and _holds(grant.get("dispatch_binding"), state, revision)
+            and _holds(held.get("binding"), state, revision)
+            and held.get("scope") == _scope(state)
+        ):
+            return ident
+    return None
+
+
 def _explicit_grant(state: RunState, packet, request, record, prior, authorization):
     ident = _live_grant(state, packet, record, authorization)
     if ident is not None and not any(row.get("grant_id") == ident for row in prior):
@@ -975,7 +1016,10 @@ def _explicit_grant(state: RunState, packet, request, record, prior, authorizati
     if ident is not None and not any(row.get("grant_id") == ident for row in receipts(state, returned=True)):
         return ident, "diagnosis"
     ident = _investigation_grant(state, request, record)
-    return ident, "investigation" if ident is not None else None
+    if ident is not None:
+        return ident, "investigation"
+    ident = _automatic_grant(state, packet, request, record, prior)
+    return ident, "automatic" if ident is not None else None
 
 
 def finish_resolution_packet(state: RunState, request, plan):
@@ -1553,6 +1597,96 @@ def restate_hold(state: RunState):
     state["stop_reason"] = head + ("" if not rest or head.endswith(".") else ".") + rest
 
 
+def _no_progress_outcome(incident, action, pointer, stage):
+    """The outcome that ends a run whose incident repeated with nothing new after its scoped retry.
+
+    No automatic step is left, and asking a person to retry again would hand them AutoCode's
+    recovery machinery, so the run records this finished, failed outcome with its reason and
+    evidence (autocode_stop.end) and launches no further stages."""
+    failure = str(incident.failure).rstrip(".")
+    try:
+        step = role_names.role_name(incident.operation)  # the role a person knows the stage by
+    except (KeyError, ValueError, AttributeError, TypeError):
+        step = str(incident.operation)
+    return {
+        "reason": (
+            f"the {step} step kept failing for the same reason after AutoCode's own "
+            f"{'repair' if action == 'repair' else 'diagnosis'} retry, with nothing new to try: {failure}."
+        ),
+        "evidence": {
+            "incident_id": incident.id,
+            "operation": incident.operation,
+            "invariant": incident.invariant,
+            "failure": incident.failure,
+            "action": action,
+            "stage": stage,
+            "packet": copy.deepcopy(pointer),
+        },
+    }
+
+
+def recover_no_progress(runner, state: RunState, run_dir, workspace, error):
+    """RECOVERY_CHAIN row (autocode_recovery_dispatch): a no-progress hold decides itself (#2485).
+
+    An incident that repeats with nothing new holds its stage (novelty.NO_PROGRESS). A person used
+    to authorize the one scoped retry with --resume-paused --retry-failed-stage; now AutoCode records
+    that grant itself and the loop dispatches the stage again, where admission spends it
+    (_automatic_grant) under the existing limits. When the same hold comes back after that retry,
+    nothing automatic is left, so the run ends with a finished, failed outcome recorded as
+    AutoCode's own stop (autocode_stop.end): never a request for a flag, token or packet
+    (AGENTS.md "What a person is asked"). A hold for another reason, one whose binding no longer
+    holds, or one with unsettled work pauses as before. Returns True when it recorded the grant.
+    """
+    if getattr(error, "status", None) != "PAUSED_NO_PROGRESS":
+        return False
+    request = _request(state, state.get("next_stage"))
+    held = request.get("novelty_hold") or {}
+    pointer = request.get("recovery_packet")
+    stage = held.get("stage")
+    # Holds saved before the bare cause was recorded carry it inside their stop text.
+    cause = held.get("cause") or (novelty.NO_PROGRESS if novelty.NO_PROGRESS in str(held.get("reason") or "") else None)
+    if (
+        not held
+        or not pointer
+        or cause != novelty.NO_PROGRESS
+        or state.get("next_stage") not in (stage, "orchestrator" if stage == "terra" else stage)
+    ):
+        return False
+    if any(state.get(key) for key in recovery_limits.UNSETTLED):
+        return False
+    packet = load_packet(pointer, run_dir)
+    revision = _source_revision(state, stage, pointer, packet, workspace)
+    if not _holds(held.get("binding"), state, revision) or held.get("scope") != _scope(state):
+        return False
+    taken = _automatic_grants(state, packet, stage)
+    if taken:
+        spent = {row.get("grant_id") for row in receipts(state)}
+        if not all(util.digest(grant) in spent for grant in taken):
+            return False  # The grant stands unspent: another guard holds the stage, and its pause says which.
+        action = "repair" if stage == "terra" else "diagnosis"
+        incidents = [novelty.Incident(**row) for row in packet["incidents"]]
+        incident = next((row for row in incidents if row.id == held.get("incident_id")), incidents[0])
+        ended = _no_progress_outcome(incident, action, pointer, stage)
+        stop.end(state, ended["reason"], ended["evidence"], at=util.now())
+        runner.write_json(Path(run_dir) / "state.json", state)
+        raise util.Paused(stop.STOP_STATUS, stop.stop_reason(state))
+    grant = {
+        "actor": AUTOMATIC_ACTOR,
+        "at": util.now(),
+        "novelty_packet": util.digest(packet),
+        "binding": copy.deepcopy(packet["binding"]),
+        "dispatch_binding": copy.deepcopy(held["binding"]),
+        "stage": stage,
+        "incident_id": held.get("incident_id"),
+        "ordinal": len(state.get("failure_retry_authorizations", [])),
+    }
+    state.setdefault("failure_retry_authorizations", []).append(grant)
+    state.pop("stop_reason", None)
+    runner.write_json(Path(run_dir) / "state.json", state)
+    print(f"{stage}: the same incident repeated with nothing new; AutoCode takes its one scoped retry", flush=True)
+    return True
+
+
 def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authorization=None):
     """Run inside the caller's final locked admission, before any allowance charge."""
     stage = record.get("stage")
@@ -1670,6 +1804,7 @@ def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authori
                 "stage": stage,
                 "incident_id": incident.id,
                 "reason": reason,
+                "cause": decision.reason,  # the bare policy reason (recover_no_progress reads it, #2485)
             }
             efficiency.record_observation(
                 state,

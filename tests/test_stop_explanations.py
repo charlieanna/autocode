@@ -52,6 +52,23 @@ class StopExplanationTests(unittest.TestCase):
                         for misleading in ("stopped", "environment", "resume", "wrong deliverable"):
                             self.assertNotIn(misleading, text["explanation"].lower())
 
+    def test_a_run_autocode_ended_itself_is_explained_as_finished_with_no_command(self):
+        # #2485: the same PAUSED_INTERVENTION status, but AutoCode's own recorded outcome, never a person's
+        # intervention waiting to be resumed.
+        reason = (
+            "AutoCode could not finish this task: the sol check kept failing: x. This run launches no further stages."
+        )
+        text = stop_explanations.explain("PAUSED_INTERVENTION", stop_reason=reason)
+        self.assertEqual("The run ended. " + reason, text["what_happened"])
+        self.assertIn("could not finish this task on its own", text["what_it_means"])
+        self.assertIn("Nothing continues this run", text["what_the_command_does"])
+        for misleading in ("person intervened", "--resume-paused", "person's decision"):
+            self.assertNotIn(misleading, text["explanation"])
+        person = stop_explanations.explain(
+            "PAUSED_INTERVENTION", stop_reason="Durable stop applied at a saved boundary"
+        )
+        self.assertIn("A person intervened", person["what_it_means"])
+
     def test_stale_diagnosis_view_explains_retained_proof_and_conditional_resume(self):
         reason = "Accepted diagnosis note changed"
         view = run_view.view({"status": "PAUSED_STALE_DIAGNOSIS", "stop_reason": reason})

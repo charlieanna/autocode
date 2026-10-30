@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 import hashlib
 import json
+from copy import deepcopy
 from pathlib import PurePath
 
 try:
@@ -448,6 +449,15 @@ def project(state: RunState, need=None):
     role = role_name(stage, _dict(_dict(state.get("settings")).get("workflow")).get("mode"))
     cause = _cause(state) or status
     terminal = any(row.get("kind") == "stop" for row in _rows(state.get("applied_interventions")))
+    # A stop AutoCode recorded itself when it could not continue (autocode_stop.end, #2485).
+    ended = next(
+        (
+            _dict(row.get("outcome"))
+            for row in _rows(state.get("applied_interventions"))
+            if row.get("kind") == "stop" and row.get("actor") == "autocode"
+        ),
+        None,
+    )
     decision = need.get("kind") in ("answer", "review", "approve_plan")
     finished = sum(bool(row.get("finished_at")) for row in _rows(state.get("stages")))
     result = {
@@ -456,9 +466,17 @@ def project(state: RunState, need=None):
         "status": status,
         "cause": cause,
         "role": role,
-        "title": "Stopped at your request" if terminal else "Review checkpoint" if decision else "Task paused",
+        "title": "AutoCode could not finish this task"
+        if ended is not None
+        else "Stopped at your request"
+        if terminal
+        else "Review checkpoint"
+        if decision
+        else "Task paused",
         "category": "stopped" if terminal else "request" if decision else "recovery",
-        "what_happened": "The current step finished and saved. This conversation will launch no more stages."
+        "what_happened": f"{ended.get('reason')} This conversation will launch no more stages."
+        if ended is not None
+        else "The current step finished and saved. This conversation will launch no more stages."
         if terminal
         else (_auth_stop(state) or _job_model_stop(state, role) or _explanation(cause, role)),
         "retained": f"{finished} finished attempt(s) remain in the history. Saved plan, messages and recorded evidence remain available; partial work still needs verification.",
@@ -472,6 +490,8 @@ def project(state: RunState, need=None):
             },
         },
         "failure_groups": _failures(state),
+        # The recorded finished, failed outcome: its reason and the evidence it names; None otherwise.
+        "outcome": deepcopy(ended) if ended is not None else None,
         "actions": [],
     }
     actions = result["actions"]

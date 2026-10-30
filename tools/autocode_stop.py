@@ -52,6 +52,10 @@ STOP_STATUS = "PAUSED_INTERVENTION"
 STOP_REASON = "Durable stop applied at a saved boundary; this run launches no further stages."
 
 
+# The actor of a stop AutoCode records itself when it cannot continue (#2485), never a person's request.
+RUNNER_ACTOR = "autocode"
+
+
 def is_stop_receipt(receipt: Any) -> bool:
     return isinstance(receipt, dict) and receipt.get("kind") == STOP_KIND
 
@@ -85,8 +89,43 @@ def pending_stop(run_dir: Path) -> dict[str, Any] | None:
     )
 
 
+def outcome(state: RunState) -> dict[str, Any] | None:
+    """The finished, failed outcome AutoCode recorded when it could not continue, if one stands."""
+    receipt = applied_stop(state)
+    value = receipt.get("outcome") if receipt and receipt.get("actor") == RUNNER_ACTOR else None
+    return value if isinstance(value, dict) else None
+
+
 def stop_reason(state: RunState) -> str:
+    ended = outcome(state)
+    if ended and isinstance(ended.get("reason"), str) and ended["reason"]:
+        return f"{run_status.ENDED_PREFIX}{ended['reason']} This run launches no further stages."
     return STOP_REASON
+
+
+def end(state: RunState, reason: str, evidence: dict[str, Any], *, at: str) -> None:
+    """End the run with a finished, failed outcome AutoCode decided itself (#2485).
+
+    For a stop no automatic step can get past, where asking a person would hand them AutoCode's
+    machinery (AGENTS.md "What a person is asked"). The outcome is an applied stop receipt, so
+    every rule that keeps a person's stop in force keeps this one, and it records ``reason`` and
+    ``evidence`` (the incident and its evidence packet) where the view and the report read them.
+    It is idempotent for the same outcome.
+    """
+    if applied_stop(state) is not None:
+        return
+    ended = {"result": "could_not_finish", "reason": reason, "evidence": evidence}
+    receipt = {
+        "id": "autocode-outcome-" + util.digest(ended)[:16],
+        "kind": STOP_KIND,
+        "text": "",
+        "actor": RUNNER_ACTOR,
+        "outcome": ended,
+        "applied_at": at,
+    }
+    state.setdefault("applied_interventions", []).append(receipt)
+    state["stop_intent"] = {"request_ids": [receipt["id"]], "applied_at": at, "actor": RUNNER_ACTOR}
+    assert_stopped(state)
 
 
 def assert_stopped(state: RunState) -> bool:

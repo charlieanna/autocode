@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 from harness import catalog, verdict
-from harness.driver import DriveError, Driver, default_autocode, fake_setup, with_flag_values
+from harness.driver import DriveError, Driver, default_autocode, fake_setup
 from harness.project import materialize
 
 from scenarios import run as scenario_run
@@ -191,21 +191,11 @@ class CompletionReworkCLI(unittest.TestCase):
 
     def test_recurring_rework_uses_resolver_and_fresh_current_source_checks(self):
         driver = self.driver("recurring")
+        # At the no-progress hold AutoCode takes the one scoped retry of each action itself (#2485):
+        # the Resolver's diagnosis, then the repair it names. The run delivers with no retry asked of
+        # a person.
         view = driver.drive(self.scenario.brief)
-        self.assertFalse(view["done"])
-        self.assertIn("No causal progress", view["stop_reason"])
-        before = self.trace()
-        driver.call("unchanged-resume", "--resume-paused")
-        self.assertEqual(before, self.trace())
-        driver.call("authorized-diagnosis", "--resume-paused", "--retry-failed-stage")
-        view = driver.view()
-        self.assertIn("No causal progress", view["stop_reason"])
-        self.assertEqual([row["stage"] for row in before] + ["astra_resolve"], [row["stage"] for row in self.trace()])
-        granted = driver.call("authorized-repair", "--resume-paused", "--retry-failed-stage")
-        view = driver.until_stopped()
-        self.assertTrue(
-            view["done"], (view.get("status"), view.get("stop_reason"), granted.stdout[-1800:], granted.stderr[-1800:])
-        )
+        self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason")))
         self.assert_delivery(driver, view)
         self.assertEqual(1, len(view["direct_rework_assignments"]))
         self.assertEqual(
@@ -433,10 +423,11 @@ class CompletionReworkCLI(unittest.TestCase):
 
 
 class ReworkHoldCostCLI(unittest.TestCase):
-    """#611: the rework loop's no-progress hold (rework-same-failure) states the run's spend against its cost cap
-    and its active time against its time limit."""
+    """#2485: the rework loop's repeated failure (rework-same-failure) no longer holds for a person to authorize a
+    retry. AutoCode takes the one scoped retry of each action itself, under the run's cost cap. (#611's
+    budgets in a hold's stop are covered by test_cost_cap and test_recovery_novelty.)"""
 
-    def test_a_cap_changed_at_the_hold_is_the_cap_its_stop_states(self):
+    def test_the_same_failure_takes_its_own_scoped_retries_under_the_cap(self):
         results = Path(__file__).resolve().parents[1] / ".scenario-runs"
         results.mkdir(exist_ok=True)
         scratch = tempfile.TemporaryDirectory(prefix="rework-hold-cost-", dir=results, ignore_cleanup_errors=True)
@@ -456,42 +447,22 @@ class ReworkHoldCostCLI(unittest.TestCase):
             timeout_seconds=60 * scenario.timeout_minutes,
         )
         view = driver.drive(scenario.brief)
-        self.assertEqual("RESOLVER_PENDING", view["status"], view.get("stop_reason"))
-        self.assertIn("No causal progress", view["stop_reason"])
-        self.assertIn("; cap $5.00.", view["stop_reason"])
-        # #1728 adds a "Stage costs:" sentence between the cap and the active time when a stage ran twice.
-        self.assertRegex(
-            view["stop_reason"],
-            r"; cap \$5\.00\.(?: Stage costs: .*?\.)? Active time: [\d,.]+ s of the [\d,]+ s limit\.",
-        )
-        # The person reads the cap, changes it at the hold without --resume-paused and checks --status before
-        # the one scoped retry: the stop the command prints and the status view state the cap the run has now.
-        for given, cap, stated in (("20", 20.0, "; cap $20.00."), ("0", None, None)):
-            with self.subTest(max_cost_usd=given):
-                driver.flags = with_flag_values(driver.flags, ["--max-cost-usd", given])
-                printed = driver.call("change-cap").stdout
-                view = driver.view()
-                self.assertEqual("RESOLVER_PENDING", view["status"], view.get("stop_reason"))
-                self.assertEqual(cap, view["cost"]["cap_usd"])
-                self.assertIn("No causal progress", view["stop_reason"])
-                self.assertIn("RESOLVER_PENDING: Incident", printed, printed)
-                for text in (view["stop_reason"], printed):
-                    self.assertNotIn("cap $5.00", text)
-                    if stated:
-                        self.assertEqual(1, text.count("; cap $"), text)
-                        self.assertIn(stated, text)
-                    else:
-                        self.assertNotIn("Cost:", text)
-                self.assertNotIn("cap $5.00", json.dumps(view))
-        # A time limit changed at the hold is the limit its stop states, as the cap is. The scenario sets none, so the
-        # person passes it from now on.
-        driver.flags = [*driver.flags, "--max-seconds", "7200"]
-        printed = driver.call("change-time-limit").stdout
-        view = driver.view()
-        self.assertEqual("RESOLVER_PENDING", view["status"], view.get("stop_reason"))
-        for text in (view["stop_reason"], printed):
-            self.assertEqual(1, text.count("Active time: "), text)
-            self.assertRegex(text, r"Active time: [\d,.]+ s of the 7,200 s limit\.")
+        self.assertNotEqual("RESOLVER_PENDING", view["status"], view.get("stop_reason"))
+        self.assertNotIn("No causal progress", view["stop_reason"])
+        # What the view shows a person names no retry flag; the evidence ledger still records the hold
+        # AutoCode settled, with the stop text it had.
+        shown = {
+            key: view.get(key) for key in ("needs", "next_command", "stop_reason", "explanation", "recovery", "chat")
+        }
+        self.assertNotIn("--retry-failed-stage", json.dumps(shown))
+        self.assertEqual(5.0, view["cost"]["cap_usd"])
+        grants = [
+            (row["stage"], row["recovery_novelty"]["action"])
+            for row in driver.state()["stages"]
+            if (row.get("recovery_novelty") or {}).get("grant_kind") == "automatic"
+        ]
+        self.assertTrue(grants, view.get("stop_reason"))
+        self.assertEqual(len(grants), len(set(grants)), "each action's automatic retry is taken once")
 
 
 if __name__ == "__main__":

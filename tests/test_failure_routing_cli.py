@@ -631,24 +631,22 @@ class FailureRoutingCLI(unittest.TestCase):
         self.env["BUILD_AUDIT_FAULT"] = "validation_fails"
         self.drive("--max-iterations", "6", codes=(2,))
         status = self.status()
-        builders = self.trace("terra")
-        self.assertEqual(["gpt-6-luna", "gpt-6-luna"], [row["model"] for row in builders])
-        self.assertEqual("RESOLVER_PENDING", status["status"])
-        self.assertIn("No causal progress for the same incident", status["view"]["stop_reason"])
-        before = self.call_order()
-        self.drive("--resume-paused", codes=(2,))
-        self.assertEqual(before, self.call_order(), "An unchanged incident cannot mint an automatic retry")
-        # Existing scoped operational admission authorizes diagnosis first, then
-        # the retained correction. Neither flag increases the Builder lane cap.
-        self.drive("--resume-paused", "--retry-failed-stage", codes=(2,))
-        self.assertEqual(2, len(self.trace("terra")), self.call_order("terra"))
-        self.drive("--resume-paused", "--retry-failed-stage", codes=(2,))
-        status = self.status()
+        # At the no-progress hold AutoCode takes the one scoped retry of each action itself (#2485):
+        # diagnosis first, then the retained correction, with no retry asked of a person. Neither
+        # increases the Builder lane cap.
         self.assertEqual(
             ["gpt-6-luna", "gpt-6-luna", "gpt-5.4"],
             [row["model"] for row in self.trace("terra")],
             status["view"]["stop_reason"],
         )
+        self.assertNotIn("No causal progress", status["view"]["stop_reason"])
+        # What the view shows a person names no retry flag; the evidence ledger still records the hold
+        # AutoCode settled, with the stop text it had.
+        shown = {
+            key: status["view"].get(key)
+            for key in ("needs", "next_command", "stop_reason", "explanation", "recovery", "chat")
+        }
+        self.assertNotIn("--retry-failed-stage", json.dumps(shown))
         self.assertEqual(3, status["milestone_checkpoint"]["limits"]["stalled_reviews"])
         self.assertTrue(status["milestone_checkpoint"]["current"]["needs_replan"])
         self.assertEqual(3, status["milestone_checkpoint"]["current"]["reviews_without_progress"])

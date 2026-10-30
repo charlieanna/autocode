@@ -192,6 +192,8 @@ def category(status: object, needs: Mapping[str, object] | None = None) -> str |
         return "autocode" if status == "PAUSED" or status.startswith("PAUSED_") else None
     if not isinstance(needs, Mapping):
         return cause
+    if status == "PAUSED_INTERVENTION" and str(needs.get("reason") or "").startswith(run_status.ENDED_PREFIX):
+        return "autocode"  # AutoCode ended the run itself with a recorded outcome (#2485), not a person's stop
 
     route = needs.get("route")
     if isinstance(route, Mapping) and route.get("cause") in ("quota", "content_filter", "output_limit"):
