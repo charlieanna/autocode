@@ -151,16 +151,17 @@ class Menu:
             self.note = self.view.get("options_stop") or "Nothing to choose here."
             return
         if not rows[self.selected][1]:
-            self.note = "That model is not available for this stage; choose another."
+            reason = (self.current().get("options") or [{}])[self.selected].get("unavailable")
+            self.note = f"Not available: {reason}."
             return
         if self.level == "stages":
             if not (self.view.get("stages") or [{}])[self.selected].get("options"):
                 self.note = f"Models cannot be listed: {self.view.get('options_stop') or 'none are offered'}"
                 return
-            self.stage, self.level = self.selected, "models"
+            self.stage, self.level, self.note = self.selected, "models", HINT
             self.selected = self._now_model()
         elif self.level == "models":
-            self.model, self.level = self.selected, "levels"
+            self.model, self.level, self.note = self.selected, "levels", HINT
             self.selected = self._now_level()
         else:
             self._save(rows[self.selected][0])

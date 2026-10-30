@@ -261,6 +261,7 @@ def unavailable(role, model, effective, *, backend) -> str | None:
     on Claude Code and Codex, which reach one vendor, two different models of that vendor may.
     """
     vendor = backend in ("claude", "codex")
+    checkers = []
     for producer, verifier, _label in independence.PAIRS:
         other = effective.get(producer if role == verifier else verifier)
         if role == verifier and other and independence.shares(other, model, vendor_engine=vendor):
@@ -268,9 +269,18 @@ def unavailable(role, model, effective, *, backend) -> str | None:
                 f"the {LABELS[verifier]} checks the {LABELS[producer]}'s work, and the {LABELS[producer]} runs {other}"
             )
         if role == producer and other and independence.shares(model, other, vendor_engine=vendor):
-            return (
-                f"the {LABELS[verifier]} checks this stage's work and runs {other}; change the {LABELS[verifier]} too"
-            )
+            checkers.append((LABELS[verifier], other))
+    if len(checkers) == 1:
+        ((label, other),) = checkers
+        return f"the {label} checks this stage's work and runs {other}; change the {label} too"
+    if checkers:
+        # Every checker that clashes is named, so changing the one named first does not leave another.
+        runs = {other for _label, other in checkers}
+        if len(runs) == 1:
+            first, second = (label for label, _other in checkers)
+            return f"the {first} and the {second} check this stage's work and run {runs.pop()}; change both too"
+        named = " and ".join(f"the {label} (runs {other})" for label, other in checkers)
+        return f"{named} check this stage's work; change both too"
     return None
 
 
