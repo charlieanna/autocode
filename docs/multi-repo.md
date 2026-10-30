@@ -343,3 +343,5 @@ Without a change set, coordinate the repositories yourself:
 Without a change set, nothing checks that the two halves agree.
 
 Configured source roots are workspace search boundaries. Git metadata on a root itself does not hide independent child checkouts. Discovery recognizes Git identities without repository-name prefixes; ordinary discovered checkouts are traversal leaves. Depth, directory and containment limits remain explicit.
+
+Discovery skips generated Python environments identified by `pyvenv.cfg`, independently of their directory names. File symlinks are not traversed; directory symlinks escaping a configured root still make discovery incomplete.

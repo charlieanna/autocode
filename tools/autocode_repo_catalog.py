@@ -319,10 +319,13 @@ def discover(*, max_depth: int = MAX_DEPTH, directory_budget: int = DIRECTORY_BU
             # discovered repositories remain leaves of the bounded search.
             if directory != boundary:
                 continue
+        elif (directory / "pyvenv.cfg").is_file():
+            # Identify generated environments by their marker, regardless of name.
+            continue
         if depth >= max_depth:
             try:
                 has_unvisited_directory = any(
-                    child.name not in EXCLUDED_DIRECTORIES and (child.is_symlink() or child.is_dir())
+                    child.name not in EXCLUDED_DIRECTORIES and child.is_dir()
                     for child in directory.iterdir()
                 )
             except OSError as error:
@@ -344,6 +347,8 @@ def discover(*, max_depth: int = MAX_DEPTH, directory_budget: int = DIRECTORY_BU
                 continue
             try:
                 if child.is_symlink():
+                    if not child.is_dir():
+                        continue
                     target = child.resolve(strict=True)
                     if not target.is_relative_to(boundary):
                         result["complete"] = False

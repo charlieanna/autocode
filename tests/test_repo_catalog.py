@@ -77,6 +77,30 @@ class RepositoryCatalogTests(unittest.TestCase):
         self.assertEqual(3, len(paths))
         self.assertTrue(found["complete"], found["diagnostics"])
 
+    def test_generated_python_environments_do_not_exhaust_workspace_discovery(self):
+        root = self.root / "workspace"
+        service = self.git_repo(root / "service")
+        environment = root / "arbitrarily-named-environment"
+        environment.mkdir()
+        (environment / "pyvenv.cfg").write_text("home = /runtime\n")
+        self.git_repo(environment / "lib" / "nested-fixture")
+        catalog.add_root(root)
+        found = catalog.discover(max_depth=1)
+        self.assertTrue(found["complete"], found["diagnostics"])
+        self.assertEqual([str(service)], [row["path"] for row in found["repositories"]])
+
+    def test_file_symlinks_are_not_repository_traversal_or_incompleteness(self):
+        root = self.root / "workspace"
+        service = self.git_repo(root / "service")
+        outside = self.root / "outside-file"
+        outside.write_text("not a source repository")
+        (root / "file-link").symlink_to(outside)
+        (root / "broken-file-link").symlink_to(self.root / "missing-file")
+        catalog.add_root(root)
+        found = catalog.discover()
+        self.assertTrue(found["complete"], found["diagnostics"])
+        self.assertEqual([str(service)], [row["path"] for row in found["repositories"]])
+
     def test_worktrees_deduplicate_and_conflicting_clones_remain_visible(self):
         origin = self.git_repo(self.root / "origin", remote="https://example.test/api.git")
         worktree = self.root / "worktree"
