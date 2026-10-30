@@ -203,7 +203,10 @@ class ConformanceDriver(Driver):
                 self.note(view, "stopped", None)
                 return view
             else:
-                self.person_paused = False
+                # A recovery the core names on a continue (setting aside the attempt the person's own
+                # interrupt left uncertain) belongs to that pause; only a plain relaunch ends it.
+                if not (need["kind"] == "continue" and view.get("next_command")):
+                    self.person_paused = False
                 words, env, source = self.named_command(view)
             words = self.decide(need, words, view=view, env=env)
             self.take(view, words, env, source)
