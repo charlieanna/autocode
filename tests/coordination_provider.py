@@ -118,7 +118,9 @@ def main():
         entry = "history" if os.environ.get("COORDINATION_FIXTURE_JOINT_SCOPE") else "checkout"
         selected = next(row for row in inventory if row["name"] == entry)
         # This boundary reads the real pinned file, rather than inventing a citation.
-        filename, symbol = ("history.py", "TAX_REPOSITORY") if entry == "history" else ("client.py", "HISTORY_REPOSITORY")
+        filename, symbol = (
+            ("history.py", "TAX_REPOSITORY") if entry == "history" else ("client.py", "HISTORY_REPOSITORY")
+        )
         assert symbol in (Path(selected["path"]) / filename).read_text()
         citation = "catalog/" + selected["id"] + "/" + filename + ":3"
         scope = {
