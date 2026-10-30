@@ -1874,9 +1874,11 @@ setup identities, and refuses preexisting cache paths or changed protections.</p
 </code></pre>
 <p>Every criterion needs its own ID, wording, explicit executable check command and
 <code>human_review</code> boolean. Commands run from the candidate's root in fresh scratch
-checkouts. Use a command that demonstrates the promised behavior. Prose,
-empty criteria, duplicate IDs or keys, and nonbehavioral placeholder commands
-are refused. Criteria and the exact candidate source are bound to the report.</p>
+checkouts. Use a command that demonstrates the promised behavior. A check that
+needs its own environment names it with literal values, as in
+<code>env GOWORK=off GOFLAGS= go test -count=1 ./pkg/</code>; the assignments are part of
+the recorded command. Prose, empty criteria, duplicate IDs or keys, expansions in
+an <code>env</code> assignment and nonbehavioral placeholder commands are refused. Criteria and the exact candidate source are bound to the report.</p>
 <p>The independent Code Reviewer uses the existing review workflow. It judges the
 selected change against the caller's criteria and cannot repair the candidate.
 The runner then executes the criterion commands itself and requires independent
