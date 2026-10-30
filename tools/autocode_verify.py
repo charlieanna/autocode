@@ -516,6 +516,28 @@ def removed_python_tests(workspace, base, changes) -> list[str]:
     return removed
 
 
+def changed_go_tests(workspace, base, changes):
+    """The Go test functions the change adds or edits (go_tests.changed_names), or None (#2505)."""
+    workspace = Path(workspace)
+    files = [
+        (path, _git(workspace, "show", f"{base}:{path}", check=False) if status != "added" else None, _read(workspace / path))
+        for path, status in changes.items()
+        if path.endswith("_test.go") and status != "deleted"
+    ]
+
+    def module_of(directory):
+        parts = [] if directory in ("", ".") else directory.split("/")
+        for depth in range(len(parts), -1, -1):
+            root = "/".join(parts[:depth])
+            go_mod = workspace / root / "go.mod"
+            if go_mod.is_file():
+                path = go_tests.module(_read(go_mod))
+                return (path, root) if path else None
+        return None
+
+    return go_tests.changed_names(files, module_of) if files else None
+
+
 # --- project test frameworks -----------------------------------------------
 
 
@@ -2521,6 +2543,8 @@ def verify(
                     ignored_inputs=ignored_inputs,
                 ),
                 seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt),
+                changed_tests=_changed_test_filter(framework, workspace, base, changes, new_behavior),
+                base_suite_passed=lambda: _pristine_passed(base_suite, base),
             )
         elif "base_with_tests" in trees and commands["suite"]:
             # No targeted command: the whole suite proves the flip when base was green.
@@ -2846,6 +2870,8 @@ def _judge_regression(
     absent_go_base=False,
     absent_junit_base=False,
     seam_names=None,
+    changed_tests=None,
+    base_suite_passed=None,
 ):
     """Judge the targeted runs of the changed test files.
 
@@ -2856,6 +2882,12 @@ def _judge_regression(
     A test in the same files that already fails on the pristine base (for
     example one needing a network) neither blocks the fix nor counts as proof.
     Without per-test results, exit codes decide and the change needs review.
+
+    ``changed_tests`` (new behavior, Go) tells whether a test is one the change adds or edits. A Go
+    package whose new tests reference new types does not build on base, so none of its tests runs
+    there: only the changed ones count as fail-to-pass, and an unchanged one that passed in the
+    pristine base suite (``base_suite_passed()``, without the change's test files) and passes now is
+    pass-to-pass (#2505).
     """
     candidate = on_candidate.get("results")
     base = (on_base or {}).get("results")
@@ -2954,13 +2986,27 @@ def _judge_regression(
         # New behavior: a test that did not pass on base (failed, or could not even import
         # the code it tests) and passes now. A bug fix needs a test that ran and failed.
         flipped = sorted(passed - set(base["passed"])) if new_behavior else sorted(ran_and_failed & passed)
-        proof["fail_to_pass"] = flipped
         # Tests that ran and passed on the original code and still pass: the proof
         # preserve cases are matched against (autocode_regression.check_cases).
-        proof["pass_to_pass"] = sorted(set(base["passed"]) & passed)
+        kept = set(base["passed"]) & passed
         # Passing tests that never ran on the original code (their module did not import there): a
         # guard's test there is not shown to fail before, only not shown to pass (check_cases).
-        proof["not_run_on_base"] = sorted(passed - set(base["passed"]) - set(base["failed"]))
+        not_run = passed - set(base["passed"]) - set(base["failed"])
+        if new_behavior and changed_tests is not None:
+            unchanged = {name for name in flipped if not changed_tests(name)}
+            flipped = [name for name in flipped if name not in unchanged]
+            preserved = unchanged & (base_suite_passed() if base_suite_passed else set())
+            kept |= preserved
+            not_run -= preserved
+            if unchanged:
+                notes.append(
+                    f"{len(unchanged)} existing test(s) in the changed test files' packages did not run on base "
+                    f"with the new tests and are not counted as proof; {len(preserved)} passed in the base "
+                    "suite without them and still pass"
+                )
+        proof["fail_to_pass"] = flipped
+        proof["pass_to_pass"] = sorted(kept)
+        proof["not_run_on_base"] = sorted(not_run)
         # Recognized test preparation failures are excluded above. Other missing-name
         # errors may be real product bugs, so preserve the reviewer warning for them.
         seam = seam_names(on_base) if seam_names and (base["collection_errors"] or flipped) and not new_behavior else []
@@ -3001,6 +3047,25 @@ def _judge_regression(
         fail.append("The regression tests also pass on the unfixed base code, so they do not reproduce the bug")
     elif on_base["timed_out"]:
         unverified.append("The regression tests timed out on base; no complete fail-to-pass proof exists")
+
+
+def _changed_test_filter(framework, workspace, base, changes, new_behavior):
+    """Whether a named test is one the change adds or edits; None keeps every test (#2505)."""
+    if not new_behavior or framework is None or framework.name != "go":
+        return None
+    names = changed_go_tests(workspace, base, changes)
+    return None if names is None else lambda test: go_tests.defined_in(names, test)
+
+
+def _pristine_passed(base_suite, base):
+    """Tests that passed in the complete base suite run without the change's test files."""
+    if not base_suite or base_suite.get("base") != base:
+        return set()
+    receipt = base_suite.get("receipt") or {}
+    results = receipt.get("results") or {}
+    if receipt.get("timed_out") or not results.get("complete"):
+        return set()
+    return set(results.get("passed") or [])
 
 
 def _seam_names(workspace, base, changes, receipt):

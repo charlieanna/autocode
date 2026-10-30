@@ -149,3 +149,52 @@ def results(text):
         "total": len(outcome) + len(collection) + len(package_failed),
         "complete": complete,
     }
+
+
+_TEST_FUNCTION = re.compile(r"^func\s+((?:Test|Example|Fuzz)\w*)\s*\(", re.M)
+_MODULE = re.compile(r"^\s*module\s+(\S+)", re.M)
+
+
+def definitions(text):
+    """Top-level test, example and fuzz functions in a Go test file: name -> source, from ``func``
+    to the closing brace at the start of a line (gofmt's layout)."""
+    found = {}
+    for match in _TEST_FUNCTION.finditer(text or ""):
+        end = re.compile(r"^}", re.M).search(text, match.end())
+        found[match.group(1)] = text[match.start() : end.end() if end else len(text)]
+    return found
+
+
+def module(go_mod):
+    """The module path a go.mod declares, or None."""
+    match = _MODULE.search(go_mod or "")
+    return match.group(1).strip("\"`") if match else None
+
+
+def changed_names(files, module_of):
+    """``(package, function)`` for each test function the change adds or edits (#2505).
+
+    ``files`` gives ``(path, base_text, candidate_text)`` for each changed Go test file (``base_text``
+    is None for a new file); ``module_of(directory)`` gives ``(module_path, module_directory)`` for
+    the nearest go.mod, or None. The package is the import path ``go test -json`` reports. None when
+    a file's package cannot be named, so the caller keeps every test.
+    """
+    names = set()
+    for path, before, after in files:
+        directory = str(Path(path).parent).replace("\\", "/")
+        owner = module_of(directory)
+        if owner is None:
+            return None
+        path_of_module, root = owner
+        relative = "" if directory == root else directory[len(root) + 1 :] if root not in ("", ".") else directory
+        relative = "" if relative == "." else relative
+        package = f"{path_of_module}/{relative}" if relative else path_of_module
+        old = definitions(before)
+        names |= {(package, name) for name, source in definitions(after).items() if old.get(name) != source}
+    return names
+
+
+def defined_in(names, test):
+    """Whether a ``package::Name[/subtest]`` result is one of ``changed_names``."""
+    package, _, name = test.partition("::")
+    return (package, name.split("/", 1)[0]) in names
