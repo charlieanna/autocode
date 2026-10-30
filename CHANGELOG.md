@@ -16,6 +16,12 @@ PR template asks for an entry here; a change without one is incomplete.
   `--details` (in the terminal chat, `/details`) for the full brief with its contract diff, file hashes and
   request tokens, then the approve and change commands. `--show-goal`, `--json` and the status view are
   unchanged, and approval still binds to the token of the plan shown.
+### Fixed
+
+- A run-wide `--provider gocode` (rather than a per-role provider) now sends the plain full-report
+  schema when a Requirements report is repaired, instead of the generic JSON-edit schema that the
+  gocode structured-output transport rejects before any model response. The repair therefore
+  proceeds instead of pausing for operational recovery.
 
 ## [0.9.0] — 2026-10-30
 
