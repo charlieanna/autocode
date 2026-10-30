@@ -210,6 +210,53 @@ def _line_reasons(proof, path, source, reasons):
     return decisions
 
 
+def scripted_files_changed_code_reasons(data, files):
+    """The fake Tester's reasons for lines of the exact files its scripted Builder wrote that no mutant can reach.
+
+    Bound to the gap, the scripted bytes and the line, and only where the proof's collected
+    mutation check read those bytes and found no mutation site on the line: never for a file it
+    did not script, other bytes than it wrote, or a line a mutant reached or could have reached.
+    """
+    proof = data.get("regression_proof") or {}
+    mutation = proof.get("mutation_check") or {}
+    if not proof.get("path") or not files or mutation.get("collected") is not True:
+        return []
+    scripted = {name: hashlib.sha256(content.encode()).hexdigest() for name, content in files.items()}
+    sites = {}
+    for entry in mutation.get("files") or []:
+        if scripted.get(entry.get("path")) == entry.get("sha256"):
+            sites[entry["path"]] = [
+                (mutant.get("line"), mutant.get("end_line") or mutant.get("line"))
+                for mutant in entry.get("mutants") or []
+            ]
+    decisions = []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        path, line = row.get("path"), row.get("line")
+        if (
+            row.get("status") != "reason_required"
+            or path not in sites
+            or row.get("sha256") != scripted[path]
+            or type(line) is not int
+            or row.get("mutation_outcomes")
+            or any(start <= line <= end for start, end in sites[path])
+        ):
+            continue
+        decisions.append(
+            {
+                "gap_id": row["gap_id"],
+                "decision": "accept",
+                "reason_kind": "instrumentation_unavailable",
+                "reason": (
+                    f"Scripted fixture: {path}:{line} is the exact scripted content of this delivery, and the "
+                    "proof's mutation check read these bytes and found no mutation site on the line. The "
+                    "delivery's tests, run independently by the proof, exercise the behavior it takes part in."
+                ),
+                "evidence_refs": [proof["path"], path],
+            }
+        )
+    return decisions
+
+
 def assert_operational_wait(test, state: RunState, pause_status):
     from tools import autocode_resolver_human as human
 

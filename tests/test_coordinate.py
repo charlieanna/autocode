@@ -434,6 +434,106 @@ class CoordinationTests(unittest.TestCase):
         self.assertEqual("approval", step["kind"])
         self.assertEqual(plan, step["joint_plan"])
 
+    def test_the_persons_approval_records_each_plans_contract(self):
+        self.document.update(revision=4, members=[{"target": "api", "run_dir": str(self.root / "api/run")}])
+        store.save(self.document)
+        plan = self.plan_view("api-plan")["displayed_plan"]
+        joint_plan = {**plan, "token": "joint-plan", "milestones": [{"id": "M1", "objective": "run it"}]}
+        shown = {
+            "approval": {"token": "shown"},
+            "needs": {
+                "kind": "approval",
+                "summary": {"runs": [{"target": "api", "plan": plan}], "approval": {"set_token": "set-1"}},
+                "joint_plan": joint_plan,
+            },
+        }
+        with (
+            patch.object(coordinate, "status", return_value=shown),
+            patch.object(coordinate.changesets, "approve") as approve,
+        ):
+            coordinate.approve(self.document["anchor"], "shown")
+        approve.assert_called_once_with(str(self.root / "api/run"), "set-1", command=coordinate.tasks.AUTOCODE)
+        saved = store.read(self.document["anchor"])["approved_contracts"]
+        self.assertEqual("shown", saved["token"])
+        self.assertEqual(coordinate.contract(plan), saved["members"]["api"])
+        self.assertEqual(coordinate.contract(joint_plan), saved["joint"])
+        self.assertNotIn("milestones", saved["joint"])  # the order of work is the Planner's, not a term
+        self.assertEqual([], saved["carried"])
+
+    def test_revised_plans_that_keep_the_approved_contract_carry_the_approval(self):
+        self.document["members"] = [
+            {"target": target, "started": True, "run_dir": str(self.root / target)} for target in ("api", "history")
+        ]
+        self.document["joint"] = {"workspace": str(self.root / "joint"), "run_dir": str(self.root / "joint/run")}
+        views = {target: self.plan_view(target + "-plan-2") for target in ("api", "history")}
+        joint_plan = {
+            **self.plan_view("joint-plan-2")["displayed_plan"],
+            "milestones": [{"id": "M2", "objective": "Run the combined regression again"}],
+        }
+        self.document["approved_contracts"] = {
+            "revision": 2,
+            "token": "first",
+            "members": {target: coordinate.contract(views[target]["displayed_plan"]) for target in views},
+            "joint": coordinate.contract(joint_plan),
+            "carried": [],
+        }
+        joint_view = {"needs": {"kind": "approve_plan", "token": "joint-plan-2"}, "displayed_plan": joint_plan}
+        summary = {
+            "runs": [{"target": target, "plan": views[target]["displayed_plan"]} for target in views],
+            "approval": {"set_token": "set-2"},
+        }
+
+        def step():
+            with (
+                patch.object(coordinate, "handle", return_value=Mock(status=Mock(return_value=joint_view))),
+                patch.object(coordinate.actions, "plan_for_approval", return_value=joint_plan),
+                patch.object(coordinate.changesets, "status", return_value=summary),
+            ):
+                return coordinate.next_step(self.document, views)
+
+        carried = step()
+        self.assertEqual("carry_approval", carried["kind"])
+        self.assertEqual({"revision": 2, "token": "first", "unchanged": ["api", "history"]}, carried["carried"])
+        self.assertEqual(joint_plan, carried["joint_plan"])
+        self.assertEqual("set-2", carried["summary"]["approval"]["set_token"])
+        # A changed term in a member or the joint plan, or a repository the person never saw, asks again.
+        summary["runs"][1]["plan"] = {**views["history"]["displayed_plan"], "constraints": ["Keep the old endpoint"]}
+        self.assertEqual("approval", step()["kind"])
+        summary["runs"][1]["plan"] = views["history"]["displayed_plan"]
+        joint_plan["scope_exclusions"] = ["Not covered: billing"]
+        self.assertEqual("approval", step()["kind"])
+        joint_plan["scope_exclusions"] = []
+        self.assertEqual("carry_approval", step()["kind"])
+        del self.document["approved_contracts"]["members"]["history"]
+        self.assertEqual("approval", step()["kind"])
+        del self.document["approved_contracts"]
+        self.assertEqual("approval", step()["kind"])
+
+    def test_carrying_the_approval_takes_the_set_approval_and_records_it(self):
+        self.document.update(
+            revision=5,
+            members=[{"target": "api", "started": True, "run_dir": str(self.root / "api/run")}],
+            approved_contracts={"revision": 2, "token": "first", "members": {}, "joint": {}, "carried": []},
+        )
+        store.save(self.document)
+        step = {
+            "kind": "carry_approval",
+            "summary": {"runs": [], "approval": {"set_token": "set-2"}},
+            "joint_plan": {},
+            "carried": {"revision": 2, "token": "first", "unchanged": ["api"]},
+        }
+        with (
+            patch.object(coordinate, "observe", return_value={"api": {"status": "AWAITING_GOAL_APPROVAL"}}),
+            patch.object(coordinate, "next_step", return_value=step),
+            patch.object(coordinate.changesets, "approve") as approve,
+            patch.object(coordinate, "status", return_value={}),
+        ):
+            coordinate.advance(self.document["anchor"])
+        approve.assert_called_once_with(str(self.root / "api/run"), "set-2", command=coordinate.tasks.AUTOCODE)
+        [carried] = store.read(self.document["anchor"])["approved_contracts"]["carried"]
+        self.assertEqual("set-2", carried["set_token"])
+        self.assertEqual(["api"], carried["unchanged"])
+
     def test_candidate_binding_replaces_baseline_inputs_including_deletions(self):
         entry = self.repository("api")
         member_workspace = self.root / "member-worktree"
@@ -509,6 +609,36 @@ class CoordinationTests(unittest.TestCase):
             with self.assertRaisesRegex(store.CoordinationError, "joint plan must be approved"):
                 coordinate.bind_candidates(self.document["anchor"])
         bind.assert_not_called()
+
+    def test_binding_candidates_starts_the_joint_regression_phase(self):
+        self.document["members"] = [
+            {
+                "target": "api",
+                "started": True,
+                "workspace": str(self.root / "api"),
+                "run_dir": str(self.root / "api/run"),
+                "base": "a" * 40,
+            }
+        ]
+        self.document["joint"] = {
+            "workspace": str(self.root / "joint"),
+            "run_dir": str(self.root / "joint/run"),
+            "started": True,
+        }
+        self.document["phase"] = "fixing"  # the members' last advance, after the joint plan started
+        store.save(self.document)
+        joint_view = {"done": False, "needs": {"kind": "continue"}, "approved_contract": {"token": "joint-plan"}}
+        with (
+            patch.object(coordinate, "observe", return_value={"api": {"done": True}}),
+            patch.object(coordinate, "next_step", return_value={"kind": "bind_candidates"}),
+            patch.object(coordinate, "handle", return_value=Mock(status=Mock(return_value=joint_view))),
+            patch.object(joint, "bind_candidates", return_value={"api": "fingerprint"}),
+            patch.object(coordinate, "status", return_value={}),
+        ):
+            coordinate.bind_candidates(self.document["anchor"])
+        saved = store.read(self.document["anchor"])
+        self.assertEqual("joint_regression", saved["phase"])
+        self.assertEqual("fingerprint", saved["joint"]["candidate_binding"]["members"]["api"]["fingerprint"])
 
     def test_approved_joint_plan_binds_candidates_before_joint_execution(self):
         body = {

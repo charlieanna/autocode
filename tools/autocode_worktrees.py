@@ -60,13 +60,13 @@ IDENTITY = {
     "GIT_COMMITTER_EMAIL": "autocode@localhost",
 }
 # The same exclusions autocode_support.snapshot applies: runner state and bytecode are not source.
-SOURCE = [
-    "--",
-    ".",
-    ":(exclude).autocode",
-    ":(exclude).autocode-ui",
-    ":(exclude,glob)**/__pycache__/**",
-    ":(exclude,glob)**/*.pyc",
+# Git refuses `git add` when a pathspec names an ignored path (git >= 2.56), so these are
+# dropped from the index after staging instead of being excluded from the pathspec.
+SOURCE_EXCLUDES = [
+    ".autocode",
+    ".autocode-ui",
+    ":(glob)**/__pycache__/**",
+    ":(glob)**/*.pyc",
 ]
 COMPLETE = "TASK_COMPLETE"
 
@@ -85,7 +85,9 @@ def source_tree(worktree) -> str:
     with tempfile.TemporaryDirectory() as scratch:
         env = {"GIT_INDEX_FILE": str(Path(scratch) / "index")}
         _git(worktree, "read-tree", "HEAD", env=env)
-        _git(worktree, "add", "-A", *SOURCE, env=env)
+        _git(worktree, "add", "-A", "--", ".", env=env)
+        for pathspec in SOURCE_EXCLUDES:
+            _git(worktree, "reset", "-q", "--", pathspec, env=env, check=False)
         return _git(worktree, "write-tree", env=env)
 
 

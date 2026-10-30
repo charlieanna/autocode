@@ -150,7 +150,7 @@ Other engines keep their own defaults, set where each engine is configured:
 
 | Engine or provider | Defaults |
 | --- | --- |
-| `--engine codex` | `gpt-5.6-terra` for the Builder; `gpt-5.6-sol` for the Resolver, Tester and Completion Reviewer (`DEFAULT_ROLE_MODELS` in `tools/autocode.py`) |
+| `--engine codex` | `gpt-5.6-terra` for the Builder; `gpt-5.6-sol` for the Resolver, Tester and Completion Reviewer (`DEFAULT_ROLE_MODELS` in `tools/autocode_configure.py`); with `--joint-planning`, Requirements and the Planner take the Resolver's model and a new Plan Reviewer takes `gpt-6-astra`, or `gpt-5.6-sol` when the Planner runs `gpt-6-astra` (`CODEX_PLAN_REVIEWER_MODELS`) |
 | `--engine claude` (or `--provider claude`) | `claude-haiku-4-5-20251001` for the Builder; `claude-sonnet-5-5` for Requirements, the Planner and the Tester; `claude-opus-5-5` for the Plan Reviewer, the Resolver and the Completion Reviewer; every role at `medium` (`tools/providers/claude.py`, [Claude Code provider](providers.md#claude-code-provider)) |
 | `--provider kilocode` | `openai/gpt-5.6-terra` for the Builder, `zai-coding-plan/glm-5.3` for the Planner, `openai/gpt-5.6-sol` for every other role (`tools/providers/configs/kilocode.toml`) |
 | a user-level provider | whatever its `~/.config/autocode/providers/<name>.toml` `[roles]` specify |
@@ -190,11 +190,17 @@ levels each model takes:
 | --- | --- | --- |
 | Requirements | Turns your idea into requirements; asks you only about real ambiguity | A capable all-round model at medium |
 | Planner | Drafts the plan and revises it after review | A capable model at high |
-| Plan Reviewer | Challenges the plan and makes the final planning call | Your strongest judge at high, never the Planner's model |
+| Plan Reviewer | Challenges the plan and makes the final planning call; its model also runs the Investigator, the Analyst, the Designer and the Design Reviewer | Your strongest judge at high, never the Planner's model |
 | Builder | Writes the code for one task; several run in parallel | A fast, cheaper model at medium |
-| Tester | Checks each Builder's work and proves its tests fail without the change | A strong model at high, never the Builder's |
+| Tester | Checks each Builder's work and proves its tests fail without the change; its model also writes the acceptance tests and runs the Code Reviewer | A strong model at high, never the Builder's |
 | Completion Reviewer | Decides whether the task is done or goes back for more work | A strong judge at medium, never the Builder's model |
 | Resolver and per-task Planner | Steps in when a stage stops progressing; plans each task's steps | Your strongest model at high |
+
+The workflow jobs have no list of their own: each starts from the stage that names it. The
+Investigator of a bug fix takes the Plan Reviewer's model and level; the Analyst, the Designer
+and the Design Reviewer take its model at a capped level; the acceptance tests and the Code
+Reviewer run on the Tester's. A Plan Reviewer level you did not choose runs one rung lower on a
+small, clear task ([adaptive planning](adaptive-planning.md)); a level you chose is kept.
 
 The models come from your backend: for OpenCode and Kilo, the models your connected accounts
 serve, with the reasoning levels and family their own listing declares (a model that cannot

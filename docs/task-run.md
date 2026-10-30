@@ -50,7 +50,14 @@ One approval binds the original request, source-catalog snapshot, repository
 membership and pinned baselines, plus every exact member and joint-plan token.
 Clients reread before approving. Pass its token privately as `--token -` with
 `AUTOCODE_COORDINATION_TOKEN`; providers never receive that variable. A missing
-or changed token authorizes nothing. Repository-choice actions exist only for
+or changed token authorizes nothing. A later revision of the coordinated plans
+(after a joint mismatch repair or a replanned joint test) whose every member and
+joint plan keeps the approved contract (acceptance criteria, constraints,
+permission boundaries, scope exclusions and Git delivery) is approved by the
+coordinator under that same approval as the automatic `carry_approval` step,
+recorded in the coordination state with the targets it covered; a revision that
+changes any of those, or adds a repository the person has not seen, is offered
+for approval again. Repository-choice actions exist only for
 current catalog candidates. After member runs complete, a named
 `coordinate bind` action snapshots exact candidate trees, including deletions,
 for the already-approved joint test. Cancellation prevents further dispatch and
@@ -703,7 +710,7 @@ their deterministic qualification before this opt-in mode is exposed.
 | Explicit pause | Submit the existing request-ID-bound pause offer. Save the active step, then wait at the core's boundary. |
 | Explicit stop or interrupt | Use a core-named action with its own confirmation and scope. No new immediate-kill control is included in the first delivery; missing controls remain unavailable. Stop, when offered, remains terminal for the conversation. |
 | Worker/controller loss while a viewer survives | Show the current controller/liveness inspection and retained attempt. Use the existing reconciliation action only when offered; never infer a paid replay from a quiet log. |
-| Lost ordinary supervisor | Fresh status may name private `--reconcile-only -` when owner, keeper and provider are positively dead. It classifies the retained unfinished attempt as uncertain under the run lock without provider setup, artifact adoption, settings changes or model calls. A changed checkpoint, live/unknown role or stop refuses. Native visual workers and durable service actions remain outside this control. Any discard/retry is a separate named decision. |
+| Lost ordinary supervisor | Fresh status may name private `--reconcile-only -` when owner, keeper and provider are positively dead. It classifies the retained unfinished attempt as uncertain under the run lock without provider setup, artifact adoption, settings changes or model calls. A changed checkpoint, live/unknown role or stop refuses, and status does not offer it while a stop is applied or still pending (the next relaunch applies that stop). Native visual workers and durable service actions remain outside this control. Archiving that uncertain attempt then follows as the core's own named `--abandon-stage` step; any retry is a separate named decision. |
 | Host reboot | Work is interrupted, not transparently resumed. After reconnect, inspect ownership and attempts and expose the ordinary recovery boundary. Unknown provider outcomes stay uncertain. |
 | Two viewers act on one gate | Both may inspect. The first current action admitted under the core's locks changes the run; a competing stale token is refused and refreshed. No client leader or second controller is introduced. |
 
@@ -1145,6 +1152,11 @@ one explicit retry of the held step. Before that request is published
 `resume` whose `action` and `retry_action` both name that retry, and the card
 offers the same `retry_failed_stage` (#1770). When the hold cannot take it yet, the
 card offers no retry and `needs.retry_unavailable` names what must happen first.
+A hold for an incident that repeated with nothing new does not reach the card
+while its source, settings and scope still hold: AutoCode takes that one scoped
+retry itself and, if the incident repeats again, ends the run with a recorded
+outcome (`recovery.category` `stopped`, `recovery.outcome` with its reason and
+evidence, #2485), so the card shows a finished, failed run and no retry.
 The view and `--retry-failed-stage` apply one shared admission rule
 (`autocode_recovery_limits.scoped_retry_refusal`), so the view never offers a
 retry the CLI refuses on saved state. A client runs
@@ -1885,9 +1897,9 @@ run is waiting for:
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `recover_source` | an attempt without a saved original source identity | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |
 | `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `route` after quota, a content-filter refusal, an authenticated output limit, authentication failure or a fully stopped execution timeout | Exact retry after restoring original source; with `route`, name another model first |
-| `resume` | a person to inspect a pause and resolve its cause | `reason`; `new_run_required` with `action=fresh_run` preserves an immutable caller-binding failure and requires a new run; `edit_required` at a repairable component-plan stop prescribes `action` (`--edit-goal FILE`) or `feedback_action` (`--feedback TEXT`), then fresh approval; at `PAUSED_ACCEPTANCE_TESTS` (the Tester's pause) `action` is `--feedback 'WHAT TO CHANGE'`, which revises the plan and returns the run to plan approval, `chat.input` offers the same `feedback` message, and `guidance` says that `--resume-paused` reruns the Tester unchanged and helps only once the code changed; otherwise `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota, content-filter or output-limit stop whose request was answered without a model, or `--resume-paused --retry-failed-stage` (also as `retry_action`) at a recovery novelty hold whose request is not yet published, where a plain resume would hold again; when that hold cannot take the retry yet, `retry_unavailable` instead says why (an owned or uncertain attempt to reconcile, or a different pending decision), the same reason the CLI gives; at a `PAUSED_REPEATED_FAILURE` whose active attempt, uncertain artifacts or pending report repair its retry gate will not authorize over, `retry_unavailable` carries that CLI refusal verbatim and `action` is the plain `--resume-paused`, never the rejected `--retry-failed-stage` (#1897) | Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved |
+| `resume` | a person to inspect a pause and resolve its cause | `reason`; `new_run_required` with `action=fresh_run` preserves an immutable caller-binding failure and requires a new run; `edit_required` at a repairable component-plan stop prescribes `action` (`--edit-goal FILE`) or `feedback_action` (`--feedback TEXT`), then fresh approval; at `PAUSED_ACCEPTANCE_TESTS` (the Tester's pause) `action` is `--feedback 'WHAT TO CHANGE'`, which revises the plan and returns the run to plan approval, `chat.input` offers the same `feedback` message, and `guidance` says that `--resume-paused` reruns the Tester unchanged and helps only once the code changed; otherwise `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota, content-filter or output-limit stop whose request was answered without a model, or `--resume-paused --retry-failed-stage` (also as `retry_action`) at a recovery novelty hold whose request is not yet published, where a plain resume would hold again; when that hold cannot take the retry yet, `retry_unavailable` instead says why (an owned or uncertain attempt to reconcile, or a different pending decision), the same reason the CLI gives; an attempt that exited cleanly with a recorded finish (a verification hold or stale source check stands on its result) keeps `abandon_stage` and its `--abandon-stage ATTEMPT then --resume-paused` action as a `resume`, because archiving it would discard that result; at a `PAUSED_REPEATED_FAILURE` whose active attempt, uncertain artifacts or pending report repair its retry gate will not authorize over, `retry_unavailable` carries that CLI refusal verbatim and `action` is the plain `--resume-paused`, never the rejected `--retry-failed-stage` (#1897) | Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved |
 | `dependency` | a bound producer run's delivery (see [Dependencies between existing runs](#dependencies-between-existing-runs)) | `reason`, `producer_run`, `producer_workspace` | `autocode wait --run-dir <producer_run> --workspace <producer_workspace>`: returns when the producer needs a person or ends. Nothing to answer on this run: the dependency worker (`python tools/autocode_dependencies.py ... --watch`) calls `--receive-dependency MANIFEST` (`TaskRun.receive_dependency`) when the producer's verified delivery is ready |
-| `continue` | nothing; the run can simply proceed | | Continue |
+| `continue` | no person input; the core may name a deterministic recovery in `action` (for example, setting aside an uncertain attempt that did not finish cleanly, or resuming bounded recovery when the saved progress ledger proves another slot is unnecessary) | `action` when present | Run only the named `next_command`, then read status again |
 
 A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver
 stopped the run because it could not continue safely (for example, the
@@ -2040,7 +2052,9 @@ token approves) and `approval`:
 - `set_token` is a digest of every run's identity and own plan token. It is `null` until
   every run offers a complete plan for approval, including a previously approved plan
   still held after an interrupted set approval. `waiting_on` names runs without an offer.
-- `next_command` is the argument array that approves the set, or `null`.
+- `next_command` is the argument array that approves the set, or `null`. It is also `null`
+  when every run has already completed under its approved plan: an unchanged completed run
+  joins a revised set with that plan, but a set with no new plan has nothing to approve.
 
 `autocode changeset approve --run-dir RUN --set-token TOKEN` reads every run's view again.
 It refuses a token that no longer matches, then records a durable hold for the exact

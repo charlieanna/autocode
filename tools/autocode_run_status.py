@@ -51,3 +51,8 @@ def awaiting_approval(state: RunState, **fields) -> RunState:
     state.update({"status": "AWAITING_GOAL_APPROVAL", "phase": "AWAITING_GOAL_APPROVAL", **cast("RunState", fields)})
     state.pop("stop_reason", None)
     return state
+
+
+# How the stop reason of a run AutoCode ended itself begins (autocode_stop.end, #2485). Named here, the
+# leaf module, so the stop policy, the explanation and the pause category read one value.
+ENDED_PREFIX = "AutoCode could not finish this task: "

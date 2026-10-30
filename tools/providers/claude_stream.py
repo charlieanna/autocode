@@ -891,6 +891,11 @@ def _run(arguments: list[str]) -> int:
         schema = json.loads(Path(options["--schema"]).read_text())
     except (OSError, ValueError) as error:
         raise _ArgumentError(f"cannot read the report schema: {error}") from error
+    # Claude Code 2.1.314 checks --json-schema in strict mode and refuses a keyword it does not
+    # know, so AutoCode's own top-level annotations (``x-`` keys, such as the bounded report-edit
+    # offer's ``x-autocode-report-edits``) stay in the schema file for the runner and never reach it.
+    if isinstance(schema, dict):
+        schema = {key: value for key, value in schema.items() if not key.startswith("x-")}
     compact = _compact(schema)
     if len(compact.encode("utf-8")) > SCHEMA_LIMIT:
         raise _ArgumentError("report schema is larger than one argv string (128 KiB); no provider request was launched")

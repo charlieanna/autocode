@@ -9,6 +9,10 @@ The full brief runs to hundreds of lines, so it ends with a short summary of the
 (``summary``), just above the limits and the commands: what the plan will do, what it may
 change, when it is done and what passing proves. That is the last screen of the terminal.
 
+The approval stop a person first sees is that summary alone (#2535): the limits, one line
+(``details``) naming the command that prints the full brief with its contract diff and request
+tokens, then the commands. ``--show-goal``, ``--details`` and ``--json`` keep the full brief.
+
 Pure functions over saved values. Only the pure cost formatter (autocode_cost, which imports
 nothing above the standard library) is imported, so the brief renderer (autocode_goal_lifecycle)
 uses them without adding to an import cycle.
@@ -56,12 +60,28 @@ def token_note() -> str:
 
 def actions(token: str, settings: dict, iteration: int, run_dir=None) -> list[str]:
     """Last: the limits in effect, then how to approve this plan or ask for a change."""
-    command = "autocode" + (f" --run-dir {shlex.quote(str(run_dir))}" if run_dir else "")
+    return [limits(settings, iteration)] + commands(token, run_dir)
+
+
+def commands(token: str, run_dir=None) -> list[str]:
+    """How to approve this plan or ask for a change."""
+    command = _command(run_dir)
     return [
-        limits(settings, iteration),
         f"To approve this plan: {command} --approve-goal {shlex.quote(token)}",
         f"To change it instead: {command} --feedback 'WHAT TO CHANGE' (the revised plan gets a new token)",
     ]
+
+
+def details(run_dir=None) -> str:
+    """The one line of the short approval stop that points at the full brief (#2535)."""
+    return (
+        "The full plan, its changes since the last revision and the request tokens: "
+        f"{_command(run_dir)} --details (in the chat, /details)"
+    )
+
+
+def _command(run_dir=None) -> str:
+    return "autocode" + (f" --run-dir {shlex.quote(str(run_dir))}" if run_dir else "")
 
 
 def limits(settings: dict, iteration: int) -> str:
@@ -105,8 +125,11 @@ def duration(seconds) -> str:
     return f"{seconds} s"
 
 
-def summary(body: dict, revision, cases: list[dict], *, design_only: bool = False, proxied=()) -> list[str]:
-    """The decision in brief, shown between the full brief and the limits.
+def summary(
+    body: dict, revision, cases: list[dict], *, design_only: bool = False, proxied=(), above: bool = True
+) -> list[str]:
+    """The decision in brief, shown between the full brief and the limits, or first and alone when
+    ``above`` is false (the short approval stop, #2535).
 
     Every plan field is quoted verbatim from the contract body; a field an older body lacks is
     left out. ``cases`` are the cases the regression proof will require a test for at completion
@@ -116,7 +139,7 @@ def summary(body: dict, revision, cases: list[dict], *, design_only: bool = Fals
     trace's proxied rows (autocode_trace_coverage.proxied_rows, #2068): requirements whose criteria prove
     a stand-in for what the user sees, listed so the person never reads them as fully covered."""
     body = body if isinstance(body, dict) else {}
-    lines = [f"Before you approve r{revision} (a summary of the plan above):"]
+    lines = [f"Before you approve r{revision}" + (" (a summary of the plan above):" if above else ":")]
     outcome = body.get("intended_outcome")
     if isinstance(outcome, str) and outcome.strip():
         lines += ["What it will do:"] + ["  " + line for line in outcome.splitlines()]
@@ -132,7 +155,10 @@ def summary(body: dict, revision, cases: list[dict], *, design_only: bool = Fals
     if exclusions is not None:
         lines += ["Out of scope:"] + (["  - " + row for row in exclusions[:SCOPE_SHOWN]] or ["  (none declared)"])
         if len(exclusions) > SCOPE_SHOWN:
-            lines.append(f"  - ... and {len(exclusions) - SCOPE_SHOWN} more in the plan above")
+            lines.append(
+                f"  - ... and {len(exclusions) - SCOPE_SHOWN} more in the "
+                + ("plan above" if above else "full plan (--details)")
+            )
     criteria = [row for row in _rows(body.get("acceptance_criteria")) if isinstance(row, dict)]
     if criteria:
         lines.append("Done when:")

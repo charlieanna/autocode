@@ -344,6 +344,48 @@ def sync_set(document):
         document["changeset"] = record["id"]
 
 
+# What a person approves in a coordinated plan: the terms, not the Planner's milestone order.
+CONTRACT_KEYS = ("acceptance_criteria", "constraints", "permission_boundaries", "scope_exclusions", "git_delivery")
+
+
+def contract(plan):
+    """The approved terms of one shown plan, compared when a later revision asks whether they changed."""
+    return {key: plan.get(key, [] if key == "scope_exclusions" else None) for key in CONTRACT_KEYS}
+
+
+def approved_contracts(document, step, token):
+    """What the person approved, by target, so a revision that keeps it needs no second approval."""
+    targets = {row["target"] for row in document["members"]}
+    return {
+        "revision": document["revision"],
+        "token": token,
+        "members": {
+            row["target"]: contract(row["plan"])
+            for row in step["summary"]["runs"]
+            if row.get("target") in targets and row.get("plan")
+        },
+        "joint": contract(step["joint_plan"]),
+        "carried": [],
+    }
+
+
+def carried_approval(document, summary, joint_plan):
+    """The person's approval carried to revised plans that keep its contract, or None to ask again."""
+    record = document.get("approved_contracts") or {}
+    if not record.get("members") or not record.get("joint"):
+        return None
+    plans = {row["target"]: row.get("plan") for row in summary.get("runs") or [] if isinstance(row, dict)}
+    unchanged = []
+    for row in document["members"]:
+        approved = record["members"].get(row["target"])
+        if approved is None or not plans.get(row["target"]) or contract(plans[row["target"]]) != approved:
+            return None
+        unchanged.append(row["target"])
+    if contract(joint_plan) != record["joint"]:
+        return None
+    return {"revision": record["revision"], "token": record["token"], "unchanged": unchanged}
+
+
 def next_step(document, views, *, command=tasks.AUTOCODE):
     if store.cancelled(document["anchor"]):
         return {"kind": "cancelled"}
@@ -436,6 +478,11 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
                     "kind": "blocked",
                     "reason": "Every repository and joint plan must be complete before one approval can be offered",
                 }
+            carried = carried_approval(document, summary, plan)
+            if carried:
+                # A mismatch repair or replanned joint test that keeps the approved terms is not a
+                # new decision for the person; the coordinator carries their approval and records it.
+                return {"kind": "carry_approval", "summary": summary, "joint_plan": plan, "carried": carried}
             return {"kind": "approval", "summary": summary, "joint_plan": plan}
         if joint_view.get("done") and not active.get("candidate_binding"):
             return {
@@ -509,6 +556,7 @@ AUTOMATIC = {
     "publish",
     "reconcile",
     "refresh",
+    "carry_approval",
 }
 
 
@@ -547,7 +595,7 @@ def status(run_dir, *, command=tasks.AUTOCODE):
             {
                 "target": row["target"],
                 "workspace": row["workspace"],
-                "location": row["origin"],
+                "location": row.get("origin"),
                 "run_dir": row["run_dir"],
                 "base": row["base"],
                 "role": row.get("role", "member"),
@@ -916,6 +964,12 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
                 for row in document["members"]:
                     row["tested_fingerprint"] = repos.fingerprint(row["workspace"])
                 document["phase"] = "publishing"
+        elif kind == "carry_approval":
+            set_token = step["summary"]["approval"]["set_token"]
+            changesets.approve(document["members"][0]["run_dir"], set_token, command=command)
+            document["approved_contracts"].setdefault("carried", []).append(
+                {"revision": document["revision"], "set_token": set_token, "unchanged": step["carried"]["unchanged"]}
+            )
         elif kind == "publish":
             require_joint_evidence(document, command=command)
             for row in document["members"]:
@@ -943,6 +997,7 @@ def approve(run_dir, token, *, command=tasks.AUTOCODE):
             changesets.approve(
                 document["members"][0]["run_dir"], step["summary"]["approval"]["set_token"], command=command
             )
+            document["approved_contracts"] = approved_contracts(document, step, token)
         else:
             raise store.CoordinationError("No coordinated approval is offered")
         store.save(document)
@@ -975,6 +1030,9 @@ def bind_candidates(run_dir, *, command=tasks.AUTOCODE):
                 for row in document["members"]
             },
         }
+        # The joint plan is approved with the members' plans and started early; the joint
+        # regression itself runs from here, so status names that phase, not the members' fixing.
+        document["phase"] = "joint_regression"
         store.save(document)
     return status(run_dir, command=command)
 

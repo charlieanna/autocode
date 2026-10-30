@@ -1,19 +1,19 @@
-"""An explicitly rerouted scoped retry preserves the incident and only launches once."""
+"""AutoCode's own scoped retry of a held incident runs on the saved routes, and a person is no longer
+stopped at the hold to reroute it (#2485)."""
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from harness import catalog
-from harness.driver import DriveError, default_autocode, fake_setup
+from harness.driver import default_autocode, fake_setup
 from harness.project import materialize
 
 from .test_rework_cli import SavedRoutesDriver
 
 
 class ResolverRetryRouteCLI(unittest.TestCase):
-    def test_explicit_resolver_model_change_can_retry_the_same_held_incident(self):
+    def test_autocodes_own_retry_of_the_held_incident_takes_no_route_change(self):
         scratch = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(scratch.cleanup)
         root = Path(scratch.name).resolve()
@@ -33,64 +33,48 @@ class ResolverRetryRouteCLI(unittest.TestCase):
             timeout_seconds=240,
         )
         before = driver.drive(scenario.brief)
-        self.assertEqual("RESOLVER_PENDING", before["status"], before.get("stop_reason"))
-        self.assertIn("No causal progress", before["stop_reason"])
-        # Only settings explicitly supplied here may change; starting defaults must not be replayed.
+        # The repeat held the Resolver, then the Builder; AutoCode took the one scoped retry of each itself
+        # (the grant a person used to give with --resume-paused --retry-failed-stage), on the saved routes
+        # and with no route change (#2485). The hold never stopped the run for a person.
+        self.assertNotEqual("RESOLVER_PENDING", before["status"], before.get("stop_reason"))
+        self.assertNotIn("No causal progress", before["stop_reason"])
+        state = driver.state()
+        grants = state["failure_retry_authorizations"]
+        self.assertEqual(
+            [("autocode", "astra_resolve"), ("autocode", "terra")], [(g["actor"], g["stage"]) for g in grants]
+        )
+        self.assertFalse([g for g in grants if g.get("resolver_route_change")])
+        receipts = [row["recovery_novelty"] for row in state["stages"] if row.get("recovery_novelty")]
+        self.assertEqual(
+            [(None, "first_incident"), ("automatic", "explicit_retry"), ("automatic", "explicit_retry")],
+            [(row.get("grant_kind"), row["reason"]) for row in receipts],
+        )
+        self.assertEqual("derived", before["routes"]["resolver"]["origin"])
+        for step in driver.steps:
+            self.assertNotIn("--retry-failed-stage", step["stdout_tail"] + step["stderr_tail"], step)
+        # At the stop the run reaches instead, a rerouted scoped retry is a recovery decision the run no
+        # longer offers a person: it is refused and launches nothing. (The model flag itself is an
+        # ordinary settings change at this pause, saved as at any other.) Only settings explicitly
+        # supplied here may change; starting defaults must not be replayed.
         driver.flags = []
         before_trace = (root / "rework-trace.jsonl").read_text().splitlines()
-        for flags in (
-            ("--resolver-model", "gpt-6.1-sol"),
-            (
-                "--resume-paused",
-                "--retry-failed-stage",
-                "--resolver-model",
-                "gpt-6.1-sol",
-                "--max-stage-seconds",
-                "901",
-            ),
-        ):
-            with self.assertRaisesRegex(DriveError, "nothing was saved"):
-                driver.call("reject-unbound-route-change", *flags)
-            held = driver.view()
-            self.assertEqual(before["routes"], held["routes"])
-            self.assertEqual(before["cost"], held["cost"])
-            self.assertEqual(before_trace, (root / "rework-trace.jsonl").read_text().splitlines())
-        changed = driver.call(
-            "reroute-one-retry",
+        rejected = driver.call(
+            "reroute-retry",
             "--resume-paused",
             "--retry-failed-stage",
             "--resolver-model",
             "gpt-6.1-sol",
             "--resolver-reasoning-effort",
             "medium",
-            "--max-seconds",
-            "10800",
         )
-        self.assertNotIn("Input rejected", changed.stderr)
-        self.assertNotIn("stale", changed.stderr.lower())
-        self.assertIn("Failure retry authorized", changed.stdout)
-        after = driver.until_stopped()
-        trace = [json.loads(line) for line in (root / "rework-trace.jsonl").read_text().splitlines()]
-        self.assertEqual(["astra_resolve"], [row["stage"] for row in trace[len(before_trace) :]])
-        self.assertIn("No causal progress", after["stop_reason"])
-        self.assertEqual("gpt-6.1-sol", after["routes"]["resolver"]["model"])
-        self.assertEqual("medium", after["routes"]["resolver"]["reasoning_effort"])
-        # This fixture's returned REWORK separately triggers the existing Builder
-        # escalation policy. Other roles are unchanged; the parser-level provider
-        # regression checks all roles at the settings boundary before that work.
+        self.assertIn("Input rejected", rejected.stderr)
+        after = driver.view()
+        self.assertEqual(before["status"], after["status"])
         self.assertEqual(
-            {k: v for k, v in before["routes"].items() if k not in ("resolver", "terra")},
-            {k: v for k, v in after["routes"].items() if k not in ("resolver", "terra")},
+            {k: v for k, v in before["routes"].items() if k != "resolver"},
+            {k: v for k, v in after["routes"].items() if k != "resolver"},
         )
-        prior_attempts = before["usage"]["accounting"]["attempts"]
-        new_attempts = after["usage"]["accounting"]["attempts"]
-        self.assertEqual(prior_attempts, new_attempts[: len(prior_attempts)])
-        self.assertEqual(before["cost"]["cap_usd"], after["cost"]["cap_usd"])
-        self.assertGreaterEqual(after["cost"]["spent_usd"], before["cost"]["spent_usd"])
-        self.assertIn("10,800 s limit", after["stop_reason"])
-        # A new process has the saved route, not a second spending grant.
-        driver.call("restart-without-new-grant")
-        self.assertEqual(trace, [json.loads(line) for line in (root / "rework-trace.jsonl").read_text().splitlines()])
+        self.assertEqual(before_trace, (root / "rework-trace.jsonl").read_text().splitlines())
 
 
 if __name__ == "__main__":

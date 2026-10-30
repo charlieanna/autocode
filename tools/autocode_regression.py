@@ -228,6 +228,7 @@ def head(workspace):
 
 LAUNCH_REFS = "refs/autocode/launch/"
 LAUNCH_REF_GRACE_SECONDS = 86400  # a run launched in another worktree has saved its run directory by then
+MISSING_CASES_REASON = "Completion rejected: the milestone proof still needs all required cases: "
 
 
 def _git(workspace, *args):
@@ -835,16 +836,16 @@ def _proving(
     return proof
 
 
-def rejection(state: RunState):
+def rejection(state: RunState, *, all_due=True):
     """The completion gate's reason when the current source has no passing proof."""
     proof = state.get("regression_proof") or {}
     missing = [
         case["id"]
-        for case in test_cases.proof_cases(state, all_due=True)
+        for case in test_cases.proof_cases(state, all_due=all_due)
         if case["id"] not in (proof.get("case_scope") or []) or not (proof.get("case_tests") or {}).get(case["id"])
     ]
     if proof.get("verdict") == verify.PASS and missing:
-        return "Completion rejected: the milestone proof still needs all required cases: " + ", ".join(missing)
+        return MISSING_CASES_REASON + ", ".join(missing)
     reasons = (
         "; ".join((proof.get("failures") or []) + (proof.get("unverified") or []))
         or "no proof exists for the current source"

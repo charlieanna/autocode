@@ -525,7 +525,15 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(["Build a planner.", "Declare the test file in M2."], data["source_texts"])
         self.assertNotIn("Fix an existing test race.", data["source_texts"])
         self.assertEqual(
-            [{"basis": "user_feedback", "event_id": correction["id"], "text": correction["text"]}],
+            # No prior requirement shares the correction's wording, so it names no candidate link.
+            [
+                {
+                    "basis": "user_feedback",
+                    "event_id": correction["id"],
+                    "text": correction["text"],
+                    "previous_requirement_ids": [],
+                }
+            ],
             data["requirements_correction_sources"],
         )
         self.assertIn("current Builder task and approved contract are inherited obligations", prompt)
@@ -783,6 +791,34 @@ class RepairTests(unittest.TestCase):
                 self.queue(stage="glm_revise", role="astra", schema=str(schema))
                 prompt = self.repair_request()["prompt"]
                 self.assertNotIn(runner.planning.PROGRESSIVE_POLICY, prompt)
+
+    def test_gocode_report_repair_uses_the_full_schema_on_the_wire(self):
+        self.state["next_stage"] = "astra_discovery"
+        self.state["settings"]["engine"] = "opencode"
+        self.state["settings"]["roles"]["astra"]["provider"] = "gocode"
+        schema = self.run / "discovery.schema.json"
+        original = {
+            "type": "object",
+            "properties": {"summary": {"type": "string"}},
+            "required": ["summary"],
+            "additionalProperties": False,
+        }
+        schema.write_text(json.dumps(original))
+        self.queue(
+            stage="astra_discovery",
+            role="astra",
+            schema=str(schema),
+            report=json.dumps({"summary": "Rejected draft"}),
+            error=ValueError("Missing discovery evidence"),
+        )
+
+        request = self.repair_request()
+
+        self.assertEqual(original, json.loads(request["schema"].read_text()))
+        self.assertNotIn("repair_report", json.loads(request["schema"].read_text())["properties"])
+        rejected = Path(self.state["pending_report_repair"]["original"]["output"])
+        repair_schema = rejected.with_name(rejected.stem + ".repair-edits.schema.json")
+        self.assertIn("repair_report", json.loads(repair_schema.read_text())["properties"])
 
     def assert_repair_blocked(self, status="PAUSED_REPORT_REPAIR_INPUT"):
         attempts = self.state["pending_report_repair"]["attempts"]

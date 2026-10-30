@@ -282,6 +282,427 @@ def _diamond(data, root):
     return accepted
 
 
+WEEKS_SOURCE = "31fbfcf6402c2bc85a0ff832fba5aa4e8ca76400d1609fc9105b252006d963d3"
+WEEKS_TESTS = "13fc59908469b6d9650dcc96fa604956ffb4526975938090b6cea3d3280cfe03"
+WEEKS_REASONS = {
+    "iso = day.isocalendar()": "No supported assignment mutation for a call result. test_year_boundaries asserts the "
+    "exact ISO (year, week) for six days across year boundaries and test_reported_new_year_week_is_one_row asserts "
+    "one 2025-W01 row; without this ISO calendar lookup week_key cannot return those pairs and both tests fail.",
+}
+
+
+def _weeks(data, root):
+    """bugfix-iso-weeks: the reference fix's ISO lookup line has no mutation site; its tests observe it."""
+    proof = data.get("regression_proof") or {}
+    try:
+        source = (root / "timesheet/weeks.py").read_bytes()
+        digest = hashlib.sha256(source).hexdigest()
+        if (
+            digest != WEEKS_SOURCE
+            or hashlib.sha256((root / "tests/test_weeks.py").read_bytes()).hexdigest() != WEEKS_TESTS
+        ):
+            return []
+    except OSError:
+        return []
+    if not proof.get("path"):
+        return []
+    lines, accepted = source.decode().splitlines(), []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        line = row.get("line")
+        if (
+            row.get("status") != "reason_required"
+            or row.get("path") != "timesheet/weeks.py"
+            or row.get("sha256") != digest
+            or type(line) is not int
+            or not 0 < line <= len(lines)
+            or row.get("mutation_outcomes")
+        ):
+            continue
+        if reason := WEEKS_REASONS.get(lines[line - 1].strip()):
+            accepted.append(
+                {
+                    "gap_id": row["gap_id"],
+                    "decision": "accept",
+                    "reason_kind": "instrumentation_unavailable",
+                    "reason": reason,
+                    "evidence_refs": [proof["path"], "timesheet/weeks.py"],
+                }
+            )
+    return accepted
+
+
+# review-then-fix: the reference fix of pr-184.patch, with its tests (tests/test_client.py, tests/test_policies.py).
+REGCLIENT_SOURCES = {
+    "regclient/client.py": "3b1711d90eaf93b0c03ccc62dd9ffa8dc8b55ab8cbe8bb57ebc05393b670e715",
+    "regclient/policies.py": "88b3caa3a14464c9a97265f21c86b4f354f12fd692b8fbcb88502d128db92bfd",
+}
+REGCLIENT_TESTS = {
+    "tests/test_client.py": "50be50fdb5170c1c801fd655bd2214fdd75790b8e7d1df18de141e109fd98991",
+    "tests/test_policies.py": "6c96a819059b633b740351c2e695606ecfc1a82bab74320c7328e229a20a8171",
+}
+_REGCLIENT_LOOP = (
+    "instrumentation_unavailable",
+    "A loop header has no supported mutation. test_retryable_errors_are_deduplicated_and_sorted asserts .com and "
+    ".net merge TRANSIENT and SESSION into exactly three sorted codes; skipping either loop loses codes and fails it.",
+)
+REGCLIENT_REASONS = {
+    "regclient/client.py": {
+        "import time": (
+            "instrumentation_unavailable",
+            "No supported import mutation. The default sleep argument is time.sleep; without the import, importing "
+            "regclient.client raises NameError and every ClientTests test fails.",
+        ),
+        "def __init__(self, transport, sleep=time.sleep):": (
+            "instrumentation_unavailable",
+            "A def header has no supported mutation. Every ClientTests test passes sleep to RegistryClient and "
+            "test_backoff_is_applied_between_attempts asserts the injected sleep saw [1.0]; a header without the "
+            "parameter fails them with TypeError.",
+        ),
+        "self.sleep = sleep": (
+            "instrumentation_unavailable",
+            "No supported assignment mutation (the value is a name, not a literal). "
+            "test_backoff_is_applied_between_attempts asserts the injected sleep received [1.0]; without storing it "
+            "send() raises AttributeError on the first retry.",
+        ),
+        "for attempt in range(1, policy.max_attempts + 1):": (
+            "instrumentation_unavailable",
+            "A loop header has no supported mutation. test_server_busy_is_retried and test_com_retries_session_limit "
+            "assert exactly two transport calls and test_de_is_never_retried exactly one; the loop's attempt number "
+            "drives the killed attempt == policy.max_attempts conditions on lines 32 and 35.",
+        ),
+        "self.sleep(policy.backoff_seconds)": (
+            "instrumentation_unavailable",
+            "No supported call mutation. test_backoff_is_applied_between_attempts asserts the .org retry waits "
+            "exactly [1.0]; dropping or changing this call fails it.",
+        ),
+        'raise AssertionError("unreachable")': (
+            "defensive_unreachable",
+            "Unreachable from public input: every policy has max_attempts of at least 1, and on the last attempt "
+            "the loop body returns or re-raises (the killed conditions on lines 32 and 35), so the loop never "
+            "falls through to this line.",
+        ),
+    },
+    "regclient/policies.py": {
+        "def retryable(self, code: str) -> bool:": (
+            "instrumentation_unavailable",
+            "A def header has no supported mutation. Its body's constant_return mutant (line 16) is killed by "
+            "test_non_retryable_error_is_raised and test_server_busy_is_retried, which reach it only through "
+            "this method, which client.py calls by name.",
+        ),
+        "merged = []": (
+            "instrumentation_unavailable",
+            "No supported assignment mutation (a list display, not a literal). "
+            "test_retryable_errors_are_deduplicated_and_sorted asserts the exact merged tuples; any other start "
+            "fails it.",
+        ),
+        "for group in groups:": _REGCLIENT_LOOP,
+        "for code in group:": _REGCLIENT_LOOP,
+        'TRANSIENT = ("SERVER_BUSY", "RATE_LIMITED")': (
+            "instrumentation_unavailable",
+            "No supported assignment mutation (a tuple, not a scalar literal). "
+            "test_retryable_errors_are_deduplicated_and_sorted asserts DEFAULT's and .com's exact codes, and "
+            "test_server_busy_is_retried retries SERVER_BUSY; another tuple fails them.",
+        ),
+        'SESSION = ("SESSION_LIMIT_EXCEEDED",)': (
+            "instrumentation_unavailable",
+            "No supported assignment mutation (a tuple, not a scalar literal). test_com_retries_session_limit "
+            "retries SESSION_LIMIT_EXCEEDED on .com and test_retryable_errors_are_deduplicated_and_sorted asserts "
+            "it among .com's and .net's codes.",
+        ),
+        "DEFAULT = RetryPolicy(retryable_errors=_errors(TRANSIENT), max_attempts=3)": (
+            "instrumentation_unavailable",
+            "No supported assignment mutation (a call, not a literal). test_unknown_registry_gets_default asserts "
+            "policy_for('xyz') is DEFAULT with no backoff, and test_retryable_errors_are_deduplicated_and_sorted "
+            "asserts its exact codes.",
+        ),
+        "REGISTRIES = {": (
+            "instrumentation_unavailable",
+            "No supported assignment mutation (a dict display). test_known_registries_have_their_own_policy, "
+            "test_de_gets_one_attempt_and_retries_nothing and the .com/.org/.de client tests read their policies "
+            "through this table; without it they get DEFAULT and fail.",
+        ),
+        '"com": RetryPolicy(retryable_errors=_errors(TRANSIENT, SESSION), max_attempts=4, backoff_seconds=0.5),': (
+            "instrumentation_unavailable",
+            "A dict entry has no supported mutation. test_known_registries_have_their_own_policy asserts 4 attempts, "
+            "test_retryable_errors_are_deduplicated_and_sorted the merged codes and test_com_retries_session_limit "
+            "the retry; without the entry .com gets DEFAULT and fails them.",
+        ),
+        '"net": RetryPolicy(retryable_errors=_errors(TRANSIENT, SESSION), max_attempts=4, backoff_seconds=0.5),': (
+            "instrumentation_unavailable",
+            "A dict entry has no supported mutation. test_known_registries_have_their_own_policy asserts 4 attempts "
+            "for NET and test_retryable_errors_are_deduplicated_and_sorted its merged codes; without the entry .net "
+            "gets DEFAULT and fails them.",
+        ),
+        '"org": RetryPolicy(retryable_errors=_errors(TRANSIENT), max_attempts=3, backoff_seconds=1.0),': (
+            "instrumentation_unavailable",
+            "A dict entry has no supported mutation. test_known_registries_have_their_own_policy and "
+            "test_backoff_is_applied_between_attempts assert .org's 1.0 s backoff; without the entry .org gets "
+            "DEFAULT's 0.0 and fails them.",
+        ),
+    },
+}
+
+
+def _regclient(data, root):
+    """review-then-fix: the reference fix's changed lines that have no mutation site, with their tests pinned."""
+    proof = data.get("regression_proof") or {}
+    try:
+        sources = {path: (root / path).read_bytes() for path in REGCLIENT_SOURCES}
+        if any(hashlib.sha256(sources[path]).hexdigest() != digest for path, digest in REGCLIENT_SOURCES.items()):
+            return []
+        if any(hashlib.sha256((root / path).read_bytes()).hexdigest() != pin for path, pin in REGCLIENT_TESTS.items()):
+            return []
+    except OSError:
+        return []
+    if not proof.get("path"):
+        return []
+    accepted = []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        path, line = row.get("path"), row.get("line")
+        if (
+            row.get("status") != "reason_required"
+            or path not in REGCLIENT_SOURCES
+            or row.get("sha256") != REGCLIENT_SOURCES[path]
+            or type(line) is not int
+            or row.get("mutation_outcomes")
+        ):
+            continue
+        lines = sources[path].decode().splitlines()
+        if not 0 < line <= len(lines):
+            continue
+        if judged := REGCLIENT_REASONS[path].get(lines[line - 1].strip()):
+            accepted.append(
+                {
+                    "gap_id": row["gap_id"],
+                    "decision": "accept",
+                    "reason_kind": judged[0],
+                    "reason": judged[1],
+                    "evidence_refs": [proof["path"], path],
+                }
+            )
+    return accepted
+
+
+LEASE_SOURCE = "37086ea9920187aa6f500f5d946c70c33229ebade1d69cb1a655235c2c6304e3"
+LEASE_TESTS = "d736b080b6d9cd3095de44622bf20ccd54ac815569f2e55a6fcd875d1772b8ce"
+_LEASE_TXN = (
+    "No supported mutation for this transaction line. Every test in tests/test_behavior.py enqueues, claims "
+    "and acknowledges through _db; test_enqueue_claim_restart_and_ack reads the claim back from a new "
+    "LeaseQueue on the same file, so omitting the connection, transaction or commit fails it."
+)
+LEASE_REASONS = {
+    1: "No supported import mutation. Every test constructs LeaseQueue, which opens its store with sqlite3; "
+    "without the import construction raises NameError and every test fails.",
+    4: "No supported import mutation. claim issues uuid4 tokens; test_expiry_at_the_deadline_fences_the_old_token "
+    "claims twice and asserts distinct tokens, and without the import every claim raises NameError.",
+    5: "No supported import mutation. _db is decorated with contextmanager; without it the module fails at "
+    "import and every test fails.",
+    10: "No supported assignment mutation. _db connects to self.path; test_enqueue_claim_restart_and_ack "
+    "reopens the same file and acknowledges the earlier claim, which requires this stored path.",
+    11: "No supported mutation for a with header. The schema statement runs inside this transaction; without it "
+    "the jobs table is never created and every enqueue in the tests fails.",
+    12: "No supported call mutation. This statement creates the jobs table every test enqueues into; omitting it "
+    "fails every test with no such table.",
+    13: "The schema literal has no supported mutation. Every query reads these columns (seq, id, payload, token, "
+    "deadline, done); test_enqueue_claim_restart_and_ack and the expiry tests fail on any missing column.",
+    16: "A decorator has no supported mutation. Without contextmanager, 'with self._db()' raises because a "
+    "generator is not a context manager, and every test fails.",
+    18: _LEASE_TXN,
+    19: _LEASE_TXN,
+    20: "No supported call mutation. BEGIN IMMEDIATE takes the write lock before claim reads its candidate, which "
+    "only racing processes observe: the runner's lease_queue_lifecycle_v1 contention phase releases three "
+    "interpreters together and requires distinct claims (the broken/non-atomic-claim variant leases one job "
+    "twice there).",
+    21: _LEASE_TXN,
+    22: _LEASE_TXN,
+    23: "A handler header has no supported mutation. The conflicting-enqueue ValueError in "
+    "test_inputs_are_validated_at_their_boundaries is raised inside a transaction and passes through this "
+    "handler; the test asserts it reaches the caller.",
+    24: "No supported call mutation. The rollback releases the failed transaction before close; close without "
+    "commit also discards it, so the conflicting-enqueue test observes the same unchanged queue either way. "
+    "It is an explicit release, kept for clarity, with no separate observable behavior.",
+    25: "A bare raise has no supported mutation. test_inputs_are_validated_at_their_boundaries asserts ValueError "
+    "for a conflicting payload raised inside the transaction; swallowing it here fails that assertion.",
+    27: _LEASE_TXN,
+    29: "A decorator has no supported mutation. _time is called as self._time(now); without staticmethod now "
+    "binds to self and test_inputs_are_validated_at_their_boundaries' valid claim(0, 1) raises.",
+    37: "No supported mutation for a with header. test_enqueue_claim_restart_and_ack enqueues and replays; "
+    "without the transaction there is no db to insert into.",
+    38: "No supported assignment mutation. test_enqueue_claim_restart_and_ack asserts False for an identical "
+    "replay and the boundary test asserts ValueError for a conflicting payload; both need this lookup.",
+    43: "No supported call mutation. Every test claims a job it enqueued; without the insert claim returns None "
+    "and the claim assertions fail.",
+    47: "No supported call mutation for a bare call. test_inputs_are_validated_at_their_boundaries requires "
+    "ValueError from claim(-1, 5) and claim(True, 5); omitting this check accepts them.",
+    50: "No supported mutation for a with header. Every test's claim reads and leases through this transaction.",
+    52: "No supported assignment mutation. Every claim selects from these candidates; test_enqueue_claim_restart_"
+    "and_ack and the expiry tests assert the claimed id and payload.",
+    56: "No supported assignment mutation. test_expiry_at_the_deadline_fences_the_old_token asserts the reclaim's "
+    "token differs from the first; a constant token fails it and lets the old token acknowledge.",
+    57: "No supported assignment mutation. test_enqueue_claim_restart_and_ack asserts deadline 15 for claim(10, 5) "
+    "and the expiry test asserts 20 for claim(15, 5).",
+    58: "No supported call mutation. Without storing the lease, the expiry test's claim(14, 5) is not refused and "
+    "acknowledging the claimed token returns False in test_enqueue_claim_restart_and_ack.",
+    62: "No supported call mutation for a bare call. test_inputs_are_validated_at_their_boundaries requires "
+    "ValueError from ack(..., -1); omitting this check returns False instead.",
+    63: "No supported mutation for a with header. Every ack and nack in the tests reads and updates through "
+    "this transaction.",
+    64: "No supported assignment mutation. ack and nack decide from this row; the tests assert True for the "
+    "current lease and False for a wrong, expired or released token.",
+    67: "No supported call mutation. test_enqueue_claim_restart_and_ack asserts pending() is 0 after ack and "
+    "test_nack_releases_for_immediate_retry reclaims after nack; without the update neither holds.",
+    77: "No supported mutation for a with header. The tests assert pending() counts through this transaction.",
+}
+# broken/process-local-tokens ships the same tests; only its token source differs, and the runner's
+# restart observation (not these tests) is what refuses it. From the class on its lines sit two below.
+LEASE_TOKENS_SOURCE = "bbe869af30ceffeace071b921ccd0a4fc1edf4d77e940a647f206109287ea679"
+LEASE_TOKENS_REASONS = {
+    1: LEASE_REASONS[1],
+    2: LEASE_REASONS[5],
+    5: "No supported import mutation. claim draws tokens from count; without the import the module fails at "
+    "import and every test fails.",
+    7: "No supported assignment mutation. claim draws every token from this counter; "
+    "test_expiry_at_the_deadline_fences_the_old_token asserts the reclaim's token differs from the first.",
+    **{line + 2: reason for line, reason in LEASE_REASONS.items() if line >= 10},
+}
+
+
+OUTBOX_SOURCE = "edc2e9466110c1f311254eab65c61b59aad12a324e07577e6be4689e115109e2"
+OUTBOX_TESTS = "21bb3e3db547ed67f9018ba8d9c6de211cce3dcd95e6a34b0dbbcc40d0e90d4e"
+_OUTBOX_TXN = (
+    "No supported mutation for this transaction line. Every test in tests/test_behavior.py creates, reads and "
+    "publishes through _db; test_orders_publish_and_restart and test_sink_failure_retries_same_durable_event "
+    "reopen the same file and assert the committed orders and events, so omitting the connection, transaction "
+    "or commit fails them."
+)
+_OUTBOX_SCHEMA = (
+    "No supported call mutation for the schema. Every test creates an order and reads orders() or pending() "
+    "from these tables and columns; omitting or changing the statement fails them."
+)
+OUTBOX_REASONS = {
+    1: "No supported import mutation. Every test constructs Store, which opens its file with sqlite3; without "
+    "the import construction raises NameError and every test fails.",
+    4: "No supported import mutation. create_order generates the event_id with uuid4; without the import every "
+    "new order raises NameError and every test fails.",
+    5: "No supported import mutation. _db is decorated with contextmanager; without it the module fails at "
+    "import and every test fails.",
+    10: "No supported assignment mutation. _db connects to self.path; test_orders_publish_and_restart reopens the "
+    "same file and asserts the saved order, which requires this stored path.",
+    11: "No supported mutation for a with header. The schema statements run inside this transaction; without it "
+    "no table exists and every test fails.",
+    12: _OUTBOX_SCHEMA,
+    13: _OUTBOX_SCHEMA,
+    14: _OUTBOX_SCHEMA,
+    17: "A decorator has no supported mutation. Without contextmanager, 'with self._db()' raises because a "
+    "generator is not a context manager, and every test fails.",
+    19: _OUTBOX_TXN,
+    20: _OUTBOX_TXN,
+    21: "No supported call mutation. BEGIN IMMEDIATE takes the write lock before create_order reads the key, which "
+    "only racing processes observe: the runner's transactional_outbox_lifecycle_v1 contention phase creates "
+    "the same key from three interpreters together and requires one commit (the broken/racy-create-order "
+    "variant commits twice there).",
+    22: _OUTBOX_TXN,
+    23: _OUTBOX_TXN,
+    24: "A handler header has no supported mutation. The idempotency-conflict ValueError in "
+    "test_inputs_and_conflicts_are_refused_without_effect is raised inside a transaction and passes through "
+    "this handler; the test asserts it reaches the caller and that orders() is unchanged.",
+    25: "No supported call mutation. The rollback releases the failed transaction before close; close without "
+    "commit also discards it, so the conflict test observes the same unchanged orders either way. It is an "
+    "explicit release, kept for clarity, with no separate observable behavior.",
+    26: "A bare raise has no supported mutation. test_inputs_and_conflicts_are_refused_without_effect asserts "
+    "ValueError for a reused key raised inside the transaction; swallowing it here fails that assertion.",
+    28: _OUTBOX_TXN,
+    33: "A try header has no supported mutation. test_inputs_and_conflicts_are_refused_without_effect requires "
+    "ValueError for an existing order under another key, which only the IntegrityError handler it guards "
+    "produces.",
+    34: "No supported mutation for a with header. Every test creates its orders through this transaction.",
+    35: "No supported assignment mutation. test_orders_publish_and_restart asserts False for an identical replay "
+    "and the conflict test asserts ValueError for a reused key; both need this lookup.",
+    40: "No supported call mutation. test_orders_publish_and_restart asserts orders() is {'a': 9} after reopening; "
+    "without the insert it is empty.",
+    41: "No supported call mutation. test_orders_publish_and_restart publishes exactly one event for the new "
+    "order; without this insert publish returns 0.",
+    42: "The event insert's statement literal has no supported mutation; the publish tests read these columns "
+    "back through pending() and publish().",
+    43: "The event insert's parameters have no supported mutation. The publish tests assert the delivered "
+    "order_id, and test_inputs_and_conflicts_are_refused_without_effect asserts the pending amount 1.",
+    46: "A handler header has no supported mutation. test_inputs_and_conflicts_are_refused_without_effect "
+    "requires ValueError for an existing order under another key, which sqlite raises as IntegrityError.",
+    47: "A raise with a cause has no supported mutation. test_inputs_and_conflicts_are_refused_without_effect "
+    "requires ValueError, not IntegrityError, for an existing order under another key.",
+    50: "No supported mutation for a with header. test_orders_publish_and_restart reads orders() through this "
+    "transaction.",
+    53: "A header with a default has no supported mutation. test_orders_publish_and_restart calls pending() with "
+    "the default limit and the conflict test passes limit 1; both assert the returned events.",
+    56: "No supported mutation for a with header. Every pending() and publish() in the tests reads through this "
+    "transaction.",
+    58: "No supported assignment mutation. The clamp only matters above SQLite's integer range, which the hidden "
+    "contract checks; every public test passes a smaller limit and reads the events this query returns.",
+    60: "No supported call mutation. test_sink_failure_retries_same_durable_event compares pending() with the "
+    "delivered event dicts, and the conflict test asserts order_id and amount; changing the shape fails them.",
+    61: "The query call has no supported mutation. Every pending() and publish() assertion reads these rows.",
+    62: "The query literal has no supported mutation. test_orders_publish_and_restart asserts pending() is empty "
+    "after publish, which requires the published=0 filter, and the retry test requires the pending event.",
+    66: "A header with a default has no supported mutation. The publish tests call publish(sink) with the default "
+    "limit and assert the returned count.",
+    68: "A for header has no supported mutation. test_orders_publish_and_restart asserts publish delivers the "
+    "pending event and returns 1.",
+    69: "No supported call mutation. test_orders_publish_and_restart asserts the sink received order 'a'; "
+    "test_sink_failure_retries_same_durable_event asserts the sink's error propagates.",
+    70: "No supported mutation for a with header. The acknowledgement update runs in this transaction; "
+    "test_orders_publish_and_restart asserts pending() is empty after publishing.",
+    71: "No supported call mutation. test_orders_publish_and_restart asserts pending() is empty after publish; "
+    "without the acknowledgement the event stays pending.",
+    72: "No supported augmented-assignment mutation. The publish tests assert publish returns 1 for one "
+    "delivered event; without the increment it returns 0.",
+}
+
+
+def _lifecycle(data, root, source_path, sources, tests_digest):
+    """The ladder lifecycle fixtures: no-mutation-site lines of an exact scripted source and its tests."""
+    proof = data.get("regression_proof") or {}
+    try:
+        digest = hashlib.sha256((root / source_path).read_bytes()).hexdigest()
+        reasons = sources.get(digest)
+        if reasons is None:
+            return []
+        if hashlib.sha256((root / "tests/test_behavior.py").read_bytes()).hexdigest() != tests_digest:
+            return []
+    except OSError:
+        return []
+    if not proof.get("path"):
+        return []
+    accepted = []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        if (
+            row.get("status") != "reason_required"
+            or row.get("path") != source_path
+            or row.get("sha256") != digest
+            or row.get("mutation_outcomes")
+        ):
+            continue
+        if reason := reasons.get(row.get("line")):
+            accepted.append(
+                {
+                    "gap_id": row["gap_id"],
+                    "decision": "accept",
+                    "reason_kind": "instrumentation_unavailable",
+                    "reason": reason,
+                    "evidence_refs": [proof["path"], source_path],
+                }
+            )
+    return accepted
+
+
+def _leasequeue(data, root):
+    sources = {LEASE_SOURCE: LEASE_REASONS, LEASE_TOKENS_SOURCE: LEASE_TOKENS_REASONS}
+    return _lifecycle(data, root, "leasequeue/__init__.py", sources, LEASE_TESTS)
+
+
+def _outbox(data, root):
+    return _lifecycle(data, root, "outbox/__init__.py", {OUTBOX_SOURCE: OUTBOX_REASONS}, OUTBOX_TESTS)
+
+
 def judgments(data, root=None):
     root = Path.cwd() if root is None else Path(root)
     return (
@@ -291,6 +712,10 @@ def judgments(data, root=None):
         + _greeting_js(data, root)
         + _todo(data, root)
         + _diamond(data, root)
+        + _weeks(data, root)
+        + _regclient(data, root)
+        + _leasequeue(data, root)
+        + _outbox(data, root)
     )
 
 
@@ -346,17 +771,30 @@ def _greeting_js(data, root):
     return accepted
 
 
+GREETING_REFERENCE = (
+    "4611627c9ef9c3b8ae32bb1b4946ae4fa3c735aff704dd160a92ff2dbbdc1e70",
+    "52eccb4f679487a8e767237fb93d2418057ecf6deafdc79040b6789152fc5776",
+)
+# capacity-recovery's broken/accepts-empty-name: the reference without the empty-name guard, and the
+# reference tests without test_cli_empty_name (which that product fails). Its scripted run must still
+# complete, so the scenario oracle, not the changed-line gate, is what catches the wrong delivery.
+GREETING_ACCEPTS_EMPTY_NAME = (
+    "f032639aa67dc3f07e8a9de264f7f99268390c5a43ea90bbe92af158563c14ec",
+    "2de57dd8e6ab85beaf56b94fcd9f200750faa72645615e9d72ac211a232e4021",
+)
+GREETING_ACCEPTS_EMPTY_NAME_REASONS = {
+    'USAGE = "usage: greet.py NAME"': "No supported assignment mutation. test_no_arg requires a usage message on stderr with exit 2; deleting or emptying the literal fails that assertion.",
+    "raise SystemExit(main())": "No supported exit-adapter mutation. The CLI tests require exit zero on success and exit 2 on missing and extra names; discarding main's return value fails those checks.",
+}
+
+
 def _greeting(data, root):
     proof = data.get("regression_proof") or {}
-    digest = "4611627c9ef9c3b8ae32bb1b4946ae4fa3c735aff704dd160a92ff2dbbdc1e70"
     try:
         source = (root / "greet.py").read_bytes()
-        if hashlib.sha256(source).hexdigest() != digest:
-            return []
-        if (
-            hashlib.sha256((root / "test_greet.py").read_bytes()).hexdigest()
-            != "52eccb4f679487a8e767237fb93d2418057ecf6deafdc79040b6789152fc5776"
-        ):
+        digest = hashlib.sha256(source).hexdigest()
+        inputs = (digest, hashlib.sha256((root / "test_greet.py").read_bytes()).hexdigest())
+        if inputs not in (GREETING_REFERENCE, GREETING_ACCEPTS_EMPTY_NAME):
             return []
     except OSError:
         return []
@@ -371,6 +809,8 @@ def _greeting(data, root):
         'if __name__ == "__main__":': "The mutator deliberately excludes entrypoint guards. The CLI success and invalid-input tests start this entrypoint and assert its outputs and exits; disabling it fails those tests.",
         "raise SystemExit(main())": "No supported exit-adapter mutation. The CLI tests require exit zero on success and exit 2 on missing, extra and empty names; discarding main's return value fails those checks.",
     }
+    if inputs == GREETING_ACCEPTS_EMPTY_NAME:
+        reasons.update(GREETING_ACCEPTS_EMPTY_NAME_REASONS)
     lines, accepted = source.decode().splitlines(), []
     for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
         line = row.get("line")

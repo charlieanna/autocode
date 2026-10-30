@@ -112,6 +112,11 @@ class MenuTests(unittest.TestCase):
         self.assertEqual(("models", stages.HINT), (menu.level, menu.note), "the last save's note does not follow")
         menu.back()
         self.assertFalse(menu.back(), "Esc on the stages list closes the drawer")
+        own = stages.Menu(view(options=[option("c", levels=["default"])]), save=lambda argv: saved)
+        own.enter()
+        own.enter()
+        own.enter()
+        self.assertEqual("Saved: the Builder runs c at its own default level in new chats.", own.note)
 
     def test_a_refusal_or_an_unlisted_backend_is_said_in_the_drawer(self):
         menu = stages.Menu(view(), save=mock.Mock(side_effect=ValueError("the Tester runs a")))

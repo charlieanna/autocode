@@ -35,3 +35,20 @@ class OutboxTests(unittest.TestCase):
             store = Store(path)
             self.assertEqual(store.pending(), seen)
             self.assertEqual(store.publish(lambda event: None), 1)
+
+    def test_inputs_and_conflicts_are_refused_without_effect(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = Store(Path(folder) / "db")
+            for amount in (0, -1, True, "9"):
+                with self.assertRaises(ValueError):
+                    store.create_order("bad", amount, "bad")
+            self.assertTrue(store.create_order("a", 1, "key"))
+            with self.assertRaises(ValueError):
+                store.create_order("b", 1, "key")
+            with self.assertRaises(ValueError):
+                store.create_order("a", 1, "other")
+            for limit in (0, -1, True):
+                with self.assertRaises(ValueError):
+                    store.pending(limit)
+            self.assertEqual(store.orders(), {"a": 1})
+            self.assertEqual([("a", 1)], [(row["order_id"], row["amount"]) for row in store.pending(1)])

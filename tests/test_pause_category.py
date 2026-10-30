@@ -56,6 +56,14 @@ class PauseCategoryTests(unittest.TestCase):
             with self.subTest(status=status):
                 self.assertEqual(cause, pauses.category(status))
 
+    def test_a_run_autocode_ended_itself_is_autocodes_cause_not_a_decision(self):
+        # #2485: the person's stop stays their decision; AutoCode's own recorded end is AutoCode's cause.
+        self.assertEqual(
+            "your_decision", pauses.category("PAUSED_INTERVENTION", {"kind": "resume", "reason": "Durable stop"})
+        )
+        ended = {"kind": "resume", "reason": "AutoCode could not finish this task: the sol check kept failing: x."}
+        self.assertEqual("autocode", pauses.category("PAUSED_INTERVENTION", ended))
+
     def test_active_or_complete_status_is_not_a_pause_even_with_an_action(self):
         for status in (None, "", "BUILDING", "RUNNING", "COMPLETE", "TASK_COMPLETE", "COMPLETE_WITH_RISKS"):
             with self.subTest(status=status):

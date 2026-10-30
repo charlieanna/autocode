@@ -13,6 +13,7 @@ from pathlib import Path
 from goal_fixtures import (
     body,
     greeting_changed_code_reasons,
+    scripted_files_changed_code_reasons,
     seed_greeting_workspace,
     write_goodbye_source,
     write_greeting_source,
@@ -921,7 +922,13 @@ if stage == "astra_checkpoint":
 if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in validation_schema:
     # A report repair's schema may allow no reasons (maxItems 0); a schema-following Tester then gives none.
     cap = validation_schema["changed_code_exceptions"].get("maxItems")
-    validation_report["changed_code_exceptions"] = greeting_changed_code_reasons(data)[:cap]
+    reasons = list(
+        {
+            row["gap_id"]: row
+            for row in greeting_changed_code_reasons(data) + scripted_files_changed_code_reasons(data, builder_files)
+        }.values()
+    )  # one reason per gap: the gate refuses a duplicate gap_id
+    validation_report["changed_code_exceptions"] = reasons[:cap]
 if "--output-schema" in sys.argv:
     if "progressive_checkpoint" in schema.get("properties", {}):
         result.setdefault("progressive_checkpoint", False)

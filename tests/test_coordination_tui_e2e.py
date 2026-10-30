@@ -273,6 +273,8 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
                 self.fail("TUI coordination failed to reach a terminal result")
             self.assertEqual(0, outcome, "\n".join(self.lines[-30:]))
             self.assertEqual(3, len(self.github.posts))
+            # A joint mismatch revises the member plans under the contract the person approved, so
+            # the coordinator carries that approval: every flow asks for exactly one.
             self.assertEqual(1, len(self.questions), "All member and joint plans share one approval")
             summary = coordination.read(client, client.status())
             self.assertEqual("PASS", summary["verification"]["verdict"])

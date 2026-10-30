@@ -116,6 +116,38 @@ class RecoveryViewTests(unittest.TestCase):
     def card(self, state):
         return run_view.view(state)["recovery"]
 
+    def test_a_run_autocode_ended_itself_is_a_finished_failed_outcome_with_no_retry(self):
+        # #2485: the card shows AutoCode's own end as a stopped run with its reason and evidence, and
+        # offers no retry, flag, packet path or token; the generic person's stop keeps its title.
+        outcome = {
+            "result": "could_not_finish",
+            "reason": "the sol check kept failing for the same reason after AutoCode's own repair retry: x.",
+            "evidence": {"incident_id": "abc", "packet": {"path": "recovery/1.json"}},
+        }
+        receipt = {"id": "autocode-outcome-1", "kind": "stop", "text": "", "actor": "autocode", "outcome": outcome}
+        state = self.state(
+            "PAUSED_INTERVENTION",
+            stop_reason="AutoCode could not finish this task: "
+            + outcome["reason"]
+            + " This run launches no further stages.",
+            applied_interventions=[receipt],
+        )
+        view = run_view.view(state)
+        card = view["recovery"]
+        self.assertEqual(("stopped", "AutoCode could not finish this task"), (card["category"], card["title"]))
+        self.assertIn(outcome["reason"], card["what_happened"])
+        self.assertEqual(outcome, card["outcome"])
+        self.assertEqual(["inspect", "new_conversation"], [row["kind"] for row in card["actions"]])
+        self.assertEqual("autocode", view["pause_category"])
+        for machinery in ("--retry-failed-stage", "--resolver-token", "Exact packet"):
+            self.assertNotIn(machinery, str(view["needs"]) + str(view["next_command"]) + card["what_happened"])
+        person = self.state("PAUSED_INTERVENTION", applied_interventions=[{"id": "s", "kind": "stop", "text": ""}])
+        card = self.card(person)
+        self.assertEqual(
+            ("stopped", "Stopped at your request", None), (card["category"], card["title"], card["outcome"])
+        )
+        self.assertEqual("your_decision", run_view.view(person)["pause_category"])
+
     def test_every_declared_stop_and_future_status_has_three_parts_and_a_next_step(self):
         # Coverage grows automatically with the runtime's status vocabulary.
         statuses = {"PAUSED_FUTURE_UNKNOWN", "RESOLVER_PENDING"}

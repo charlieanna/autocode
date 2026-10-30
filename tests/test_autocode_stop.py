@@ -888,6 +888,48 @@ class StopPersistenceTests(unittest.TestCase):
         writer(Path("fixture/report.json"), state)
         ordinary.assert_called_once_with(Path("fixture/report.json"), state)
 
+    def test_a_run_autocode_ends_itself_records_the_outcome_and_stays_stopped(self):
+        # #2485: when AutoCode cannot continue, it ends the run with a finished, failed outcome of its
+        # own, as a stop receipt, so every rule that keeps a person's stop in force keeps this one.
+        import autocode_stop as stop_policy
+
+        state = {"status": "PAUSED_NO_PROGRESS", "stop_reason": "No causal progress", "completed_at": "incorrect"}
+        evidence = {"incident_id": "abc", "packet": {"path": "recovery/1.json", "sha256": "0" * 64}}
+        stop_policy.end(state, "the sol check kept failing: Missing summary.", evidence, at="2026-10-30T10:00:00Z")
+        (receipt,) = state["applied_interventions"]
+        self.assertEqual(
+            ("stop", "autocode", "2026-10-30T10:00:00Z"), (receipt["kind"], receipt["actor"], receipt["applied_at"])
+        )
+        self.assertEqual(
+            {
+                "result": "could_not_finish",
+                "reason": "the sol check kept failing: Missing summary.",
+                "evidence": evidence,
+            },
+            receipt["outcome"],
+        )
+        self.assertEqual(receipt["outcome"], stop_policy.outcome(state))
+        self.assertIs(receipt, stop_policy.applied_stop(state))
+        self.assertEqual("PAUSED_INTERVENTION", state["status"])
+        self.assertEqual(
+            "AutoCode could not finish this task: the sol check kept failing: Missing summary. "
+            "This run launches no further stages.",
+            state["stop_reason"],
+        )
+        self.assertEqual(state["stop_reason"], stop_policy.stop_reason(state))
+        self.assertNotIn("completed_at", state)
+        self.assertEqual([receipt["id"]], state["stop_intent"]["request_ids"])
+        # Ending again changes nothing, and re-asserting the stop keeps the outcome's reason.
+        stop_policy.end(state, "another reason.", {}, at="2026-10-30T11:00:00Z")
+        self.assertEqual([receipt], state["applied_interventions"])
+        state["stop_reason"] = "drifted"
+        self.assertTrue(stop_policy.assert_stopped(state))
+        self.assertIn("Missing summary", state["stop_reason"])
+        # A person's own stop keeps its generic reason and reports no outcome.
+        person = {"status": "RUNNING", "applied_interventions": [{"kind": "stop", "id": "s", "text": ""}]}
+        self.assertIsNone(stop_policy.outcome(person))
+        self.assertEqual(stop_policy.STOP_REASON, stop_policy.stop_reason(person))
+
     def test_old_runner_stop_is_refused_before_submission(self):
         from unittest.mock import Mock
 

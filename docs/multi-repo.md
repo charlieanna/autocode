@@ -75,7 +75,10 @@ flow. After each member passes its checks, the core exposes a named
 `coordinate bind` action that snapshots the exact candidate trees, including
 deletions, into the already-approved joint workspace. The integration Builder
 then runs that plan. Corrections discovered in the integration copies return
-through member follow-ups and a complete revised coordinated plan. A failed
+through member follow-ups and a complete revised coordinated plan. When every
+revised plan keeps the contract the person approved, the coordinator carries that
+approval and records it; a revision that changes what was approved is shown for
+approval again. A failed
 independent check retains its diagnostics for the bounded retry. The limits are
 12 repositories and three joint attempts.
 

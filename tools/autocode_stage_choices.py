@@ -53,7 +53,8 @@ except ImportError:
 
 # The stages a person chooses for, in the order a task runs them: (role, job, what it does, advice).
 # The role is the run's route name, so its flags are --ROLE-model and --ROLE-reasoning-effort; the job
-# is its screen name in autocode_roles. The Resolver's route starts as a copy of astra (docs/models.md).
+# is its screen name in autocode_roles. The Resolver's route starts as a copy of astra (docs/models.md), and
+# the workflow jobs copy theirs from the stage that names them (autocode_role_transport.DERIVED_ROLES).
 STAGES = (
     (
         "requirements",
@@ -72,7 +73,8 @@ STAGES = (
     (
         "plan_reviewer",
         "plan_reviewer",
-        "Challenges the plan before you see it and makes the final planning call.",
+        "Challenges the plan before you see it and makes the final planning call. Its model also runs the "
+        "Investigator that diagnoses a bug, the Analyst that answers a question, and the Designer and Design Reviewer.",
         "Your strongest judge at high. It never runs the Planner's model, so it catches what the Planner missed.",
     ),
     (
@@ -85,7 +87,8 @@ STAGES = (
     (
         "sol",
         "tester",
-        "Checks each Builder's work in a separate session and proves its new tests fail without the change.",
+        "Checks each Builder's work in a separate session and proves its new tests fail without the change. "
+        "Its model also writes the acceptance tests and runs the Code Reviewer when you ask for a review.",
         "A strong model at high, never the Builder's. A bug caught here costs less than one caught at completion.",
     ),
     (
@@ -109,9 +112,10 @@ LABELS = {
 }
 BACKEND_LABELS = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "kilocode": "Kilo"}
 # Codex has no model listing. These are the bare GPT names AutoCode runs on it (autocode_configure
-# DEFAULT_ROLE_MODELS, whose joint planning copies the astra route; tests keep them in step).
+# DEFAULT_ROLE_MODELS, whose joint planning copies the astra route into Requirements and the Planner
+# and gives the Plan Reviewer CODEX_PLAN_REVIEWER_MODELS[0]; tests keep them in step).
 CODEX_MODELS = ("gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra")
-CODEX_DEFAULTS = {role: "gpt-5.6-sol" for role in ORDER} | {"terra": "gpt-5.6-terra"}
+CODEX_DEFAULTS = {role: "gpt-5.6-sol" for role in ORDER} | {"terra": "gpt-5.6-terra", "plan_reviewer": "gpt-6-astra"}
 # The level a model with no reasoning variants takes: its own default, sent as no level at all.
 OWN_DEFAULT = "default"
 _MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@+/-]{0,199}$")
@@ -276,8 +280,12 @@ def defaults(backend, *, resolve=None) -> dict:
 
 
 def effort_choices(option) -> list[str]:
-    """The levels a person may pick for ``option``: its levels, or its own default when it lists none."""
-    return list(option["levels"]) or [OWN_DEFAULT]
+    """The levels a person may pick for ``option``, lowest first, or its own default when it lists none.
+
+    A listing prints its variants in no useful order; a level outside the scale keeps its place after them.
+    """
+    rank = {level: number for number, level in enumerate(route_fit.SCALE)}
+    return sorted(option["levels"], key=lambda level: rank.get(level, len(rank))) or [OWN_DEFAULT]
 
 
 def unavailable(role, model, effective, *, backend) -> str | None:

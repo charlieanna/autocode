@@ -475,7 +475,22 @@ class TaskRun:
 
     def advance(self) -> dict:
         """Relaunch the run; it works until it completes or stops for input."""
-        self._invoke("advance", "--no-chat", *self.options, advancing=True)
+        return self._advance(self.status())
+
+    def _advance(self, view: dict) -> dict:
+        """Take this view's named continue action, or the ordinary ``--no-chat`` relaunch."""
+        need = view.get("needs") or {}
+        if need.get("kind") == "continue" and need.get("action") and view.get("next_command"):
+            try:
+                from . import autocode_client_actions as actions
+            except ImportError:
+                import autocode_client_actions as actions
+            # A named recovery (--abandon-stage, --reconcile-only) is exactly the command the view
+            # names; launch settings belong to a relaunch, and the CLI refuses them on these actions.
+            named = actions.named(view, self.workspace, self.run_dir)
+            self._invoke("advance", *named.argv, advancing=True, secret_env=named.env)
+        else:
+            self._invoke("advance", "--no-chat", *self.options, advancing=True, secret_env={})
         return self.status()
 
     def advance_until_input(self, max_calls: int = 20) -> dict:
@@ -485,7 +500,7 @@ class TaskRun:
             if view["done"] or view["needs"]["kind"] != "continue":
                 return view
             before = (view["status"], view["next_stage"], view["iteration"], view["phase"])
-            view = self.advance()
+            view = self._advance(view)
             if (view["status"], view["next_stage"], view["iteration"], view["phase"]) == before:
                 raise TaskRunError(f"no progress at {view['status']} (next stage {view['next_stage']})")
         raise TaskRunError(f"still not stopped after {max_calls} relaunches")

@@ -699,16 +699,25 @@ class RunViewTests(unittest.TestCase):
         )
         self.assertEqual("resume", run_view.needs({"status": "PLAN_REWORK_REQUIRED"})["kind"])
 
+    def test_saved_progress_recovery_is_a_continue_action_not_a_personal_resume(self):
+        with patch("autocode_run_view.recovery_progress.routine_resume", return_value={"remaining_count": 1}):
+            need = run_view.needs({"status": "PAUSED_BUDGET"})
+        self.assertEqual({"kind": "continue", "action": "--resume-paused"}, need)
+
     def test_quota_pause_names_the_abandon_step_with_the_attempt_id(self):
-        need = run_view.needs(
-            {
-                "status": "PAUSED_BUDGET",
-                "stop_reason": "quota restored; set the attempt aside",
-                "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "terra"},
-            }
-        )
+        state = {
+            "status": "PAUSED_BUDGET",
+            "stop_reason": "quota restored; set the attempt aside",
+            "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "terra"},
+        }
+        need = run_view.needs(state)
+        self.assertEqual("continue", need["kind"], "the core has already classified the exact recovery")
         self.assertEqual("001/terra-01", need["abandon_stage"])
         self.assertIn("--abandon-stage 001/terra-01 then --resume-paused", need["action"])
+        shown = run_view.action(state, run_dir=Path("/run"), workspace=Path("/work"))
+        self.assertEqual(
+            "autocode --run-dir /run --workspace /work --abandon-stage 001/terra-01", shown["next_command"]
+        )
 
     def test_rejected_validator_report_exposes_exact_retry_attempt(self):
         state = {

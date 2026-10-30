@@ -207,6 +207,10 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
             conversation_journal = conversation_protocol.read_journal(run_dir)
         except (OSError, ValueError) as error:
             conversation_journal = {"session_error": str(error)}
+    try:
+        pending = interventions.inspect(workspace, run_dir)["requests"]
+    except interventions.InterventionError:
+        pending = None  # An unreadable inbox cannot accept a request either.
     public_view = runner.run_view.view(
         state,
         completion_current=completion_current,
@@ -223,6 +227,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         dev_server=dev_server.inspect(run_dir, state.get("settings")),
         observation=observation,
         execution_inspection=execution_inspection,
+        stop_pending=any(isinstance(row, dict) and row.get("kind") == "stop" for row in pending or []),
     )
     if public_view.get("workflow") == "review" and state.get("status") == "TASK_COMPLETE":
         result = public_view["evidence"].get("workflow_result")
@@ -232,10 +237,6 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
             )
     public_view["attention"] = attention_status.observed(public_view.get("attention"))
     public_view["job_report_recovery"] = job_report_recovery.offer(runner, state, run_dir, workspace)
-    try:
-        pending = interventions.inspect(workspace, run_dir)["requests"]
-    except interventions.InterventionError:
-        pending = None  # An unreadable inbox cannot accept a request either.
     if pending is not None:
         public_view["pause"] = pause_offer.project(
             state, public_view, pending=pending, run_dir=run_dir, workspace=workspace
@@ -427,11 +428,16 @@ def pause_summary(runner, state: "RunState", workspace, run_dir):
 
 def print_pause(runner, state: "RunState", args, workspace, run_dir, rendered):
     """Print a non-complete outcome: with ``--json``, the same payload ``--status``
-    prints; otherwise the prose view. The caller renders the prose BEFORE writing
+    prints; at a plan approval stop without ``--details``, the short approval screen;
+    otherwise the prose view. The caller renders the prose BEFORE writing
     state — present() has a deliberate state effect (it drops a stale
     displayed_goal), and that effect must land before the state is persisted."""
     if getattr(args, "json", False):
         runner.json_output.status(runner, state, args, workspace, run_dir)
+    elif not getattr(args, "details", False) and (screen := runner.lifecycle.approval_screen(state, run_dir)):
+        # A plan waiting for approval leads with the decision in plain words and ends with the
+        # commands; --details prints the full brief below as before (#2535).
+        print(screen)
     else:
         pause_command = _pause_command()
         view = runner.run_view.view(state, run_dir=run_dir, workspace=workspace)

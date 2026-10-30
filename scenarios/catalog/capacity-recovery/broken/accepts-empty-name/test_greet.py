@@ -21,6 +21,10 @@ class TestGreet(unittest.TestCase):
     def test_unicode(self):
         self.assertEqual(greet("Zoë"), "Hello, Zoë")
 
+    def test_cli_success(self):
+        proc = subprocess.run([sys.executable, "greet.py", "Ada"], capture_output=True, text=True)
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, "Hello, Ada\n", ""))
+
 
 if __name__ == "__main__":
     unittest.main()

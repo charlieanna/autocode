@@ -14,11 +14,20 @@ from io import StringIO
 from pathlib import Path
 from unittest import mock
 
+import autocode_verify as proof_runner
 import autocode_verify_contract as criteria_policy
 import autocode_verify_record as records
 import autocode_verify_task as verifier
 
 ROOT = Path(__file__).resolve().parents[1]
+FIXED = "def double(number):\n    return number * 2\n"
+NEW_TEST = (
+    "import unittest\nfrom double import double\n"
+    "class New(unittest.TestCase):\n    def test_c1_double(self): self.assertEqual(6, double(3))\n"
+)
+# Reproduces the bug (the base returns 3) but notices no broken line: `return None` passes it too.
+WEAK_TEST = NEW_TEST.replace("self.assertEqual(6, double(3))", "self.assertNotEqual(3, double(3))")
+PROVING_TEST = "tests.test_new.New.test_c1_double"
 FAKE = """
 import json, os, subprocess, sys, uuid
 from pathlib import Path
@@ -179,12 +188,20 @@ class VerifyCliTests(unittest.TestCase):
     def project(self, name):
         project = self.root / name
         shutil.copytree(self.base, project)
-        (project / "double.py").write_text("def double(number):\n    return number * 2\n")
-        (project / "tests/test_new.py").write_text(
-            "import unittest\nfrom double import double\n"
-            "class New(unittest.TestCase):\n    def test_c1_double(self): self.assertEqual(6, double(3))\n"
-        )
+        (project / "double.py").write_text(FIXED)
+        (project / "tests/test_new.py").write_text(NEW_TEST)
         return project
+
+    def assert_mutation_checked(self, value, out):
+        """The runner's own mutation check of the change's tests is in the verification's evidence (#2506)."""
+        check = value["evidence_report"]["document"]["workflow_result"]["mutation_check"]
+        self.assertTrue(check["collected"], check)
+        self.assertEqual("reviewed-change.patch", check["patch_path"])
+        self.assertEqual([PROVING_TEST], check["selected_tests"])
+        self.assertEqual({}, check["survivors"])
+        self.assertIn("## Review test mutation check", value["evidence_report"]["markdown"])
+        self.assertTrue((out / "mutation-base" / "reviewed-change.patch").is_file())
+        return check
 
     def run_cli(
         self,
@@ -341,6 +358,7 @@ class VerifyCliTests(unittest.TestCase):
         self.assertEqual(
             source, {str(p.relative_to(project)): p.read_bytes() for p in project.rglob("*") if p.is_file()}
         )
+        self.assert_mutation_checked(value, self.root / "pass-output")
         (project / "double.py").write_text("def double(number):\n    return 0\n")
         stale = subprocess.run(
             [
@@ -406,15 +424,34 @@ class VerifyCliTests(unittest.TestCase):
             original = records.source_identity(project)
             original_index = records.index_identity(project)
         command = shlex.quote(sys.executable) + " -m unittest discover -s tests -v"
-        result, value = self.run_cli(
-            project, self.root / "branch-output", contract(command), selection=("--branch", "finished-change")
-        )
+        out = self.root / "branch-output"
+        result, value = self.run_cli(project, out, contract(command), selection=("--branch", "finished-change"))
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual("PASS", value["verdict"])
         self.assertEqual(["review_change"], [row["stage"] for row in value["evidence_report"]["document"]["attempts"]])
         with mock.patch.dict(os.environ, clean_git_environment(), clear=True):
             self.assertEqual(original, records.source_identity(project))
             self.assertEqual(original_index, records.index_identity(project))
+        check = self.assert_mutation_checked(value, out)
+        # Its command receipts are pinned evidence: a changed one makes the saved record stale.
+        receipt = Path(check["command_receipts"][0]["output"])
+        with mock.patch.dict(os.environ, clean_git_environment(), clear=True):
+            self.assertEqual("current", records.read(out)["availability"])
+            receipt.write_bytes(receipt.read_bytes() + b"\nedited after the fact\n")
+            self.assertEqual("stale", records.read(out)["availability"])
+
+    def test_a_surviving_mutant_is_reported_without_changing_the_verdict(self):
+        project = self.project("weak-test")
+        (project / "tests/test_new.py").write_text(WEAK_TEST)
+        command = shlex.quote(sys.executable) + " -m unittest discover -s tests -v"
+        result, value = self.run_cli(project, self.root / "weak-output", contract(command))
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("PASS", value["verdict"])  # the study is report-only, as in every other run
+        check = value["evidence_report"]["document"]["workflow_result"]["mutation_check"]
+        self.assertTrue(check["collected"], check)
+        self.assertEqual([PROVING_TEST], sorted(check["survivors"]))
+        self.assertEqual([("double.py", 2)], [(row["path"], row["line"]) for row in check["survivors"][PROVING_TEST]])
+        self.assertIn("Surviving mutant, " + PROVING_TEST, value["evidence_report"]["markdown"])
 
     def test_external_patch_is_verified_without_using_dirty_working_tree(self):
         project = self.project("external-patch")
@@ -445,6 +482,7 @@ class VerifyCliTests(unittest.TestCase):
         with mock.patch.dict(os.environ, clean_git_environment(), clear=True):
             self.assertEqual(original, records.source_identity(project))
             self.assertEqual(original_index, records.index_identity(project))
+        self.assert_mutation_checked(value, self.root / "patch-output")
 
     @unittest.skipIf(os.geteuid() == 0, "POSIX cache-write prevention requires an unprivileged process")
     def test_nested_python_import_preserves_review_source_and_withholds_github_credentials(self):
@@ -541,6 +579,118 @@ class VerifyCliTests(unittest.TestCase):
         self.assertEqual("PASS", report["regression_proof"]["verdict"])
         self.assertEqual(0, report["checks"][0]["exit_code"])
         self.assertFalse(report["criteria"][0]["human_reviewed"])
+
+
+class ReviewedPatchTests(unittest.TestCase):
+    """The runner, not the reviewer, holds the change under review as a patch and mutates it (#2506)."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name).resolve()
+        self.workspace = self.root / "project"
+        self.workspace.mkdir()
+        (self.workspace / "double.py").write_text("def double(number):\n    return number\n")
+        (self.workspace / "notes.txt").write_text("the same bytes before and after a rename\n")
+        (self.workspace / "tests").mkdir()
+        (self.workspace / "tests/__init__.py").write_text("")
+        (self.workspace / "tests/test_guard.py").write_text(
+            "import unittest\nfrom double import double\n"
+            "class Guard(unittest.TestCase):\n    def test_zero(self): self.assertEqual(0, double(0))\n"
+        )
+        self.environment = clean_git_environment()
+        for args in (
+            ("init", "-q"),
+            ("config", "maintenance.auto", "false"),
+            ("config", "gc.auto", "0"),
+            ("add", "."),
+            ("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "base"),
+        ):
+            subprocess.run(
+                ["git", "-C", str(self.workspace), *args], env=self.environment, capture_output=True, check=True
+            )
+        self.base = subprocess.check_output(
+            ["git", "-C", str(self.workspace), "rev-parse", "HEAD"], env=self.environment, text=True
+        ).strip()
+        self.out = self.root / "out"
+        self.out.mkdir()
+
+    def candidate(self, files):
+        """The working tree with ``files`` written (None deletes), built into a candidate as verify() does."""
+        for name, text in files.items():
+            path = self.workspace / name
+            if text is None:
+                path.unlink()
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text)
+        candidate = self.out / "candidate"
+        with mock.patch.dict(os.environ, self.environment, clear=True):
+            verifier.clone(self.workspace, candidate, self.base)
+            verifier.copy_changes(self.workspace, candidate, proof_runner.changed_files(self.workspace, self.base))
+        return candidate
+
+    def head(self, repository):
+        return subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip()
+
+    def test_the_patch_holds_every_candidate_change_untracked_files_included_and_no_renames(self):
+        candidate = self.candidate(
+            {
+                "double.py": FIXED,
+                "tests/test_new.py": NEW_TEST,
+                "notes.txt": None,
+                "renamed.txt": "the same bytes before and after a rename\n",
+            }
+        )
+        with mock.patch.dict(os.environ, self.environment, clear=True):
+            before = (records.source_identity(candidate), records.index_identity(candidate))
+            patch = verifier.reviewed_patch(candidate, self.base)
+            self.assertEqual(before, (records.source_identity(candidate), records.index_identity(candidate)))
+        self.assertEqual(self.base, self.head(candidate))
+        self.assertIn("+    return number * 2\n", patch)
+        self.assertIn("diff --git a/tests/test_new.py b/tests/test_new.py\nnew file mode 100644\n", patch)
+        self.assertIn("diff --git a/notes.txt b/notes.txt\ndeleted file mode 100644\n", patch)
+        self.assertIn("diff --git a/renamed.txt b/renamed.txt\nnew file mode 100644\n", patch)
+        self.assertNotIn("rename from", patch)  # the mutation check reads additions, changes and deletions only
+        # It applies to the bare base, which is where the mutation check applies it.
+        base_copy = self.out / "base-copy"
+        with mock.patch.dict(os.environ, self.environment, clear=True):
+            verifier.clone(self.workspace, base_copy, self.base)
+        (base_copy / "change.patch").write_text(patch)
+        subprocess.run(
+            ["git", "-C", str(base_copy), "apply", "--check", "change.patch"],
+            env=self.environment,
+            capture_output=True,
+            check=True,
+        )
+
+    def test_the_mutation_check_runs_the_change_tests_only_once_the_proof_passed(self):
+        candidate = self.candidate({"double.py": FIXED, "tests/test_new.py": NEW_TEST})
+        with mock.patch.dict(os.environ, self.environment, clear=True):
+            patch = verifier.reviewed_patch(candidate, self.base)
+            unproven = verifier.mutation_check(self.workspace, self.out, self.base, patch, "FAIL")
+            self.assertFalse(unproven["collected"])
+            self.assertIn("has not passed", unproven["note"])
+            self.assertFalse((self.out / "mutation-base").exists())
+            check = verifier.mutation_check(self.workspace, self.out, self.base, patch, "PASS")
+        self.assertTrue(check["collected"], check)
+        self.assertEqual("reviewed-change.patch", check["patch_path"])
+        self.assertEqual(["tests/test_new.py"], check["selected_files"])
+        self.assertEqual([PROVING_TEST], check["selected_tests"])
+        self.assertEqual({}, check["survivors"])
+        outcomes = [mutant["outcome"] for row in check["files"] for mutant in row["mutants"]]
+        self.assertTrue(outcomes and set(outcomes) == {"killed"}, check["files"])
+        self.assertEqual(patch, (self.out / "mutation-base" / "reviewed-change.patch").read_text())
+
+    def test_a_test_that_runs_the_changed_line_without_checking_it_is_a_survivor(self):
+        candidate = self.candidate({"double.py": FIXED, "tests/test_new.py": WEAK_TEST})
+        with mock.patch.dict(os.environ, self.environment, clear=True):
+            patch = verifier.reviewed_patch(candidate, self.base)
+            check = verifier.mutation_check(self.workspace, self.out, self.base, patch, "PASS")
+        self.assertTrue(check["collected"], check)
+        self.assertEqual([PROVING_TEST], sorted(check["survivors"]))
+        [survivor] = check["survivors"][PROVING_TEST]
+        self.assertEqual(("double.py", 2, PROVING_TEST), (survivor["path"], survivor["line"], survivor["test"]))
 
 
 class VerificationBoundaryTests(unittest.TestCase):

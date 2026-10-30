@@ -424,6 +424,50 @@ class ScriptedChat(chat.ChatClient):
 class ConversationTests(unittest.TestCase):
     """What the chat shows and takes at each kind of stop, without a run."""
 
+    def test_core_classified_abandonment_runs_without_a_human_confirmation(self):
+        state = {
+            "status": "PAUSED_CONTROLLER_EXIT",
+            "stop_reason": "Controller exited while a stage response was uncertain.",
+            "active_stage": {
+                "iteration": 1,
+                "output": str(RUN / "iterations" / "001" / "requirements-gather-01.jsonl"),
+                "stage": "requirements_gather",
+            },
+        }
+        recovery = {"status": state["status"], **run_view.action(state, run_dir=RUN, workspace=WORKSPACE)}
+        abandoned = {
+            "status": "PAUSED_STAGE_ABANDONED",
+            "needs": {"kind": "resume"},
+            "next_command": f"autocode {PLACE} --resume-paused",
+        }
+        client = ScriptedChat(recovery, abandoned)
+        client.check_others = mock.Mock()
+        client.ask = mock.Mock(side_effect=AssertionError("routine recovery must not ask the person"))
+
+        self.assertIsNone(client.step())
+        self.assertEqual([["--abandon-stage", "001/requirements-gather-01"]], client.taken)
+        client.ask.assert_not_called()
+        shown = client.text()
+        self.assertNotIn("--abandon-stage", shown)
+        self.assertNotIn("Next it runs:", shown)
+        self.assertNotIn("Run it yourself:", shown)
+
+    def test_saved_progress_recovery_continues_without_a_human_confirmation(self):
+        state = {"status": "PAUSED_BUDGET"}
+        with mock.patch(
+            "autocode_run_view.recovery_progress.routine_resume",
+            return_value={"remaining_count": 1},
+        ):
+            view = {"status": state["status"], **run_view.action(state, run_dir=RUN, workspace=WORKSPACE)}
+        client = ScriptedChat(view, DONE)
+        client.ask = mock.Mock(side_effect=AssertionError("routine recovery must not ask the person"))
+
+        self.assertEqual(0, client.converse())
+        self.assertEqual([["--resume-paused"]], client.taken)
+        client.ask.assert_not_called()
+        self.assertNotIn("Continue? [y/N]", client.text())
+        self.assertNotIn("autocode --resume-paused", client.text())
+
     def test_named_feedback_at_semantic_stops_is_sent_without_a_resume_or_approval(self):
         for status in ("RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
             with self.subTest(status=status):
@@ -558,7 +602,9 @@ class ConversationTests(unittest.TestCase):
         }
         client = ScriptedChat(view)
         self.assertEqual(2, client.converse())
-        self.assertIn(f"Run it yourself:\n  autocode wait --run-dir {WORKSPACE}/api", client.text())
+        self.assertIn("This chat cannot act on the dependency.", client.text())
+        self.assertNotIn("autocode wait", client.text())
+        self.assertNotIn("Run it yourself:", client.text())
         self.assertEqual([], client.taken)
 
     def test_a_stop_with_no_command_explains_itself_and_takes_nothing(self):
@@ -587,12 +633,11 @@ class ConversationTests(unittest.TestCase):
         out = client.text()
         self.assertLess(out.index("Does the logo look right?"), out.index("Accept these criteria"))
         self.assertLess(out.index("[C1] The logo is centred"), out.index("Accept these criteria"))
-        self.assertIn("\nNext it runs: autocode --approve-review C1 --review-token -\n", out)
+        self.assertNotIn("Next it runs:", out)
+        self.assertNotIn("autocode --approve-review", out)
         self.assertNotIn("=rv", out, "the issued token is never printed")
-        self.assertNotIn(str(RUN), out.split("Next it runs:")[1].split("\n")[0], "the run's own paths are left out")
-        self.assertIn(
-            "\nAccept these criteria? [y/N]: ", out, "the question stays short; the command is shown above it"
-        )
+        self.assertNotIn(str(RUN), out, "the run's own paths are left out")
+        self.assertIn("\nAccept these criteria? [y/N]: ", out, "the question stays short after the criteria are shown")
         self.assertEqual([["--approve-review", "C1", "--review-token", "-"]], client.taken)
 
     def test_a_review_names_the_files_each_criterions_steps_changed(self):
@@ -692,9 +737,13 @@ class ConversationTests(unittest.TestCase):
         )
         self.assertIn("Analyst continues on zai-coding-plan/glm-5.3; the retry on it is next.", out)
         self.assertNotIn("Left as it is", out)
+        self.assertNotIn("Next it runs:", out)
+        self.assertNotIn("autocode --answer", out)
         plain = ScriptedChat(view, DONE, replies=["y"])
         self.assertEqual(0, plain.converse())
         self.assertEqual([["--resume-paused", "--retry-failed-stage", "--job-retry-token", "-"]], plain.taken)
+        self.assertNotIn("Next it runs:", plain.text())
+        self.assertNotIn("autocode --resume-paused", plain.text())
 
     def held_time_pause(self):
         """#1950's shape: AutoResolver holds a time pause, so next_command is a plain resume (#2044)."""
@@ -732,6 +781,7 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("or type a new total active time (seconds) (2411 or more): ", out)
         self.assertEqual([["--resume-paused", "--max-seconds", "3600", "--expected-recovery-token", "-"]], client.taken)
         self.assertNotIn("Left as it is", out)
+        self.assertNotIn("Next it runs:", out)
         plain = ScriptedChat(self.held_time_pause(), DONE, replies=["y"])
         self.assertEqual(0, plain.converse())
         self.assertEqual([["--resume-paused"]], plain.taken)
@@ -796,6 +846,7 @@ class ConversationTests(unittest.TestCase):
         client = ScriptedChat(done, DONE, replies=["Add a --shout flag"])
         self.assertEqual(0, client.converse())
         self.assertEqual([["--follow-up", "Add a --shout flag"]], client.taken)
+        self.assertIn("Any text starts a new task in this chat; press Enter to finish:", client.text())
 
     REVIEW = {
         "status": "WAITING_FOR_USER",
@@ -1798,7 +1849,8 @@ class TerminalChatTests(unittest.TestCase):
     def test_leaving_at_the_plan_changes_nothing_and_chat_picks_the_run_up_again(self):
         left = self.chat(BRIEF, replies="y\ny\n")
         self.assertEqual(2, left.returncode, left.stdout + left.stderr)
-        self.assertIn("Left the chat; the run is unchanged. Pick it up with: autocode chat --run-dir", left.stdout)
+        self.assertIn("Left the chat; the run is unchanged.", left.stdout)
+        self.assertNotIn("autocode chat --run-dir", left.stdout)
         self.assertFalse((self.workspace / "greet.py").exists(), "nothing is built before the person approves")
 
         resumed = self.chat(replies="y\n\n", options=())

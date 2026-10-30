@@ -187,12 +187,14 @@ def _approval(summary: dict) -> dict:
     token = set_token(summary["runs"])
     waiting = [row["target"] for row in summary["runs"] if not row.get("plan_token")]
     source = summary["runs"][0]["run_dir"]
+    # Completed members join a revised set with their approved plans; with no new plan there is nothing to approve.
+    pending = token and not all(row.get("already_approved") for row in summary["runs"])
     return {
         "set_token": token,
         # The runs whose plan is not yet waiting for approval; the set cannot be approved before them.
         "waiting_on": waiting,
         "next_command": ["autocode", "changeset", "approve", "--run-dir", source, "--set-token", token]
-        if token
+        if pending
         else None,
     }
 

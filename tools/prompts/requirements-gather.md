@@ -61,10 +61,13 @@ Keep the question nondelegable and leave its proposed_default as the empty strin
 For that initial question, gather the goal before inspecting code: source_refs=[]
 is valid when there are no stated requirements, behaviors or acceptance tests.
 Make no claims about the workspace or its implementation in that response.
-When previous_requirements_handoff exists, retain its still-relevant requirements and
-unanswered questions with stable IDs. A scope correction does not answer unrelated
-questions (for example where the real backend lives). Prioritize those blockers over
-new optional choices; do not silently replace them when refreshing the handoff.
+When previous_requirements is present, retain its still-relevant requirements and
+unanswered questions with stable IDs and source quotes. requirements_correction_sources
+lists saved user events; previous_requirement_ids are candidate links based on shared
+wording, not authority. Check the event text before citing it in ignored_requirements.
+A scope correction does not answer unrelated questions (for example where the real
+backend lives). Prioritize those blockers over new optional choices; do not silently
+replace them when refreshing the handoff.
 The approved contract and current Builder task are inherited obligations, not new user
 statements. Do not create a new requirement by quoting their milestone objectives,
 Builder instructions, or test descriptions. Keep those obligations in the approved

@@ -44,6 +44,70 @@ class ProviderReportSchemaTests(unittest.TestCase):
         self.assertEqual(before, self.path.read_bytes())
         self.assertEqual(result, reports.full_report(self.path))
 
+    def test_strict_gocode_transport_uses_full_report_schema(self):
+        offered = {
+            **self.original,
+            "properties": {
+                **self.original["properties"],
+                "repair_report": {
+                    "type": "object",
+                    "properties": {"edits": {"type": "array", "items": {"properties": {"value": {}}}}},
+                },
+            },
+            "required": [],
+            "x-autocode-report-edits": {"required": ["summary"]},
+        }
+        self.path.write_text(json.dumps(offered))
+
+        settings = {"engine": "opencode", "roles": {"astra": {"provider": "gocode"}}}
+        result = reports.for_route(self.path, settings, "astra")
+
+        self.assertNotEqual(self.path, result)
+        self.assertEqual(self.original, json.loads(result.read_text()))
+
+    def test_strict_run_provider_uses_full_report_schema_for_unassigned_role(self):
+        offered = {
+            **self.original,
+            "properties": {
+                **self.original["properties"],
+                "repair_report": {
+                    "type": "object",
+                    "properties": {"edits": {"type": "array", "items": {"properties": {"value": {}}}}},
+                },
+            },
+            "required": [],
+            "x-autocode-report-edits": {"required": ["summary"]},
+        }
+        self.path.write_text(json.dumps(offered))
+
+        result = reports.for_route(
+            self.path,
+            {"engine": "opencode", "provider": "gocode", "roles": {"requirements": {"provider": None}}},
+            "requirements",
+        )
+
+        self.assertNotEqual(self.path, result)
+        self.assertEqual(self.original, json.loads(result.read_text()))
+
+    def test_other_transports_keep_optional_report_edits(self):
+        offered = {
+            **self.original,
+            "properties": {
+                **self.original["properties"],
+                "repair_report": {"type": "object", "properties": {"value": {}}},
+            },
+            "required": [],
+            "x-autocode-report-edits": {"required": ["summary"]},
+        }
+        self.path.write_text(json.dumps(offered))
+
+        result = reports.for_route(
+            self.path, {"engine": "opencode", "roles": {"astra": {"provider": "opencode"}}}, "astra"
+        )
+
+        self.assertEqual(self.path, result)
+        self.assertIn("repair_report", json.loads(result.read_text())["properties"])
+
     def test_optional_required_list_remains_absent_for_legacy_schema(self):
         offered = {
             **self.original,

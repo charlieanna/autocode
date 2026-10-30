@@ -11,6 +11,10 @@ import hashlib
 import re
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_repo_catalog as catalog
@@ -34,7 +38,7 @@ INSTRUCTION = (
 )
 
 
-def context(state):
+def context(state: RunState):
     """Expose the same pinned catalog to intake stages, independent of launch cwd."""
     run = state.get("run_dir")
     receipt = Path(run) / "planning/source-catalog.json" if run else None
@@ -79,12 +83,12 @@ def context(state):
     return result
 
 
-def read_roots(state):
+def read_roots(state: RunState):
     """Only the discovered repository directories receive read authority."""
     return [row["path"] for row in (context(state) or {}).get("repositories", [])]
 
 
-def evidence(state, reference):
+def evidence(state: RunState, reference):
     """Resolve a catalog citation only when the file still matches its pinned Git blob."""
     if not isinstance(reference, str) or not reference.startswith("catalog/"):
         return None

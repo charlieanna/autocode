@@ -2018,7 +2018,8 @@ def report_for(stage: str, data: dict) -> dict:
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
     if CONFIG.get("fault") in FAULT_PROVIDERS and stage in ("terra", "sol", "astra_review", "astra_resolve"):
         provider = scripted_fault(FAULT_PROVIDERS[CONFIG["fault"]])
-        return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
+        # The Tester's changed-line reasons (fake_changed_code) are attached like every other report's.
+        return lazy_citations(provider["report_for"](stage, data, common, CONFIG, run_check, requirements))
     if CONFIG.get("fault") == "refund_planted_window" and stage in ("terra", "sol", "astra_review", "astra_resolve"):
         provider = scripted_fault("refund_window_provider.py")
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)

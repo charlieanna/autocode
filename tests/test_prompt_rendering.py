@@ -399,6 +399,8 @@ class RenderedPromptTests(unittest.TestCase):
                 self.assertIn("out_of_scope is an exclusion list, not a coverage ledger", instruction)
                 self.assertIn("A sentence cited by any criterion must never also be out_of_scope", instruction)
                 self.assertIn("required_behaviors and constraints do not replace criterion sources", instruction)
+                self.assertIn("review_source_sentences", instruction)
+                self.assertIn("criterion_ids", instruction)
 
     def test_planning_reports_follow_the_provider_output_contract(self):
         cases = {name: text for name, text in rendered_cases().items() if name.startswith("planning/")}
