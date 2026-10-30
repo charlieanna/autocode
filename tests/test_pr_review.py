@@ -163,6 +163,30 @@ class OutputCustodyTests(unittest.TestCase):
                 checkout.create_root(parent / "new" / ".." / "other")
             self.assertFalse((parent / "new").exists())
 
+    def test_a_refused_link_is_named_with_the_path_to_use_instead(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp).resolve()
+            (parent / "real").mkdir()
+            (parent / "alias").symlink_to(parent / "real", target_is_directory=True)
+            with self.assertRaises(checkout.CheckoutError) as refused:
+                checkout.create_root(parent / "alias" / "out" / "new")
+            self.assertIn(f"{parent / 'alias'} is a symbolic link", str(refused.exception))
+            self.assertIn(f"use {parent / 'real' / 'out' / 'new'} instead", str(refused.exception))
+
+    def test_only_a_link_its_trusted_owner_made_is_followed(self):
+        # The trusted owner is root, as for macOS's /tmp -> private/tmp (#2504); this test's
+        # links are its own, so it names itself the trusted owner to see one followed.
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp).resolve()
+            (parent / "real").mkdir()
+            (parent / "alias").symlink_to(parent / "real", target_is_directory=True)
+            wanted = parent / "alias" / "out" / "new"
+            self.assertEqual(wanted, checkout.follow_system_links(wanted, trusted_uid=-1))
+            followed = checkout.follow_system_links(wanted, trusted_uid=os.getuid())
+            self.assertEqual(parent / "real" / "out" / "new", followed)
+            self.assertTrue(checkout.create_root(followed).is_dir())
+            self.assertEqual(Path("/a/../b"), checkout.follow_system_links("/a/../b", trusted_uid=os.getuid()))
+
 
 class AnchorTests(unittest.TestCase):
     FILES = [{"filename": "rates.py", "status": "modified", "patch": "@@ -1,3 +1,3 @@\n same\n-old\n+new\n final"}]
