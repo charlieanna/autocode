@@ -290,3 +290,22 @@ understanding-approval gate. The 1,898-test changed selection covered 89 modules
 all 29 checks in a disposable packaged Git checkout (12.817 s). This correction
 introduces no prompt, model-route, source waiver or approval change. Live
 qualification remains tracked in #2208.
+
+## Relocated Git transport during Claude/Codex qualification
+
+A subsequent full-screen macOS TUI attempt used GoCode with
+`claude-sonnet-5-5` for Requirements, Planner and Builder, and `gpt-6.1-sol`
+for the independent review roles. Requirements discovered history and tax,
+but automatic coordination stopped before planning with
+`git: 'remote-https' is not a git command`. This is a Git installation problem
+in the coordination environment, not another report-validation failure.
+
+Coordination removed every inherited `GIT_*` variable, including
+`GIT_EXEC_PATH`. Relocated Git installations use that variable to find their
+transport helpers. The correction preserves only that installation setting;
+repository selectors and injected Git configuration remain excluded, and
+interactive credential prompts remain disabled. Focused regressions check
+both the preserved setting and the absence of repository/config overrides.
+The exact failed HTTPS lookup succeeds through the corrected coordination
+helper without a model call. No report, approval, source or proof validator
+is changed.

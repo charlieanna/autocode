@@ -26,6 +26,47 @@ import autocode_run_view as run_view
 import autocode_scope_assignment as assignment
 
 
+class RepositoryGitEnvironmentTests(unittest.TestCase):
+    def test_https_transport_keeps_installed_helpers_without_repository_overrides(self):
+        environment = {
+            "PATH": "/installed/bin",
+            "HOME": "/operator/home",
+            "GIT_EXEC_PATH": "/installed/libexec/git-core",
+            "GIT_DIR": "/another/repository/.git",
+            "GIT_WORK_TREE": "/another/repository",
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "url.file:///other/.insteadOf",
+            "GIT_CONFIG_VALUE_0": "https://github.com/",
+            "GIT_TERMINAL_PROMPT": "1",
+        }
+        expected = {
+            "PATH": "/installed/bin",
+            "HOME": "/operator/home",
+            "GIT_EXEC_PATH": "/installed/libexec/git-core",
+            "GIT_TERMINAL_PROMPT": "0",
+        }
+        with patch.dict(os.environ, environment, clear=True), patch.object(repos.subprocess, "run") as run:
+            run.return_value = Mock(returncode=0, stdout="baseline\trefs/heads/main\n")
+            result = repos.git("/authorized/repository", "ls-remote", "https://github.com/example/project.git")
+        self.assertEqual("baseline\trefs/heads/main", result)
+        run.assert_called_once_with(
+            ["git", "-C", "/authorized/repository", "ls-remote", "https://github.com/example/project.git"],
+            env=expected,
+            capture_output=True,
+            text=True,
+            input=None,
+            timeout=120,
+        )
+
+    def test_unset_helper_directory_stays_unset(self):
+        with patch.dict(os.environ, {"PATH": "/installed/bin"}, clear=True), patch.object(
+            repos.subprocess, "run"
+        ) as run:
+            run.return_value = Mock(returncode=0, stdout="")
+            self.assertEqual("", repos.git("/authorized/repository", "status", "--porcelain"))
+        self.assertEqual({"PATH": "/installed/bin", "GIT_TERMINAL_PROMPT": "0"}, run.call_args.kwargs["env"])
+
+
 class CoordinationTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
