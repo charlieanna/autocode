@@ -56,7 +56,8 @@ class RoutineRecoveryCLITests(unittest.TestCase):
     def test_named_resume_uses_retained_progress_without_more_slots(self):
         self.historical_hold()
         before = self.envelope()
-        self.assertEqual("resume", before["view"]["needs"]["kind"])
+        # Setting aside the uncertain attempt is the core's own named recovery (continue).
+        self.assertEqual("continue", before["view"]["needs"]["kind"])
         self.assertIn("--resume-paused", before["view"]["next_command"])
         self.assertNotIn("--grant-recovery", before["view"]["next_command"])
         self.launch(["--run-dir", str(self.run), "--resume-paused", "--no-chat", "--pause-after-stage"], 2)

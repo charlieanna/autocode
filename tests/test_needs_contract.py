@@ -306,6 +306,14 @@ _RESOLVER = {
     "settings": {},
 }
 KIND_SHAPES = {
+    "continue": [
+        {
+            "status": "PAUSED_BUDGET",
+            "stop_reason": "quota restored; set the attempt aside",
+            "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "terra"},
+            "settings": {},
+        }
+    ],
     "answer": [
         _RESOLVER,
         {
@@ -324,9 +332,16 @@ KIND_SHAPES = {
     ],
     "resume": [
         {
-            "status": "PAUSED_BUDGET",
-            "stop_reason": "quota restored; set the attempt aside",
-            "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "terra"},
+            # A cleanly finished attempt keeps the result its hold stands on; archiving it is not routine.
+            "status": "PAUSED_VERIFICATION_UNCERTAIN",
+            "stop_reason": "verification cleanup was not confirmed",
+            "active_stage": {
+                "iteration": 1,
+                "output": "/run/review-change-01.json",
+                "stage": "review_change",
+                "exit_code": 0,
+                "finished_at": "2026-10-30T00:00:00Z",
+            },
             "settings": {},
         },
         {"status": "PAUSED_COMPONENT_PLAN", "stop_reason": "component plan", "task": "Build a CLI", "settings": {}},

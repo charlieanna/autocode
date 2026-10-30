@@ -1301,11 +1301,17 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             need["abandon_stage"] = attempt
             need["action"] = f"--abandon-stage {attempt} then --resume-paused"
             held = operational_information.projection(state) or {}
-            if not stale_report_repair and not (held.get("status") == "held" and held.get("action")):
+            if (
+                not stale_report_repair
+                and not (active.get("finished_at") and active.get("exit_code") == 0)
+                and not (held.get("status") == "held" and held.get("action"))
+            ):
                 # The core has classified this exact retained response as uncertain
                 # and already requires it to be archived before any further work.
-                # A held information review instead names a person's change (another
-                # model after a content-filter refusal), so that pause stays a resume.
+                # A cleanly finished attempt holds a result that archiving would
+                # discard (a verification hold or stale source check stands on it),
+                # and a held information review names a person's change (another
+                # model after a content-filter refusal), so those pauses stay a resume.
                 need["kind"] = "continue"
                 return need
         if stale_report_repair:
