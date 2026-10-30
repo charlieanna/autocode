@@ -424,6 +424,31 @@ class ScriptedChat(chat.ChatClient):
 class ConversationTests(unittest.TestCase):
     """What the chat shows and takes at each kind of stop, without a run."""
 
+    def test_core_classified_abandonment_runs_without_a_human_confirmation(self):
+        state = {
+            "status": "PAUSED_CONTROLLER_EXIT",
+            "stop_reason": "Controller exited while a stage response was uncertain.",
+            "active_stage": {
+                "iteration": 1,
+                "output": str(RUN / "iterations" / "001" / "requirements-gather-01.jsonl"),
+                "stage": "requirements_gather",
+            },
+        }
+        recovery = {"status": state["status"], **run_view.action(state, run_dir=RUN, workspace=WORKSPACE)}
+        abandoned = {
+            "status": "PAUSED_STAGE_ABANDONED",
+            "needs": {"kind": "resume"},
+            "next_command": f"autocode {PLACE} --resume-paused",
+        }
+        client = ScriptedChat(recovery, abandoned)
+        client.show = mock.Mock()
+        client.check_others = mock.Mock()
+        client.ask = mock.Mock(side_effect=AssertionError("routine recovery must not ask the person"))
+
+        self.assertIsNone(client.step())
+        self.assertEqual([["--abandon-stage", "001/requirements-gather-01"]], client.taken)
+        client.ask.assert_not_called()
+
     def test_named_feedback_at_semantic_stops_is_sent_without_a_resume_or_approval(self):
         for status in ("RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
             with self.subTest(status=status):
