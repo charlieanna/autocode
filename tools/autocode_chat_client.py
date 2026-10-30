@@ -1533,7 +1533,7 @@ class ChatClient:
             return False
         context = (view.get("chat") or {}).get("context") or ""
         try:
-            reply = self.ask("\nAnything else? Type a follow-up, or press Enter to finish: ")
+            reply = self.ask("\nAnything else? Any text starts a new task in this chat; press Enter to finish: ")
         except Left:
             return False
         return bool(reply) and self.send(reply, context)

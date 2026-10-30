@@ -846,6 +846,7 @@ class ConversationTests(unittest.TestCase):
         client = ScriptedChat(done, DONE, replies=["Add a --shout flag"])
         self.assertEqual(0, client.converse())
         self.assertEqual([["--follow-up", "Add a --shout flag"]], client.taken)
+        self.assertIn("Any text starts a new task in this chat; press Enter to finish:", client.text())
 
     REVIEW = {
         "status": "WAITING_FOR_USER",

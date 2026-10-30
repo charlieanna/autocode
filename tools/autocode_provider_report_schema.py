@@ -9,9 +9,11 @@ from pathlib import Path
 
 try:
     from . import autocode_report_edits as edits
+    from . import autocode_stage_roles as stage_roles
     from .autocode_util import atomic_json
 except ImportError:
     import autocode_report_edits as edits
+    import autocode_stage_roles as stage_roles
     from autocode_util import atomic_json
 
 
@@ -25,3 +27,11 @@ def full_report(schema_path):
     target = source.with_name(source.stem + ".full-report.schema.json")
     atomic_json(target, original)
     return target
+
+
+def for_route(schema_path, settings, role):
+    """Choose a report-repair schema the selected transport can represent."""
+    route = settings["roles"][role]
+    if stage_roles.engine_for(settings, role) == "opencode" and route.get("provider") == "gocode":
+        return full_report(schema_path)
+    return Path(schema_path)
