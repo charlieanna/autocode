@@ -140,9 +140,102 @@ def _totals(data, root):
     ]
 
 
+TODO_SOURCE = "cefe6abde79ff40a33e3b0bdb7147edc12af36305a6e1b1c2be244b4d51cd00d"
+# The reference tests, and the same tests with the follow-up turn's list test (tests.test_brief_cli).
+TODO_TESTS = {
+    "ca4befa627cc78630e8527a189254648ec880635e945e917b0aab0851154edfe",
+    "68b50358a20e551c82ea64ef10a3b8ba570bbc294c544742e417185506c835f6",
+}
+_TODO_IMPORT = (
+    "No supported import mutation. Every CLI test runs todo.py as a subprocess; without this import the "
+    "module fails before main and test_add_list_complete's exact list output cannot be produced."
+)
+TODO_REASONS = {
+    "import json": _TODO_IMPORT,
+    "import os": _TODO_IMPORT,
+    "import sys": _TODO_IMPORT,
+    "from pathlib import Path": _TODO_IMPORT,
+    'STORE = Path("todos.json")': "No supported assignment mutation. test_unknown_id_leaves_store_identical and "
+    "test_malformed_store_is_never_rewritten read todos.json in the command's directory; another store name fails them.",
+    "class StoreError(Exception):": "A class header has no supported mutation. test_malformed_store_is_never_rewritten "
+    "requires exit 1 with the malformed-store message, which main produces only by catching this exception type.",
+    "pass": "The empty exception body has no behavior of its own; the class header's reason covers the exception.",
+    "try:": "A try header has no supported mutation. The malformed-store tests and the add/list/complete tests pass "
+    "only when the guarded load succeeds or its failure becomes exit 1 with an unchanged store.",
+    'data = json.loads(STORE.read_text(encoding="utf-8"))': "No supported call mutation. test_add_list_complete "
+    "reads back saved to-dos through list, and the '{broken' store must fail to parse; skipping the read fails both.",
+    "except (ValueError, AttributeError) as error:": "No supported handler mutation. test_malformed_store_is_never_rewritten "
+    "requires exit 1 and the malformed message for unparsable and wrongly shaped stores; without the handler they crash.",
+    'raise StoreError(f"todos.json is malformed ({error}); leaving it untouched") from None': "No supported raise "
+    "mutation. test_malformed_store_is_never_rewritten asserts 'todos.json is malformed' on stderr for every command.",
+    'temporary = STORE.with_suffix(".json.tmp")': "No supported assignment mutation. test_add_list_complete lists the "
+    "saved to-do in a later process, so the save path must reach todos.json through this temporary file.",
+    'temporary.write_text(json.dumps(data, indent=2), encoding="utf-8")': "No supported call mutation. "
+    "test_add_list_complete reads the added and completed to-do from a later process; an unwritten save fails it.",
+    "os.replace(temporary, STORE)": "No supported call mutation. test_add_list_complete and "
+    "test_unknown_id_leaves_store_identical read todos.json itself; without the replace nothing reaches the store.",
+    "data = load()": "No supported assignment mutation. test_add_list_complete lists a to-do added by an earlier "
+    "process; without loading the store the later commands see no to-dos and fail.",
+    "except StoreError as error:": "No supported handler mutation. test_malformed_store_is_never_rewritten requires "
+    "exit 1 with the message instead of a traceback for every command.",
+    'print(f"todo: {error}", file=sys.stderr)': "No supported call mutation. test_malformed_store_is_never_rewritten "
+    "asserts the malformed-store message on stderr; dropping this print fails it.",
+    "command = argv[0]": "No supported assignment mutation. Every command test dispatches on this name; without it "
+    "add, list and complete cannot run.",
+    'data["next_id"] += 1': "No supported augmented-assignment mutation. test_add_list_complete completes id 1 and the "
+    "follow-up list test lists ids 1 and 2; a stale counter repeats ids and fails the exact list output.",
+    "save(data)": "No supported call mutation. test_add_list_complete lists the added and then completed to-do from "
+    "later processes; without saving, list prints nothing.",
+    "print(f\"{todo['id']} {todo['text']} [{'done' if todo['done'] else 'open'}]\")": "No supported call mutation. "
+    "test_add_list_complete asserts the exact line '1 buy milk [done]'; dropping the print fails it.",
+    'match[0]["done"] = True': "No supported assignment mutation. test_add_list_complete asserts '[done]' after "
+    "completing id 1; without the assignment it lists '[open]'.",
+    'if __name__ == "__main__":': "The mutator excludes entrypoint guards. Every CLI test runs todo.py as a script "
+    "and asserts its output and exit status; disabling the guard fails all of them.",
+    "raise SystemExit(main(sys.argv[1:]))": "No supported exit-adapter mutation. The usage, unknown-id and "
+    "malformed-store tests assert exits 2 and 1; discarding main's return value exits 0 and fails them.",
+}
+
+
+def _todo(data, root):
+    proof = data.get("regression_proof") or {}
+    try:
+        source = (root / "todo.py").read_bytes()
+        digest = hashlib.sha256(source).hexdigest()
+        if digest != TODO_SOURCE or hashlib.sha256((root / "test_todo.py").read_bytes()).hexdigest() not in TODO_TESTS:
+            return []
+    except OSError:
+        return []
+    if not proof.get("path"):
+        return []
+    lines, accepted = source.decode().splitlines(), []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        line = row.get("line")
+        if (
+            row.get("status") != "reason_required"
+            or row.get("path") != "todo.py"
+            or row.get("sha256") != digest
+            or type(line) is not int
+            or not 0 < line <= len(lines)
+            or row.get("mutation_outcomes")
+        ):
+            continue
+        if reason := TODO_REASONS.get(lines[line - 1].strip()):
+            accepted.append(
+                {
+                    "gap_id": row["gap_id"],
+                    "decision": "accept",
+                    "reason_kind": "instrumentation_unavailable",
+                    "reason": reason,
+                    "evidence_refs": [proof["path"], "todo.py"],
+                }
+            )
+    return accepted
+
+
 def judgments(data, root=None):
     root = Path.cwd() if root is None else Path(root)
-    return _stock(data, root) + _totals(data, root) + _greeting(data, root)
+    return _stock(data, root) + _totals(data, root) + _greeting(data, root) + _todo(data, root)
 
 
 def _greeting(data, root):
