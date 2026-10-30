@@ -235,7 +235,61 @@ def _todo(data, root):
 
 def judgments(data, root=None):
     root = Path.cwd() if root is None else Path(root)
-    return _stock(data, root) + _totals(data, root) + _greeting(data, root) + _todo(data, root)
+    return (
+        _stock(data, root) + _totals(data, root) + _greeting(data, root) + _greeting_js(data, root) + _todo(data, root)
+    )
+
+
+GREETING_JS = """const args = process.argv.slice(2);
+if (args.length !== 1 || !args[0].trim()) {
+  process.stderr.write("usage: greet.py NAME\\n");
+  process.exit(2);
+}
+process.stdout.write("Hello, " + args[0] + "\\n");
+"""
+
+GREETING_JS_REASONS = {
+    "if (args.length !== 1 || !args[0].trim()) {": "No JavaScript mutation support in this runner. test_exact_streams_and_exits drives greet.js through its unchanged Python adapter for all five input classes (one name, empty, whitespace, none, two); weakening either side of this guard fails the empty, whitespace or extra-argument case.",
+}
+
+
+def _greeting_js(data, root):
+    """The recovery-novelty JavaScript repair: its product has no mutation support, its adapter test reproduces it."""
+    proof = data.get("regression_proof") or {}
+    try:
+        source = (root / "greet.js").read_text()
+    except OSError:
+        return []
+    # The controlled fixture Builder appends `// controlled attempt N` lines; comments are never obligations.
+    if [line for line in source.splitlines() if line.strip() and not line.lstrip().startswith("//")] != [
+        line for line in GREETING_JS.splitlines() if line.strip()
+    ]:
+        return []
+    if not proof.get("path"):
+        return []
+    digest, lines, accepted = hashlib.sha256(source.encode()).hexdigest(), source.splitlines(), []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        line = row.get("line")
+        if (
+            row.get("status") != "reason_required"
+            or row.get("path") != "greet.js"
+            or row.get("sha256") != digest
+            or type(line) is not int
+            or not 0 < line <= len(lines)
+            or row.get("mutation_outcomes")
+        ):
+            continue
+        if reason := GREETING_JS_REASONS.get(lines[line - 1].strip()):
+            accepted.append(
+                {
+                    "gap_id": row["gap_id"],
+                    "decision": "accept",
+                    "reason_kind": "instrumentation_unavailable",
+                    "reason": reason,
+                    "evidence_refs": [proof["path"], "greet.js"],
+                }
+            )
+    return accepted
 
 
 def _greeting(data, root):

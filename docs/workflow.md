@@ -440,7 +440,9 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   and with no limit when the run turned that limit off;
   `settings.regression.test_timeout` overrides it. The new or changed tests
   must fail on the original code and pass on the current code, and every test
-  that passed on base must still pass (not fail, be skipped or disappear). The
+  that passed on base must still pass (not fail, be skipped or disappear). A
+  repair that changes no test is proved by the tests the project already had:
+  the base suite's tests that fail there and pass with the change. The
   checks run in clean scratch worktrees, never in the task workspace. The result
   is bound to the exact
   source revision and appears as a runner-owned step with zero tokens in the
