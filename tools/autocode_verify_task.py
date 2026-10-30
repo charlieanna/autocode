@@ -102,6 +102,7 @@ def copy_changes(workspace, candidate, changes):
 
 
 def verify(args, contract):
+    cleared = sorted({*records.clear_git_config_parameters(), *getattr(args, "cleared_git_config", ())})
     records.require_git_environment()
     workspace = args.workspace.resolve(strict=True)
     original_snapshot = records.source_identity(workspace)
@@ -118,11 +119,20 @@ def verify(args, contract):
     if not args.branch and not patch:
         records.require_review_inputs(workspace)
     changes = proof_runner.changed_files(workspace, head) if not args.branch and not patch else {}
-    root = args.out.absolute() if args.out else workspace / ".autocode" / "verification" / uuid.uuid4().hex
-    require_output_location(workspace, root)
     _, checkout_policy = records.review_support()
+    root = (
+        checkout_policy.follow_system_links(args.out)
+        if args.out
+        else workspace / ".autocode" / "verification" / uuid.uuid4().hex
+    )
+    require_output_location(workspace, root)
     root = checkout_policy.create_root(root)
-    original = {"workspace": str(workspace), "snapshot": original_snapshot, "started_at": util.now()}
+    original = {
+        "workspace": str(workspace),
+        "snapshot": original_snapshot,
+        "started_at": util.now(),
+        "cleared_git_config": cleared,
+    }
     util.atomic_json(root / "criteria.json", contract)
     candidate = root / "candidate"
     clone(workspace, candidate, base if patch else head)
@@ -344,6 +354,7 @@ def cli(argv=None):
     arguments = parser()
     args = arguments.parse_args(argv)
     try:
+        args.cleared_git_config = records.clear_git_config_parameters()
         records.require_git_environment()
         if args.record:
             if any((args.base, args.branch, args.patch, args.criteria, args.criteria_file, args.out)):

@@ -498,6 +498,15 @@ def main() -> int:
             "probe": "",
             "untestable": "",
         }
+        if failure := data.get("builder_failure"):
+            # A Builder-failure classification must cite the pinned failure and its evidence.
+            report.update(
+                failure_class="unknown",
+                example="Offline fixture: it cannot diagnose this failure; it is classified unknown.",
+                untestable="An offline fixture runs no command that could show the cause.",
+                failure_id=failure.get("failure_id", ""),
+                evidence_refs=list(failure.get("evidence_refs") or [])[:1],
+            )
     elif stage == "requirements_gather":
         report = {
             "summary": "Handwritten greeting requirements; no model planning",

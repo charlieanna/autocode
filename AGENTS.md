@@ -76,6 +76,15 @@ behavior and evidence, not a 100% line count:
 - Where coverage cannot be measured (no coverage tool in the project, an
  unmeasured file), AutoCode chooses the fallback deterministically and records
  it in evidence. It never installs a tool into the project.
+- **A fake provider in a test is a Tester too.** The scripted Testers
+ (`tools/fake_codex.py`, `tools/live_fixture_provider.py`,
+ `tools/fixtures/multicomponent_fake.py`, the scenario harness fakes) must give
+ `changed_code_exceptions` for the lines they themselves write that have no
+ mutation site, bound to the exact gap, file bytes and line, and never for a
+ file they did not script (`goal_fixtures.FIXTURE_REASONS` is the pattern). A
+ fixture-driven test that stops at `PAUSED_BUILDER_CLASSIFICATION` with a
+ `reason_required` line is that gap, or a line the mutator cannot reach: fix
+ the fixture's reasons or the mutator, never the gate.
 
 The changed-code evidence gate (#2474) combines authenticated diff coverage
 (`tools/autocode_diff_coverage.py`, #701), behavioral mutation observations and

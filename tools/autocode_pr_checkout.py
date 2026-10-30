@@ -44,6 +44,33 @@ def task_environment(env=None):
     return {**{key: "" for key in effective if key not in cleaned}, **cleaned, "GIT_CONFIG_COUNT": "0"}
 
 
+def follow_system_links(value, *, trusted_uid=0):
+    """``value`` with each existing parent that is a symbolic link owned by ``trusted_uid`` (root), in a
+    directory that user owns, replaced by its target: macOS's /tmp -> private/tmp. Any other link stays
+    literal, so create_root still refuses it. Paths with ``..`` are returned unchanged for it to refuse."""
+    path = Path(value).absolute()
+    if ".." in path.parts or path == Path(path.anchor):
+        return path
+    current = Path(path.anchor)
+    for index, name in enumerate(path.parts[1:-1], start=1):
+        candidate = current / name
+        try:
+            link, parent = os.lstat(candidate), os.lstat(current)
+        except OSError:
+            return current.joinpath(*path.parts[index:])
+        system = stat.S_ISLNK(link.st_mode) and link.st_uid == trusted_uid and parent.st_uid == trusted_uid
+        current = Path(os.path.realpath(candidate)) if system else candidate
+    return current / path.name
+
+
+def _redirected_parent(root):
+    """The first existing parent of ``root`` that is a symbolic link, or None."""
+    for parent in reversed(root.parents):
+        if parent.is_symlink():
+            return parent
+    return None
+
+
 def create_root(value):
     """Create a new literal directory through a pinned, non-symlink parent chain."""
     root = Path(value).absolute()
@@ -65,6 +92,12 @@ def create_root(value):
     except FileExistsError:
         raise CheckoutError(f"Review output already exists: {root}; use a new --out directory") from None
     except OSError as error:
+        link = _redirected_parent(root)
+        if link is not None:
+            raise CheckoutError(
+                f"Review output has a redirected parent: {link} is a symbolic link; "
+                f"use {Path(os.path.realpath(link)) / root.relative_to(link)} instead"
+            ) from error
         raise CheckoutError("Review output has an inaccessible or redirected parent") from error
     return root
 

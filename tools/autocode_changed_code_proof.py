@@ -15,6 +15,8 @@ try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_mutation_check as mutation
     from . import autocode_package_scope as package_scope
+    from . import autocode_proof_stability as proof_stability
+    from . import autocode_python_tests as python_tests
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_util as util
     from . import autocode_verify as verify
@@ -24,6 +26,8 @@ except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_mutation_check as mutation
     import autocode_package_scope as package_scope
+    import autocode_proof_stability as proof_stability
+    import autocode_python_tests as python_tests
     import autocode_source_snapshot as source_snapshot
     import autocode_util as util
     import autocode_verify as verify
@@ -63,7 +67,7 @@ def collect(proof, result, framework, workspace, out, tree, execution_context, *
     expected = source_snapshot.inventory(workspace, paths=source_paths)
     baseline = source_snapshot.copied_files(tree, expected)
     original_workspace = source_snapshot.snapshot(workspace, paths=source_paths)
-    package, suite = package_scope.split(framework, (result.get("commands") or {}).get("suite"))
+    package, suite, selected = selected_tests(framework, result)
 
     def run(command, label, limit):
         if package:
@@ -76,8 +80,6 @@ def collect(proof, result, framework, workspace, out, tree, execution_context, *
         receipts.append(receipt)
         return receipt
 
-    candidate = (result.get("checks") or {}).get("suite_on_candidate") or {}
-    selected = sorted((candidate.get("results") or {}).get("passed") or [])
     report = (
         mutation.collect_selected_tests(
             (result.get("framework") or {}).get("name"),
@@ -140,6 +142,28 @@ def collect(proof, result, framework, workspace, out, tree, execution_context, *
     }
     proof["changed_code_evidence"] = assessment
     return mutation.final(report, proof["verdict"], proof.get("case_tests"))
+
+
+def selected_tests(framework, result):
+    """(package, command, tests): the proof command the mutation check runs, and the passing tests it
+    observed on the candidate, which every mutant must then fail.
+
+    The suite is preferred. When the runner cannot narrow it to those tests (a project gate script
+    such as ``python project_gate.py``), the proof's regression command is used instead: it is the
+    same runner's own observation of the proving tests. When neither can be narrowed, the suite is
+    returned and the mutation check records that it ran no test.
+    """
+    name = (result.get("framework") or {}).get("name")
+    commands, checks = result.get("commands") or {}, result.get("checks") or {}
+    choices = []
+    for key, label in (("suite", "suite_on_candidate"), ("regression", "regression_on_candidate")):
+        package, command = package_scope.split(framework, commands.get(key))
+        tests = sorted(((checks.get(label) or {}).get("results") or {}).get("passed") or [])
+        choices.append((package, command, tests))
+        narrowed = proof_stability.narrow(name, command, tests) if command and tests else None
+        if narrowed and python_tests.parse(narrowed) is not None:
+            return package, command, tests
+    return choices[0]
 
 
 def reviewed(proof, exceptions):
