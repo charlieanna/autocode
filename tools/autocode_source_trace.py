@@ -185,7 +185,7 @@ def _normalize_entries(value, label, records, *, negation=False):
     return normalized
 
 
-def _citing(criteria, sentence, source_id):
+def _citing(criteria, sentence, source_id, *, spans=False):
     """The criteria whose citations of this source cover ``sentence``."""
     return [
         row
@@ -193,6 +193,7 @@ def _citing(criteria, sentence, source_id):
         if _covered(
             sentence,
             [citation["quote"] for citation in row.get("sources") or [] if citation["source_id"] == source_id],
+            spans=spans,
         )
     ]
 
@@ -297,7 +298,18 @@ def _coverage_errors(body, records, out_of_scope, *, coverage_records=None):
             covered = _covered(sentence, quotes, spans=True)
             excluded_here = _covered(sentence, excluded)
             if covered and excluded_here:
-                errors.append(f"{record['id']} sentence is both covered and out of scope: {sentence[:80]!r}")
+                citing = _citing(criteria, sentence, record["id"], spans=True)
+                reasons = [
+                    entry["reason"]
+                    for entry in out_of_scope
+                    if entry["source_id"] == record["id"] and _covered(sentence, [entry["quote"]])
+                ]
+                criterion_ids = ", ".join(str(row["id"]) for row in citing)
+                reason_text = "; ".join(dict.fromkeys(reasons))
+                errors.append(
+                    f"{record['id']} sentence is both covered and out of scope "
+                    f"(criterion(s) {criterion_ids}; reason(s) {reason_text}): {sentence[:80]!r}"
+                )
             elif not covered and not excluded_here:
                 errors.append(f"{record['id']} sentence is neither cited nor out of scope: {sentence[:80]!r}")
     # Exclusions stay bound to the full authenticated inventory, even when a
@@ -337,27 +349,33 @@ def _turn_scoped(state: RunState, records):
 SENTENCE_ID = re.compile(r"^(?P<source>.+)#(?P<number>[1-9][0-9]*)$")
 
 
-def sentence_rows(state: RunState, records, requirement_rows=()):
+def sentence_rows(state: RunState, records, requirement_rows=(), criteria=None):
     """Every sentence a criterion set must cover, numbered per source, as ``source_sentences`` shows them.
 
     ``id`` is ``<source id>#<n>`` over the source's own sentence list (the list the coverage check walks), and
     ``requirement_ids`` names the requirement rows whose ``source_quote`` supports the sentence, so a Planner
-    maps rows to sentences by id instead of by comparing text (#1630). The text is in source_inventory too."""
+    maps rows to sentences by id instead of by comparing text (#1630). When ``criteria`` is supplied,
+    ``criterion_ids`` names every criterion whose citation covers the sentence. The text is in source_inventory too."""
     rows = []
     for record in _turn_scoped(state, records):
         for number, sentence in enumerate(cues.sentences(record["text"]), 1):
-            rows.append(
-                {
-                    "id": f"{record['id']}#{number}",
-                    "source_id": record["id"],
-                    "text": sentence,
-                    "requirement_ids": [
-                        row["requirement_id"]
-                        for row in requirement_rows
-                        if row.get("source_quote") and _covered(sentence, [row["source_quote"]], spans=True)
-                    ],
-                }
-            )
+            row = {
+                "id": f"{record['id']}#{number}",
+                "source_id": record["id"],
+                "text": sentence,
+                "requirement_ids": [
+                    requirement["requirement_id"]
+                    for requirement in requirement_rows
+                    if requirement.get("source_quote") and _covered(sentence, [requirement["source_quote"]], spans=True)
+                ],
+            }
+            if criteria is not None:
+                row["criterion_ids"] = [
+                    criterion["id"]
+                    for criterion in _citing(criteria, sentence, record["id"], spans=True)
+                    if criterion.get("id")
+                ]
+            rows.append(row)
     return rows
 
 

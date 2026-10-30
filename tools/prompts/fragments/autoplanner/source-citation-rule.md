@@ -33,6 +33,11 @@ coordinator obligation can be cited without claiming that a member-local test
 proves the joint result. Recheck coverage against the final resolved criteria,
 including retained criteria, rather than copying an earlier exclusion list.
 
+For Plan Reviewer stages, review_source_sentences maps each source sentence to
+the criterion_ids that cite it. Use this map to check exclusions: a non-empty
+criterion_ids list means the sentence is already covered and cannot also be
+out_of_scope.
+
 Before approving, check the draft
 against the sources: every criterion cited, every sentence covered or
 explicitly out of scope, every quoted number, literal and negation survived.

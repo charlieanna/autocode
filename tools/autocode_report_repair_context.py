@@ -25,6 +25,7 @@ try:
     from . import autocode_regression_reference as regression_reference
     from . import autocode_report_edits as report_edits
     from . import autocode_roles as roles
+    from . import autocode_source_trace as source_trace
 except ImportError:
     import autocode_contract_revision as contract_revision
     import autocode_coordination_context as coordination_context
@@ -34,6 +35,7 @@ except ImportError:
     import autocode_regression_reference as regression_reference
     import autocode_report_edits as report_edits
     import autocode_roles as roles
+    import autocode_source_trace as source_trace
 
 PLANNING_STAGES = frozenset(roles.ALL_PLANNING_STAGES)
 DECISION_STAGES = frozenset({"astra_plan", "astra_review", "astra_checkpoint", "astra_resolve"})
@@ -57,9 +59,12 @@ def baseline_instruction(stage: str) -> str:
             "fragments/report-repair-context/requirements-corrections.md"
         )
     if stage in PLANNING_STAGES:
-        return prompts.get("fragments/report-repair-context/baseline-instruction-02.md") + prompts.get(
+        instruction = prompts.get("fragments/report-repair-context/baseline-instruction-02.md") + prompts.get(
             "fragments/autoplanner/proof-reference-rule.md"
         )
+        if stage in source_trace.REVIEW_STAGES:
+            instruction += prompts.get("fragments/autoplanner/source-citation-rule.md")
+        return instruction
     if stage in DECISION_STAGES:
         return prompts.get("fragments/report-repair-context/baseline-instruction-03.md")
     return prompts.get("fragments/report-repair-context/baseline-instruction.md")

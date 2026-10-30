@@ -209,6 +209,7 @@ SOURCE_REFS_RULE = prompts.get("fragments/autoplanner/source-refs-rule.md")
 CODE_REFS_RULE = prompts.get("fragments/autoplanner/code-refs-rule.md")
 CODE_REFS_STAGES = ("astra_discovery", "glm_revise")
 TRACE_STAGES = ("astra_discovery", "glm_revise", "astra_finalize")
+REVIEW_SOURCE_TRACE_STAGES = source_trace.REVIEW_STAGES
 # Stages that draft or review contract criteria cite and check source traces (#595).
 CITATION_STAGES = (
     "requirements",
@@ -247,6 +248,8 @@ def repair_citation_context(state: RunState, stage, workspace, schema=None):
     brief's candidate inputs stay readable task inputs, never source citations.
     """
     context = {"source_inventory": repair_source_inventory(state, stage)}
+    if stage in REVIEW_SOURCE_TRACE_STAGES:
+        context["review_source_sentences"] = review_source_sentence_rows(state)
     if (
         stage == "astra_challenge"
         and failure_correction.offered(schema or {})
@@ -275,6 +278,20 @@ def source_sentences(state: RunState, stage):
     if stage not in SENTENCE_ID_STAGES:
         return []
     return source_trace.sentence_rows(state, brief_obligations.sources(state), trace_rows(state, stage))
+
+
+def review_source_sentence_rows(state: RunState):
+    """Map each source sentence to the existing criteria that cite it for Plan Reviewer context."""
+    body = (state.get("goal_contract") or {}).get("body") or {}
+    rows = source_trace.sentence_rows(
+        state,
+        brief_obligations.sources(state),
+        criteria=body.get("acceptance_criteria") or [],
+    )
+    return [
+        {"source_id": row["source_id"], "sentence": row["text"], "criterion_ids": row["criterion_ids"]}
+        for row in rows
+    ]
 
 
 def resolve_sentence_citations(state: RunState, contract):
@@ -1358,6 +1375,10 @@ def context(state: RunState, stage, state_path):
     sentences = source_sentences(state, stage)
     if sentences:
         packet["source_sentences"] = sentences
+    if stage in REVIEW_SOURCE_TRACE_STAGES:
+        review_sentences = review_source_sentence_rows(state)
+        if review_sentences:
+            packet["review_source_sentences"] = review_sentences
     if stage in CITATION_STAGES:
         # The model quotes these verbatim in criterion sources (#595); the fake
         # provider reads the same list to build its scripted citations. The full

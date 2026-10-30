@@ -15,6 +15,12 @@ from . import test_report_repair as repair_fixtures
 
 
 class ClarificationContextTests(unittest.TestCase):
+    def test_plan_reviewer_repair_includes_source_trace_review_guidance(self):
+        instruction = context.baseline_instruction("astra_challenge")
+
+        self.assertIn("review_source_sentences", instruction)
+        self.assertIn("criterion_ids", instruction)
+
     def test_requirements_repair_sources_map_saved_feedback_to_previous_requirements(self):
         feedback = {
             "id": "feedback-1",
