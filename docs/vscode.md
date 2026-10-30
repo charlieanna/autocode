@@ -235,6 +235,20 @@ routes. Existing chats retain their saved backend, models and budgets. Company
 providers such as GoCode appear when registered; their optional connection
 commands are described in [Providers](providers.md#connection-setup-and-company-backends).
 
+### Stage models
+
+Open **AutoCode: Stage Models** from the command palette, or **Stage models…**
+in the chat's engine picker, to choose the model and reasoning level each stage
+of a new chat runs. Each stage shows what it does and the kind of model and level
+that suits it, with one dropdown for the model and one for the level; the level
+list follows the chosen model. A model the stage may not run beside the others (a
+Builder on the model its Tester runs, for example) is greyed out with the reason.
+**Save** keeps the choice for every new chat on that backend, and **Use the
+default** forgets it. Chats already started keep their own models. The panel
+reads `autocode stages list --json` and takes only the stage's own save or reset
+command ([stage choices for clients](task-run.md#stage-choices-for-clients)),
+naming the backend when a provider or engine is chosen for new chats.
+
 ### No Kilo or OpenCode installed
 
 The **AutoCode · Direct connection** card is always available in Connections.

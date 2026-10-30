@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The VS Code extension's **AutoCode: Stage Models** panel (also under **Stage models…** in the chat's engine
+  picker) shows each stage with what it does and advice on the model and level that suit it, and one model
+  dropdown and one level dropdown per stage; a model the stage may not run beside the others is greyed out
+  with the reason. Saving takes only the stage's own command from `autocode stages list --json`.
 - You choose the model and reasoning level of each stage once, and every new task uses it (owner decision
   2026-10-30). `autocode setup` offers it after connecting your accounts, and `autocode stages choose` asks
   again at any time: for each stage it says what the stage does, gives advice on the model and level that
