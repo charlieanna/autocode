@@ -23,6 +23,10 @@ PR template asks for an entry here; a change without one is incomplete.
   chat says so. A revision that changes any of those, or adds a repository, is shown for approval again.
 ### Fixed
 
+- Automatic multi-repository delivery preserves relocated Git transport helpers, discovers authorized
+  repositories requested by the joint regression, and keeps the joint proof out of its own producer
+  prerequisites. Expanded repository sets require fresh coordinated approval; earlier attempts and all
+  source, requirement and proof checks remain intact (#2208).
 - Linux CLI startup now automatically drops only `CAP_SYS_PTRACE` and `CAP_SYS_ADMIN` from its bounding set and re-executes once, so root containers can run the offline demo and fake-provider tasks without a `setpriv` prefix. The verified drop is reported by `doctor`; `AUTOCODE_NO_CAPABILITY_DROP=1` preserves the previous behavior, and failed drops retain the existing admission refusal (#2534).
 - Completing a task worktree whose `.gitignore` ignores `.autocode` now commits the delivered
   source to its branch again. `git add` refuses a pathspec that names an ignored path on
