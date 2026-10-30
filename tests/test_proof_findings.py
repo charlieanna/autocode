@@ -43,6 +43,8 @@ class ProofFindingTests(unittest.TestCase):
         self.assertEqual("open", row["status"])
         proof_findings.reconcile(state, "r2", required=True, proved=True)
         self.assertEqual("resolved", row["status"])
+        # Closed by the passing proof's receipt, as the other runner findings record where they closed.
+        self.assertEqual("/run/verification.json", row["resolved_in"])
         self.assertFalse(proof_findings.open_rows(state))
 
     def test_a_contract_that_no_longer_owes_a_proof_closes_it(self):

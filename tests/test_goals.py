@@ -1160,6 +1160,7 @@ class GoalTests(unittest.TestCase):
         lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
         contract = copy.deepcopy(self.state["goal_contract"])
         repair = self.decision("REWORK")
+        # The owned paths in their declared order, then the correction's new file.
         repair["affected_paths"] = ["greet.py", "test_greeting.py", "formatting.py"]
         repair["next_task"]["requirements"] = ["Correct formatting.py to meet the approved greeting criterion"]
         lifecycle.assign_task(self.state, repair, s.snapshot(self.root))

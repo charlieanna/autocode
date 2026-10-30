@@ -11,6 +11,17 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `--role-transport ROLE=PROVIDER` works on any base tool of the OpenCode facade engine, not only
+  `--provider opencode` (#2049): a run on Claude Code or on the direct connection can run one role on a
+  Kilo account, and a saved binding to the built-in `claude` provider (identity version 2) is validated
+  by its own shape. Binding a role to the run's own tool is refused, as is `--engine codex`.
+- A new run that names no engine takes the backend this machine has connected when OpenCode is not
+  installed (#2049): Claude Code signed in to a subscription, then Codex, then the AutoCode direct
+  connection, then Kilo, in that order. The run prints `Engine for this run: …` with the reason, and
+  `autocode doctor` checks that same backend and names the choice in its `engine` row and settings. A
+  flag, `AUTOCODE_PROVIDER`, `default_provider`, a project `engine` and a saved run's engine always win,
+  and nothing changes while OpenCode is installed. Before, a person with only Claude Code or Codex had
+  to add `--engine` to every command or the run stopped at `OpenCode is not on PATH`.
 - `autocode status --summary` prints a run in one sentence: needs you, working, done or stopped, then the
   exact command the status view names (#2049). The same object is `view.summary` in the `--status` JSON.
   Only a completion verified against the current checkout reads done; a finished run whose evidence no
@@ -431,9 +442,22 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A repair whose regression test the project already had is proved by that test: when no test changed, the base suite's tests that fail there and pass with the change are the fail-to-pass proof, instead of a refusal for the missing changed test. The offline live-trial fixture reads its output contract from a report-file provider's prompt, so its Tester attaches its changed-line reasons on that transport too. The offline fixture delivers what the changed-line rule (#2474) asks of a Builder, so master's `test_subprocess`, recovery and crash-recovery tests pass again: its second milestone ships its own fail-to-pass test and the Tester's reasons for the lines the mutator cannot break, a stalled attempt cites only the file it wrote, and the runner's proof finding records the proof receipt that closed it.
+- A run no longer stalls at a changed line the mutation check could not reach (#2474). When a project's suite is its own gate script (`python project_gate.py`), which the runner cannot narrow to the proving tests, the check now runs the proof's regression command and the tests it passed on the candidate instead of running nothing. A bool, number or string literal assigned to a name (`TEXT = "hello"`) is now a mutation site, so a line whose whole behavior is the value it binds gets behavioral evidence from the test that reads it rather than being sent back to the Builder for a reason. The offline fixtures' Investigator cites the pinned Builder failure it classifies instead of an unusable report.
+- Replaying a saved run that completed under the changed-line rule works again (#2500): the recording keeps each Tester reason's exact file, bytes and line, and replay re-derives the proof's current gap id from them instead of refusing the recorded one as stale. Recorded-checks replay of such a run also accepts a proof without named cases, the Tester's review of the retained proof, and a suite command whose interpreter lives elsewhere on the replay host.
+- The test suite passes again after the changed-line rule (#2474, #2495): the to-do scenario's reference tests now check usage errors, the wrongly shaped store and the unknown-id message, so their mutants fail, and its fixture Tester names why each line without a mutation site is covered. The coordination test checks a joint run that carries its own proof through that run's evidence.
 - Task completion now requires current behavioral evidence or a precise, independently checked reason for every changed executable product line (#2474). Coverage and mutation observations keep their source and command receipts; a setup failure, an empty survivor list or a stale proof cannot count as a tested line. Missing tools use a recorded fallback without installing project dependencies. Unresolved exact lines return to Builder for bounded repairs, then to Investigator, with their decisions and accepted reasons visible in the status and final report. Existing saved reports remain readable.
 - `autocode arena report`, `propose`, `cases` and `compare` before `arena init` refuse with the store path and the command that creates it instead of a sqlite traceback or an errno (#2491).
 - `autocode changeset status` and `autocode serve` name a run directory or workspace that does not exist instead of calling it a run in no change set or printing an errno (#2489).
+- Joint planning no longer has to relearn the citation boundary by rejection (#2487). The joint
+  brief said to read `.autocode/candidate-inputs.json` while the runner rejects `.autocode/`
+  citations, and only Requirements ever heard that rule: discovery and revision cited runner-owned
+  candidate copies and were refused. The brief now says candidate copies are task inputs to read
+  and install but never to cite (cite the lasting `repos/` source; its baseline bytes are still the
+  broken code until a candidate is installed), the discovery and revision prompts and their report
+  repairs carry the same ownership rule for `code_refs`, and the Requirements rule states the same
+  read-versus-cite distinction for `source_refs`. Validator boundaries and report schemas are
+  unchanged: runner-owned citations still reject.
 - A spec-first run no longer sends the Tester to rewrite a test whose criterion did not change (#2464, item 2).
   A reapproval or a follow-up installs a new contract hash, and acceptance-test receipts are keyed by the hash
   they were written under, so every case was due again and the Tester re-ran for all of them. A case whose

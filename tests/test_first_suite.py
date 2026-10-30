@@ -242,3 +242,58 @@ class FirstPythonSuiteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExistingFailingTestRepairTests(unittest.TestCase):
+    """A repair whose regression test the project already had: the base's failing test is the proof."""
+
+    BUGGY = "import sys\nif len(sys.argv) != 2:\n    raise SystemExit(2)\nprint('Hello, ' + sys.argv[1])\n"
+    FIXED = "import sys\nif len(sys.argv) != 2 or not sys.argv[1].strip():\n    raise SystemExit(2)\nprint('Hello, ' + sys.argv[1])\n"
+    TESTS = (
+        "import subprocess, sys, unittest\n\n\nclass GreetingTests(unittest.TestCase):\n"
+        "    def run_cli(self, *args):\n"
+        "        return subprocess.run([sys.executable, 'greet.py', *args], capture_output=True, text=True)\n\n"
+        "    def test_blank(self):\n        self.assertEqual(2, self.run_cli(' ').returncode)\n\n"
+        "{passing}"
+    )
+    PASSING = "    def test_hello(self):\n        self.assertEqual('Hello, Ada\\n', self.run_cli('Ada').stdout)\n"
+
+    def prove(self, candidate, *, passing=True):
+        project = Project(
+            {"greet.py": self.BUGGY, "test_greet.py": self.TESTS.format(passing=self.PASSING if passing else "")}
+        )
+        self.addCleanup(project.close)
+        project.write({"greet.py": candidate})
+        command = f"{sys.executable} -m unittest discover -v"
+        framework = verify.command_framework(command)
+        base = verify.baseline(
+            project.root, project.base, project.evidence, framework=framework, suite_command=command, timeout=60
+        )
+        self.assertNotEqual("passing", base["health"], base)
+        return verify.verify(
+            project.root,
+            project.base,
+            project.evidence,
+            framework=framework,
+            suite_command=command,
+            base_suite=base,
+            timeout=60,
+        )
+
+    def test_the_bases_failing_test_that_passes_with_the_change_is_the_fail_to_pass_proof(self):
+        result = self.prove(self.FIXED)
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertEqual(["test_greet.GreetingTests.test_blank"], result["fail_to_pass"])
+        self.assertEqual(["test_greet.GreetingTests.test_hello"], result["pass_to_pass"])
+        self.assertTrue(any("fail on the original code pass with the change" in note for note in result["notes"]))
+
+    def test_a_change_that_repairs_none_of_the_failing_tests_is_refused(self):
+        result = self.prove(self.BUGGY + "# touched\n")
+        self.assertEqual(verify.FAIL, result["verdict"], result)
+        self.assertTrue(any("no test that fails on the original code passes" in text for text in result["failures"]))
+
+    def test_a_base_whose_every_test_failed_has_nothing_passing_to_preserve_once_repaired(self):
+        result = self.prove(self.FIXED, passing=False)
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertEqual(["test_greet.GreetingTests.test_blank"], result["fail_to_pass"])
+        self.assertEqual([], result["pass_to_pass"])

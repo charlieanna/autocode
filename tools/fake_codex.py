@@ -10,7 +10,13 @@ import sys
 import uuid
 from pathlib import Path
 
-from goal_fixtures import body, greeting_changed_code_reasons, seed_greeting_workspace, write_greeting_source
+from goal_fixtures import (
+    body,
+    greeting_changed_code_reasons,
+    seed_greeting_workspace,
+    write_goodbye_source,
+    write_greeting_source,
+)
 
 if sys.argv[1:] == ["login", "status"]:
     print("Logged in using ChatGPT (offline fixture)")
@@ -308,6 +314,15 @@ elif stage == "investigate_stuck":
         "counterexample": {"file": "", "find": "", "replace": ""},
         "untestable": "",
     }
+    if failure := data.get("builder_failure"):
+        # A Builder-failure classification must cite the pinned failure and its evidence.
+        result.update(
+            failure_class="unknown",
+            example="Offline fixture: it cannot diagnose this failure; it is classified unknown.",
+            untestable="An offline fixture runs no command that could show the cause.",
+            failure_id=failure.get("failure_id", ""),
+            evidence_refs=list(failure.get("evidence_refs") or [])[:1],
+        )
 elif stage == "requirements_gather":
     draft = body(questions=not data["saved_answers"], task_kind=task_kind)
     result = {
@@ -378,7 +393,7 @@ elif stage == "astra_discovery":
                 "objective": "Deliver goodbye CLI",
                 "acceptance_criteria": ["C2"],
                 "depends_on": ["M1"],
-                "affected_paths": ["bye.py"],
+                "affected_paths": ["bye.py", "test_goodbye.py"],
             }
         )
         draft["deliverables"].append("bye.py")
@@ -568,7 +583,7 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
         "affected_paths": ["greet.py", "test_greeting.py"],
     }
     if advance:
-        result.update(next_objective="Implement goodbye CLI", affected_paths=["bye.py"])
+        result.update(next_objective="Implement goodbye CLI", affected_paths=["bye.py", "test_goodbye.py"])
         result["next_task"].update(
             milestone_id="M2",
             requirements=["Print Goodbye, NAME"],
@@ -615,7 +630,7 @@ elif stage == "terra":
     batch = str(uuid.uuid4())
     milestone = data.get("current_task", {}).get("milestone_id")
     if mode == "milestones" and milestone == "M2":
-        Path("bye.py").write_text("import sys\nprint('Goodbye, ' + sys.argv[1])\n# batch " + batch + "\n")
+        write_goodbye_source(Path.cwd(), revision=batch)
     elif mode == "stalled" or mode == "rework" and not data["actionable_findings"]:
         Path("greet.py").write_text("import sys\nprint('Hello, ' + sys.argv[1])\n# attempt " + batch + "\n")
     elif builder_files:
@@ -640,10 +655,15 @@ elif stage == "terra":
         "recommended_checks": ["Execute valid and invalid input"],
     }
     if mode == "milestones" and milestone == "M2":
-        result.update(changed_files=["bye.py"], evidence_refs=["bye.py"], summary="Goodbye written")
+        result.update(
+            changed_files=["bye.py", "test_goodbye.py"],
+            evidence_refs=["bye.py", "test_goodbye.py"],
+            summary="Goodbye written",
+        )
     elif builder_files:
         result.update(changed_files=sorted(builder_files), evidence_refs=sorted(builder_files))
-    elif mode not in ("stalled", "rework") or data["actionable_findings"]:
+    elif mode != "stalled" and (mode != "rework" or data["actionable_findings"]):
+        # The seeded workspace above: the stalled and first rework attempts write greet.py alone.
         result.update(changed_files=["greet.py", "test_greeting.py"], evidence_refs=["greet.py", "test_greeting.py"])
 else:
     valid = subprocess.run([sys.executable, "greet.py", "Ada"], capture_output=True, text=True)

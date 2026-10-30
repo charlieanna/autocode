@@ -104,6 +104,38 @@ class PlanningTests(unittest.TestCase):
         self.assertIn("retain the protected text and add a blocking decision", prompt)
         self.assertIn("contract.initial_task.kind=none", prompt)
 
+    def test_citation_stages_state_the_runner_owned_boundary_before_first_output(self):
+        # #2487: code_refs are validated against the runner-owned boundary, so the stages
+        # that cite them hear the rule before their first output, including the
+        # read-versus-cite distinction a joint brief's candidate inputs need. The
+        # requirements-only empty rule stays with Requirements.
+        state = self.state()
+        state["workspace"] = "/fixture"
+        for stage in ("astra_discovery", "glm_revise"):
+            with self.subTest(stage=stage):
+                prompt, _ = planning.context(state, stage, Path("/fixture/state.json"))
+                self.assertIn("code_refs name the actual repository-relative source files you read", prompt)
+                self.assertIn("Never cite .autocode/", prompt)
+                self.assertIn("is a task input, not a citation", prompt)
+                self.assertNotIn("source_refs may be empty only when", prompt)
+        prompt, _ = planning.context(state, "requirements_gather", Path("/fixture/state.json"))
+        self.assertIn("is a task input, not a citation", prompt)
+        self.assertIn("source_refs may be empty only when", prompt)
+
+    def test_cited_file_still_rejects_runner_owned_candidate_inputs(self):
+        # #2487: the guidance change loosens no validator boundary; a joint candidate
+        # copy stays readable in the workspace and uncitable in a report.
+        with tempfile.TemporaryDirectory() as workspace:
+            root = Path(workspace)
+            owned = root / ".autocode" / "candidate-inputs" / "alpha" / "app.py"
+            owned.parent.mkdir(parents=True)
+            owned.write_text("print('candidate')\n")
+            source = root / "app.py"
+            source.write_text("print('baseline')\n")
+            self.assertEqual(source.resolve(), planning.cited_file(root, "app.py", "code_refs", "app.py"))
+            with self.assertRaises(ValueError):
+                planning.cited_file(root, ".autocode/candidate-inputs/alpha/app.py", "code_refs", "owned.py")
+
     def test_finalizer_context_requests_only_legal_obligation_lists(self):
         state = self.state()
         state.update(workspace="/fixture")
@@ -282,7 +314,7 @@ class PlanningTests(unittest.TestCase):
         lifecycle.validate_body(state, {**draft, "initial_task": {**task, "kind": "validate"}})
 
     def test_a_validate_task_naming_no_paths_checks_its_milestones(self):
-        draft = body()  # M1 owns greet.py
+        draft = body()  # M1 owns greet.py and its test (the fixture's changed-line proof, #2474)
         task = {
             "objective": "Check it",
             "affected_paths": [],
@@ -300,7 +332,7 @@ class PlanningTests(unittest.TestCase):
             "validate",
             lifecycle.assign_task(state, goals.initial_decision(state["goal_contract"]["body"]), {"revision": "draft"}),
         )
-        self.assertEqual(["greet.py"], state["current_task"]["affected_paths"])
+        self.assertEqual(["greet.py", "test_greeting.py"], state["current_task"]["affected_paths"])
 
     def test_new_plan_review_route_uses_opencode_cursor_opus(self):
         args = SimpleNamespace(astra_model=None, terra_model=None, sol_model=None, glm_model=None)
@@ -1399,14 +1431,20 @@ class JointFlow(unittest.TestCase):
         self.launch([*args, "--no-chat"], 0)
         final = self.saved()[1]
         self.assertEqual("COMPLETE", final["phase"])
-        self.assertEqual(["orchestrator", "terra", "sol", "astra_review"], [r["stage"] for r in final["stages"][6:]])
-        self.assertEqual(["runner", "opencode", "opencode", "opencode"], [r["engine"] for r in final["stages"][6:]])
-        sol = final["stages"][8]
+        # A build that changes product code owes the runner's proof (#2474), recorded as its own stage.
+        self.assertEqual(
+            ["orchestrator", "terra", "regression_proof", "sol", "astra_review"],
+            [r["stage"] for r in final["stages"][6:]],
+        )
+        self.assertEqual(
+            ["runner", "opencode", "runner", "opencode", "opencode"], [r["engine"] for r in final["stages"][6:]]
+        )
+        sol = final["stages"][9]
         self.assertEqual("openai/gpt-6-sol", sol["command"][sol["command"].index("--model") + 1])
         self.assertEqual("high", sol["command"][sol["command"].index("--variant") + 1])
         config = json.loads(Path(sol["output"]).with_suffix(".opencode.json").read_text())
         self.assertEqual("deny", config["agent"]["autocode_sol"]["permission"]["edit"])
-        completion = final["stages"][9]
+        completion = final["stages"][10]
         self.assertEqual("astra", completion["role"])
         self.assertEqual("completion", completion["route_role"])
         self.assertEqual("openai/gpt-6-sol", completion["command"][completion["command"].index("--model") + 1])
@@ -1428,11 +1466,14 @@ class JointFlow(unittest.TestCase):
             [
                 "orchestrator",
                 "terra",
+                "regression_proof",
                 "sol",
+                "regression_proof",
                 "astra_review",
                 "astra_resolve",
                 "orchestrator",
                 "terra",
+                "regression_proof",
                 "sol",
                 "astra_review",
             ],
@@ -1794,7 +1835,8 @@ class NativeJointFlow(unittest.TestCase):
         final = self.saved()[1]
         self.assertEqual("TASK_COMPLETE", final["status"])
         self.assertEqual(
-            ["orchestrator", "terra", "sol", "astra_review"], [record["stage"] for record in final["stages"][6:]]
+            ["orchestrator", "terra", "regression_proof", "sol", "astra_review"],
+            [record["stage"] for record in final["stages"][6:]],
         )
         self.assertEqual(3, len({final["sessions"][role] for role in ("plan_reviewer", "sol", "completion")}))
 

@@ -59,7 +59,9 @@ builds and checks the change, and stops when it needs your decision. Reopen the
 same project with `autocode resume`; use `autocode --status` to see what it needs.
 
 For Claude Code use `--engine claude`. Without an explicit choice, the existing
-configured/default route applies (OpenCode on a fresh install). For API keys,
+configured/default route applies: OpenCode when it is installed; otherwise the
+first connected of Claude Code, Codex, the direct API-key connection and Kilo,
+which the run names as `Engine for this run: …`. For API keys,
 `autocode connections setup` configures the built-in runtime; start its tasks
 with `--provider autocode`. The [installation guide](docs/install.md) covers
 sign-in, a new Git project, route checks and common setup errors.

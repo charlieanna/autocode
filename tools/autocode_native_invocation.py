@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 import sys
 
 try:
+    from . import autocode_connected_engine as connected_engine
     from . import autocode_controller_owner as controller_owner
     from . import autocode_native_calls as native_calls
     from . import autocode_native_launch as native_launch
@@ -21,6 +22,7 @@ try:
     from . import autocode_visual_profile as native_profile
     from . import autocode_worker_binding as worker_binding
 except ImportError:
+    import autocode_connected_engine as connected_engine
     import autocode_controller_owner as controller_owner
     import autocode_native_calls as native_calls
     import autocode_native_launch as native_launch
@@ -212,6 +214,8 @@ def select_provider(base, args, parser, state: "RunState", workspace):
                 import autocode_replay_transport as replay_transport
             base.opencode = replay_transport.facade(args, state)
         else:
+            # A new run nobody routed takes the connected backend when OpenCode is absent (#2049).
+            connected_engine.apply(args, state, workspace)
             selected = base.autocode_providers.select(
                 args.provider, saved, default="opencode" if args.engine == "codex" else None
             )

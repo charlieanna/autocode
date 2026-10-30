@@ -76,6 +76,15 @@ behavior and evidence, not a 100% line count:
 - Where coverage cannot be measured (no coverage tool in the project, an
  unmeasured file), AutoCode chooses the fallback deterministically and records
  it in evidence. It never installs a tool into the project.
+- **A fake provider in a test is a Tester too.** The scripted Testers
+ (`tools/fake_codex.py`, `tools/live_fixture_provider.py`,
+ `tools/fixtures/multicomponent_fake.py`, the scenario harness fakes) must give
+ `changed_code_exceptions` for the lines they themselves write that have no
+ mutation site, bound to the exact gap, file bytes and line, and never for a
+ file they did not script (`goal_fixtures.FIXTURE_REASONS` is the pattern). A
+ fixture-driven test that stops at `PAUSED_BUILDER_CLASSIFICATION` with a
+ `reason_required` line is that gap, or a line the mutator cannot reach: fix
+ the fixture's reasons or the mutator, never the gate.
 
 The changed-code evidence gate (#2474) combines authenticated diff coverage
 (`tools/autocode_diff_coverage.py`, #701), behavioral mutation observations and
@@ -257,6 +266,18 @@ were archived at tag `archive/pre-restructure-2026-09-26`
    cycles.
 6. **The status view is a contract.** Add fields to `autocode_run_view.view`;
    never rename or remove one.
+7. **An identity that digests where a run happened must say how replay re-derives
+   it.** Replay (`docs/replay.md`) runs a saved run's recorded model answers in new
+   directories. A field whose value digests the workspace, run directory or
+   execution context (a changed-line `gap_id`, a capture nonce, the regression proof's
+   freshly named directory) is therefore different in the replay, and a recorded answer that names the old
+   value is rightly refused as stale. Such a field is declared in
+   `autocode_replay_bindings`: what it stably identifies (for a gap, its exact file,
+   bytes and line; for a proof citation, "the run's current proof") is recorded with the
+   answer, and `autocode_replay_recording.rebind` re-derives the current value from that
+   identity alone. Never widen a gate to accept
+   the recorded value, and never derive the new value from model text. A new such
+   identity without its binding breaks `tests.test_saved_run_replay_cli` on master.
 
 ## Names
 

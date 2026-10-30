@@ -479,19 +479,20 @@ class VisualRuntimeTests(unittest.TestCase):
         body = self.state["goal_contract"]["body"]
         body["constraints"].append("VISUAL_SLICE_GATES=complete-cases-v1")
         template = deepcopy(body["milestones"][0])
+        # The fixture body's own declared paths: the Builder's after-snapshot was taken under them.
         body["milestones"] = [
             {
                 **deepcopy(template),
                 "id": "M1",
                 "acceptance_criteria": ["C1"],
-                "affected_paths": ["greet.py"],
+                "affected_paths": list(template["affected_paths"]),
                 "depends_on": [],
             },
             {
                 **deepcopy(template),
                 "id": "M2",
                 "acceptance_criteria": ["C2"],
-                "affected_paths": ["greet.py"],
+                "affected_paths": list(template["affected_paths"]),
                 "depends_on": ["M1"],
             },
         ]

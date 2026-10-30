@@ -201,6 +201,8 @@ def prepare(
         "task_id": context.get("task_id"),
         "contract_hash": context.get("contract_hash"),
         "capture_nonce": None,
+        "changed_code_gap": context.get("changed_code_proof"),
+        "regression_proof": context.get("regression_proof_path"),
     }
     job = {
         "version": 1,

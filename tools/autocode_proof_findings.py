@@ -62,19 +62,23 @@ def reconcile(state: RunState, revision, *, required, proved, reason=""):
     """
     at = util.now()
     rows = open_rows(state)
+    proof = state.get("regression_proof") or {}
     if proved or not required:
         for row in rows:
             if not required or revision not in (row.get("failed_revisions") or []):
+                # Closed where the other runner findings are: by the receipt that settled it.
                 findings_ledger.settle(
                     row,
                     "resolved",
                     resolved_at=at,
+                    resolved_in=proof.get("path")
+                    if required
+                    else "The approved contract no longer owes a regression proof",
                     resolution_evidence=f"Runner regression proof passes on source {str(revision)[:12]}"
                     if required
                     else "The approved contract no longer owes a regression proof",
                 )
         return None
-    proof = state.get("regression_proof") or {}
     if proof.get("source_revision") != revision or not reason:
         return rows[0] if rows else None
     text = (
