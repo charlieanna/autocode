@@ -51,7 +51,9 @@ checks Claude Code, Codex, OpenCode and Kilo. When neither OpenCode nor Kilo is
 installed it offers to install OpenCode with npm (`--install kilocode` installs Kilo
 instead), then offers the sign-in of each installed one that is not signed in, and
 says which backend your tasks will use. API keys (Z.ai, MiMo, OpenAI, Anthropic) go in OpenCode or
-Kilo. After that a task needs no flags.
+Kilo. It then asks which model and reasoning level each stage runs, with advice for each, and
+every task uses that choice; change it any time with `autocode stages choose`
+([Choosing each stage's model](models.md#choosing-each-stages-model)). After that a task needs no flags.
 
 **Already have an engine signed in?** Reuse it. When OpenCode is not installed
 and nothing names an engine (no flag, no `default_provider`, no project

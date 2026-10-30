@@ -7,15 +7,17 @@ runs. In a terminal, when neither OpenCode nor Kilo is installed, it offers to i
 (the pinned, containment-qualified release) with npm, the one question it asks before changing
 the machine; ``--install opencode|kilocode`` installs that hub without asking. It then offers each
 installed, signed-out backend's own sign-in, where a person connects ChatGPT, GLM, MiMo or an API
-key. Finally it says which backend new runs will use and, when it can, the route each role takes,
-so the first task needs no flags and nobody is asked to pick a model per stage.
+key. It then says which backend new runs will use and, in a terminal, offers to choose the model and
+reasoning level of each stage on it (owner decision 2026-10-30, autocode_stages_cli), which every new
+task then takes. Finally it lists each stage's route, so the first task needs no flags.
 
 It reads no credential and launches no model. ``--json`` and a non-terminal run ask nothing and
 install only what ``--install`` names; ``--json`` returns the same rows clients read from
 ``autocode connections``, each with its named actions.
 
-Layer: interface. It composes autocode_connections (the connection view and its login action)
-and autocode_connected_engine (which backend a run that names none takes); nothing imports it.
+Layer: interface. It composes autocode_connections (the connection view and its login action),
+autocode_connected_engine (which backend a run that names none takes) and autocode_stages_cli (the
+per-stage choice); nothing imports it.
 """
 
 from __future__ import annotations
@@ -30,10 +32,14 @@ try:
     from . import autocode_connected_engine as connected_engine
     from . import autocode_connections as connections
     from . import autocode_providers as providers
+    from . import autocode_stage_choices as stage_choices
+    from . import autocode_stages_cli as stages_cli
 except ImportError:
     import autocode_connected_engine as connected_engine
     import autocode_connections as connections
     import autocode_providers as providers
+    import autocode_stage_choices as stage_choices
+    import autocode_stages_cli as stages_cli
 
 # The four backends, in the order setup shows them, with the install command for a missing one.
 BACKENDS = (
@@ -175,15 +181,44 @@ def _run(argv) -> int:
 LISTED = frozenset({"opencode", "kilocode"})
 
 
-def say_routes(use, *, stream=None):
-    """The route each role takes on the backend new runs use, or where that backend's defaults are."""
+def offer_stages(use, *, ask=input, choose=None, load=None, out=print) -> bool:
+    """Offer once to choose each stage's model and level on the backend new runs use; True when saved.
+
+    The first time the answer defaults to yes; once choices are saved it defaults to keeping them.
+    """
+    try:
+        saved = (load or stage_choices.load)().get(use["id"])
+    except ValueError as error:
+        out(f"Your stage choices cannot be read: {error}")
+        return False
+    if saved:
+        wanted = ask("Change the model and reasoning level of each stage? [y/N] ").strip().lower() in ("y", "yes")
+    else:
+        wanted = ask("Choose the model and reasoning level for each stage now? [Y/n] ").strip().lower() in (
+            "",
+            "y",
+            "yes",
+        )
+    return wanted and (choose or stages_cli.choose)(use["id"])
+
+
+def say_routes(use, *, stream=None, load=None, view=None):
+    """Each stage's saved choice on the backend new runs use; without one, the route each role takes,
+    or where that backend's defaults are."""
+    stream = stream or sys.stdout
+    try:
+        saved = (load or stage_choices.load)().get(use["id"])
+    except ValueError as error:
+        print(f"Your stage choices cannot be read: {error}", file=stream)
+        return
+    if saved:
+        print(stages_cli.text((view or stage_choices.view)(use["id"])), file=stream)
+        return
+    print("Choose each stage's model and reasoning level any time with: autocode stages choose", file=stream)
     if use["id"] in LISTED:
         connections.say_routes(stream, provider=use["id"])
         return
-    print(
-        f"Each role runs {use['label']}'s default model for it (docs/models.md#default-models).",
-        file=stream or sys.stdout,
-    )
+    print(f"Each role runs {use['label']}'s default model for it (docs/models.md#default-models).", file=stream)
 
 
 def _interactive() -> bool:
@@ -217,6 +252,14 @@ def cli(argv=None) -> int:
         if changed:
             print()
             print(text(found, use))
+        try:
+            chosen = use is not None and use.get("id") is not None and offer_stages(use)
+        except (KeyboardInterrupt, EOFError):
+            print("\nNo stage choice was saved.")
+            return 130
+        if chosen:
+            # The picker ends by listing every stage; nothing more to say.
+            return 0
     if use is not None and use.get("id") is not None and not args.json:
         say_routes(use)
     return 0 if use is not None and use.get("id") is not None else 1

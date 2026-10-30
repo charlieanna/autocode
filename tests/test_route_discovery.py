@@ -188,6 +188,37 @@ class VariantOmissionTests(unittest.TestCase):
             levels, {row["model"]: row.get("levels") for row in bundled_found["candidates"]}, "as the bundled name"
         )
 
+    def test_candidates_carry_the_listed_model_facts_and_never_a_price(self):
+        """#2049: selection checks a model's family and tool calling from the tool's own listing."""
+        verbose = (
+            'zai-coding-plan/glm-5.3\n{"family": "glm", "capabilities": {"toolcall": true, "reasoning": true},'
+            ' "limit": {"context": 200000}, "release_date": "2026-09-01", "cost": {"input": 0.6, "output": 2.2},'
+            ' "variants": {"low": {}, "high": {}}}\n'
+        )
+
+        def listing(command, *a, **kw):
+            if "auth" in command:
+                return response(KILO_AUTH_LISTING)
+            return response(verbose if "--verbose" in command else KILO_MODELS)
+
+        with mock.patch.object(discovery.env_prep, "preflight_run", side_effect=listing):
+            found = discovery.discover(command.load("kilocode"), Path("/tmp/w"))
+        facts = {row["model"]: row["metadata"] for row in found["candidates"]}
+        self.assertEqual(
+            {
+                "family": "glm",
+                "toolcall": True,
+                "reasoning": True,
+                "context": 200000,
+                "release_date": "2026-09-01",
+            },
+            facts.get("zai-coding-plan/glm-5.3"),
+            facts,
+        )
+        unlisted = [model for model, fact in facts.items() if model != "zai-coding-plan/glm-5.3"]
+        self.assertTrue(unlisted, "the fixture serves models the verbose listing does not describe")
+        self.assertTrue(all(facts[model] is None for model in unlisted), facts)
+
     def test_a_route_with_no_level_omits_the_variant_arguments(self):
         provider = command.load("kilocode")
         argv, _env, _meta = provider.launch("terra", "/tmp/w", "/tmp/r", None, "kilo/z-ai/glm-5.3", None, True)

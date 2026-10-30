@@ -59,6 +59,7 @@ SUBCOMMANDS = {
     "visual-check": "autocode_visual_check",
     "doctor": "autocode_doctor",
     "setup": "autocode_setup",
+    "stages": "autocode_stages_cli",
     "forget": "autocode_forget",
     "clean-worktrees": "autocode_worktrees",
     "prune-run": "autocode_prune_run",

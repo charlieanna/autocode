@@ -19,6 +19,7 @@ try:
     from . import autocode_native_stage_recovery as stage_recovery
     from . import autocode_run_destination as run_destination
     from . import autocode_source_host as source_host
+    from . import autocode_stage_choices as stage_choices
     from . import autocode_visual_profile as native_profile
     from . import autocode_worker_binding as worker_binding
 except ImportError:
@@ -29,6 +30,7 @@ except ImportError:
     import autocode_native_stage_recovery as stage_recovery
     import autocode_run_destination as run_destination
     import autocode_source_host as source_host
+    import autocode_stage_choices as stage_choices
     import autocode_visual_profile as native_profile
     import autocode_worker_binding as worker_binding
 
@@ -220,10 +222,18 @@ def select_provider(base, args, parser, state: "RunState", workspace):
                 args.provider, saved, default="opencode" if args.engine == "codex" else None
             )
             base.opencode = base.autocode_providers.resolve(selected)
+            if not (state.get("settings") or state.get("sessions") or state.get("history")):
+                # A new run takes the stages the person chose for this backend (owner decision 2026-10-30).
+                stage_choices.apply(args, "codex" if args.engine == "codex" else selected, say=_notice)
         if not args.run_dir:
             args._model_inventory = base.InvocationInventory(base.opencode, workspace)
     except (RuntimeError, ValueError) as error:
         parser.error(str(error))
+
+
+def _notice(line):
+    # stderr, so --json output and captured reports stay what they were.
+    print(line, file=sys.stderr, flush=True)
 
 
 def dispatch_guard(runtime, state: "RunState", stage):

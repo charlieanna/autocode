@@ -1005,6 +1005,59 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         for role in ("requirements", "glm", "plan_reviewer", "resolver", "terra"):
             self.assertIs(self.open, self.transport.adapter(current, role, self.open, self.workspace))
 
+    def test_a_new_run_takes_the_stage_choices_saved_for_its_backend(self):
+        # Owner decision 2026-10-30: what `autocode stages` saved reaches every new task before it
+        # configures; a typed flag wins, another backend's choices are not read, a saved run keeps its own.
+        import contextlib
+        import io
+
+        import autocode_stage_choices as stage_choices
+
+        def started(base, args, parser, **kwargs):
+            state = {"workspace": str(self.workspace), "task": "A discuss task", "iteration": 1}
+            if self.observed:
+                state["settings"] = self.observed[-1]
+            self.invocation.select_provider(base, args, parser, state, self.workspace)
+            self.observed.append(base.configure(args, state))
+            return 0
+
+        base = self.claude_args()
+        del base[base.index("--reasoning-effort") : base.index("--reasoning-effort") + 2]
+        with tempfile.TemporaryDirectory() as config, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
+            stage_choices.save(
+                {
+                    "claude": {"terra": {"model": "opus", "effort": "low"}, "glm": {"model": "haiku", "effort": "max"}},
+                    "opencode": {"sol": {"model": "zai-coding-plan/glm-5.3", "effort": "low"}},
+                }
+            )
+            for flags, builder, said in (
+                (base, ("opus", "low"), True),
+                ([*base, "--terra-model", "haiku"], ("haiku", "high"), False),
+            ):
+                self.observed.clear()
+                notices = io.StringIO()
+                with (
+                    self.subTest(flags=flags[-2:]),
+                    mock.patch.object(self.invocation, "resolve_and_run", side_effect=started),
+                    mock.patch.object(self.cli.sys, "argv", ["autocode", *flags]),
+                    contextlib.redirect_stderr(notices),
+                ):
+                    self.assertEqual(0, self.cli.main())
+                roles = self.observed[-1]["roles"]
+                self.assertEqual(builder, (roles["terra"]["model"], roles["terra"]["reasoning_effort"]))
+                self.assertEqual("sonnet", roles["glm"]["model"], "the typed --glm-model wins")
+                self.assertEqual("sonnet", roles["sol"]["model"], "OpenCode's choices are not Claude Code's")
+                self.assertEqual(said, "Stage choices from" in notices.getvalue())
+            # Resuming the saved run (settings present) takes no choice, even one saved since.
+            stage_choices.save({"claude": {"terra": {"model": "sonnet", "effort": "max"}}})
+            with (
+                mock.patch.object(self.invocation, "resolve_and_run", side_effect=started),
+                mock.patch.object(self.cli.sys, "argv", ["autocode", *base]),
+            ):
+                self.observed[:] = [self.observed[-1]]
+                self.assertEqual(0, self.cli.main())
+            self.assertEqual("haiku", self.observed[-1]["roles"]["terra"]["model"])
+
     def test_a_run_on_claude_code_binds_one_role_to_another_connected_tool(self):
         # #2049: the base tool is any provider on the facade engine, not only OpenCode.
         flags = self.claude_args("--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude")

@@ -58,7 +58,9 @@ def discover(provider, workspace=None, *, env=None, inventory=None) -> dict:
     """The candidates and accounts ``provider`` offers: ``{tool, candidates, accounts}``.
 
     ``candidates`` are the selector's dicts (model, tool, account, billing, levels,
-    probe); ``accounts`` names each connected login with its mode, billing and the
+    probe, metadata); ``metadata`` is the model's listed family, tool-calling and
+    reasoning support, context and release date (``autocode_route_levels.metadata``), or
+    None when the tool prints no verbose listing (#2049); ``accounts`` names each connected login with its mode, billing and the
     model prefixes it serves. A listing that cannot be read is an error, phrased like
     the provider layer's own, because choosing routes blind would be worse than
     stopping.
@@ -89,7 +91,7 @@ def _from_command_provider(provider, workspace, env, inventory=None):
     models = _models(provider, workspace, env, inventory)
     return {
         "tool": table["name"],
-        "candidates": _candidates(models, table["name"], connected, _levels(provider, workspace, env)),
+        "candidates": _candidates(models, table["name"], connected, *_listing(provider, workspace, env)),
         "accounts": [
             {
                 "name": route["name"],
@@ -134,12 +136,12 @@ def _from_opencode(workspace, env, inventory=None):
             account["prefixes"].append(route["models"])
     return {
         "tool": "opencode",
-        "candidates": _candidates(models, "opencode", routes, _levels(opencode, workspace, env)),
+        "candidates": _candidates(models, "opencode", routes, *_listing(opencode, workspace, env)),
         "accounts": [accounts[name] for name in sorted(accounts)],
     }
 
 
-def _candidates(models, tool, routes, levels=None):
+def _candidates(models, tool, routes, levels=None, metadata=None):
     """One candidate per model a connected route serves, in a stable order."""
     found = []
     for model in sorted(models or []):
@@ -153,13 +155,15 @@ def _candidates(models, tool, routes, levels=None):
                         "billing": route.get("billing"),
                         "levels": (levels or {}).get(model),
                         "probe": None,
+                        "metadata": (metadata or {}).get(model),
                     }
                 )
                 break
     return found
 
 
-def _levels(provider, workspace, env):
+def _listing(provider, workspace, env):
+    """``(levels, metadata)`` from one verbose model listing; both empty when it cannot be read."""
     # Only tools with this documented local-listing format. A custom provider's
     # arbitrary models command must never be rewritten or treated as a model call.
     name = getattr(provider, "NAME", "opencode" if provider is opencode else None)
@@ -172,13 +176,14 @@ def _levels(provider, workspace, env):
     if provider is opencode:
         command = ["opencode", "models"]
     if command not in (["opencode", "models"], ["kilo", "models"]):
-        return {}
+        return {}, {}
     try:
-        return route_levels.parse(_run([*command, "--verbose"], name, workspace, env, 30))
+        listing = _run([*command, "--verbose"], name, workspace, env, 30)
     except RuntimeError:
         # Older tools may lack verbose metadata. Qualification evidence remains
         # the fallback; an unreadable optional listing never invents new levels.
-        return {}
+        return {}, {}
+    return route_levels.parse(listing), route_levels.metadata(listing)
 
 
 def _models(provider, workspace, env, inventory=None):

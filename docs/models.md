@@ -177,10 +177,48 @@ and pauses `PAUSED_MILESTONE_BUDGET` when it would take the milestone past that 
 > names are in saved run state. They are not model choices: `--terra-model
 > zai-coding-plan/glm-5.3` selects the model used for the Builder role.
 
+## Choosing each stage's model
+
+You choose the model and reasoning level of each stage once, and every new task uses them
+(owner decision 2026-10-30). `autocode setup` offers this right after connecting your
+accounts; `autocode stages choose` asks again whenever you want to change them, and
+`autocode stages` lists what each stage runs now. For each stage it says what the stage does,
+gives advice on what suits it, and lists the models your backend offers with the reasoning
+levels each model takes:
+
+| Stage | What it does | What suits it |
+| --- | --- | --- |
+| Requirements | Turns your idea into requirements; asks you only about real ambiguity | A capable all-round model at medium |
+| Planner | Drafts the plan and revises it after review | A capable model at high |
+| Plan Reviewer | Challenges the plan and makes the final planning call | Your strongest judge at high, never the Planner's model |
+| Builder | Writes the code for one task; several run in parallel | A fast, cheaper model at medium |
+| Tester | Checks each Builder's work and proves its tests fail without the change | A strong model at high, never the Builder's |
+| Completion Reviewer | Decides whether the task is done or goes back for more work | A strong judge at medium, never the Builder's model |
+| Resolver and per-task Planner | Steps in when a stage stops progressing; plans each task's steps | Your strongest model at high |
+
+The models come from your backend: for OpenCode and Kilo, the models your connected accounts
+serve, with the reasoning levels and family their own listing declares (a model that cannot
+call tools is left out); for Claude Code, Haiku, Sonnet and Opus; for Codex, the GPT models
+AutoCode runs on it. A model the stage's checker or producer already runs is shown as not
+available, with the reason, because a checker never grades its own model's work
+([independence](#default-models)); on Claude Code and Codex two different models of that
+vendor may check each other. No price is read.
+
+The choices are kept in `~/.config/autocode/stages.toml`, one table per backend, so switching
+backends uses that backend's own choices. Each new task reads them before it begins, as if you
+had typed that stage's `--ROLE-model` and `--ROLE-reasoning-effort` flags, and prints
+`Stage choices from …` naming the stages it took. A flag on the command line and the project's
+own `.autocode/config.toml` still win for that run; `--single-model` takes no saved choice, and
+a shared `--reasoning-effort` keeps the saved levels out. A task already running keeps the
+routes it started with. A stage you have not chosen keeps its default, or the route automatic
+selection picks for it (below). `autocode stages set STAGE --model MODEL --effort LEVEL` and
+`autocode stages reset [STAGE]` change one stage without asking.
+
 ## Choosing models automatically
 
 New CLI and `TaskRun.start` runs choose models automatically from the selected tool's
-connected accounts. No model flags or pinned profile are needed. One tool serves the
+connected accounts for every stage you have not [chosen yourself](#choosing-each-stages-model).
+No model flags or pinned profile are needed. One tool serves the
 run by default; explicit per-role tool bindings and model/effort flags still win.
 A fully pinned profile keeps its existing preflight and recovery policy because there
 is no automatic choice to make. `--single-model` keeps its explicit same-model policy. Saved runs retain their routes
