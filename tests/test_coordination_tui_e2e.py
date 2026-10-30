@@ -273,10 +273,9 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
                 self.fail("TUI coordination failed to reach a terminal result")
             self.assertEqual(0, outcome, "\n".join(self.lines[-30:]))
             self.assertEqual(3, len(self.github.posts))
-            # A joint mismatch sends every member a follow-up that revises the coordinated plans, and a
-            # revised plan needs its own approval; otherwise all member and joint plans share one.
-            approvals = 2 if self.env.get("COORDINATION_FIXTURE_MISMATCH") else 1
-            self.assertEqual(approvals, len(self.questions), "One shared approval per coordinated plan revision")
+            # A joint mismatch revises the member plans under the contract the person approved, so
+            # the coordinator carries that approval: every flow asks for exactly one.
+            self.assertEqual(1, len(self.questions), "All member and joint plans share one approval")
             summary = coordination.read(client, client.status())
             self.assertEqual("PASS", summary["verification"]["verdict"])
             for row in summary["members"]:
