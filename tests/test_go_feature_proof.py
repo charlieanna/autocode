@@ -17,16 +17,14 @@ CART_TEST = (
 DISCOUNT = "package cart\n\ntype Discount struct{ Percent int }\n\nfunc (d Discount) Apply(total int) int {\n\treturn total - total*d.Percent/100\n}\n"
 DISCOUNT_TEST = (
     "\nfunc TestDiscount(t *testing.T) {\n"
-    "\tif (Discount{Percent: 10}).Apply(200) != 180 {\n\t\tt.Fatal(\"discount\")\n\t}\n}\n"
+    '\tif (Discount{Percent: 10}).Apply(200) != 180 {\n\t\tt.Fatal("discount")\n\t}\n}\n'
 )
 
 
 class DefinitionTests(unittest.TestCase):
     def test_only_added_or_edited_functions_are_changed(self):
         after = CART_TEST + DISCOUNT_TEST
-        names = go_tests.changed_names(
-            [("cart/cart_test.go", CART_TEST, after)], lambda directory: ("shop", "")
-        )
+        names = go_tests.changed_names([("cart/cart_test.go", CART_TEST, after)], lambda directory: ("shop", ""))
         self.assertEqual({("shop/cart", "TestDiscount")}, names)
         self.assertTrue(go_tests.defined_in(names, "shop/cart::TestDiscount/sub"))
         self.assertFalse(go_tests.defined_in(names, "shop/cart::TestTotal"))
@@ -76,7 +74,10 @@ class GoFeatureProofTests(unittest.TestCase):
 
     def test_a_new_test_file_proves_only_its_tests_and_keeps_the_existing_ones(self):
         result = self.prove(
-            {"cart/discount.go": DISCOUNT, "cart/discount_test.go": 'package cart\n\nimport "testing"\n' + DISCOUNT_TEST}
+            {
+                "cart/discount.go": DISCOUNT,
+                "cart/discount_test.go": 'package cart\n\nimport "testing"\n' + DISCOUNT_TEST,
+            }
         )
         self.assertEqual(verify.PASS, result["verdict"], result)
         self.assertEqual(["shop/cart::TestDiscount"], result["fail_to_pass"])
@@ -95,7 +96,7 @@ class GoFeatureProofTests(unittest.TestCase):
         result = self.prove(
             {
                 "cart/discount.go": DISCOUNT,
-                "cart/discount_test.go": 'package cart\n\nvar _ = Discount{}\n',
+                "cart/discount_test.go": "package cart\n\nvar _ = Discount{}\n",
             }
         )
         self.assertEqual(verify.FAIL, result["verdict"], result)

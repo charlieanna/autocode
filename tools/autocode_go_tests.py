@@ -168,7 +168,7 @@ def definitions(text):
 def module(go_mod):
     """The module path a go.mod declares, or None."""
     match = _MODULE.search(go_mod or "")
-    return match.group(1).strip("\"`") if match else None
+    return match.group(1).strip('"`') if match else None
 
 
 def changed_names(files, module_of):
@@ -198,3 +198,29 @@ def defined_in(names, test):
     """Whether a ``package::Name[/subtest]`` result is one of ``changed_names``."""
     package, _, name = test.partition("::")
     return (package, name.split("/", 1)[0]) in names
+
+
+def _module_of(root, directory):
+    """``(module_path, module_directory)`` of the nearest go.mod at or above ``directory``, or None."""
+    parts = [] if directory in ("", ".") else directory.split("/")
+    for depth in range(len(parts), -1, -1):
+        go_mod = Path(root, *parts[:depth], "go.mod")
+        if go_mod.is_file():
+            path = module(go_mod.read_text(errors="replace"))
+            return (path, "/".join(parts[:depth])) if path else None
+    return None
+
+
+def changed_filter(root, changes, base_text):
+    """Whether a named test is one the change in ``root`` adds or edits, or None to keep every test (#2505).
+
+    ``changes`` maps changed paths to their status; ``base_text(path)`` reads a file on base.
+    """
+    files = []
+    for path, status in changes.items():
+        if path.endswith("_test.go") and status != "deleted":
+            candidate = Path(root, path)
+            after = candidate.read_text(errors="replace") if candidate.is_file() else ""
+            files.append((path, base_text(path) if status != "added" else None, after))
+    names = changed_names(files, lambda directory: _module_of(root, directory)) if files else None
+    return None if names is None else lambda test: defined_in(names, test)

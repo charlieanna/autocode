@@ -426,3 +426,14 @@ def suite_guards(on_candidate, base_suite, proof, *, unchanged, with_tests=None)
         )
     elif with_tests is not None:
         proof["guard_run_incomplete"] = True  # a guard left without a test is then unproven, not refuted
+
+
+def passed_on(base_suite, base) -> set:
+    """Tests that passed in a complete run of the pristine ``base`` suite (``verify.baseline``)."""
+    if not base_suite or base_suite.get("base") != base:
+        return set()
+    receipt = base_suite.get("receipt") or {}
+    results = receipt.get("results") or {}
+    if receipt.get("timed_out") or not results.get("complete"):
+        return set()
+    return set(results.get("passed") or [])

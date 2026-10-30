@@ -23,6 +23,12 @@ PR template asks for an entry here; a change without one is incomplete.
   chat says so. A revision that changes any of those, or adds a repository, is shown for approval again.
 ### Fixed
 
+- `autocode verify` on a Go feature whose new tests reference new types no longer counts every test
+  in the touched packages as fail-to-pass (#2505). Only test functions the change adds or edits are
+  proof; an unchanged test that passed in the base suite and still passes is reported as
+  pass-to-pass. A change whose only passing tests are existing ones now fails for lacking a test of
+  the new behavior instead of passing.
+
 - Completing a task worktree whose `.gitignore` ignores `.autocode` now commits the delivered
   source to its branch again. `git add` refuses a pathspec that names an ignored path on
   git 2.56 and newer, so the delivery commit failed and the completed run's source stayed
