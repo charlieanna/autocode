@@ -34,7 +34,7 @@ def named(value, run_dir, operation=None):
         raise actions.ClientGap("The coordination action names another run or output contract")
     if operation and value[2] != operation:
         raise actions.ClientGap("The coordination action differs from the displayed decision")
-    if value[2] not in ("status", "advance", "approve", "choose", "cancel", "budget"):
+    if value[2] not in ("status", "advance", "bind", "approve", "choose", "cancel", "budget"):
         raise actions.ClientGap("Unsupported coordination action")
     return value[1:]
 
@@ -74,14 +74,48 @@ def step(client, view, render_plan):
         return 0
     need = summary["needs"]
     if summary.get("next_command"):
-        client.advance(named(summary["next_command"], client.run_dir, "advance"))
+        action = summary["next_command"]
+        operation = action[2] if isinstance(action, list) and len(action) > 2 else None
+        if operation not in ("advance", "bind"):
+            raise actions.ClientGap("The core supplied an unsupported automatic coordination action")
+        client.advance(named(action, client.run_dir, operation))
         return None
     if need["kind"] == "budget":
         return budget_reply(client, view, need)
     if summary.get("approval"):
         if need["kind"] == "approval":
+            source_catalog = summary.get("source_catalog") or {}
+            if source_catalog:
+                client.say(
+                    "Repository discovery: "
+                    + str(source_catalog.get("catalog"))
+                    + " · catalog "
+                    + str(source_catalog.get("catalog_identity"))
+                    + " · source snapshot "
+                    + str(source_catalog.get("source_snapshot"))
+                )
+            for member in summary["members"]:
+                evidence = member.get("supporting_evidence") or {}
+                client.say(
+                    f"\nRepository: {member['target']} · role {member.get('role', 'member')}"
+                    + f"\n  Location: {member.get('location', member.get('workspace'))}"
+                    + f"\n  Baseline: {member.get('base', 'unknown')}"
+                )
+                if evidence.get("source_quote"):
+                    client.say("  Ticket grounding: " + evidence["source_quote"])
+                if evidence.get("evidence"):
+                    client.say(
+                        "  Source evidence: "
+                        + str(evidence.get("evidence_repository", "unknown repository"))
+                        + "@"
+                        + str(evidence.get("evidence_revision", "unknown revision"))
+                        + ":"
+                        + evidence["evidence"]
+                    )
             for row in need["summary"]["runs"]:
                 client.say("\n" + row["target"] + "\n" + render_plan(row["plan"]))
+            if need.get("joint_plan"):
+                client.say("\nJoint regression\n" + render_plan(need["joint_plan"]))
         else:
             client.say("\nJoint regression\n" + render_plan(need["plan"]))
         client.say(summary["approval"]["publication"])
@@ -102,10 +136,13 @@ def step(client, view, render_plan):
         client.say(need["reason"] + ": " + need["target"])
         candidates = need["candidates"]
         if not candidates:
-            client.ask(
-                "Use /repos PATH to authorize its local checkout, then press Enter to retry; /pause leaves it stopped: "
+            client.say(
+                "No matching repository is available in the configured source catalog. "
+                "Configure a source root once with `autocode registry roots add PATH` "
+                "or register a standalone checkout with `autocode registry repositories add PATH`, "
+                "then reopen this chat."
             )
-            return None
+            return 2
         for index, row in enumerate(candidates, 1):
             client.say(f"{index}. {row['workspace']} (base {row['base'][:12]})")
         selected = client.ask(
@@ -193,21 +230,40 @@ def budget_reply(client, view, need):
 
 
 def repositories(history, argument):
-    if argument.strip():
-        history.read(["registry", "add", str(Path(argument.strip()).expanduser().absolute()), "--json"])
-    listing = history.read(["registry", "list", "--json"])
+    listing = history.read(["registry", "roots", "list", "--json"])
+    discovery = history.read(["registry", "roots", "discover", "--json"])
     readiness = history.read(["coordinate", "access", "--json"])
     access = readiness.get("github")
     if not isinstance(access, dict):
         raise actions.ClientGap("GitHub readiness is unavailable: " + str(readiness.get("error", "invalid response")))
-    rows = [f"{row['workspace']} · {row.get('availability', 'unknown')}" for row in listing["workspaces"]]
+    rows = [row["path"] for row in listing.get("roots", []) if isinstance(row, dict) and row.get("path")]
+    registered = [
+        row["path"] for row in listing.get("repositories", []) if isinstance(row, dict) and row.get("path")
+    ]
+    found = sorted(
+        {
+            candidate["path"]
+            for repository in discovery.get("repositories", [])
+            for candidate in repository.get("candidates", [])
+            if isinstance(candidate, dict) and candidate.get("path")
+        }
+    )
+    lines = ["Configured source roots:", *(f"  {path}" for path in rows or ["(none)"]), "Discovered repositories:"]
+    lines.extend(f"  {path}" for path in found or ["(none)"])
+    if registered:
+        lines.extend(("Standalone registrations:", *(f"  {path}" for path in registered)))
+    if not discovery.get("complete", False):
+        codes = sorted({row.get("code", "incomplete") for row in discovery.get("diagnostics", [])})
+        lines.append("Discovery is incomplete" + (": " + ", ".join(codes) if codes else "."))
+    if argument.strip():
+        lines.append("The supplied path was not registered. Configure roots once with `autocode registry roots add PATH` or a standalone checkout with `autocode registry repositories add PATH`.")
     return (
         "Repositories available for automatic discovery:\n"
-        + "\n".join(rows)
+        + "\n".join(lines)
         + (
             "\nGitHub authentication is available; write access is checked when selecting a repository."
             if access["configured"]
             else "\nGitHub authentication is missing: use gh auth login, GITHUB_TOKEN or GH_TOKEN before starting automatic delivery."
         )
-        + "\n/repos PATH authorizes another local Git checkout. AutoCode selects matching repositories when investigating a bug."
+        + "\nAutoCode discovers relevant repositories from each bug. Configure source locations once; no repository list is needed per task."
     )

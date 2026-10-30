@@ -1717,7 +1717,7 @@ def numbers_text(numbers: list[int]) -> str:
 
 FIRST_PROMPT_HELP = (
     "Type what you want done to start a chat, or: /runs lists this project's chats and /open N picks one up; "
-    "/mode, /engine and /connect choose how a new chat runs; /repos registers a checkout; /quit leaves. "
+    "/mode, /engine and /connect choose how a new chat runs; /repos shows configured source locations; /quit leaves. "
     "// sends a request that starts with /."
 )
 
