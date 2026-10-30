@@ -45,11 +45,16 @@ If pipx's Python is older than 3.11, add `--python python3.11`. The demo is
 offline: no sign-in or model spend. Once installed, you do not need to activate
 a virtual environment in every shell.
 
-**Already have an engine signed in?** Reuse it. With Codex, run
-`autocode doctor --engine codex` and add `--engine codex` to your first task.
-With Claude Code use `--engine claude` on both commands. Skip step 2 and go to
-the project setup in step 3. These flags select a route explicitly; they do not
-change your saved defaults or existing runs.
+**Already have an engine signed in?** Reuse it. When OpenCode is not installed
+and nothing names an engine (no flag, no `default_provider`, no project
+`engine`), a new run takes the first backend this machine has connected: Claude
+Code signed in to a subscription, then Codex, then the AutoCode direct
+connection (API keys), then Kilo. It prints the choice (`Engine for this run:
+Claude Code. …`), and `autocode doctor` checks that same backend. So with only
+Claude Code or only Codex signed in, skip step 2 and go to the project setup in
+step 3 with no flags. To choose explicitly, add `--engine codex` or `--engine
+claude` to `doctor` and to the task; a flag selects a route for that command
+only and never changes your saved defaults or existing runs.
 
 **2. Install the engine and sign in.** The default engine is OpenCode. The terminal
 adapter accepts 1.x and 2.x; this quickstart pins **1.18.33**, the version with

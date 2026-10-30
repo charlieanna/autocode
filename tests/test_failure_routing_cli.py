@@ -17,6 +17,15 @@ from blackbox_build_provider import HELLO_SOURCE, HELLO_TESTS
 
 from tests import test_build_blackbox as build_fixture
 
+INTEGRATION_TESTS = """import subprocess, sys, unittest
+from pathlib import Path
+class IntegrationTests(unittest.TestCase):
+    def test_cli_and_sibling_are_delivered_together(self):
+        result = subprocess.run([sys.executable, 'main.py'], capture_output=True, text=True)
+        self.assertEqual((0, 'hello\\n'), (result.returncode, result.stdout))
+        self.assertEqual('preserved sibling\\n', Path('sibling.txt').read_text())
+"""
+
 
 class FailureRoutingCLI(unittest.TestCase):
     # Reuse only hermetic process setup, not the state-based assertions or tests.
@@ -174,22 +183,24 @@ class FailureRoutingCLI(unittest.TestCase):
                 check=True,
                 capture_output=True,
             )
+        source = "print(" + repr(output) + ")\n"
+        cli = {"main.py": source, "test_main.py": HELLO_TESTS} if source == HELLO_SOURCE else {"main.py": source}
         spec = build_fixture.plan(
             [
-                ([], "CLI prints " + output, ["main.py"]),
+                ([], "CLI prints " + output, list(cli)),
                 ([], "Keep the independent sibling delivery", ["sibling.txt"]),
-                (["M1", "M2"], "Integrate the hello CLI and sibling", ["done.py"]),
+                (["M1", "M2"], "Integrate the hello CLI and sibling", ["test_integration.py"]),
             ],
             {
-                "M1": {"main.py": "print(" + repr(output) + ")\n"},
+                "M1": cli,
                 "M2": {"sibling.txt": "preserved sibling\n"},
-                "M3": {"done.py": "from pathlib import Path\nprint(Path('sibling.txt').read_text().strip())\n"},
+                "M3": {"test_integration.py": INTEGRATION_TESTS},
             },
             {
                 "M1": "import subprocess,sys; assert subprocess.check_output([sys.executable,'main.py'],text=True)=="
                 + repr(output + "\n"),
                 "M2": "from pathlib import Path; assert Path('sibling.txt').read_text()=='preserved sibling\\n'",
-                "M3": "import subprocess,sys; assert subprocess.check_output([sys.executable,'main.py'],text=True)=='hello\\n'; assert subprocess.check_output([sys.executable,'done.py'],text=True)=='preserved sibling\\n'",
+                "M3": "import unittest; result = unittest.main(module='test_integration', argv=['x'], exit=False).result; assert result.wasSuccessful() and result.testsRun == 1",
             },
             "Deliver a hello CLI and its independent sibling",
         )

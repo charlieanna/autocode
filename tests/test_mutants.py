@@ -35,6 +35,24 @@ class OperatorTests(unittest.TestCase):
         self.assertEqual(WINDOW.replace(b"if lo > hi", b"if lo >= hi"), mutants.apply(WINDOW, made[1]))
         self.assertEqual(WINDOW.replace(b'raise ValueError("empty")', b"pass"), mutants.apply(WINDOW, made[2]))
 
+    def test_a_literal_bound_to_a_name_becomes_another_constant(self):
+        # A line whose whole behavior is the value it binds has no condition, branch or return to
+        # mutate; the constant itself is its site. None and Ellipsis have no other constant to become.
+        source = b"TEXT = 'hello'\nLIMIT: int = 3\nFLAG = True\nNOTHING = None\nRATIO = 0.0\nMARK = ...\n"
+        made, notes = mutants.python_mutants("settings.py", source, every_line(source), limit=20)
+        self.assertEqual([], notes)
+        self.assertEqual(
+            [
+                (1, "constant_assignment", "'hello'", '""'),
+                (2, "constant_assignment", "3", "0"),
+                (3, "constant_assignment", "True", "False"),
+                (5, "constant_assignment", "0.0", "1"),
+            ],
+            shown(made),
+        )
+        self.assertEqual(source.replace(b"'hello'", b'""'), mutants.apply(source, made[0]))
+        self.assertEqual([], mutants.python_mutants("settings.py", source, [4, 6], limit=20)[0])
+
     def test_unchanged_lines_are_never_mutated(self):
         made, _ = mutants.python_mutants("app.py", WINDOW, [5], limit=20)
         self.assertEqual({5}, {mutant.line for mutant in made})
@@ -58,7 +76,14 @@ class OperatorTests(unittest.TestCase):
     def test_a_dropped_else_block_is_reported_at_its_own_first_line(self):
         source = b"if a:\n    x = 1\nelse:\n    x = 2\n    y = 3\n"
         made, _ = mutants.python_mutants("branch.py", source, [4, 5], limit=20)
-        self.assertEqual([(4, "drop_branch", "x = 2 y = 3", "pass")], shown(made))
+        self.assertEqual(
+            [
+                (4, "drop_branch", "x = 2 y = 3", "pass"),
+                (4, "constant_assignment", "2", "0"),
+                (5, "constant_assignment", "3", "0"),
+            ],
+            shown(made),
+        )
         self.assertEqual(5, made[0].end_line)
         self.assertEqual(b"if a:\n    x = 1\nelse:\n    pass\n\n", mutants.apply(source, made[0]))
 
@@ -221,8 +246,9 @@ class ValidityTests(unittest.TestCase):
 
     def test_a_multi_line_return_keeps_every_later_line_number(self):
         source = self.SOURCES["multi-line return"]
-        (mutant,) = mutants.python_mutants("sample.py", source, [2, 3, 4], limit=50)[0]
+        mutant, bound = mutants.python_mutants("sample.py", source, [2, 3, 4], limit=50)[0]
         self.assertEqual((2, 4), (mutant.line, mutant.end_line))
+        self.assertEqual((4, "constant_assignment", "1", "0"), shown([bound])[0])
         self.assertEqual(b"def f(a):\n    return (None\n\n); y = 1\n", mutants.apply(source, mutant))
 
     def test_the_same_bytes_give_the_same_mutants(self):
@@ -237,12 +263,12 @@ class LimitTests(unittest.TestCase):
         source = b"".join(
             f"def f{index}(n):\n    if n > {index}:\n        n = 0\n    return n\n".encode() for index in range(10)
         )
-        made, notes = mutants.python_mutants("many.py", source, every_line(source), limit=5)
-        self.assertEqual(5, len(made))
+        made, notes = mutants.python_mutants("many.py", source, every_line(source), limit=6)
+        self.assertEqual(6, len(made))
         self.assertEqual(set(mutants.OPERATORS), {mutant.operator for mutant in made})
-        self.assertEqual(5, len({mutant.line for mutant in made}))
+        self.assertEqual(6, len({mutant.line for mutant in made}))
         self.assertEqual(sorted(made, key=lambda mutant: mutant.line), made)
-        self.assertEqual(["many.py: 50 mutation sites on the changed lines; 5 were chosen"], notes)
+        self.assertEqual(["many.py: 60 mutation sites on the changed lines; 6 were chosen"], notes)
         self.assertEqual(mutants.PER_FILE_LIMIT, len(mutants.python_mutants("many.py", source, every_line(source))[0]))
 
 

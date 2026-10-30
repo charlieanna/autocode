@@ -2288,7 +2288,7 @@ def verify(
     be test files alone, and each new test must pass on the base and on the candidate. It
     may also change no test at all, when the tests the cases name already exist; the diff may
     then be empty (a validation-only re-check). The suite runs on the
-    candidate (_suite_guards).
+    candidate (first_suite.suite_guards).
 
     ``guards`` are the exact test names the plan's guards give. A guard may name a test the
     project already had in a file the change leaves alone, which the targeted run never sees: the
@@ -2349,6 +2349,13 @@ def verify(
     runnable_tests = [p for p in tests if changes[p] != "deleted"]
     # Coverage the source already has: no test changed, so nothing can flip; the guards must hold.
     existing_guards = preserve_only and not runnable_tests
+    # A repair whose regression test the project already had (first_suite.repairable_failures): the
+    # suite on the candidate decides below whether the base's failing tests pass now.
+    existing_failures = (
+        first_suite.repairable_failures(base_suite, commands["suite"])
+        if not runnable_tests and sources and not preserve
+        else []
+    )
     if not changes and not preserve_only:
         fail.append("No change: the candidate is identical to the base revision")
     elif not sources and not preserve:
@@ -2361,7 +2368,7 @@ def verify(
     removed = removed_python_tests(workspace, base, changes)
     if removed:
         fail.append("Existing tests were removed: " + ", ".join(removed[:20]))
-    if not runnable_tests and not existing_guards:
+    if not runnable_tests and not existing_guards and not existing_failures:
         (unverified if allow_no_test else fail).append(
             "No regression test was added or changed, so the bug is not shown to be reproduced"
         )
@@ -2546,6 +2553,10 @@ def verify(
             )
             checks["suite_on_candidate"] = on_candidate
             comparable = base_suite if base_suite and base_suite.get("command") == commands["suite"] else None
+            if existing_failures:
+                first_suite.existing_flip(
+                    on_candidate, base_suite, existing_failures, proof, fail, unverified, notes, allow_no_test
+                )
             if framework is not None and framework.name == "junit" and comparable:
                 checks["suite_on_base"] = comparable["receipt"]
             # A positively identified document-only project (a root README.md,
@@ -2715,6 +2726,7 @@ def verify(
                 empty_root=empty_root,
                 kept_tests=proof.get("pass_to_pass") or (),
                 untested=bool(base) and _untested_base(workspace, base),
+                repaired=proof.get("fail_to_pass") if existing_failures else (),
             )
             # make_tree copies ignored test files into both trees, so a guard could rest on a test base never held.
             hidden = [
@@ -2741,7 +2753,7 @@ def verify(
                 checks.setdefault(
                     "regression_on_base" if not commands["regression"] else "suite_on_base_with_tests", with_tests
                 )
-            _suite_guards(on_candidate, comparable, proof, unchanged=existing_guards, with_tests=with_tests)
+            first_suite.suite_guards(on_candidate, comparable, proof, unchanged=existing_guards, with_tests=with_tests)
         elif sources or preserve:
             unverified.append(
                 "No project test command was found; existing behavior was not checked (pass --test-command)"
@@ -2991,42 +3003,6 @@ def _judge_regression(
         unverified.append("The regression tests timed out on base; no complete fail-to-pass proof exists")
 
 
-def _suite_guards(on_candidate, base_suite, proof, *, unchanged, with_tests=None):
-    """What the whole suite shows about guards (preserve cases), with complete per-test results on both runs.
-
-    When no test changed (``unchanged``), nothing can flip and the base suite ran the same tests, so the
-    targeted lists stay empty and the guards rest on its tests that pass on base and on the candidate, by
-    id as well as by exact name (autocode_regression.check_cases). Otherwise
-    ``with_tests`` is the suite on the base with the change's test files: its tests that pass there and on
-    the candidate (``suite_pass_to_pass``) ran the same content on the original code and the change, which
-    the pristine base cannot show once a test, fixture or golden file changed. ``failed_on_candidate`` is
-    the candidate's failures: a guard with a failing variant does not hold, even when that variant already
-    failed on base.
-    """
-    candidate = on_candidate.get("results")
-    if not (candidate and candidate.get("complete")):
-        return
-    if unchanged:
-        base = ((base_suite or {}).get("receipt") or {}).get("results")
-        if base and base.get("complete"):
-            proof.update(
-                fail_to_pass=[],
-                pass_to_pass=[],
-                not_run_on_base=[],
-                suite_pass_to_pass=sorted(set(base["passed"]) & set(candidate["passed"])),
-                failed_on_candidate=sorted(candidate["failed"]),
-            )
-        return
-    before = (with_tests or {}).get("results")
-    if before and before.get("complete") and not with_tests.get("timed_out"):
-        proof.update(
-            suite_pass_to_pass=sorted(set(before["passed"]) & set(candidate["passed"])),
-            failed_on_candidate=sorted(candidate["failed"]),
-        )
-    elif with_tests is not None:
-        proof["guard_run_incomplete"] = True  # a guard left without a test is then unproven, not refuted
-
-
 def _seam_names(workspace, base, changes, receipt):
     """Names the unfixed run reports missing that the candidate's source change adds and its tests use."""
     added, test_words = set(), set()
@@ -3101,8 +3077,12 @@ def _judge_suite(
     empty_root=None,
     kept_tests=(),
     untested=False,
+    repaired=(),
 ):
-    """Nothing that passed on base may fail, be skipped, be deselected or disappear (``kept_tests``: first_suite)."""
+    """Nothing that passed on base may fail, be skipped, be deselected or disappear (``kept_tests``: first_suite).
+
+    ``repaired``: the base's failing tests that pass on the candidate (first_suite.existing_flip).
+    """
     if on_candidate["timed_out"]:
         fail.append("The project suite timed out on the candidate")
         return
@@ -3210,8 +3190,11 @@ def _judge_suite(
     kept = not empty_base and first_suite.untested_base_kept(base_receipt, on_candidate, kept_tests, untested=untested)
     if kept:
         notes.append(first_suite.UNTESTED_BASE_KEPT)
+    repaired_all = first_suite.repaired_all(base_results, repaired, notes)
     if base_results is not None:
-        if not (empty_base or kept) and (not schedule.complete_results(base_receipt) or not base_results["passed"]):
+        if not (empty_base or kept or repaired_all) and (
+            not schedule.complete_results(base_receipt) or not base_results["passed"]
+        ):
             unverified.append(first_suite.no_base_evidence(untested and first_suite.no_base_suite(base_receipt)))
     elif base_suite is not None and base_suite.get("health") == "broken":
         if first_suite.absent_base_suite(base_receipt, on_candidate, document_only=allow_empty_base):
