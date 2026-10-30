@@ -1421,6 +1421,24 @@ class TaskRunTimeoutDetailTests(unittest.TestCase):
 
 
 class TaskRunClientTests(unittest.TestCase):
+    def test_cross_model_answer_uses_the_current_derived_route_without_a_resolver_token(self):
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        need = {"kind": "answer", "questions": [{"id": "route-sol"}],
+                "route": {"question_id": "route-sol", "role": "sol", "cause": "cross_model"}}
+        with patch.object(run, "status", return_value={"needs": need}), patch.object(run, "_act", return_value={}) as act:
+            run.answer("route-sol", "claude-opus-5-5")
+        act.assert_called_once_with("answer", "--answer", "route-sol=claude-opus-5-5")
+
+    def test_only_the_current_cross_model_route_can_answer_without_a_resolver_token(self):
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        for route in ({}, {"question_id": "route-sol", "cause": "quota"},
+                      {"question_id": "route-completion", "cause": "cross_model"}):
+            need = {"kind": "answer", "questions": [{"id": "route-sol"}], "route": route}
+            with self.subTest(route=route), patch.object(run, "status", return_value={"needs": need}), patch.object(run, "_act") as act:
+                with self.assertRaisesRegex(taskrun.TaskRunError, "no current AutoResolver request"):
+                    run.answer("route-sol", "claude-opus-5-5")
+                act.assert_not_called()
+
     def test_model_assignment_refreshes_every_saved_override_before_resume(self):
         cases = (
             (

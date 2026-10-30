@@ -58,7 +58,7 @@ class ProviderRouteRecoveryCliTests(unittest.TestCase):
         rejected = run.status()
         self.assertEqual("gpt-6.1-sol", rejected["routes"]["sol"]["model"])
         self.assertEqual(view["route_assignments"], rejected["route_assignments"])
-        respond("claude-opus-5-5", 0)
+        run.assign_model("sol", "claude-opus-5-5")
         assigned = run.status()
         self.assertEqual("claude-opus-5-5", assigned["routes"]["sol"]["model"])
         self.assertEqual("gpt-6.1-sol", assigned["routes"]["terra"]["model"])

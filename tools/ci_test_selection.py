@@ -340,7 +340,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         ("tools/autocode_role_transport.py", "tools/autocode_quota_route.py",
-         "tools/autocode_action_resolver.py", "tools/fake_command_tool.py"),
+         "tools/autocode_action_resolver.py", "tools/fake_command_tool.py", "tools/autocode_taskrun.py"),
         ("tests.test_provider_route_recovery_cli",),
     ),
     (("tools/autocode_workspace_inventory.py",), ("tests.test_review_attribution_cli",)),
