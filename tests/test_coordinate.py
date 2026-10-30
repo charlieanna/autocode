@@ -1,10 +1,12 @@
 """Fail-closed coordination decisions and publication recovery, without models."""
 
 import copy
+import io
 import json
 import os
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -18,6 +20,7 @@ import autocode_coordination_repositories as repos
 import autocode_coordination_store as store
 import autocode_github as github
 import autocode_goals as goals
+import autocode_repo_catalog as source_catalog
 import autocode_related_profile as profiles
 import autocode_run_view as run_view
 import autocode_scope_assignment as assignment
@@ -44,6 +47,20 @@ class CoordinationTests(unittest.TestCase):
             "choices": {},
             "task": "Fix the real bug",
             "joint_attempts": [],
+        }
+
+    def plan_view(self, token):
+        body = {
+            "acceptance_criteria": [
+                {"id": "fix", "criterion": "Fix the real behavior", "verification_method": "unit tests", "human_review": False}
+            ],
+            "constraints": [],
+            "permission_boundaries": [],
+            "scope_exclusions": [],
+        }
+        return {
+            "needs": {"kind": "approve_plan", "token": token},
+            "displayed_plan": {"token": token, **body},
         }
 
     def test_another_viewer_cannot_advance_the_same_run_while_locked(self):
@@ -97,6 +114,71 @@ class CoordinationTests(unittest.TestCase):
         for target in (str(self.root / "one/api"), "https://github.com/fixture/api", "../api"):
             self.assertEqual([], repos.candidates(target, [first]))
 
+    def test_repository_resolution_carries_the_validated_scope_grounding(self):
+        source = self.repository("api")
+        entry = self.repository("history")
+        grounding = {
+            "source_quote": "keep its history in history",
+            "evidence": "client.py:4",
+            "evidence_repository": source["origin"],
+            "evidence_revision": source["base"],
+        }
+        self.document["members"] = [{"target": "api", **source}]
+        self.document["initial_scope"] = [
+            {"target": "history", "work": "Store the new result", **grounding}
+        ]
+        with patch.object(repos, "catalog", return_value=[entry]):
+            found = coordinate.resolve_request(self.document, {})
+        self.assertEqual(grounding, found["supporting_evidence"])
+
+    def test_catalog_discovers_sources_outside_the_anchor_and_in_standalone_registrations(self):
+        nested = self.repository("sources/api")
+        standalone = self.repository("separate/history")
+        source_catalog.add_root(self.root / "sources")
+        source_catalog.add_repository(standalone["origin"])
+        discovered = repos.catalog()
+        self.assertEqual({nested["origin"], standalone["origin"]}, {row["origin"] for row in discovered})
+        self.assertEqual({nested["base"], standalone["base"]}, {row["base"] for row in discovered})
+
+    def test_initialize_persists_catalog_identity_and_source_snapshot_with_the_task(self):
+        view = {
+            "execution": {"mode": "owned"},
+            "workflow": "bugfix",
+            "scope": {"external_parts": [{"target": "api", "work": "Fix response mapping"}], "identity": "scope-1"},
+            "related_profile": {"settings": {"limits": {}}},
+            "workspace": str(self.root / "launch"),
+            "task": "Fix the API response mapping",
+            "turn": 4,
+        }
+        snapshot = {"catalog_identity": "catalog-1", "source_snapshot": "sources-1", "catalog": "/home/.autocode/source-catalog.json"}
+        with (
+            patch.object(coordinate, "anchor_view", return_value=view),
+            patch.object(repos, "source_snapshot", return_value=snapshot),
+            patch.object(repos, "identity", return_value={"origin": view["workspace"]}),
+            patch.object(coordinate, "add_member") as add_member,
+        ):
+            saved = coordinate.initialize(self.root / "run")
+        self.assertEqual("Fix the API response mapping", saved["task"])
+        self.assertEqual(snapshot, saved["source_catalog"])
+        self.assertEqual("scope-1", saved["anchor_scope"])
+        self.assertEqual([], saved["members"], "The launch checkout must not be selected as a repository member")
+        add_member.assert_not_called()
+
+    def test_changed_catalog_snapshot_blocks_saved_coordinated_work(self):
+        self.document["source_catalog"] = {
+            "catalog_identity": "catalog-1",
+            "source_snapshot": "sources-1",
+            "catalog": "/home/.autocode/source-catalog.json",
+        }
+        with patch.object(
+            repos,
+            "source_snapshot",
+            return_value={"catalog_identity": "catalog-2", "source_snapshot": "sources-2", "catalog": "/home/.autocode/source-catalog.json"},
+        ):
+            step = coordinate.next_step(self.document, {})
+        self.assertEqual("blocked", step["kind"])
+        self.assertIn("source catalog changed", step["reason"].lower())
+
     def test_discovered_work_is_a_hint_not_a_member_user_requirement(self):
         hint = "Apply tax here unless the user answers Q1 that checkout owns the calculation."
         entry = self.repository("tax")
@@ -111,6 +193,7 @@ class CoordinationTests(unittest.TestCase):
                     "target": "tax",
                     "entry": entry,
                     "work": hint,
+                    "supporting_evidence": {"source_quote": "evidence from the ticket", "evidence": "client.py:2"},
                 },
             ),
             patch.object(coordinate, "status", return_value={}),
@@ -119,11 +202,251 @@ class CoordinationTests(unittest.TestCase):
         member = store.read(self.document["anchor"])["members"][0]
         self.assertEqual(self.document["task"], member["brief"])
         self.assertEqual(hint, member["reported_work"])
+        self.assertEqual(
+            {"source_quote": "evidence from the ticket", "evidence": "client.py:2"},
+            member["supporting_evidence"],
+        )
+        self.assertEqual("source", member["role"])
         with self.assertRaisesRegex(ValueError, "source_quote is not in"):
             goals.check_requirement_handoff(
                 {"task": member["brief"]},
                 {"requirements": [{"id": "R1", "text": hint, "source_quote": hint}]},
             )
+
+    def test_status_exposes_canonical_member_locations_revisions_roles_and_grounding(self):
+        self.document.update(
+            anchor=str(self.root / "workspace/.autocode/runs/anchor"),
+            revision=4,
+            source_catalog={"catalog_identity": "catalog", "source_snapshot": "sources", "catalog": "/home/.autocode/source-catalog.json"},
+            members=[
+                {
+                    "target": "history",
+                    "role": "member",
+                    "origin": str(self.root / "history"),
+                    "base": "a" * 40,
+                    "remote": "https://github.com/example/history.git",
+                    "workspace": str(self.root / "worktrees/history"),
+                    "run_dir": str(self.root / "worktrees/history/.autocode/runs/fix"),
+                    "started": False,
+                    "supporting_evidence": {
+                        "source_quote": "keep its history in history",
+                        "evidence": "client.py:4",
+                        "evidence_repository": str(self.root / "api"),
+                        "evidence_revision": "b" * 40,
+                    },
+                }
+            ],
+        )
+        with (
+            patch.object(store, "read", return_value=self.document),
+            patch.object(coordinate, "observe", return_value={}),
+            patch.object(coordinate, "next_step", return_value={"kind": "blocked", "reason": "test"}),
+        ):
+            shown = coordinate.status(self.document["anchor"])
+        member = shown["members"][0]
+        self.assertEqual(str(self.root / "history"), member["location"])
+        self.assertEqual("a" * 40, member["base"])
+        self.assertEqual("member", member["role"])
+        self.assertEqual(self.document["members"][0]["supporting_evidence"], member["supporting_evidence"])
+        self.assertEqual(self.document["source_catalog"], shown["source_catalog"])
+
+    def test_approval_token_binds_the_original_request_identity(self):
+        row = {
+            "target": "api",
+            "workspace": str(self.root / "api"),
+            "origin": str(self.root / "api"),
+            "run_dir": str(self.root / "api/run"),
+            "base": "a" * 40,
+            "role": "source",
+            "remote": "https://github.com/fixture/api.git",
+            "branch": "autocode/fix-api",
+            "repository": ["fixture", "api"],
+            "supporting_evidence": {},
+        }
+        document = {
+            **self.document,
+            "revision": 3,
+            "task": "Fix the API result",
+            "anchor_turn": 1,
+            "anchor_scope": "scope-1",
+            "source_catalog": {"catalog_identity": "catalog", "source_snapshot": "snapshot"},
+            "members": [row],
+        }
+        offer = {"kind": "approval", "summary": {"runs": [], "approval": {"set_token": "set"}}}
+        with (
+            patch.object(store, "read", return_value=document),
+            patch.object(coordinate, "observe", return_value={}),
+            patch.object(coordinate, "next_step", return_value=offer),
+        ):
+            first = coordinate.status(document["anchor"])["approval"]["token"]
+            document["task"] = "Fix a different API result"
+            second = coordinate.status(document["anchor"])["approval"]["token"]
+        self.assertNotEqual(first, second)
+
+    def test_coordinate_cli_sets_shared_catalog_before_its_project_local_registry(self):
+        run_dir = self.root / ".autocode" / "runs" / "chat"
+        run_dir.mkdir(parents=True)
+        output = io.StringIO()
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch.object(coordinate, "status", return_value={"version": 1}),
+            redirect_stdout(output),
+        ):
+            self.assertEqual(0, coordinate.cli(["status", "--run-dir", str(run_dir), "--json"]))
+            self.assertEqual(str(Path.home() / ".autocode"), os.environ["AUTOCODE_SOURCE_CATALOG_HOME"])
+            self.assertEqual(str(self.root / ".autocode/registry"), os.environ["AUTOCODE_HOME"])
+
+    def test_joint_plan_is_prepared_before_approval_or_any_builder(self):
+        self.document["members"] = [
+            {"target": target, "started": True, "run_dir": str(self.root / target)}
+            for target in ("api", "history")
+        ]
+        views = {target: self.plan_view(target + "-plan") for target in ("api", "history")}
+        with patch.object(coordinate.changesets, "status", return_value={"runs": []}):
+            self.assertEqual("joint_plan_start", coordinate.next_step(self.document, views)["kind"])
+
+    def test_unchanged_completed_member_plan_can_join_a_revised_joint_plan(self):
+        self.document["members"] = [
+            {"target": "api", "started": True, "run_dir": str(self.root / "api")},
+            {"target": "history", "started": True, "run_dir": str(self.root / "history")},
+        ]
+        body = {
+            "acceptance_criteria": [
+                {"id": "fix", "criterion": "Fix it", "verification_method": "unit tests", "human_review": False}
+            ],
+            "constraints": [],
+            "permission_boundaries": [],
+            "scope_exclusions": [],
+        }
+        approved = {"token": "r1:abc", "hash": "abc", "revision": 1, "body": body}
+        views = {
+            "api": {
+                "done": True,
+                "approved_contract": approved,
+                "displayed_plan": {"token": "r1:abc", "hash": "abc", "revision": 1, **body},
+            },
+            "history": self.plan_view("history-plan"),
+        }
+        self.assertEqual("joint_plan_start", coordinate.next_step(self.document, views)["kind"])
+
+    def test_sync_set_registers_the_joint_plan_as_an_approval_participant(self):
+        rows = []
+        for target in ("api", "history"):
+            entry = self.repository(target)
+            run_dir = self.root / target / ".autocode/runs/coordinated-fix"
+            run_dir.mkdir(parents=True)
+            rows.append({
+                **entry,
+                "target": target,
+                "workspace": str(self.root / target),
+                "run_dir": str(run_dir),
+                "brief": "Fix the actual behavior",
+                "started": True,
+            })
+        joint_workspace = self.root / "joint"
+        joint_run_dir = joint_workspace / ".autocode/runs/joint-regression"
+        joint_run_dir.mkdir(parents=True)
+        self.document["members"] = rows
+        self.document["joint"] = {
+            "workspace": str(joint_workspace),
+            "run_dir": str(joint_run_dir),
+            "started": True,
+            "set_target": "Joint regression",
+        }
+        coordinate.sync_set(self.document)
+        record = coordinate.sets.find(rows[0]["run_dir"])
+        participant = next(row for row in coordinate.sets.members(record) if row["target"] == "Joint regression")
+        self.assertEqual("joint", participant["role"])
+        self.assertEqual(str(joint_run_dir), participant["run_dir"])
+
+    def test_member_and_joint_plans_share_one_approval_offer(self):
+        self.document["members"] = [
+            {"target": target, "started": True, "run_dir": str(self.root / target)}
+            for target in ("api", "history")
+        ]
+        self.document["joint"] = {"workspace": str(self.root / "joint"), "run_dir": str(self.root / "joint/.autocode/runs/joint")}
+        views = {target: self.plan_view(target + "-plan") for target in ("api", "history")}
+        plan = {
+            "token": "joint-plan-token",
+            "acceptance_criteria": [
+                {"id": "joint", "criterion": "Run the combined regression", "verification_method": "pytest", "human_review": False}
+            ],
+            "constraints": [],
+            "permission_boundaries": [],
+            "scope_exclusions": [],
+        }
+        joint_view = {"needs": {"kind": "approve_plan", "token": plan["token"]}, "displayed_plan": plan}
+        summary = {"runs": [], "approval": {"set_token": "complete-set"}}
+        with (
+            patch.object(coordinate, "handle", return_value=Mock(status=Mock(return_value=joint_view))),
+            patch.object(coordinate.actions, "plan_for_approval", return_value=plan),
+            patch.object(coordinate.changesets, "status", return_value=summary),
+        ):
+            step = coordinate.next_step(self.document, views)
+        self.assertEqual("approval", step["kind"])
+        self.assertEqual(plan, step["joint_plan"])
+
+    def test_candidate_binding_replaces_baseline_inputs_including_deletions(self):
+        entry = self.repository("api")
+        member_workspace = self.root / "member-worktree"
+        repos.prepare(entry, member_workspace)
+        (member_workspace / "code.py").unlink()
+        (member_workspace / "new-contract.py").write_text("result = 2\n")
+        member = {
+            **entry,
+            "target": "api",
+            "slug": "api-member",
+            "workspace": str(member_workspace),
+            "base": entry["base"],
+        }
+        document = {"task": "Fix the result", "members": [member]}
+        directory = self.root / "joint-workspace"
+        joint.prepare(document, directory)
+        self.assertFalse((directory / ".autocode/candidate-inputs.json").exists())
+        bound = joint.bind_candidates(document, directory)
+        candidate = directory / ".autocode/candidate-inputs/api-member"
+        self.assertFalse((candidate / "code.py").exists())
+        self.assertEqual("result = 2\n", (candidate / "new-contract.py").read_text())
+        self.assertEqual(repos.fingerprint(member_workspace), bound["api"])
+        manifest = json.loads((directory / ".autocode/candidate-inputs.json").read_text())
+        self.assertEqual(bound["api"], manifest["api"]["fingerprint"])
+
+    def test_candidate_binding_action_refuses_until_every_member_is_complete(self):
+        self.document["members"] = [
+            {"target": "api", "started": True, "workspace": str(self.root / "api"), "run_dir": str(self.root / "api/run")}
+        ]
+        self.document["joint"] = {"workspace": str(self.root / "joint"), "run_dir": str(self.root / "joint/run"), "started": True}
+        store.save(self.document)
+        with (
+            patch.object(coordinate, "observe", return_value={"api": {"done": False}}),
+            patch.object(joint, "bind_candidates") as bind,
+        ):
+            with self.assertRaisesRegex(store.CoordinationError, "all repository runs are complete"):
+                coordinate.bind_candidates(self.document["anchor"])
+        bind.assert_not_called()
+
+    def test_approved_joint_plan_binds_candidates_before_joint_execution(self):
+        body = {
+            "acceptance_criteria": [
+                {"id": "joint", "criterion": "Run both components together", "verification_method": "integration test", "human_review": False}
+            ],
+            "constraints": [],
+            "permission_boundaries": [],
+            "scope_exclusions": [],
+        }
+        approved = {"token": "joint-plan", "hash": "joint-hash", "revision": 1, "body": body}
+        displayed = {"token": "joint-plan", "hash": "joint-hash", "revision": 1, **body}
+        self.document["members"] = [{"target": "api", "started": True, "workspace": str(self.root / "api"), "run_dir": str(self.root / "api/run")}]
+        self.document["joint"] = {
+            "workspace": str(self.root / "joint"),
+            "run_dir": str(self.root / "joint/run"),
+            "started": True,
+        }
+        views = {"api": {"done": True, "approved_contract": approved, "displayed_plan": displayed}}
+        joint_view = {"done": False, "needs": {"kind": "continue"}, "approved_contract": approved}
+        with patch.object(coordinate, "handle", return_value=Mock(status=Mock(return_value=joint_view))):
+            step = coordinate.next_step(self.document, views)
+        self.assertEqual("bind_candidates", step["kind"])
 
     def test_dirty_original_is_not_silently_replaced_by_head(self):
         entry = self.repository()
@@ -566,6 +889,19 @@ class CoordinationTests(unittest.TestCase):
         coordinate.finish_rework_step(self.document, "api")
         self.assertNotIn("rework", self.document)
         self.assertEqual("refreshing_scope", self.document["phase"])
+
+    def test_finishing_joint_rework_retires_the_old_approval_participant(self):
+        self.document.update(
+            changeset="set-1",
+            members=[{"target": "api", "run_dir": "/api/run"}],
+            joint={"run_dir": "/joint/run", "mismatch_targets": ["api"]},
+            joint_attempts=[{"run_dir": "/joint/run"}],
+            rework={"targets": ["api"], "remaining": [{"target": "api"}], "phase": "correcting_mismatch"},
+        )
+        with patch.object(coordinate.sets, "remove_joint", return_value=True) as remove:
+            coordinate.finish_rework_step(self.document, "api")
+        remove.assert_called_once_with("/api/run", "/joint/run")
+        self.assertNotIn("joint", self.document)
 
     def test_stale_approval_cannot_approve_a_member(self):
         store.save(self.document)

@@ -243,6 +243,65 @@ class SetTokenTests(unittest.TestCase):
         self.assertIsNone(changeset.set_token([runs[0], {"run_dir": "/b", "plan_token": None}]))
         self.assertIsNone(changeset.set_token([]))
 
+    def test_completed_run_reuses_only_its_authenticated_displayed_plan(self):
+        plan = {
+            "token": "r1:abc",
+            "acceptance_criteria": [
+                {"id": "fix", "criterion": "Fix the result", "verification_method": "unit tests", "human_review": False}
+            ],
+            "constraints": [],
+            "permission_boundaries": [],
+            "scope_exclusions": [],
+        }
+        view = {
+            "done": True,
+            "needs": {"kind": "continue"},
+            "displayed_plan": plan,
+            "approved_contract": {
+                "token": "r1:abc",
+                "body": {
+                    "acceptance_criteria": plan["acceptance_criteria"],
+                    "constraints": [],
+                    "permission_boundaries": [],
+                    "scope_exclusions": [],
+                },
+            },
+        }
+        self.assertEqual({"plan": plan, "already_approved": True}, changeset.plan_for_set(view))
+        view["approved_contract"]["token"] = "r1:old"
+        self.assertIsNone(changeset.plan_for_set(view))
+
+    def test_revised_aggregate_approval_does_not_reapprove_an_unchanged_completed_member(self):
+        runs = [
+            {
+                "role": "source",
+                "target": "api",
+                "workspace": "/api",
+                "run_dir": "/api/run",
+                "plan_token": "old-plan",
+                "already_approved": True,
+            },
+            {
+                "role": "joint",
+                "target": "Joint regression",
+                "workspace": "/joint",
+                "run_dir": "/joint/run",
+                "plan_token": "new-plan",
+                "already_approved": False,
+            },
+        ]
+        summary = {"runs": runs, "approval": {"set_token": "new-set"}}
+        run = unittest.mock.Mock()
+        with (
+            patch.object(changeset, "status", return_value=summary),
+            patch.object(changeset.store, "begin_approval"),
+            patch.object(changeset.store, "release_approval"),
+            patch.object(changeset.taskrun, "TaskRun", return_value=run) as task_run,
+        ):
+            changeset.approve("/api/run", "new-set")
+        task_run.assert_called_once()
+        run.approve_plan.assert_called_once_with("new-plan", changeset_token="new-set")
+
 
 if __name__ == "__main__":
     unittest.main()

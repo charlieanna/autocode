@@ -161,7 +161,7 @@ class LateScopeBoundaryTests(unittest.TestCase):
         [offered] = view["needs"]["questions"]
         self.assertTrue(offered["id"].startswith(scope.PREFIX))
         self.assertEqual("", offered["proposed_default"])
-        self.assertEqual([{"target": self.part["target"], "work": self.part["work"]}], view["scope"]["external_parts"])
+        self.assertEqual([self.part], view["scope"]["external_parts"])
         self.assertIn("history-service", [row["repository"] for row in view["scope"]["briefs"]])
         with self.assertRaises(util.Paused):
             goals.execution_guard(self.state)

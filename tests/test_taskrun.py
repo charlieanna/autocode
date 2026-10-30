@@ -178,6 +178,27 @@ class RunViewTests(unittest.TestCase):
             },
             set(run_view.view({"status": "RUNNING"})),
         )
+        external_part = run_view.view(
+            {
+                "status": "RUNNING",
+                "requirements_handoff": {
+                    "report": {
+                        "workspace_scope": {
+                            "spans_repositories": True,
+                            "external_parts": [
+                                {
+                                    "target": "history",
+                                    "work": "Record the result",
+                                    "source_quote": "keep history",
+                                    "evidence": "client.py:8",
+                                }
+                            ],
+                        }
+                    }
+                },
+            }
+        )["scope"]["external_parts"][0]
+        self.assertEqual({"target", "work", "source_quote", "evidence"}, set(external_part))
 
     def test_accounting_attempt_inventory_names_execution_identity(self):
         shown = run_view.view(

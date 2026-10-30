@@ -62,6 +62,7 @@ def refusal(state: RunState) -> str | None:
         )
     if (
         grant.get("standalone")
+        and not record.get("automatic_anchor")
         and grant.get("plan_token") == own["plan_token"]
         and grant.get("task_digest") == own["task_digest"]
     ):
@@ -130,6 +131,8 @@ def approve(state: RunState, selected: str, set_token: str | None) -> None:
     own = observation(state)
     if own["plan_token"] != selected or not own["approved"]:
         raise ValueError("Change-set approval needs the exact approved current plan")
+    if record and record.get("automatic_anchor") and not set_token:
+        raise ValueError("Automatic coordinated plans must be approved together by their coordinator")
     if set_token:
         preparation = (record or {}).get("approval") or {}
         if preparation.get("token") != set_token or preparation.get("plans", {}).get(state.get("run_dir")) != selected:

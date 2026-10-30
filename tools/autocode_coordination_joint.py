@@ -7,7 +7,10 @@ sent back through those members' ordinary follow-up workflow.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -30,6 +33,29 @@ def copy_tree(source, destination):
         path = destination / name
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(Path(source) / name, path)
+
+
+def tree_fingerprint(root):
+    """Fingerprint an ordinary-file tree without relying on its enclosing Git root."""
+    root = Path(root).resolve()
+    files = {}
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root).as_posix()
+        if (
+            relative.startswith((".autocode/", ".autocode-ui/"))
+            or "/__pycache__/" in "/" + relative
+            or relative.endswith(".pyc")
+        ):
+            continue
+        if path.is_dir() and not path.is_symlink():
+            continue
+        if path.is_symlink() or not path.is_file():
+            raise CoordinationError("Joint snapshots currently require ordinary files: " + relative)
+        files[relative] = {
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "executable": bool(path.stat().st_mode & 0o111),
+        }
+    return hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
 
 
 def base_tree(member, destination):
@@ -86,20 +112,55 @@ def prepare(document, directory):
         "Pinned original repositories for joint regression",
     )
     baseline = repos.git(directory, "rev-parse", "HEAD")
-    for member in document["members"]:
-        copy_tree(member["workspace"], directory / ".autocode" / "candidate-inputs" / member["slug"])
-    util.atomic_json(
-        directory / ".autocode" / "candidate-inputs.json",
-        {
-            member["target"]: {
-                "source": ".autocode/candidate-inputs/" + member["slug"],
-                "destination": manifest[member["target"]]["path"],
-                "fingerprint": repos.fingerprint(member["workspace"]),
-            }
-            for member in document["members"]
-        },
-    )
     return baseline
+
+
+def bind_candidates(document, directory):
+    """Snapshot each independently verified member tree into the fixed joint inputs."""
+    directory = Path(directory).resolve()
+    manifest_path = directory / "repositories.json"
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        raise CoordinationError("Joint repository inventory is not a regular file")
+    manifest = util.read_object(manifest_path)
+    if set(manifest) != {member["target"] for member in document["members"]}:
+        raise CoordinationError("Joint candidate membership changed after planning")
+    input_root = directory / ".autocode" / "candidate-inputs"
+    if (
+        (directory / ".autocode").is_symlink()
+        or input_root.is_symlink()
+        or not input_root.resolve().is_relative_to(directory)
+    ):
+        raise CoordinationError("Joint candidate input path is not contained in its workspace")
+    input_root.mkdir(parents=True, exist_ok=True)
+    bound = {}
+    mapping = {}
+    for member in document["members"]:
+        slug = member["slug"]
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", slug):
+            raise CoordinationError("Invalid joint candidate member name")
+        destination = manifest[member["target"]].get("path")
+        if destination != "repos/" + slug:
+            raise CoordinationError("Joint candidate destination changed after planning")
+        candidate = input_root / slug
+        if candidate.is_symlink() or not candidate.resolve().is_relative_to(input_root.resolve()):
+            raise CoordinationError("Joint candidate path is not contained in its workspace")
+        if candidate.exists():
+            if not candidate.is_dir():
+                raise CoordinationError("Joint candidate destination is not a directory")
+            shutil.rmtree(candidate)
+        before = repos.fingerprint(member["workspace"])
+        copy_tree(member["workspace"], candidate)
+        after = repos.fingerprint(member["workspace"])
+        if before != after or tree_fingerprint(candidate) != before:
+            raise CoordinationError("Joint candidate changed while it was being bound")
+        bound[member["target"]] = before
+        mapping[member["target"]] = {
+            "source": ".autocode/candidate-inputs/" + slug,
+            "destination": destination,
+            "fingerprint": before,
+        }
+    util.atomic_json(directory / ".autocode" / "candidate-inputs.json", mapping)
+    return bound
 
 
 def brief(document):
@@ -108,9 +169,10 @@ def brief(document):
         + document["task"]
         + "\n\nThis is an isolated integration workspace. Every repository in repositories.json is already "
         "present under repos/. Treat them as local components of this workspace, not external repositories. "
-        "The committed baseline contains their original broken code. .autocode/candidate-inputs.json names "
-        "exact candidate copies from independently verified repository runs. Replace each corresponding repos/ "
-        "subtree with its candidate input (including deletions), then implement real joint regression tests in tests/. "
+        "The committed baseline contains their original broken code. After the coordinated plan is approved "
+        "and each repository passes its local checks, the coordinator writes .autocode/candidate-inputs.json "
+        "with exact candidate copies from those runs. Replace each corresponding repos/ subtree with its "
+        "candidate input (including deletions), then implement real joint regression tests in tests/. "
         "Derive the test and its executable command from the original symptom and actual interfaces; do not ask "
         "the person to supply a test command. Exercise actual code from EVERY listed repository together. "
         "No mocked production boundary, scripted PASS, file-existence assertion or independent per-repository "

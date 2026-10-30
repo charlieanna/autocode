@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 import autocode_workspace_scope as workspace_scope
+import autocode_scope_question as scope_question
 from autocode_util import validate_schema
 
 # A saved Requirements answer for the DTI-12398 shape: one ticket, two separately versioned services.
@@ -39,6 +40,21 @@ def validated(scope, *, sources=(TASK,), source_refs=(), workspace=None, member_
 
 
 class WorkspaceScopeTests(unittest.TestCase):
+    def test_public_scope_preserves_grounding_quote_and_cited_file_for_coordination(self):
+        state = {"workspace_scope": {"turn": 0, **SAVED_SCOPE}}
+        shown = scope_question.view(state)
+        self.assertEqual(
+            [
+                {
+                    "target": "fulfillment-rg-epp-history",
+                    "work": "Store the delivery window with each order history entry",
+                    "source_quote": "keep its history in fulfillment-rg-epp-history",
+                    "evidence": "",
+                }
+            ],
+            shown["external_parts"],
+        )
+
     def test_a_part_the_request_states_verbatim_is_kept(self):
         scope = validated(SAVED_SCOPE)
         self.assertTrue(scope["spans_repositories"])

@@ -129,15 +129,43 @@ def _member_status(workspace, run_dir, command) -> dict:
     except taskrun.TaskRunError as error:
         return {"status": "UNREADABLE", **empty, "error": str(error)}
     need = view.get("needs") or {}
-    plan = actions.plan_for_approval(view) if need.get("kind") == "approve_plan" else None
+    selected = plan_for_set(view)
+    plan = selected["plan"] if selected else None
     return {
         "status": view.get("status"),
         "needs": need.get("kind"),
         "next_command": view.get("next_command"),
-        # Only a complete plan the view shows can be approved through the set.
+        "already_approved": bool(selected and selected["already_approved"]),
+        # Current drafts and unchanged, authenticated completed plans can join a revised set approval.
         "plan_token": plan["token"] if plan else None,
         "plan": plan,
     }
+
+
+def plan_for_set(view: dict) -> dict | None:
+    """Return a current draft or the exact authenticated plan of an unchanged completed member."""
+    current = actions.plan_for_approval(view)
+    if current:
+        return {"plan": current, "already_approved": False}
+    if not view.get("done"):
+        return None
+    approved = view.get("approved_contract") or {}
+    displayed = view.get("displayed_plan") or {}
+    body = approved.get("body")
+    if (
+        not isinstance(body, dict)
+        or not approved.get("token")
+        or displayed.get("token") != approved.get("token")
+        or displayed.get("hash") != approved.get("hash")
+        or displayed.get("revision") != approved.get("revision")
+    ):
+        return None
+    for key in ("acceptance_criteria", "constraints", "permission_boundaries", "git_delivery", "milestones", "end_to_end_flow"):
+        if key in displayed and displayed[key] != body.get(key):
+            return None
+    if displayed.get("scope_exclusions", []) != body.get("scope_exclusions", []):
+        return None
+    return {"plan": displayed, "already_approved": True}
 
 
 def set_token(runs: list[dict]) -> str | None:
@@ -225,6 +253,8 @@ def approve(run_dir, token: str, *, command=taskrun.AUTOCODE) -> dict:
     store.begin_approval(run_dir, token, {row["run_dir"]: row["plan_token"] for row in fresh["runs"]}, members)
     approved: list[str] = []
     for row in fresh["runs"]:
+        if row.get("already_approved"):
+            continue
         run = taskrun.TaskRun(Path(row["workspace"]), Path(row["run_dir"]), command=tuple(command))
         try:
             run.approve_plan(row["plan_token"], changeset_token=token)

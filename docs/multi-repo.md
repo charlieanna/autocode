@@ -20,27 +20,31 @@ installation](install.md#advanced-install-from-a-checkout) first, and connect a
 backend your chat can use — including Kilo, which the [default-provider
 guide](install.md#default-provider) covers with its pinned Linux release.
 
-Start `autocode chat` in the repository where you see the symptom. On a supported
-Linux host, use an owned chat (the default), set up your coding backend with `/connect`, then authorize the local
-Git checkouts AutoCode may use:
+Configure the local source roots once. Discovery searches every configured root,
+even when a chat starts elsewhere. Register standalone checkouts that sit outside
+those roots explicitly:
 
-```text
-/repos /path/to/order-api
-/repos /path/to/history-service
-/repos /path/to/tax-service
-Submitting an order records the wrong total.
+```sh
+autocode registry roots add /work/fulfillment
+autocode registry roots add /work/shared-services
+autocode registry repositories add /srv/standalone/history-consumer
+autocode registry roots list
 ```
 
-This catalog is setup, not a list you must add to each bug report. `/repos` shows
-it. Chat setup and related runs share one registry; `AUTOCODE_HOME` can select a
-shared registry across projects. Checkouts need committed product code, a branch
+Then start `autocode chat` from any directory and provide the ticket only. On a
+supported Linux host, use an owned chat (the default) and set up your coding
+backend with `/connect`. AutoCode investigates the configured local catalog;
+`/repos` displays roots and discovered repositories. This catalog is setup, not
+a repository list to add to each bug. An explicit `AUTOCODE_HOME` selects the
+same user-level catalog from any launch directory; project-local run registries
+remain in place. Checkouts need committed product code, a branch
 identifying the delivery base, a GitHub `origin`, Git push authentication, and
 `gh auth login`, `GITHUB_TOKEN` or `GH_TOKEN` for PR creation. `/repos` shows
 authentication readiness. Before creating a worktree, AutoCode checks repository
 write access and that the local baseline matches the remote delivery branch.
-Missing checkouts must be made
-available before their work starts. Parent-folder scanning and remote cloning
-remain separate catalog work under #2066.
+Missing checkouts must be made available before their work starts. Discovery is
+bounded to configured roots and standalone registrations; it does not clone
+remotes or search the whole disk.
 
 The Investigator traces the symptom through code. Grounded repository names
 resolve against registered directory, GitHub or package names. A unique match is
@@ -54,23 +58,26 @@ If the set expands after a member finishes, AutoCode reopens completed peers and
 shows a fresh cohort approval with the new member. Earlier approvals cannot
 release implementation against the expanded set.
 
-Read and approve the displayed member plans. AutoCode retains the selected role
-routes, efforts and run limits. A configured money cap is shared across sequential
+AutoCode prepares the joint-test plan from the pinned repository baselines before
+any Builder starts. The chat shows every repository plan and that joint plan in
+one approval offer, bound to the original request, discovery snapshot, selected
+repository identities and exact plan tokens. No member or joint Builder runs
+before that approval. AutoCode retains the selected role routes, efforts and run
+limits. A configured money cap is shared across sequential
 launches using the core's known-cost accounting; unknown cost remains unknown.
 If that cap stops the run, chat shows the shared known spend and asks for a finite
 whole-set cap, followed by confirmation. Leaving it blank keeps the set paused.
 The explicit change retains all earlier spending and other limits; it does not
 approve a plan or waive verification. A changed checkpoint must be read again.
-Each member's flow gate covers its own executable local path. The later joint
-test remains a required whole-set obligation in the plan's constraints or required
-behaviors; placing it inside a member's completion flow creates a circular prerequisite.
-After each member passes its checks, a separate
-integration Builder derives a joint regression from the symptom and interfaces.
-Chat displays this plan for approval too; you do not write its test command.
-Corrections discovered in the integration copies return through member follow-ups
-and fresh coordinated approval. A failed independent check also returns its
-diagnostics to a new integration plan, retaining the failed evidence. The limits
-are 12 repositories and three joint attempts.
+Each member's flow gate covers its own executable local path. The joint plan
+names a real combined regression without putting it inside a member's completion
+flow. After each member passes its checks, the core exposes a named
+`coordinate bind` action that snapshots the exact candidate trees, including
+deletions, into the already-approved joint workspace. The integration Builder
+then runs that plan. Corrections discovered in the integration copies return
+through member follow-ups and a complete revised coordinated plan. A failed
+independent check retains its diagnostics for the bounded retry. The limits are
+12 repositories and three joint attempts.
 
 Independent review and runner execution must establish fail-before/pass-after
 evidence. Integration copies must match the member trees exactly. Missing checks,
@@ -291,8 +298,10 @@ joint testing or real PR publication. See the [retained qualification evidence](
 and [remaining convergence issue #2208](https://github.com/charlieanna/autocode/issues/2208).
 Live end-to-end delivery is not yet verified. The current implementation also has these limits:
 
-- Discovery depends on the model reporting grounded external work; it does not
-  crawl every repository or automatically clone a missing one.
+- Discovery inventories repositories beneath configured roots and standalone
+  registrations. The model still has to ground each repository's role in the
+  ticket and source files; AutoCode does not search the whole disk or clone
+  missing repositories.
 - Automatic coordination currently supports owned terminal chats on Linux and
   local Git repositories containing ordinary files. Symlinks, submodules and
   `durable_local` coordination are refused explicitly; saved execution policies
@@ -302,12 +311,15 @@ Live end-to-end delivery is not yet verified. The current implementation also ha
   test evidence, the result remains unverified and bounded retries stop with
   diagnostics.
 - The manual change-set API leaves linking and the check command to its caller.
-  Automatic TUI coordination supplies them and requires its separate joint gate.
-  A parent folder containing sibling repositories is still unsupported.
+  Automatic TUI coordination discovers and links the repositories, then uses
+  one consolidated approval for member plans and the joint-test plan. A plain
+  parent folder is not itself a multi-repository run; configure it as a local
+  source root for automatic discovery.
 - In the manual change-set API, without a named integration command, `verification.done` means all individual
   runs completed. It does **not** prove the producer and consumer agree. Name the
   check before treating the overall bug as resolved.
-- Set approval binds member plans; a separately versioned shared-interface
+- Manual change-set approval binds member plans; automatic coordination binds
+  member and joint-test plans together. A separately versioned shared-interface
   contract and the remaining guided onboarding work are tracked in
   [#2066](https://github.com/charlieanna/autocode/issues/2066).
 

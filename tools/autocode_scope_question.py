@@ -441,7 +441,15 @@ def view(state: RunState, dropped=None) -> dict:
     return {
         "identity": workspace_scope.identity(state),
         "spans_repositories": bool(found),
-        "external_parts": [{"target": part["target"], "work": part.get("work", "")} for part in found],
+        "external_parts": [
+            {
+                "target": part["target"],
+                "work": part.get("work", ""),
+                "source_quote": part.get("source_quote", ""),
+                "evidence": part.get("evidence", ""),
+            }
+            for part in found
+        ],
         "uncovered": [part["target"] for part in uncovered(state)],
         "decision": decision(state),
         "dropped": list(dict.fromkeys([*(_scope(state).get("dropped") or []), *(dropped or [])])),
