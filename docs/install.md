@@ -15,8 +15,9 @@ this guide. WSL must meet the same Linux kernel requirements.
 
 If prerequisites are missing, on Ubuntu install `python3-venv`, `pipx` and `git`
 with your package manager; on macOS install Python 3.11+, Git and pipx. Node.js/npm
-is needed only when installing an external engine with npm. The built-in
-[API-key connection](providers.md#autocode-direct-connections-issue-1493) does not need it.
+is needed to install Claude Code, Codex, OpenCode or Kilo with npm. API keys go in
+OpenCode or Kilo; the built-in
+[API-key connection](providers.md#autocode-direct-connections-issue-1493) is retired.
 
 **1. Install AutoCode.**
 

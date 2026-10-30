@@ -1156,7 +1156,7 @@ Without these optional commands AutoCode reports login as unchecked and offers
 no guessed sign-in command. Provider files are trusted user configuration; files
 in a project are never discovered as connection definitions.
 
-### AutoCode direct connections (issue #1493, retired)
+### AutoCode direct connections (issue #1493)
 
 **Retired (owner decision 2026-10-30, #2049); removed in the next release.** AutoCode offers
 four backends: Claude Code and Codex as engines, and OpenCode and Kilo for every other account
