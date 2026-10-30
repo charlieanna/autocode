@@ -2460,7 +2460,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/b3af34aa2420bed8a3481411d6eb9eed3a6bee6d/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/22c5ef4745ff33cc6b40c4c60d8107be6ff952f7/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2620,6 +2620,10 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 <td>List the models your plans offer, grouped by plan (subscription or pay per token) and tier (cheap worker, strong judge, Resolver only), and check the route every role of a new run takes. Without <code>--provider</code> it follows the project's <code>engine</code> setting as <code>doctor</code> and a task do: a <code>claude</code> project lists the Claude Code provider, and a <code>codex</code> project is told its routes are fixed (<a href="../models/#default-models">default models</a>) rather than sent to OpenCode. Suggests a replacement for any route you cannot use; exits 1 when one is missing (see <a href="../models/#when-a-model-is-not-in-your-plans">Models</a>). A profile default the provider no longer offers is not a gap when automatic selection replaces it with a route it does offer: the verdict then weighs the selected routes and names each replacement, because the profile defaults are only the fallback a run uses when selection cannot field a set (#1995). <code>--prices</code> prints the dated price table instead, and the rate each default route is priced at, or "no rate" (never a zero price); it runs nothing and works offline. <code>--selection</code> reads the tool's own model and login listings (still no model calls) and prints what automatic selection would choose - the route per role with its price and reasoning level, why every other qualified model lost, and which chosen routes the access check would still probe; exits 1 with the account-terms stop when the connected accounts cannot field an independent checker (<a href="../models/#choosing-models-automatically">Choosing models automatically</a>).</td>
 </tr>
 <tr>
+<td><code>autocode setup [--install opencode\|kilocode] [--json]</code></td>
+<td>Connect the backends AutoCode runs on, once after installing it (#2049): checks Claude Code, Codex, OpenCode and Kilo with each one's own login listing; in a terminal, when neither OpenCode nor Kilo is installed, offers to install OpenCode 1.18.33 with npm (one yes/no; <code>--install</code> installs the named hub without asking); offers each installed, signed-out one its own sign-in, where you connect ChatGPT, GLM, MiMo or API keys; then says which backend new runs use and the route each role takes. It launches no model. Without npm it names the Node.js download and the command to run. <code>--json</code> asks nothing and installs only what <code>--install</code> names and returns <code>backends</code> (the <code>autocode connections</code> rows, checked, with <code>install_command</code> when missing) and <code>new_runs_use</code>. Exit 1 when no backend could start a run.</td>
+</tr>
+<tr>
 <td><code>autocode doctor [--workspace PATH] [--engine opencode\|codex\|claude] [--json]</code></td>
 <td>Check Python, psutil, Git, each engine (OpenCode must be 1.x; Codex must be logged in), that the workspace is a Git repository with a commit, and the projected run storage (workspace size x its measured ~3x copy growth: worktrees, verification copies, attempt snapshots) against free disk space — a doomed filesystem is a ✖, a tight one a warning with the numbers. Prints the fix for anything missing; exits 1 when not ready. Passes only when the engine a new run uses is ready, resolved as a run resolves it: <code>--engine codex</code> is Codex; without <code>--engine</code>, the <code>engine</code> the project's files set (<a href="#project-settings">Project settings</a>) counts as that flag; otherwise (no engine, or <code>--engine opencode</code>) the provider <code>AUTOCODE_PROVIDER</code> or <code>default_provider</code> in <code>~/.config/autocode/config.toml</code> names, else OpenCode. That provider must answer and list the route each role of a new run takes - its default model, or the route automatic selection replaces that default with (<code>opencode models</code>, as <code>autocode models</code> checks; #1995). <code>AUTOCODE_PROVIDER=codex</code> names a provider config, not the Codex engine. A ready Codex alone does not pass; doctor names <code>--engine codex</code> as the single-login alternative. <code>--engine claude</code>, a project's <code>engine = "claude"</code>, or a <code>claude</code> default provider, checks Claude Code instead: <code>claude</code> on PATH and <code>claude auth status --json</code>, run in the agents' environment, reporting a Claude subscription login (<code>engine:claude</code>; an API key, Bedrock or Vertex is refused, by the same check a run makes: the agents' environment and the project's <code>.claude/settings.json</code>), its conformance row, and its routes; a user <code>claude.toml</code> it ignores is a warning. Doctor shows no Claude rows for other runs and never prints the account's email or organization. Lists the settings a new run takes from the project's files (<a href="#project-settings">Project settings</a>) and fails on a file a run would refuse. A <code>user settings</code> row shows the keys <code>~/.config/autocode/config.toml</code> sets (<code>default_provider</code>, <code>plan_review_call_limit</code>), warns on a key the user file does not take, naming the project's <code>.autocode/config.toml</code> for a project key such as <code>engine</code>, and fails on a file that is not TOML. When a new run launches built-in OpenCode stages, names the kernel tool boundary they get on this machine (<code>containment</code>: macOS Seatbelt or Linux bubblewrap and its version, with OpenCode 1.18.33, by the check run setup makes; <code>--json</code> adds it as <code>containment</code> with <code>backend</code>, <code>backend_version</code> and <code>problem</code>, or <code>null</code> for a Codex, Claude Code or configured-provider run), as a warning that does not fail doctor when such a run would be refused without <code>--allow-uncontained-tools</code> (<a href="../execution/#native-tool-containment">Execution</a>). Fails with a <code>session</code> row when this Linux shell holds <code>CAP_SYS_ADMIN</code> or <code>CAP_SYS_PTRACE</code> (root in most containers, VMs and CI images), because every stage launch, the demo included, refuses such a shell; it names the fix (an ordinary user, or <code>setpriv --bounding-set=-sys_admin,-sys_ptrace</code>). Runs without psutil and reports it missing. Never reads credentials.</td>
 </tr>
@@ -2676,7 +2680,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/b3af34aa2420bed8a3481411d6eb9eed3a6bee6d/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/22c5ef4745ff33cc6b40c4c60d8107be6ff952f7/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3282,7 +3286,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/b3af34aa2420bed8a3481411d6eb9eed3a6bee6d/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/22c5ef4745ff33cc6b40c4c60d8107be6ff952f7/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3671,7 +3675,7 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 <tr>
 <td><code>autocode connections</code></td>
 <td><code>--json</code>, <code>--provider</code>, <code>--routes</code></td>
-<td>List installed/registered backends, check local credentials without inference, delegate sign-in, or configure AutoCode’s direct connection with <code>setup</code>. <code>list</code> and <code>check</code> print one readable line per connection with its state, detail and the <code>autocode connections ...</code> command of each action it offers; <code>--json</code> returns the connection view clients read. <code>list --routes</code> adds the route each role would use, from the connected tool's own model listing (<code>routes[]</code> and <code>routes_lines</code>, or <code>routes_stop</code>), and launches no model; the plain listing names it as <code>routes_next_command</code>. See <a href="../task-run/#connections-for-clients">Connections for clients</a>.</td>
+<td>List installed/registered backends, check local credentials without inference, delegate sign-in, or (retired, removed in the next release) configure AutoCode’s direct API-key connection with <code>setup</code>. <code>list</code> and <code>check</code> print one readable line per connection with its state, detail and the <code>autocode connections ...</code> command of each action it offers; <code>--json</code> returns the connection view clients read. <code>list --routes</code> adds the route each role would use, from the connected tool's own model listing (<code>routes[]</code> and <code>routes_lines</code>, or <code>routes_stop</code>), and launches no model; the plain listing names it as <code>routes_next_command</code>. See <a href="../task-run/#connections-for-clients">Connections for clients</a>.</td>
 </tr>
 <tr>
 <td><code>autocode modes</code></td>
@@ -3707,6 +3711,11 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 <td><code>autocode coordinate</code></td>
 <td><code>--run-dir</code>, <code>--workspace</code>, <code>--token</code>, <code>--target</code>, <code>--max-cost-usd</code>, <code>--json</code></td>
 <td>The anchor run to coordinate, the authorized local checkout to choose, the exact token of the displayed decision, the ambiguous repository target to resolve, a finite whole-set cost cap for <code>budget</code>, and JSON output. <code>status</code> reads; <code>advance</code> performs one durable core step; <code>approve</code>, <code>choose</code> and <code>cancel</code> take the corresponding named action. At a settled cost stop, <code>budget --token TOKEN --max-cost-usd N</code> takes the current status offer, retains accumulated spend and other limits, and acknowledges only its displayed member cost pause. It cannot waive a check or approve a plan; zero/unlimited, stale, insufficient, active and cancelled requests are refused. <code>access</code> checks GitHub delivery readiness without starting a run. Register local checkouts with the chat's <code>/repos PATH</code>.</td>
+</tr>
+<tr>
+<td><code>autocode setup</code></td>
+<td><code>--install</code>, <code>--json</code></td>
+<td>Install that hub (<code>opencode</code> or <code>kilocode</code>) with npm without asking when it is missing; report the four backends and what new runs use without asking anything.</td>
 </tr>
 <tr>
 <td><code>autocode doctor</code></td>
@@ -4185,7 +4194,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/b3af34aa2420bed8a3481411d6eb9eed3a6bee6d/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/22c5ef4745ff33cc6b40c4c60d8107be6ff952f7/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
@@ -4414,7 +4423,7 @@ command. <code>--json</code> emits the verdict and evidence metadata. See
 <a href="../verify/">Standalone verification</a> for the criteria format, proof modes and
 exit codes.</p>
 <p><code>autocode modes list</code> lists the run modes a client may offer for a new run (<code>--json</code> for the version-1 list). See <a href="../task-run/#run-modes-for-clients">Run modes for clients</a>.</p>
-<p><code>autocode connections list|check|login|setup</code> manages backend setup; list and check return status without inference, and login delegates to the backend in a terminal. <code>connections setup</code> ends by naming the route each role will use, and <code>connections list --routes --json</code> returns the same choice as <code>routes[]</code> — both read the connected tool's own model listing and launch no model. See <a href="../task-run/#connections-for-clients">Connections for clients</a>.</p>
+<p><code>autocode connections list|check|login|setup</code> manages backend setup; list and check return status without inference, and login delegates to the backend in a terminal. <code>connections setup</code> (retired with the direct connection, #2049) ends by naming the route each role will use, and <code>connections list --routes --json</code> returns the same choice as <code>routes[]</code> — both read the connected tool's own model listing and launch no model. See <a href="../task-run/#connections-for-clients">Connections for clients</a>.</p>
 
 
 

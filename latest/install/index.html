@@ -2150,7 +2150,7 @@
 
 
 <h1 id="install-and-run">Install and run<a class="headerlink" href="#install-and-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/b3af34aa2420bed8a3481411d6eb9eed3a6bee6d/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/22c5ef4745ff33cc6b40c4c60d8107be6ff952f7/README.md">← Back to README</a></p>
 <h2 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">&para;</a></h2>
 <p>You need macOS or Linux (Windows through WSL), Python 3.11 or newer, Git,
 <a href="https://pipx.pypa.io/">pipx</a>, and npm (Node.js) to install the engine.</p>
@@ -2161,8 +2161,9 @@ process-ownership guarantee and for the provider-backed regression checks in
 this guide. WSL must meet the same Linux kernel requirements.</p>
 <p>If prerequisites are missing, on Ubuntu install <code>python3-venv</code>, <code>pipx</code> and <code>git</code>
 with your package manager; on macOS install Python 3.11+, Git and pipx. Node.js/npm
-is needed only when installing an external engine with npm. The built-in
-<a href="../providers/#autocode-direct-connections-issue-1493">API-key connection</a> does not need it.</p>
+is needed to install Claude Code, Codex, OpenCode or Kilo with npm. API keys go in
+OpenCode or Kilo; the built-in
+<a href="../providers/#autocode-direct-connections-issue-1493">API-key connection</a> is retired.</p>
 <p><strong>1. Install AutoCode.</strong></p>
 <pre><code class="language-sh">pipx install autocode-supervisor
 pipx ensurepath
@@ -2178,16 +2179,22 @@ autocode demo
 These commands install the tagged release, not current master; this guide's
 <code>latest</code> documentation can describe newer features and fixes. Use the
 <a href="#advanced-install-from-a-checkout">advanced checkout/master installation</a>
-when you need those changes. The <a href="https://github.com/charlieanna/autocode/blob/b3af34aa2420bed8a3481411d6eb9eed3a6bee6d/docs/bugs/2026-10-27-release-installation.md">release verification record</a>
+when you need those changes. The <a href="https://github.com/charlieanna/autocode/blob/22c5ef4745ff33cc6b40c4c60d8107be6ff952f7/docs/bugs/2026-10-27-release-installation.md">release verification record</a>
 distinguishes distribution smoke checks from task/provider qualification.
 If pipx's Python is older than 3.11, add <code>--python python3.11</code>. The demo is
 offline: no sign-in or model spend. Once installed, you do not need to activate
 a virtual environment in every shell.</p>
+<p><strong>Connect your accounts once.</strong> Run <code>autocode setup</code> right after installing. It
+checks Claude Code, Codex, OpenCode and Kilo. When neither OpenCode nor Kilo is
+installed it offers to install OpenCode with npm (<code>--install kilocode</code> installs Kilo
+instead), then offers the sign-in of each installed one that is not signed in, and
+says which backend your tasks will use. API keys (Z.ai, MiMo, OpenAI, Anthropic) go in OpenCode or
+Kilo. After that a task needs no flags.</p>
 <p><strong>Already have an engine signed in?</strong> Reuse it. When OpenCode is not installed
 and nothing names an engine (no flag, no <code>default_provider</code>, no project
-<code>engine</code>), a new run takes the first backend this machine has connected: Claude
-Code signed in to a subscription, then Codex, then the AutoCode direct
-connection (API keys), then Kilo. It prints the choice (<code>Engine for this run:
+<code>engine</code>), or OpenCode is installed with no account at all,
+a new run takes the first backend this machine has connected: Claude
+Code signed in to a subscription, then Codex, then Kilo. It prints the choice (<code>Engine for this run:
 Claude Code. …</code>), and <code>autocode doctor</code> checks that same backend. So with only
 Claude Code or only Codex signed in, skip step 2 and go to the project setup in
 step 3 with no flags. To choose explicitly, add <code>--engine codex</code> or <code>--engine
