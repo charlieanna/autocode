@@ -45,9 +45,17 @@ If pipx's Python is older than 3.11, add `--python python3.11`. The demo is
 offline: no sign-in or model spend. Once installed, you do not need to activate
 a virtual environment in every shell.
 
+**Connect your accounts once.** Run `autocode setup` right after installing. It
+checks Claude Code, Codex, OpenCode and Kilo. When neither OpenCode nor Kilo is
+installed it offers to install OpenCode with npm (`--install kilocode` installs Kilo
+instead), then offers the sign-in of each installed one that is not signed in, and
+says which backend your tasks will use. API keys (Z.ai, MiMo, OpenAI, Anthropic) go in OpenCode or
+Kilo. After that a task needs no flags.
+
 **Already have an engine signed in?** Reuse it. When OpenCode is not installed
 and nothing names an engine (no flag, no `default_provider`, no project
-`engine`), a new run takes the first backend this machine has connected: Claude
+`engine`), or OpenCode is installed with no account at all,
+a new run takes the first backend this machine has connected: Claude
 Code signed in to a subscription, then Codex, then Kilo. It prints the choice (`Engine for this run:
 Claude Code. …`), and `autocode doctor` checks that same backend. So with only
 Claude Code or only Codex signed in, skip step 2 and go to the project setup in

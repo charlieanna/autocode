@@ -191,8 +191,11 @@ def view():
     return {"version": 1, "connections": rows}
 
 
-def routes():
+def routes(provider=None):
     """The route each role would run on, from the connected tool's own local listing (#2057).
+
+    ``provider`` names the tool to list (``autocode setup`` passes the one new runs use); by default
+    it is the configured default provider.
 
     Listing only: it reads the tool's model and login lists, launches no model and returns no
     credential. A tool that cannot list its models, or whose accounts cannot field an
@@ -203,7 +206,7 @@ def routes():
     except ImportError:
         import model_catalogue
     try:
-        found = model_catalogue.preview()
+        found = model_catalogue.preview(provider=provider)
     except (RuntimeError, ValueError, OSError) as error:
         return {"tool": None, "routes": [], "routes_lines": [], "routes_stop": str(error)}
     return {
@@ -214,10 +217,10 @@ def routes():
     }
 
 
-def say_routes(stream=None):
+def say_routes(stream=None, provider=None):
     """Print one line per role after setup: the choice a person no longer has to make (#2057)."""
     stream = stream or sys.stdout
-    found = routes()
+    found = routes(provider)
     if found["routes_stop"] or not found["routes"]:
         print(
             "Routes for a new run are not chosen yet: " + (found["routes_stop"] or "no qualified route was found"),

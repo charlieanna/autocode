@@ -10,7 +10,8 @@ Code sits beside it; the person then has to learn ``--engine claude`` and type i
 every command.
 
 ``choose`` fills that one gap and nothing more: when no explicit choice exists and
-OpenCode is not installed, it takes the first connected backend in ORDER and says why.
+OpenCode is not installed, or is installed with no account at all, it takes the first
+connected backend in ORDER and says why.
 It never overrides a choice (a flag, ``AUTOCODE_PROVIDER``, ``default_provider`` in the
 user's config, the project's ``engine``), never touches a saved run, launches no model
 and reads no credential: each check is the backend's own login listing, the one
@@ -24,6 +25,7 @@ controller, the CLI or the configuration module that calls it.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -99,9 +101,14 @@ def choose(*, which=shutil.which, runner=_run, workspace=None, resolve=providers
     (the run's existing OpenCode refusal names what to install). An injected ``which`` and
     ``runner`` (doctor, tests) are the only things consulted; no host command runs then.
     """
-    if which("opencode"):
-        return None
     skipped: list[dict] = []
+    if which("opencode"):
+        if not _opencode_has_no_account(runner):
+            return None
+        skipped.append(
+            {"id": "opencode", "label": "OpenCode", "why": "opencode has no connected account (opencode auth login)"}
+        )
+    absent = "OpenCode has no connected account" if skipped else "OpenCode is not installed"
     for name, engine, provider, label in ORDER:
         why = _not_connected(name, which, runner, workspace, resolve)
         if why is None:
@@ -111,7 +118,7 @@ def choose(*, which=shutil.which, runner=_run, workspace=None, resolve=providers
                 "provider": provider,
                 "label": label,
                 "reason": (
-                    f"{label} is connected and no engine is configured (OpenCode is not installed); "
+                    f"{label} is connected and no engine is configured ({absent}); "
                     "pass --engine or --provider, or set default_provider in ~/.config/autocode/config.toml, "
                     "to choose another"
                 ),
@@ -119,6 +126,22 @@ def choose(*, which=shutil.which, runner=_run, workspace=None, resolve=providers
             }
         skipped.append({"id": name, "label": label, "why": why})
     return None
+
+
+def _opencode_has_no_account(runner) -> bool:
+    """True only when ``opencode auth list`` answers and lists nothing at all.
+
+    Any listed credential, an environment-variable row included, or a listing that fails or cannot be
+    read keeps OpenCode the default: passing it over is only for the plainly empty case (#2049).
+    """
+    try:
+        result = runner(["opencode", "auth", "list"])
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode != 0:
+        return False
+    output = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", (result.stdout or "") + (result.stderr or ""))
+    return not re.search(r"^\s*[●•]\s+\S", output, re.MULTILINE)
 
 
 def _not_connected(name, which, runner, workspace, resolve) -> str | None:

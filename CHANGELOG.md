@@ -11,6 +11,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode setup` connects the backends AutoCode runs on, once after installing it (#2049): it checks
+  Claude Code, Codex, OpenCode and Kilo with each one's own login listing. In a terminal, when neither
+  OpenCode nor Kilo is installed, it offers to install OpenCode 1.18.33 with npm (`--install
+  opencode|kilocode` installs that hub without asking), then offers each installed, signed-out backend
+  its own sign-in, and says which backend new runs use and the route each role takes. It launches no
+  model; `--json` asks nothing and installs only what `--install` names. A run that finds no OpenCode now names `autocode setup`. A new run that names no
+  engine also passes over an installed OpenCode whose `opencode auth list` is plainly empty, to the first
+  connected of Claude Code, Codex and Kilo; any listed credential, or a listing that fails, keeps OpenCode.
 - `--role-transport ROLE=PROVIDER` works on any base tool of the OpenCode facade engine, not only
   `--provider opencode` (#2049): a run on Claude Code or on the direct connection can run one role on a
   Kilo account, and a saved binding to the built-in `claude` provider (identity version 2) is validated
