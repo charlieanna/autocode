@@ -2106,7 +2106,7 @@
 
 
 <h1 id="github-issues-to-pull-requests">GitHub issues to pull requests<a class="headerlink" href="#github-issues-to-pull-requests" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/fc0178932b7ececd8002997f34cde44e91d492cf/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/24925a567926a1b04cefe0e1384dc88c979438a9/README.md">← Back to README</a></p>
 <p><code>autocode-issue</code> takes a GitHub issue, runs AutoCode on it in a branch of its
 own, and turns the finished run into a pull request whose body carries the
 run's evidence. It sits on top of the <a href="../task-run/">task-run interface</a> and
@@ -2275,8 +2275,8 @@ that holds the merged file, so it shows only what changed since.</p>
 <li><strong>GitHub Enterprise:</strong> set <code>AUTOCODE_GITHUB_API=https://HOST/api/v3</code>.</li>
 </ul>
 <h2 id="label-triggered-action-example">Label-triggered Action example<a class="headerlink" href="#label-triggered-action-example" title="Permanent link">&para;</a></h2>
-<p><a href="https://github.com/charlieanna/autocode/blob/fc0178932b7ececd8002997f34cde44e91d492cf/examples/github-issue/issue.yml">The example workflow</a> and
-<a href="https://github.com/charlieanna/autocode/blob/fc0178932b7ececd8002997f34cde44e91d492cf/examples/github-issue/issue_action.py">its handler</a> use the same issue CLI
+<p><a href="https://github.com/charlieanna/autocode/blob/24925a567926a1b04cefe0e1384dc88c979438a9/examples/github-issue/issue.yml">The example workflow</a> and
+<a href="https://github.com/charlieanna/autocode/blob/24925a567926a1b04cefe0e1384dc88c979438a9/examples/github-issue/issue_action.py">its handler</a> use the same issue CLI
 and public task-run interface. Applying the configured label starts a run and
 posts its current status with exact human commands. Applying it again
 reattaches to the same issue worktree and run, without advancing it or approving
@@ -2480,10 +2480,10 @@ may still change after that read; the submitted review's <code>commit_id</code> 
 the captured reviewed head. Repeating <code>--post</code> creates a separate review.
 GitHub posting tokens and Git authentication helper/header values are blanked
 at the TaskRun child boundary; normal provider configuration stays available.</p>
-<p>The companion <a href="https://github.com/charlieanna/autocode/blob/fc0178932b7ececd8002997f34cde44e91d492cf/examples/github-review/review.yml">pull request Action</a> uses
+<p>The companion <a href="https://github.com/charlieanna/autocode/blob/24925a567926a1b04cefe0e1384dc88c979438a9/examples/github-review/review.yml">pull request Action</a> uses
 trusted installed AutoCode/provider tooling on an explicitly configured runner.
 It reviews without posting by default, and keeps its result as a workflow
-artifact. Follow <a href="https://github.com/charlieanna/autocode/blob/fc0178932b7ececd8002997f34cde44e91d492cf/examples/github-review/README.md">its setup</a>; never install
+artifact. Follow <a href="https://github.com/charlieanna/autocode/blob/24925a567926a1b04cefe0e1384dc88c979438a9/examples/github-review/README.md">its setup</a>; never install
 AutoCode or provider tooling from the PR with secrets available.</p>
 
 
