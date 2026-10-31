@@ -187,7 +187,14 @@ def prepare(state: RunState, workspace, current):
         raise ValueError("Preexisting dirty work or moved HEAD requires reconciliation before atomic delivery")
     baseline = trees.tree_files(workspace, current["head"])
     files = trees.content_files(current)
-    changed = {name for name in baseline.keys() | files.keys() if baseline.get(name) != files.get(name)}
+    # A name the source inventory excludes (bytecode caches, run state) is not source and
+    # leaves the delivered tree, so a tracked one is no delivery change whether or not a
+    # run rebuilt it.
+    changed = {
+        name
+        for name in baseline.keys() | files.keys()
+        if baseline.get(name) != files.get(name) and (name in files or not util.inventory_excluded(name))
+    }
     selected = scope.paths(state)
     if not changed or any(
         not any(name == root or name.startswith(root + "/") for root in selected) for name in changed

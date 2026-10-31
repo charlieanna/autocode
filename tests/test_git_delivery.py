@@ -167,6 +167,43 @@ class AtomicDeliveryTests(unittest.TestCase):
         self.assertTrue(delivery.ready(self.state, after))
         self.assertEqual("1", self.git("rev-list", "--count", self.parent + "..HEAD"))
 
+    def test_tracked_bytecode_caches_are_not_unapproved_delivery_changes(self):
+        # A repository that ever committed __pycache__ files (the live bugfix fixture did) must
+        # not have them counted as out-of-scope source changes: the inventory treats bytecode
+        # caches as non-source, so an untouched and a rebuilt cache both stay invisible.
+        (self.root / "app.py").write_text("old\n")
+        (self.root / "test_app.py").unlink()
+        caches = self.root / "__pycache__"
+        caches.mkdir()
+        (caches / "app.cpython-314.pyc").write_bytes(b"cache one")
+        (caches / "util.cpython-314.pyc").write_bytes(b"cache two")
+        self.git("add", "-f", "__pycache__")
+        self.git("commit", "-qm", "fixture tracked bytecode caches")
+        self.parent = self.git("rev-parse", "HEAD")
+        self.state["base_commit"] = self.parent
+        (self.root / "app.py").write_text("new\n")
+        (self.root / "test_app.py").write_text("tests\n")
+        (caches / "app.cpython-314.pyc").write_bytes(b"cache one rebuilt")
+        self.current = scope.snapshot(self.root, self.state)
+        self.assertTrue(delivery.prepare(self.state, self.root, self.current))
+        after = scope.snapshot(self.root, self.state)
+        self.assertTrue(delivery.ready(self.state, after))
+        self.assertEqual("1", self.git("rev-list", "--count", self.parent + "..HEAD"))
+        # The delivered tree is the checked source inventory, which never carries bytecode
+        # caches: the same commit lands the approved source change and drops the caches from
+        # the tree while their bytes stay on disk for the person.
+        self.assertEqual(
+            {
+                "app.py",
+                "test_app.py",
+                "__pycache__/app.cpython-314.pyc",
+                "__pycache__/util.cpython-314.pyc",
+            },
+            set(self.git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").splitlines()),
+        )
+        self.assertEqual(b"cache one rebuilt", (caches / "app.cpython-314.pyc").read_bytes())
+        self.assertEqual(b"cache two", (caches / "util.cpython-314.pyc").read_bytes())
+
     def test_the_other_workflows_stay_refused(self):
         for kind in ("review", "design", "discuss"):
             with self.subTest(kind=kind):
