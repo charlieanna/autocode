@@ -176,17 +176,18 @@ def questions(state: RunState) -> list[dict]:
         return []
     answered = state.get("answers") or {}
     unresolved = [row for row in _report(state).get("open_questions") or [] if row.get("id") not in answered]
-    if job(state) == "bugfix":
-        try:
-            from . import autocode_catalog_context as source_catalog
-            from . import autocode_coordination_context as coordination
-        except ImportError:
-            import autocode_catalog_context as source_catalog
-            import autocode_coordination_context as coordination
-        if coordination.context(state) or source_catalog.context(state):
-            # The complete repository and joint plans carry clear requirements
-            # into the single approval. Business questions still need answers.
-            return unresolved
+    try:
+        from . import autocode_catalog_context as source_catalog
+        from . import autocode_coordination_context as coordination
+    except ImportError:
+        import autocode_catalog_context as source_catalog
+        import autocode_coordination_context as coordination
+    if coordination.joint_planning(state) or (
+        job(state) == "bugfix" and (coordination.context(state) or source_catalog.context(state))
+    ):
+        # The complete repository and joint plans carry clear requirements
+        # into the single approval. Business questions still need answers.
+        return unresolved
     if not enabled(state):
         # The default flow stops only while Requirements is still clarifying. A complete handoff with open
         # questions goes to the Planner, whose draft carries them (autocode_planning_clarification).

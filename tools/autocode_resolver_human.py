@@ -82,6 +82,7 @@ def _contract(state: RunState):
 
 def _binding(state: RunState):
     """Stable state frontier; excludes publication/response bookkeeping itself."""
+    runtime = Path(__file__).resolve().parent
     source = None
     if state.get("workspace"):
         try:
@@ -94,6 +95,11 @@ def _binding(state: RunState):
             source = {"unavailable": type(error).__name__ + ": " + str(error)}
     interruptions = pending_interruptions(state.get("run_dir"))
     binding = {
+        # A repaired runner changes the cause even when task source is unchanged.
+        # Expire the old response hold; ordinary approval/admission checks still run.
+        "runtime_sources": support.digest(
+            {str(path.relative_to(runtime)): support.file_hash(path) for path in sorted(runtime.rglob("*.py"))}
+        ),
         "task_id": state.get("task_id"),
         "workspace": state.get("workspace"),
         "run_dir": state.get("run_dir"),

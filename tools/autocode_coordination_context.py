@@ -44,6 +44,37 @@ def proxy_rule(state: RunState, ordinary: str) -> str:
     return JOINT_PROXY_RULE + ordinary if context(state) else ordinary
 
 
+def joint_planning(state: RunState) -> bool:
+    """Authenticate the coordinator's current joint task, including its first start.
+
+    Joint verification is machinery for the original request, so its clear
+    requirements join the consolidated plan instead of asking for confirmation.
+    This identity grants no plan approval or candidate execution authority.
+    """
+    if not state.get("workspace") or not state.get("run_dir"):
+        return False
+    workspace = Path(state["workspace"]).resolve()
+    directory = workspace.parent
+    candidate = directory / "coordination.json"
+    try:
+        if candidate.is_symlink() or not candidate.is_file():
+            return False
+        initial = json.loads(candidate.read_text())
+        anchor = initial.get("anchor")
+        if not isinstance(anchor, str) or coordination_store.root(anchor) != directory:
+            return False
+        document = coordination_store.read(anchor) or {}
+        joint = document.get("joint") or {}
+        pending = document.get("pending") or {}
+        return bool(
+            joint.get("workspace") == str(workspace)
+            and joint.get("run_dir") == str(Path(state["run_dir"]).resolve())
+            and (joint.get("started") or pending.get("operation") == "joint_plan_start")
+        )
+    except (OSError, ValueError):
+        return False
+
+
 def _reported_work(record, member):
     """Only this authenticated member's coordinator record supplies an investigation hint."""
     anchor = record.get("automatic_anchor")

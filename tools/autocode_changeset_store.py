@@ -33,7 +33,7 @@ except ImportError:
     import autocode_util as util
 
 VERSION = 1
-LOCK_TIMEOUT_SECONDS = 1.0
+LOCK_TIMEOUT_SECONDS = 10.0
 
 
 class ChangesetError(Exception):
