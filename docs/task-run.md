@@ -104,6 +104,11 @@ regression proof, review and the joint gate still run normally.
 Concurrent member checkpoints wait up to ten seconds for the shared approval
 record lock. A longer hold still refuses the write; contention never releases
 approvals or starts a provider without its ordinary admission checks.
+If a linked repository assignment is recorded before its child action is refused,
+the coordinator offers that assignment again while the child still holds the
+exact scope question. Reopening takes the existing named advance action; it
+requires no repository selection or human answer. Other questions and stale
+scope identities remain untouched, and assignment grants no plan approval.
 A fresh authenticated proof can also settle a runner finding on unchanged source
 when the retained earlier proof failed entirely at Go test collection because
 its disk was full. The core checks owned receipt chronology, matching source,

@@ -557,6 +557,39 @@ class CoordinationTests(unittest.TestCase):
             step,
         )
 
+    def test_linked_assignment_retries_until_its_exact_scope_question_is_consumed(self):
+        # Assignment receipt publication precedes the child action. A still-active
+        # child can refuse that action, leaving a linked view and its old question.
+        for owner in ("Joint regression", "tax"):
+            with self.subTest(owner=owner):
+                views, pending = self.joint_scope_fixture("history")
+                pending["scope"]["decision"] = "linked_repositories"
+                pending["needs"] = {
+                    "kind": "answer",
+                    "questions": [{"id": "workspace-scope-joint-scope"}],
+                }
+                if owner == "tax":
+                    self.document.pop("joint")
+                    self.document["joint_attempts"] = []
+                    views["tax"] = pending
+                with patch.object(coordinate, "handle", return_value=Mock(status=Mock(return_value=pending))):
+                    step = coordinate.next_step(self.document, views)
+                self.assertEqual(
+                    {"kind": "assign", "target": owner, "identity": "joint-scope",
+                     "members": {"history": str(self.root / "history")}},
+                    step,
+                )
+
+    def test_linked_assignment_does_not_consume_other_or_stale_questions(self):
+        for question in ("business-ambiguity", "workspace-scope-old-identity", None):
+            with self.subTest(question=question):
+                views, pending = self.joint_scope_fixture("history")
+                pending["scope"]["decision"] = "linked_repositories"
+                pending["needs"] = {"kind": "answer", "questions": [{"id": question}] if question else []}
+                with patch.object(coordinate, "handle", return_value=Mock(status=Mock(return_value=pending))):
+                    step = coordinate.next_step(self.document, views)
+                self.assertNotEqual("assign", step["kind"])
+
     def test_discovery_retires_joint_plan_but_preserves_its_failed_evidence(self):
         views, _ = self.joint_scope_fixture()
         active = self.document["joint"]

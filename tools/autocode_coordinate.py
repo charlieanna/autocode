@@ -465,7 +465,16 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
     by_target.update({alias: by_target[canonical] for alias, canonical in aliases.items()})
     for target, view in discovery_views.items():
         scope = view.get("scope") or {}
-        if scope.get("external_parts") and not scope.get("decision"):
+        need = view.get("needs") or {}
+        assignment_pending = (
+            scope.get("decision") == "linked_repositories"
+            and need.get("kind") == "answer"
+            and any(
+                row.get("id") == "workspace-scope-" + str(scope.get("identity"))
+                for row in need.get("questions") or []
+            )
+        )
+        if scope.get("external_parts") and (not scope.get("decision") or assignment_pending):
             required = {part["target"] for part in scope["external_parts"]}
             if required <= by_target.keys():
                 return {

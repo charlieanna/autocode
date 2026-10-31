@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlparse
 
 import autocode_chat_client as chat
 import autocode_chat_coordination as coordination
+import autocode_coordinate as coordinate
 import autocode_taskrun as taskrun
 
 from .test_taskrun import FIXTURE_OPTIONS
@@ -438,6 +439,48 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             )
             self.assertEqual([], self.github.posts, "Ownership assignment grants no publication authority")
             self.assertEqual([], self.questions, "Clear member requirements need no separate confirmation")
+
+    def test_refused_scope_assignment_reopens_as_a_named_retry_without_a_human_answer(self):
+        self.env["COORDINATION_FIXTURE_EARLY_SCOPE"] = "1"
+        self.env["COORDINATION_FIXTURE_MEMBER_CONTEXT"] = "1"
+        with patch.dict(os.environ, self.env, clear=True):
+            client = chat.start(
+                self.intake, "Fix checkout showing the wrong final total.", ["--workflow", "bugfix"],
+                [*FIXTURE_OPTIONS, "--no-adaptive-planning", "--spec-first"],
+                env=self.env, ask=self.answer, say=self.lines.append,
+            )
+            self.addCleanup(client.close)
+            for _ in range(30):
+                current = client.status()
+                if current.get("coordination"):
+                    summary = coordination.read(client, current)
+                    if summary["needs"]["kind"] == "assign":
+                        break
+                client.step()
+            else:
+                self.fail("The fixture never offered a repository assignment")
+            target, identity = summary["needs"]["target"], summary["needs"]["identity"]
+            with patch.object(
+                taskrun.TaskRun, "assign_linked_scope",
+                side_effect=taskrun.TaskRunError("Existing run process is active; leave it untouched"),
+            ):
+                with self.assertRaisesRegex(taskrun.TaskRunError, "process is active"):
+                    coordinate.advance(str(client.run_dir))
+            # Reopen through public status after the receipt was registered but
+            # the real child action was refused; no run state is edited here.
+            recovered = coordination.read(client, client.status())
+            self.assertEqual("assign", recovered["needs"]["kind"])
+            self.assertEqual(identity, recovered["needs"]["identity"])
+            self.assertEqual("advance", recovered["next_command"][2])
+            client.step()
+            member = next(row for row in recovered["members"] if row["target"] == target)
+            view = taskrun.TaskRun(Path(member["workspace"]), Path(member["run_dir"]), env=self.env).status()
+            self.assertEqual("linked_repositories", view["scope"]["decision"])
+            self.assertFalse(any(
+                row["id"] == "workspace-scope-" + identity for row in view["needs"].get("questions", [])
+            ))
+            self.assertEqual([], self.questions, "Recovery supplies no human answer or approval")
+            self.assertEqual([], self.github.posts)
 
     def test_joint_requirements_discover_a_missing_member_before_any_approval(self):
         self.env["COORDINATION_FIXTURE_JOINT_SCOPE"] = "1"
