@@ -237,6 +237,7 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None,
 
 
 MAX_AUTOMATIC_CAPACITY_RECOVERIES = 3
+TIMEOUT_ARCHIVED_VALIDATION = "Timed-out implementation automatically archived"
 
 
 def automatically_recover_report_repair_timeout(state: RunState, run_dir, workspace, error):
@@ -682,17 +683,35 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
     failures.record(state, record, error, records.now())
     originals = records.archive_rejected_stage(state, run_dir, record, record["rejection_reason"])
     state["sessions"].pop(record.get("route_role", record["role"]), None)
-    if state.get("validation"):
-        state.setdefault("validation_archive", []).append(
-            {"reason": "Timed-out implementation automatically archived", "validation": state.pop("validation")}
-        )
-    state["human_reviews"] = {}
-    state.pop("displayed_review", None)
+    semantic_stage = record.get("original_stage") or record["stage"]
+    had_validation = bool(state.get("validation"))
+    # A stopped read-only completion review changed nothing on disk, so the independent validation
+    # it was reviewing is still current. Retiring it would leave the retried completion gate unable
+    # to pass for the evidence it requires; only a writer, or evidence that no longer binds, is
+    # retired here. This is the policy autocode_validation_recovery already applies to an
+    # interrupted completion retry.
+    keep_evidence = semantic_stage in ("astra_review", "astra_checkpoint") and validation_recovery.current(
+        state, record
+    )
+    if not keep_evidence:
+        if had_validation:
+            state.setdefault("validation_archive", []).append(
+                {"reason": TIMEOUT_ARCHIVED_VALIDATION, "validation": state.pop("validation")}
+            )
+        state["human_reviews"] = {}
+        state.pop("displayed_review", None)
 
     next_stage, phase = records.timeout_recovery_route(state, record)
     # Final-audit-only runs keep the Builder in charge of implementation. Other routing
     # modes retain the established Plan Reviewer recovery review before another writer.
-    semantic_stage = record.get("original_stage") or record["stage"]
+    # The completion retry this route chose needs the evidence just retired, so it goes to the
+    # workflow's own verification stage instead — a final-audit-only run has no separate Validator, so
+    # there its own audit stage re-produces the evidence. Asked only here: this route consults the
+    # workflow approval, which no writer's timeout recovery has any reason to raise over.
+    if had_validation and not keep_evidence and next_stage == semantic_stage:
+        verification_stage = workflow.review_stage(state)
+        if verification_stage in ("sol", "astra_checkpoint"):
+            next_stage = verification_stage
     recovery = {
         "at": records.now(),
         "attempt_id": records.attempt_id(record),
@@ -1316,6 +1335,115 @@ def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspac
         next_stage=stage,
     )
     records.write_json(run_dir / "state.json", state)
+    return True
+
+
+def prepare_timeout_archived_completion(state: RunState, run_dir, workspace):
+    """Re-open one checkpoint whose current validation a stopped completion review retired.
+
+    A read-only Completion Review that stopped mid-call changed nothing, so the Tester report its
+    recovery archived can still bind this exact source, contract, criteria set and task with every
+    evidence pin intact. That archived report is the one thing the completion gate lacked, so it is
+    put back — never adopted for a source it did not check, and never as a claim of completion: the
+    ordinary gate re-decides it. A checkpoint whose evidence no longer binds stays paused, because
+    the runner cannot restore authority an inspection would not re-establish.
+    """
+    recovery = state.get("recovery_context") or {}
+    attempt = recovery.get("attempt_id")
+    task_id = (state.get("current_task") or {}).get("id")
+    if (
+        state.get("status") not in ("PAUSED_COMPLETION_GATE", "PAUSED_REPEATED_FAILURE")
+        or state.get("next_stage") != "astra_review"
+        or state.get("validation")
+        or not attempt
+        or recovery.get("stage") != "astra_review"
+        or recovery.get("role") != "astra"
+        or recovery.get("changed_files")
+        or recovery.get("task_id") != task_id
+        or any(
+            state.get(key)
+            for key in (
+                "active_stage",
+                "active_runner_check",
+                "pending_report_repair",
+                "uncertain_artifacts",
+                "pending_questions",
+                "user_request",
+            )
+        )
+        or not any(row.get("attempt_id") == attempt for row in state.get("automatic_timeout_recoveries") or [])
+        or not any(
+            event.get("kind") == "automatic_timeout_recovery" and event.get("attempt_id") == attempt
+            for event in state.get("user_events") or []
+        )
+    ):
+        return False
+    contract = state.get("goal_contract") or {}
+    archived = [
+        row
+        for row in state.get("validation_archive") or []
+        if row.get("reason") == TIMEOUT_ARCHIVED_VALIDATION and (row.get("validation") or {}).get("task_id") == task_id
+    ]
+    if len(archived) != 1:
+        return False
+    validation = archived[0].get("validation") or {}
+    revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
+    if (
+        recovery.get("source_revision") != revision
+        or validation.get("source_revision") != revision
+        or validation.get("contract_hash") != contract.get("hash")
+        or validation.get("contract_revision") != contract.get("revision")
+        or not validation_recovery.current(
+            {**state, "validation": validation}, {"source_revision": revision, "changed_files": []}
+        )
+    ):
+        return False
+    stages = state.get("stages") or []
+    index = next(
+        (
+            i
+            for i in range(len(stages) - 1, -1, -1)
+            if stages[i].get("abandoned") and records.attempt_id(stages[i]) == attempt
+        ),
+        None,
+    )
+    if index is None or any(
+        not row.get("rejected")
+        or row.get("abandoned")
+        or row.get("source_revision") != revision
+        or (row.get("original_stage") or row.get("stage")) != "astra_review"
+        for row in stages[index + 1 :]
+        if not (row.get("runner_owned") and (row.get("decision") or {}).get("action") in ("retry", "hold"))
+    ):
+        return False
+    try:
+        from . import autocode_regression as regression
+    except ImportError:
+        import autocode_regression as regression
+    # The runner's own proof must already carry this source: then the evidence below is the one gap.
+    if not regression.required(state, all_due=True) or not regression.complete(
+        state, revision, all_due=True, require_changed_code=False
+    ):
+        return False
+    state["validation"] = validation
+    state["validation_archive"] = [row for row in state["validation_archive"] if row is not archived[0]]
+    state.setdefault("reconciliation_notes", []).append(
+        {
+            "at": records.now(),
+            "attempt_id": attempt,
+            "previous_status": state["status"],
+            "stage": "astra_review",
+            "reason": "Restored the current pinned validation that a stopped completion review had retired",
+        }
+    )
+    resolver_human.supersede_operational(state, "Scoped completion-timeout evidence recovery was proven")
+    run_status.pause(
+        state,
+        "PAUSED_COMPLETION_GATE",
+        "Validation for this source was restored. Resume explicitly for the Completion Review to decide again.",
+        next_stage="astra_review",
+    )
+    records.write_json(Path(run_dir) / "state.json", state)
     return True
 
 

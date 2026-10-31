@@ -174,7 +174,7 @@ try:
         automatically_recover_external_directory_denial, automatically_recover_report_repair_timeout,
         automatically_recover_timed_out_stage, automatically_recover_truncated_review,
         archive_stale_report_repair, prepare_abandoned_completion_revalidation, stale_report_repair,
-        prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
+        prepare_exhausted_execution_report_retry, prepare_timeout_archived_completion, prepare_planning_retry, reconcile_rate_limited_stage,
         recover_legacy_report_repair, retry_format_failed_report)  # noqa: F401 - compatibility API
     from .autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT  # noqa: F401 - compatibility API
     from . import autocode_idle_policy as idle_policy  # noqa: F401 - compatibility API
@@ -224,7 +224,7 @@ except ImportError:
         automatically_recover_external_directory_denial, automatically_recover_report_repair_timeout,
         automatically_recover_timed_out_stage, automatically_recover_truncated_review,
         archive_stale_report_repair, prepare_abandoned_completion_revalidation, stale_report_repair,
-        prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
+        prepare_exhausted_execution_report_retry, prepare_timeout_archived_completion, prepare_planning_retry, reconcile_rate_limited_stage,
         recover_legacy_report_repair, retry_format_failed_report)  # noqa: F401 - compatibility API
     from autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT  # noqa: F401 - compatibility API
     import autocode_idle_policy as idle_policy  # noqa: F401 - compatibility API
