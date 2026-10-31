@@ -1436,9 +1436,7 @@ class ChatTUI:
         cue = verification.cue(self._view, unavailable=unavailable)
         label = "History · " if self._scroll else ""
         style = self._style("panel-warn" if unavailable else "panel-now")
-        self._put(
-            2, 0, truncate(f"{label}{cue} ({self._observation.compact(time.monotonic())})", layout.width), style
-        )
+        self._put(2, 0, truncate(f"{label}{cue} ({self._observation.compact(time.monotonic())})", layout.width), style)
         if len(self._tabs) < 2:
             self._put(1, 0, self._glyphs.rule * layout.width, self._style("dim"))
             return

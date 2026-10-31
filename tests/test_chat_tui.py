@@ -338,7 +338,9 @@ class SmallTerminalTests(unittest.TestCase):
                 self.assertTrue(all(line < rows for line, _ in shown))
                 words = " ".join(text for _, text in sorted(shown)).split()
                 self.assertEqual(
-                    f"Terminal too small for the chat. Make it at least 32 columns wide and 12 rows tall (now {cols}x{rows}).".split()[: len(words)],
+                    f"Terminal too small for the chat. Make it at least 32 columns wide and 12 rows tall (now {cols}x{rows}).".split()[
+                        : len(words)
+                    ],
                     words,
                 )
 

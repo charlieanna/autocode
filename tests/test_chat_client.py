@@ -862,7 +862,10 @@ class ConversationTests(unittest.TestCase):
         client = ScriptedChat(view, DONE, replies=["model-b"])
         self.assertEqual(0, client.converse())
         out = client.text()
-        self.assertLess(out.index("Models it can continue on: model-a, model-b"), out.index("Which model should the Tester continue on?"))
+        self.assertLess(
+            out.index("Models it can continue on: model-a, model-b"),
+            out.index("Which model should the Tester continue on?"),
+        )
         self.assertIn("Stopped on: model-x (quota)", out)
         self.assertEqual([["--answer", "route-sol=model-b", "--resolver-token", "-"]], client.taken)
 
