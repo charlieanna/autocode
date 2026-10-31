@@ -141,7 +141,11 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         spoken = requirements_chat.reply(state)
         if spoken and spoken != question:
             messages.append(
-                {"id": f"{REQUIREMENTS_SAY}-{hashlib.sha256(spoken.encode()).hexdigest()[:12]}", "role": "assistant", "text": spoken}
+                {
+                    "id": f"{REQUIREMENTS_SAY}-{hashlib.sha256(spoken.encode()).hexdigest()[:12]}",
+                    "role": "assistant",
+                    "text": spoken,
+                }
             )
         text = question or spoken
         if text:

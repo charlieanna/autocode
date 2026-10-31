@@ -450,7 +450,9 @@ def question(
             why=(
                 f"The {job} stopped on {stopped_on}: reasoning and report text shared the response output limit, "
                 "and no complete report was emitted. An unchanged retry can exhaust it again. "
-                "AutoCode never changes the model or token cap on its own." + setting + " Name a model with more output "
+                "AutoCode never changes the model or token cap on its own."
+                + setting
+                + " Name a model with more output "
                 f"headroom for the same engine ({engine(settings, role)}) that passes the producer/checker "
                 "independence rules. The incomplete attempt and its usage remain retained."
             ),
