@@ -383,6 +383,18 @@ class CommandProviderTests(unittest.TestCase):
                 "{report}",
                 "-",
             ],
+            "output_last_message_attached": [
+                "codex",
+                "exec",
+                "-C",
+                "{workspace}",
+                "--model",
+                "{model}",
+                "--output-schema",
+                "{schema}",
+                "--output-last-message={report}",
+                "-",
+            ],
         }
         for name, argv in shapes.items():
             with self.subTest(name=name):
@@ -410,6 +422,15 @@ class CommandProviderTests(unittest.TestCase):
         )
         self.assertFalse(command.codex_sandbox.persists_final_message(["tool"]))
         self.assertFalse(command.codex_sandbox.persists_final_message(["sh", "-c", 'codex exec -o "$6"', "x"]))
+
+    def test_persists_final_message_detects_attached_report_flags(self):
+        self.assertTrue(
+            command.codex_sandbox.persists_final_message(["codex", "exec", "--output-last-message={report}"])
+        )
+        self.assertTrue(command.codex_sandbox.persists_final_message(["codex", "exec", "-o={report}"]))
+        self.assertFalse(
+            command.codex_sandbox.persists_final_message(["codex", "exec", "--output-last-message=elsewhere.json"])
+        )
 
     def test_event_output_resumes_sessions_and_reads_kilo_events(self):
         write_config(
