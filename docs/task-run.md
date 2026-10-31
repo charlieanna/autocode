@@ -108,7 +108,10 @@ If a linked repository assignment is recorded before its child action is refused
 the coordinator offers that assignment again while the child still holds the
 exact scope question. Reopening takes the existing named advance action; it
 requires no repository selection or human answer. Other questions and stale
-scope identities remain untouched, and assignment grants no plan approval.
+scope identities remain untouched, and assignment grants no plan approval. A runtime-only
+repair may refresh the authenticated scope receipt before retiring it, including
+a prior refused-action pause. Source, contract, settings, accounting and other
+frontier changes still invalidate it; no answer or approval is manufactured.
 A fresh authenticated proof can also settle a runner finding on unchanged source
 when the retained earlier proof failed entirely at Go test collection because
 its disk was full. The core checks owned receipt chronology, matching source,

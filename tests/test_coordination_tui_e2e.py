@@ -466,6 +466,15 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(taskrun.TaskRunError, "process is active"):
                     coordinate.advance(str(client.run_dir))
+            # A repaired immutable runtime changes receipt bindings. Reopen
+            # with identical resources and one harmless source marker; never
+            # edit the child state to simulate the stranded handoff.
+            repaired = self.root / "repaired-runtime"
+            shutil.copytree(ROOT / "tools", repaired / "tools", ignore=shutil.ignore_patterns("__pycache__"))
+            shutil.copytree(ROOT / "docs", repaired / "docs")
+            marker = repaired / "tools" / "autocode_action_scope.py"
+            marker.write_text(marker.read_text() + "\n# runtime repair fixture\n")
+            client.command = (sys.executable, str(repaired / "tools" / "autocode.py"))
             # Reopen through public status after the receipt was registered but
             # the real child action was refused; no run state is edited here.
             recovered = coordination.read(client, client.status())
@@ -474,7 +483,9 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             self.assertEqual("advance", recovered["next_command"][2])
             client.step()
             member = next(row for row in recovered["members"] if row["target"] == target)
-            view = taskrun.TaskRun(Path(member["workspace"]), Path(member["run_dir"]), env=self.env).status()
+            view = taskrun.TaskRun(
+                Path(member["workspace"]), Path(member["run_dir"]), command=client.command, env=self.env
+            ).status()
             self.assertEqual("linked_repositories", view["scope"]["decision"])
             self.assertFalse(any(
                 row["id"] == "workspace-scope-" + identity for row in view["needs"].get("questions", [])

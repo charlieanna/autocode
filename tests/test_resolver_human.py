@@ -47,6 +47,64 @@ class ResolverHumanTests(unittest.TestCase):
             self.state.pop("resolver")
             self.assertEqual(before, self.state, "Runtime re-evaluation grants no task authority or allowance")
 
+    def test_assigned_scope_request_refreshes_only_runtime_staleness(self):
+        self.question["id"] = "workspace-scope-current"
+        self.contract([self.question])
+        self.queue_question()
+        self.assertEqual("escalate", human.evaluate(self.state))
+        old = human.current(self.state)
+        original_binding = human._binding(self.state)
+        fresh_binding = {**original_binding, "runtime_sources": "repaired-runtime"}
+        with patch.object(human, "_binding", return_value=fresh_binding):
+            self.assertIsNone(human.current(self.state))
+            refreshed = human.refresh_assigned_scope(self.state)
+            self.assertEqual(old["questions"], refreshed["questions"])
+            self.assertNotEqual(old["request_id"], refreshed["request_id"])
+            self.assertEqual(refreshed, human.current(self.state))
+        self.assertEqual({}, self.state["answers"])
+        self.assertEqual([], self.state["user_events"])
+        self.assertEqual("draft", self.state["goal_contract"]["approval_status"])
+        self.assertEqual("superseded", self.state["resolver"]["human_escalations"][old["request_id"]]["status"])
+
+    def test_assigned_scope_refresh_does_not_rebind_other_changes_or_gates(self):
+        self.question["id"] = "workspace-scope-current"
+        self.contract([self.question])
+        self.queue_question()
+        human.evaluate(self.state)
+        original = copy.deepcopy(self.state)
+        binding = human._binding(self.state)
+        for field in ("settings", "contract", "current_task", "observed_source", "interruptions"):
+            with self.subTest(field=field):
+                self.state = copy.deepcopy(original)
+                with patch.object(human, "_binding", return_value={**binding, "runtime_sources": "new", field: "changed"}):
+                    self.assertIsNone(human.refresh_assigned_scope(self.state))
+                self.assertEqual(original, self.state)
+        for change in ("question", "token", "consumed"):
+            with self.subTest(change=change):
+                self.state = copy.deepcopy(original)
+                if change == "question":
+                    self.state["pending_questions"][0]["question"] = "different"
+                elif change == "token":
+                    self.state[human.PUBLIC]["request_token"] = "forged"
+                else:
+                    key = self.state[human.PUBLIC]["request_id"]
+                    self.state["resolver"]["human_escalations"][key]["status"] = "consumed"
+                before = copy.deepcopy(self.state)
+                with patch.object(human, "_binding", return_value={**binding, "runtime_sources": "new"}):
+                    self.assertIsNone(human.refresh_assigned_scope(self.state))
+                self.assertEqual(before, self.state)
+
+    def test_assigned_scope_refresh_recovers_its_refused_action_pause(self):
+        self.question["id"] = "workspace-scope-current"
+        self.contract([self.question])
+        self.queue_question()
+        human.evaluate(self.state)
+        binding = human._binding(self.state)
+        self.state["status"] = "PAUSED_INVALID_OUTPUT"
+        with patch.object(human, "_binding", return_value={**binding, "runtime_sources": "new"}):
+            self.assertIsNotNone(human.refresh_assigned_scope(self.state))
+            self.assertEqual("WAITING_FOR_USER", self.state["status"])
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
