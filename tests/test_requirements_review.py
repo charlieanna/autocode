@@ -174,6 +174,44 @@ class RequirementsReviewCliTests(unittest.TestCase):
         run, view = self.start(*JOINT)
         self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
 
+    def test_authenticated_joint_build_reaches_plan_without_a_requirements_confirmation(self):
+        from unittest.mock import patch
+
+        import autocode_coordination_store as coordination
+
+        environment = {"AUTOCODE_HOME": str(self.root / "registry")}
+        with patch.dict(os.environ, environment):
+            anchor = str(self.root / "intake/.autocode/runs/fix")
+            project = without_maintenance(materialize(self.scenario.seed, coordination.root(anchor) / "joint-1"))
+            run_dir = project / ".autocode/runs/joint-regression"
+            coordination.save(
+                {
+                    "version": 1,
+                    "anchor": anchor,
+                    "members": [],
+                    "joint": {"workspace": str(project), "run_dir": str(run_dir), "started": False},
+                    "pending": {"operation": "joint_plan_start"},
+                }
+            )
+        flags, provider_env = fake_setup(self.scenario, self.root, self.scenario.dir / "reference")
+        environment = {**provider_env, **environment, "PYTHONDONTWRITEBYTECODE": "1"}
+        environment["PATH"] = os.pathsep.join([str(Path(sys.executable).parent), environment["PATH"]])
+        run = taskrun.TaskRun.start(
+            project,
+            self.scenario.brief,
+            options=(*flags, *JOINT, "--spec-first", "--workflow", "build"),
+            env=environment,
+            timeout=180,
+            cwd=self.root,
+            run_dir=run_dir,
+        )
+        view = run.advance_until_input()
+        self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
+        self.assertIn("requirements_gather", self.stages(run))
+        self.assertIn("astra_discovery", self.stages(run))
+        self.assertFalse(view.get("approved_contract"))
+        self.assertFalse(any(path.name.startswith("builder-") for path in run.run_dir.glob("iterations/*/*")))
+
     def test_without_the_setting_a_handoff_that_only_asks_waits_for_the_answer_then_plans(self):
         # Live (program plan, "build an adaptive learning engine", 2026-10-20): three good questions with empty
         # acceptance tests were refused as invalid output on the default flow until a person resumed the run.

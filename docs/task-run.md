@@ -42,6 +42,11 @@ read-only intake shells receive only the validated catalog directories as extra
 read roots; this grants no Builder write authority. Clear source-grounded bug
 requirements flow into the complete plan without a separate Requirements
 confirmation. Genuine unresolved business questions still pause for an answer.
+This also applies to the coordinator's joint verification task, whose workflow
+is `build`: its saved current joint identity or first-start intent authenticates
+that machinery. A retired, mismatched or ordinary standalone build retains its
+normal Requirements flow. No Requirements confirmation is recorded on the
+person's behalf, and the consolidated plan still requires exact approval.
 
 `view.request_sources` carries the authenticated live human source texts as
 `{id, kind, text}` records, including Requirements clarifications. It excludes
