@@ -202,11 +202,12 @@ print('VIEWER-CLOSED')
         hung_pid = int(ready.read_text())
         started = time.monotonic()
         os.write(leader, b"/help\r")
-        # Wait for the full help response, not its typeahead menu. The healthy
-        # response is deliberately still gated: help cannot depend on its order.
-        shown = read_terminal(leader, until=b"Leave the chat", seconds=3)
+        # Wait for the help response, not its typeahead menu: only the response lists
+        # /pause. The healthy response is deliberately still gated: help cannot depend
+        # on its order. While AutoCode works, help lists only what works now (#2561).
+        shown = read_terminal(leader, until=b"Ask AutoCode to pause", seconds=3)
         help_seconds = time.monotonic() - started
-        self.assertIn(b"List these commands", shown)
+        self.assertNotIn(b"Leave the chat", shown)
         self.assertNotIn(b"Another chat finished", shown)
         os.kill(hung_pid, 0)
         with healthy_gate.open("w") as release:

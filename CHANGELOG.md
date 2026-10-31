@@ -23,6 +23,8 @@ PR template asks for an entry here; a change without one is incomplete.
   chat says so. A revision that changes any of those, or adds a repository, is shown for approval again.
 ### Fixed
 
+- The terminal chat's `/help` lists only commands available in the current state, so it no longer advertises `/live` or `/log` before a chat is open.
+- Discuss-only requests no longer pause for producer/verifier model independence when those roles use the same model; the Analyst produces no code to verify.
 - `autocode verify` on a Go feature whose new tests reference new types no longer counts every test
   in the touched packages as fail-to-pass (#2505). Only test functions the change adds or edits are
   proof; an unchanged test that passed in the base suite and still passes is reported as

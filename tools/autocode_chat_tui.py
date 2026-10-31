@@ -1220,7 +1220,18 @@ class ChatTUI:
                     "/panel", "The terminal is too narrow for the panel; /plan and /tasks show it here."
                 )
             return None
-        text = panel.text(name, self._view, self._log)
+        available = (
+            panel.commands(
+                asking=asking,
+                client=self._act is not None,
+                run=self._run_open,
+                detachable=self._can_detach(),
+                draft=self._draft_tab(asking),
+            )
+            if name == "/help"
+            else None
+        )
+        text = panel.text(name, self._view, self._log, available=available)
         if name == "/details":
             text += "\n\n" + self._observation.details(time.monotonic())
         self._transcript.info(name, text)
