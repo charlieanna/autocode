@@ -237,6 +237,29 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             self.assertFalse(self.github.posts)
             self.assertFalse(list(run.run_dir.glob("iterations/*/builder-*.jsonl")))
 
+    def test_original_clarification_reaches_the_coordinated_member_through_public_actions(self):
+        clarification = "The displayed result is zero instead of 1000."
+        with patch.dict(os.environ, self.env, clear=True):
+            run = taskrun.TaskRun.start(
+                self.intake,
+                "Fix checkout showing the wrong final total.",
+                options=(*FIXTURE_OPTIONS, "--no-adaptive-planning", "--spec-first"),
+                env=self.env,
+                timeout=120,
+            )
+            run.feedback(clarification)
+            view = run.advance_until_input()
+            self.assertIn(clarification, [row["text"] for row in view["request_sources"]])
+            history = chat.History(self.intake, env=self.env)
+            action = ["coordinate", "advance", "--run-dir", str(run.run_dir), "--json"]
+            first = history.read(action)
+            self.assertEqual(1, len(first["members"]))
+            started = history.read(action)
+            member = started["members"][0]
+            child = taskrun.TaskRun(Path(member["workspace"]), Path(member["run_dir"]), env=self.env)
+            self.assertIn(clarification, child.status()["task"])
+            self.assertFalse(self.github.posts)
+
     def run_flow(self):
         history = chat.History(self.intake, env=self.env)
         with patch.dict(os.environ, self.env, clear=True):

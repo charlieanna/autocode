@@ -63,7 +63,7 @@ release implementation against the expanded set.
 
 AutoCode prepares the joint-test plan from the pinned repository baselines before
 any Builder starts. The chat shows every repository plan and that joint plan in
-one approval offer, bound to the original request, discovery snapshot, selected
+one approval offer, bound to the original request and its clarifications, discovery snapshot, selected
 repository identities and exact plan tokens. No member or joint Builder runs
 before that approval. AutoCode retains the selected role routes, efforts and run
 limits. A configured money cap is shared across sequential

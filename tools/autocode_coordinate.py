@@ -14,6 +14,7 @@ import uuid
 from pathlib import Path
 
 try:
+    from . import autocode_coordination_request as request
     from . import autocode_changeset as changesets
     from . import autocode_changeset_store as sets
     from . import autocode_client_actions as actions
@@ -29,6 +30,7 @@ try:
     from . import autocode_taskrun as tasks
     from . import autocode_util as util
 except ImportError:
+    import autocode_coordination_request as request
     import autocode_changeset as changesets
     import autocode_changeset_store as sets
     import autocode_client_actions as actions
@@ -78,6 +80,7 @@ def initialize(run_dir, *, command=tasks.AUTOCODE):
         "id": directory.name,
         "anchor": str(Path(run_dir).resolve()),
         "task": view["task"],
+        "request_sources": view.get("request_sources", []),
         "anchor_turn": view["turn"],
         "anchor_scope": scope["identity"],
         "budget": budget.initial(view),
@@ -135,6 +138,8 @@ def add_member(document, target, entry, brief, *, reported_work=None, supporting
 def observe(document, *, command=tasks.AUTOCODE):
     if document.get("anchor_turn"):
         current_anchor = anchor_view(document["anchor"], command=command)
+        if "request_sources" in document and current_anchor.get("request_sources", []) != document["request_sources"]:
+            raise store.CoordinationError("The anchor request sources changed; review the updated request")
         if current_anchor.get("turn") != document["anchor_turn"] or current_anchor.get("task") != document["task"]:
             raise store.CoordinationError(
                 "The anchor request changed; its previous coordination cannot certify this new request"
@@ -402,6 +407,12 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
             }
     if document.get("pending"):
         return {"kind": "reconcile", **document["pending"]}
+    sources = document.get("request_sources")
+    if sources is None and document.get("anchor_turn"):
+        sources = anchor_view(document["anchor"], command=command).get("request_sources")
+    source_recovery = request.recovery(document, views, sources)
+    if source_recovery:
+        return source_recovery
     if (document.get("budget") or {}).get("cap_usd"):
         rows, history = budget_observations(document, views, command=command)
         offered = limits.offer(document, rows, history)
@@ -542,6 +553,8 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
 
 
 AUTOMATIC = {
+    "sync_request",
+    "request_feedback",
     "resolve",
     "start",
     "alias",
@@ -617,6 +630,7 @@ def status(run_dir, *, command=tasks.AUTOCODE):
         binding = {
             "revision": document["revision"],
             "task": document["task"],
+            "request_sources": document.get("request_sources", []),
             "anchor_turn": document.get("anchor_turn"),
             "anchor_scope": document.get("anchor_scope"),
             "step": step,
@@ -779,12 +793,26 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
         document["active"] = step.get("target") or kind.replace("_", " ")
         store.save(document)
         member = next((row for row in document["members"] if row["target"] == step.get("target")), None)
-        if kind == "resolve":
+        if kind == "sync_request":
+            document["request_sources"] = step["sources"]
+            document.setdefault("request_recovery", []).append(
+                {"at": util.now(), "reason": "Retain authenticated request clarifications before planning"}
+            )
+            for row in document["members"]:
+                if not row.get("started"):
+                    row["brief"] = request.brief(document)
+        elif kind == "request_feedback":
+            document["pending"] = {"operation": "request_feedback", "target": member["target"], "message": step["message"]}
+            store.save(document)
+            handle(member, command=command).feedback(step["message"])
+            member["brief"] = step["message"]
+            document["pending"] = None
+        elif kind == "resolve":
             add_member(
                 document,
                 step["target"],
                 step["entry"],
-                document["task"],
+                request.brief(document),
                 reported_work=step["work"],
                 supporting_evidence=step.get("supporting_evidence"),
             )
@@ -794,6 +822,15 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
         elif kind == "start":
             start_member(document, member, command=command, limits=budget_options(document, views, command=command))
         elif kind == "reconcile":
+            if step.get("operation") == "request_feedback" and member:
+                fresh = handle(member, command=command).status()
+                messages = [row for row in (fresh.get("chat") or {}).get("messages", []) if row.get("role") == "user"]
+                if not messages or messages[-1].get("text") != step["message"]:
+                    raise store.CoordinationError("Request feedback outcome is uncertain; it was not submitted twice")
+                member["brief"] = step["message"]
+                document["pending"] = None
+                store.save(document)
+                return status(run_dir, command=command)
             if step.get("operation") == "follow_up" and member:
                 fresh = handle(member, command=command).status()
                 if not follow_up_received(fresh, step["turn"], step["message"]):

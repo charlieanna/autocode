@@ -21,9 +21,11 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
+    from . import autocode_brief_obligations as brief_obligations
     from . import autocode_acceptance_recovery as acceptance_recovery
     from . import autocode_interaction_timing as interaction_timing
 except ImportError:
+    import autocode_brief_obligations as brief_obligations
     import autocode_acceptance_recovery as acceptance_recovery
     import autocode_interaction_timing as interaction_timing
 
@@ -353,6 +355,7 @@ def view(
     result["scope"] = scope_question.view(
         state, (state.get("requirements_handoff") or {}).get("dropped_external_parts")
     )
+    result["request_sources"] = deepcopy(brief_obligations.sources(state))
     result["related_profile"] = related_profile.project(state)
     result["coordination"] = (
         coordination_store.offer(
