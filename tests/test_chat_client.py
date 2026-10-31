@@ -47,6 +47,32 @@ def read_terminal(leader: int, *, until: bytes | None = None, seconds: float = 6
     return seen
 
 
+def drain_terminal(leader: int, condition, *, seconds: float = 60) -> bool:
+    """Wait for ``condition`` while reading the terminal away; False when the deadline passes.
+
+    A pty has a bounded output buffer, and curses blocks in its write once it fills. A
+    viewer left undrained therefore stops making progress and cannot exit either, so a
+    test waiting on a process or a file rather than on screen text has to keep reading.
+    A real terminal always does.
+    """
+    deadline = time.monotonic() + seconds
+    while True:
+        if condition():
+            return True
+        if time.monotonic() > deadline:
+            return False
+        if not select.select([leader], [], [], 0.05)[0]:
+            continue
+        try:
+            chunk = os.read(leader, 65536)
+        except OSError:  # Linux reports the child's end closing as EIO
+            chunk = b""
+        if not chunk:
+            # The child's end closed: look at the condition once more before giving up,
+            # since "the process exited" is itself a condition this waits on.
+            return condition()
+
+
 def answer_view(**need):
     return {
         "status": "WAITING_FOR_USER",

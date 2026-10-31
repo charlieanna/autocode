@@ -15,7 +15,7 @@ from pathlib import Path
 import autocode_taskrun as taskrun
 
 from tests.test_agent_step import fixture_workspace
-from tests.test_chat_client import read_terminal
+from tests.test_chat_client import drain_terminal, read_terminal
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -107,9 +107,16 @@ class AttachedTerminal(unittest.TestCase):
         self.assertIsNone(worker.poll(), "pause requests do not interrupt the external worker")
         with open(gate, "w") as release:
             release.write("continue")
-        self.assertEqual(2, worker.wait(timeout=90))
+        # Keep the terminal drained while waiting on a process rather than on screen text:
+        # curses blocks in its write once the pty's buffer fills, which stalls both the
+        # redraw the next wait is looking for and the exit being waited on.
+        if not drain_terminal(leader, lambda: worker.poll() is not None, seconds=90):
+            log.seek(0)
+            self.fail("the external worker never finished: " + log.read()[-3000:])
+        self.assertEqual(2, worker.wait(timeout=15))
         read_terminal(leader, until=b"ctrl-d quit", seconds=30)
         os.write(leader, b"\x04")
+        self.assertTrue(drain_terminal(leader, lambda: viewer.poll() is not None, seconds=15), "the viewer did not leave after Ctrl-D")
         self.assertEqual(2, viewer.wait(timeout=15))
         view = run.status()
         self.assertFalse((view.get("controller") or {}).get("alive"))
@@ -194,11 +201,8 @@ print('VIEWER-CLOSED')
         )
         os.close(follower)
         self.addCleanup(self.stop, viewer)
-        deadline = time.monotonic() + 15
-        while not ready.exists() or not healthy_ready.exists():
-            if viewer.poll() is not None or time.monotonic() > deadline:
-                self.fail("fault-injected status read never started")
-            time.sleep(0.01)
+        if not drain_terminal(leader, lambda: ready.exists() and healthy_ready.exists(), seconds=15):
+            self.fail("fault-injected status read never started")
         hung_pid = int(ready.read_text())
         started = time.monotonic()
         os.write(leader, b"/help\r")
