@@ -102,6 +102,28 @@ class GoFeatureProofTests(unittest.TestCase):
         self.assertEqual(verify.FAIL, result["verdict"], result)
         self.assertEqual([], result["fail_to_pass"])
 
+    def test_a_skipped_new_test_is_no_proof(self):
+        result = self.prove(
+            {
+                "cart/discount.go": DISCOUNT,
+                "cart/discount_test.go": 'package cart\n\nimport "testing"\n\nfunc TestDiscount(t *testing.T) {\n\tt.Skip("later")\n}\n',
+            }
+        )
+        self.assertEqual(verify.FAIL, result["verdict"], result)
+        self.assertEqual([], result["fail_to_pass"])
+        self.assertIn("shop/cart::TestTotal", result["pass_to_pass"])
+
+    def test_an_existing_test_the_change_breaks_fails_the_proof_by_name(self):
+        result = self.prove(
+            {
+                "cart/cart.go": CART.replace("sum += p", "sum -= p"),
+                "cart/discount.go": DISCOUNT,
+                "cart/cart_test.go": CART_TEST + DISCOUNT_TEST,
+            }
+        )
+        self.assertEqual(verify.FAIL, result["verdict"], result)
+        self.assertIn("shop/cart::TestTotal", str(result), result)
+
 
 if __name__ == "__main__":
     unittest.main()
