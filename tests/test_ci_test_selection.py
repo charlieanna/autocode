@@ -8,6 +8,20 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_go_prerequisites_keep_public_execution_consumer(self):
+        consumer = "tests.test_go_prerequisites_execution"
+        for path in (
+            "tools/autocode_go_test_prerequisites.py",
+            "tools/autocode_acceptance_tests.py",
+            "tools/autocode_acceptance_tests_job.py",
+            "tools/autocode_verify.py",
+            "tools/prompts/acceptance-tests.md",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_capability_startup_keeps_the_public_demo_consumer(self):
         consumers = {"tests.test_capability_startup", "tests.test_demo"}
         for path in ("tools/autocode_capability_startup.py", "tools/autocode_native_invocation.py"):

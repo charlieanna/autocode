@@ -67,6 +67,7 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tools/prompts/acceptance-tests.md", ("tests.test_go_prerequisites_execution",)),
     ("tools/autocode_capability_startup.py", ("tests.test_capability_startup", "tests.test_demo")),
     ("tools/autocode_native_invocation.py", ("tests.test_capability_startup", "tests.test_demo")),
     (
@@ -496,6 +497,15 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_acceptance_tests",),
     ),
     (("tools/autocode_python_tests.py", "tools/autocode_verify.py"), ("tests.test_acceptance_tests",)),
+    (
+        (
+            "tools/autocode_go_test_prerequisites.py",
+            "tools/autocode_acceptance_tests.py",
+            "tools/autocode_acceptance_tests_job.py",
+            "tools/autocode_verify.py",
+        ),
+        ("tests.test_go_prerequisites_execution",),
+    ),
     (
         (
             "tools/autocode_acceptance_provenance.py",

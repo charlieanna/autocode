@@ -55,6 +55,7 @@ try:
     from . import autocode_command_supervision as command_supervision
     from . import autocode_diff_coverage as diff_coverage
     from . import autocode_first_suite as first_suite
+    from . import autocode_go_test_prerequisites as go_prerequisites
     from . import autocode_go_tests as go_tests
     from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_junit_first_suite as junit_first
@@ -91,6 +92,7 @@ except ImportError:
     import autocode_command_supervision as command_supervision
     import autocode_diff_coverage as diff_coverage
     import autocode_first_suite as first_suite
+    import autocode_go_test_prerequisites as go_prerequisites
     import autocode_go_tests as go_tests
     import autocode_investigation_workspace as investigation_workspace
     import autocode_junit_first_suite as junit_first
@@ -283,12 +285,6 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
 def _untested_base(workspace, base) -> bool:
     paths = project_inventory.regular_paths(_git(workspace, "ls-tree", "-r", "-l", "-z", base), executable=True)
     return paths is not None and not any(is_test_path(path) for path in paths)
-
-
-def _no_go_project(workspace, base, copied) -> bool:
-    """A link, submodule or copied Go source keeps ordinary preservation rules."""
-    paths = project_inventory.regular_paths(_git(workspace, "ls-tree", "-r", "-l", "-z", base))
-    return paths is not None and not first_suite.contains_go_project([*paths, *copied])
 
 
 def _package_scripts(text) -> dict:
@@ -2402,12 +2398,16 @@ def verify(
                 ignored_inputs=ignored_inputs,
             )
         if trees and runnable_tests and (sources or preserve):
-            trees["base_with_tests"] = make_tree(
+            trees["base_with_tests"], proof["test_prerequisites"] = go_prerequisites.prepare_base(
+                make_tree,
                 workspace,
                 base,
-                run_dir / "scratch" / "base-with-tests",
-                workspace,
+                run_dir,
+                trees["candidate"],
                 test_changes,
+                changes,
+                notes,
+                run_command,
                 dependencies_from=dependencies_from,
                 patch=base_patch,
                 generated_record=generated_record,
@@ -2424,9 +2424,8 @@ def verify(
             and not base_patch
             and framework is not None
             and framework.name == "go"
-            and _no_go_project(
-                workspace,
-                base,
+            and first_suite.no_go_project(
+                _git(workspace, "ls-tree", "-r", "-l", "-z", base),
                 _copied_generated(dependencies_from, generated_record, generated_unrecorded, ignored_inputs),
             )
         )
@@ -2818,6 +2817,7 @@ def verify(
         "unstable": proof.get("unstable"),
         "proof_stability": proof.get("proof_stability"),
         "diff_coverage": proof.get("diff_coverage"),
+        "test_prerequisites": proof.get("test_prerequisites"),
         "checks": checks,
     }
 

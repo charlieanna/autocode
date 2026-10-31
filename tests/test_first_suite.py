@@ -10,6 +10,20 @@ import autocode_verify as verify
 from tests.test_verify import Project
 
 
+class GoProjectInventoryTests(unittest.TestCase):
+    def test_absence_requires_regular_inventory_without_original_or_copied_go_inputs(self):
+        self.assertTrue(first_suite.no_go_project("100644 blob abc 3\tREADME.md\0", []))
+        for listing, copied in (
+            ("100644 blob abc 3\tgo.mod\0", []),
+            ("100644 blob abc 3\tapp.go\0", []),
+            ("100644 blob abc 3\tREADME.md\0", ["generated/app.go"]),
+            ("120000 blob abc 3\tREADME.md\0", []),
+            ("160000 commit abc -\tsubmodule\0", []),
+        ):
+            with self.subTest(listing=listing, copied=copied):
+                self.assertFalse(first_suite.no_go_project(listing, copied))
+
+
 @unittest.skipUnless(shutil.which("node"), "Node is required for native suite proof")
 class FirstNodeSuiteTests(unittest.TestCase):
     def prove(self, seed=None, *, new_behavior=True, top_level_import=False, broken=False, preserve_only=False):

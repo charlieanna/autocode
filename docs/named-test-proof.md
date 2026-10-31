@@ -420,3 +420,23 @@ their receipts in `tool_containment.scratch`. It cites `regression_proof` direct
 check that reads run files, which are absent from clean replay. This changes no
 network permissions, replay policy or completion requirements. Uncontained
 Testers retain the existing instruction to run the regression command themselves.
+
+### Go test prerequisite metadata
+
+A test may import a package from an already selected transitive module whose
+indirect requirement or checksum is missing from the root manifests. Where the
+approved plan permits it, the acceptance Tester may add that loading metadata
+alongside its tests. The core admits only additive indirect requirements at the
+original Go selection and missing checksums verified against offline cached
+module artifacts. Existing requirements, versions, module/toolchain directives
+and checksums cannot be replaced or removed through this exception.
+
+The runner retains both native graph observations and exact manifest hashes,
+including any change in transitive module selection. Those observations grant no
+plan approval: a version constraint in the approved plan still applies. The
+Builder must retain admitted metadata byte-for-byte, including for blind tests.
+The final regression comparison uses identical admitted metadata on original and
+corrected production source, while the original suite baseline keeps its original
+inputs. Compilation failures never establish a bug reproduction. Other dependency
+changes remain on the ordinary proof path and are not overlaid onto the original
+source as test prerequisites.

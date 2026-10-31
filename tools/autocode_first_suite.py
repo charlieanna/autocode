@@ -7,8 +7,10 @@ import subprocess
 from pathlib import PurePosixPath
 
 try:
+    from . import autocode_project_inventory as project_inventory
     from . import autocode_verification_schedule as schedule
 except ImportError:
+    import autocode_project_inventory as project_inventory
     import autocode_verification_schedule as schedule
 
 
@@ -23,6 +25,12 @@ _NO_GO_SUITE = (
 )
 # The pattern itself, reported as a build failure when `go test` is not inside a module.
 _GO_PATTERN_FAILURES = frozenset({"./...::[build failed]", ".::[build failed]"})
+
+
+def no_go_project(inventory, copied) -> bool:
+    """A link, submodule or copied Go source keeps ordinary preservation rules."""
+    paths = project_inventory.regular_paths(inventory)
+    return paths is not None and not contains_go_project([*paths, *copied])
 
 
 def contains_go_project(paths) -> bool:

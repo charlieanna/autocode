@@ -2,9 +2,9 @@
 
 autocode_acceptance_tests routes a build here when its due ``test:``/``guard:`` cases have no tests yet.
 The Tester, on the Validator's model with a session of its own, writes one test per case, named as the
-case says, and changes nothing but test files. The runner then:
+case says, and changes only test files and validated Go loading metadata. The runner then:
 
-- rejects the report if the attempt changed anything that is not a test file (the stray-write rule),
+- rejects non-test changes except additive already-selected Go prerequisites (the stray-write rule),
 - runs the reported test files on the code as it is (a scratch copy) and requires, per case, that a
   ``test:`` case's test does not pass there (a failure, or a file that cannot load because the product
   lacks what it imports, counts when the file defines the named test) and that a ``guard:`` case's
@@ -42,23 +42,25 @@ from pathlib import Path
 try:
     from . import autocode_acceptance_provenance as provenance
     from . import autocode_acceptance_tests as acceptance
+    from . import autocode_go_test_prerequisites as go_prerequisites
     from . import autocode_handoff_dedup as handoff
     from . import autocode_run_status as run_status
     from . import autocode_stray_writes as stray_writes
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
     from .autocode_report_repair_queue import ExecutionEvidenceRequired
-    from .autocode_verify import is_test_path
+    from .autocode_verify import is_test_path, run_command
 except ImportError:
     import autocode_acceptance_provenance as provenance
     import autocode_acceptance_tests as acceptance
+    import autocode_go_test_prerequisites as go_prerequisites
     import autocode_handoff_dedup as handoff
     import autocode_run_status as run_status
     import autocode_stray_writes as stray_writes
     import autocode_test_cases as test_cases
     import autocode_util as util
     from autocode_report_repair_queue import ExecutionEvidenceRequired
-    from autocode_verify import is_test_path
+    from autocode_verify import is_test_path, run_command
 
 STAGE = acceptance.STAGE
 PAUSE = "PAUSED_ACCEPTANCE_TESTS"
@@ -296,6 +298,19 @@ def apply(
     ``send_back(body, changes)`` installs a runner-corrected draft and restarts plan review (the unit passes
     it); a case the runner saw already pass is sent back once, relabelled guard:, else the run pauses."""
     stray = sorted(str(path) for path in record.get("changed_files") or [] if not is_test_path(str(path)))
+    prerequisites = {}
+    if stray and all(Path(path).name in ("go.mod", "go.sum") for path in stray):
+        try:
+            prerequisites = go_prerequisites.from_attempt(
+                workspace,
+                record,
+                stray,
+                Path(evidence_dir or Path(record.get("output") or workspace).parent) / "go-test-prerequisites",
+                run_command,
+            )["files"]
+        except (OSError, ValueError, KeyError) as error:
+            raise stray_writes.StrayWrites("Unverified Go test prerequisites: " + str(error), stray) from error
+        stray = [path for path in stray if path not in prerequisites]
     if stray:
         raise stray_writes.StrayWrites(
             "The Tester may change only test files; this attempt changed: " + ", ".join(stray), stray
@@ -359,7 +374,7 @@ def apply(
     archive = Path(evidence_dir or Path(record.get("output") or workspace).parent) / "acceptance-tests"
     archive.mkdir(parents=True, exist_ok=True)
     kept = {}
-    for path in files:
+    for path in sorted(set(files) | prerequisites.keys()):
         digest = util.file_hash(Path(workspace) / path)
         copy = archive / digest
         shutil.copyfile(Path(workspace) / path, copy)
