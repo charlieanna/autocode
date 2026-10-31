@@ -8,15 +8,17 @@ try:
     from . import autocode_coordination_context as coordination
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
+    from .autocode_run_state import RunState
 except ImportError:
     import autocode_acceptance_tests as acceptance
     import autocode_contract_identity as contracts
     import autocode_coordination_context as coordination
     import autocode_test_cases as test_cases
     import autocode_util as util
+    from autocode_run_state import RunState
 
 
-def candidate(state, record, revision):
+def candidate(state: RunState, record, revision):
     """Recognize exact spec-first preservation input, never grant proof or completion.
 
     Only authenticated coordinated producers with an approved all-guard assignment

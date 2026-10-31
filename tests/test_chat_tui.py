@@ -992,7 +992,7 @@ class AttentionBadgeTests(unittest.TestCase):
         ui._put = lambda row, col, text, attr=0: puts.append((row, col, text))
         ui._draw()
         header = next(text for row, _, text in puts if "F8" in text)
-        self.assertIn("F8: attention unavailable:", header)
+        self.assertIn("F8: alerts unavailable:", header)
         self.assertIn("autocode attention --json", header)
 
     def test_counts_still_show_without_an_error(self):
@@ -1002,7 +1002,7 @@ class AttentionBadgeTests(unittest.TestCase):
         ui._put = lambda row, col, text, attr=0: puts.append((row, col, text))
         ui._draw()
         header = next(text for row, _, text in puts if "F8" in text)
-        self.assertIn("F8: 2 unread", header)
+        self.assertIn("F8: 2 new alerts", header)
         self.assertNotIn("unavailable", header)
 
 

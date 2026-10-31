@@ -4,6 +4,11 @@ from datetime import datetime
 from pathlib import Path
 
 try:
+    from .autocode_run_state import RunState
+except ImportError:
+    from autocode_run_state import RunState
+
+try:
     from . import autocode_util as util
     from . import autocode_verification_schedule as schedule
 except ImportError:
@@ -11,7 +16,7 @@ except ImportError:
     import autocode_verification_schedule as schedule
 
 
-def disk_collection_failure(state, row, revision):
+def disk_collection_failure(state: RunState, row, revision):
     """True only for retained runner checks that collected no behavioral failure.
 
     The caller must authenticate the current passing proof. A report's assertion
