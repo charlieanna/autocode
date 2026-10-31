@@ -31,7 +31,10 @@ autocode registry repositories add /srv/standalone/history-consumer
 autocode registry roots list
 ```
 
-Then start `autocode chat` from any directory and provide the ticket only. On a
+Then start plain `autocode` in a terminal (or `autocode chat`) from any directory
+and provide the ticket only. A clear bug identified by Requirements enters the
+coordinated flow without a workflow flag or separate Requirements confirmation;
+genuine unanswered business questions still need clarification. On a
 supported Linux host, use an owned chat (the default) and set up your coding
 backend with `/connect`. AutoCode investigates the configured local catalog;
 `/repos` displays roots and discovered repositories. This catalog is setup, not

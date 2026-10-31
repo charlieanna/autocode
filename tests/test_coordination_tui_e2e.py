@@ -221,6 +221,22 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
         )
         return "yes"
 
+    def test_unpinned_chat_bug_offers_coordination_without_a_scope_or_requirements_answer(self):
+        with patch.dict(os.environ, self.env, clear=True):
+            run = taskrun.TaskRun.start(
+                self.intake,
+                "Fix checkout showing the wrong final total.",
+                options=(*FIXTURE_OPTIONS, "--no-adaptive-planning", "--spec-first"),
+                env=self.env,
+                timeout=120,
+            )
+            view = run.status()
+            self.assertEqual("bugfix", view["workflow"])
+            self.assertIsNotNone(view["coordination"], view["needs"])
+            self.assertEqual([], view["scope"]["linked"])
+            self.assertFalse(self.github.posts)
+            self.assertFalse(list(run.run_dir.glob("iterations/*/builder-*.jsonl")))
+
     def run_flow(self):
         history = chat.History(self.intake, env=self.env)
         with patch.dict(os.environ, self.env, clear=True):
