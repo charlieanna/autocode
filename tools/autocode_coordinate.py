@@ -14,7 +14,6 @@ import uuid
 from pathlib import Path
 
 try:
-    from . import autocode_coordination_request as request
     from . import autocode_changeset as changesets
     from . import autocode_changeset_store as sets
     from . import autocode_client_actions as actions
@@ -25,12 +24,12 @@ try:
     from . import autocode_coordination_limits as limits
     from . import autocode_coordination_publish as publication
     from . import autocode_coordination_repositories as repos
+    from . import autocode_coordination_request as request
     from . import autocode_coordination_store as store
     from . import autocode_github as github
     from . import autocode_taskrun as tasks
     from . import autocode_util as util
 except ImportError:
-    import autocode_coordination_request as request
     import autocode_changeset as changesets
     import autocode_changeset_store as sets
     import autocode_client_actions as actions
@@ -41,6 +40,7 @@ except ImportError:
     import autocode_coordination_limits as limits
     import autocode_coordination_publish as publication
     import autocode_coordination_repositories as repos
+    import autocode_coordination_request as request
     import autocode_coordination_store as store
     import autocode_github as github
     import autocode_taskrun as tasks
@@ -814,7 +814,11 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
                 if not row.get("started"):
                     row["brief"] = request.brief(document)
         elif kind == "request_feedback":
-            document["pending"] = {"operation": "request_feedback", "target": member["target"], "message": step["message"]}
+            document["pending"] = {
+                "operation": "request_feedback",
+                "target": member["target"],
+                "message": step["message"],
+            }
             store.save(document)
             handle(member, command=command).feedback(step["message"])
             member["brief"] = step["message"]

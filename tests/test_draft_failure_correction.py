@@ -140,13 +140,21 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                 changed["acceptance_criteria"][0][field] = value
                 if field == "criterion":
                     changes.append(
-                        {"item": "C1", "change": "reworded", "basis": "agent_proposed", "answer_id": "", "replacement": value}
+                        {
+                            "item": "C1",
+                            "change": "reworded",
+                            "basis": "agent_proposed",
+                            "answer_id": "",
+                            "replacement": value,
+                        }
                     )
                 lifecycle.install_draft(current, changed, origin="glm_revise", changes=changes)
                 saved = current["goal_contract"]
                 self.assertEqual(value, saved["body"]["acceptance_criteria"][0][field])
                 self.assertEqual(AFTER, saved["body"]["important_failure_cases"][-1])
-                self.assertEqual(previous["acceptance_criteria"][0]["sources"], saved["body"]["acceptance_criteria"][0]["sources"])
+                self.assertEqual(
+                    previous["acceptance_criteria"][0]["sources"], saved["body"]["acceptance_criteria"][0]["sources"]
+                )
                 self.assertFalse(goals.approved(current))
                 self.assertEqual("astra_finalize", current["next_stage"])
 

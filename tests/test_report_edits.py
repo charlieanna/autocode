@@ -111,8 +111,8 @@ class ReportEditsTests(unittest.TestCase):
         result = edits.apply(
             {"kept": True, "removed": "old"},
             [
-                {"op": "replace", "path": ["kept"], "value_json": 'false'},
-                {"op": "remove", "path": ["removed"], "value_json": 'null'},
+                {"op": "replace", "path": ["kept"], "value_json": "false"},
+                {"op": "remove", "path": ["removed"], "value_json": "null"},
                 {"op": "add", "path": ["added"], "value_json": '{"items":[1,"two"]}'},
             ],
         )

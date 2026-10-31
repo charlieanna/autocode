@@ -21,12 +21,12 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
-    from . import autocode_brief_obligations as brief_obligations
     from . import autocode_acceptance_recovery as acceptance_recovery
+    from . import autocode_brief_obligations as brief_obligations
     from . import autocode_interaction_timing as interaction_timing
 except ImportError:
-    import autocode_brief_obligations as brief_obligations
     import autocode_acceptance_recovery as acceptance_recovery
+    import autocode_brief_obligations as brief_obligations
     import autocode_interaction_timing as interaction_timing
 
 try:

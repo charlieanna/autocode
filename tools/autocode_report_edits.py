@@ -24,7 +24,7 @@ MAX_EDIT_VALUE_BYTES = 128 * 1024
 RULE = (
     "BOUNDED REPORT EDITS. When the output schema offers repair_report, prefer that form for a small correction: "
     "return only repair_report with the exact rejected_report.sha256 and up to 32 edits. Each edit has op, path "
-    "and value_json, a JSON-encoded string (use the literal string \"null\" for remove). Paths are nonempty "
+    'and value_json, a JSON-encoded string (use the literal string "null" for remove). Paths are nonempty '
     "arrays of object keys or existing array indices. "
     "Use add only for an absent object field; remove only an existing object field; replace only an existing "
     "field/item. Do not edit overlapping paths or shift arrays. The runner applies edits to the complete "

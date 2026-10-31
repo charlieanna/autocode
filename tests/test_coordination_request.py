@@ -28,10 +28,12 @@ class CoordinationRequestTests(unittest.TestCase):
         from autocode_coordination_request import recovery
 
         doc = {"task": "Fix history", "members": []}
-        for extra, views in (({"approved_contracts": {"token": "old"}}, {}),
-                             ({"joint": {}}, {}),
-                             ({}, {"api": {"approved_contract": {"token": "old"}}}),
-                             ({}, {"api": {"usage": {"accounting": {"active_attempts": 1}}}})):
+        for extra, views in (
+            ({"approved_contracts": {"token": "old"}}, {}),
+            ({"joint": {}}, {}),
+            ({}, {"api": {"approved_contract": {"token": "old"}}}),
+            ({}, {"api": {"usage": {"accounting": {"active_attempts": 1}}}}),
+        ):
             with self.subTest(extra=extra, views=views):
                 self.assertEqual("blocked", recovery({**doc, **extra}, views, [])["kind"])
 
@@ -56,8 +58,13 @@ class CoordinationRequestTests(unittest.TestCase):
         self.assertEqual("Fix history", brief({"task": "Fix history"}))
         self.assertEqual(
             "Fix history\n\nKeep XML.\nRedact authInfo.",
-            brief({"task": "Fix history", "request_sources": [
-                {"id": "task:0", "kind": "task", "text": "Fix history"},
-                {"id": "answer:Q1", "kind": "user_answer", "text": "Keep XML.\nRedact authInfo."},
-            ]}),
+            brief(
+                {
+                    "task": "Fix history",
+                    "request_sources": [
+                        {"id": "task:0", "kind": "task", "text": "Fix history"},
+                        {"id": "answer:Q1", "kind": "user_answer", "text": "Keep XML.\nRedact authInfo."},
+                    ],
+                }
+            ),
         )

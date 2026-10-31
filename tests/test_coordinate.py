@@ -242,8 +242,12 @@ class CoordinationTests(unittest.TestCase):
 
     def test_changed_request_sources_refuse_execution_even_when_task_and_scope_match(self):
         self.document.update(anchor_turn=1, anchor_scope="same", request_sources=[])
-        view = {"turn": 1, "task": self.document["task"], "scope": {"identity": "same"},
-                "request_sources": [{"id": "answer:Q1", "kind": "user_answer", "text": "New acceptance"}]}
+        view = {
+            "turn": 1,
+            "task": self.document["task"],
+            "scope": {"identity": "same"},
+            "request_sources": [{"id": "answer:Q1", "kind": "user_answer", "text": "New acceptance"}],
+        }
         with patch.object(coordinate, "anchor_view", return_value=view):
             with self.assertRaisesRegex(store.CoordinationError, "request.*changed"):
                 coordinate.observe(self.document)
@@ -251,13 +255,15 @@ class CoordinationTests(unittest.TestCase):
     def test_resolved_members_and_joint_brief_include_original_clarifications(self):
         self.document["request_sources"] = [{"id": "answer:Q1", "kind": "user_answer", "text": "Preserve 2304."}]
         step = {"kind": "resolve", "target": "api", "entry": {}, "work": "Investigate history"}
-        with (patch.object(store, "read", return_value=self.document),
-              patch.object(coordinate, "observe", return_value={}),
-              patch.object(coordinate, "next_step", return_value=step),
-              patch.object(coordinate, "observe_dependencies"),
-              patch.object(coordinate, "sync_set"),
-              patch.object(coordinate, "status", return_value={}),
-              patch.object(coordinate, "add_member") as add):
+        with (
+            patch.object(store, "read", return_value=self.document),
+            patch.object(coordinate, "observe", return_value={}),
+            patch.object(coordinate, "next_step", return_value=step),
+            patch.object(coordinate, "observe_dependencies"),
+            patch.object(coordinate, "sync_set"),
+            patch.object(coordinate, "status", return_value={}),
+            patch.object(coordinate, "add_member") as add,
+        ):
             coordinate.advance(self.document["anchor"])
         self.assertIn("Preserve 2304.", add.call_args.args[3])
 
@@ -276,12 +282,14 @@ class CoordinationTests(unittest.TestCase):
         member = {"target": "api", "started": False, "brief": self.document["task"]}
         self.document["members"] = [member]
         run = Mock()
-        with (patch.object(store, "read", return_value=self.document),
-              patch.object(coordinate, "observe", return_value={}),
-              patch.object(coordinate, "next_step") as next_step,
-              patch.object(coordinate, "observe_dependencies"),
-              patch.object(coordinate, "status", return_value={}),
-              patch.object(coordinate, "handle", return_value=run)):
+        with (
+            patch.object(store, "read", return_value=self.document),
+            patch.object(coordinate, "observe", return_value={}),
+            patch.object(coordinate, "next_step") as next_step,
+            patch.object(coordinate, "observe_dependencies"),
+            patch.object(coordinate, "status", return_value={}),
+            patch.object(coordinate, "handle", return_value=run),
+        ):
             next_step.return_value = {"kind": "sync_request", "sources": sources}
             coordinate.advance(self.document["anchor"])
             self.assertEqual(sources, self.document["request_sources"])
