@@ -2726,7 +2726,9 @@ def verify(
                 empty_root=empty_root,
                 kept_tests=proof.get("pass_to_pass") or (),
                 untested=bool(base) and _untested_base(workspace, base),
-                repaired=proof.get("fail_to_pass") if existing_failures else (),
+                repaired=proof.get("fail_to_pass")
+                if existing_failures
+                else first_suite.repaired_by_flip(comparable, checks.get("regression_on_base"), on_candidate),
             )
             # make_tree copies ignored test files into both trees, so a guard could rest on a test base never held.
             hidden = [
@@ -3081,7 +3083,8 @@ def _judge_suite(
 ):
     """Nothing that passed on base may fail, be skipped, be deselected or disappear (``kept_tests``: first_suite).
 
-    ``repaired``: the base's failing tests that pass on the candidate (first_suite.existing_flip).
+    ``repaired``: the base's failing tests that pass on the candidate (first_suite.existing_flip when
+    no test changed, first_suite.repaired_by_flip when the change also changed tests).
     """
     if on_candidate["timed_out"]:
         fail.append("The project suite timed out on the candidate")

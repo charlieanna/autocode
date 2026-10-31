@@ -381,8 +381,39 @@ def existing_flip(on_candidate, base_suite, failing, proof, fail, unverified, no
     notes.append("Existing tests that fail on the original code pass with the change: " + ", ".join(flipped[:20]))
 
 
+def repaired_by_flip(base_suite, on_base_with_tests, on_candidate):
+    """The base's failing tests a repair that also changed tests is still shown to repair: they run and
+    fail on the base with the new test files, and pass now.
+
+    A change that edits test files loses the unchanged-test proof above, but the base suite's failing
+    tests (``base_suite``) still run against the new test files (``on_base_with_tests``, the targeted
+    regression run on the base) and their honest flip is the same repair evidence: the names that ran
+    and failed there and pass on the candidate suite (existing_flip uses the same suite on the
+    candidate). A name weakened to pass on the unfixed code never failed there and proves nothing; a
+    name the targeted run did not re-run is unproven; collection and setup errors are not tests that
+    ran; incomplete, missing or timed-out runs prove nothing either. New tests flipping are
+    fail-to-pass evidence of new behavior (judge_regression), not the repair of a base failure.
+    """
+    if not on_base_with_tests or not on_candidate:
+        return []
+    if on_base_with_tests.get("timed_out") or on_candidate.get("timed_out"):
+        return []
+    base = on_base_with_tests.get("results") or {}
+    candidate = on_candidate.get("results") or {}
+    if not (base.get("complete") and candidate.get("complete")):
+        return []
+    base_results = ((base_suite or {}).get("receipt") or {}).get("results") or {}
+    ran_and_failed = (
+        set(base.get("failed") or [])
+        - set(base.get("collection_errors") or [])
+        - set((base.get("setup_errors") or {}).keys())
+    )
+    return sorted(set(base_results.get("failed") or []) & ran_and_failed & set(candidate.get("passed") or []))
+
+
 def repaired_all(base_results, repaired, notes) -> bool:
-    """Every failing base test was repaired (existing_flip): a base with no passing test then has nothing lost."""
+    """Every failing base test was repaired (existing_flip or repaired_by_flip): a base with no passing
+    test then has nothing lost."""
     if not repaired or not isinstance(base_results, dict) or not set(base_results["failed"]) <= set(repaired):
         return False
     if not base_results["passed"]:
