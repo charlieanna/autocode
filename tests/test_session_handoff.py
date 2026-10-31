@@ -91,6 +91,62 @@ class SessionHandoffTests(unittest.TestCase):
         self.assertEqual(2, opened.call_count)
         sleep.assert_called_once_with(0.025)
 
+    def test_single_read_keeps_the_parse_diagnostic_without_retrying(self):
+        Path(self.metadata["receipt"]).write_text("{")
+        with patch.object(supervision.time, "sleep") as sleep:
+            self.assertEqual((None, ("parse", "json_invalid")), supervision._read_receipt_once(self.metadata))
+        sleep.assert_not_called()
+
+    def test_parse_visibility_retry_reopens_and_authenticates_fresh_bytes(self):
+        target = Path(self.metadata["receipt"])
+        target.write_text("{")
+        original_open = Path.open
+        with (
+            patch.object(Path, "open", autospec=True, side_effect=original_open) as opened,
+            patch.object(supervision.time, "sleep", side_effect=lambda _: self.save()) as sleep,
+            patch.object(processes, "process_table", return_value={502: self.creator}),
+            patch.object(handoff, "admit_session", return_value=True) as admit,
+        ):
+            self.assertEqual({"session_admitted": 123, "guard": "a" * 32}, self.reply())
+        self.assertEqual(2, sum(call.args[1:] == ("rb",) for call in opened.call_args_list))
+        sleep.assert_called_once_with(0.025)
+        admit.assert_called_once_with(self.metadata, self.record, 15)
+
+    def test_parse_retry_never_uses_a_foreign_replacement_or_old_valid_value(self):
+        for key in ("nonce", "owner", "keeper", "provider", "schema"):
+            with self.subTest(key=key):
+                Path(self.metadata["receipt"]).write_text("{")
+                foreign = {**self.value, key: "foreign"}
+
+                def publish_foreign(_):
+                    Path(self.metadata["receipt"]).write_text(json.dumps(foreign))
+
+                with (
+                    patch.object(supervision.time, "sleep", side_effect=publish_foreign) as sleep,
+                    patch.object(handoff, "admit_session") as admit,
+                ):
+                    with self.assertRaisesRegex(supervision.SupervisionError, "receipt is unavailable"):
+                        self.reply()
+                sleep.assert_called_once_with(0.025)
+                admit.assert_not_called()
+
+    def test_persistent_parse_failure_is_bounded_and_cannot_grant(self):
+        Path(self.metadata["receipt"]).write_text("{")
+        original_open = Path.open
+        with (
+            patch.object(Path, "open", autospec=True, side_effect=original_open) as opened,
+            patch.object(supervision.time, "sleep") as sleep,
+            patch.object(handoff, "admit_session") as admit,
+        ):
+            with self.assertRaises(supervision.SupervisionError) as caught:
+                self.reply()
+        self.assertEqual(5, opened.call_count)
+        self.assertEqual([((0.025,), {})] * 4, sleep.call_args_list)
+        admit.assert_not_called()
+        self.assertIn(
+            "receipt_reason=json_invalid", supervision._session_handoff_failure(caught.exception, "check_ownership")
+        )
+
     def test_initial_open_retry_preserves_the_enclosing_admission_decision(self):
         for admitted in (False, True):
             with (
@@ -129,7 +185,6 @@ class SessionHandoffTests(unittest.TestCase):
             ("wrong_keeper", {**self.value, "keeper": {}}, "keeper_mismatch"),
             ("wrong_provider", {**self.value, "provider": {}}, "provider_mismatch"),
             ("wrong_schema", {**self.value, "schema": 2}, "schema_invalid"),
-            ("malformed", "{", "json_invalid"),
         ]
         for name, value, reason in cases:
             with self.subTest(case=name):
@@ -391,6 +446,54 @@ class SessionHandoffTests(unittest.TestCase):
             value, diagnostic = supervision._read_receipt(self.metadata)
             self.assertIsNone(value)
             self.assertEqual(("read", "size_limit"), diagnostic)
+
+    @unittest.skipUnless(sys.platform == "linux", "real supervised session handoffs require Linux")
+    def test_public_launch_recovers_one_malformed_read_during_session_handoff(self):
+        target = Path(self.directory.name) / "real-parse-handoff.json"
+        malformed = target.with_name("malformed.json")
+        malformed.write_text("{")
+        local = threading.local()
+        original_reply, original_open = supervision.session_handoff_reply, Path.open
+        injected = []
+
+        def reply(*args):
+            local.active = True
+            try:
+                return original_reply(*args)
+            finally:
+                local.active = False
+
+        def open_receipt(path, *args, **kwargs):
+            if path == target and getattr(local, "active", False) and not injected:
+                injected.append(True)
+                return original_open(malformed, *args, **kwargs)
+            return original_open(path, *args, **kwargs)
+
+        with (
+            patch.object(supervision, "session_handoff_reply", side_effect=reply),
+            patch.object(Path, "open", open_receipt),
+        ):
+            with supervision.launch(
+                [
+                    sys.executable,
+                    "-c",
+                    "import subprocess,sys; subprocess.run([sys.executable,'-c','pass'],start_new_session=True,check=True); print('handoff-done')",
+                ],
+                receipt_path=target,
+                timeout=20,
+                start_new_session=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ) as child:
+                output, stderr = child.communicate(timeout=15)
+                self.assertEqual(0, child.returncode, stderr)
+        self.assertEqual([True], injected)
+        self.assertEqual("handoff-done\n", output)
+        final = supervision.receipt(child.supervision)
+        self.assertEqual("stopped", final["phase"])
+        self.assertIsNone(final["cleanup_error"])
+        self.assertFalse(processes.live_processes([child.supervision[key] for key in ("keeper", "provider")]))
 
     @unittest.skipUnless(sys.platform == "linux", "real supervised session handoffs require Linux")
     def test_public_launch_keeps_handoff_when_the_opened_receipt_path_is_removed(self):
