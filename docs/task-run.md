@@ -89,6 +89,11 @@ and pass on exact candidates.
 Completion review rechecks the proof when its preservation mode changes, even
 after repeated failures on unchanged source. A passing preservation proof also
 expires when that mode no longer applies; stable contexts keep normal reuse.
+A fresh authenticated preservation proof can retire an obsolete private completion
+blocker caused solely by the old product-code-only proof rule. The core archives
+the prior runner receipt and private proposal, then runs independent completion
+review. It grants no completion or approval and never withdraws published questions,
+permission requests, or blockers for other causes.
 
 At a settled shared-cost stop, `needs.kind=budget` names the current finite cap,
 known accumulated spend, accounting completeness, `minimum_cap_usd`, and its own
