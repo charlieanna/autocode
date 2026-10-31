@@ -99,6 +99,9 @@ may submit those exact archived test files for fresh independent review. The cor
 checks approved producer membership, case coverage, receipt/source identities,
 file hashes, ownership and unchanged snapshots. This records a candidate handoff;
 regression proof, review and the joint gate still run normally.
+Concurrent member checkpoints wait up to ten seconds for the shared approval
+record lock. A longer hold still refuses the write; contention never releases
+approvals or starts a provider without its ordinary admission checks.
 
 At a settled shared-cost stop, `needs.kind=budget` names the current finite cap,
 known accumulated spend, accounting completeness, `minimum_cap_usd`, and its own
