@@ -259,6 +259,7 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                         print(f"Input rejected: {error}", file=sys.stderr)
                         return 2
                 runner.prepare_abandoned_completion_revalidation(state, run_dir, workspace)
+                runner.prepare_timeout_archived_completion(state, run_dir, workspace)
                 runner.prepare_planning_retry(state, run_dir)
                 runner.prepare_exhausted_execution_report_retry(state, run_dir, workspace)
                 discarded = runner.archive_stale_report_repair(state, run_dir, workspace)

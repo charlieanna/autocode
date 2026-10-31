@@ -30,6 +30,39 @@ class ChangesetStoreTests(unittest.TestCase):
             brief="In history: record it.",
         )
 
+    def test_checkpoint_contention_longer_than_one_second_keeps_the_same_atomic_mutation(self):
+        elapsed = [0.0]
+
+        def acquire(handle):
+            if elapsed[0] < 1.5:
+                raise BlockingIOError()
+
+        with (
+            mock.patch.object(store.time, "monotonic", side_effect=lambda: elapsed[0]),
+            mock.patch.object(
+                store.time, "sleep", side_effect=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds)
+            ),
+            mock.patch.object(store.util, "lock_file", side_effect=acquire),
+        ):
+            record = self.reserve()
+        self.assertEqual(1, len(store.records()))
+        self.assertEqual(record["id"], store.find(self.source)["id"])
+        self.assertGreaterEqual(elapsed[0], 1.5)
+
+    def test_persistent_checkpoint_contention_is_bounded_and_never_writes(self):
+        elapsed = [0.0]
+        with (
+            mock.patch.object(store.time, "monotonic", side_effect=lambda: elapsed[0]),
+            mock.patch.object(
+                store.time, "sleep", side_effect=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds)
+            ),
+            mock.patch.object(store.util, "lock_file", side_effect=BlockingIOError),
+        ):
+            with self.assertRaisesRegex(store.ChangesetError, "busy"):
+                self.reserve()
+        self.assertLessEqual(elapsed[0], 10.1)
+        self.assertFalse(store.path().exists())
+
     def test_both_runs_of_a_linked_pair_see_each_other(self):
         record = self.reserve()
         self.assertEqual(store.changeset_id(self.source), record["id"])

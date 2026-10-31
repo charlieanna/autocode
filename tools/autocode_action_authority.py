@@ -277,7 +277,9 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
         if cause == "PAUSED_REPEATED_FAILURE":
             published_status = state["status"]
             state["status"] = cause
-            specific_recovery = runner.prepare_abandoned_completion_revalidation(state, run_dir, workspace)
+            specific_recovery = runner.prepare_abandoned_completion_revalidation(
+                state, run_dir, workspace
+            ) or runner.prepare_timeout_archived_completion(state, run_dir, workspace)
             if not specific_recovery:
                 state["status"] = published_status
     # A source-only stale repair is already a recognized recovery. Do not let

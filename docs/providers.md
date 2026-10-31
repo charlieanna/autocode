@@ -43,6 +43,14 @@ host except macOS, refuses the launch before provider spawn. The refusal
 identifies the unavailable boundary; it does not send a model request. There is
 no CLI opt-out.
 
+Ownership receipt reads retry malformed JSON up to five fresh reads, with
+25 ms between parse failures. Every read checks the size, schema, nonce and
+owner/keeper/provider identities before it can authorize a session handoff;
+no cached receipt grants ownership. Identity, schema, access and I/O failures
+remain immediate refusals, and persistent malformed JSON still pauses cleanup.
+This permits recovery from a transient malformed read during receipt publication
+without treating the failed read as evidence.
+
 macOS has no seccomp, so providers there run without this boundary (#1195):
 the keeper's lifeline and sampled process-group and session ownership, as for
 runner commands, with no kernel proof that every descendant exited. The run

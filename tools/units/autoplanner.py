@@ -1551,11 +1551,15 @@ def context(state: RunState, stage, state_path):
         design_rule += acceptance_policy.DOMAIN
     if rows and stage in TRACE_STAGES:
         design_rule += REQUIREMENT_TRACE_RULE
-    literals = brief_literals.literals(goals.scan_texts(state)) if stage in TRACE_STAGES else []
-    design_rule += brief_literals.rule(literals) if literals else ""
+    # Per-run citation lists go after the static policy so planning prompts share
+    # the longest static prefix a provider can cache (#2136).
+    citation_rule = ""
+    if stage in TRACE_STAGES:
+        literals = brief_literals.literals(goals.scan_texts(state))
+        citation_rule += brief_literals.rule(literals) if literals else ""
     if stage in CITATION_STAGES:
         records = brief_obligations.sources(state)
-        design_rule += source_trace.rule(records) if records else ""
+        citation_rule += source_trace.rule(records) if records else ""
     if stage != "requirements_gather":
         design_rule += BRIEF_ACCEPTANCE_CARRY_RULE
     if packet.get("source_sentences"):
@@ -1606,6 +1610,7 @@ def context(state: RunState, stage, state_path):
         + planning_policy
         + clarification_policy
         + progressive_rule
+        + citation_rule
         + s.COMMON
         + retain_rule
         + prompts.get("fragments/autoplanner/context-03.md")

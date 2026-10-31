@@ -224,8 +224,8 @@ def _open_receipt(path):
             time.sleep(0.025)
 
 
-def _read_receipt(metadata):
-    """Size-check and read one opened receipt; only initial absence is retried."""
+def _read_receipt_once(metadata):
+    """Size-check and authenticate the bytes of one opened receipt."""
     phase = "metadata"
     try:
         path = Path(metadata["receipt"])
@@ -268,6 +268,20 @@ def _read_receipt(metadata):
         else:
             reason = "value_invalid"
         return None, (phase, reason)
+
+
+def _read_receipt(metadata):
+    """Allow bounded parse visibility lag, always reopening and authenticating.
+
+    A transient malformed read is not ownership evidence. Only a fresh complete
+    receipt can supply it; identity, schema, access and I/O failures stop at once.
+    Persistent corruption remains unknown after at most 100 ms of parse waits.
+    """
+    for attempt in range(5):
+        value, diagnostic = _read_receipt_once(metadata)
+        if diagnostic != ("parse", "json_invalid") or attempt == 4:
+            return value, diagnostic
+        time.sleep(0.025)
 
 
 def receipt(metadata):

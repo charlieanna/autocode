@@ -201,11 +201,21 @@ def preserve_only(state: RunState, *, all_due=False):
     to be tests alone; that diff-dependent rule is applied where the diff is known (_prove,
     passing verify's ``test_only_allowed``, #510).
     """
-    if goals.task_kind(state) == "bugfix":
-        return False
     due = cases(state, all_due=all_due)
     if not due:
         return False
+    if goals.task_kind(state) == "bugfix":
+        if (state.get("goal_contract") or {}).get("approval_status") != "approved" or not all(
+            case.get("kind") == "preserve" for case in due
+        ):
+            return False
+        try:
+            from . import autocode_coordination_context as coordination
+        except ImportError:
+            import autocode_coordination_context as coordination
+        # A preservation-only member does not itself claim to repair the bug.
+        # The separate joint gate still requires real fail-before/pass-after.
+        return bool(coordination.context(state))
     return all(case.get("kind") == "preserve" for case in due) or _test_only_exception(state)
 
 
@@ -229,6 +239,11 @@ def head(workspace):
 LAUNCH_REFS = "refs/autocode/launch/"
 LAUNCH_REF_GRACE_SECONDS = 86400  # a run launched in another worktree has saved its run directory by then
 MISSING_CASES_REASON = "Completion rejected: the milestone proof still needs all required cases: "
+CHANGED_CODE_REASON = (
+    "Completion rejected: the runner's regression proof for this source reports no failed case; the "
+    "independent changed-line or receipt-custody evidence the completion gate requires is missing or "
+    "no longer binds. A fresh independent review of the changed lines is required."
+)
 
 
 def _git(workspace, *args):
@@ -633,6 +648,13 @@ def _proving(
         out = Path(run_dir) / "regression" / f"proof-{number:02d}-{uuid.uuid4().hex}"
         progress("Comparing regression tests and checking the full candidate suite", command=suite, output=out)
         coverage = preserve_only(state, all_due=all_due)
+        if coverage and goals.task_kind(state) == "bugfix":
+            # Member preservation coverage authorizes tests alone. A product
+            # change still needs the ordinary bugfix fail-before/pass-after proof.
+            coverage = not any(
+                not verify.is_test_path(path)
+                for path in verify.changed_files(workspace, base, source_paths=source_scope.paths(state))
+            )
         due = cases(state, all_due=all_due)
         # A non-bugfix contract whose due cases are all test criteria may be a coverage
         # or characterization build: the product already implements the behavior and the
@@ -846,6 +868,10 @@ def rejection(state: RunState, *, all_due=True):
     ]
     if proof.get("verdict") == verify.PASS and missing:
         return MISSING_CASES_REASON + ", ".join(missing)
+    if proof.get("verdict") == verify.PASS and not (proof.get("failures") or proof.get("unverified")):
+        # Nothing the runner measured failed and every due case is covered, so what the gate lacks is
+        # the independent evidence bound to this measurement — not a regression proof for this source.
+        return CHANGED_CODE_REASON
     reasons = (
         "; ".join((proof.get("failures") or []) + (proof.get("unverified") or []))
         or "no proof exists for the current source"
@@ -1101,6 +1127,7 @@ def _review_needs_proof(state: RunState, workspace):
         saved.get("source_revision") != current
         or context.get("contract_identity") != util.digest(state.get("goal_contract"))
         or context.get("cases_identity") != util.digest(cases(state))
+        or bool(context.get("preserve_only")) != preserve_only(state)
     ):
         return True
     return saved.get("verdict") == verify.FAIL and (

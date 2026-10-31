@@ -11,6 +11,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Smaller per-request prefixes on small fixes (#2136): the per-run citation lists (source
+  trace, brief literals) no longer sit ahead of the ~11.8KB static policy block in planning
+  and discovery prompts. They now render right after it — after "REGRESSION REFERENCE:" in
+  planning prompts and after "MILESTONE HANDOFF POLICY v1" in discovery prompts, before the
+  transport block — so the policy bytes are identical across every request in a run and
+  provider prefix caching can reuse them. Prompt bytes are otherwise unchanged (pure
+  relocation; fixture byte counts identical).
 - The terminal chat's header speaks plainly (#2559): the status row reads "Reading run status (status read
   3s ago, run state at 05:00:00 UTC)" instead of "viewer read …; core sample …", the F8 badge counts
   "new" and "unchecked" alerts, and a terminal too small for the chat says, wrapped to fit, how many
@@ -27,6 +34,7 @@ PR template asks for an entry here; a change without one is incomplete.
   chat says so. A revision that changes any of those, or adds a repository, is shown for approval again.
 ### Fixed
 
+- Transient malformed supervision receipts are reopened and authenticated within a bounded retry window; identity, schema, I/O and access refusals remain immediate, and persistent corruption remains unknown.
 - The Codex final-message detector recognizes the `=`-attached flag forms (`--output-last-message={report}`,
   `-o={report}`), so a command tool using them no longer prompts a shell write of the report into a
   read-only sandbox and a valid `codex_artifacts` configuration using them is no longer refused (#2061).

@@ -30,6 +30,7 @@ EXPORTS = {
             "prepare_abandoned_completion_revalidation",
             "prepare_exhausted_execution_report_retry",
             "prepare_planning_retry",
+            "prepare_timeout_archived_completion",
             "recover_legacy_report_repair",
             "retry_format_failed_report",
         ],

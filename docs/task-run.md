@@ -42,6 +42,11 @@ read-only intake shells receive only the validated catalog directories as extra
 read roots; this grants no Builder write authority. Clear source-grounded bug
 requirements flow into the complete plan without a separate Requirements
 confirmation. Genuine unresolved business questions still pause for an answer.
+This also applies to the coordinator's joint verification task, whose workflow
+is `build`: its saved current joint identity or first-start intent authenticates
+that machinery. A retired, mismatched or ordinary standalone build retains its
+normal Requirements flow. No Requirements confirmation is recorded on the
+person's behalf, and the consolidated plan still requires exact approval.
 
 `view.request_sources` carries the authenticated live human source texts as
 `{id, kind, text}` records, including Requirements clarifications. It excludes
@@ -75,6 +80,37 @@ current catalog candidates. After member runs complete, a named
 `coordinate bind` action snapshots exact candidate trees, including deletions,
 for the already-approved joint test. Cancellation prevents further dispatch and
 submits only current members' named boundary-pause actions.
+
+An approved automatic producer member whose due criteria are all `guard:` cases
+may deliver preservation tests alone. Its proof requires those named tests to
+pass on both the baseline and candidate, without a permission answer. Any product
+change retains the ordinary bugfix fail-before/pass-after requirement. Standalone
+bug fixes and the joint verification task do not receive this member allowance;
+the joint gate still requires the real combined regression to fail on baseline
+and pass on exact candidates.
+Completion review rechecks the proof when its preservation mode changes, even
+after repeated failures on unchanged source. A passing preservation proof also
+expires when that mode no longer applies; stable contexts keep normal reuse.
+A fresh authenticated preservation proof can retire an obsolete private completion
+blocker caused solely by the old product-code-only proof rule. The core archives
+the prior runner receipt and private proposal, then runs independent completion
+review. It grants no completion or approval and never withdraws published questions,
+permission requests, or blockers for other causes.
+When the spec-first Tester already wrote every due guard, an unchanged Builder
+may submit those exact archived test files for fresh independent review. The core
+checks approved producer membership, case coverage, receipt/source identities,
+file hashes, ownership and unchanged snapshots. This records a candidate handoff;
+regression proof, review and the joint gate still run normally.
+Concurrent member checkpoints wait up to ten seconds for the shared approval
+record lock. A longer hold still refuses the write; contention never releases
+approvals or starts a provider without its ordinary admission checks.
+A fresh authenticated proof can also settle a runner finding on unchanged source
+when the retained earlier proof failed entirely at Go test collection because
+its disk was full. The core checks owned receipt chronology, matching source,
+log hashes and supervision receipts, and refuses any actual failing test name,
+mixed error or stale scope. Reviewer findings still require that reviewer
+to resolve or retract them; no product edit is manufactured for an environment
+repair, and no completion or approval follows from this reconciliation alone.
 
 At a settled shared-cost stop, `needs.kind=budget` names the current finite cap,
 known accumulated spend, accounting completeness, `minimum_cap_usd`, and its own
@@ -454,6 +490,11 @@ run. The informational reply alone still changes nothing (#2434).
 An operational `resolver_response` offer binds `provide_information` to the current
 Resolver request ID and token in `needs`. It supplies corrective information only;
 retry grants, scope changes, model routing and resuming remain separate actions.
+Resolver frontier bindings also include the runner's Python source contents,
+using relative names rather than its installation path. A runner repair expires
+an old response hold so ordinary continuation can reconsider the stop. This
+grants no approval, permission or additional recovery allowance; unchanged runner
+contents retain the hold even when installed in another directory.
 In spec-first chat runs, a message at plan approval is interpreted by the saved Requirements
 route when the client continues. Questions receive an assistant reply while preserving the reviewed
 plan and its token; requested or mixed corrections enter normal requirements/review again and need
