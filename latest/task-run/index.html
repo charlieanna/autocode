@@ -2338,7 +2338,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a7b871bb192ef6cf3737021432405616af1ebcba/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/6790242ade8594a2ebc454e5174998bee2dd89a5/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2374,10 +2374,20 @@ read-only intake shells receive only the validated catalog directories as extra
 read roots; this grants no Builder write authority. Clear source-grounded bug
 requirements flow into the complete plan without a separate Requirements
 confirmation. Genuine unresolved business questions still pause for an answer.</p>
+<p><code>view.request_sources</code> carries the authenticated live human source texts as
+<code>{id, kind, text}</code> records, including Requirements clarifications. It excludes
+model prose and discarded answers. Coordination pins those exact records and
+carries their text into every member and joint brief. A changed source inventory
+invalidates the saved coordination and its approval, even if the opening task
+and repository scope are unchanged. Older unapproved, idle coordinations adopt
+the current inventory and refresh incomplete member briefs through public,
+receipted feedback actions. Interrupted feedback is reconciled against its
+public chat receipt; an uncertain outcome is never submitted twice. Approved
+or active work cannot use this recovery to replace its request.</p>
 <p>The version-1 coordination view identifies the anchor, record revision, phase,
 member workspaces/runs/PRs, <code>done</code>, <code>needs</code>, and optional <code>next_command</code> and
 <code>approval</code>. The joint-test baseline and plan are prepared before any Builder.
-One approval binds the original request, source-catalog snapshot, repository
+One approval binds the original request and its human-source inventory, source-catalog snapshot, repository
 membership and pinned baselines, plus every exact member and joint-plan token.
 Clients reread before approving. Pass its token privately as <code>--token -</code> with
 <code>AUTOCODE_COORDINATION_TOKEN</code>; providers never receive that variable. A missing
@@ -3253,7 +3263,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/a7b871bb192ef6cf3737021432405616af1ebcba/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/6790242ade8594a2ebc454e5174998bee2dd89a5/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3886,7 +3896,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/a7b871bb192ef6cf3737021432405616af1ebcba/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/6790242ade8594a2ebc454e5174998bee2dd89a5/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
