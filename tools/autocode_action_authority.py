@@ -169,6 +169,7 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
             args.show_goal,
             args.accept_completion,
             args.resolver_response,
+            getattr(args, "assign_linked_scope", None),
             args.planning_review_call_limit is not None,
             bool(args.close_finding),
         )

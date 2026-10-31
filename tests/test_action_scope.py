@@ -35,3 +35,27 @@ class AssignmentActionTests(unittest.TestCase):
                                      state, Path("state.json"), Path("run"), Path("workspace"), None)
                 supersede.assert_not_called()
                 runner.write_json.assert_not_called()
+
+    def test_exact_assignment_reaches_its_handler_without_generic_pause_cleanup(self):
+        import copy
+        import autocode as runner
+        import autocode_action_authority as authority
+        import autocode_args
+        from autocode_run_actions import Decided
+
+        parser = autocode_args.build_parser(None, runner.DEFAULT_ROLE_MODELS)
+        args = parser.parse_args(["--assign-linked-scope", "current"])
+        state = {"status": "PAUSED_INVALID_OUTPUT", "settings": {},
+                 "pending_questions": [{"id": "workspace-scope-current"}]}
+        before = copy.deepcopy(state)
+        decided = Decided()
+        with patch.object(authority.resolver_human, "current", return_value=None), \
+             patch.object(authority.resolver_human, "response_holds_current_frontier", return_value=False), \
+             patch.object(authority.operational_information, "reevaluate", return_value=None), \
+             patch.object(authority.resolver_runtime, "record_operational_exhaustion", return_value=False) as investigate:
+            result = authority.settle(Mock(), args, parser, state, Path("state.json"), Path("run"),
+                                      Path("workspace"), decided)
+        self.assertIsNone(result)
+        self.assertEqual(before, state)
+        self.assertTrue(decided.decision_action)
+        investigate.assert_not_called()

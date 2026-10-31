@@ -466,6 +466,18 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(taskrun.TaskRunError, "process is active"):
                     coordinate.advance(str(client.run_dir))
+            # Reproduce the first runtime's real refusal, which persists an
+            # invalid-output pause before the repaired runtime is available.
+            broken_runtime = self.root / "old-runtime"
+            shutil.copytree(ROOT / "tools", broken_runtime / "tools", ignore=shutil.ignore_patterns("__pycache__"))
+            shutil.copytree(ROOT / "docs", broken_runtime / "docs")
+            old_action = broken_runtime / "tools" / "autocode_action_scope.py"
+            old_action.write_text(old_action.read_text().replace(
+                "human.current(state) or human.refresh_assigned_scope(state)", "human.current(state)"
+            ))
+            client.command = (sys.executable, str(broken_runtime / "tools" / "autocode.py"))
+            with self.assertRaisesRegex(chat.actions.ClientGap, "cannot release this human gate"):
+                client.step()
             # A repaired immutable runtime changes receipt bindings. Reopen
             # with identical resources and one harmless source marker; never
             # edit the child state to simulate the stranded handoff.
