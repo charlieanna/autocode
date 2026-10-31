@@ -1405,8 +1405,10 @@ class ChatTUI:
 
     def _attention_badge(self) -> str:
         """The F8 count of decisions waiting for the person, in plain words (#2559)."""
-        if self._attention_view.get("error"):
-            return " F8: alerts unavailable"
+        if error := self._attention_view.get("error"):
+            # Say why, not just that: an unexplained permanent badge reads as a broken panel.
+            reason = " ".join(str(error).split())[:60]
+            return f" F8: alerts unavailable: {reason}"
         new, unchecked = self._attention_view.get("unread", 0), self._attention_view.get("unknown", 0)
         if new:
             return f" F8: {new} new alert{'s' if new != 1 else ''}" + (f", {unchecked} unchecked" if unchecked else "")
@@ -1626,6 +1628,8 @@ class ChatTUI:
         text = (
             f"Status unavailable; {self._observation.outage()}"
             if self._observation.error
+            else "Run started; waiting for its first status view…"
+            if reading and self._launched
             else "Reading run status…"
             if reading
             else panel.doing(self._view) or self._transcript.activity or "AutoCode is working…"
@@ -1657,7 +1661,13 @@ class ChatTUI:
         inner = max(1, width - 6)
         self._put(layout.box_text, 2, glyphs.prompt, self._style("prompt" if active else "dim"))
         if not active and not self._composer.text:
-            placeholder = "Reading run status… type / for commands" if self._view is None else WORKING_PLACEHOLDER
+            placeholder = (
+                "Run started; waiting for its first status view… type / for commands"
+                if self._view is None and self._launched
+                else "Reading run status… type / for commands"
+                if self._view is None
+                else WORKING_PLACEHOLDER
+            )
             self._put(layout.box_text, 4, truncate(placeholder, inner), self._style("placeholder"))
             return
         if self._composer.text:

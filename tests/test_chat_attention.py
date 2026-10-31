@@ -198,7 +198,7 @@ class DrawerTests(unittest.TestCase):
             ({"unread": 0, "unknown": 2}, " F8: 2 unchecked alerts"),
             ({"unread": 3, "unknown": 1}, " F8: 3 new alerts, 1 unchecked"),
             ({}, ""),
-            ({"unread": 2, "error": "boom"}, " F8: alerts unavailable"),
+            ({"unread": 2, "error": "boom"}, " F8: alerts unavailable: boom"),  # the reason travels with it
         ):
             with self.subTest(counts=counts):
                 ui = screen_ui()

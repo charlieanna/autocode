@@ -29,7 +29,12 @@ def title(view):
 
 def _gate(view):
     value = _map(view.get("delivery")).get("verified_complete")
-    return value if type(value) is bool else None
+    if type(value) is bool:
+        return value
+    # No dependency receipt (a plain completed run): efficiency.delivery.current_completion is
+    # the view's public completion-gate verdict for the delivered tree (autocode_efficiency).
+    current = _map(_map(view.get("efficiency")).get("delivery")).get("current_completion")
+    return current if type(current) is bool else None
 
 
 def _delivery(view):

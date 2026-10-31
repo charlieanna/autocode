@@ -134,7 +134,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser = cli_surface.CompactParser(
         # Python 3.14's argparse names the program from how Python started ("python -m unittest") when
         # no prog is given; the usage line keeps naming the command that was run, as before 3.14.
-        prog=os.path.basename(sys.argv[0]) or "autocode",
+        prog=cli_surface.program_name(),
         description=textwrap.fill(
             "Independent requirements gathering, planning, plan review, build, validation and completion ownership",
             width=78,
