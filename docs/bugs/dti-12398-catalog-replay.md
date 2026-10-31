@@ -215,3 +215,24 @@ continues the coordinated run. These operator repairs and runtime changes remain
 diagnostic recovery evidence, not a clean frozen qualification. Exact-candidate
 verification, independent oracle/negative controls and completed-run reopen are
 still pending.
+
+
+Completion review then exposed a separate stale-proof defect: its reuse predicate
+compared source, contract and test cases but omitted preservation mode, so it
+reused the earlier twice-failed proof instead of invoking the repaired runner.
+Test-first commit `89c0630b8` refreshes proof when that mode changes, including
+loss of preservation eligibility for a previously passing proof. Both focused
+regressions failed before implementation. Ten final recheck tests pass on macOS
+and Linux. Six real proof cases and the full fake-provider bugfix workflow also
+passed on Linux; the broader 17-case invocation retained one failure in a mock
+fixture missing an explicit unchanged mode, then the corrected recheck module
+passed. No unsupported live proof or whole-suite success is inferred.
+
+Immutable runtime `c7413784e040bab9fac9b71e43766bb10b5e7fad` overlays only this
+functionality on the preceding runtime. Archive SHA-256 is
+`6b3fd0367db169ae426ff37d214739afd1f6ccfcac2d554190d6c9cd4997a767`;
+the qualification note remains excluded. The public wrapper selects it while
+already active viewer/providers retain their imported runtime. A fresh public
+status and named resume now actually start the originating member's local
+regression checks against the original baseline before review, without a new
+approval or model call. Their result and independent delivery remain pending.
