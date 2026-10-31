@@ -412,6 +412,12 @@ class SensitivePathsTests(unittest.TestCase):
         paths = [
             "src/auth/login.py",
             "authentication.py",
+            "src/security.py",
+            "payment.py",
+            "billing.py",
+            "migration.py",
+            "secrets.py",
+            "certificate.py",
             "src/payments/refund.py",
             "billing/charge.py",
             "db/migrations/001.sql",
