@@ -25,7 +25,9 @@ except ImportError:
 
 
 def git(workspace, *args, binary=False, accepted=(0,), input=None):
-    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_") or key == "GIT_EXEC_PATH"
+    }
     environment["GIT_TERMINAL_PROMPT"] = "0"
     result = subprocess.run(
         ["git", "-C", str(workspace), *map(str, args)],

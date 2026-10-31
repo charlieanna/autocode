@@ -99,10 +99,11 @@ def context(state: RunState):
                         record = {"automatic_anchor": anchor, "source": rows[0], "members": rows[1:]}
         if not record or not record.get("automatic_anchor"):
             return None
+        producers = [row for row in store.members(record) if row.get("role") != "joint"]
         member = next(
             (
                 row
-                for row in store.members(record)
+                for row in producers
                 if row.get("run_dir") == str(Path(state["run_dir"]).resolve())
                 and row.get("workspace") == str(Path(state["workspace"]).resolve())
             ),
@@ -114,7 +115,7 @@ def context(state: RunState):
         return None
     result = {
         "member": member["target"],
-        "members": [row["target"] for row in store.members(record)],
+        "members": [row["target"] for row in producers],
         "instruction": (
             "This is one member of an automatic coordinated bug fix. Own only this repository's source changes "
             "and executable local regressions. Retain the original whole-bug outcome and report external owners. "

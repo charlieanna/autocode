@@ -2521,6 +2521,12 @@ def verify(
                     ignored_inputs=ignored_inputs,
                 ),
                 seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt),
+                changed_tests=go_tests.changed_filter(
+                    workspace, changes, lambda path: _git(workspace, "show", f"{base}:{path}", check=False)
+                )
+                if new_behavior and framework is not None and framework.name == "go"
+                else None,
+                base_suite_passed=lambda: first_suite.passed_on(base_suite, base),
             )
         elif "base_with_tests" in trees and commands["suite"]:
             # No targeted command: the whole suite proves the flip when base was green.
@@ -2846,6 +2852,8 @@ def _judge_regression(
     absent_go_base=False,
     absent_junit_base=False,
     seam_names=None,
+    changed_tests=None,
+    base_suite_passed=None,
 ):
     """Judge the targeted runs of the changed test files.
 
@@ -2856,6 +2864,9 @@ def _judge_regression(
     A test in the same files that already fails on the pristine base (for
     example one needing a network) neither blocks the fix nor counts as proof.
     Without per-test results, exit codes decide and the change needs review.
+
+    ``changed_tests`` (Go features) limits fail-to-pass to tests the change adds or edits; an unchanged
+    test that passed in the pristine base suite (``base_suite_passed()``) is pass-to-pass (#2505).
     """
     candidate = on_candidate.get("results")
     base = (on_base or {}).get("results")
@@ -2954,13 +2965,22 @@ def _judge_regression(
         # New behavior: a test that did not pass on base (failed, or could not even import
         # the code it tests) and passes now. A bug fix needs a test that ran and failed.
         flipped = sorted(passed - set(base["passed"])) if new_behavior else sorted(ran_and_failed & passed)
-        proof["fail_to_pass"] = flipped
-        # Tests that ran and passed on the original code and still pass: the proof
-        # preserve cases are matched against (autocode_regression.check_cases).
-        proof["pass_to_pass"] = sorted(set(base["passed"]) & passed)
+        # Tests that ran and passed on the original code and still pass (autocode_regression.check_cases).
+        kept = set(base["passed"]) & passed
         # Passing tests that never ran on the original code (their module did not import there): a
         # guard's test there is not shown to fail before, only not shown to pass (check_cases).
-        proof["not_run_on_base"] = sorted(passed - set(base["passed"]) - set(base["failed"]))
+        not_run = passed - set(base["passed"]) - set(base["failed"])
+        if new_behavior and changed_tests is not None:
+            unchanged = {name for name in flipped if not changed_tests(name)}
+            flipped = [name for name in flipped if name not in unchanged]
+            preserved = unchanged & (base_suite_passed() if base_suite_passed else set())
+            kept |= preserved
+            not_run -= preserved
+            if unchanged:
+                notes.append(f"Not proof (unchanged): {len(unchanged)} test(s); kept from base: {len(preserved)}")
+        proof["fail_to_pass"] = flipped
+        proof["pass_to_pass"] = sorted(kept)
+        proof["not_run_on_base"] = sorted(not_run)
         # Recognized test preparation failures are excluded above. Other missing-name
         # errors may be real product bugs, so preserve the reviewer warning for them.
         seam = seam_names(on_base) if seam_names and (base["collection_errors"] or flipped) and not new_behavior else []

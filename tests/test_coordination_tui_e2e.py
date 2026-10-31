@@ -439,6 +439,36 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             self.assertEqual([], self.github.posts, "Ownership assignment grants no publication authority")
             self.assertEqual([], self.questions, "Clear member requirements need no separate confirmation")
 
+    def test_joint_requirements_discover_a_missing_member_before_any_approval(self):
+        self.env["COORDINATION_FIXTURE_JOINT_SCOPE"] = "1"
+        self.env["COORDINATION_FIXTURE_EARLY_SCOPE"] = "1"
+        with patch.dict(os.environ, self.env, clear=True):
+            client = chat.start(
+                self.intake,
+                "Fix checkout showing the wrong final total.",
+                ["--workflow", "bugfix"],
+                [*FIXTURE_OPTIONS, "--no-adaptive-planning", "--spec-first", "--joint-planning"],
+                env=self.env,
+                ask=self.answer,
+                say=self.lines.append,
+            )
+            self.addCleanup(client.close)
+            for _ in range(80):
+                current = client.status()
+                if current.get("coordination"):
+                    summary = coordination.read(client, current)
+                    if any(row["target"] == "checkout" for row in summary["members"]):
+                        break
+                client.step()
+            else:
+                self.fail("Joint discovery never expanded the two-member cohort: " + str(self.lines[-5:]))
+            self.assertEqual({"checkout", "history", "tax"}, {row["target"] for row in summary["members"]})
+            self.assertEqual(1, summary["joint_attempts"], "The incomplete joint attempt remains recorded")
+            self.assertIsNone(summary["integration"], "The old joint plan cannot approve an expanded cohort")
+            self.assertNotIn("approval", summary)
+            self.assertEqual([], self.github.posts)
+            self.assertEqual([], self.questions, "Joint scope is machinery, not a request to narrow the task")
+
     def test_combined_suite_preserves_existing_cases_and_proves_the_joint_regression(self):
         from .coordination_provider import ASSERTIONS, JOINT_SETUP, JOINT_TEST, PRODUCT, TEST_PREAMBLE
 

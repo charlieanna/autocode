@@ -58,7 +58,11 @@ class VerifierIndependenceTests(unittest.TestCase):
         same = settings(terra=GLM, sol=GLM, completion=GLM, glm=MIMO, plan_reviewer=MIMO)
         self.assertEqual([], independence.clashes(same, "review"))
         self.assertEqual([], independence.violations(same, "review"))
+        # The discuss workflow's only stage is the Analyst's answer: nothing is built to grade.
+        self.assertEqual([], independence.clashes(same, "discuss"))
+        self.assertEqual([], independence.violations(same, "discuss"))
         self.assertEqual(3, len(independence.violations(same, "build")))
+        self.assertEqual(3, len(independence.violations(same, "bugfix")))
         self.assertEqual(3, len(independence.violations(same)))
 
     def test_another_providers_openai_prefix_may_share_but_does_not_clash(self):

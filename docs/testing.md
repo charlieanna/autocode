@@ -138,8 +138,10 @@ browsers, live providers or scenarios that need the Docker socket (including
 real local-Compose mode). The checkout is writable so normal test artifacts can
 be produced; review them under `.scenario-runs/` as with a native Linux run.
 
-A Linux root shell holding `CAP_SYS_ADMIN` or `CAP_SYS_PTRACE` is also refused.
-For such a shell, use the existing capability drop for a direct focused run:
+Direct in-process tests in a Linux root shell holding `CAP_SYS_ADMIN` or
+`CAP_SYS_PTRACE` are still refused: they do not pass through CLI startup, which
+now automatically drops these capabilities. For such a test process, use the
+existing capability drop for a direct focused run:
 
 ```sh
 setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python -m unittest \
@@ -150,6 +152,21 @@ setpriv --bounding-set=-sys_admin,-sys_ptrace .venv/bin/python -m unittest \
 are held and `setpriv` is available. Dropping them does not supply a missing
 kernel feature. Scenario runs in that Linux shell need
 the same prefix.
+
+To qualify startup itself, Ubuntu CI instead launches a dedicated root subprocess
+with both bits initially present (never the complete suite as privileged root):
+
+```sh
+sudo env AUTOCODE_TEST_PRIVILEGED_STARTUP=1 .venv/bin/python -m unittest \
+  tests.test_capability_startup.LinuxCapabilityStartupTests tests.test_demo
+```
+
+This proves real re-exec preserves the PID, removes exactly the two prohibited
+bits, and leaves all other bits unchanged; it also exercises the full offline
+demo and the unchanged `PAUSED_PROCESS_CLEANUP` refusal when
+`AUTOCODE_NO_CAPABILITY_DROP=1`. Without the explicit test environment variable,
+the privileged tests skip. Neither this test nor automatic startup supplies
+missing kernel features or relaxes provider admission.
 
 The existing [Ubuntu CI jobs](../.github/workflows/tests.yml) provide PR and
 master checks. Report the exact revision, selected checks and any local checks

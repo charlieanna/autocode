@@ -26,6 +26,17 @@ class DemoTests(unittest.TestCase):
             create.assert_not_called()
             start.assert_not_called()
 
+    def test_isolated_launcher_preserves_capability_drop_opt_out(self):
+        import runpy
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"AUTOCODE_NO_CAPABILITY_DROP": "1"}):
+            with patch.object(demo.TaskRun, "start") as start, patch.object(demo.subprocess, "run"):
+                demo._prepare(Path(directory), "sample")
+            launcher = start.call_args.kwargs["command"][-1]
+            with patch.object(os, "execve") as execute:
+                runpy.run_path(launcher)
+            self.assertEqual("1", execute.call_args.args[2].get("AUTOCODE_NO_CAPABILITY_DROP"))
+
     def test_existing_destination_is_refused_and_preserved(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "keep.txt"
