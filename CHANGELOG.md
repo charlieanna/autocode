@@ -23,6 +23,11 @@ PR template asks for an entry here; a change without one is incomplete.
   chat says so. A revision that changes any of those, or adds a repository, is shown for approval again.
 ### Fixed
 
+- A bugfix task with `git_delivery: atomic_commit` now delivers instead of pausing at the completion
+  gate: the delivery guard admits the bugfix workflow and no longer counts tracked Python bytecode
+  caches or the runner's own `docs/bugs/` diagnosis note as unapproved workspace changes (#2049).
+- The Resolver may write its report on its own workspace, and a regression proof repaired because the
+  changed tests cover the fix is recognized as passing instead of failing the run (#2049).
 - Automatic multi-repository delivery preserves relocated Git transport helpers, discovers authorized
   repositories requested by the joint regression, and keeps the joint proof out of its own producer
   prerequisites. Expanded repository sets require fresh coordinated approval; earlier attempts and all
