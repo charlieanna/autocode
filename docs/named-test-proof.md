@@ -45,6 +45,13 @@ case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
 Node's built-in `node:test` runner, Vitest 4, and an explicitly configured
 JUnit XML report from another test runner.
 
+A literal Go check with an explicit empty selector (`go test -run '^$' ./...`)
+may validate compilation in a plan. Its exit must be zero, but it supplies no
+named-test results or behavioral proof. Unknown flags, benchmark/fuzz requests,
+and custom test-program arguments retain the normal test-result requirement.
+Submitting an empty-selector command as a regression or suite still cannot
+satisfy that proof: it must execute named tests.
+
 The identifier right after `test:` or `guard:` is the one the runner proves; an
 explanation may follow after ` — ` or in parentheses. Without one, the test is
 named after the criterion ID (`test_c1_...`; Go's `TestC1...` matches it).

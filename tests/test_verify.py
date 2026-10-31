@@ -4008,6 +4008,29 @@ class GoVerifyTests(unittest.TestCase):
         self.addCleanup(project.close)
         return project
 
+    def test_compile_only_plan_check_has_no_named_test_credit_and_keeps_compile_failures(self):
+        project = self.project(GO_SEED)
+        command = "go test -count=1 -run '^$' ./..."
+        result = verify.scratch_run(project.root, project.evidence / "compile", command=command)
+        self.assertEqual((0, "", None), (result["exit_code"], result["error"], result["results"]), result)
+        self.assertFalse(schedule.complete_results(result))
+        # The same command submitted as a suite never proves behavioral testing.
+        suite = verify.run_suite(
+            verify.Framework("go", "go test ./..."), command, project.root,
+            project.evidence / "suite", "compile", timeout=60,
+        )
+        self.assertEqual(0, suite["results"]["total"])
+        self.assertFalse(schedule.complete_results(suite))
+        ordinary = verify.scratch_run(
+            project.root, project.evidence / "absent",
+            command="go test -count=1 -run '^TestNotPresent$' ./...",
+        )
+        self.assertIn("zero tests", ordinary["error"])
+        project.write({"pager.go": "package pager\nthis does not compile\n"})
+        broken = verify.scratch_run(project.root, project.evidence / "broken", command=command)
+        self.assertNotEqual(0, broken["exit_code"])
+        self.assertIsNone(broken["results"])
+
     def test_a_go_bug_fix_is_proven_by_the_test_that_fails_before_and_passes_after(self):
         project = self.project(GO_SEED)
         project.write(GO_FIX)
