@@ -402,6 +402,27 @@ class RenderedPromptTests(unittest.TestCase):
                 self.assertIn("review_source_sentences", instruction)
                 self.assertIn("criterion_ids", instruction)
 
+    def test_per_run_citation_lists_sit_after_the_static_policy(self):
+        # #2136: the per-run source-id list moved after the static policy and before the
+        # transport block on both paths that emit it, so prompts share the longest
+        # static prefix a provider can cache.
+        transport = "The runner's state.json is authoritative"
+        planning = {
+            name: text
+            for name, text in rendered_cases().items()
+            if name.startswith("planning/") and not name.startswith("planning/requirements_gather/")
+        }
+        self.assertTrue(planning)
+        for name, text in planning.items():
+            with self.subTest(case=name):
+                self.assertIn("[task:0] kind=task", text)
+                self.assertLess(text.index("REGRESSION REFERENCE:"), text.index("[task:0] kind=task"), name)
+                self.assertLess(text.index("[task:0] kind=task"), text.index(transport), name)
+        discovery = rendered_cases()["execution/astra_discovery/v3"]
+        self.assertIn("[task:0] kind=task", discovery)
+        self.assertLess(discovery.index("MILESTONE HANDOFF POLICY v1"), discovery.index("[task:0] kind=task"))
+        self.assertLess(discovery.index("[task:0] kind=task"), discovery.index(transport))
+
     def test_planning_reports_follow_the_provider_output_contract(self):
         cases = {name: text for name, text in rendered_cases().items() if name.startswith("planning/")}
         self.assertTrue(cases)
