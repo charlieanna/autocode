@@ -23,6 +23,9 @@ PR template asks for an entry here; a change without one is incomplete.
   chat says so. A revision that changes any of those, or adds a repository, is shown for approval again.
 ### Fixed
 
+- Automatic coordination recognizes catalog-grounded multi-repository bug requests before the chat scope gate and carries authenticated clarifications into member planning; request-feedback outcomes are reconciled before retrying.
+- GoCode report repairs now use typed values, independently permitted draft corrections can be composed without broadening approval or evidence rules, and Codex sandbox write grants stay limited to evidence/output roots rather than source or report files.
+- Stage selection offers only models declared by the configured providers.
 - The terminal chat's `/help` lists only commands available in the current state, so it no longer advertises `/live` or `/log` before a chat is open.
 - Discuss-only requests no longer pause for producer/verifier model independence when those roles use the same model; the Analyst produces no code to verify.
 - `autocode verify` on a Go feature whose new tests reference new types no longer counts every test

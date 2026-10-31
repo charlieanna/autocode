@@ -219,6 +219,7 @@ class CoordinationTests(unittest.TestCase):
             "workspace": str(self.root / "launch"),
             "task": "Fix the API response mapping",
             "turn": 4,
+            "request_sources": [{"id": "answer:Q1", "kind": "user_answer", "text": "Retain result 2304."}],
         }
         snapshot = {
             "catalog_identity": "catalog-1",
@@ -234,9 +235,84 @@ class CoordinationTests(unittest.TestCase):
             saved = coordinate.initialize(self.root / "run")
         self.assertEqual("Fix the API response mapping", saved["task"])
         self.assertEqual(snapshot, saved["source_catalog"])
+        self.assertEqual(view["request_sources"], saved["request_sources"])
         self.assertEqual("scope-1", saved["anchor_scope"])
         self.assertEqual([], saved["members"], "The launch checkout must not be selected as a repository member")
         add_member.assert_not_called()
+
+    def test_changed_request_sources_refuse_execution_even_when_task_and_scope_match(self):
+        self.document.update(anchor_turn=1, anchor_scope="same", request_sources=[])
+        view = {
+            "turn": 1,
+            "task": self.document["task"],
+            "scope": {"identity": "same"},
+            "request_sources": [{"id": "answer:Q1", "kind": "user_answer", "text": "New acceptance"}],
+        }
+        with patch.object(coordinate, "anchor_view", return_value=view):
+            with self.assertRaisesRegex(store.CoordinationError, "request.*changed"):
+                coordinate.observe(self.document)
+
+    def test_resolved_members_and_joint_brief_include_original_clarifications(self):
+        self.document["request_sources"] = [{"id": "answer:Q1", "kind": "user_answer", "text": "Preserve 2304."}]
+        step = {"kind": "resolve", "target": "api", "entry": {}, "work": "Investigate history"}
+        with (
+            patch.object(store, "read", return_value=self.document),
+            patch.object(coordinate, "observe", return_value={}),
+            patch.object(coordinate, "next_step", return_value=step),
+            patch.object(coordinate, "observe_dependencies"),
+            patch.object(coordinate, "sync_set"),
+            patch.object(coordinate, "status", return_value={}),
+            patch.object(coordinate, "add_member") as add,
+        ):
+            coordinate.advance(self.document["anchor"])
+        self.assertIn("Preserve 2304.", add.call_args.args[3])
+
+    def test_joint_brief_retains_request_clarifications(self):
+        self.document["request_sources"] = [{"id": "answer:Q1", "kind": "user_answer", "text": "Preserve 2304."}]
+        self.assertIn("Preserve 2304.", joint.brief(self.document))
+
+    def test_old_coordinator_offers_source_recovery_before_any_child_advance(self):
+        self.document["anchor_turn"] = 1
+        sources = [{"id": "task:0", "kind": "task", "text": self.document["task"]}]
+        with patch.object(coordinate, "anchor_view", return_value={"request_sources": sources}):
+            self.assertEqual({"kind": "sync_request", "sources": sources}, coordinate.next_step(self.document, {}))
+
+    def test_request_source_recovery_and_feedback_use_the_public_task_action_once(self):
+        sources = [{"id": "answer:Q1", "kind": "user_answer", "text": "Keep 2304."}]
+        member = {"target": "api", "started": False, "brief": self.document["task"]}
+        self.document["members"] = [member]
+        run = Mock()
+        with (
+            patch.object(store, "read", return_value=self.document),
+            patch.object(coordinate, "observe", return_value={}),
+            patch.object(coordinate, "next_step") as next_step,
+            patch.object(coordinate, "observe_dependencies"),
+            patch.object(coordinate, "status", return_value={}),
+            patch.object(coordinate, "handle", return_value=run),
+        ):
+            next_step.return_value = {"kind": "sync_request", "sources": sources}
+            coordinate.advance(self.document["anchor"])
+            self.assertEqual(sources, self.document["request_sources"])
+            self.assertIn("Keep 2304.", member["brief"])
+            run.feedback.assert_not_called()
+            member.update(started=True, brief=self.document["task"])
+            message = self.document["task"] + "\n\nKeep 2304."
+            next_step.return_value = {"kind": "request_feedback", "target": "api", "message": message}
+            coordinate.advance(self.document["anchor"])
+            run.feedback.assert_called_once_with(message)
+            self.assertEqual(message, member["brief"])
+            run.reset_mock()
+            self.document["pending"] = {"operation": "request_feedback", "target": "api", "message": message}
+            next_step.return_value = {"kind": "reconcile", **self.document["pending"]}
+            run.status.return_value = {"chat": {"messages": [{"role": "user", "text": message}]}}
+            coordinate.advance(self.document["anchor"])
+            self.assertIsNone(self.document["pending"])
+            run.feedback.assert_not_called()
+            self.document["pending"] = {"operation": "request_feedback", "target": "api", "message": message}
+            run.status.return_value = {"chat": {"messages": []}}
+            with self.assertRaisesRegex(store.CoordinationError, "uncertain"):
+                coordinate.advance(self.document["anchor"])
+            run.feedback.assert_not_called()
 
     def test_changed_catalog_snapshot_blocks_saved_coordinated_work(self):
         self.document["source_catalog"] = {
@@ -363,7 +439,10 @@ class CoordinationTests(unittest.TestCase):
             first = coordinate.status(document["anchor"])["approval"]["token"]
             document["task"] = "Fix a different API result"
             second = coordinate.status(document["anchor"])["approval"]["token"]
+            document["request_sources"] = [{"id": "answer:Q1", "text": "Preserve redaction."}]
+            third = coordinate.status(document["anchor"])["approval"]["token"]
         self.assertNotEqual(first, second)
+        self.assertNotEqual(second, third)
 
     def test_coordinate_cli_sets_shared_catalog_before_its_project_local_registry(self):
         run_dir = self.root / ".autocode" / "runs" / "chat"

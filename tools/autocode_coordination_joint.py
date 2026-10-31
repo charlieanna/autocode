@@ -16,10 +16,12 @@ from pathlib import Path
 
 try:
     from . import autocode_coordination_repositories as repos
+    from . import autocode_coordination_request as request
     from . import autocode_util as util
     from .autocode_coordination_store import CoordinationError
 except ImportError:
     import autocode_coordination_repositories as repos
+    import autocode_coordination_request as request
     import autocode_util as util
     from autocode_coordination_store import CoordinationError
 
@@ -166,7 +168,7 @@ def bind_candidates(document, directory):
 def brief(document):
     return (
         "Implement a joint regression for this original bug report:\n"
-        + document["task"]
+        + request.brief(document)
         + "\n\nThis is an isolated integration workspace. Every repository in repositories.json is already "
         "present under repos/. Treat them as local components of this workspace, not external repositories. "
         "The committed baseline contains their original broken code. After the coordinated plan is approved "
