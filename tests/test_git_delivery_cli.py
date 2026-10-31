@@ -7,14 +7,20 @@ from pathlib import Path
 import autocode_taskrun as taskrun
 import autocode_util as util
 
-from .test_chat_cli import ChatCliTests
+from . import test_chat_cli as chat_cli
 from .test_taskrun import BRIEF, FIXTURE_OPTIONS, HERE
 
 
 class GitDeliveryCLI(unittest.TestCase):
-    setUp = ChatCliTests.setUp
+    setUp = chat_cli.ChatCliTests.setUp
 
     def test_approved_atomic_delivery_finishes_only_after_verifying_the_commit(self):
+        self.check_delivery(builder_commits=False)
+
+    def test_builder_commit_finishes_without_an_operator_git_reset_or_resume_loop(self):
+        self.check_delivery(builder_commits=True)
+
+    def check_delivery(self, *, builder_commits):
         for key, value in (("user.name", "Fixture"), ("user.email", "fixture@example.test")):
             subprocess.run(["git", "-C", str(self.workspace), "config", key, value], check=True)
         (self.workspace / ".gitignore").write_text(".autocode/\n")
@@ -45,6 +51,13 @@ def _criteria(""",
             + ':\n            raise RuntimeError("Delivery criterion cannot pass before the controller commit")',
         )
         self.assertIn("Delivery criterion cannot pass", script)
+        if builder_commits:
+            script = script.replace(
+                "        changed = _write_files()",
+                "        changed = _write_files()\n"
+                '        subprocess.run(["git", "add", "greet.py", "test_greet.py", "README.md"], check=True)\n'
+                '        subprocess.run(["git", "commit", "-qm", "Builder committed its own change"], check=True)',
+            )
         provider.write_text(script)
         run = taskrun.TaskRun.start(
             self.workspace, BRIEF, options=(*FIXTURE_OPTIONS, "--no-adaptive-planning"), env=self.env, timeout=300
@@ -57,6 +70,10 @@ def _criteria(""",
         self.assertEqual("TASK_COMPLETE", finished["status"], finished.get("stop_reason"))
         head = subprocess.check_output(["git", "-C", str(self.workspace), "rev-parse", "HEAD"], text=True).strip()
         self.assertNotEqual(base, head)
+        self.assertEqual(
+            "Deliver greeting CLI",
+            subprocess.check_output(["git", "-C", str(self.workspace), "log", "-1", "--format=%s"], text=True).strip(),
+        )
         self.assertEqual(
             "1",
             subprocess.check_output(
