@@ -7,6 +7,10 @@ They do not launch a stage, select a model or approve a plan.
 from __future__ import annotations
 
 import copy
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 FLAG = "--review-routing"
 SETTING = "review_routing"
@@ -39,7 +43,7 @@ def configured(settings: dict, requested, *, started: bool) -> str:
     return selected
 
 
-def contract_body(state: dict, body: dict) -> dict:
+def contract_body(state: RunState, body: dict) -> dict:
     if (state.get("settings") or {}).get(SETTING) != "combined":
         return body
     result = copy.deepcopy(body)
@@ -49,10 +53,10 @@ def contract_body(state: dict, body: dict) -> dict:
     return result
 
 
-def bind_approval(state: dict) -> None:
+def bind_approval(state: RunState) -> None:
     if (state.get("settings") or {}).get(SETTING) != "combined":
         return
-    contract = state["goal_contract"]
+    contract = cast(dict, state["goal_contract"])
     if POLICY not in contract["body"].get("constraints", []):
         raise ValueError("Combined review must be included in the displayed plan before approval")
     state["settings"]["workflow"] = {
