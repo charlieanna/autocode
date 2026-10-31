@@ -684,6 +684,15 @@ class AskTests(unittest.TestCase):
         self.assertEqual("n", ui.ask("Continue? [y/N]"))
         self.assertIn("is not available right now", self.info(ui)[0])
 
+    def test_help_omits_run_commands_before_a_chat_is_open(self):
+        ui = screen_ui()
+        ui._run_open = False
+        ui._run("/help", asking=True)
+        help_text = self.info(ui)[-1]
+        self.assertNotIn("/live", help_text)
+        self.assertNotIn("/log", help_text)
+        self.assertIn("/help", help_text)
+
     def test_keys_typed_while_autocode_worked_are_dropped_before_a_question(self):
         screen = mock.MagicMock()
         screen.getmaxyx.return_value = (30, 100)

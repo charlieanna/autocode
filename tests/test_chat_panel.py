@@ -68,6 +68,11 @@ class CommandTests(unittest.TestCase):
         self.assertIn("Builder working", panel.text("/log", view(), log))
         self.assertEqual("AutoCode is building the first task.", panel.text("/details", view(), log))
         self.assertIn("/pause", panel.text("/help", view(), log))
+        available = panel.commands(asking=False, client=False, run=False)
+        help_text = panel.text("/help", view(), log, available=available)
+        self.assertNotIn("/live", help_text)
+        self.assertNotIn("/log", help_text)
+        self.assertIn("/help", help_text)
         self.assertEqual("There is no plan yet.", panel.text("/plan", {}, log))
 
 
