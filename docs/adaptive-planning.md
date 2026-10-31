@@ -289,7 +289,11 @@ the Planner drafts with the review in its packet; the compact draft's review cal
 full path keeps the plan-review allowance it would have had. The draft is never approved by a policy.
 Everything after approval is unchanged: acceptance tests when configured, the Builder, the
 regression proof (each restore case fails on the original code and passes after the fix), the
-Tester and a separate Completion Reviewer.
+Tester and a separate Completion Reviewer by default. A new run may independently select
+`--review-routing combined` to combine testing and completion on the configured Completion Reviewer
+route. That explicit choice replaces separate enforced milestone-checkpoint routing; it is included
+in the displayed plan and binds to its exact approval. The independent regression and changed-code
+evidence gates still apply, and existing model/effort choices are retained.
 
 The path is taken only when every trusted signal admits it; a model's word can keep the full
 path but never grant the compact one:

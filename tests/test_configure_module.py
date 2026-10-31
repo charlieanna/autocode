@@ -125,6 +125,19 @@ class ConfigureModuleSurfaceTests(unittest.TestCase):
 
 
 class WrapperWiringTests(unittest.TestCase):
+    def test_review_routing_is_a_saved_new_run_choice_and_rejects_checkpoint_conflicts(self):
+        state = {"workspace": "/tmp/fixture", "iteration": 0}
+        with patch.object(runner.opencode, "local_settings", return_value={"engine": "opencode"}):
+            settings = runner.configure(self.configure_args(review_routing="combined"), state)
+            self.assertEqual("combined", settings.get("review_routing"))
+            self.assertFalse(settings["milestone_checkpoints"]["enabled"])
+            resumed = {**state, "settings": settings}
+            self.assertEqual("combined", runner.configure(self.configure_args(), resumed)["review_routing"])
+            with self.assertRaisesRegex(ValueError, "new-run policy"):
+                runner.configure(self.configure_args(review_routing="separate"), resumed)
+            with self.assertRaisesRegex(ValueError, "milestone checkpoints"):
+                runner.configure(self.configure_args(review_routing="combined", milestone_checkpoints=True), state)
+
     def test_new_compact_defaults_are_saved_and_legacy_runs_keep_their_policy(self):
         for requested, expected in ((None, True), (False, False), (True, True)):
             with self.subTest(requested=requested):

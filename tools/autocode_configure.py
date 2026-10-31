@@ -42,6 +42,7 @@ try:
     from . import autocode_quota_route as quota_route
     from . import autocode_requirements_review as requirements_review
     from . import autocode_retired_token_budget as retired_token_budget
+    from . import autocode_review_routing as review_routing
     from . import autocode_role_route as role_route
     from . import autocode_role_transport as role_transport
     from . import autocode_roles as role_names
@@ -73,6 +74,7 @@ except ImportError:
     import autocode_quota_route as quota_route
     import autocode_requirements_review as requirements_review
     import autocode_retired_token_budget as retired_token_budget
+    import autocode_review_routing as review_routing
     import autocode_role_route as role_route
     import autocode_role_transport as role_transport
     import autocode_roles as role_names
@@ -346,6 +348,9 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
     if opencode is None:
         opencode = autocode_opencode
     started = bool(state.get("settings") or state.get("sessions") or state.get("history"))
+    review_routing.configured(state.get("settings") or {}, getattr(args, "review_routing", None), started=started)
+    if getattr(args, "review_routing", None) == "combined" and getattr(args, "milestone_checkpoints", False):
+        raise ValueError("Combined review cannot use enforced milestone checkpoints")
     single_model = getattr(args, "single_model", None)
     if started and single_model:
         raise ValueError("--single-model is only available when starting a new run")
@@ -737,6 +742,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         "evidence_provenance": provenance,
         "milestone_checkpoints": {
             **milestones.DEFAULTS,
+            "enabled": getattr(args, "review_routing", None) != "combined",
             "max_seconds": getattr(args, "max_milestone_seconds", None)
             if getattr(args, "max_milestone_seconds", None) is not None
             else milestones.DEFAULTS["max_seconds"],
@@ -848,6 +854,9 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         settings["plan_review_full"] = True
     if compact_planning.new_run_setting(getattr(args, "compact_bugfix_planning", None), joint):
         settings[compact_planning.SETTING] = True
+    settings[review_routing.SETTING] = review_routing.configured(
+        settings, getattr(args, "review_routing", None), started=False
+    )
     settings.update(skip_requirements.new_run_settings(args, joint))
     # A persisted review allowance for new runs (#1565): the flag wins, then the
     # user's config.toml, then the machinery's built-in default. A resumed run
