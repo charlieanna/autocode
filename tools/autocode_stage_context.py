@@ -252,6 +252,9 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         except ImportError:
             import autocode_figma as figma
         instruction += figma.instructions(state["settings"], stage=stage, current_task=state.get("current_task"))
+    # Per-run citation material rides after the static policy, not inside the
+    # instruction, so discovery prompts share the longest static prefix (#2136).
+    citation_rule = ""
     if state.get("version", 2) >= 3:
         try:
             from . import autocode_goals as goals
@@ -297,7 +300,7 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
                 ]
                 # Full brief once in source_inventory; do not also paste it under task (#1337).
                 base["task"] = brief_obligations.handoff_task(base["task"], base["source_inventory"])
-                instruction += source_trace.rule(records)
+                citation_rule = source_trace.rule(records)
         if stage in ("astra_plan", "astra_review"):
             instruction += support.ASTRA_DECISIONS
     # No previous transcripts or history array is forwarded; exact goals are never truncated.
@@ -352,6 +355,7 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
     prompt = (
         instruction
         + milestone_policy
+        + citation_rule
         + support.COMMON
         + support.BASELINE_POLICY
         + "\nCURRENT HANDOFF DATA\n"
