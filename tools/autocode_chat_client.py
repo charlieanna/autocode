@@ -1379,11 +1379,19 @@ class ChatClient:
             route = need.get("route") or {}
             if asked := (row.question or {}).get("question"):
                 self.say(f"\nAutoCode: {asked}")
+            job = route.get("job") or row.key.removeprefix("route-")
+            # A shared-model clash is not a stop: the job has not run yet (#2557).
+            clash = route.get("cause") == "cross_model"
             if route.get("stopped_model"):
-                self.say(f"  Stopped on: {route['stopped_model']} ({route.get('cause') or 'quota'})")
+                if clash:
+                    self.say(f"  Now on: {route['stopped_model']}, the same model as the work it checks")
+                else:
+                    self.say(f"  Stopped on: {route['stopped_model']} ({route.get('cause') or 'quota'})")
             if route.get("candidates"):
-                self.say("  Models it can continue on: " + ", ".join(map(str, route["candidates"])))
-            while not (text := self.ask(f"\nWhich model should {row.key.removeprefix('route-')} continue on? ")):
+                offered = "Models that keep the check independent" if clash else "Models it can continue on"
+                self.say(f"  {offered}: " + ", ".join(map(str, route["candidates"])))
+            asked = f"Which model should the {job} use? " if clash else f"Which model should the {job} continue on? "
+            while not (text := self.ask("\n" + asked)):
                 pass
             return text
         if row.kind == "effort":

@@ -83,6 +83,7 @@ class NamedActionTests(unittest.TestCase):
                 "route": {
                     "question_id": "route-plan_reviewer",
                     "role": "plan_reviewer",
+                    "job": "Plan Reviewer",
                     "cause": "cross_model",
                     "stopped_model": "gpt-5.6-sol",
                     "candidates": ["gpt-5.6-terra"],
@@ -109,6 +110,7 @@ class NamedActionTests(unittest.TestCase):
                 "route": {
                     "question_id": "route-plan_reviewer",
                     "role": "plan_reviewer",
+                    "job": "Plan Reviewer",
                     "cause": "cross_model",
                     "stopped_model": "gpt-5.6-sol",
                     "candidates": ["gpt-5.6-terra"],
@@ -130,8 +132,11 @@ class NamedActionTests(unittest.TestCase):
         client = ScriptedChat(view, DONE, replies=["gpt-5.6-terra"])
         self.assertEqual(0, client.converse())
         out = client.text()
-        self.assertIn("Which model should plan_reviewer continue on?", out)
-        self.assertIn("Models it can continue on: gpt-5.6-terra", out)
+        self.assertIn("Which model should the Plan Reviewer use?", out)
+        self.assertIn("Models that keep the check independent: gpt-5.6-terra", out)
+        self.assertIn("Now on: gpt-5.6-sol, the same model as the work it checks", out)
+        self.assertNotIn("plan_reviewer", out.replace("route-plan_reviewer", ""))
+        self.assertNotIn("cross_model", out)
         self.assertEqual([["--answer", "route-plan_reviewer=gpt-5.6-terra"]], client.taken)
 
     def test_a_command_naming_another_run_is_a_gap(self):
@@ -849,7 +854,7 @@ class ConversationTests(unittest.TestCase):
     def test_a_model_question_shows_what_stopped_and_the_models_offered(self):
         view = answer_view(
             questions=[{"id": "route-sol", "question": "The Tester's quota ran out. Which model now?"}],
-            route={"candidates": ["model-a", "model-b"], "stopped_model": "model-x", "cause": "quota"},
+            route={"candidates": ["model-a", "model-b"], "stopped_model": "model-x", "cause": "quota", "job": "Tester"},
         )
         view["next_command"] = (
             f"AUTOCODE_RESOLVER_TOKEN=t1 autocode {PLACE} --answer route-sol=MODEL --resolver-token -"
@@ -857,7 +862,7 @@ class ConversationTests(unittest.TestCase):
         client = ScriptedChat(view, DONE, replies=["model-b"])
         self.assertEqual(0, client.converse())
         out = client.text()
-        self.assertLess(out.index("Models it can continue on: model-a, model-b"), out.index("Which model should sol"))
+        self.assertLess(out.index("Models it can continue on: model-a, model-b"), out.index("Which model should the Tester continue on?"))
         self.assertIn("Stopped on: model-x (quota)", out)
         self.assertEqual([["--answer", "route-sol=model-b", "--resolver-token", "-"]], client.taken)
 

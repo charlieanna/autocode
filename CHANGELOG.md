@@ -27,6 +27,7 @@ PR template asks for an entry here; a change without one is incomplete.
   chat says so. A revision that changes any of those, or adds a repository, is shown for approval again.
 ### Fixed
 
+- When a checking stage shares a model with the work it checks, the terminal chat asks in its job name which model that stage should use ("Which model should the Tester use?"), shows the shared model in plain words and lists the models that keep the check independent, instead of an internal role and `cross_model` (#2557).
 - A Requirements or other stage on a `report_file` command tool is told never to mention the report file, its delivery, the sandbox or a refused write in its reply to the person, so a read-only stage no longer tells the person a sandbox blocked it (#2558).
 - When the terminal chat stops or hands a run back, it says in plain words that the run is saved and how to return (`autocode chat`) or start a new request, instead of an internal need kind such as `(resume)`.
 - The terminal chat's `/help` lists only commands available in the current state, so it no longer advertises `/live` or `/log` before a chat is open.
