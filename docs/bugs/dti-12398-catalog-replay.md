@@ -295,3 +295,37 @@ verification, the joint regression, the external oracle/negative controls and
 completed-run reopen remain pending. Known combined spend was approximately
 $80.06 at the latest cited sample; incomplete accounting and interrupted unpriced
 attempts remain explicit. The original campaign verdict remains blocked.
+
+
+Fresh proof passed on unchanged originating source after the disk repair, but an
+old runner finding from the earlier ENOSPC build failure still blocked completion.
+Test-first `b2e283b5e` authenticates earlier runner-owned receipt chronology,
+source, supervision and log hashes before settling a disk-only collection finding
+with a newer authenticated passing proof. Any actual failing test name, mixed
+error, tampered/stale receipt, unknown milestone or unproven current result stays
+blocked. Reviewer findings remain that reviewer's responsibility. Fifteen host
+and seventeen Linux checks passed, including the import-cycle check and full
+fake-provider bugfix completion.
+
+The first live deployment exposed a fixture gap: the actual Go baseline receipt
+is named `suite_on_base_with_tests`, while the initial fixture used `suite_on_base`.
+The runner finding therefore remained open; that deployment is not claimed as
+successful reconciliation. A realistic receipt fixture failed first, then
+`b0431c9f5` covered both supported baseline labels. Sixteen host and eighteen
+final Linux checks pass. A separate pure classification fixture using the real
+retained failed receipt and its authenticated logs now returns true; it grants
+no live proof or authority and is not evidence that the live finding has closed.
+The active run must consume the corrected runtime at a supported boundary.
+
+Diagnostic runtime `a042e5885898b09b8d3a9f34bfb9e4a72ce620cf`, archive SHA-256 `80315798b5875bb862587a972399565958799172d93d00760ddef5d4f1218dc3`.
+
+Diagnostic runtime `5bd89f61b4a0e953f377a7ce1eb26c5860467f1a`, archive SHA-256 `c5ed42f51d0588b2ae452cd9df7c5bf077b6e6a16f4791b1ce4f59a8dcd562be`.
+
+Known combined spend reached approximately $86.89, with interrupted unpriced
+attempts still explicit. An additional local guard requests only each run's
+public boundary-pause action at extension $85 or 26,500 active model seconds,
+reserving combined-cap margin for original, unpriced and in-flight usage. The
+older observer's TUI Ctrl-C alone does not control separately started core
+workers. Member continuations, pending interventions and active-run refusals are
+retained in the operator evidence. No candidate or whole-bug completion is claimed;
+all joint and independent final verification obligations remain open.
