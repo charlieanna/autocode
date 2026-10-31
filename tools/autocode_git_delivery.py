@@ -1,8 +1,9 @@
 """Controller-owned atomic local delivery, followed by fresh source verification.
 
-Only a sealed approved ``git_delivery`` contract authorizes a write. No model
-worker commits. The durable intent/receipt makes a lost controller response
-recoverable without replaying a successful commit. Existing hooks are honored.
+Only a sealed approved ``git_delivery`` contract authorizes a write. Accidental
+Builder commits are reconciled from runner evidence. The durable intent/receipt
+makes a lost controller response recoverable without replaying a successful
+commit. Existing hooks are honored.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_code_checkpoints as trees
     from . import autocode_contract_identity as contracts
+    from . import autocode_git_reconcile as reconcile
     from . import autocode_grader_process as processes
     from . import autocode_source_scope as scope
     from . import autocode_util as util
@@ -27,6 +29,7 @@ try:
 except ImportError:
     import autocode_code_checkpoints as trees
     import autocode_contract_identity as contracts
+    import autocode_git_reconcile as reconcile
     import autocode_grader_process as processes
     import autocode_source_scope as scope
     import autocode_util as util
@@ -136,10 +139,22 @@ def commit(workspace, current, spec, path, intent):
             util.atomic_json(path, durable)
             if git(workspace, "rev-parse", "HEAD").decode().strip() != current["head"]:
                 raise ValueError("Git HEAD changed before atomic delivery")
-            git(workspace, "commit", "-m", spec["message"], env=environment)
+            if intent["reconciled_commits"]:
+                # Move only the ref, with compare-and-swap, under the index lock.
+                # The checked files and both indexes retain their original bytes.
+                git(workspace, "update-ref", "HEAD", intent["parent"], current["head"])
+            try:
+                git(workspace, "commit", "-m", spec["message"], env=environment)
+            except ValueError:
+                if (
+                    intent["reconciled_commits"]
+                    and git(workspace, "rev-parse", "HEAD").decode().strip() == intent["parent"]
+                ):
+                    git(workspace, "update-ref", "HEAD", current["head"], intent["parent"])
+                raise
             head = git(workspace, "rev-parse", "HEAD").decode().strip()
             actual = git(workspace, "rev-parse", "HEAD^", "HEAD^{tree}").decode().splitlines()
-            if actual != [current["head"], tree]:
+            if actual != [intent["parent"], tree]:
                 raise ValueError("Git delivery changed unexpectedly; reconcile HEAD before continuing")
             # Git committed through the separate index. Publish that exact index
             # under the lock so the ordinary worktree is clean, not reverse-staged.
@@ -185,10 +200,15 @@ def prepare(state: RunState, workspace, current):
         if not ready(state, current):
             raise ValueError("Source, index or Git HEAD changed after delivery; reconcile before completion")
         return (state.get("validation") or {}).get("source_revision") != current["revision"]
-    if state.get("base_commit") != current["head"]:
-        raise ValueError("Preexisting dirty work or moved HEAD requires reconciliation before atomic delivery")
-    baseline = trees.tree_files(workspace, current["head"])
+    reconciled = reconcile.builder_commits(state, workspace, current, git)
+    baseline = trees.tree_files(workspace, state["base_commit"])
     files = trees.content_files(current)
+    if reconciled and files != {
+        name: value
+        for name, value in trees.tree_files(workspace, current["head"]).items()
+        if not util.inventory_excluded(name)
+    }:
+        raise ValueError("Builder commit reconciliation requires the exact clean committed source")
     # A name the source inventory excludes (bytecode caches, run state) is not source and
     # leaves the delivered tree, so a tracked one is no delivery change whether or not a
     # run rebuilt it. A runner-written file whose content the run recorded and still holds
@@ -211,7 +231,8 @@ def prepare(state: RunState, workspace, current):
         "version": 1,
         "contract_hash": cast(dict, state["goal_contract"])["hash"],
         "workspace": str(Path(workspace).resolve()),
-        "parent": current["head"],
+        "parent": state["base_commit"],
+        "reconciled_commits": reconciled,
         "spec": spec,
         "tested_source": current,
         "state_scope": state,
