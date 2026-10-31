@@ -41,7 +41,9 @@ PAIRS = (
 # Workflows in which no producer role of PAIRS runs. The review workflow's only stage
 # (review_change, on the Tester's route) judges a change written outside the run, and a
 # follow-up turn that builds starts a new workflow, so no route there grades its own work.
-WITHOUT_PRODUCERS = frozenset({"review"})
+# The discuss workflow's only stage (answer_question, the Analyst) answers and builds
+# nothing; its runner rejects any workspace change.
+WITHOUT_PRODUCERS = frozenset({"review", "discuss"})
 
 
 def verifiers(producer):
