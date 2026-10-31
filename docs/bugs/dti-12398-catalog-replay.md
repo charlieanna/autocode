@@ -329,3 +329,34 @@ older observer's TUI Ctrl-C alone does not control separately started core
 workers. Member continuations, pending interventions and active-run refusals are
 retained in the operator evidence. No candidate or whole-bug completion is claimed;
 all joint and independent final verification obligations remain open.
+
+At 07:29 UTC the restarted actual TUI had reopened the saved coordination from
+an unrelated directory using the current immutable runtime. The previous viewer
+and tmux server were absent; their disappearance has no established cause.
+Public continuations consumed retained queued safety pauses without new plan
+approval. The gateway's exact offered scoped retry was accepted and saved; an
+earlier answer containing extra operational context was correctly rejected.
+
+The gateway's unchanged API package compiled on the configured amd64 toolchain,
+whose test binaries execute on this host. Offline dependency repair provisioned
+four exact already-selected module versions. The private go2denic v1.0.22 module
+archive and go.mod hashes match the pinned factory's existing go.sum. Its
+annotated tag resolves to commit `95640d6da3756de315bc7e02911f1a642272e7b6`.
+No fulfillment candidate was edited by the operator.
+
+A separate scratch import of the client's real INames packages still refused
+the original module files under `-mod=readonly`. It compiled when Go recorded
+the existing indirect requirements and missing checksums in the scratch copy.
+This contradicts the approved plan's explicit module-file preservation clause.
+Public client feedback therefore requested a complete revised coordinated plan
+allowing only required metadata for the already-selected versions, preserving
+acceptance behavior and dependency versions. The public planning continuation
+was started; this is not approval of a revised contract or fulfillment completion.
+
+External receipts include `extension-module-cache-repair-receipt.json`,
+`extension-client-pristine-module-probe.log`,
+`extension-client-scratch-module-repair-probe.log`,
+`extension-client-scratch-module-diff.txt`, and
+`extension-client-module-revision-planning.log`. At 07:29:51 UTC known combined
+usage was $90.761169 and 18,842.339400 active model seconds, with interrupted
+unpriced attempts still explicit. The public margin guard remains in force.
