@@ -128,6 +128,13 @@ def decide(state: RunState) -> dict:
         reasons.append("Requirements did not name the job (a pinned --workflow has no Requirements record)")
     if not (handoff.get("report") or {}).get("intended_outcome"):
         reasons.append("there is no Requirements record to plan from")
+    # The compiler binds diagnosis cases, not arbitrary requested test identifiers. Let the Planner
+    # bind those explicitly instead of paying a compact review that can only reject the omission.
+    if any(
+        re.search(r"\b(?:test_[A-Za-z0-9_]+|Test[A-Z][A-Za-z0-9_]*)(?![\w]|\.py\b)", row["text"])
+        for row in source_trace.quotable(obligations.sources(state))
+    ):
+        reasons.append("requested test names need explicit plan bindings")
     if found.get("outcome") != "reproduced":
         reasons.append("the Investigator did not reproduce the bug")
     else:

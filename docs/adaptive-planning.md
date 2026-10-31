@@ -300,6 +300,8 @@ path but never grant the compact one:
 
 - the run has compact planning enabled and plans adaptively, with joint planning;
 - Requirements named the bug-fix job (a pinned `--workflow bugfix` has no Requirements record);
+- the request does not prescribe test identifiers such as `test_positive` or `TestPositive`;
+  those need the Planner's explicit acceptance bindings before review;
 - the Investigator reproduced the bug with a probe the runner ran, sized the fix `small`, and named
   a root cause, an invariant and at least one regression case;
 - the fix touches at most four files (affected and test paths together), and none of them, nor the

@@ -225,6 +225,17 @@ class CompactPlanningTests(unittest.TestCase):
         self.assertIn(command, body["initial_task"]["validation_plan"])
         self.assertIn(command, body["acceptance_criteria"][0]["verification_method"])
 
+    def test_requested_test_identifiers_keep_full_planning_before_a_compact_review(self):
+        for request in ("Add test_inclusive_positive.", "Preserve test_zero.", "Add Go test TestInclusive."):
+            with self.subTest(request=request):
+                state = self.investigated(self.state())
+                state["task"] = request
+                decision = compact.decide(state)
+                self.assertEqual("full", decision["path"])
+                self.assertIn("requested test names need explicit plan bindings", decision["reasons"])
+        state["task"] = "Fix calc.py and tests/test_calc.py."
+        self.assertEqual("compact", compact.decide(state)["path"])
+
     def test_a_clean_review_publishes_the_runners_draft_for_the_persons_approval(self):
         state = self.investigated(self.state())
         compact.start(state, str(self.root))
