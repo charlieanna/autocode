@@ -7,7 +7,7 @@ must occur inside a successfully recorded Builder attempt for this plan.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -42,14 +42,14 @@ def builder_commits(state: RunState, workspace, current, git):
         chain.append(row[0])
     if chain[-1] != head:
         raise ValueError(reason)
-    witnessed = set()
+    witnessed: set[int] = set()
     root = Path(state["run_dir"]).resolve()
     for record in state.get("stages", []):
         if (
             record.get("stage") != "terra"
             or record.get("exit_code") != 0
             or any(record.get(key) for key in ("report_only", "rejected", "abandoned", "timed_out"))
-            or record.get("contract_hash") != state["goal_contract"]["hash"]
+            or record.get("contract_hash") != cast(dict, state["goal_contract"])["hash"]
         ):
             continue
         try:
