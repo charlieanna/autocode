@@ -162,10 +162,12 @@ def prepare(state: RunState, workspace, current):
         return False
     if not contracts.approved(state):
         raise ValueError("Git delivery needs the exact approved plan")
-    if (state.get("workflow") or {}).get("kind") not in (None, "build") or state.get("settings", {}).get(
+    if (state.get("workflow") or {}).get("kind") not in (None, "build", "bugfix") or state.get("settings", {}).get(
         "workflow", {}
     ).get("mode") == "glm_final_audit_v2":
-        raise ValueError("Atomic Git delivery currently requires the ordinary build review workflow")
+        raise ValueError(
+            "Atomic Git delivery currently requires the ordinary build review workflow or the bugfix workflow"
+        )
     if scope.snapshot(workspace, state) != current:
         raise ValueError("Source changed before Git delivery")
     path = Path(state["run_dir"]) / "git-delivery.json"

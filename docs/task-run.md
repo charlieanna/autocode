@@ -408,8 +408,8 @@ Stage workers still cannot commit. Push, merge and deployment are separate actio
 Delivery refuses preexisting dirty launch work, staged changes, changes outside
 the approved affected paths, or a moved HEAD. A durable receipt prevents repeating
 a successful commit after a lost response. Uncertain Git writes or source changes
-in a hook stop for reconciliation. The initial supported route is the ordinary
-build review workflow. Older plans promising an atomic commit only in prose require
+in a hook stop for reconciliation. The supported routes are the ordinary build
+review workflow and the bugfix workflow. Older plans promising an atomic commit only in prose require
 a revised, explicitly approved structured delivery contract; prose cannot authorize
 a Git write and cannot silently satisfy the completion gate.
 

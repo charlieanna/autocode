@@ -160,6 +160,21 @@ class AtomicDeliveryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "changed"):
             delivery.prepare(self.state, self.root, scope.snapshot(self.root, self.state))
 
+    def test_the_bugfix_workflow_delivers_like_the_ordinary_build_workflow(self):
+        self.state["workflow"] = {"kind": "bugfix"}
+        self.assertTrue(delivery.prepare(self.state, self.root, self.current))
+        after = scope.snapshot(self.root, self.state)
+        self.assertTrue(delivery.ready(self.state, after))
+        self.assertEqual("1", self.git("rev-list", "--count", self.parent + "..HEAD"))
+
+    def test_the_other_workflows_stay_refused(self):
+        for kind in ("review", "design", "discuss"):
+            with self.subTest(kind=kind):
+                self.state["workflow"] = {"kind": kind}
+                with self.assertRaisesRegex(ValueError, "Atomic Git delivery currently requires"):
+                    delivery.prepare(self.state, self.root, self.current)
+                self.assertEqual(self.parent, self.git("rev-parse", "HEAD"))
+
     def test_preexisting_or_staged_or_out_of_scope_work_is_preserved_and_refused(self):
         for kind in ("initial_dirty", "staged", "outside", "unapproved"):
             with self.subTest(kind=kind):
