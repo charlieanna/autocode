@@ -46,8 +46,10 @@ class Read:
         return "last snapshot retained" if self.received is not None else "no previous read"
 
     def compact(self, now):
-        core = self.snapshot["time"].strftime("%H:%M:%S%z") if self.snapshot else "unknown"
-        return f"viewer read {self.age(now)}; core sample {core}"
+        if self.received is None:
+            return "status not read yet"
+        sampled = f", run state at {self.snapshot['time'].strftime('%H:%M:%S %Z')}" if self.snapshot else ""
+        return f"status read {self.age(now)}{sampled}"
 
     def details(self, now):
         sample = self.snapshot
