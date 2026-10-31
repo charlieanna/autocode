@@ -185,9 +185,9 @@ def receipts(state: RunState, report):
     return allowed
 
 
-def _obligation_mismatch(before, after, replacements, interpretation_corrections):
+def _obligation_mismatch(before, after, replacements, interpretation_corrections, criterion_corrections):
     # The failure receipt grants no authority over adjacent obligations. Only the caller's
-    # existing feedback-interpretation guard may independently permit an assumption text update.
+    # existing assumption and criterion guards independently authorize their own draft corrections.
     for key in (*LISTS, "delegated_decisions"):
         if before.get(key) != after.get(key):
             return key
@@ -213,8 +213,13 @@ def _obligation_mismatch(before, after, replacements, interpretation_corrections
     new_criteria = {row["id"]: row for row in after.get("acceptance_criteria", [])}
     for old in before.get("acceptance_criteria", []):
         new = new_criteria.get(old["id"])
-        if new is None or {k: v for k, v in old.items() if k != "sources"} != {
-            k: v for k, v in new.items() if k != "sources"
+        independent = {
+            key for key, ids in (criterion_corrections or {}).items()
+            if key in ("criterion", "verification_method", "current_behavior") and old["id"] in ids
+        }
+        ignored = {"sources"} | independent
+        if new is None or {k: v for k, v in old.items() if k not in ignored} != {
+            k: v for k, v in new.items() if k not in ignored
         }:
             return f"acceptance_criteria[{old['id']}]"
         if any(source not in new.get("sources", []) for source in old.get("sources", [])):
@@ -222,7 +227,7 @@ def _obligation_mismatch(before, after, replacements, interpretation_corrections
     return None
 
 
-def corrections(state: RunState, body, changes, origin, *, interpretation_corrections=()):
+def corrections(state: RunState, body, changes, origin, *, interpretation_corrections=(), criterion_corrections=None):
     """Authority for exact glm_revise pairs only; every other change uses its existing guard."""
     if origin != "glm_revise":
         return {}
@@ -252,7 +257,9 @@ def corrections(state: RunState, body, changes, origin, *, interpretation_correc
         return {}
     replacements = {item: binding["receipt"]["after"] for item, binding in allowed.items()}
     contract = cast(dict, state["goal_contract"])  # revision_guard has already established the previous contract
-    mismatch = _obligation_mismatch(contract["body"], body, replacements, interpretation_corrections)
+    mismatch = _obligation_mismatch(
+        contract["body"], body, replacements, interpretation_corrections, criterion_corrections
+    )
     if mismatch:
         hint = (
             " An assumption text update must independently qualify under the feedback-interpretation rule "

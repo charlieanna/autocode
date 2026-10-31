@@ -36,7 +36,7 @@ NEW_INTERPRETATION = (
 )
 
 
-def fixture(*, investigation=None, interpretation=False):
+def fixture(*, investigation=None, interpretation=False, named_proof=False):
     current = state()
     current["iteration"] = 0
     if investigation:
@@ -61,7 +61,7 @@ def fixture(*, investigation=None, interpretation=False):
             }
         )
     draft["important_failure_cases"].append(BEFORE)
-    if investigation:
+    if investigation or named_proof:
         draft["acceptance_criteria"][0]["verification_method"] = "test: test_c1_lookup"
     draft["acceptance_criteria"][0]["sources"] = [{"source_id": "task:0", "quote": current["task"]}]
     draft["initial_task"] = {
@@ -126,6 +126,36 @@ class DraftFailureCorrectionTests(unittest.TestCase):
         self.assertEqual(review["concerns"][0][correction.FIELD], saved[correction.FIELD])
         self.assertEqual("astra_finalize", current["next_stage"])
         self.assertFalse(goals.approved(current))
+
+    def test_exact_failure_receipt_composes_with_independent_draft_criterion_corrections(self):
+        for field, value in (
+            ("criterion", "Print the greeting with the source-reviewed spacing"),
+            ("current_behavior", "The inspected implementation uses the original spacing"),
+            ("verification_method", "test: test_source_reviewed_greeting"),
+        ):
+            with self.subTest(field=field):
+                current, review, changed, changes = fixture()
+                self.admit(current, review)
+                previous = copy.deepcopy(current["goal_contract"]["body"])
+                changed["acceptance_criteria"][0][field] = value
+                if field == "criterion":
+                    changes.append(
+                        {"item": "C1", "change": "reworded", "basis": "agent_proposed", "answer_id": "", "replacement": value}
+                    )
+                lifecycle.install_draft(current, changed, origin="glm_revise", changes=changes)
+                saved = current["goal_contract"]
+                self.assertEqual(value, saved["body"]["acceptance_criteria"][0][field])
+                self.assertEqual(AFTER, saved["body"]["important_failure_cases"][-1])
+                self.assertEqual(previous["acceptance_criteria"][0]["sources"], saved["body"]["acceptance_criteria"][0]["sources"])
+                self.assertFalse(goals.approved(current))
+                self.assertEqual("astra_finalize", current["next_stage"])
+
+    def test_failure_prompt_explains_composition_without_granting_adjacent_authority(self):
+        current, _, _, _ = fixture()
+        with tempfile.TemporaryDirectory() as temp:
+            request = planner.prepare(current, "glm_revise", Path(temp) / "state.json", None)
+        self.assertIn("independently permitted draft corrections", request.prompt)
+        self.assertIn("The failure receipt itself grants no authority over adjacent criteria", request.prompt)
 
     def test_saved_revision_composes_independent_assumption_update_and_exact_receipt(self):
         current, review, changed, changes = fixture(interpretation=True)
@@ -226,15 +256,15 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                     lifecycle.revision_guard(current, changed, changes, "glm_revise")
 
     def test_composed_correction_preserves_proofs_and_source_citations(self):
-        for mutation in ("proof", "criterion", "source", "permission", "decision"):
+        for mutation in ("proof", "human_review", "source", "permission", "decision"):
             with self.subTest(mutation=mutation):
-                current, review, changed, changes = fixture(interpretation=True)
+                current, review, changed, changes = fixture(interpretation=True, named_proof=True)
                 self.admit(current, review)
                 expected = "acceptance_criteria"
                 if mutation == "proof":
                     changed["acceptance_criteria"][0]["verification_method"] = "Skip proof"
-                elif mutation == "criterion":
-                    changed["acceptance_criteria"][0]["criterion"] = "Weaker behavior"
+                elif mutation == "human_review":
+                    changed["acceptance_criteria"][0]["human_review"] = True
                 elif mutation == "source":
                     changed["acceptance_criteria"][0]["sources"] = []
                     expected += r"\[C1\].sources"
@@ -378,7 +408,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
             "extra_failure",
         ):
             with self.subTest(mutation=mutation):
-                current, review, changed, changes = fixture()
+                current, review, changed, changes = fixture(named_proof=True)
                 self.admit(current, review)
                 origin = "glm_revise"
                 if mutation == "wrong_role":
@@ -406,8 +436,11 @@ class DraftFailureCorrectionTests(unittest.TestCase):
                 else:
                     with self.assertRaisesRegex(ValueError, "receipt matches, but adjacent"):
                         correction.corrections(current, changed, changes, origin)
-                with self.assertRaises(ValueError):
-                    lifecycle.revision_guard(current, changed, changes, origin)
+                if mutation != "criterion":
+                    # Own draft wording independently qualifies through revision_guard;
+                    # the raw failure receipt above still grants it no such authority.
+                    with self.assertRaises(ValueError):
+                        lifecycle.revision_guard(current, changed, changes, origin)
 
     def test_additive_criteria_and_source_coverage_remain_available(self):
         current, review, changed, changes = fixture()
