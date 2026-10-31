@@ -27,6 +27,9 @@ PR template asks for an entry here; a change without one is incomplete.
   chat says so. A revision that changes any of those, or adds a repository, is shown for approval again.
 ### Fixed
 
+- The Codex final-message detector recognizes the `=`-attached flag forms (`--output-last-message={report}`,
+  `-o={report}`), so a command tool using them no longer prompts a shell write of the report into a
+  read-only sandbox and a valid `codex_artifacts` configuration using them is no longer refused (#2061).
 - A bugfix task with `git_delivery: atomic_commit` now delivers instead of pausing at the completion
   gate: the delivery guard admits the bugfix workflow and no longer counts tracked Python bytecode
   caches or the runner's own `docs/bugs/` diagnosis note as unapproved workspace changes (#2049).

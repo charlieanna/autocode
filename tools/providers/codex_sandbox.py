@@ -91,13 +91,15 @@ def _validate_policy_arguments(command):
 def persists_final_message(command):
     """True when the argv asks Codex to persist the model's final message at {report}.
 
-    Tools that put ``-o {report}`` (or ``--output-last-message {report}``) in the
-    command list deliver the JSON report without a shell write. The prompt must
-    then ask for a final response, not for a tool write into a read-only sandbox.
+    Tools that put ``-o {report}`` (or ``--output-last-message {report}``, with or
+    without the ``=`` separator) in the command list deliver the JSON report
+    without a shell write. The prompt must then ask for a final response, not
+    for a tool write into a read-only sandbox.
     """
-    return any(
+    two_token = any(
         command[i] in ("-o", "--output-last-message") and command[i + 1] == "{report}" for i in range(len(command) - 1)
     )
+    return two_token or any(part in ("-o={report}", "--output-last-message={report}") for part in command)
 
 
 def validate(config):
