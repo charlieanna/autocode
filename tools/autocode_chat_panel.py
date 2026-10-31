@@ -407,11 +407,12 @@ def comparison_text(
     return "\n".join(lines)
 
 
-def text(name: str, view: dict | None, log: StageLog) -> str:
+def text(name: str, view: dict | None, log: StageLog, available: list[Command] | None = None) -> str:
     """What ``/plan``, ``/tasks``, ``/log``, ``/details`` and ``/help`` print into the conversation."""
     view = view or {}
     if name == "/help":
-        return "\n".join(f"{command.name:<9} {command.description}" for command in COMMANDS)
+        commands = available if available is not None else COMMANDS
+        return "\n".join(f"{command.name:<9} {command.description}" for command in commands)
     if name == "/log":
         return "\n".join(log.lines) or "Nothing has happened yet."
     if name == "/details":

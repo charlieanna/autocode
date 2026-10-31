@@ -157,6 +157,7 @@ class RunViewTests(unittest.TestCase):
                 "prompts_hash",
                 "task",
                 "task_sha256",
+                "request_sources",
                 "runner",
                 "explanation",
                 "replay_source",

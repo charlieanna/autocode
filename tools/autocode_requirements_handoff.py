@@ -129,6 +129,11 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
         run_status.running(state, "DISCOVERING", next_stage="requirements_gather", discovery_summary=value["summary"])
         return
     run_status.running(state, "PLANNING", next_stage="astra_discovery", discovery_summary=value["summary"])
+    if not questions and requirements_review.job(state, value) == "bugfix" and source_catalog.context(state):
+        # Plain chat has no pinned workflow. Recognize the validated bug before
+        # the scope stop so its public view can offer automatic coordination.
+        # The repository and joint plans still require their single approval.
+        requirements_chat.start_named_job(state, record)
     if requirements_chat.answer_now(state, record):
         return
     if requirements_review.questions(state):

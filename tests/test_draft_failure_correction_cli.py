@@ -38,7 +38,7 @@ AFTER_INTERPRETATION = (
 
 
 class DraftFailureCorrectionCliTests(unittest.TestCase):
-    def start(self, *, stale=False, adaptive=False, compose=False):
+    def start(self, *, stale=False, adaptive=False, compose=False, wording=False):
         workspace, env = fixture_workspace(self)
         (workspace / "pager.py").write_text(
             "def page(items, number, size):\n"
@@ -95,6 +95,13 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
                 report["contract_changes"] = [{{
                     "item": {WRONG!r}, "change": "reworded", "basis": "agent_proposed",
                     "answer_id": "", "replacement": {CORRECT!r}, "example_correction": None}}]
+                if {wording!r}:
+                    criterion = report["contract"]["acceptance_criteria"][0]
+                    criterion["criterion"] = "Print the requested greeting with source-reviewed spacing"
+                    criterion["current_behavior"] = "The inspected CLI has no greeting implementation yet"
+                    report["contract_changes"].append({{
+                        "item": criterion["id"], "change": "reworded", "basis": "agent_proposed",
+                        "answer_id": "", "replacement": criterion["criterion"], "example_correction": None}})
                 if {compose!r}:
                     for assumption in report["contract"]["accepted_assumptions"]:
                         if assumption["text"] == {BEFORE_INTERPRETATION!r}:
@@ -174,6 +181,21 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
         approved = run.approve_plan(token)
         self.assertEqual(token, approved["approved_contract"]["token"])
         self.assertFalse(any(row["stage"] == "terra" for row in self.attempts(trace)))
+
+    def test_failure_receipt_composes_with_own_draft_criterion_without_extra_question(self):
+        run, view, trace, workspace = self.start(wording=True)
+        self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), self.diagnostic(view, trace))
+        shown = run.show_goal()
+        self.assertIn("Print the requested greeting with source-reviewed spacing", shown)
+        self.assertIn(CORRECT, shown)
+        attempts = self.attempts(trace)
+        self.assertFalse(any(row["repair"] for row in attempts), attempts)
+        self.assertTrue(any(row["stage"] == "astra_finalize" for row in attempts), attempts)
+        self.assertFalse(any(row["stage"] == "terra" for row in attempts), attempts)
+        self.assertFalse((workspace / "greet.py").exists())
+        with self.assertRaises(taskrun.TaskRunError):
+            run.approve_plan("r0:stale")
+        self.assertEqual(view["needs"]["token"], run.status()["needs"]["token"])
 
     def test_stale_review_receipt_never_reaches_approval_or_builder(self):
         run, view, trace, workspace = self.start(stale=True)

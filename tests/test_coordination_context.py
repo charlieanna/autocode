@@ -130,42 +130,42 @@ class CoordinationContextTests(unittest.TestCase):
     def bind_participant(self, target, *, role):
         workspace = self.root / target
         shutil.copytree(self.workspace, workspace)
-        run = workspace / '.autocode/runs/fix'
+        run = workspace / ".autocode/runs/fix"
         store.reserve(
             source_workspace=self.workspace,
             source_run_dir=self.run,
             target=target,
             workspace=workspace,
-            brief='Prove the real composed outcome',
+            brief="Prove the real composed outcome",
             role=role,
         )
-        store.bind(self.record['id'], target, run)
-        return {**self.state, 'workspace': str(workspace), 'run_dir': str(run)}
+        store.bind(self.record["id"], target, run)
+        return {**self.state, "workspace": str(workspace), "run_dir": str(run)}
 
     def test_joint_participant_never_receives_circular_member_prerequisites(self):
         self.automatic()
-        joint = self.bind_participant('Joint regression (2)', role='joint')
+        joint = self.bind_participant("Joint regression (2)", role="joint")
         self.assertIsNone(coordination.context(joint))
-        self.assertEqual('ordinary proof rule', coordination.proxy_rule(joint, 'ordinary proof rule'))
-        for stage in ('requirements_gather', 'astra_discovery', 'astra_challenge', 'astra_finalize'):
+        self.assertEqual("ordinary proof rule", coordination.proxy_rule(joint, "ordinary proof rule"))
+        for stage in ("requirements_gather", "astra_discovery", "astra_challenge", "astra_finalize"):
             with self.subTest(stage=stage):
-                prompt, _ = autoplanner.context(joint, stage, self.run / 'state.json')
-                self.assertNotIn('REAL JOINT PROOF IS NOT A LOCAL PROXY', prompt)
-                self.assertNotIn('coordinated_member', repair.clarification_context(joint, stage))
-        prompt, _ = runtime.context_packet(joint, 'terra', self.run / 'state.json')
+                prompt, _ = autoplanner.context(joint, stage, self.run / "state.json")
+                self.assertNotIn("REAL JOINT PROOF IS NOT A LOCAL PROXY", prompt)
+                self.assertNotIn("coordinated_member", repair.clarification_context(joint, stage))
+        prompt, _ = runtime.context_packet(joint, "terra", self.run / "state.json")
         packets = [json.loads(line) for line in prompt.splitlines() if line.startswith('{"task":')]
-        self.assertNotIn('coordinated_member', packets[-1])
+        self.assertNotIn("coordinated_member", packets[-1])
 
     def test_member_context_lists_only_producers_by_authenticated_role_not_name(self):
         self.automatic()
-        self.bind_participant('Joint regression (2)', role='joint')
-        ordinary = self.bind_participant('Joint regression', role='member')
+        self.bind_participant("Joint regression (2)", role="joint")
+        ordinary = self.bind_participant("Joint regression", role="member")
         for state in (self.state, ordinary):
-            with self.subTest(workspace=state['workspace']):
+            with self.subTest(workspace=state["workspace"]):
                 found = coordination.context(state)
-                self.assertEqual(['checkout', 'history', 'Joint regression'], found['members'])
-                self.assertIn('only this member', found['instruction'])
-                self.assertIn('independent joint proof pass', found['instruction'])
+                self.assertEqual(["checkout", "history", "Joint regression"], found["members"])
+                self.assertIn("only this member", found["instruction"])
+                self.assertIn("independent joint proof pass", found["instruction"])
 
     def test_discovery_hint_requires_the_same_authenticated_member_identity(self):
         self.automatic()

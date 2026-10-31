@@ -325,6 +325,36 @@ def screen_ui(*keys):
     return ui
 
 
+class SmallTerminalTests(unittest.TestCase):
+    def test_a_too_small_terminal_says_how_big_to_make_it_without_cutting_the_words(self):
+        for rows, cols in ((10, 80), (24, 20), (6, 14)):
+            with self.subTest(rows=rows, cols=cols):
+                ui = screen_ui()
+                ui._screen.getmaxyx.return_value = (rows, cols)
+                shown = []
+                ui._put = lambda line, col, text, attr=0: shown.append((line, text))
+                ui._draw()
+                self.assertTrue(all(len(text) <= cols - 1 for _, text in shown))
+                self.assertTrue(all(line < rows for line, _ in shown))
+                words = " ".join(text for _, text in sorted(shown)).split()
+                self.assertEqual(
+                    f"Terminal too small for the chat. Make it at least 32 columns wide and 12 rows tall (now {cols}x{rows}).".split()[
+                        : len(words)
+                    ],
+                    words,
+                )
+
+
+class StatusLineTests(unittest.TestCase):
+    def test_the_status_row_reads_in_plain_words_before_any_status_read(self):
+        ui = screen_ui()
+        shown = []
+        ui._put = lambda line, col, text, attr=0: shown.append((line, text))
+        ui._header(ui._layout(30, 120))
+        row = next(text for line, text in shown if line == 2)
+        self.assertEqual("Reading run status (status not read yet)", row.rstrip())
+
+
 class PlanningCorrectionTests(unittest.TestCase):
     def test_the_full_screen_composer_sends_a_named_planning_correction(self):
         from autocode_run_view import view
@@ -683,6 +713,15 @@ class AskTests(unittest.TestCase):
         ui = screen_ui(*"/diff\n", *"n\n")
         self.assertEqual("n", ui.ask("Continue? [y/N]"))
         self.assertIn("is not available right now", self.info(ui)[0])
+
+    def test_help_omits_run_commands_before_a_chat_is_open(self):
+        ui = screen_ui()
+        ui._run_open = False
+        ui._run("/help", asking=True)
+        help_text = self.info(ui)[-1]
+        self.assertNotIn("/live", help_text)
+        self.assertNotIn("/log", help_text)
+        self.assertIn("/help", help_text)
 
     def test_keys_typed_while_autocode_worked_are_dropped_before_a_question(self):
         screen = mock.MagicMock()

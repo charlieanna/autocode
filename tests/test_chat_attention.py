@@ -189,8 +189,21 @@ class DrawerTests(unittest.TestCase):
         ui._put = lambda line, col, text, attr=0: shown.append((line, col, text))
         ui._header(ui._layout(24, 80))
         header = [(col, text) for line, col, text in shown if line == 0]
-        self.assertTrue(any("F8: 2 unread" in text for _, text in header))
+        self.assertTrue(any("F8: 2 new alerts, 1 unchecked" in text for _, text in header))
         self.assertTrue(all(col + len(text) <= 80 for col, text in header))
+
+    def test_attention_badge_counts_in_plain_words(self):
+        for counts, expected in (
+            ({"unread": 1}, " F8: 1 new alert"),
+            ({"unread": 0, "unknown": 2}, " F8: 2 unchecked alerts"),
+            ({"unread": 3, "unknown": 1}, " F8: 3 new alerts, 1 unchecked"),
+            ({}, ""),
+            ({"unread": 2, "error": "boom"}, " F8: alerts unavailable"),
+        ):
+            with self.subTest(counts=counts):
+                ui = screen_ui()
+                ui._attention_view = counts
+                self.assertEqual(expected, ui._attention_badge())
 
     def test_discovery_handoff_closes_only_the_replaced_read_pool(self):
         discovered = discovery.Discovery(

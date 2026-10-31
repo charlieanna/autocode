@@ -352,7 +352,10 @@ class CommandProvider:
                 "\nFINAL REPORT DELIVERY\n"
                 + persistence
                 + "Use a permitted tool to write that JSON file before finishing. "
-                "A chat response alone does not deliver the report. Follow the schema in TOOL OUTPUT CONTRACT.\n"
+                "A chat response alone does not deliver the report. Follow the schema in TOOL OUTPUT CONTRACT. "
+                "Never mention this report file, its delivery, the sandbox or a refused write in assistant_reply "
+                "or any other text meant for the person; if a write is refused, still end with the same JSON "
+                "object as your final message.\n"
             )
         return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
 

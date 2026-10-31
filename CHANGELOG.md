@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The terminal chat's header speaks plainly (#2559): the status row reads "Reading run status (status read
+  3s ago, run state at 05:00:00 UTC)" instead of "viewer read …; core sample …", the F8 badge counts
+  "new" and "unchecked" alerts, and a terminal too small for the chat says, wrapped to fit, how many
+  columns and rows it needs.
 - The plan approval stop leads with the decision in plain words (#2535): what the plan will do, what it may
   change, each criterion and how it is checked, what passing proves and the limits, then one line naming
   `--details` (in the terminal chat, `/details`) for the full brief with its contract diff, file hashes and
@@ -28,6 +32,19 @@ PR template asks for an entry here; a change without one is incomplete.
   caches or the runner's own `docs/bugs/` diagnosis note as unapproved workspace changes (#2049).
 - The Resolver may write its report on its own workspace, and a regression proof repaired because the
   changed tests cover the fix is recognized as passing instead of failing the run (#2049).
+- Automatic coordination recognizes catalog-grounded multi-repository bug requests before the chat scope gate and carries authenticated clarifications into member planning; request-feedback outcomes are reconciled before retrying.
+- GoCode report repairs now use typed values, independently permitted draft corrections can be composed without broadening approval or evidence rules, and Codex sandbox write grants stay limited to evidence/output roots rather than source or report files.
+- Stage selection offers only models declared by the configured providers.
+- When a checking stage shares a model with the work it checks, the terminal chat asks in its job name which model that stage should use ("Which model should the Tester use?"), shows the shared model in plain words and lists the models that keep the check independent, instead of an internal role and `cross_model` (#2557).
+- A Requirements or other stage on a `report_file` command tool is told never to mention the report file, its delivery, the sandbox or a refused write in its reply to the person, so a read-only stage no longer tells the person a sandbox blocked it (#2558).
+- When the terminal chat stops or hands a run back, it says in plain words that the run is saved and how to return (`autocode chat`) or start a new request, instead of an internal need kind such as `(resume)`.
+- The terminal chat's `/help` lists only commands available in the current state, so it no longer advertises `/live` or `/log` before a chat is open.
+- Discuss-only requests no longer pause for producer/verifier model independence when those roles use the same model; the Analyst produces no code to verify.
+- `autocode verify` on a Go feature whose new tests reference new types no longer counts every test
+  in the touched packages as fail-to-pass (#2505). Only test functions the change adds or edits are
+  proof; an unchanged test that passed in the base suite and still passes is reported as
+  pass-to-pass. A change whose only passing tests are existing ones now fails for lacking a test of
+  the new behavior instead of passing.
 - Automatic multi-repository delivery preserves relocated Git transport helpers, discovers authorized
   repositories requested by the joint regression, and keeps the joint proof out of its own producer
   prerequisites. Expanded repository sets require fresh coordinated approval; earlier attempts and all

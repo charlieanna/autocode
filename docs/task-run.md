@@ -43,10 +43,21 @@ read roots; this grants no Builder write authority. Clear source-grounded bug
 requirements flow into the complete plan without a separate Requirements
 confirmation. Genuine unresolved business questions still pause for an answer.
 
+`view.request_sources` carries the authenticated live human source texts as
+`{id, kind, text}` records, including Requirements clarifications. It excludes
+model prose and discarded answers. Coordination pins those exact records and
+carries their text into every member and joint brief. A changed source inventory
+invalidates the saved coordination and its approval, even if the opening task
+and repository scope are unchanged. Older unapproved, idle coordinations adopt
+the current inventory and refresh incomplete member briefs through public,
+receipted feedback actions. Interrupted feedback is reconciled against its
+public chat receipt; an uncertain outcome is never submitted twice. Approved
+or active work cannot use this recovery to replace its request.
+
 The version-1 coordination view identifies the anchor, record revision, phase,
 member workspaces/runs/PRs, `done`, `needs`, and optional `next_command` and
 `approval`. The joint-test baseline and plan are prepared before any Builder.
-One approval binds the original request, source-catalog snapshot, repository
+One approval binds the original request and its human-source inventory, source-catalog snapshot, repository
 membership and pinned baselines, plus every exact member and joint-plan token.
 Clients reread before approving. Pass its token privately as `--token -` with
 `AUTOCODE_COORDINATION_TOKEN`; providers never receive that variable. A missing
