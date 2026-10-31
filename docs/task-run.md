@@ -465,6 +465,11 @@ run. The informational reply alone still changes nothing (#2434).
 An operational `resolver_response` offer binds `provide_information` to the current
 Resolver request ID and token in `needs`. It supplies corrective information only;
 retry grants, scope changes, model routing and resuming remain separate actions.
+Resolver frontier bindings also include the runner's Python source contents,
+using relative names rather than its installation path. A runner repair expires
+an old response hold so ordinary continuation can reconsider the stop. This
+grants no approval, permission or additional recovery allowance; unchanged runner
+contents retain the hold even when installed in another directory.
 In spec-first chat runs, a message at plan approval is interpreted by the saved Requirements
 route when the client continues. Questions receive an assistant reply while preserving the reviewed
 plan and its token; requested or mixed corrections enter normal requirements/review again and need

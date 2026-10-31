@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import autocode_resolver_human as human
 import autocode_resolver_runtime as runtime
@@ -14,6 +15,35 @@ import autocode_support as support
 
 
 class ResolverHumanTests(unittest.TestCase):
+    def test_answered_frontier_expires_when_runner_code_changes_without_changing_task_authority(self):
+        with tempfile.TemporaryDirectory() as runtime_dir:
+            directory = Path(runtime_dir)
+            module = directory / "autocode_resolver_human.py"
+            module.write_text("# resolver\n")
+            gate = directory / "autocode_regression.py"
+            gate.write_text("# original proof policy\n")
+            self.state["status"] = "PAUSED_RESOLVER"
+            self.state["goal_contract"]["approval_status"] = "approved"
+            self.state["settings"].update(max_cost_usd=23, max_seconds=900)
+            before = copy.deepcopy(self.state)
+            with patch.object(human, "__file__", str(module)):
+                binding = human._binding(self.state)
+                self.state["resolver"] = {"human_response_frontier": {
+                    "pause_status": self.state["status"], "binding": binding,
+                }}
+                self.assertTrue(human.response_holds_current_frontier(self.state))
+                with tempfile.TemporaryDirectory() as relocated:
+                    for path in (module, gate):
+                        (Path(relocated) / path.name).write_bytes(path.read_bytes())
+                    with patch.object(human, "__file__", str(Path(relocated) / module.name)):
+                        self.assertEqual(binding, human._binding(self.state))
+                        self.assertTrue(human.response_holds_current_frontier(self.state))
+                gate.write_text("# repaired proof policy\n")
+                self.assertFalse(human.response_holds_current_frontier(self.state))
+                self.assertNotEqual(binding, human._binding(self.state))
+            self.state.pop("resolver")
+            self.assertEqual(before, self.state, "Runtime re-evaluation grants no task authority or allowance")
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
