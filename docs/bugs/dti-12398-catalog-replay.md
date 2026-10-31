@@ -180,3 +180,38 @@ The failed originating Resolver also rejected symlinked dependency cache entries
 in operational evidence. Its original cache is retained outside operational
 roots while the same dependency bytes are materialized as regular files.
 Implementation and independent candidate verification remain in progress.
+
+
+An answered Resolver blocker still held after the proof runner repair, because
+its frontier did not identify the executing runner's source. Test-first commit
+`73db6f0b8` adds a content-only Python runtime fingerprint to Resolver frontiers.
+The focused regression failed before the edit. The final test verifies expiry
+on changed runner code, stable identity after relocation with identical bytes,
+and unchanged approved contract, finite limits and recorded task state. Twenty-two
+pure host tests passed. Forty supported Linux checks passed in 849.585 seconds,
+including operational-information CLI admission, import cycles and a complete
+fake-provider bugfix workflow; the final focused test also passed on Linux.
+An accidentally invoked macOS CLI group was interrupted and retained rather than
+claimed as supported verification.
+
+The new immutable diagnostic runtime is
+`ba11d736e9014ea17f36f2a1cb6df344b9d136ca`, a narrow overlay on the preceding
+runtime. Its archive SHA-256 is
+`86db06ef698757dc64ed162fa83dee2ebf93783d1794fb87c18bfe66dd9ae1dc`.
+The terminal viewer refused `/quit` while coordinating and offered cancellation,
+so operator recovery suspended, then terminated only the viewer to reload it;
+no core/provider process group was signalled. Existing members were asked to
+pause at supported public boundaries. Plain `autocode` was relaunched from the
+second unrelated directory, `/runs` was read, and observed `/open 7` reopened the
+original anchor. The missing active-viewer detach action remains a UI limitation.
+
+The repaired runtime expired the old response hold and issued a fresh operational
+request. Operator machinery information was submitted through its public named
+action without any contract, approval, route or allowance change. An attempted
+resume met an active run lock and was refused without duplicate work; a fresh
+status and named resume then admitted the pending information through normal
+checks and queued the originating member's Completion Reviewer. The new viewer
+continues the coordinated run. These operator repairs and runtime changes remain
+diagnostic recovery evidence, not a clean frozen qualification. Exact-candidate
+verification, independent oracle/negative controls and completed-run reopen are
+still pending.
