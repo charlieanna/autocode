@@ -108,6 +108,47 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertIn("--answer route-sol=MODEL --resolver-token - (reads AUTOCODE_RESOLVER_TOKEN)", advice)
         self.assertIn("--abandon-stage 001/validator-01, then --resume-paused --sol-model MODEL", advice)
 
+    def test_an_output_limit_question_names_the_cap_and_offers_the_other_configured_models(self):
+        # The remedy for "reasoning and report text shared the response output limit" is
+        # a larger cap or another model; the question had been naming neither.
+        state = self.state(engine="opencode", sol="zai-coding-plan/glm-5.3")
+        state["settings"]["roles"]["terra"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+        state["settings"]["roles"]["completion"]["model"] = "alibaba-token-plan/deepseek-v4-pro"
+        attempt = {
+            "role": "sol",
+            "stage": "sol",
+            "attempt_id": "001/validator-01",
+            "model": "zai-coding-plan/glm-5.3",
+            "pause_status": quota_route.OUTPUT_STATUS,
+            "output_token_cap": {
+                "set_by": "autocode",
+                "tokens": 64000,
+                "variable": "KILO_EXPERIMENTAL_OUTPUT_TOKEN_MAX",
+            },
+        }
+        asked = quota_route.question(state, attempt, cross_check=dispatch.enforce_cross_model_verification)
+        self.assertEqual("output_limit", asked["cause"])
+        self.assertTrue(asked["question"].startswith("Tester's response exhausted its output limit"))
+        self.assertIn("64000 tokens, reasoning included", asked["why"])
+        self.assertIn("KILO_EXPERIMENTAL_OUTPUT_TOKEN_MAX", asked["why"])
+        self.assertIn("set KILO_EXPERIMENTAL_OUTPUT_TOKEN_MAX to a larger number of tokens", asked["why"])
+        self.assertIn("alibaba-token-plan/deepseek-v4-pro", asked["candidates"])
+        self.assertFalse(asked["delegable"])
+
+    def test_an_output_limit_question_without_a_recorded_cap_still_asks_for_a_model(self):
+        state = self.state(engine="opencode", sol="zai-coding-plan/glm-5.3")
+        attempt = {
+            "role": "sol",
+            "stage": "sol",
+            "attempt_id": "001/validator-01",
+            "model": "zai-coding-plan/glm-5.3",
+            "pause_status": quota_route.OUTPUT_STATUS,
+        }
+        asked = quota_route.question(state, attempt)
+        self.assertEqual("output_limit", asked["cause"])
+        self.assertNotIn("output-limit setting", asked["why"])
+        self.assertNotIn("candidates", asked)
+
     def test_completion_stop_asks_for_the_completion_route(self):
         state = self.state(stage="astra_review", role="astra")
         state["active_stage"]["route_role"] = "completion"

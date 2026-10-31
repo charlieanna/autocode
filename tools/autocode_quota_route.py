@@ -435,17 +435,50 @@ def question(
         )
         return asked
     if attempt.get("pause_status") == OUTPUT_STATUS:
+        cap = attempt.get("output_token_cap")
+        setting = ""
+        if isinstance(cap, dict) and cap.get("tokens"):
+            variable = cap.get("variable") or output_cap.VARIABLE
+            setting = (
+                f" The recorded output-limit setting is {cap['tokens']} tokens, reasoning included "
+                f"({variable}, {output_cap.SET_BY.get(cap.get('set_by') or '') or cap.get('set_by') or variable}); "
+                f"on a route that honors it, set {variable} to a larger number of tokens before resuming."
+            )
         asked.update(
             cause="output_limit",
             question=f"{job}'s response exhausted its output limit; name another model to continue on",
             why=(
                 f"The {job} stopped on {stopped_on}: reasoning and report text shared the response output limit, "
                 "and no complete report was emitted. An unchanged retry can exhaust it again. "
-                "AutoCode never changes the model or token cap on its own. Name a model with more output "
+                "AutoCode never changes the model or token cap on its own."
+                + setting
+                + " Name a model with more output "
                 f"headroom for the same engine ({engine(settings, role)}) that passes the producer/checker "
                 "independence rules. The incomplete attempt and its usage remain retained."
             ),
         )
+        if cross_check is not None:
+            passing, refused = candidates(
+                state,
+                role,
+                stopped_on,
+                cross_check=cross_check,
+                configured_tool=configured_tool,
+                job=job,
+                current=current,
+                rule=rule,
+            )
+            asked["candidates"] = passing
+            asked["recommendation"] = (
+                f"Configured models that pass the launch rules for the {job}, to check for output headroom: "
+                f"{', '.join(passing)}."
+                if passing
+                else f"No other configured model passes the launch rules for the {job} (refused: {', '.join(refused)}); "
+                "name one from another provider."
+                if refused
+                else f"No model from another provider is configured; name one for the {job}."
+            )
+            asked["why"] += " " + asked["recommendation"]
         return asked
     if attempt.get("pause_status") != REFUSAL_STATUS:
         return asked

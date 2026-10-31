@@ -43,6 +43,14 @@ host except macOS, refuses the launch before provider spawn. The refusal
 identifies the unavailable boundary; it does not send a model request. There is
 no CLI opt-out.
 
+Ownership receipt reads retry malformed JSON up to five fresh reads, with
+25 ms between parse failures. Every read checks the size, schema, nonce and
+owner/keeper/provider identities before it can authorize a session handoff;
+no cached receipt grants ownership. Identity, schema, access and I/O failures
+remain immediate refusals, and persistent malformed JSON still pauses cleanup.
+This permits recovery from a transient malformed read during receipt publication
+without treating the failed read as evidence.
+
 macOS has no seccomp, so providers there run without this boundary (#1195):
 the keeper's lifeline and sampled process-group and session ownership, as for
 runner commands, with no kernel proof that every descendant exited. The run
@@ -848,9 +856,11 @@ new run to move every role.
 
 This adapter requires **Codex CLI 0.160.0 or later**, checked before a model
 request. For planning and review it selects a named permission profile derived
-from `:read-only`, adding writes only to the workspace's `.autocode/evidence/`,
-`.autocode/output/`, and the exact assigned stage JSON report. The Builder keeps
-`workspace-write`. Codex's `-o` option saves the final JSON response; the model
+from `:read-only`, adding writes only to the workspace's `.autocode/evidence/`
+and `.autocode/output/` directories. The Builder keeps
+`workspace-write`. Codex's `-o` option saves the final JSON response outside the
+tool sandbox; the report file needs no tool-write grant. File write roots cause
+Linux sandbox mount setup to fail. The model
 still runs actual capture commands to produce independently checked receipts.
 No permission answer automatically changes this profile.
 

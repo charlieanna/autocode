@@ -28,7 +28,7 @@
         "provider", "route_assignments", "information_review", "tool_containment", "job_report_recovery",
         "efficiency", "conversation", "chat", "workspace", "run_dir", "planning_depth", "stage_policy", "pause", "package",
         "tool_containment_backend", "changes_by_criterion", "dev_server", "execution", "observation", "attention",
-        "scope", "coordination", "related_profile", "proxied_requirements"
+        "scope", "coordination", "related_profile", "proxied_requirements", "request_sources"
       ],
       "properties": {
         "execution": {
@@ -134,6 +134,7 @@
         },
         "task": {"type": ["string", "null"], "description": "The exact saved request text."},
         "task_sha256": {"type": ["string", "null"], "description": "The UTF-8 SHA-256 of `task`."},
+        "request_sources": {"type": "array", "items": {"type": "object", "required": ["id", "kind", "text"], "properties": {"id": {"type": "string"}, "kind": {"type": "string"}, "text": {"type": "string"}}}, "description": "Authenticated live human source texts, including clarifications. Excludes model prose and discarded answers. Coordinated tasks pin these exact sources and carry their text into member and joint briefs; changed sources invalidate the saved coordination."},
         "workflow": {"type": ["string", "null"], "description": "The kind of job recognized from the request (build, bugfix, review, design, discuss); null until recognized."},
         "workflow_source": {"type": ["string", "null"]},
         "workflow_reason": {"type": ["string", "null"]},

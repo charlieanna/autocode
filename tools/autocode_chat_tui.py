@@ -21,6 +21,7 @@ import re
 import signal
 import subprocess
 import sys
+import textwrap
 import threading
 import time
 import unicodedata
@@ -56,6 +57,16 @@ NEW_CHAT_PLACEHOLDER = "Ask for a change, a fix, or a question…"
 REPLY_PLACEHOLDER = "Type your reply, then Enter"
 WORKING_PLACEHOLDER = "AutoCode is working… type / for commands"
 PANEL_MIN_COLS = 100  # below this the panel stays hidden unless /panel asks for it
+MIN_ROWS, MIN_COLS = 12, 32  # below either the chat cannot be drawn
+
+
+def too_small(rows: int, cols: int) -> str:
+    return (
+        f"Terminal too small for the chat. Make it at least {MIN_COLS} columns wide"
+        f" and {MIN_ROWS} rows tall (now {cols}x{rows})."
+    )
+
+
 LIVE_MIN_ROWS = 24  # below this the live log stays hidden unless /live asks for it
 LIVE_SHARE = 0.45  # of the conversation's rows the live log takes
 AGENT_STYLES = 4  # agents in the live log cycle through this many colors
@@ -1372,8 +1383,9 @@ class ChatTUI:
             width = max(1, cols - 1)
             try:
                 screen.erase()
-                if rows < 12 or cols < 32:
-                    self._put(0, 0, truncate("Terminal too small for the chat", width), curses.A_BOLD)
+                if rows < MIN_ROWS or cols < MIN_COLS:
+                    for line, text in enumerate(textwrap.wrap(too_small(rows, cols), width)[:rows]):
+                        self._put(line, 0, text, curses.A_BOLD)
                     screen.refresh()
                     return
                 layout = self._layout(rows, cols)
@@ -1391,19 +1403,25 @@ class ChatTUI:
             except curses.error:
                 pass
 
+    def _attention_badge(self) -> str:
+        """The F8 count of decisions waiting for the person, in plain words (#2559)."""
+        if error := self._attention_view.get("error"):
+            # Say why, not just that: an unexplained permanent badge reads as a broken panel.
+            reason = " ".join(str(error).split())[:60]
+            return f" F8: alerts unavailable: {reason}"
+        new, unchecked = self._attention_view.get("unread", 0), self._attention_view.get("unknown", 0)
+        if new:
+            return f" F8: {new} new alert{'s' if new != 1 else ''}" + (f", {unchecked} unchecked" if unchecked else "")
+        if unchecked:
+            return f" F8: {unchecked} unchecked alert{'s' if unchecked != 1 else ''}"
+        return ""
+
     def _header(self, layout: Layout) -> None:
         brand = f"{self._glyphs.bar} {BRAND}"
         self._put(0, 0, truncate(brand, layout.width), self._style("brand"))
         used = display_width(brand)
         context = f"  {self._context}" if self._context else ""
-        unread, unknown = self._attention_view.get("unread", 0), self._attention_view.get("unknown", 0)
-        badge = ""
-        if unread or unknown:
-            badge = f" F8: {unread} unread" + (f", {unknown} unknown" if unknown else "")
-        if error := self._attention_view.get("error"):
-            # Say why, not just that: an unexplained permanent badge reads as a broken panel.
-            reason = " ".join(str(error).split())[:60]
-            badge = f" F8: attention unavailable: {reason}"
+        badge = self._attention_badge()
         remaining = max(0, layout.width - used - display_width(badge))
         if context and remaining:
             self._put(0, used, truncate(context, remaining), self._style("dim"))
@@ -1418,11 +1436,9 @@ class ChatTUI:
             row.get("current") and row.get("state") == "unavailable" for row in self._tabs
         )
         cue = verification.cue(self._view, unavailable=unavailable)
-        label = "History · last read: " if self._scroll else "Last read: "
+        label = "History · " if self._scroll else ""
         style = self._style("panel-warn" if unavailable else "panel-now")
-        self._put(
-            2, 0, truncate(label + cue + " | " + self._observation.compact(time.monotonic()), layout.width), style
-        )
+        self._put(2, 0, truncate(f"{label}{cue} ({self._observation.compact(time.monotonic())})", layout.width), style)
         if len(self._tabs) < 2:
             self._put(1, 0, self._glyphs.rule * layout.width, self._style("dim"))
             return

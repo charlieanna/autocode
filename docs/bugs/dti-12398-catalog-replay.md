@@ -56,3 +56,326 @@ saved-approval/completed-run reopen and simulated publication remain unverified.
 This campaign establishes neither fulfillment delivery nor new-feature support.
 Local evidence is retained under `/private/tmp/autocode-dti12398-20261030/`;
 run output and bundles are intentionally not committed.
+
+## Authorized extra attempt and recovery
+
+The owner authorized one additional attempt under the original combined spending
+and active-model-time limits. It launches plain `autocode` from an unrelated
+nested directory and uses the saved catalog of 90 canonical organization
+repositories, without a fulfillment-name filter or driver-selected members.
+The actual `/stages` screen was captured. This attempt keeps GoCode Sol for
+Requirements/Planner/Builder and GoCode Opus for Plan Reviewer/Tester/Completion
+Reviewer. Other offered model families have not been qualified by execution.
+
+The extra attempt required runtime and environment repairs, so its continuation
+is diagnostic recovery evidence rather than a clean frozen-runtime result. The
+original blocked verdict is retained. Repository discovery independently added
+the originating domains API, gateway, history consumer, command factory and RG
+client. At the time of this recovery note, one member plan was ready, the
+remaining planning and consolidated joint plan were pending, and no Builder or
+implementation approval had occurred.
+
+Local recovery commits retain authenticated request clarifications across
+coordinated planning (`014f73a22`), correct Codex sandbox artifact-directory grants
+(`0efaad31e`), and compose independently permitted unapproved draft corrections
+with exact reviewer-backed failure-case receipts (`dbb6f70ac`). The latter fixes
+an unnecessary human permission question about the model's own criteria. Its
+focused tests and public CLI regression were observed failing first; 100 focused
+Linux unit/CLI tests then passed. The sandbox change passed 75 Linux tests and a
+native probe that allowed evidence/output writes while refusing source/report
+writes. Fourteen pre-existing prompt snapshot failures remain documented; the
+new prompt fragment's affected renderings were reviewed and refreshed separately.
+
+Missing cached dependency versions and the pinned Ginkgo executable were
+provisioned locally without editing the fulfillment sources. A public feedback
+action requested fresh review under unchanged requirements after the draft
+machinery repair; it confirmed no Requirements and approved no plan. Existing
+terminal coordination continues to expose its state, while the repaired public
+CLI was used for that member's continuation. Runtime archives, hashes, feedback
+receipts, red/green logs and terminal captures remain in the local evidence
+folder. Earlier runtime archives contained this qualification note before it was
+removed from model-visible material; no clean-isolation claim is made.
+
+At the next checkpoint, all five member plans were ready and exported without
+approval. The RG client's exact pinned dependencies were prepared from existing
+local Git tags and checksum-verified public module artifacts; its unchanged
+offline baseline suite passed. Joint planning then exposed a separate unwanted
+Requirements confirmation because the integration task uses the build workflow.
+Local commit `e3318d0df` authenticates the current joint task or its durable first
+start intent and carries clear requirements into consolidated approval. It does
+not answer or confirm Requirements for the person; genuine business questions,
+ordinary spec-first builds and exact plan approval retain their existing gates.
+
+Focused unit tests and a public fake-provider CLI regression failed first. The
+CLI regression then reached an unapproved plan without a confirmation or Builder.
+The Linux group passed 129 of 131 checks; the remaining checks encountered an
+unregistered `autocode_cli` package and an absent home-directory passwd entry
+when a fixture clears the environment. The home-directory failure also occurred
+on the previous runtime. A separate identity-negative test passed. All 135
+focused pure/host checks passed on the current checkout. No full-suite success
+is claimed.
+
+The resumed diagnostic runtime is `298c6f8456fe2dc3c4ffce72c278102f22e37a8f`,
+an exact retained overlay of the tested modules, tests and public documentation
+on `dbb6f70ac`; it avoids introducing unrelated merged runtime changes. Its
+archive hash and exclusions, the public machinery-feedback receipt and the
+plain-`autocode` viewer restart are retained locally. The joint task is now
+investigating the real five-component path with no unresolved Requirements
+questions. Consolidated approval, fulfillment implementation and candidate proof
+remain pending. No member or joint plan has been approved.
+
+The diagnostic TUI subsequently reached **one consolidated approval** containing
+all five member plans and the joint plan. The joint plan uses actual component
+code through separate Go helper processes, unchanged logger-event bytes and
+ordinary JSON decoding; its combined suite must fail behaviorally on the original
+baseline and pass on exact candidates. The gateway and RG client propose source
+corrections; the other three members propose preservation guards.
+
+Plain `autocode` was then launched from a second unrelated directory. Public
+`/runs` and `/open 7` reopened the original anchor with the same catalog snapshot
+and exact coordinated approval offer. All six plans remained unapproved, attempt
+count remained 58 and no simulated publication occurred. The TUI remains at that
+approval gate for the owner. Exact exports, an assembled review copy, hashes and
+the reopen receipt are retained locally under the evidence folder's `review/`
+and `extension-consolidated-*` files; the review copy is also in this checkout's
+ignored `.autocode/reviews/dti-12398/` directory.
+
+At this gate the extra attempt records $53.157660 known cost and 11,412.079308
+active model seconds across 58 attempts. Combined with the original campaign,
+recorded totals are $60.717974 and 12,196.454679 active model seconds across 74
+attempts. Usage coverage remains incomplete, so these are not exact billing
+totals. Implementation, exact-candidate independent oracle/negative controls,
+completed-run reopen and simulated publication are still unverified. The original
+blocked verdict and the diagnostic-recovery qualification remain unchanged.
+
+
+The owner then explicitly approved the complete local replay plan (review digest
+`f566d21023cc2edd8c6e59f6d5eef28a650c8a440f9c73cdb81834f3b30866a8`).
+All six current plan identities were checked and `y` was entered in the actual
+TUI. The public approval event and exact intent/receipt are retained in
+`extension-human-approval-*`; all five members and the joint plan were released.
+This supersedes the earlier waiting-for-approval status above.
+
+The originating API member passed its preservation checks but exposed a runner
+contradiction: its explicitly approved test-only role was rejected by the generic
+bugfix product-diff rule. Local commit `7bacbcbec` permits an approved,
+authenticated automatic producer member with only due guard cases to prove
+pass-before/pass-after on a test-only diff. Product changes still require normal
+fail-before/pass-after; standalone bugs and the joint task receive no allowance.
+Both the missing allowance and product-diff safety regression were observed
+failing before their production edits. Nineteen focused proof/context checks
+passed on macOS and Linux; the focused Linux fake-provider full bugfix workflow
+and import-cycle check passed. A broader invocation retained two failures: a
+mistyped nonexistent test module and the previously identified missing
+`autocode_cli` package registration in the isolated test checkout. No whole-suite
+success is claimed.
+
+The immutable diagnostic runtime is now
+`837f9681bf420e2cdae8c70cdb90a715be23c591`, based on the preceding runtime with
+only this tested functionality overlaid. Archive SHA-256 is
+`55cda6a8db92ea222149da3bf93af88f2a18dd8dc6f783a325875566f338aa5a`.
+The qualification note remains excluded from extraction. The public CLI wrapper
+selects it; already active processes retain their original imported runtime.
+The failed originating Resolver also rejected symlinked dependency cache entries
+in operational evidence. Its original cache is retained outside operational
+roots while the same dependency bytes are materialized as regular files.
+Implementation and independent candidate verification remain in progress.
+
+
+An answered Resolver blocker still held after the proof runner repair, because
+its frontier did not identify the executing runner's source. Test-first commit
+`73db6f0b8` adds a content-only Python runtime fingerprint to Resolver frontiers.
+The focused regression failed before the edit. The final test verifies expiry
+on changed runner code, stable identity after relocation with identical bytes,
+and unchanged approved contract, finite limits and recorded task state. Twenty-two
+pure host tests passed. Forty supported Linux checks passed in 849.585 seconds,
+including operational-information CLI admission, import cycles and a complete
+fake-provider bugfix workflow; the final focused test also passed on Linux.
+An accidentally invoked macOS CLI group was interrupted and retained rather than
+claimed as supported verification.
+
+The new immutable diagnostic runtime is
+`ba11d736e9014ea17f36f2a1cb6df344b9d136ca`, a narrow overlay on the preceding
+runtime. Its archive SHA-256 is
+`86db06ef698757dc64ed162fa83dee2ebf93783d1794fb87c18bfe66dd9ae1dc`.
+The terminal viewer refused `/quit` while coordinating and offered cancellation,
+so operator recovery suspended, then terminated only the viewer to reload it;
+no core/provider process group was signalled. Existing members were asked to
+pause at supported public boundaries. Plain `autocode` was relaunched from the
+second unrelated directory, `/runs` was read, and observed `/open 7` reopened the
+original anchor. The missing active-viewer detach action remains a UI limitation.
+
+The repaired runtime expired the old response hold and issued a fresh operational
+request. Operator machinery information was submitted through its public named
+action without any contract, approval, route or allowance change. An attempted
+resume met an active run lock and was refused without duplicate work; a fresh
+status and named resume then admitted the pending information through normal
+checks and queued the originating member's Completion Reviewer. The new viewer
+continues the coordinated run. These operator repairs and runtime changes remain
+diagnostic recovery evidence, not a clean frozen qualification. Exact-candidate
+verification, independent oracle/negative controls and completed-run reopen are
+still pending.
+
+
+Completion review then exposed a separate stale-proof defect: its reuse predicate
+compared source, contract and test cases but omitted preservation mode, so it
+reused the earlier twice-failed proof instead of invoking the repaired runner.
+Test-first commit `89c0630b8` refreshes proof when that mode changes, including
+loss of preservation eligibility for a previously passing proof. Both focused
+regressions failed before implementation. Ten final recheck tests pass on macOS
+and Linux. Six real proof cases and the full fake-provider bugfix workflow also
+passed on Linux; the broader 17-case invocation retained one failure in a mock
+fixture missing an explicit unchanged mode, then the corrected recheck module
+passed. No unsupported live proof or whole-suite success is inferred.
+
+Immutable runtime `c7413784e040bab9fac9b71e43766bb10b5e7fad` overlays only this
+functionality on the preceding runtime. Archive SHA-256 is
+`6b3fd0367db169ae426ff37d214739afd1f6ccfcac2d554190d6c9cd4997a767`;
+the qualification note remains excluded. The public wrapper selects it while
+already active viewer/providers retain their imported runtime. A fresh public
+status and named resume now actually start the originating member's local
+regression checks against the original baseline before review, without a new
+approval or model call. Their result and independent delivery remain pending.
+
+
+The originating member's repaired runner proof now passes: all four named native
+preservation guards pass on both baseline and candidate. A separate stale private
+completion proposal still held independent review. Test-first commit `15f87a1a5`
+archives only that obsolete private product-code-only blocker after authenticating
+the new current proof, exact task/contract/source, prior runner receipt and review
+chronology. Published questions, permission gates and unrelated failures remain.
+Twelve focused host and fourteen final Linux checks pass, including realistic
+receipt history, malformed receipts, contract controls, import-cycle validation
+and the full fake-provider bugfix completion path. The actual repaired run then
+launched an independent Completion Reviewer; this is not member completion.
+
+Factory exposed a separate spec-first no-progress defect: the Tester had already
+written every approved guard, leaving the Builder no required source edit.
+Test-first commit `00fcc4ac1` recognizes exact pinned acceptance guards as a
+candidate for fresh independent review. It checks approved automatic membership,
+guard coverage, source/contract identities, unchanged snapshots, ownership and
+both live/archive file hashes. It grants no validation, proof or completion.
+Twenty-one host and twenty-three final Linux checks pass, including no-change
+hold release, retained-work negative controls, import-cycle and fake-provider
+bugfix checks. Actual public resume retired the old hold; the Builder additionally
+strengthened an allowed guard assertion and advanced to runner proof.
+
+Concurrent checkpoint writes on the mounted campaign filesystem repeatedly
+exceeded the old one-second approval-record lock wait, interrupting acceptance
+and review attempts. Test-first commit `b99fa609a` allows a bounded ten-second
+wait. Fake-clock tests demonstrate recoverable contention and a persistent
+contention refusal without writes; twenty-four store/barrier checks pass on host
+and Linux. The exact-set-approval CLI/fake-provider regression passes on Linux
+in 109.872 seconds. One initial invocation used an incorrect test-class name;
+that failed invocation remains retained. No approval validation is weakened.
+
+Shared temporary storage also filled: the four-gigabyte `/tmp` tmpfs was occupied
+by the disposable Go build cache. It was copied to campaign disk storage while
+preserving the cache path through a symlink; `go clean -cache` cleaned only the
+retired cache. Temporary usage dropped to one percent. A stopped client acceptance
+test was retained outside its candidate after verifying all twenty-five original
+source files, modes and Git HEAD, allowing the public exact-source retry. That
+retry subsequently hit the old checkpoint lock; its uncertainty and artifacts
+remain. All these recovery attempts remain diagnostic, with no new human approval,
+route, source pin, real publication or Jira change.
+
+Immutable diagnostic overlays (each excludes this qualification note):
+
+- `ff256c753578b93f27b44539b1c8dc8e1761d41e`; archive SHA-256 `fac02841f2bad23de296f0d8675f7f7eea72cba6c6f394f1fef9b5d9999d22d7`.
+
+- `3ee7c50fc72c0ac27673ed535d6e5d7af75ecf9a`; archive SHA-256 `aaa7272c7bbc36b7648493290570ba1a24879efa76ba19259a9c1ab85fa8d9a6`.
+
+- `794e3d684f4faf55f8914086a79b824f22427640`; archive SHA-256 `fcb6e4faab01bff7df614c318135485ffc3cd20b64921e2050453b3a1b371105`.
+
+The wrapper selects the last overlay; already running workers and the viewer
+retain their imported runtime. Public boundary pauses are being used to reload
+at supported boundaries. Several attempted recovery actions correctly refused
+active run locks; no provider groups were signalled. Independent candidate
+verification, the joint regression, the external oracle/negative controls and
+completed-run reopen remain pending. Known combined spend was approximately
+$80.06 at the latest cited sample; incomplete accounting and interrupted unpriced
+attempts remain explicit. The original campaign verdict remains blocked.
+
+
+Fresh proof passed on unchanged originating source after the disk repair, but an
+old runner finding from the earlier ENOSPC build failure still blocked completion.
+Test-first `b2e283b5e` authenticates earlier runner-owned receipt chronology,
+source, supervision and log hashes before settling a disk-only collection finding
+with a newer authenticated passing proof. Any actual failing test name, mixed
+error, tampered/stale receipt, unknown milestone or unproven current result stays
+blocked. Reviewer findings remain that reviewer's responsibility. Fifteen host
+and seventeen Linux checks passed, including the import-cycle check and full
+fake-provider bugfix completion.
+
+The first live deployment exposed a fixture gap: the actual Go baseline receipt
+is named `suite_on_base_with_tests`, while the initial fixture used `suite_on_base`.
+The runner finding therefore remained open; that deployment is not claimed as
+successful reconciliation. A realistic receipt fixture failed first, then
+`b0431c9f5` covered both supported baseline labels. Sixteen host and eighteen
+final Linux checks pass. A separate pure classification fixture using the real
+retained failed receipt and its authenticated logs now returns true; it grants
+no live proof or authority and is not evidence that the live finding has closed.
+The active run must consume the corrected runtime at a supported boundary.
+
+Diagnostic runtime `a042e5885898b09b8d3a9f34bfb9e4a72ce620cf`, archive SHA-256 `80315798b5875bb862587a972399565958799172d93d00760ddef5d4f1218dc3`.
+
+Diagnostic runtime `5bd89f61b4a0e953f377a7ce1eb26c5860467f1a`, archive SHA-256 `c5ed42f51d0588b2ae452cd9df7c5bf077b6e6a16f4791b1ce4f59a8dcd562be`.
+
+Known combined spend reached approximately $86.89, with interrupted unpriced
+attempts still explicit. An additional local guard requests only each run's
+public boundary-pause action at extension $85 or 26,500 active model seconds,
+reserving combined-cap margin for original, unpriced and in-flight usage. The
+older observer's TUI Ctrl-C alone does not control separately started core
+workers. Member continuations, pending interventions and active-run refusals are
+retained in the operator evidence. No candidate or whole-bug completion is claimed;
+all joint and independent final verification obligations remain open.
+
+At 07:29 UTC the restarted actual TUI had reopened the saved coordination from
+an unrelated directory using the current immutable runtime. The previous viewer
+and tmux server were absent; their disappearance has no established cause.
+Public continuations consumed retained queued safety pauses without new plan
+approval. The gateway's exact offered scoped retry was accepted and saved; an
+earlier answer containing extra operational context was correctly rejected.
+
+The gateway's unchanged API package compiled on the configured amd64 toolchain,
+whose test binaries execute on this host. Offline dependency repair provisioned
+four exact already-selected module versions. The private go2denic v1.0.22 module
+archive and go.mod hashes match the pinned factory's existing go.sum. Its
+annotated tag resolves to commit `95640d6da3756de315bc7e02911f1a642272e7b6`.
+No fulfillment candidate was edited by the operator.
+
+A separate scratch import of the client's real INames packages still refused
+the original module files under `-mod=readonly`. It compiled when Go recorded
+the existing indirect requirements and missing checksums in the scratch copy.
+This contradicts the approved plan's explicit module-file preservation clause.
+Public client feedback therefore requested a complete revised coordinated plan
+allowing only required metadata for the already-selected versions, preserving
+acceptance behavior and dependency versions. The public planning continuation
+was started; this is not approval of a revised contract or fulfillment completion.
+
+External receipts include `extension-module-cache-repair-receipt.json`,
+`extension-client-pristine-module-probe.log`,
+`extension-client-scratch-module-repair-probe.log`,
+`extension-client-scratch-module-diff.txt`, and
+`extension-client-module-revision-planning.log`. At 07:29:51 UTC known combined
+usage was $90.761169 and 18,842.339400 active model seconds, with interrupted
+unpriced attempts still explicit. The public margin guard remains in force.
+
+The diagnostic continuation ends **blocked**. The core's public assignment action
+handled the renewed workspace-scope checkpoint. Requirements then stopped on a
+malformed supervision ownership receipt. Its exact public abandon-stage action
+retained partial work and allowed one public resume; after further planning,
+another stage hit the same cleanup failure. No complete revised coordinated
+plan was approved. At 07:47 UTC the existing public margin guard fired; no
+further model continuation was started after observing that stop receipt.
+
+Known combined usage is $92.969218 and 19,293.614132 active model seconds;
+interrupted unpriced attempts prevent an exact final billing claim. Joint
+candidate verification, external candidate oracle/negative controls and
+completed-run reopen remain unverified. This is neither a clean nor recovered
+pass. The monitor was deleted after recording the blocked outcome, avoiding
+repeated polling of an inactive replay. Local-only evidence remains in
+`extension-diagnostic-final-outcome.json`. The 299-file diagnostic evidence
+manifest `extension-diagnostic-evidence-sha256.json` has SHA-256
+`25d21bfbd680d9091c07d37ffae4053c6608e0ceec1f606b5442c69c96ba0e75`;
+it hashes retained files at capture time, not future observer appends.

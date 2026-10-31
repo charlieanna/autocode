@@ -717,6 +717,23 @@ class BriefObligationsTests(unittest.TestCase):
         self.assertIn("[task:0] kind=task", instruction)
         self.assertNotIn(encoded_brief, instruction)
 
+    def test_citation_lists_sit_after_the_static_policy_and_before_the_transport_block(self):
+        # #2136: the per-run source-id list and the brief-literal list moved out of the
+        # middle of the planning instructions to the end of the static policy, so planning
+        # prompts share the longest static prefix a provider can cache.
+        transport = "The runner's state.json is authoritative"
+        for stage, literals_expected in (("astra_challenge", False), ("astra_finalize", True)):
+            with self.subTest(stage=stage):
+                state = self.planning_state()
+                request = autoplanner.prepare(state, stage, self.root / "state.json", self.root)
+                citation = request.prompt.index("[task:0] kind=task")
+                self.assertLess(request.prompt.index("REGRESSION REFERENCE:"), citation)
+                if literals_expected:
+                    self.assertLess(request.prompt.index("BRIEF LITERALS:"), citation)
+                else:
+                    self.assertNotIn("BRIEF LITERALS:", request.prompt)
+                self.assertLess(citation, request.prompt.index(transport))
+
     def test_unrelated_task_reviewer_schema_and_prompt_omit_brief_fields(self):
         state = self.state(task="Build greeting")
         lifecycle.install_draft(state, self.contract_body("Build greeting"), origin="glm_draft")

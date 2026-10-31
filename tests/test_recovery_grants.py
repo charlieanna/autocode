@@ -109,3 +109,39 @@ class RecoveryGrantTests(unittest.TestCase):
                 self.assertEqual(before, self.state)
         self.current.assert_not_called()
         self.persist.assert_not_called()
+
+    def test_a_grant_is_accepted_at_the_consecutive_timeouts_stop_that_names_it(self):
+        # recovery_limits.stop_reason publishes its exhaustion stop when consecutive
+        # timeouts reach the no-progress limit, and that stop names --grant-recovery.
+        # The grant must accept exactly that stop even when the originating pause is not
+        # itself grantable (a live run paused on PAUSED_OUTPUT_CAP and was refused).
+        self.state["settings"]["limits"] = {"no_progress_batches": 3}
+        self.state["resolver"]["human_escalations"]["issued"]["identity"]["proposal"]["origin"] = {
+            "pause_status": "PAUSED_OUTPUT_CAP"
+        }
+        self.assertEqual(3, grants.accounting.consecutive_timeouts(self.state))
+        self.assertTrue(
+            grants.eligible(
+                self.state,
+                previous_settings=self.previous,
+                current_request=self.current,
+                count=1,
+                maximum=6,
+            )
+        )
+
+    def test_a_grant_is_still_refused_before_any_recovery_budget_is_exhausted(self):
+        self.state["settings"]["limits"] = {"no_progress_batches": 3}
+        self.state["consecutive_timeout_recoveries"] = 0
+        self.state["resolver"]["human_escalations"]["issued"]["identity"]["proposal"]["origin"] = {
+            "pause_status": "PAUSED_OUTPUT_CAP"
+        }
+        self.assertFalse(
+            grants.eligible(
+                self.state,
+                previous_settings=self.previous,
+                current_request=self.current,
+                count=1,
+                maximum=6,
+            )
+        )

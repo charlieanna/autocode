@@ -82,7 +82,6 @@ class ProviderSandboxTests(unittest.TestCase):
             {
                 str(self.project / ".autocode/evidence"): "write",
                 str(self.project / ".autocode/output"): "write",
-                str(self.report): "write",
             },
             settings["permissions"]["autocode_artifacts"]["filesystem"],
         )
@@ -91,6 +90,39 @@ class ProviderSandboxTests(unittest.TestCase):
         self.assertNotIn("--sandbox", argv)
         self.assertEqual(str(self.project), argv[argv.index("-C") + 1])
         self.assertEqual(str(self.report), argv[argv.index("-o") + 1])
+        # Codex persists -o outside the tool sandbox. A file in filesystem write
+        # roots is treated as a directory by the Linux sandbox and fails launch.
+        self.assertNotIn(str(self.report), settings["permissions"]["autocode_artifacts"]["filesystem"])
+
+    def test_attached_output_flag_form_counts_as_final_message_persistence(self):
+        original = dict(self.config)
+        self.config = {
+            **original,
+            "command": [
+                "codex",
+                "exec",
+                "{sandbox_args}",
+                "-C",
+                "{workspace}",
+                "--model",
+                "{model}",
+                "--output-last-message={report}",
+                "--json",
+                "-",
+            ],
+        }
+        provider = self.provider()
+        argv = provider.launch(
+            role="sol",
+            workspace=self.project,
+            run_dir=self.run,
+            session=None,
+            model="model-sol",
+            effort="medium",
+            allow_write=False,
+            report=self.report,
+        )[0]
+        self.assertIn(f"--output-last-message={self.report}", argv)
 
     def test_builder_retains_workspace_write_and_planning_stays_readonly(self):
         argv = self.launch(role="terra", allow_write=True)

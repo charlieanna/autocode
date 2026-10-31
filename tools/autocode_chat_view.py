@@ -33,6 +33,8 @@ except ImportError:
 
 # The id prefix of the Requirements question the chat is waiting on; the rest names the question.
 REQUIREMENTS_QUESTION = "requirements-question"
+# The stage's own prose beside a question, kept as its own message so it cannot displace the question.
+REQUIREMENTS_SAY = "requirements-say"
 
 
 # What approving a chat's understanding starts, by the job Requirements named (#1846): the button's
@@ -130,15 +132,27 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
     if text:
         messages.append({"id": "requirements-live", "role": "assistant", "text": text, "streaming": True})
     elif need.get("kind") == "answer" and not resolver_reply and requirements_chat.enabled(state):
+        asked = [q.get("id") for q in need.get("questions", [])]
+        # A client puts the requirements-question message in front of the person as the
+        # question to answer, so it carries the questions' own text. The stage's prose only
+        # frames them, and after a report repair that prose describes the repair, so it may
+        # not stand in for the question.
+        question = "\n\n".join(q.get("question", "") for q in need.get("questions", [])).strip()
         spoken = requirements_chat.reply(state)
-        if not spoken:
-            spoken = "\n\n".join(q.get("question", "") for q in need.get("questions", []))
-        if spoken:
+        if spoken and spoken != question:
+            messages.append(
+                {
+                    "id": f"{REQUIREMENTS_SAY}-{hashlib.sha256(spoken.encode()).hexdigest()[:12]}",
+                    "role": "assistant",
+                    "text": spoken,
+                }
+            )
+        text = question or spoken
+        if text:
             # Each question is its own message: a client shows a message id once, so a shared id
             # hid every Requirements question after the first (#1792).
-            asked = [q.get("id") for q in need.get("questions", [])]
-            key = hashlib.sha256(json.dumps([asked, spoken]).encode()).hexdigest()[:12]
-            messages.append({"id": f"{REQUIREMENTS_QUESTION}-{key}", "role": "assistant", "text": spoken})
+            key = hashlib.sha256(json.dumps([asked, text]).encode()).hexdigest()[:12]
+            messages.append({"id": f"{REQUIREMENTS_QUESTION}-{key}", "role": "assistant", "text": text})
     action = None
     blocker_hold = False  # an answered semantic blocker waiting for its contract decision (#2434)
     # A completed stage record may remain as active_stage: use the public

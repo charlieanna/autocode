@@ -13,6 +13,7 @@ import autocode_changeset_store as store
 import autocode_coordination_context as coordination
 import autocode_coordination_store as coordination_store
 import autocode_report_repair_context as repair
+import autocode_requirements_review as requirements_review
 import autocode_stage_context as runtime
 import autocode_trace_coverage as coverage
 from units import autoplanner
@@ -68,6 +69,80 @@ class CoordinationContextTests(unittest.TestCase):
 
     def automatic(self):
         store.set_fields(self.record["id"], {"automatic_anchor": str(self.root / "anchor")})
+
+    def joint_intent(self):
+        anchor = str(self.root / "intake/.autocode/runs/fix")
+        workspace = coordination_store.root(anchor) / "joint-1"
+        state = {
+            **self.state,
+            "workspace": str(workspace),
+            "run_dir": str(workspace / ".autocode/runs/joint-regression"),
+            "workflow": {"kind": "build"},
+            "requirements_handoff": {
+                "report": {
+                    "intended_outcome": "Prove the actual combined bug fix",
+                    "required_behaviors": ["Run the actual components together"],
+                    "acceptance_tests": ["The original fails and the candidate passes"],
+                    "open_questions": [],
+                }
+            },
+        }
+        document = {
+            "version": 1,
+            "anchor": anchor,
+            "members": [],
+            "joint": {"workspace": state["workspace"], "run_dir": state["run_dir"], "started": False},
+            "pending": {"operation": "joint_plan_start"},
+        }
+        coordination_store.save(document)
+        return state, document
+
+    def test_joint_planning_identity_requires_current_bound_start_intent_or_started_run(self):
+        state, document = self.joint_intent()
+        self.assertTrue(coordination.joint_planning(state))
+        for replacement in ({"run_dir": state["run_dir"] + "-other"}, {"workspace": str(self.root)}):
+            with self.subTest(replacement=replacement):
+                self.assertFalse(coordination.joint_planning({**state, **replacement}))
+        document["pending"] = None
+        coordination_store.save(document)
+        self.assertFalse(coordination.joint_planning(state))
+        document["joint"]["started"] = True
+        coordination_store.save(document)
+        self.assertTrue(coordination.joint_planning(state))
+        document["joint"]["run_dir"] += "-replacement"
+        coordination_store.save(document)
+        self.assertFalse(coordination.joint_planning(state), "A retired joint task gets no exemption")
+        self.assertFalse(coordination.joint_planning({}))
+
+    def test_joint_requirements_flow_to_one_plan_approval_but_business_questions_remain(self):
+        state, document = self.joint_intent()
+        self.assertEqual([], requirements_review.questions(state), "Joint machinery needs no separate confirmation")
+        question = {"id": "Q1", "question": "Which business outcome is intended?"}
+        state["requirements_handoff"]["report"]["open_questions"] = [question]
+        self.assertEqual([question], requirements_review.questions(state))
+        state["answers"] = {"Q1": {"text": "The original outcome"}}
+        self.assertEqual([], requirements_review.questions(state))
+        document["joint"]["run_dir"] += "-replacement"
+        coordination_store.save(document)
+        self.assertEqual(
+            [requirements_review.review_question(state)],
+            requirements_review.questions(state),
+            "An unauthenticated build retains its ordinary spec-first confirmation",
+        )
+
+    def test_joint_identity_rejects_unreadable_symlinked_and_foreign_coordinator_records(self):
+        state, document = self.joint_intent()
+        path = coordination_store.root(document["anchor"]) / "coordination.json"
+        for content in ("{broken", json.dumps({**document, "anchor": str(self.root / "foreign")})):
+            path.write_text(content)
+            self.assertFalse(coordination.joint_planning(state))
+        path.unlink()
+        other = self.root / "copied-record.json"
+        other.write_text(json.dumps(document))
+        path.symlink_to(other)
+        self.assertFalse(coordination.joint_planning(state))
+        path.unlink()
+        self.assertFalse(coordination.joint_planning(state))
 
     def test_first_reserved_member_has_context_before_a_second_repository_is_known(self):
         anchor = str(self.root / "intake/.autocode/runs/fix")

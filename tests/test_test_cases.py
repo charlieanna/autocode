@@ -622,6 +622,26 @@ class DiagnosedMilestoneScopeTests(unittest.TestCase):
         self.assertIn("T2, T3", regression.rejection(state))
         self.assertNotIn("T2", regression.rejection(state, all_due=False))
 
+    def test_a_passing_proof_with_no_failed_case_names_the_evidence_the_gate_lacks(self):
+        # 2026-10-30 live run: a PASS, current, intact proof was reported as "no proof exists for the
+        # current source", because only the independent changed-line acceptance was missing.
+        state = self.planned()
+        state["regression_proof"] = {
+            "verdict": "PASS",
+            "source_revision": "candidate-revision",
+            "case_scope": ["T1", "T2", "T3"],
+            "case_tests": {"T1": "test_t1_subtracts", "T2": "test_t2_multiplies", "T3": "test_t3_adds"},
+        }
+        self.assertEqual(regression.CHANGED_CODE_REASON, regression.rejection(state, all_due=True))
+        self.assertNotIn("no proof exists", regression.rejection(state, all_due=True))
+
+    def test_an_absent_or_failing_proof_still_says_the_source_is_unproven(self):
+        self.assertIn("no proof exists for the current source", regression.rejection({"goal_contract": {}}))
+        failing = self.planned()
+        failing["regression_proof"] = {"verdict": "FAIL", "failures": ["test_t1_subtracts failed"]}
+        self.assertIn("test_t1_subtracts failed", regression.rejection(failing))
+        self.assertNotEqual(regression.CHANGED_CODE_REASON, regression.rejection(failing))
+
     def test_native_go_test_names_bind_without_prefix_collisions(self):
         state = self.planned()
         for row, name in zip(

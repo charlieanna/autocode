@@ -20,6 +20,7 @@ import autocode_goals as goals
 import autocode_milestones as milestones
 import autocode_planning as planning
 import autocode_support as support
+import autocode_validation_recovery as validation_recovery
 import autopilot
 from autocode_activity import ActivityMonitor
 from goal_fixtures import assert_operational_wait, envelope
@@ -717,6 +718,146 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual("PAUSED_PROVIDER_TIMEOUT", failures[0]["identity"]["error_class"])
         self.assertEqual(1, failures[0]["output_probe"]["attempts"])
         self.assertNotIn("active_stage", self.state)
+
+    def completion_review_timeout(self):
+        """A stopped non-terminal Completion Review over a source the Validator already passed."""
+        self.start_task()
+        self.state["next_stage"] = "astra_review"
+        _, record = self.interrupted_attempt()
+        # The retained edit belongs to the earlier Builder attempt: this review writes nothing, so
+        # its own before/after snapshots are the same source.
+        support.atomic_json(Path(record["before_ref"]), support.snapshot(self.root))
+        evidence = self.run / "tester-evidence.txt"
+        evidence.write_text("Executed the approved checks.\n")
+        record.update(role="astra", stage="astra_review", original_stage="astra_review")
+        self.state["sessions"].pop("terra", None)
+        self.state["sessions"]["astra"] = "expired-session"
+        self.state["validation"] = {
+            "verdict": "PASS",
+            "reviewer_role": "sol",
+            "source_revision": support.snapshot(self.root)["revision"],
+            "criteria_revision": self.state["criteria_revision"],
+            "contract_revision": self.state["goal_contract"]["revision"],
+            "contract_hash": self.state["goal_contract"]["hash"],
+            "task_id": self.state["current_task"]["id"],
+            "evidence_hashes": {str(evidence): support.file_hash(evidence)},
+        }
+        self.state["human_reviews"] = {"C1": "accepted"}
+        self.state["displayed_review"] = "review-token"
+        return record, evidence
+
+    def timed_out_review(self, state):
+        return runner.automatically_recover_timed_out_stage(
+            state, self.run, self.root, support.Paused("PAUSED_PROVIDER_TIMEOUT", "idle")
+        )
+
+    def test_completion_review_timeout_keeps_current_validation_and_retries_completion(self):
+        # 2026-10-30 live run: two idle-stopped Completion Reviews archived the Tester's current
+        # evidence, so the third valid COMPLETE could never pass the gate that needs it.
+        self.completion_review_timeout()
+        original = copy.deepcopy(self.state["validation"])
+        with patch.object(runner, "run_role", side_effect=AssertionError("Recovery must not replay a verdict")):
+            self.assertTrue(self.timed_out_review(self.state))
+        self.assertEqual(original, self.state["validation"], "A read-only review cannot invalidate its own evidence")
+        self.assertEqual({"C1": "accepted"}, self.state["human_reviews"])
+        self.assertEqual("review-token", self.state["displayed_review"])
+        self.assertFalse(self.state.get("validation_archive"))
+        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual(1, len(self.state["automatic_timeout_recoveries"]))
+        self.assertEqual(original, support.read(self.run / "state.json")["validation"])
+
+    def test_completion_review_timeout_revalidates_when_the_evidence_no_longer_binds(self):
+        for binding, expected in (
+            ("source", "sol"),
+            ("contract", "sol"),
+            ("criteria", "sol"),
+            ("task", "sol"),
+            ("pin", "sol"),
+            ("absent", "astra_review"),
+        ):
+            with self.subTest(binding=binding):
+                record, evidence = self.completion_review_timeout()
+                if binding == "source":
+                    (self.root / "greet.py").write_text("print('changed after the validation ran')\n")
+                elif binding == "contract":
+                    self.state["validation"]["contract_hash"] = "another-approved-goal"
+                elif binding == "criteria":
+                    self.state["criteria_revision"] = 99
+                elif binding == "task":
+                    self.state["validation"]["task_id"] = "another-task"
+                elif binding == "pin":
+                    evidence.write_text("Changed after the Validator pinned it.\n")
+                else:
+                    del self.state["validation"]
+                self.assertFalse(validation_recovery.current(self.state, record))
+                with patch.object(runner, "run_role", side_effect=AssertionError("Recovery must not replay a verdict")):
+                    self.assertTrue(self.timed_out_review(self.state))
+                if binding == "absent":
+                    self.assertEqual("astra_review", self.state["next_stage"], "Nothing was retired to route around")
+                    continue
+                archived = self.state["validation_archive"][-1]
+                self.assertEqual("Timed-out implementation automatically archived", archived["reason"])
+                self.assertNotIn("validation", self.state)
+                self.assertEqual({}, self.state["human_reviews"])
+                self.assertNotIn("displayed_review", self.state)
+                self.assertEqual(expected, self.state["next_stage"])
+
+    def test_completion_review_timeout_routes_the_workflows_verification_stage(self):
+        # The retry must ask the reviewer that this routing uses for independent verification, and a
+        # final-audit-only run has no separate Validator: its own audit stage re-produces the evidence.
+        for mode, policy, expected in (
+            (None, None, "sol"),
+            (runner.workflow.MODE, runner.workflow.APPROVAL_TEXT, "astra_checkpoint"),
+            (runner.workflow.FINAL_MODE, runner.workflow.FINAL_APPROVAL, "astra_review"),
+        ):
+            with self.subTest(mode=mode):
+                self.completion_review_timeout()
+                self.state["settings"]["milestone_checkpoints"] = {"enabled": False}
+                if mode:
+                    event = {
+                        "kind": "workflow_approval",
+                        "actor": "user",
+                        "at": support.now(),
+                        "policy": policy,
+                        "contract_hash": self.state["goal_contract"]["hash"],
+                        "source": "test_operator",
+                    }
+                    self.state["user_events"].append(event)
+                    self.state["settings"]["workflow"] = {"mode": mode, "approval_event": event}
+                (self.root / "greet.py").write_text("print('changed after the validation ran')\n")
+                with patch.object(runner, "run_role", side_effect=AssertionError("Recovery must not replay a verdict")):
+                    self.assertTrue(self.timed_out_review(self.state))
+                self.assertNotIn("validation", self.state)
+                self.assertEqual(expected, self.state["next_stage"])
+
+    def test_writer_timeout_retires_current_validation_and_keeps_the_recovery_review(self):
+        # A timed-out Builder may have left half-written work, so even current evidence is retired —
+        # and the established Plan Reviewer recovery review still inspects it before another writer.
+        self.start_task()
+        _, record = self.interrupted_attempt()
+        evidence = self.run / "tester-evidence.txt"
+        evidence.write_text("Executed the approved checks.\n")
+        self.state["validation"] = {
+            "verdict": "PASS",
+            "reviewer_role": "sol",
+            "source_revision": support.snapshot(self.root)["revision"],
+            "criteria_revision": self.state["criteria_revision"],
+            "contract_revision": self.state["goal_contract"]["revision"],
+            "contract_hash": self.state["goal_contract"]["hash"],
+            "task_id": self.state["current_task"]["id"],
+            "evidence_hashes": {str(evidence): support.file_hash(evidence)},
+        }
+        # The evidence binds this exact source; only the writer's retained change makes it unsafe.
+        self.assertTrue(
+            validation_recovery.current(
+                self.state, {"changed_files": [], "source_revision": self.state["validation"]["source_revision"]}
+            )
+        )
+        with patch.object(runner, "run_role", side_effect=AssertionError("Recovery must not replay the writer")):
+            self.assertTrue(self.timed_out_review(self.state))
+        self.assertNotIn("validation", self.state)
+        self.assertEqual({}, self.state["human_reviews"])
+        self.assertEqual("astra_review", self.state["next_stage"])
 
     def test_only_an_accepted_result_resets_consecutive_timeout_recoveries(self):
         self.start_task()

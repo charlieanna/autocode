@@ -47,6 +47,34 @@ def read_terminal(leader: int, *, until: bytes | None = None, seconds: float = 6
     return seen
 
 
+def drain_terminal(leader: int, condition, *, seconds: float = 60) -> bool:
+    """Wait for ``condition`` while reading the terminal away; False when the deadline passes.
+
+    A pty has a bounded output buffer, and curses blocks in its write once it fills. A
+    viewer left undrained therefore stops making progress and cannot exit either, so a
+    test waiting on a process or a file rather than on screen text has to keep reading.
+    A real terminal always does. When the terminal hangs up there is nothing left to
+    read but the condition can still be reached, so the wait runs to its deadline.
+    """
+    deadline = time.monotonic() + seconds
+    draining: int | None = leader
+    while True:
+        if condition():
+            return True
+        if time.monotonic() > deadline:
+            return False
+        left = min(0.05, max(0.0, deadline - time.monotonic()))
+        if draining is None or not select.select([draining], [], [], left)[0]:
+            continue
+        try:
+            chunk = os.read(draining, 65536)
+        except OSError:  # Linux reports the child's end closing as EIO
+            draining = None
+            continue
+        if not chunk:
+            draining = None
+
+
 def answer_view(**need):
     return {
         "status": "WAITING_FOR_USER",
@@ -83,6 +111,7 @@ class NamedActionTests(unittest.TestCase):
                 "route": {
                     "question_id": "route-plan_reviewer",
                     "role": "plan_reviewer",
+                    "job": "Plan Reviewer",
                     "cause": "cross_model",
                     "stopped_model": "gpt-5.6-sol",
                     "candidates": ["gpt-5.6-terra"],
@@ -109,6 +138,7 @@ class NamedActionTests(unittest.TestCase):
                 "route": {
                     "question_id": "route-plan_reviewer",
                     "role": "plan_reviewer",
+                    "job": "Plan Reviewer",
                     "cause": "cross_model",
                     "stopped_model": "gpt-5.6-sol",
                     "candidates": ["gpt-5.6-terra"],
@@ -130,8 +160,11 @@ class NamedActionTests(unittest.TestCase):
         client = ScriptedChat(view, DONE, replies=["gpt-5.6-terra"])
         self.assertEqual(0, client.converse())
         out = client.text()
-        self.assertIn("Which model should plan_reviewer continue on?", out)
-        self.assertIn("Models it can continue on: gpt-5.6-terra", out)
+        self.assertIn("Which model should the Plan Reviewer use?", out)
+        self.assertIn("Models that keep the check independent: gpt-5.6-terra", out)
+        self.assertIn("Now on: gpt-5.6-sol, the same model as the work it checks", out)
+        self.assertNotIn("plan_reviewer", out.replace("route-plan_reviewer", ""))
+        self.assertNotIn("cross_model", out)
         self.assertEqual([["--answer", "route-plan_reviewer=gpt-5.6-terra"]], client.taken)
 
     def test_a_command_naming_another_run_is_a_gap(self):
@@ -614,6 +647,45 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("There is nothing to run from here", client.text())
         self.assertEqual([], client.taken)
 
+    def test_a_stop_says_what_the_person_can_do_next_in_plain_words(self):
+        view = {"status": "PAUSED_STOPPED", "needs": {"kind": "resume"}, "next_command": None, "stop_reason": "Stopped"}
+        client = ScriptedChat(view)
+        client.converse()
+        text = client.text()
+        self.assertNotIn("(resume)", text)
+        self.assertIn("No next step is available for this run", text)
+        self.assertIn("start a new request", text)
+        self.assertNotIn("--", text)
+
+    def test_an_action_outside_the_chat_says_the_run_is_saved_and_how_to_return(self):
+        view = {
+            "status": "PAUSED_CROSS_MODEL",
+            "needs": {"kind": "resume", "reason": "Builder/Tester: identical model"},
+            "pause_category_label": "Model or provider",
+            "next_command": "autocode --run-dir r --resume --i-authorize-live-model-spend",
+        }
+        client = ScriptedChat(view)
+        client.converse()
+        text = client.text()
+        self.assertIn("nothing was run", text)
+        self.assertIn("The run is saved", text)
+        self.assertIn("autocode chat", text)
+        self.assertNotIn("--resume", text)
+        self.assertEqual([], client.taken)
+
+    def test_leaving_says_how_to_pick_the_run_up_again(self):
+        plan = {"token": "t", "acceptance_criteria": [], "constraints": [], "permission_boundaries": []}
+        view = {
+            "status": "WAITING_FOR_USER",
+            "needs": {"kind": "approve_plan", "token": "t"},
+            "displayed_plan": plan,
+            "next_command": f"AUTOCODE_PLAN_TOKEN=t autocode {PLACE} --approve-plan --plan-token -",
+        }
+        client = ScriptedChat(view)
+        self.assertEqual(2, client.converse())
+        self.assertIn("Left the chat; the run is unchanged.", client.text())
+        self.assertIn("Run `autocode chat` here to pick it up again.", client.text())
+
     def review_view(self, *criteria):
         return {
             "status": "WAITING_FOR_USER",
@@ -810,7 +882,7 @@ class ConversationTests(unittest.TestCase):
     def test_a_model_question_shows_what_stopped_and_the_models_offered(self):
         view = answer_view(
             questions=[{"id": "route-sol", "question": "The Tester's quota ran out. Which model now?"}],
-            route={"candidates": ["model-a", "model-b"], "stopped_model": "model-x", "cause": "quota"},
+            route={"candidates": ["model-a", "model-b"], "stopped_model": "model-x", "cause": "quota", "job": "Tester"},
         )
         view["next_command"] = (
             f"AUTOCODE_RESOLVER_TOKEN=t1 autocode {PLACE} --answer route-sol=MODEL --resolver-token -"
@@ -818,7 +890,10 @@ class ConversationTests(unittest.TestCase):
         client = ScriptedChat(view, DONE, replies=["model-b"])
         self.assertEqual(0, client.converse())
         out = client.text()
-        self.assertLess(out.index("Models it can continue on: model-a, model-b"), out.index("Which model should sol"))
+        self.assertLess(
+            out.index("Models it can continue on: model-a, model-b"),
+            out.index("Which model should the Tester continue on?"),
+        )
         self.assertIn("Stopped on: model-x (quota)", out)
         self.assertEqual([["--answer", "route-sol=model-b", "--resolver-token", "-"]], client.taken)
 
