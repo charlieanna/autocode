@@ -1400,8 +1400,10 @@ class ChatTUI:
         badge = ""
         if unread or unknown:
             badge = f" F8: {unread} unread" + (f", {unknown} unknown" if unknown else "")
-        if self._attention_view.get("error"):
-            badge = " F8: attention unavailable"
+        if error := self._attention_view.get("error"):
+            # Say why, not just that: an unexplained permanent badge reads as a broken panel.
+            reason = " ".join(str(error).split())[:60]
+            badge = f" F8: attention unavailable: {reason}"
         remaining = max(0, layout.width - used - display_width(badge))
         if context and remaining:
             self._put(0, used, truncate(context, remaining), self._style("dim"))
@@ -1610,6 +1612,8 @@ class ChatTUI:
         text = (
             f"Status unavailable; {self._observation.outage()}"
             if self._observation.error
+            else "Run started; waiting for its first status view…"
+            if reading and self._launched
             else "Reading run status…"
             if reading
             else panel.doing(self._view) or self._transcript.activity or "AutoCode is working…"
@@ -1641,7 +1645,13 @@ class ChatTUI:
         inner = max(1, width - 6)
         self._put(layout.box_text, 2, glyphs.prompt, self._style("prompt" if active else "dim"))
         if not active and not self._composer.text:
-            placeholder = "Reading run status… type / for commands" if self._view is None else WORKING_PLACEHOLDER
+            placeholder = (
+                "Run started; waiting for its first status view… type / for commands"
+                if self._view is None and self._launched
+                else "Reading run status… type / for commands"
+                if self._view is None
+                else WORKING_PLACEHOLDER
+            )
             self._put(layout.box_text, 4, truncate(placeholder, inner), self._style("placeholder"))
             return
         if self._composer.text:

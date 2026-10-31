@@ -684,3 +684,22 @@ class ChatViewTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClarificationResolverOfferTests(unittest.TestCase):
+    def test_a_clarification_with_a_question_takes_the_answer_path_not_the_bound_reply(self):
+        # The needs table names --answer for a clarification that carries questions
+        # (pause_command); the bound provide_information reply belongs to the
+        # blocker/operational stops. A clarification must not hijack the answer flow.
+        state = {"status": "WAITING_FOR_USER"}
+        need = {
+            "kind": "answer",
+            "resolver_scope": "clarification",
+            "resolver_request_id": "req-7",
+            "resolver_token": "current-token",
+            "questions": [{"id": "q1", "question": "Which language?", "options": ["Python", "Rust"]}],
+        }
+        public = {"status": state["status"], "needs": need}
+        before = copy.deepcopy((state, public))
+        result = chat.project(state, public, workspace="/ws", run_dir="/run")
+        self.assertNotEqual("resolver_response", (result["input"] or {}).get("kind"))

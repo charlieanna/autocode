@@ -2052,3 +2052,45 @@ class TerminalChatTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WorkspaceGuardTests(unittest.TestCase):
+    def test_a_git_checkout_or_a_project_inside_one_needs_no_confirmation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertFalse(chat.in_git_checkout(Path(folder)))
+            (Path(folder) / ".git").mkdir()
+            self.assertTrue(chat.in_git_checkout(Path(folder)))
+            nested = Path(folder) / "src" / "deep"
+            nested.mkdir(parents=True)
+            self.assertTrue(chat.in_git_checkout(nested))
+
+    def test_a_plain_directory_is_confirmed_before_a_new_chat_sees_none_of_its_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            said, answers = [], []
+            ask = lambda prompt: (said.append(prompt), answers.pop(0))[1]
+            with self.subTest(declined="n"):
+                answers.append("n")
+                self.assertFalse(chat.guard_workspace(Path(folder), ask, said.append))
+                self.assertTrue(any("not in a Git checkout" in row for row in said))
+                self.assertTrue(any("[y/N]" in row for row in said))
+            with self.subTest(proceed="y"):
+                answers.append("y")
+                self.assertTrue(chat.guard_workspace(Path(folder), ask, said.append))
+
+    def test_a_new_chat_in_a_plain_directory_declines_without_starting(self):
+        with tempfile.TemporaryDirectory() as folder:
+            workspace = Path(folder)
+            (workspace / "billing").mkdir()
+            client = ScriptedChat(
+                {"status": "TASK_COMPLETE", "done": True},
+                replies=["fix the billing bug", "n"],
+            )
+            client.workspace = workspace
+            with mock.patch.object(chat, "mode_row", return_value={"spend_confirmation": "planning"}):
+                client.new_chat()
+            self.assertTrue(any("not in a Git checkout" in row for row in client.out))
+            self.assertTrue(any("Nothing started; this chat carries on." in row for row in client.out))
+            self.assertFalse((workspace / ".autocode").exists())
+
+
+

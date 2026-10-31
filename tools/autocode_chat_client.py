@@ -1068,6 +1068,9 @@ class ChatClient:
         if not confirm_launch(self.ask, self.say, chosen):
             self.say("Nothing started; this chat carries on.")
             return
+        if not guard_workspace(self.workspace, self.ask, self.say):
+            self.say("Nothing started; this chat carries on.")
+            return
         self.begin(brief, list(chosen.get("start_args") or []), options)
 
     def check_others(self, every: float = OTHERS_SECONDS) -> None:
@@ -1637,6 +1640,33 @@ def tail(proc: subprocess.CompletedProcess) -> str:
     return ((proc.stderr or "").strip() or (proc.stdout or "").strip())[-2000:] or f"exit {proc.returncode}"
 
 
+def in_git_checkout(workspace: Path) -> bool:
+    """Whether a new chat here works on this directory's own files.
+
+    A directory outside any Git checkout gets a fresh empty task project under
+    ``autocode-projects/`` (autocode_run_finder), so the files already present are
+    invisible to the run — surprising enough to confirm first (observed 2026-10-31:
+    a seeded but un-Git directory produced a run that asked where the code was).
+    """
+    return any((parent / ".git").exists() for parent in (workspace, *workspace.parents))
+
+
+def guard_workspace(workspace: Path, ask, say) -> bool:
+    """Confirm a new chat in a directory no Git checkout covers; True to proceed.
+
+    Only a person at the chat is asked: a scripted caller (tests, piping a brief)
+    keeps the old behavior instead of blocking on input.
+    """
+    if in_git_checkout(workspace) or not (sys.stdin.isatty() or ask is not input):
+        return True
+    say(
+        "\nThis directory is not in a Git checkout. A new chat here creates an empty task "
+        "project under autocode-projects/ and cannot see the files already in this directory. "
+        "Put the project in Git (git init, git add, git commit) to work on it."
+    )
+    return ask("Start a new chat here anyway? [y/N]: ").strip().lower() in YES
+
+
 def start(workspace: Path, brief: str, start_args, options, *, command=AUTOCODE, env=None, **kwargs) -> ChatClient:
     """A client for a fresh run directory it names, so it watches the run it created."""
     workspace = workspace.resolve()
@@ -1989,6 +2019,9 @@ def cli(argv: list[str] | None = None) -> int:
         if args.brief is not None:
             chosen = mode_row(mode)
             if not confirm_launch(ask, say, chosen):
+                say("Nothing started.")
+                return 2
+            if not guard_workspace(workspace, ask, say):
                 say("Nothing started.")
                 return 2
             client = start(
