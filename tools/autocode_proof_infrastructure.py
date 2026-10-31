@@ -1,12 +1,13 @@
 """Authenticate disk-only collection failures superseded by fresh runner proof."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-try:
+if TYPE_CHECKING:
     from .autocode_run_state import RunState
-except ImportError:
-    from autocode_run_state import RunState
 
 try:
     from . import autocode_util as util

@@ -731,6 +731,5 @@ class ClarificationResolverOfferTests(unittest.TestCase):
             "questions": [{"id": "q1", "question": "Which language?", "options": ["Python", "Rust"]}],
         }
         public = {"status": state["status"], "needs": need}
-        before = copy.deepcopy((state, public))
         result = chat.project(state, public, workspace="/ws", run_dir="/run")
         self.assertNotEqual("resolver_response", (result["input"] or {}).get("kind"))

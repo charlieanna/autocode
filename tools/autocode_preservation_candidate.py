@@ -1,6 +1,12 @@
 """Pinned guard tests can be submitted unchanged for fresh independent review."""
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_acceptance_tests as acceptance
@@ -8,14 +14,12 @@ try:
     from . import autocode_coordination_context as coordination
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
-    from .autocode_run_state import RunState
 except ImportError:
     import autocode_acceptance_tests as acceptance
     import autocode_contract_identity as contracts
     import autocode_coordination_context as coordination
     import autocode_test_cases as test_cases
     import autocode_util as util
-    from autocode_run_state import RunState
 
 
 def candidate(state: RunState, record, revision):

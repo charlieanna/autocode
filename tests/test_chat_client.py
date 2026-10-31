@@ -2166,6 +2166,3 @@ class WorkspaceGuardTests(unittest.TestCase):
             self.assertTrue(any("not in a Git checkout" in row for row in client.out))
             self.assertTrue(any("Nothing started; this chat carries on." in row for row in client.out))
             self.assertFalse((workspace / ".autocode").exists())
-
-
-
