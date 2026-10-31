@@ -1418,8 +1418,12 @@ class GoalTests(unittest.TestCase):
                     self.assertEqual(2, self.invoke("--resume-paused"))
                     self.assertEqual("WAITING_FOR_USER", self.state["status"])
                 else:
-                    # A clarification or blocker first goes to AutoResolver's read-only
-                    # diagnosis; the user is not asked and no builder is dispatched.
+                    # A clarification or blocker first goes to AutoResolver's
+                    # diagnosis; the user is not asked and no builder is dispatched
+                    # (no write authority). The launch itself is workspace-write
+                    # like the other judging stages: the Resolver writes its report
+                    # and probe evidence under .autocode/, and the after-stage
+                    # source snapshot, not the sandbox, keeps source unchanged.
                     runner.normalize_human_boundary(self.state, self.run)
                     self.assertEqual("RESOLVING", self.state["phase"])
                     self.assertEqual("astra_resolve", self.state["next_stage"])
@@ -1433,7 +1437,7 @@ class GoalTests(unittest.TestCase):
                     self.assertEqual(2, self.invoke("--resume-paused", role=diagnose))
                     self.assertEqual(["astra_resolve"], [call["state"]["next_stage"] for call in launched])
                     self.assertFalse(launched[0]["allow_write"])
-                    self.assertEqual("read-only", launched[0]["sandbox"])
+                    self.assertEqual("workspace-write", launched[0]["sandbox"])
                 self.assertEqual("Useful partial work", self.state["implementation"]["summary"])
 
     def test_goal_change_answer_requires_new_revision_and_approval(self):
