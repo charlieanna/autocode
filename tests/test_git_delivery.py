@@ -1,12 +1,14 @@
 """Controller-owned atomic local delivery, using real Git and no models."""
 
 import copy
+import json
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import autocode_bug_job as bug_job
 import autocode_completion_result as result
 import autocode_contract_identity as identity
 import autocode_git_delivery as delivery
@@ -203,6 +205,63 @@ class AtomicDeliveryTests(unittest.TestCase):
         )
         self.assertEqual(b"cache one rebuilt", (caches / "app.cpython-314.pyc").read_bytes())
         self.assertEqual(b"cache two", (caches / "util.cpython-314.pyc").read_bytes())
+
+    def record_bugfix_diagnosis(self):
+        self.state["workflow"] = {"kind": "bugfix"}
+        report = {
+            "outcome": "reproduced",
+            "note_path": "docs/bugs/fixture-bug.json",
+            "observed": "app returns the wrong total",
+            "reproduction": "python3 -m unittest tests.test_app",
+            "root_cause": "off-by-one in the sum loop",
+            "affected_paths": ["app.py"],
+            "test_paths": ["test_app.py"],
+            "invariant": "the total never exceeds the parts",
+            "test_cases": [
+                {"id": "T1", "given": "parts 1 and 2", "when": "app runs", "then": "the total is 3", "kind": "restore"}
+            ],
+            "probe": "",
+            "untestable": "The fixture has no probe harness to replay against",
+            "conclusion": "Fix the loop bound.",
+            "fix_size": "small",
+            "fix_plan": ["tighten the bound"],
+            "questions": [],
+            "tests_run": ["python3 -m unittest tests.test_app"],
+            "plan_approval_requested": False,
+            "workspace_scope": {"spans_repositories": False, "external_parts": []},
+            "counterexample": {"file": "", "find": "", "replace": ""},
+        }
+        output = self.run / "bug-investigation-01.json"
+        output.write_text(json.dumps(report))
+        bug_job.apply(self.state, report, {"changed_files": [], "output": str(output)}, self.root)
+        return self.root / report["note_path"]
+
+    def test_the_bugfix_diagnosis_note_is_investigation_evidence_not_an_unapproved_change(self):
+        # The Investigator's runner-written docs/bugs note is investigation evidence in the
+        # delivered diff (context-packet-08), not an unapproved Builder edit to refuse.
+        note = self.record_bugfix_diagnosis()
+        self.assertTrue(note.exists())
+        self.current = scope.snapshot(self.root, self.state)
+        self.assertTrue(delivery.prepare(self.state, self.root, self.current))
+        after = scope.snapshot(self.root, self.state)
+        self.assertTrue(delivery.ready(self.state, after))
+        self.assertEqual("1", self.git("rev-list", "--count", self.parent + "..HEAD"))
+        self.assertEqual(
+            {"app.py", "test_app.py", "docs/bugs/fixture-bug.json"},
+            set(self.git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").splitlines()),
+        )
+
+    def test_a_modified_diagnosis_note_is_still_an_unapproved_change(self):
+        # Only content-verified unchanged runner evidence is exempt: a note whose content
+        # changed is not the runner's note and stays a refused out-of-scope change.
+        note = self.record_bugfix_diagnosis()
+        rewritten = json.loads(note.read_text())
+        rewritten["conclusion"] = "quietly replaced conclusion"
+        note.write_text(json.dumps(rewritten, indent=2) + "\n")
+        self.current = scope.snapshot(self.root, self.state)
+        with self.assertRaisesRegex(ValueError, "approved affected paths"):
+            delivery.prepare(self.state, self.root, self.current)
+        self.assertEqual("1", self.git("rev-list", "--count", "HEAD"))
 
     def test_the_other_workflows_stay_refused(self):
         for kind in ("review", "design", "discuss"):

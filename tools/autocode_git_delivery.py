@@ -23,6 +23,7 @@ try:
     from . import autocode_source_scope as scope
     from . import autocode_util as util
     from .autocode_git_delivery_policy import requirement as requirement
+    from .autocode_runner_files import runner_files
 except ImportError:
     import autocode_code_checkpoints as trees
     import autocode_contract_identity as contracts
@@ -30,6 +31,7 @@ except ImportError:
     import autocode_source_scope as scope
     import autocode_util as util
     from autocode_git_delivery_policy import requirement as requirement
+    from autocode_runner_files import runner_files
 
 
 def git(workspace, *args, env=None, data=None):
@@ -189,11 +191,16 @@ def prepare(state: RunState, workspace, current):
     files = trees.content_files(current)
     # A name the source inventory excludes (bytecode caches, run state) is not source and
     # leaves the delivered tree, so a tracked one is no delivery change whether or not a
-    # run rebuilt it.
+    # run rebuilt it. A runner-written file whose content the run recorded and still holds
+    # (a bugfix diagnosis note, a review report) is the runner's own investigation evidence
+    # in the delivered diff, not a workspace change to refuse (autocode_runner_files).
+    _, runner_kept = runner_files(state, workspace)
     changed = {
         name
         for name in baseline.keys() | files.keys()
-        if baseline.get(name) != files.get(name) and (name in files or not util.inventory_excluded(name))
+        if baseline.get(name) != files.get(name)
+        and (name in files or not util.inventory_excluded(name))
+        and name not in runner_kept
     }
     selected = scope.paths(state)
     if not changed or any(
