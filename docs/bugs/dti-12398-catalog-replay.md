@@ -360,3 +360,22 @@ External receipts include `extension-module-cache-repair-receipt.json`,
 `extension-client-module-revision-planning.log`. At 07:29:51 UTC known combined
 usage was $90.761169 and 18,842.339400 active model seconds, with interrupted
 unpriced attempts still explicit. The public margin guard remains in force.
+
+The diagnostic continuation ends **blocked**. The core's public assignment action
+handled the renewed workspace-scope checkpoint. Requirements then stopped on a
+malformed supervision ownership receipt. Its exact public abandon-stage action
+retained partial work and allowed one public resume; after further planning,
+another stage hit the same cleanup failure. No complete revised coordinated
+plan was approved. At 07:47 UTC the existing public margin guard fired; no
+further model continuation was started after observing that stop receipt.
+
+Known combined usage is $92.969218 and 19,293.614132 active model seconds;
+interrupted unpriced attempts prevent an exact final billing claim. Joint
+candidate verification, external candidate oracle/negative controls and
+completed-run reopen remain unverified. This is neither a clean nor recovered
+pass. The monitor was deleted after recording the blocked outcome, avoiding
+repeated polling of an inactive replay. Local-only evidence remains in
+`extension-diagnostic-final-outcome.json`. The 299-file diagnostic evidence
+manifest `extension-diagnostic-evidence-sha256.json` has SHA-256
+`25d21bfbd680d9091c07d37ffae4053c6608e0ceec1f606b5442c69c96ba0e75`;
+it hashes retained files at capture time, not future observer appends.
