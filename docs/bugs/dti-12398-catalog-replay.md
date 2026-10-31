@@ -236,3 +236,62 @@ already active viewer/providers retain their imported runtime. A fresh public
 status and named resume now actually start the originating member's local
 regression checks against the original baseline before review, without a new
 approval or model call. Their result and independent delivery remain pending.
+
+
+The originating member's repaired runner proof now passes: all four named native
+preservation guards pass on both baseline and candidate. A separate stale private
+completion proposal still held independent review. Test-first commit `15f87a1a5`
+archives only that obsolete private product-code-only blocker after authenticating
+the new current proof, exact task/contract/source, prior runner receipt and review
+chronology. Published questions, permission gates and unrelated failures remain.
+Twelve focused host and fourteen final Linux checks pass, including realistic
+receipt history, malformed receipts, contract controls, import-cycle validation
+and the full fake-provider bugfix completion path. The actual repaired run then
+launched an independent Completion Reviewer; this is not member completion.
+
+Factory exposed a separate spec-first no-progress defect: the Tester had already
+written every approved guard, leaving the Builder no required source edit.
+Test-first commit `00fcc4ac1` recognizes exact pinned acceptance guards as a
+candidate for fresh independent review. It checks approved automatic membership,
+guard coverage, source/contract identities, unchanged snapshots, ownership and
+both live/archive file hashes. It grants no validation, proof or completion.
+Twenty-one host and twenty-three final Linux checks pass, including no-change
+hold release, retained-work negative controls, import-cycle and fake-provider
+bugfix checks. Actual public resume retired the old hold; the Builder additionally
+strengthened an allowed guard assertion and advanced to runner proof.
+
+Concurrent checkpoint writes on the mounted campaign filesystem repeatedly
+exceeded the old one-second approval-record lock wait, interrupting acceptance
+and review attempts. Test-first commit `b99fa609a` allows a bounded ten-second
+wait. Fake-clock tests demonstrate recoverable contention and a persistent
+contention refusal without writes; twenty-four store/barrier checks pass on host
+and Linux. The exact-set-approval CLI/fake-provider regression passes on Linux
+in 109.872 seconds. One initial invocation used an incorrect test-class name;
+that failed invocation remains retained. No approval validation is weakened.
+
+Shared temporary storage also filled: the four-gigabyte `/tmp` tmpfs was occupied
+by the disposable Go build cache. It was copied to campaign disk storage while
+preserving the cache path through a symlink; `go clean -cache` cleaned only the
+retired cache. Temporary usage dropped to one percent. A stopped client acceptance
+test was retained outside its candidate after verifying all twenty-five original
+source files, modes and Git HEAD, allowing the public exact-source retry. That
+retry subsequently hit the old checkpoint lock; its uncertainty and artifacts
+remain. All these recovery attempts remain diagnostic, with no new human approval,
+route, source pin, real publication or Jira change.
+
+Immutable diagnostic overlays (each excludes this qualification note):
+
+- `ff256c753578b93f27b44539b1c8dc8e1761d41e`; archive SHA-256 `fac02841f2bad23de296f0d8675f7f7eea72cba6c6f394f1fef9b5d9999d22d7`.
+
+- `3ee7c50fc72c0ac27673ed535d6e5d7af75ecf9a`; archive SHA-256 `aaa7272c7bbc36b7648493290570ba1a24879efa76ba19259a9c1ab85fa8d9a6`.
+
+- `794e3d684f4faf55f8914086a79b824f22427640`; archive SHA-256 `fcb6e4faab01bff7df614c318135485ffc3cd20b64921e2050453b3a1b371105`.
+
+The wrapper selects the last overlay; already running workers and the viewer
+retain their imported runtime. Public boundary pauses are being used to reload
+at supported boundaries. Several attempted recovery actions correctly refused
+active run locks; no provider groups were signalled. Independent candidate
+verification, the joint regression, the external oracle/negative controls and
+completed-run reopen remain pending. Known combined spend was approximately
+$80.06 at the latest cited sample; incomplete accounting and interrupted unpriced
+attempts remain explicit. The original campaign verdict remains blocked.
