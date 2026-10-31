@@ -27,6 +27,7 @@ PR template asks for an entry here; a change without one is incomplete.
   chat says so. A revision that changes any of those, or adds a repository, is shown for approval again.
 ### Fixed
 
+- Transient malformed supervision receipts are reopened and authenticated within a bounded retry window; identity, schema, I/O and access refusals remain immediate, and persistent corruption remains unknown.
 - The Codex final-message detector recognizes the `=`-attached flag forms (`--output-last-message={report}`,
   `-o={report}`), so a command tool using them no longer prompts a shell write of the report into a
   read-only sandbox and a valid `codex_artifacts` configuration using them is no longer refused (#2061).
