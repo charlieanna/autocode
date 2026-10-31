@@ -27,6 +27,7 @@ PR template asks for an entry here; a change without one is incomplete.
   chat says so. A revision that changes any of those, or adds a repository, is shown for approval again.
 ### Fixed
 
+- When the terminal chat stops or hands a run back, it says in plain words that the run is saved and how to return (`autocode chat`) or start a new request, instead of an internal need kind such as `(resume)`.
 - The terminal chat's `/help` lists only commands available in the current state, so it no longer advertises `/live` or `/log` before a chat is open.
 - Discuss-only requests no longer pause for producer/verifier model independence when those roles use the same model; the Analyst produces no code to verify.
 - `autocode verify` on a Go feature whose new tests reference new types no longer counts every test

@@ -331,6 +331,9 @@ class History:
         return "Open or start a chat first: type a request, or /runs to see this project's chats."
 
 
+REOPEN = "Run `autocode chat` here"
+
+
 class ChatClient:
     """One run, one person, one terminal."""
 
@@ -1123,7 +1126,7 @@ class ChatClient:
                     finally:
                         self._attached = attached
         except (Left, EOFError):
-            self.say("\nLeft the chat; the run is unchanged.")
+            self.say(f"\nLeft the chat; the run is unchanged. {REOPEN} to pick it up again.")
             return 2
         except actions.ClientGap as error:
             self.say(f"\n{error}")
@@ -1247,15 +1250,19 @@ class ChatClient:
     def hand_off(self, view: dict) -> bool:
         """A need this client cannot act on: explain it without exposing internal commands."""
         need = view.get("needs") or {}
-        label = view.get("pause_category_label") or need.get("kind")
+        label = view.get("pause_category_label")
         why = need.get("reason") or view.get("stop_reason") or ""
-        self.say(f"\nAutoCode needs you for this one ({label}). {why}".rstrip())
+        heading = f"AutoCode needs you for this one ({label})." if label else "AutoCode stopped here."
+        self.say(f"\n{heading} {why}".rstrip())
         if need.get("kind") == "dependency":
             self.say("This chat cannot act on the dependency.")
+            self.say(f"The run is saved. {REOPEN} once the other run has delivered.")
         elif view.get("next_command"):
             self.say("This chat cannot safely take the action AutoCode needs; nothing was run.")
+            self.say(f"The run is saved. {REOPEN} to check it again.")
         else:
-            self.say("There is nothing to run from here.")
+            self.say("There is nothing to run from here. No next step is available for this run.")
+            self.say("The run is saved; start a new request to carry on with something else.")
         return False
 
     def approve(self, view: dict) -> bool:

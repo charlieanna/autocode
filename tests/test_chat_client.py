@@ -614,6 +614,45 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("There is nothing to run from here", client.text())
         self.assertEqual([], client.taken)
 
+    def test_a_stop_says_what_the_person_can_do_next_in_plain_words(self):
+        view = {"status": "PAUSED_STOPPED", "needs": {"kind": "resume"}, "next_command": None, "stop_reason": "Stopped"}
+        client = ScriptedChat(view)
+        client.converse()
+        text = client.text()
+        self.assertNotIn("(resume)", text)
+        self.assertIn("No next step is available for this run", text)
+        self.assertIn("start a new request", text)
+        self.assertNotIn("--", text)
+
+    def test_an_action_outside_the_chat_says_the_run_is_saved_and_how_to_return(self):
+        view = {
+            "status": "PAUSED_CROSS_MODEL",
+            "needs": {"kind": "resume", "reason": "Builder/Tester: identical model"},
+            "pause_category_label": "Model or provider",
+            "next_command": "autocode --run-dir r --resume --i-authorize-live-model-spend",
+        }
+        client = ScriptedChat(view)
+        client.converse()
+        text = client.text()
+        self.assertIn("nothing was run", text)
+        self.assertIn("The run is saved", text)
+        self.assertIn("autocode chat", text)
+        self.assertNotIn("--resume", text)
+        self.assertEqual([], client.taken)
+
+    def test_leaving_says_how_to_pick_the_run_up_again(self):
+        plan = {"token": "t", "acceptance_criteria": [], "constraints": [], "permission_boundaries": []}
+        view = {
+            "status": "WAITING_FOR_USER",
+            "needs": {"kind": "approve_plan", "token": "t"},
+            "displayed_plan": plan,
+            "next_command": f"AUTOCODE_PLAN_TOKEN=t autocode {PLACE} --approve-plan --plan-token -",
+        }
+        client = ScriptedChat(view)
+        self.assertEqual(2, client.converse())
+        self.assertIn("Left the chat; the run is unchanged.", client.text())
+        self.assertIn("Run `autocode chat` here to pick it up again.", client.text())
+
     def review_view(self, *criteria):
         return {
             "status": "WAITING_FOR_USER",
