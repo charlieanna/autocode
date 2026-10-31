@@ -357,8 +357,21 @@ CONTRACT_KEYS = ("acceptance_criteria", "constraints", "permission_boundaries", 
 
 
 def contract(plan):
-    """The approved terms of one shown plan, compared when a later revision asks whether they changed."""
-    return {key: plan.get(key, [] if key == "scope_exclusions" else None) for key in CONTRACT_KEYS}
+    """The approved terms of one shown plan, compared when a later revision asks whether they changed.
+
+    A criterion's ``sources`` citations are provenance (#595), not a term: a repair's
+    follow-up instruction becomes a run source and the replanned criteria cite it without
+    changing what the person approved (#2565).
+    """
+    criteria = plan.get("acceptance_criteria")
+    if isinstance(criteria, list):
+        criteria = [
+            {key: row[key] for key in row if key != "sources"} if isinstance(row, dict) else row for row in criteria
+        ]
+    return {
+        "acceptance_criteria": criteria,
+        **{key: plan.get(key, [] if key == "scope_exclusions" else None) for key in CONTRACT_KEYS[1:]},
+    }
 
 
 def approved_contracts(document, step, token):

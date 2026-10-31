@@ -68,7 +68,9 @@ permission boundaries, scope exclusions and Git delivery) is approved by the
 coordinator under that same approval as the automatic `carry_approval` step,
 recorded in the coordination state with the targets it covered; a revision that
 changes any of those, or adds a repository the person has not seen, is offered
-for approval again. Repository-choice actions exist only for
+for approval again. A criterion's source citations are provenance, not a term:
+a repair's follow-up instruction becomes a run source and may add citations
+without changing the approved work (#2565). Repository-choice actions exist only for
 current catalog candidates. After member runs complete, a named
 `coordinate bind` action snapshots exact candidate trees, including deletions,
 for the already-approved joint test. Cancellation prevents further dispatch and

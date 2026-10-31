@@ -800,6 +800,67 @@ class CoordinationTests(unittest.TestCase):
         del self.document["approved_contracts"]
         self.assertEqual("approval", step()["kind"])
 
+    def test_a_revised_plan_with_new_criterion_citations_keeps_the_carried_approval(self):
+        # #2565: a mismatch repair's follow-up instruction becomes a run source, so the
+        # replanned criteria gain citations. Citations are provenance (#595), not a term;
+        # a revision that only cites more sources carries the approval instead of asking again.
+        self.document["members"] = [
+            {"target": target, "started": True, "run_dir": str(self.root / target)} for target in ("api", "history")
+        ]
+        self.document["joint"] = {"workspace": str(self.root / "joint"), "run_dir": str(self.root / "joint/run")}
+        approved_plan = self.plan_view("api-plan")["displayed_plan"]
+        approved_plan["acceptance_criteria"][0]["sources"] = [{"source_id": "task:0", "quote": "Fix the real behavior"}]
+        joint_plan = {**approved_plan, "token": "joint-plan"}
+        joint_plan["acceptance_criteria"] = [
+            {**joint_plan["acceptance_criteria"][0], "id": "joint", "criterion": "Run the combined regression"}
+        ]
+
+        def revised(token):
+            plan = copy.deepcopy(approved_plan)
+            plan["token"] = token
+            # The coordinator's own rework instruction is now a user-feedback source.
+            plan["acceptance_criteria"][0]["sources"] = [
+                {"source_id": "task:0", "quote": "Fix the real behavior"},
+                {
+                    "source_id": "feedback:abc123",
+                    "quote": "A joint regression found a mismatch in another repository.",
+                },
+            ]
+            return plan
+
+        self.document["approved_contracts"] = {
+            "revision": 2,
+            "token": "first",
+            "members": {target: coordinate.contract(approved_plan) for target in ("api", "history")},
+            "joint": coordinate.contract(joint_plan),
+            "carried": [],
+        }
+        revised_joint = {**revised("joint-plan-2"), "token": "joint-plan-2"}
+        revised_joint["acceptance_criteria"] = [
+            {**revised_joint["acceptance_criteria"][0], "id": "joint", "criterion": "Run the combined regression"}
+        ]
+        joint_view = {"needs": {"kind": "approve_plan", "token": "joint-plan-2"}, "displayed_plan": revised_joint}
+        summary = {
+            "runs": [{"target": target, "plan": revised(target + "-2")} for target in ("api", "history")],
+            "approval": {"set_token": "set-2"},
+        }
+        views = {target: self.plan_view(target + "-plan-2") for target in ("api", "history")}
+
+        def step():
+            with (
+                patch.object(coordinate, "handle", return_value=Mock(status=Mock(return_value=joint_view))),
+                patch.object(coordinate.actions, "plan_for_approval", return_value=revised_joint),
+                patch.object(coordinate.changesets, "status", return_value=summary),
+            ):
+                return coordinate.next_step(self.document, views)
+
+        carried = step()
+        self.assertEqual("carry_approval", carried["kind"])
+        self.assertEqual({"revision": 2, "token": "first", "unchanged": ["api", "history"]}, carried["carried"])
+        # A changed criterion sentence is still a changed term and asks again.
+        summary["runs"][1]["plan"] = {**revised("history-3"), "constraints": ["Keep the old endpoint"]}
+        self.assertEqual("approval", step()["kind"])
+
     def test_carrying_the_approval_takes_the_set_approval_and_records_it(self):
         self.document.update(
             revision=5,
