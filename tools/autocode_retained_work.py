@@ -13,10 +13,12 @@ from pathlib import Path
 try:
     from . import autocode_assignment as assignment
     from . import autocode_contract_identity as contracts
+    from . import autocode_preservation_candidate as preservation
     from . import autocode_util as util
 except ImportError:
     import autocode_assignment as assignment
     import autocode_contract_identity as contracts
+    import autocode_preservation_candidate as preservation
     import autocode_util as util
 
 
@@ -122,7 +124,8 @@ def fresh_candidate(state: RunState, record, current_revision):
         if not assignment.build_output(workspace, path, stages, origin)
     ]
     if not paths or assignment.outside(owned, stages, origin, workspace=workspace) != []:
-        return unchanged_recheck(state, record, current_revision) if not paths else None
+        return (unchanged_recheck(state, record, current_revision)
+                or preservation.candidate(state, record, current_revision)) if not paths else None
     try:
         after = json.loads(Path(record["after_ref"]).read_text())
     except (KeyError, OSError, ValueError):

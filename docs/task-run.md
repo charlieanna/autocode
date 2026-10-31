@@ -94,6 +94,11 @@ blocker caused solely by the old product-code-only proof rule. The core archives
 the prior runner receipt and private proposal, then runs independent completion
 review. It grants no completion or approval and never withdraws published questions,
 permission requests, or blockers for other causes.
+When the spec-first Tester already wrote every due guard, an unchanged Builder
+may submit those exact archived test files for fresh independent review. The core
+checks approved producer membership, case coverage, receipt/source identities,
+file hashes, ownership and unchanged snapshots. This records a candidate handoff;
+regression proof, review and the joint gate still run normally.
 
 At a settled shared-cost stop, `needs.kind=budget` names the current finite cap,
 known accumulated spend, accounting completeness, `minimum_cap_usd`, and its own
