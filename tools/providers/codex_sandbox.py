@@ -195,7 +195,10 @@ def arguments(sandbox, workspace, run_dir, report):
         _artifact_tree(path)
     for path in directories:
         path.mkdir(parents=True, exist_ok=True)
-    rules = ",".join(json.dumps(str(path)) + '="write"' for path in [*directories, report])
+    # -o persists the validated report outside the tool sandbox. Codex's Linux
+    # sandbox treats write roots as directories, so granting the report file
+    # itself fails mount setup (and granting its parent would expose reports).
+    rules = ",".join(json.dumps(str(path)) + '="write"' for path in directories)
     profile = '{extends=":read-only",filesystem={' + rules + "}}"
     return [
         *isolated,
