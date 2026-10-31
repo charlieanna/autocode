@@ -27,6 +27,11 @@ PR template asks for an entry here; a change without one is incomplete.
   chat says so. A revision that changes any of those, or adds a repository, is shown for approval again.
 ### Fixed
 
+- A bugfix task with `git_delivery: atomic_commit` now delivers instead of pausing at the completion
+  gate: the delivery guard admits the bugfix workflow and no longer counts tracked Python bytecode
+  caches or the runner's own `docs/bugs/` diagnosis note as unapproved workspace changes (#2049).
+- The Resolver may write its report on its own workspace, and a regression proof repaired because the
+  changed tests cover the fix is recognized as passing instead of failing the run (#2049).
 - Automatic coordination recognizes catalog-grounded multi-repository bug requests before the chat scope gate and carries authenticated clarifications into member planning; request-feedback outcomes are reconciled before retrying.
 - GoCode report repairs now use typed values, independently permitted draft corrections can be composed without broadening approval or evidence rules, and Codex sandbox write grants stay limited to evidence/output roots rather than source or report files.
 - Stage selection offers only models declared by the configured providers.
