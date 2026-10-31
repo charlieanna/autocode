@@ -77,24 +77,46 @@ def _reconcile_preservation_review(state: RunState, workspace, run_dir):
     task = state.get("current_task") or {}
     contract = state.get("goal_contract") or {}
     if (
-        state.get("status") != "RUNNING" or state.get("next_stage") != "astra_review"
-        or state.get(human.PUBLIC) or state.get("pending_questions")
-        or proposal.get("scope") != "blocker" or origin.get("stage") != "astra_review"
-        or not goals.approved(state) or not regression.preserve_only(state)
-        or not task.get("id") or task.get("contract_hash") != contract.get("hash")
+        state.get("status") != "RUNNING"
+        or state.get("next_stage") != "astra_review"
+        or state.get(human.PUBLIC)
+        or state.get("pending_questions")
+        or proposal.get("scope") != "blocker"
+        or origin.get("stage") != "astra_review"
+        or not goals.approved(state)
+        or not regression.preserve_only(state)
+        or not task.get("id")
+        or task.get("contract_hash") != contract.get("hash")
         or (proof.get("execution_context") or {}).get("contract_identity") != util.digest(contract)
-        or proof.get("verdict") != "PASS" or proof.get("source_files") != []
-        or any(state.get(k) for k in ("active_stage", "active_runner_check", "pending_report_repair", "uncertain_artifacts"))
+        or proof.get("verdict") != "PASS"
+        or proof.get("source_files") != []
+        or any(
+            state.get(k)
+            for k in ("active_stage", "active_runner_check", "pending_report_repair", "uncertain_artifacts")
+        )
     ):
         return False
     revision = source_scope.snapshot(workspace, state)["revision"]
-    review = next((row for row in reversed(state.get("stages", [])) if (
-        row.get("stage") == "astra_review" and row.get("output") == origin.get("output")
-        and row.get("task_id") == task.get("id") and row.get("contract_hash") == contract.get("hash")
-        and row.get("source_revision") == revision and not row.get("rejected")
-    )), None)
+    review = next(
+        (
+            row
+            for row in reversed(state.get("stages", []))
+            if (
+                row.get("stage") == "astra_review"
+                and row.get("output") == origin.get("output")
+                and row.get("task_id") == task.get("id")
+                and row.get("contract_hash") == contract.get("hash")
+                and row.get("source_revision") == revision
+                and not row.get("rejected")
+            )
+        ),
+        None,
+    )
+    review_finished_at = review.get("finished_at") if isinstance(review, dict) else None
+    if not isinstance(review_finished_at, str):
+        return False
     try:
-        newer = review and datetime.fromisoformat(proof["proved_at"]) > datetime.fromisoformat(review["finished_at"])
+        newer = datetime.fromisoformat(proof["proved_at"]) > datetime.fromisoformat(review_finished_at)
     except (KeyError, TypeError, ValueError):
         return False
     if not newer or not regression.complete(state, revision, all_due=False, require_changed_code=False):
@@ -111,24 +133,34 @@ def _reconcile_preservation_review(state: RunState, workspace, run_dir):
             if any(p.is_symlink() for p in (path, *path.parents) if p.is_relative_to(root)):
                 continue
             captured = any(
-                s.get("stage") == "regression_proof" and s.get("runner_owned") and s.get("output") == str(path)
-                and datetime.fromisoformat(s["finished_at"]) < datetime.fromisoformat(review["finished_at"])
+                s.get("stage") == "regression_proof"
+                and s.get("runner_owned")
+                and s.get("output") == str(path)
+                and datetime.fromisoformat(s["finished_at"]) < datetime.fromisoformat(review_finished_at)
                 for s in state.get("stages", [])
             )
             receipt = util.read(path) if captured else {}
-            if (isinstance(receipt, dict) and receipt.get("verdict") == "FAIL" and receipt.get("source_revision") == row["source_revision"]
-                and receipt.get("failures") == ["Only test files changed; a fix must change product code"]):
+            if (
+                isinstance(receipt, dict)
+                and receipt.get("verdict") == "FAIL"
+                and receipt.get("source_revision") == row["source_revision"]
+                and receipt.get("failures") == ["Only test files changed; a fix must change product code"]
+            ):
                 previous = {"history": copy.deepcopy(row), "receipt": receipt}
                 break
         except (OSError, KeyError, TypeError, ValueError):
             continue
     if previous is None:
         return False
-    state.setdefault("validation_archive", []).append({
-        "at": util.now(), "reason": "Fresh authenticated preservation proof supersedes the private product-code-only blocker",
-        "resolver_proposal": copy.deepcopy(proposal), "regression_proof": copy.deepcopy(previous),
-        "validation": copy.deepcopy(state.get("validation", {})),
-    })
+    state.setdefault("validation_archive", []).append(
+        {
+            "at": util.now(),
+            "reason": "Fresh authenticated preservation proof supersedes the private product-code-only blocker",
+            "resolver_proposal": copy.deepcopy(proposal),
+            "regression_proof": copy.deepcopy(previous),
+            "validation": copy.deepcopy(state.get("validation", {})),
+        }
+    )
     state.pop(human.PRIVATE)
     if state.get("user_request") == proposal.get("request"):
         state.pop("user_request", None)
@@ -175,7 +207,8 @@ def _reconcile_proof_finding(state: RunState, workspace):
     reason = "" if proved or not required else regression.rejection(state, all_due=False)
     if proved:
         settle_same_revision_ids.extend(
-            row["id"] for row in proof_findings.open_rows(state)
+            row["id"]
+            for row in proof_findings.open_rows(state)
             if current_milestone
             and (row.get("scope") or {}).get("milestone_id") == current_milestone
             and infrastructure.disk_collection_failure(state, row, revision)

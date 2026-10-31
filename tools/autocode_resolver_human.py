@@ -97,10 +97,9 @@ def _binding(state: RunState):
     binding = {
         # A repaired runner changes the cause even when task source is unchanged.
         # Expire the old response hold; ordinary approval/admission checks still run.
-        "runtime_sources": support.digest({
-            str(path.relative_to(runtime)): support.file_hash(path)
-            for path in sorted(runtime.rglob("*.py"))
-        }),
+        "runtime_sources": support.digest(
+            {str(path.relative_to(runtime)): support.file_hash(path) for path in sorted(runtime.rglob("*.py"))}
+        ),
         "task_id": state.get("task_id"),
         "workspace": state.get("workspace"),
         "run_dir": state.get("run_dir"),

@@ -100,8 +100,11 @@ class CoverageBuildProofTests(unittest.TestCase):
         environment.start()
         self.addCleanup(environment.stop)
         record = changesets.reserve(
-            source_workspace=self.project.root, source_run_dir=self.run_dir,
-            target="producer", workspace=self.run_dir / "producer", brief="Own the actual product correction",
+            source_workspace=self.project.root,
+            source_run_dir=self.run_dir,
+            target="producer",
+            workspace=self.run_dir / "producer",
+            brief="Own the actual product correction",
         )
         changesets.set_fields(record["id"], {"automatic_anchor": str(self.run_dir / "anchor")})
         return state
@@ -118,7 +121,9 @@ class CoverageBuildProofTests(unittest.TestCase):
         self.assertFalse(state.get("answers"), "Machinery cannot manufacture a permission answer")
 
     def test_member_coverage_cannot_authorize_a_product_change_or_restore_case(self):
-        self.project.write({"test_keep.py": self.coverage_test(9, ""), "calc.py": CALC + "\ndef unrelated(): return 1\n"})
+        self.project.write(
+            {"test_keep.py": self.coverage_test(9, ""), "calc.py": CALC + "\ndef unrelated(): return 1\n"}
+        )
         state = self.coordinated_guard_state()
         # Isolate the regression verdict from Linux-only mutation capture.
         with patch.object(regression.changed_code, "collect", return_value={}):

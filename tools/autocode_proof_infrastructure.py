@@ -1,4 +1,5 @@
 """Authenticate disk-only collection failures superseded by fresh runner proof."""
+
 from datetime import datetime
 from pathlib import Path
 
@@ -18,39 +19,55 @@ def disk_collection_failure(state, row, revision):
     must show disk exhaustion and collection errors, with no failing test names.
     """
     try:
-        proof = state.get('regression_proof') or {}
-        if proof.get('verdict') != 'PASS' or proof.get('source_revision') != revision:
+        proof = state.get("regression_proof") or {}
+        if proof.get("verdict") != "PASS" or proof.get("source_revision") != revision:
             return False
-        root = Path(state['run_dir']) / 'regression'
-        path = Path(row['last_reported_in'])
-        if (not path.resolve().is_relative_to(root.resolve()) or not path.is_file()
+        root = Path(state["run_dir"]) / "regression"
+        path = Path(row["last_reported_in"])
+        if (
+            not path.resolve().is_relative_to(root.resolve())
+            or not path.is_file()
             or path.stat().st_nlink != 1
-            or any(p.is_symlink() for p in (path, *path.parents) if p.is_relative_to(root))):
+            or any(p.is_symlink() for p in (path, *path.parents) if p.is_relative_to(root))
+        ):
             return False
-        record = next((r for r in reversed(state.get('stages', []))
-                       if r.get('stage') == 'regression_proof' and r.get('runner_owned')
-                       and r.get('output') == str(path)), None)
-        if (not record or datetime.fromisoformat(proof['proved_at'])
-            <= datetime.fromisoformat(record['finished_at'])):
+        record = next(
+            (
+                r
+                for r in reversed(state.get("stages", []))
+                if r.get("stage") == "regression_proof" and r.get("runner_owned") and r.get("output") == str(path)
+            ),
+            None,
+        )
+        if not record or datetime.fromisoformat(proof["proved_at"]) <= datetime.fromisoformat(record["finished_at"]):
             return False
         prior = util.read_object(path)
-        checks = prior['checks']
-        labels = {'regression_on_base', 'regression_on_candidate', 'suite_on_candidate'}
-        if (prior.get('verdict') != 'FAIL' or prior.get('source_revision') != revision
-            or not isinstance(checks, dict) or not labels <= checks.keys()
-            or not {'suite_on_base', 'suite_on_base_with_tests'} & checks.keys()
-            or not schedule.proof_intact(checks, root=path.parent)):
+        checks = prior["checks"]
+        labels = {"regression_on_base", "regression_on_candidate", "suite_on_candidate"}
+        if (
+            prior.get("verdict") != "FAIL"
+            or prior.get("source_revision") != revision
+            or not isinstance(checks, dict)
+            or not labels <= checks.keys()
+            or not {"suite_on_base", "suite_on_base_with_tests"} & checks.keys()
+            or not schedule.proof_intact(checks, root=path.parent)
+        ):
             return False
         for label, check in checks.items():
-            result = check.get('results') or {}
-            failed = result.get('failed') or []
-            collection = result.get('collection_errors') or []
-            output = Path(check['output'])
-            if (check.get('exit_code') != 1 or not failed or not set(failed) <= set(collection)
-                or any(not name.endswith('::[build failed]') for name in failed)
-                or label.startswith('regression_') and result.get('passed')
-                or util.file_hash(output) != check.get('output_sha256')
-                or 'no space left on device' not in output.read_text(errors='replace').lower()):
+            result = check.get("results") or {}
+            failed = result.get("failed") or []
+            collection = result.get("collection_errors") or []
+            output = Path(check["output"])
+            if (
+                check.get("exit_code") != 1
+                or not failed
+                or not set(failed) <= set(collection)
+                or any(not name.endswith("::[build failed]") for name in failed)
+                or label.startswith("regression_")
+                and result.get("passed")
+                or util.file_hash(output) != check.get("output_sha256")
+                or "no space left on device" not in output.read_text(errors="replace").lower()
+            ):
                 return False
         return True
     except (OSError, KeyError, TypeError, ValueError, AttributeError, RuntimeError):

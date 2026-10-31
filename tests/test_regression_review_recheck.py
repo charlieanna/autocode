@@ -47,7 +47,9 @@ class ReviewRecheckTests(unittest.TestCase):
             "source_revision": "rev",
             "verdict": "FAIL",
             "execution_context": {
-                "contract_identity": util.digest(None), "cases_identity": util.digest([]), "preserve_only": False,
+                "contract_identity": util.digest(None),
+                "cases_identity": util.digest([]),
+                "preserve_only": False,
             },
         }
         return {

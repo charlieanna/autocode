@@ -28,9 +28,12 @@ class ResolverHumanTests(unittest.TestCase):
             before = copy.deepcopy(self.state)
             with patch.object(human, "__file__", str(module)):
                 binding = human._binding(self.state)
-                self.state["resolver"] = {"human_response_frontier": {
-                    "pause_status": self.state["status"], "binding": binding,
-                }}
+                self.state["resolver"] = {
+                    "human_response_frontier": {
+                        "pause_status": self.state["status"],
+                        "binding": binding,
+                    }
+                }
                 self.assertTrue(human.response_holds_current_frontier(self.state))
                 with tempfile.TemporaryDirectory() as relocated:
                     for path in (module, gate):

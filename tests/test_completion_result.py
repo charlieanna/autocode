@@ -27,25 +27,48 @@ class PreservationReviewRefreshTests(unittest.TestCase):
     def state(self):
         contract = {"hash": "approved", "approval_status": "approved", "body": {}}
         prior = {
-            "verdict": "FAIL", "failures": ["Only test files changed; a fix must change product code"],
+            "verdict": "FAIL",
+            "failures": ["Only test files changed; a fix must change product code"],
             "source_revision": "old-source",
         }
         self.prior.write_text(json.dumps(prior))
         return {
-            "status": "RUNNING", "next_stage": "astra_review", "settings": {"max_cost_usd": 23},
-            "goal_contract": contract, "current_task": {"id": "task", "contract_hash": "approved"},
-            "pending_questions": [], "regression_proofs": [
-                {"verdict": "FAIL", "source_revision": "old-source", "path": str(self.prior)}],
-            "regression_proof": {"verdict": "PASS", "source_revision": "rev", "source_files": [],
-                                 "proved_at": "2026-01-01T00:00:02+00:00", "receipt_sha256": "receipt",
-                                 "execution_context": {"contract_identity": util.digest(contract)}},
-            "stages": [{"stage": "astra_review", "output": "/run/review.json", "task_id": "task",
-                        "contract_hash": "approved", "source_revision": "rev",
-                        "finished_at": "2026-01-01T00:00:01+00:00"},
-                       {"stage": "regression_proof", "runner_owned": True, "output": str(self.prior),
-                        "finished_at": "2026-01-01T00:00:00+00:00"}],
-            human.PRIVATE: {"scope": "blocker", "origin": {"stage": "astra_review", "output": "/run/review.json"},
-                            "request": {"kind": "blocker", "decision_needed": "Old proof is missing"}},
+            "status": "RUNNING",
+            "next_stage": "astra_review",
+            "settings": {"max_cost_usd": 23},
+            "goal_contract": contract,
+            "current_task": {"id": "task", "contract_hash": "approved"},
+            "pending_questions": [],
+            "regression_proofs": [{"verdict": "FAIL", "source_revision": "old-source", "path": str(self.prior)}],
+            "regression_proof": {
+                "verdict": "PASS",
+                "source_revision": "rev",
+                "source_files": [],
+                "proved_at": "2026-01-01T00:00:02+00:00",
+                "receipt_sha256": "receipt",
+                "execution_context": {"contract_identity": util.digest(contract)},
+            },
+            "stages": [
+                {
+                    "stage": "astra_review",
+                    "output": "/run/review.json",
+                    "task_id": "task",
+                    "contract_hash": "approved",
+                    "source_revision": "rev",
+                    "finished_at": "2026-01-01T00:00:01+00:00",
+                },
+                {
+                    "stage": "regression_proof",
+                    "runner_owned": True,
+                    "output": str(self.prior),
+                    "finished_at": "2026-01-01T00:00:00+00:00",
+                },
+            ],
+            human.PRIVATE: {
+                "scope": "blocker",
+                "origin": {"stage": "astra_review", "output": "/run/review.json"},
+                "request": {"kind": "blocker", "decision_needed": "Old proof is missing"},
+            },
             "validation": {"source_revision": "rev", "result": "PASS"},
         }
 
@@ -76,7 +99,8 @@ class PreservationReviewRefreshTests(unittest.TestCase):
     def test_unproven_or_nonmember_evidence_keeps_the_blocker(self):
         for kwargs in ({"proved": False}, {"preservation": False}):
             with self.subTest(kwargs=kwargs):
-                state = self.state(); before = copy.deepcopy(state)
+                state = self.state()
+                before = copy.deepcopy(state)
                 self.review(state, **kwargs)
                 self.assertEqual(before, state)
 
@@ -91,12 +115,16 @@ class PreservationReviewRefreshTests(unittest.TestCase):
             "source": lambda s: s["stages"][0].update(source_revision="other"),
             "newer": lambda s: s["stages"][0].update(finished_at="2026-01-01T00:00:03+00:00"),
             "product": lambda s: s["regression_proof"].update(source_files=["product.go"]),
-            "other_failure": lambda s: self.prior.write_text(json.dumps({"verdict": "FAIL", "failures": ["A real regression still fails"]})),
+            "other_failure": lambda s: self.prior.write_text(
+                json.dumps({"verdict": "FAIL", "failures": ["A real regression still fails"]})
+            ),
             "malformed_receipt": lambda s: self.prior.write_text("[]"),
             "outside": lambda s: s["regression_proofs"][0].update(path="/outside/verification.json"),
         }
         for label, edit in edits.items():
             with self.subTest(label=label):
-                state = self.state(); edit(state); before = copy.deepcopy(state)
+                state = self.state()
+                edit(state)
+                before = copy.deepcopy(state)
                 self.review(state)
                 self.assertEqual(before, state)

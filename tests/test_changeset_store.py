@@ -37,9 +37,13 @@ class ChangesetStoreTests(unittest.TestCase):
             if elapsed[0] < 1.5:
                 raise BlockingIOError()
 
-        with (mock.patch.object(store.time, "monotonic", side_effect=lambda: elapsed[0]),
-              mock.patch.object(store.time, "sleep", side_effect=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds)),
-              mock.patch.object(store.util, "lock_file", side_effect=acquire)):
+        with (
+            mock.patch.object(store.time, "monotonic", side_effect=lambda: elapsed[0]),
+            mock.patch.object(
+                store.time, "sleep", side_effect=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds)
+            ),
+            mock.patch.object(store.util, "lock_file", side_effect=acquire),
+        ):
             record = self.reserve()
         self.assertEqual(1, len(store.records()))
         self.assertEqual(record["id"], store.find(self.source)["id"])
@@ -47,9 +51,13 @@ class ChangesetStoreTests(unittest.TestCase):
 
     def test_persistent_checkpoint_contention_is_bounded_and_never_writes(self):
         elapsed = [0.0]
-        with (mock.patch.object(store.time, "monotonic", side_effect=lambda: elapsed[0]),
-              mock.patch.object(store.time, "sleep", side_effect=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds)),
-              mock.patch.object(store.util, "lock_file", side_effect=BlockingIOError)):
+        with (
+            mock.patch.object(store.time, "monotonic", side_effect=lambda: elapsed[0]),
+            mock.patch.object(
+                store.time, "sleep", side_effect=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds)
+            ),
+            mock.patch.object(store.util, "lock_file", side_effect=BlockingIOError),
+        ):
             with self.assertRaisesRegex(store.ChangesetError, "busy"):
                 self.reserve()
         self.assertLessEqual(elapsed[0], 10.1)
