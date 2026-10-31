@@ -79,6 +79,14 @@ current catalog candidates. After member runs complete, a named
 for the already-approved joint test. Cancellation prevents further dispatch and
 submits only current members' named boundary-pause actions.
 
+An approved automatic producer member whose due criteria are all `guard:` cases
+may deliver preservation tests alone. Its proof requires those named tests to
+pass on both the baseline and candidate, without a permission answer. Any product
+change retains the ordinary bugfix fail-before/pass-after requirement. Standalone
+bug fixes and the joint verification task do not receive this member allowance;
+the joint gate still requires the real combined regression to fail on baseline
+and pass on exact candidates.
+
 At a settled shared-cost stop, `needs.kind=budget` names the current finite cap,
 known accumulated spend, accounting completeness, `minimum_cap_usd`, and its own
 `next_command` argument array. Terminal chat shows these, fills only its

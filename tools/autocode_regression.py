@@ -201,11 +201,21 @@ def preserve_only(state: RunState, *, all_due=False):
     to be tests alone; that diff-dependent rule is applied where the diff is known (_prove,
     passing verify's ``test_only_allowed``, #510).
     """
-    if goals.task_kind(state) == "bugfix":
-        return False
     due = cases(state, all_due=all_due)
     if not due:
         return False
+    if goals.task_kind(state) == "bugfix":
+        if (state.get("goal_contract") or {}).get("approval_status") != "approved" or not all(
+            case.get("kind") == "preserve" for case in due
+        ):
+            return False
+        try:
+            from . import autocode_coordination_context as coordination
+        except ImportError:
+            import autocode_coordination_context as coordination
+        # A preservation-only member does not itself claim to repair the bug.
+        # The separate joint gate still requires real fail-before/pass-after.
+        return bool(coordination.context(state))
     return all(case.get("kind") == "preserve" for case in due) or _test_only_exception(state)
 
 
@@ -633,6 +643,13 @@ def _proving(
         out = Path(run_dir) / "regression" / f"proof-{number:02d}-{uuid.uuid4().hex}"
         progress("Comparing regression tests and checking the full candidate suite", command=suite, output=out)
         coverage = preserve_only(state, all_due=all_due)
+        if coverage and goals.task_kind(state) == "bugfix":
+            # Member preservation coverage authorizes tests alone. A product
+            # change still needs the ordinary bugfix fail-before/pass-after proof.
+            coverage = not any(
+                not verify.is_test_path(path)
+                for path in verify.changed_files(workspace, base, source_paths=source_scope.paths(state))
+            )
         due = cases(state, all_due=all_due)
         # A non-bugfix contract whose due cases are all test criteria may be a coverage
         # or characterization build: the product already implements the behavior and the
