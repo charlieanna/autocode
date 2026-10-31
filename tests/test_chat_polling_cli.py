@@ -116,7 +116,10 @@ class AttachedTerminal(unittest.TestCase):
         self.assertEqual(2, worker.wait(timeout=15))
         read_terminal(leader, until=b"ctrl-d quit", seconds=30)
         os.write(leader, b"\x04")
-        self.assertTrue(drain_terminal(leader, lambda: viewer.poll() is not None, seconds=15), "the viewer did not leave after Ctrl-D")
+        self.assertTrue(
+            drain_terminal(leader, lambda: viewer.poll() is not None, seconds=15),
+            "the viewer did not leave after Ctrl-D",
+        )
         self.assertEqual(2, viewer.wait(timeout=15))
         view = run.status()
         self.assertFalse((view.get("controller") or {}).get("alive"))
