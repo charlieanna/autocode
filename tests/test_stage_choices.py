@@ -63,7 +63,15 @@ LISTING = {
 
 
 def resolve(name):
-    return {"claude": CLAUDE, "opencode": LISTED}[name]
+    return {"claude": CLAUDE, "opencode": LISTED, "gocode": CONFIGURED}[name]
+
+
+CONFIGURED = SimpleNamespace(
+    DEFAULT_MODELS={role: "configured/fast" for role in choices.ORDER},
+    DEFAULT_REASONING_EFFORTS={role: "medium" for role in choices.ORDER},
+    auth_table=lambda: {"name": "gocode", "command": None, "routes": []},
+    available_models=lambda workspace=None: {"configured/fast", "configured/strong"},
+)
 
 
 class StageChoiceTests(unittest.TestCase):
@@ -119,6 +127,12 @@ class StageChoiceTests(unittest.TestCase):
         self.assertEqual([choices.OWN_DEFAULT], options["opencode/plain"]["effort_choices"])
         # GLM 5.3 declares no medium, so its default level is the nearest one it does declare.
         self.assertEqual("high", self.stage(current, "terra")["default"]["effort"])
+
+    def test_a_configured_provider_without_billing_routes_offers_its_declared_models(self):
+        current = choices.view("gocode", **self.kw)
+        builder = self.stage(current, "terra")
+        self.assertEqual({"configured/fast", "configured/strong"}, {row["model"] for row in builder["options"]})
+        self.assertTrue(all(row["account"] is None and row["billing"] is None for row in builder["options"]))
 
     def test_a_checker_is_never_offered_the_model_whose_work_it_checks(self):
         current = choices.view("opencode", **self.kw)

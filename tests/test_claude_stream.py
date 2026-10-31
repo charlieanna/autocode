@@ -737,6 +737,7 @@ class ProcessTests(TempMixin, unittest.TestCase):
         # "Error: --json-schema is not a valid JSON Schema: strict mode: unknown keyword:
         # "x-autocode-report-edits"". This fake refuses an unknown top-level keyword the same way.
         argv_log = self.root / "argv.json"
+        report = {report_edits.KEY: {"summary": "fixed", "x-note": "preserved"}}
         fake = self.fake(
             f"""
             schema = json.loads(sys.argv[sys.argv.index("--json-schema") + 1])
@@ -747,7 +748,7 @@ class ProcessTests(TempMixin, unittest.TestCase):
                 sys.exit(1)
             print(json.dumps({{"type": "system", "subtype": "init", "session_id": "s-edits"}}))
             print(json.dumps({{"type": "result", "subtype": "success", "is_error": False, "session_id": "s-edits",
-                               "structured_output": {{"summary": "fixed"}}, "total_cost_usd": 0.01}}))
+                               "structured_output": {report!r}, "total_cost_usd": 0.01}}))
             """
         )
         source = self.root / "requirements-gather-01.json"
@@ -768,8 +769,16 @@ class ProcessTests(TempMixin, unittest.TestCase):
         self.assertEqual((0, ""), (done.returncode, done.stderr), done.stdout)
         sent = json.loads(argv_log.read_text())
         self.assertEqual({key: value for key, value in offered.items() if key != report_edits.META}, sent)
-        self.assertEqual({"summary", "x-note", report_edits.KEY}, set(sent["properties"]))
-        self.assertEqual("turn.completed", json.loads(done.stdout.splitlines()[-1])["type"])
+        self.assertEqual({report_edits.KEY}, set(sent["properties"]))
+        self.assertEqual([report_edits.KEY], sent["required"])
+        full_report = sent["properties"][report_edits.KEY]["anyOf"][1]
+        self.assertEqual(named, full_report["properties"])
+        self.assertEqual(set(named), set(full_report["required"]))
+        self.assertFalse(full_report["additionalProperties"])
+        rows = [json.loads(line) for line in done.stdout.splitlines()]
+        delivered = [item for item in items(rows) if item["id"] == claude_stream.REPORT_ITEM]
+        self.assertEqual([report], [json.loads(item["text"]) for item in delivered])
+        self.assertEqual("turn.completed", rows[-1]["type"])
 
 
 if __name__ == "__main__":

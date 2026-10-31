@@ -41,6 +41,57 @@ def report(**change):
 
 
 class RequirementsHandoffTests(unittest.TestCase):
+    def test_catalog_bug_handoff_offers_coordination_without_requirements_confirmation(self):
+        import autocode_catalog_context as catalog
+        import autocode_coordination_store as coordination
+        import autocode_run_view as run_view
+
+        task = "Fix missing history in other-repo."
+        value = report(
+            job="bugfix",
+            intended_outcome=task,
+            requirements=[{"id": "R1", "text": task, "source_quote": task}],
+            required_behaviors=["History contains the operation"],
+            acceptance_tests=["A missing operation fails the regression"],
+            source_refs=["task"],
+            open_questions=[],
+            workspace_scope={
+                "spans_repositories": True,
+                "external_parts": [
+                    {"target": "other-repo", "work": "Fix missing history", "source_quote": task, "evidence": ""}
+                ],
+            },
+        )
+        for configured, questions, expected in ((True, [], True), (False, [], False), (True, [QUESTION], False)):
+            with self.subTest(configured=configured, questions=questions):
+                state = {
+                    "task": task,
+                    "settings": {"spec_first": True},
+                    "stages": [],
+                    "workflow": {"kind": None, "then": "requirements_gather"},
+                }
+                queued = []
+                with (
+                    mock.patch.object(
+                        catalog, "context", return_value={"repositories": ["other-repo"]} if configured else None
+                    ),
+                    mock.patch.object(coordination, "read", return_value=None),
+                ):
+                    handoff.accept(
+                        state,
+                        {**value, "open_questions": questions},
+                        {"output": None},
+                        check_code_refs=mock.Mock(),
+                        queue=lambda *args, **kwargs: queued.append(kwargs),
+                    )
+                    view = run_view.view(state, run_dir="/tmp/catalog-handoff-test")
+                self.assertEqual(expected, view["coordination"] is not None)
+                if expected:
+                    self.assertEqual("bugfix", view["workflow"])
+                    self.assertFalse(
+                        any(q["id"].startswith("requirements-review-") for row in queued for q in row["questions"])
+                    )
+
     def accept(self, value, settings=None, **saved):
         settings = {"spec_first": True} if settings is None else settings
         state = {"task": "What is your name?", "settings": settings, "stages": [], **saved}

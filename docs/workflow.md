@@ -341,6 +341,14 @@ contract changes" with the concern that asked for it; the final review judges it
 behaviors, scope exclusions, failure cases and any line that repeats your words still need
 your saved answer or feedback, and so does every line once a plan was approved or edited.
 
+A fresh first-review receipt may also correct an exact failure-case inference that the
+model invented in an unapproved draft. That receipt can compose with independently
+permitted draft criterion wording, baseline observations and engineering proof corrections.
+It grants no authority over those adjacent fields: source citations, marked proofs,
+human review and approved obligations keep their existing guards. The corrected plan
+still receives final review and exact-plan approval; AutoCode does not ask you to
+approve its own draft corrections separately.
+
 Planning defaults to **two Plan Reviewer reviews per cycle**. A review counts once it
 returns a report, whether or not the runner then accepts that report. An attempt that
 times out or whose provider fails returns no review, so it is given back before the next
