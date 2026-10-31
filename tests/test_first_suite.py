@@ -306,9 +306,7 @@ class ExistingFailingTestRepairTests(unittest.TestCase):
         # The Builder changed the test file too (a live run's real case): the base's failing test
         # still runs and fails on the base with the new tests and passes with the change, so the
         # repair is proven, and a base with nothing passing then has nothing left to lose.
-        result = self.prove(
-            self.FIXED, passing=False, tests=self.TESTS.format(passing=self.PASSING) + self.EXPANDED
-        )
+        result = self.prove(self.FIXED, passing=False, tests=self.TESTS.format(passing=self.PASSING) + self.EXPANDED)
         self.assertEqual(verify.PASS, result["verdict"], result)
         self.assertIn("test_greet.GreetingTests.test_blank", result["fail_to_pass"])
 
@@ -340,27 +338,24 @@ class RepairedByFlipTests(unittest.TestCase):
 
     def test_base_failures_that_ran_and_failed_again_with_the_new_tests_and_pass_now_are_repairs(self):
         base_suite = {"receipt": self.results(passed=["t.Kept.ok"], failed=["t.Repair.fixed", "t.Repair.also"])}
-        on_base_with_tests = self.results(passed=["t.Kept.ok"], failed=["t.Repair.fixed", "t.Repair.also", "t.New.flip"])
-        on_candidate = self.results(
-            passed=["t.Kept.ok", "t.Repair.fixed", "t.Repair.also", "t.New.flip"], failed=[]
+        on_base_with_tests = self.results(
+            passed=["t.Kept.ok"], failed=["t.Repair.fixed", "t.Repair.also", "t.New.flip"]
         )
+        on_candidate = self.results(passed=["t.Kept.ok", "t.Repair.fixed", "t.Repair.also", "t.New.flip"], failed=[])
         # t.New.flip is a new test's honest fail-to-pass, not the repair of a base failure.
         self.assertEqual(
-            ["t.Repair.also", "t.Repair.fixed"], first_suite.repaired_by_flip(base_suite, on_base_with_tests, on_candidate)
+            ["t.Repair.also", "t.Repair.fixed"],
+            first_suite.repaired_by_flip(base_suite, on_base_with_tests, on_candidate),
         )
 
     def test_a_base_test_weakened_to_pass_on_the_unfixed_code_is_no_repair(self):
         base_suite = {"receipt": self.results(passed=[], failed=["t.Weakened.blank", "t.Repair.fixed"])}
         on_base_with_tests = self.results(passed=["t.Weakened.blank"], failed=["t.Repair.fixed"])
         on_candidate = self.results(passed=["t.Weakened.blank", "t.Repair.fixed"], failed=[])
-        self.assertEqual(
-            ["t.Repair.fixed"], first_suite.repaired_by_flip(base_suite, on_base_with_tests, on_candidate)
-        )
+        self.assertEqual(["t.Repair.fixed"], first_suite.repaired_by_flip(base_suite, on_base_with_tests, on_candidate))
 
     def test_collection_and_setup_errors_are_not_tests_that_ran_and_failed(self):
-        base_suite = {
-            "receipt": self.results(passed=[], failed=["t.Bad.collect", "t.Bad.setup", "t.Good.fixed"])
-        }
+        base_suite = {"receipt": self.results(passed=[], failed=["t.Bad.collect", "t.Bad.setup", "t.Good.fixed"])}
         on_base_with_tests = self.results(
             passed=[],
             failed=["t.Bad.collect", "t.Bad.setup", "t.Good.fixed"],
@@ -368,17 +363,13 @@ class RepairedByFlipTests(unittest.TestCase):
             setup_errors={"t.Bad.setup": "boom"},
         )
         on_candidate = self.results(passed=["t.Bad.collect", "t.Bad.setup", "t.Good.fixed"], failed=[])
-        self.assertEqual(
-            ["t.Good.fixed"], first_suite.repaired_by_flip(base_suite, on_base_with_tests, on_candidate)
-        )
+        self.assertEqual(["t.Good.fixed"], first_suite.repaired_by_flip(base_suite, on_base_with_tests, on_candidate))
 
     def test_a_base_failure_the_targeted_run_did_not_rerun_is_no_repair(self):
         base_suite = {"receipt": self.results(passed=[], failed=["t.Unseen.fixed", "t.Repair.fixed"])}
         on_base_with_tests = self.results(passed=[], failed=["t.Repair.fixed"])
         on_candidate = self.results(passed=["t.Repair.fixed"], failed=[])
-        self.assertEqual(
-            ["t.Repair.fixed"], first_suite.repaired_by_flip(base_suite, on_base_with_tests, on_candidate)
-        )
+        self.assertEqual(["t.Repair.fixed"], first_suite.repaired_by_flip(base_suite, on_base_with_tests, on_candidate))
 
     def test_incomplete_missing_or_timed_out_runs_prove_no_repair(self):
         base_suite = {"receipt": self.results(passed=[], failed=["t.Repair.fixed"])}
@@ -405,17 +396,54 @@ class RepairedByFlipTests(unittest.TestCase):
                 self.results(passed=["t.Repair.fixed"], timed_out=True),
             ),
         )
-        self.assertEqual([], first_suite.repaired_by_flip(None, self.results(passed=[], failed=["t.Repair.fixed"]), candidate))
+        self.assertEqual(
+            [], first_suite.repaired_by_flip(None, self.results(passed=[], failed=["t.Repair.fixed"]), candidate)
+        )
         self.assertEqual([], first_suite.repaired_by_flip(base_suite, None, candidate))
         self.assertEqual(
             [],
-            first_suite.repaired_by_flip(
-                base_suite, self.results(passed=[], failed=["t.Repair.fixed"]), None
-            ),
+            first_suite.repaired_by_flip(base_suite, self.results(passed=[], failed=["t.Repair.fixed"]), None),
         )
         self.assertEqual(
             [],
             first_suite.repaired_by_flip(
                 {"receipt": {"results": None}}, self.results(passed=[], failed=["t.Repair.fixed"]), candidate
             ),
+        )
+
+
+class RepairedEvidenceTests(unittest.TestCase):
+    """The repair evidence the preservation verdict records (autocode_first_suite.repaired_evidence)."""
+
+    def results(self, *, passed=(), failed=(), complete=True, collection_errors=(), setup_errors=None, timed_out=False):
+        return {
+            "timed_out": timed_out,
+            "results": {
+                "complete": complete,
+                "passed": list(passed),
+                "failed": list(failed),
+                "collection_errors": list(collection_errors),
+                "setup_errors": dict(setup_errors or {}),
+            },
+        }
+
+    def test_the_proofs_fail_to_pass_is_the_repair_when_the_base_suite_proves_it(self):
+        proof = {"fail_to_pass": ["t.Repair.fixed"]}
+        checks = {"regression_on_base": self.results(passed=[], failed=["t.Repair.fixed"])}
+        self.assertEqual(
+            ["t.Repair.fixed"],
+            first_suite.repaired_evidence(
+                proof, True, {"receipt": self.results(failed=["t.Repair.fixed"])}, checks, None
+            ),
+        )
+
+    def test_when_the_change_also_changed_tests_the_flip_is_the_repair(self):
+        base_suite = {"receipt": self.results(passed=["t.Kept.ok"], failed=["t.Repair.fixed"])}
+        checks = {"regression_on_base": self.results(passed=["t.Kept.ok"], failed=["t.Repair.fixed"])}
+        on_candidate = self.results(passed=["t.Kept.ok", "t.Repair.fixed"], failed=[])
+        # existing_failures is False: the change also changed tests, so the proof holds no
+        # fail-to-pass flip and the targeted base run is the only repair evidence.
+        self.assertEqual(
+            ["t.Repair.fixed"],
+            first_suite.repaired_evidence({"fail_to_pass": []}, False, base_suite, checks, on_candidate),
         )

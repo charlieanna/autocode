@@ -411,6 +411,15 @@ def repaired_by_flip(base_suite, on_base_with_tests, on_candidate):
     return sorted(set(base_results.get("failed") or []) & ran_and_failed & set(candidate.get("passed") or []))
 
 
+def repaired_evidence(proof, existing_failures, base_suite, checks, on_candidate):
+    """The repair evidence for the preservation verdict: the proof's fail-to-pass flip when the base
+    suite already proves the repair (``existing_failures``), else the flip the changed tests still
+    show (``repaired_by_flip``, its targeted base run in ``checks["regression_on_base"]``)."""
+    if existing_failures:
+        return proof.get("fail_to_pass")
+    return repaired_by_flip(base_suite, checks.get("regression_on_base"), on_candidate)
+
+
 def repaired_all(base_results, repaired, notes) -> bool:
     """Every failing base test was repaired (existing_flip or repaired_by_flip): a base with no passing
     test then has nothing lost."""
