@@ -54,7 +54,17 @@ def eligible(state: RunState, *, previous_settings=None, current_request, count,
         return False
     # An audited grant may replenish a spent automatic-recovery budget at the
     # operational-exhaustion stop that names it, whatever the originating pause.
-    return cause in GRANTABLE_CAUSES or count >= maximum
+    return cause in GRANTABLE_CAUSES or count >= maximum or _consecutive_exhausted(state)
+
+
+def _consecutive_exhausted(state: RunState) -> bool:
+    """The other counter ``recovery_limits.stop_reason`` publishes its exhaustion stop on.
+
+    A stop reached by consecutive timeouts names ``--grant-recovery`` like any other
+    budget exhaustion, so the grant must accept exactly that stop.
+    """
+    limit = (state.get("settings") or {}).get("limits", {}).get("no_progress_batches", 3)
+    return bool(limit) and accounting.consecutive_timeouts(state) >= limit
 
 
 def grant(

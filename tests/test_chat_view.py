@@ -473,6 +473,37 @@ class ChatViewTests(unittest.TestCase):
         self.assertEqual(1, len(first))
         self.assertNotEqual(first, second)
 
+    def test_a_report_repair_note_never_displaces_the_question_the_person_must_answer(self):
+        # The Requirements stage's own prose is not always a question: after a report repair
+        # it describes the repair, and a client asks whatever this message carries.
+        note = "Repaired the rejected requirements report by adding the missing acceptance_tests field."
+        question = "Should non-ASCII letters count as alphanumeric?"
+        state = {
+            "status": "WAITING_FOR_USER",
+            "settings": {"spec_first": True},
+            "next_stage": "requirements_gather",
+            "requirements_handoff": {"report": {"assistant_reply": note}},
+        }
+        need = {"kind": "answer", "questions": [{"id": "Q1", "question": question, "options": []}]}
+        result = chat.project(state, {"status": "WAITING_FOR_USER", "needs": need}, workspace="/ws", run_dir="/run")
+        asked = [row for row in result["messages"] if row["id"].startswith(chat.REQUIREMENTS_QUESTION)]
+        self.assertEqual([question], [row["text"] for row in asked])
+        # The stage's own words are kept beside the question, never in place of it.
+        said = [row for row in result["messages"] if row["id"].startswith(chat.REQUIREMENTS_SAY)]
+        self.assertEqual([note], [row["text"] for row in said])
+
+    def test_the_stage_prose_is_not_repeated_when_it_already_is_the_question(self):
+        question = "Should non-ASCII letters count as alphanumeric?"
+        state = {
+            "status": "WAITING_FOR_USER",
+            "settings": {"spec_first": True},
+            "next_stage": "requirements_gather",
+            "requirements_handoff": {"report": {"assistant_reply": question}},
+        }
+        need = {"kind": "answer", "questions": [{"id": "Q1", "question": question, "options": []}]}
+        result = chat.project(state, {"status": "WAITING_FOR_USER", "needs": need}, workspace="/ws", run_dir="/run")
+        self.assertEqual([question], [row["text"] for row in result["messages"]])
+
     def test_history_preserves_original_request_answers_feedback_and_followups(self):
         state = {
             "status": "TASK_COMPLETE",
