@@ -35,9 +35,10 @@ def disk_collection_failure(state, row, revision):
             return False
         prior = util.read_object(path)
         checks = prior['checks']
-        labels = {'regression_on_base', 'regression_on_candidate', 'suite_on_base', 'suite_on_candidate'}
+        labels = {'regression_on_base', 'regression_on_candidate', 'suite_on_candidate'}
         if (prior.get('verdict') != 'FAIL' or prior.get('source_revision') != revision
             or not isinstance(checks, dict) or not labels <= checks.keys()
+            or not {'suite_on_base', 'suite_on_base_with_tests'} & checks.keys()
             or not schedule.proof_intact(checks, root=path.parent)):
             return False
         for label, check in checks.items():

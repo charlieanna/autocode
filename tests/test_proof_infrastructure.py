@@ -22,7 +22,7 @@ class InfrastructureProofTests(unittest.TestCase):
         self.run = Path(tmp.name).resolve(); self.folder = self.run / 'regression' / 'old'
         self.folder.mkdir(parents=True); self.path = self.folder / 'verification.json'
         checks = {}
-        for name in ('regression_on_base', 'regression_on_candidate', 'suite_on_base', 'suite_on_candidate'):
+        for name in ('regression_on_base', 'regression_on_candidate', 'suite_on_base_with_tests', 'suite_on_candidate'):
             log = self.folder / (name + '.log')
             log.write_text('compile: writing output: no space left on device\n')
             checks[name] = {'exit_code': 1, 'output': str(log), 'output_sha256': util.file_hash(log),
@@ -64,6 +64,11 @@ class InfrastructureProofTests(unittest.TestCase):
         self.assertEqual('open', self.state['findings_ledger'][1]['status'])
         for k in ('current_task', 'regression_proof', 'stages'):
             self.assertEqual(before[k], self.state[k])
+
+    def test_baseline_suite_without_injected_tests_keeps_its_own_supported_label(self):
+        self.receipt['checks']['suite_on_base'] = self.receipt['checks'].pop('suite_on_base_with_tests')
+        self.write_receipt(); self.review()
+        self.assertEqual('resolved', self.row['status'])
 
     def test_unproven_or_unauthenticated_results_cannot_retire_the_failure(self):
         for kwargs in ({'proved': False}, {'intact': False}):
