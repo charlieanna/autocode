@@ -56,3 +56,42 @@ saved-approval/completed-run reopen and simulated publication remain unverified.
 This campaign establishes neither fulfillment delivery nor new-feature support.
 Local evidence is retained under `/private/tmp/autocode-dti12398-20261030/`;
 run output and bundles are intentionally not committed.
+
+## Authorized extra attempt and recovery
+
+The owner authorized one additional attempt under the original combined spending
+and active-model-time limits. It launches plain `autocode` from an unrelated
+nested directory and uses the saved catalog of 90 canonical organization
+repositories, without a fulfillment-name filter or driver-selected members.
+The actual `/stages` screen was captured. This attempt keeps GoCode Sol for
+Requirements/Planner/Builder and GoCode Opus for Plan Reviewer/Tester/Completion
+Reviewer. Other offered model families have not been qualified by execution.
+
+The extra attempt required runtime and environment repairs, so its continuation
+is diagnostic recovery evidence rather than a clean frozen-runtime result. The
+original blocked verdict is retained. Repository discovery independently added
+the originating domains API, gateway, history consumer, command factory and RG
+client. At the time of this recovery note, one member plan was ready, the
+remaining planning and consolidated joint plan were pending, and no Builder or
+implementation approval had occurred.
+
+Local recovery commits retain authenticated request clarifications across
+coordinated planning (`014f73a22`), correct Codex sandbox artifact-directory grants
+(`0efaad31e`), and compose independently permitted unapproved draft corrections
+with exact reviewer-backed failure-case receipts (`dbb6f70ac`). The latter fixes
+an unnecessary human permission question about the model's own criteria. Its
+focused tests and public CLI regression were observed failing first; 100 focused
+Linux unit/CLI tests then passed. The sandbox change passed 75 Linux tests and a
+native probe that allowed evidence/output writes while refusing source/report
+writes. Fourteen pre-existing prompt snapshot failures remain documented; the
+new prompt fragment's affected renderings were reviewed and refreshed separately.
+
+Missing cached dependency versions and the pinned Ginkgo executable were
+provisioned locally without editing the fulfillment sources. A public feedback
+action requested fresh review under unchanged requirements after the draft
+machinery repair; it confirmed no Requirements and approved no plan. Existing
+terminal coordination continues to expose its state, while the repaired public
+CLI was used for that member's continuation. Runtime archives, hashes, feedback
+receipts, red/green logs and terminal captures remain in the local evidence
+folder. Earlier runtime archives contained this qualification note before it was
+removed from model-visible material; no clean-isolation claim is made.
