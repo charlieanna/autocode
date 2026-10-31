@@ -1,4 +1,4 @@
-"""The compact planning path for an opted-in, reproduced, localized bug fix (#2021, the first #1867 checkpoint).
+"""The compact planning path for a reproduced, localized bug fix (#2021, the first #1867 checkpoint).
 
 A bug-fix run plans like this: Requirements, the Investigator (``investigate_bug``), the Planner's draft
 (``astra_discovery``, a paid call), the Plan Reviewer (``astra_challenge``), the person's approval of the
@@ -11,11 +11,11 @@ the run to the full path (the Planner's draft, with the concern in its packet: f
 the regression proof, the Tester and the Completion Reviewer run as on every path. The draft is never
 approved by a policy: autocode_workflows.POLICY_ORIGINS does not know its origin.
 
-The path is taken only when every trusted signal admits it (decide): the run opted in
-(``--compact-bugfix-planning``, SETTING), it plans adaptively, Requirements named the bug-fix job, the
+The path is taken only when every trusted signal admits it (decide): the new run enables compact eligibility
+(by default with joint planning, disabled with ``--no-compact-bugfix-planning``), it plans adaptively, Requirements named the bug-fix job, the
 diagnosis is reproduced by a probe the runner ran, the Investigator sized the fix small, it names a root
 cause, an invariant and regression cases, its files are few (PATH_BOUND) and none matches the project's
-declared ``sensitive-paths`` (autocode_sensitive_paths); a project that declares none keeps the full path,
+``sensitive-paths`` (autocode_sensitive_paths; shipped defaults when the project declares none),
 as does a draft the contract validators refuse. A model's word (``fix_size``) can only keep the full path,
 never grant the compact one. The decision, its reasons and the hashes it rests on are recorded once under
 ``state["workflow"]["stage_policy"]`` (autocode_stage_policy) and shown by the status view as ``stage_policy``;
@@ -76,7 +76,7 @@ def add_argument(parser) -> None:
         help="New runs: for a bug the Investigator reproduces, sizes small and localizes to files the project's "
         "sensitive-paths do not name, the runner writes the plan draft from the diagnosis and the Requirements "
         "record instead of the Planner's paid draft call; the Plan Reviewer reviews it and you approve it as "
-        "usual (docs/adaptive-planning.md#compact-planning-for-bug-fixes). Off by default; needs joint planning",
+        "usual (docs/adaptive-planning.md#compact-planning-for-bug-fixes). On by default with joint planning",
     )
 
 
@@ -85,11 +85,10 @@ def enabled(state: RunState) -> bool:
 
 
 def new_run_setting(requested, joint: bool) -> bool:
-    """Whether a new run may take the compact path. ``requested`` is the flag: None or False means never;
-    True opts in, and is refused without joint planning, which the Plan Reviewer's review needs."""
+    """New joint runs default to compact eligibility; an explicit opt-in requires joint planning."""
     if requested and not joint:
         raise ValueError(f"{FLAG} needs joint planning")
-    return bool(requested)
+    return joint if requested is None else bool(requested)
 
 
 def resume_refused(saved_settings: dict, requested) -> bool:

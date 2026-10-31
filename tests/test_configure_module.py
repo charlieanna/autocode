@@ -125,6 +125,25 @@ class ConfigureModuleSurfaceTests(unittest.TestCase):
 
 
 class WrapperWiringTests(unittest.TestCase):
+    def test_new_compact_defaults_are_saved_and_legacy_runs_keep_their_policy(self):
+        for requested, expected in ((None, True), (False, False), (True, True)):
+            with self.subTest(requested=requested):
+                args = self.configure_args(compact_bugfix_planning=requested)
+                state = {"workspace": "/tmp/fixture", "iteration": 0}
+                with patch.object(runner.opencode, "local_settings", return_value={"engine": "opencode"}):
+                    settings = runner.configure(args, state)
+                    self.assertEqual(expected, bool(settings.get("compact_bugfix_planning")))
+                    self.assertTrue(settings.get("sensitive_paths"))
+                    legacy = copy.deepcopy(settings)
+                    legacy.pop("compact_bugfix_planning", None)
+                    legacy.pop("sensitive_paths", None)
+                    resumed = runner.configure(self.configure_args(), {**state, "settings": legacy})
+                self.assertNotIn("compact_bugfix_planning", resumed)
+                self.assertNotIn("sensitive_paths", resumed)
+        args = self.configure_args(sensitive_paths=[])
+        with patch.object(runner.opencode, "local_settings", return_value={"engine": "opencode"}):
+            self.assertEqual([], runner.configure(args, state)["sensitive_paths"])
+
     def setUp(self):
         require_extraction()
         test_planning.PlanningTests.setUp(self)

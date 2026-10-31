@@ -274,7 +274,8 @@ The live recognizer judged every request correctly: 8 clear, 3 vague.
 
 ## Compact planning for bug fixes
 
-`--compact-bugfix-planning` (new runs only; off by default) lets a reproduced, localized bug
+Compact planning is enabled for new joint-planning runs. `--no-compact-bugfix-planning` disables it;
+`--compact-bugfix-planning` explicitly enables it. A reproduced, localized bug can
 skip one paid planning call. On the ordinary bug-fix path Requirements runs, the Investigator
 reproduces the bug (`investigate_bug`), the Planner writes the plan draft (`astra_discovery`), the
 Plan Reviewer reviews it and you approve the displayed plan. On the compact path the runner
@@ -293,13 +294,15 @@ Tester and a separate Completion Reviewer.
 The path is taken only when every trusted signal admits it; a model's word can keep the full
 path but never grant the compact one:
 
-- the run opted in and plans adaptively, with joint planning;
+- the run has compact planning enabled and plans adaptively, with joint planning;
 - Requirements named the bug-fix job (a pinned `--workflow bugfix` has no Requirements record);
 - the Investigator reproduced the bug with a probe the runner ran, sized the fix `small`, and named
   a root cause, an invariant and at least one regression case;
 - the fix touches at most four files (affected and test paths together), and none of them, nor the
   diagnosis note, matches the project's declared `sensitive-paths`
-  ([project settings](cli.md#project-settings)); a project that declares none keeps the full path;
+  ([project settings](cli.md#project-settings)); without a declaration new runs save shipped conservative
+  patterns for authentication, security, payments, billing, migrations, credentials, CI/build files and
+  dependency manifests/locks. A project may replace these patterns, including an explicit empty list;
 - the contract validators accept the runner's draft; a refused draft keeps the full path, with the
   refusal recorded.
 

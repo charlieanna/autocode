@@ -351,7 +351,8 @@ class CompactPlanningTests(unittest.TestCase):
         self.assertEqual("test_t9_holds", compact.test_name({"id": "T9", "then": "!!!"}))
 
     def test_the_setting_is_chosen_at_the_start_and_kept(self):
-        self.assertFalse(compact.new_run_setting(None, True))
+        self.assertTrue(compact.new_run_setting(None, True))
+        self.assertFalse(compact.new_run_setting(None, False))
         self.assertFalse(compact.new_run_setting(False, True))
         self.assertTrue(compact.new_run_setting(True, True))
         with self.assertRaisesRegex(ValueError, "joint planning"):
@@ -373,6 +374,34 @@ class CompactPlanningTests(unittest.TestCase):
 
 
 class SensitivePathsTests(unittest.TestCase):
+    def test_new_runs_save_shipped_patterns_without_overriding_project_choices(self):
+        defaults = sensitive_paths.new_run_patterns(None)
+        paths = [
+            "src/auth/login.py",
+            "authentication.py",
+            "src/payments/refund.py",
+            "billing/charge.py",
+            "db/migrations/001.sql",
+            ".github/workflows/ci.yml",
+            "package.json",
+            "sub/pyproject.toml",
+            "poetry.lock",
+            "requirements-dev.txt",
+            "Dockerfile",
+            "infra/deploy.tf",
+            "certificates/server.pem",
+            ".env.local",
+            "src/summing.py",
+            "tests/test_summing.py",
+        ]
+        self.assertEqual(paths[:-2], sensitive_paths.matched(paths, defaults))
+        defaults.clear()
+        self.assertTrue(sensitive_paths.new_run_patterns(None), "a caller cannot mutate the shipped list")
+        self.assertEqual([], sensitive_paths.new_run_patterns([]))
+        custom = ["src/registry/**"]
+        self.assertEqual(custom, sensitive_paths.new_run_patterns(custom))
+        self.assertIsNot(custom, sensitive_paths.new_run_patterns(custom))
+
     def test_a_project_declares_patterns_or_nothing_sensitive(self):
         self.assertEqual(
             ["src/billing/**", "*.lock"], sensitive_paths.checked([" src/billing/** ", "*.lock", "*.lock"], "f")

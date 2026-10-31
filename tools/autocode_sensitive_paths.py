@@ -6,14 +6,14 @@ CI configuration, dependency manifests) as ``sensitive-paths`` in its project se
 key has no flag: a new run saves the list in its settings (``SETTING``) when it starts, so a changed file
 never alters a run in progress and no command line sets or overrides it. The list is a trusted input to
 the compact planning path (autocode_compact_planning): a bug fix whose files match any pattern takes the
-full path, and so does a project that declares no list at all, because an unknown sensitivity is treated
-as sensitive. An empty list is a declaration too: the project says none of its files are sensitive.
+full path. New runs without a project declaration snapshot DEFAULT_PATTERNS; saved runs keep their
+existing policy. An empty list is a declaration too: the project says none of its files are sensitive.
 
 A pattern is a shell-style glob over the repository-relative POSIX path, matched segment by segment from
 the right as ``PurePosixPath.match`` does: ``src/billing/*`` matches the files in that directory,
 ``src/billing/**`` or ``src/billing/`` everything under it, ``*.lock`` a lockfile anywhere. Matching is by
-name only: it misses sensitive behaviour that lives in ordinary files, which is why the compact path also
-stays off unless a person opted the run into it.
+name only: it misses sensitive behaviour that lives in ordinary files. Reproduction, diagnosis,
+independent plan review and exact-plan approval still gate the compact path.
 
 Bottom layer: imports nothing from AutoCode.
 """
@@ -26,6 +26,48 @@ from pathlib import PurePosixPath
 KEY = "sensitive-paths"  # the project-file key (autocode_project_config.FILE_ONLY)
 SETTING = "sensitive_paths"  # the run's settings key, and the attribute autocode_project_config sets on args
 PATTERN_LIMIT = 512
+DEFAULT_PATTERNS = (
+    "*auth*",
+    "*auth*/**",
+    "*security*/**",
+    "*payment*/**",
+    "*billing*/**",
+    "*migration*/**",
+    "*secret*/**",
+    "*certificat*/**",
+    ".env*",
+    "*.pem",
+    "*.key",
+    ".github/**",
+    ".gitlab-ci.yml",
+    "Jenkinsfile*",
+    "Dockerfile*",
+    "*docker-compose*",
+    "Makefile",
+    "CMakeLists.txt",
+    "*.tf",
+    "*.tfvars",
+    "package.json",
+    "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+    "requirements*.txt",
+    "Pipfile",
+    "Gemfile",
+    "Cargo.toml",
+    "go.mod",
+    "go.sum",
+    "pom.xml",
+    "build.gradle*",
+    "*.csproj",
+    "*.lock",
+    "*-lock.json",
+)
+
+
+def new_run_patterns(configured) -> list[str]:
+    """Snapshot the project's declaration, or the shipped conservative defaults, for a new run."""
+    return list(DEFAULT_PATTERNS if configured is None else configured)
 
 
 def checked(value, source: str) -> list[str]:

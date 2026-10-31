@@ -47,6 +47,7 @@ try:
     from . import autocode_roles as role_names
     from . import autocode_route_fit as route_fit
     from . import autocode_route_ladder as route_ladder
+    from . import autocode_sensitive_paths as sensitive_paths
     from . import autocode_skip_requirements as skip_requirements
     from . import autocode_support as support
     from . import autocode_task_preflight as task_preflight
@@ -77,6 +78,7 @@ except ImportError:
     import autocode_roles as role_names
     import autocode_route_fit as route_fit
     import autocode_route_ladder as route_ladder
+    import autocode_sensitive_paths as sensitive_paths
     import autocode_skip_requirements as skip_requirements
     import autocode_support as support
     import autocode_task_preflight as task_preflight
@@ -774,9 +776,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         **({"package": args.package} if getattr(args, "package", None) else {}),
         # Who may approve: the project's require-approver, fixed at launch (autocode_required_approver).
         **({"require_approver": args.require_approver} if getattr(args, "require_approver", None) else {}),
-        # Which paths a shorter planning path may never touch: the project's sensitive-paths, fixed at launch
-        # (autocode_sensitive_paths); an empty list is a declaration, so None alone means "not declared".
-        **({"sensitive_paths": args.sensitive_paths} if getattr(args, "sensitive_paths", None) is not None else {}),
+        "sensitive_paths": sensitive_paths.new_run_patterns(getattr(args, "sensitive_paths", None)),
         # The command that serves the app: the project's [serve], fixed at launch (autocode_dev_server_config).
         **({"serve": args.serve} if getattr(args, "serve", None) else {}),
         "context_soft_tokens": args.context_soft_tokens if args.context_soft_tokens is not None else 10000,
