@@ -214,7 +214,8 @@ def _obligation_mismatch(before, after, replacements, interpretation_corrections
     for old in before.get("acceptance_criteria", []):
         new = new_criteria.get(old["id"])
         independent = {
-            key for key, ids in (criterion_corrections or {}).items()
+            key
+            for key, ids in (criterion_corrections or {}).items()
             if key in ("criterion", "verification_method", "current_behavior") and old["id"] in ids
         }
         ignored = {"sources"} | independent

@@ -23,6 +23,7 @@ try:
     from . import autocode_source_scope as scope
     from . import autocode_util as util
     from .autocode_git_delivery_policy import requirement as requirement
+    from .autocode_runner_files import runner_files
 except ImportError:
     import autocode_code_checkpoints as trees
     import autocode_contract_identity as contracts
@@ -30,6 +31,7 @@ except ImportError:
     import autocode_source_scope as scope
     import autocode_util as util
     from autocode_git_delivery_policy import requirement as requirement
+    from autocode_runner_files import runner_files
 
 
 def git(workspace, *args, env=None, data=None):
@@ -162,10 +164,12 @@ def prepare(state: RunState, workspace, current):
         return False
     if not contracts.approved(state):
         raise ValueError("Git delivery needs the exact approved plan")
-    if (state.get("workflow") or {}).get("kind") not in (None, "build") or state.get("settings", {}).get(
+    if (state.get("workflow") or {}).get("kind") not in (None, "build", "bugfix") or state.get("settings", {}).get(
         "workflow", {}
     ).get("mode") == "glm_final_audit_v2":
-        raise ValueError("Atomic Git delivery currently requires the ordinary build review workflow")
+        raise ValueError(
+            "Atomic Git delivery currently requires the ordinary build review workflow or the bugfix workflow"
+        )
     if scope.snapshot(workspace, state) != current:
         raise ValueError("Source changed before Git delivery")
     path = Path(state["run_dir"]) / "git-delivery.json"
@@ -185,7 +189,19 @@ def prepare(state: RunState, workspace, current):
         raise ValueError("Preexisting dirty work or moved HEAD requires reconciliation before atomic delivery")
     baseline = trees.tree_files(workspace, current["head"])
     files = trees.content_files(current)
-    changed = {name for name in baseline.keys() | files.keys() if baseline.get(name) != files.get(name)}
+    # A name the source inventory excludes (bytecode caches, run state) is not source and
+    # leaves the delivered tree, so a tracked one is no delivery change whether or not a
+    # run rebuilt it. A runner-written file whose content the run recorded and still holds
+    # (a bugfix diagnosis note, a review report) is the runner's own investigation evidence
+    # in the delivered diff, not a workspace change to refuse (autocode_runner_files).
+    _, runner_kept = runner_files(state, workspace)
+    changed = {
+        name
+        for name in baseline.keys() | files.keys()
+        if baseline.get(name) != files.get(name)
+        and (name in files or not util.inventory_excluded(name))
+        and name not in runner_kept
+    }
     selected = scope.paths(state)
     if not changed or any(
         not any(name == root or name.startswith(root + "/") for root in selected) for name in changed

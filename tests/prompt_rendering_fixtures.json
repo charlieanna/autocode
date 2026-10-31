@@ -484,8 +484,8 @@
     "sha256": "4e7f5a00ef9737856a0410eb2874a26e513824f22a947ba02adc69ede7dffbde"
   },
   "provider/command-output-contract/None": {
-    "bytes": 1972,
-    "sha256": "6409c79ef309b91b988d086e3f1db81f51b462f701fd6fb5cea1639db1adec29"
+    "bytes": 2190,
+    "sha256": "3f3c8fca36ba8321c9636dd43e491aa9ec396c43f0c4f95b7d88ded2fbdff3b9"
   },
   "provider/command-output-contract/codex_artifacts": {
     "bytes": 1025,

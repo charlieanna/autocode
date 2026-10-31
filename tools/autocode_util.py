@@ -606,6 +606,11 @@ def use_snapshot_service(service) -> None:
     _SNAPSHOT_SERVICE = service
 
 
+def inventory_excluded(name: str) -> bool:
+    """Whether a workspace name is outside the checked source inventory: run state and Python bytecode caches."""
+    return name.startswith((".autocode/", ".autocode-ui/")) or "/__pycache__/" in f"/{name}" or name.endswith(".pyc")
+
+
 def snapshot(workspace, nested=False, unborn_ok=True):
     """Hash current source content, executable modes and nested Git worktrees.
 
@@ -623,7 +628,7 @@ def snapshot(workspace, nested=False, unborn_ok=True):
     kept = {}
     files = {}
     for name in sorted(set(names)):
-        if name.startswith((".autocode/", ".autocode-ui/")) or "/__pycache__/" in f"/{name}" or name.endswith(".pyc"):
+        if inventory_excluded(name):
             continue
         # One lstat on a plain string: building a Path and stating it three times cost more than hashing.
         # Git lists an embedded repository as "name/"; Path dropped that slash, so lstat must not follow it.

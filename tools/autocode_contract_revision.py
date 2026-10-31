@@ -594,7 +594,10 @@ def revision_guard(state: RunState, body, changes, origin):
     _reject_unchanged_rewordings(previous, body, protected_changes)
     own_text = reviewer_requested_own_text(state, previous_contract, previous, protected_changes, origin)
     failure_receipts = failure_correction.corrections(
-        state, body, protected_changes, origin,
+        state,
+        body,
+        protected_changes,
+        origin,
         interpretation_corrections=interpretation_corrections,
         criterion_corrections={
             "criterion": example_corrections,

@@ -14,7 +14,6 @@ import uuid
 from pathlib import Path
 
 try:
-    from . import autocode_coordination_request as request
     from . import autocode_changeset as changesets
     from . import autocode_changeset_store as sets
     from . import autocode_client_actions as actions
@@ -25,12 +24,12 @@ try:
     from . import autocode_coordination_limits as limits
     from . import autocode_coordination_publish as publication
     from . import autocode_coordination_repositories as repos
+    from . import autocode_coordination_request as request
     from . import autocode_coordination_store as store
     from . import autocode_github as github
     from . import autocode_taskrun as tasks
     from . import autocode_util as util
 except ImportError:
-    import autocode_coordination_request as request
     import autocode_changeset as changesets
     import autocode_changeset_store as sets
     import autocode_client_actions as actions
@@ -41,6 +40,7 @@ except ImportError:
     import autocode_coordination_limits as limits
     import autocode_coordination_publish as publication
     import autocode_coordination_repositories as repos
+    import autocode_coordination_request as request
     import autocode_coordination_store as store
     import autocode_github as github
     import autocode_taskrun as tasks
@@ -357,8 +357,21 @@ CONTRACT_KEYS = ("acceptance_criteria", "constraints", "permission_boundaries", 
 
 
 def contract(plan):
-    """The approved terms of one shown plan, compared when a later revision asks whether they changed."""
-    return {key: plan.get(key, [] if key == "scope_exclusions" else None) for key in CONTRACT_KEYS}
+    """The approved terms of one shown plan, compared when a later revision asks whether they changed.
+
+    A criterion's ``sources`` citations are provenance (#595), not a term: a repair's
+    follow-up instruction becomes a run source and the replanned criteria cite it without
+    changing what the person approved (#2565).
+    """
+    criteria = plan.get("acceptance_criteria")
+    if isinstance(criteria, list):
+        criteria = [
+            {key: row[key] for key in row if key != "sources"} if isinstance(row, dict) else row for row in criteria
+        ]
+    return {
+        "acceptance_criteria": criteria,
+        **{key: plan.get(key, [] if key == "scope_exclusions" else None) for key in CONTRACT_KEYS[1:]},
+    }
 
 
 def approved_contracts(document, step, token):
@@ -814,7 +827,11 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
                 if not row.get("started"):
                     row["brief"] = request.brief(document)
         elif kind == "request_feedback":
-            document["pending"] = {"operation": "request_feedback", "target": member["target"], "message": step["message"]}
+            document["pending"] = {
+                "operation": "request_feedback",
+                "target": member["target"],
+                "message": step["message"],
+            }
             store.save(document)
             handle(member, command=command).feedback(step["message"])
             member["brief"] = step["message"]

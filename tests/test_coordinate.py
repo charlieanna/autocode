@@ -242,8 +242,12 @@ class CoordinationTests(unittest.TestCase):
 
     def test_changed_request_sources_refuse_execution_even_when_task_and_scope_match(self):
         self.document.update(anchor_turn=1, anchor_scope="same", request_sources=[])
-        view = {"turn": 1, "task": self.document["task"], "scope": {"identity": "same"},
-                "request_sources": [{"id": "answer:Q1", "kind": "user_answer", "text": "New acceptance"}]}
+        view = {
+            "turn": 1,
+            "task": self.document["task"],
+            "scope": {"identity": "same"},
+            "request_sources": [{"id": "answer:Q1", "kind": "user_answer", "text": "New acceptance"}],
+        }
         with patch.object(coordinate, "anchor_view", return_value=view):
             with self.assertRaisesRegex(store.CoordinationError, "request.*changed"):
                 coordinate.observe(self.document)
@@ -251,13 +255,15 @@ class CoordinationTests(unittest.TestCase):
     def test_resolved_members_and_joint_brief_include_original_clarifications(self):
         self.document["request_sources"] = [{"id": "answer:Q1", "kind": "user_answer", "text": "Preserve 2304."}]
         step = {"kind": "resolve", "target": "api", "entry": {}, "work": "Investigate history"}
-        with (patch.object(store, "read", return_value=self.document),
-              patch.object(coordinate, "observe", return_value={}),
-              patch.object(coordinate, "next_step", return_value=step),
-              patch.object(coordinate, "observe_dependencies"),
-              patch.object(coordinate, "sync_set"),
-              patch.object(coordinate, "status", return_value={}),
-              patch.object(coordinate, "add_member") as add):
+        with (
+            patch.object(store, "read", return_value=self.document),
+            patch.object(coordinate, "observe", return_value={}),
+            patch.object(coordinate, "next_step", return_value=step),
+            patch.object(coordinate, "observe_dependencies"),
+            patch.object(coordinate, "sync_set"),
+            patch.object(coordinate, "status", return_value={}),
+            patch.object(coordinate, "add_member") as add,
+        ):
             coordinate.advance(self.document["anchor"])
         self.assertIn("Preserve 2304.", add.call_args.args[3])
 
@@ -276,12 +282,14 @@ class CoordinationTests(unittest.TestCase):
         member = {"target": "api", "started": False, "brief": self.document["task"]}
         self.document["members"] = [member]
         run = Mock()
-        with (patch.object(store, "read", return_value=self.document),
-              patch.object(coordinate, "observe", return_value={}),
-              patch.object(coordinate, "next_step") as next_step,
-              patch.object(coordinate, "observe_dependencies"),
-              patch.object(coordinate, "status", return_value={}),
-              patch.object(coordinate, "handle", return_value=run)):
+        with (
+            patch.object(store, "read", return_value=self.document),
+            patch.object(coordinate, "observe", return_value={}),
+            patch.object(coordinate, "next_step") as next_step,
+            patch.object(coordinate, "observe_dependencies"),
+            patch.object(coordinate, "status", return_value={}),
+            patch.object(coordinate, "handle", return_value=run),
+        ):
             next_step.return_value = {"kind": "sync_request", "sources": sources}
             coordinate.advance(self.document["anchor"])
             self.assertEqual(sources, self.document["request_sources"])
@@ -790,6 +798,67 @@ class CoordinationTests(unittest.TestCase):
         del self.document["approved_contracts"]["members"]["history"]
         self.assertEqual("approval", step()["kind"])
         del self.document["approved_contracts"]
+        self.assertEqual("approval", step()["kind"])
+
+    def test_a_revised_plan_with_new_criterion_citations_keeps_the_carried_approval(self):
+        # #2565: a mismatch repair's follow-up instruction becomes a run source, so the
+        # replanned criteria gain citations. Citations are provenance (#595), not a term;
+        # a revision that only cites more sources carries the approval instead of asking again.
+        self.document["members"] = [
+            {"target": target, "started": True, "run_dir": str(self.root / target)} for target in ("api", "history")
+        ]
+        self.document["joint"] = {"workspace": str(self.root / "joint"), "run_dir": str(self.root / "joint/run")}
+        approved_plan = self.plan_view("api-plan")["displayed_plan"]
+        approved_plan["acceptance_criteria"][0]["sources"] = [{"source_id": "task:0", "quote": "Fix the real behavior"}]
+        joint_plan = {**approved_plan, "token": "joint-plan"}
+        joint_plan["acceptance_criteria"] = [
+            {**joint_plan["acceptance_criteria"][0], "id": "joint", "criterion": "Run the combined regression"}
+        ]
+
+        def revised(token):
+            plan = copy.deepcopy(approved_plan)
+            plan["token"] = token
+            # The coordinator's own rework instruction is now a user-feedback source.
+            plan["acceptance_criteria"][0]["sources"] = [
+                {"source_id": "task:0", "quote": "Fix the real behavior"},
+                {
+                    "source_id": "feedback:abc123",
+                    "quote": "A joint regression found a mismatch in another repository.",
+                },
+            ]
+            return plan
+
+        self.document["approved_contracts"] = {
+            "revision": 2,
+            "token": "first",
+            "members": {target: coordinate.contract(approved_plan) for target in ("api", "history")},
+            "joint": coordinate.contract(joint_plan),
+            "carried": [],
+        }
+        revised_joint = {**revised("joint-plan-2"), "token": "joint-plan-2"}
+        revised_joint["acceptance_criteria"] = [
+            {**revised_joint["acceptance_criteria"][0], "id": "joint", "criterion": "Run the combined regression"}
+        ]
+        joint_view = {"needs": {"kind": "approve_plan", "token": "joint-plan-2"}, "displayed_plan": revised_joint}
+        summary = {
+            "runs": [{"target": target, "plan": revised(target + "-2")} for target in ("api", "history")],
+            "approval": {"set_token": "set-2"},
+        }
+        views = {target: self.plan_view(target + "-plan-2") for target in ("api", "history")}
+
+        def step():
+            with (
+                patch.object(coordinate, "handle", return_value=Mock(status=Mock(return_value=joint_view))),
+                patch.object(coordinate.actions, "plan_for_approval", return_value=revised_joint),
+                patch.object(coordinate.changesets, "status", return_value=summary),
+            ):
+                return coordinate.next_step(self.document, views)
+
+        carried = step()
+        self.assertEqual("carry_approval", carried["kind"])
+        self.assertEqual({"revision": 2, "token": "first", "unchanged": ["api", "history"]}, carried["carried"])
+        # A changed criterion sentence is still a changed term and asks again.
+        summary["runs"][1]["plan"] = {**revised("history-3"), "constraints": ["Keep the old endpoint"]}
         self.assertEqual("approval", step()["kind"])
 
     def test_carrying_the_approval_takes_the_set_approval_and_records_it(self):
