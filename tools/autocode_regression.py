@@ -229,6 +229,11 @@ def head(workspace):
 LAUNCH_REFS = "refs/autocode/launch/"
 LAUNCH_REF_GRACE_SECONDS = 86400  # a run launched in another worktree has saved its run directory by then
 MISSING_CASES_REASON = "Completion rejected: the milestone proof still needs all required cases: "
+CHANGED_CODE_REASON = (
+    "Completion rejected: the runner's regression proof for this source reports no failed case; the "
+    "independent changed-line or receipt-custody evidence the completion gate requires is missing or "
+    "no longer binds. A fresh independent review of the changed lines is required."
+)
 
 
 def _git(workspace, *args):
@@ -846,6 +851,10 @@ def rejection(state: RunState, *, all_due=True):
     ]
     if proof.get("verdict") == verify.PASS and missing:
         return MISSING_CASES_REASON + ", ".join(missing)
+    if proof.get("verdict") == verify.PASS and not (proof.get("failures") or proof.get("unverified")):
+        # Nothing the runner measured failed and every due case is covered, so what the gate lacks is
+        # the independent evidence bound to this measurement — not a regression proof for this source.
+        return CHANGED_CODE_REASON
     reasons = (
         "; ".join((proof.get("failures") or []) + (proof.get("unverified") or []))
         or "no proof exists for the current source"
