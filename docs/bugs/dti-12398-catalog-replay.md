@@ -123,3 +123,27 @@ plain-`autocode` viewer restart are retained locally. The joint task is now
 investigating the real five-component path with no unresolved Requirements
 questions. Consolidated approval, fulfillment implementation and candidate proof
 remain pending. No member or joint plan has been approved.
+
+The diagnostic TUI subsequently reached **one consolidated approval** containing
+all five member plans and the joint plan. The joint plan uses actual component
+code through separate Go helper processes, unchanged logger-event bytes and
+ordinary JSON decoding; its combined suite must fail behaviorally on the original
+baseline and pass on exact candidates. The gateway and RG client propose source
+corrections; the other three members propose preservation guards.
+
+Plain `autocode` was then launched from a second unrelated directory. Public
+`/runs` and `/open 7` reopened the original anchor with the same catalog snapshot
+and exact coordinated approval offer. All six plans remained unapproved, attempt
+count remained 58 and no simulated publication occurred. The TUI remains at that
+approval gate for the owner. Exact exports, an assembled review copy, hashes and
+the reopen receipt are retained locally under the evidence folder's `review/`
+and `extension-consolidated-*` files; the review copy is also in this checkout's
+ignored `.autocode/reviews/dti-12398/` directory.
+
+At this gate the extra attempt records $53.157660 known cost and 11,412.079308
+active model seconds across 58 attempts. Combined with the original campaign,
+recorded totals are $60.717974 and 12,196.454679 active model seconds across 74
+attempts. Usage coverage remains incomplete, so these are not exact billing
+totals. Implementation, exact-candidate independent oracle/negative controls,
+completed-run reopen and simulated publication are still unverified. The original
+blocked verdict and the diagnostic-recovery qualification remain unchanged.
