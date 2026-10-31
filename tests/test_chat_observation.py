@@ -28,12 +28,15 @@ class ReadMetadata(unittest.TestCase):
         receipt = observation.Read()
         receipt.accept(sampled(), 100)
         self.assertEqual("7s ago", receipt.age(107))
-        self.assertIn("05:00:00+0000", receipt.compact(107))
+        self.assertEqual("status read 7s ago, run state at 05:00:00 UTC", receipt.compact(107))
         before = receipt.snapshot.copy()
         receipt.accept(sampled(), 110)
         self.assertEqual(before, receipt.snapshot)
         self.assertEqual("0s ago", receipt.age(110))
         self.assertIn("does not measure meaningful work progress", receipt.details(110))
+
+    def test_compact_text_is_plain_before_the_first_read(self):
+        self.assertEqual("status not read yet", observation.Read().compact(5))
 
     def test_missing_malformed_and_other_run_samples_are_unknown_without_losing_real_receipt(self):
         for sample in (
@@ -49,7 +52,7 @@ class ReadMetadata(unittest.TestCase):
                 receipt.accept({**sampled(), "observation": sample}, 5)
                 self.assertIsNone(receipt.snapshot)
                 self.assertEqual("2s ago", receipt.age(7))
-                self.assertIn("core sample unknown", receipt.compact(7))
+                self.assertEqual("status read 2s ago", receipt.compact(7))
 
     def test_failure_retains_last_sample_and_recovery_updates_only_the_read_receipt(self):
         receipt = observation.Read()

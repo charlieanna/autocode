@@ -352,7 +352,7 @@ with ChatTUI() as ui:
             ) as screen:
                 screen.wait_for("Fixture ready")
                 screen.keys("PPage")
-                old = screen.wait_for("History · last read:")
+                old = screen.wait_for("History · ")
                 anchor = next(line for line in old.splitlines()[3:17] if "History message" in line)
                 update(
                     {"status": "RUNNING", "progress": {"headline": "Tester checking 你好"}},
@@ -371,7 +371,7 @@ with ChatTUI() as ui:
                 update(current_view(delivered=True))
                 shown = screen.wait_for("Complete; current delivery verified")
                 self.assertIn("Fixture ready", shown)
-                self.assertIn("viewer read", shown)
+                self.assertIn("status read", shown)
                 screen.type("/details ")
                 screen.keys("Enter")
                 screen.wait_for("Core snapshot sampled at: 2026-10-24T05:00:00+00:00")

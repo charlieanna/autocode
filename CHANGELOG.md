@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The terminal chat's header speaks plainly (#2559): the status row reads "Reading run status (status read
+  3s ago, run state at 05:00:00 UTC)" instead of "viewer read …; core sample …", the F8 badge counts
+  "new" and "unchecked" alerts, and a terminal too small for the chat says, wrapped to fit, how many
+  columns and rows it needs.
 - The plan approval stop leads with the decision in plain words (#2535): what the plan will do, what it may
   change, each criterion and how it is checked, what passing proves and the limits, then one line naming
   `--details` (in the terminal chat, `/details`) for the full brief with its contract diff, file hashes and
