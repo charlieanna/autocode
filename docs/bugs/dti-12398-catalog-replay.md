@@ -95,3 +95,31 @@ CLI was used for that member's continuation. Runtime archives, hashes, feedback
 receipts, red/green logs and terminal captures remain in the local evidence
 folder. Earlier runtime archives contained this qualification note before it was
 removed from model-visible material; no clean-isolation claim is made.
+
+At the next checkpoint, all five member plans were ready and exported without
+approval. The RG client's exact pinned dependencies were prepared from existing
+local Git tags and checksum-verified public module artifacts; its unchanged
+offline baseline suite passed. Joint planning then exposed a separate unwanted
+Requirements confirmation because the integration task uses the build workflow.
+Local commit `e3318d0df` authenticates the current joint task or its durable first
+start intent and carries clear requirements into consolidated approval. It does
+not answer or confirm Requirements for the person; genuine business questions,
+ordinary spec-first builds and exact plan approval retain their existing gates.
+
+Focused unit tests and a public fake-provider CLI regression failed first. The
+CLI regression then reached an unapproved plan without a confirmation or Builder.
+The Linux group passed 129 of 131 checks; the remaining checks encountered an
+unregistered `autocode_cli` package and an absent home-directory passwd entry
+when a fixture clears the environment. The home-directory failure also occurred
+on the previous runtime. A separate identity-negative test passed. All 135
+focused pure/host checks passed on the current checkout. No full-suite success
+is claimed.
+
+The resumed diagnostic runtime is `298c6f8456fe2dc3c4ffce72c278102f22e37a8f`,
+an exact retained overlay of the tested modules, tests and public documentation
+on `dbb6f70ac`; it avoids introducing unrelated merged runtime changes. Its
+archive hash and exclusions, the public machinery-feedback receipt and the
+plain-`autocode` viewer restart are retained locally. The joint task is now
+investigating the real five-component path with no unresolved Requirements
+questions. Consolidated approval, fulfillment implementation and candidate proof
+remain pending. No member or joint plan has been approved.
