@@ -147,3 +147,36 @@ attempts. Usage coverage remains incomplete, so these are not exact billing
 totals. Implementation, exact-candidate independent oracle/negative controls,
 completed-run reopen and simulated publication are still unverified. The original
 blocked verdict and the diagnostic-recovery qualification remain unchanged.
+
+
+The owner then explicitly approved the complete local replay plan (review digest
+`f566d21023cc2edd8c6e59f6d5eef28a650c8a440f9c73cdb81834f3b30866a8`).
+All six current plan identities were checked and `y` was entered in the actual
+TUI. The public approval event and exact intent/receipt are retained in
+`extension-human-approval-*`; all five members and the joint plan were released.
+This supersedes the earlier waiting-for-approval status above.
+
+The originating API member passed its preservation checks but exposed a runner
+contradiction: its explicitly approved test-only role was rejected by the generic
+bugfix product-diff rule. Local commit `7bacbcbec` permits an approved,
+authenticated automatic producer member with only due guard cases to prove
+pass-before/pass-after on a test-only diff. Product changes still require normal
+fail-before/pass-after; standalone bugs and the joint task receive no allowance.
+Both the missing allowance and product-diff safety regression were observed
+failing before their production edits. Nineteen focused proof/context checks
+passed on macOS and Linux; the focused Linux fake-provider full bugfix workflow
+and import-cycle check passed. A broader invocation retained two failures: a
+mistyped nonexistent test module and the previously identified missing
+`autocode_cli` package registration in the isolated test checkout. No whole-suite
+success is claimed.
+
+The immutable diagnostic runtime is now
+`837f9681bf420e2cdae8c70cdb90a715be23c591`, based on the preceding runtime with
+only this tested functionality overlaid. Archive SHA-256 is
+`55cda6a8db92ea222149da3bf93af88f2a18dd8dc6f783a325875566f338aa5a`.
+The qualification note remains excluded from extraction. The public CLI wrapper
+selects it; already active processes retain their original imported runtime.
+The failed originating Resolver also rejected symlinked dependency cache entries
+in operational evidence. Its original cache is retained outside operational
+roots while the same dependency bytes are materialized as regular files.
+Implementation and independent candidate verification remain in progress.
