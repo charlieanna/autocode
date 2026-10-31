@@ -86,6 +86,9 @@ change retains the ordinary bugfix fail-before/pass-after requirement. Standalon
 bug fixes and the joint verification task do not receive this member allowance;
 the joint gate still requires the real combined regression to fail on baseline
 and pass on exact candidates.
+Completion review rechecks the proof when its preservation mode changes, even
+after repeated failures on unchanged source. A passing preservation proof also
+expires when that mode no longer applies; stable contexts keep normal reuse.
 
 At a settled shared-cost stop, `needs.kind=budget` names the current finite cap,
 known accumulated spend, accounting completeness, `minimum_cap_usd`, and its own

@@ -1118,6 +1118,7 @@ def _review_needs_proof(state: RunState, workspace):
         saved.get("source_revision") != current
         or context.get("contract_identity") != util.digest(state.get("goal_contract"))
         or context.get("cases_identity") != util.digest(cases(state))
+        or bool(context.get("preserve_only")) != preserve_only(state)
     ):
         return True
     return saved.get("verdict") == verify.FAIL and (

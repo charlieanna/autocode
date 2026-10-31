@@ -21,6 +21,7 @@ class ReviewRecheckTests(unittest.TestCase):
                 "execution_context": {
                     "contract_identity": util.digest(state.get("goal_contract")),
                     "cases_identity": util.digest([]),
+                    "preserve_only": regression.preserve_only(state),
                 },
             }
             state["regression_proof"] = proof
@@ -45,7 +46,9 @@ class ReviewRecheckTests(unittest.TestCase):
         proof = {
             "source_revision": "rev",
             "verdict": "FAIL",
-            "execution_context": {"contract_identity": util.digest(None), "cases_identity": util.digest([])},
+            "execution_context": {
+                "contract_identity": util.digest(None), "cases_identity": util.digest([]), "preserve_only": False,
+            },
         }
         return {
             "regression_proof": dict(proof),
@@ -82,6 +85,20 @@ class ReviewRecheckTests(unittest.TestCase):
         self.assertEqual(1, self.review(state))
         self.assertEqual("PASS", state["regression_proof"]["verdict"])
         self.assertEqual(3, len(state["regression_proofs"]))
+
+    def test_changed_preservation_mode_rechecks_repeated_failure_once(self):
+        state = self.failed_once()
+        state["regression_proofs"] *= 2
+        with mock.patch.object(regression, "preserve_only", return_value=True):
+            self.assertEqual(1, self.review(state))
+            self.assertTrue(state["regression_proof"]["execution_context"]["preserve_only"])
+            self.assertEqual(0, self.review(state))
+
+    def test_lost_preservation_mode_cannot_reuse_a_passing_proof(self):
+        state = self.failed_once()
+        state["regression_proof"]["verdict"] = "PASS"
+        state["regression_proof"]["execution_context"]["preserve_only"] = True
+        self.assertEqual(1, self.review(state))
 
     def test_changed_cases_replace_even_a_passing_proof(self):
         state = self.failed_once()
