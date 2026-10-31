@@ -53,24 +53,26 @@ def drain_terminal(leader: int, condition, *, seconds: float = 60) -> bool:
     A pty has a bounded output buffer, and curses blocks in its write once it fills. A
     viewer left undrained therefore stops making progress and cannot exit either, so a
     test waiting on a process or a file rather than on screen text has to keep reading.
-    A real terminal always does.
+    A real terminal always does. When the terminal hangs up there is nothing left to
+    read but the condition can still be reached, so the wait runs to its deadline.
     """
     deadline = time.monotonic() + seconds
+    draining: int | None = leader
     while True:
         if condition():
             return True
         if time.monotonic() > deadline:
             return False
-        if not select.select([leader], [], [], 0.05)[0]:
+        left = min(0.05, max(0.0, deadline - time.monotonic()))
+        if draining is None or not select.select([draining], [], [], left)[0]:
             continue
         try:
-            chunk = os.read(leader, 65536)
+            chunk = os.read(draining, 65536)
         except OSError:  # Linux reports the child's end closing as EIO
-            chunk = b""
+            draining = None
+            continue
         if not chunk:
-            # The child's end closed: look at the condition once more before giving up,
-            # since "the process exited" is itself a condition this waits on.
-            return condition()
+            draining = None
 
 
 def answer_view(**need):
