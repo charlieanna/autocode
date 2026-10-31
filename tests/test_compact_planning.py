@@ -9,12 +9,14 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import autocode_brief_obligations as obligations
 import autocode_bug_job as bug_job
 import autocode_compact_planning as compact
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 import autocode_resolver_human as human
 import autocode_sensitive_paths as sensitive_paths
+import autocode_source_trace as source_trace
 import autocode_stage_policy as stage_policy
 import autopilot
 from units import autoresolver
@@ -191,6 +193,37 @@ class CompactPlanningTests(unittest.TestCase):
         self.assertEqual("rev-1", policy["basis"]["diagnosis_source_revision"])
         self.assertIsNotNone(policy["basis"]["diagnosis_output_hash"])
         self.assertIsNone(policy["fallback"])
+
+    def test_draft_cites_live_sources_and_preserves_their_literals_and_constraints(self):
+        state = self.investigated(self.state())
+        state["task"] = (
+            "Fix inclusive_sum(3) to return 6. Preserve test_zero. "
+            "Add test_inclusive_positive. No dependencies or deployment."
+        )
+        body = compact.draft(state)
+        records = obligations.sources(state)
+        source_trace.check_citations(body, records)
+        self.assertTrue(all(row.get("sources") for row in body["acceptance_criteria"]))
+        self.assertEqual([], source_trace.uncited_sentences(state, body, records))
+        source_trace.check_ready(body, records, {"out_of_scope": [], "negation_waivers": []})
+        self.assertIn(state["task"], body["initial_task"]["requirements"])
+
+    def test_draft_passes_requirements_and_distinguishes_additional_proof_test_names(self):
+        case = {**CASE, "then": "6 in unittest method test_inclusive_positive"}
+        state = self.investigated(self.state(), test_cases=[case])
+        body = compact.draft(state)
+        self.assertIn(REQUIREMENT["text"], body["initial_task"]["requirements"])
+        naming = body["initial_task"]["requirements"][-1]
+        self.assertIn("additional proof test", naming)
+        self.assertIn("requested test names", naming)
+
+    def test_draft_uses_the_saved_test_command_without_inventing_discovery_flags(self):
+        state = self.investigated(self.state())
+        command = "python3 -m unittest discover -s tests -v"
+        state["settings"]["regression"] = {"test_command": command}
+        body = compact.draft(state)
+        self.assertIn(command, body["initial_task"]["validation_plan"])
+        self.assertIn(command, body["acceptance_criteria"][0]["verification_method"])
 
     def test_a_clean_review_publishes_the_runners_draft_for_the_persons_approval(self):
         state = self.investigated(self.state())

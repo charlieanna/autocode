@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_adaptive_planning as adaptive
+    from . import autocode_brief_obligations as obligations
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
     from . import autocode_planning_cycle as planning_cycle
@@ -44,11 +45,13 @@ try:
     from . import autocode_run_status as run_status
     from . import autocode_scope_question as scope_question
     from . import autocode_sensitive_paths as sensitive_paths
+    from . import autocode_source_trace as source_trace
     from . import autocode_stage_policy as stage_policy
     from . import autocode_test_cases as test_cases
     from . import autocode_workflows as workflows
 except ImportError:
     import autocode_adaptive_planning as adaptive
+    import autocode_brief_obligations as obligations
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
     import autocode_planning_cycle as planning_cycle
@@ -56,6 +59,7 @@ except ImportError:
     import autocode_run_status as run_status
     import autocode_scope_question as scope_question
     import autocode_sensitive_paths as sensitive_paths
+    import autocode_source_trace as source_trace
     import autocode_stage_policy as stage_policy
     import autocode_test_cases as test_cases
     import autocode_workflows as workflows
@@ -180,10 +184,15 @@ def draft(state: RunState) -> dict:
     report = (state.get("requirements_handoff") or {}).get("report") or {}
     owned = list(dict.fromkeys([*_paths(found), found["note_path"]]))
     objective = "Fix the root cause: " + found["root_cause"]
+    sources = [
+        {"source_id": row["id"], "quote": row["text"]} for row in source_trace.quotable(obligations.sources(state))
+    ]
+    source_texts = [row["quote"] for row in sources]
+    command = ((state.get("settings") or {}).get("regression") or {}).get("test_command")
     validation = [
         "Run the new regression tests against the original code: each restore case must fail",
         "Run them after the fix: every case must pass",
-        "Run the project's existing test suite: it must pass",
+        command or "Run the project's existing test suite: it must pass",
     ]
     naming: list[str] = []
     names: list[str] = []
@@ -198,15 +207,17 @@ def draft(state: RunState) -> dict:
                 "criterion": test_cases.case_text(case),
                 "verification_method": (test_cases.GUARD_MARK if preserve else test_cases.MARK) + " " + name,
                 "human_review": False,
+                "sources": copy.deepcopy(sources),
             }
         )
         naming.append(
-            f"Write test case {test_cases.case_text(case)} as a test named {name} that "
+            f"Write an additional proof test named {name} for {test_cases.case_text(case)} that "
             + (
                 "passes on the original code and after the fix"
                 if preserve
                 else "fails on the original code and passes after the fix"
             )
+            + "; also deliver the requested test names and preserve every existing test"
         )
     # C1 carries the invariant with the brief's file names, so a reviewer can see where the fix and its proof live,
     # and names the case tests that uphold it; the cases follow (a live review asked for both, #2021).
@@ -221,6 +232,7 @@ def draft(state: RunState) -> dict:
             + ", ".join(names)
             + " (each restore case fails on the original code and passes after the fix), plus the existing test suite",
             "human_review": False,
+            "sources": copy.deepcopy(sources),
         },
         *cases,
     ]
@@ -228,6 +240,8 @@ def draft(state: RunState) -> dict:
     requirements = [row for row in report.get("requirements") or [] if isinstance(row, dict)]
     behaviors = list(dict.fromkeys([found["invariant"], *(str(row.get("text") or "").strip() for row in requirements)]))
     quoted = [str(row.get("source_quote") or "").strip() for row in requirements]
+    if command:
+        criteria[0]["verification_method"] += ": " + command
     return {
         "intended_outcome": str(report.get("intended_outcome") or "").strip()
         or "The reported misbehavior no longer happens: " + found["observed"],
@@ -242,6 +256,7 @@ def draft(state: RunState) -> dict:
             "Keep every existing test",
             f"Record the files you changed in the `changed` list of {found['note_path']}",
             *(f"As requested: {quote}" for quote in dict.fromkeys(quoted) if quote),
+            *source_texts,
         ],
         "permission_boundaries": ["Edit only " + ", ".join(owned)],
         "accepted_assumptions": [
@@ -270,7 +285,8 @@ def draft(state: RunState) -> dict:
             "kind": "implement",
             "milestone_id": "M1",
             "requirements": [
-                found["invariant"],
+                *[text for text in behaviors if text],
+                *source_texts,
                 "Add the regression tests in "
                 + ", ".join(found["test_paths"])
                 + "; each restore case fails on the original code and passes after the fix",
