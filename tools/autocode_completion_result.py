@@ -147,10 +147,12 @@ def _proof_routing(state: RunState) -> bool:
 def _reconcile_proof_finding(state: RunState, workspace):
     try:
         from . import autocode_proof_findings as proof_findings
+        from . import autocode_proof_infrastructure as infrastructure
         from . import autocode_regression as regression
         from . import autocode_source_scope as source_scope
     except ImportError:
         import autocode_proof_findings as proof_findings
+        import autocode_proof_infrastructure as infrastructure
         import autocode_regression as regression
         import autocode_source_scope as source_scope
     if not _proof_routing(state):
@@ -171,6 +173,13 @@ def _reconcile_proof_finding(state: RunState, workspace):
     # (autocode_changed_code_rework), so it must not open a proof finding the Builder cannot clear.
     proved = required and regression.complete(state, revision, all_due=False, require_changed_code=False)
     reason = "" if proved or not required else regression.rejection(state, all_due=False)
+    if proved:
+        settle_same_revision_ids.extend(
+            row["id"] for row in proof_findings.open_rows(state)
+            if current_milestone
+            and (row.get("scope") or {}).get("milestone_id") == current_milestone
+            and infrastructure.disk_collection_failure(state, row, revision)
+        )
     proof_findings.reconcile(
         state,
         revision,

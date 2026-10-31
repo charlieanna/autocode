@@ -102,6 +102,13 @@ regression proof, review and the joint gate still run normally.
 Concurrent member checkpoints wait up to ten seconds for the shared approval
 record lock. A longer hold still refuses the write; contention never releases
 approvals or starts a provider without its ordinary admission checks.
+A fresh authenticated proof can also settle a runner finding on unchanged source
+when the retained earlier proof failed entirely at Go test collection because
+its disk was full. The core checks owned receipt chronology, matching source,
+log hashes and supervision receipts, and refuses any actual failing test name,
+mixed error or stale scope. Reviewer findings still require that reviewer
+to resolve or retract them; no product edit is manufactured for an environment
+repair, and no completion or approval follows from this reconciliation alone.
 
 At a settled shared-cost stop, `needs.kind=budget` names the current finite cap,
 known accumulated spend, accounting completeness, `minimum_cap_usd`, and its own
