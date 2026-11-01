@@ -179,7 +179,9 @@ class LiveSampleTests(TempMixin, unittest.TestCase):
         failed, _ = translate([init(), result(is_error=True, subtype="error_max_structured_output_retries", result="")])
         self.assertAlmostEqual(0.25, failed[-1]["cost_state"]["total_cost_usd"])
         rows = sample(RUN)
-        last_bash = max(index for index, row in enumerate(rows) if "tool_use_result" in row and "hello" in json.dumps(row))
+        last_bash = max(
+            index for index, row in enumerate(rows) if "tool_use_result" in row and "hello" in json.dumps(row)
+        )
         out, _ = translate(rows[: last_bash + 1], exit_code=1)
         self.assertNotIn("cost_state", out[-1])
 

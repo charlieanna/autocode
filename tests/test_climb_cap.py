@@ -402,7 +402,9 @@ class NextAttemptCapTests(unittest.TestCase):
         }
         self.assertEqual([], climb_cap.job_attempts(state, "astra_discovery"))
         climb_cap.guard(state, "astra_discovery", "glm")  # the Planner's first attempt launches
-        state["stages"].append(attempt(glm, {"input_tokens": 20000, "output_tokens": 800}, stage="astra_discovery", role="glm"))
+        state["stages"].append(
+            attempt(glm, {"input_tokens": 20000, "output_tokens": 800}, stage="astra_discovery", role="glm")
+        )
         reason = stop(state, "glm_revise", "glm")
         self.assertIn("The next Planner attempt (zai-coding-plan/glm-5.3 at low effort) did not launch", reason)
         self.assertIn("the last Planner attempt's 20,000 input and 800 output tokens", reason)

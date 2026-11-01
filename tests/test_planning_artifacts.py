@@ -247,7 +247,9 @@ class PlanningArtifactTests(unittest.TestCase):
         for row in repaired["acceptance_criteria"]:
             rewritten = [citation["quote"] for citation in row["sources"]]
             self.assertTrue(all(not source_trace.SENTENCE_ID.match(q) for q in rewritten))
-            self.assertEqual(sorted(resolved[row["id"]]), sorted(rewritten))  # same sentences, only form and order changed
+            self.assertEqual(
+                sorted(resolved[row["id"]]), sorted(rewritten)
+            )  # same sentences, only form and order changed
 
     def test_all_v2_handoffs_have_stable_hashed_artifact_and_delta_files(self):
         self.initialize_plan()

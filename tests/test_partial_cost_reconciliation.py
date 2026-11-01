@@ -17,7 +17,6 @@ replaces an estimate when it arrives, never adding a native supplement after a s
 Unknown and incomplete accounting stay unknown; no native request count is invented.
 """
 
-import math
 import unittest
 
 import autocode_event_metrics
@@ -106,7 +105,9 @@ class CostStatePricingTests(unittest.TestCase):
             "cost_state": {"session_id": SESSION, "total_cost_usd": FIRST_TOTAL},
         }
         rows = autocode_usage.stage_rows(state(stage(metrics=unbound, interrupted=True)), no_estimate)
-        self.assertEqual((None, "unknown", "usage_missing"), (rows[0]["cost_usd"], rows[0]["basis"], rows[0]["unpriced_reason"]))
+        self.assertEqual(
+            (None, "unknown", "usage_missing"), (rows[0]["cost_usd"], rows[0]["basis"], rows[0]["unpriced_reason"])
+        )
 
     def test_an_authoritative_amount_replaces_the_completed_message_estimate(self):
         metrics = {
@@ -199,7 +200,9 @@ class DeduplicationTests(unittest.TestCase):
 class HonestUnknownTests(unittest.TestCase):
     def test_a_stage_without_a_cost_state_or_usage_stays_unknown(self):
         rows = autocode_usage.stage_rows(state(stage(metrics={"provider_cost_usd": None})), no_estimate)
-        self.assertEqual((None, "unknown", "usage_missing"), (rows[0]["cost_usd"], rows[0]["basis"], rows[0]["unpriced_reason"]))
+        self.assertEqual(
+            (None, "unknown", "usage_missing"), (rows[0]["cost_usd"], rows[0]["basis"], rows[0]["unpriced_reason"])
+        )
 
     def test_a_record_that_cannot_bind_or_arithmetize_is_never_a_price(self):
         broken = [
@@ -283,7 +286,12 @@ class ProviderTranslationTests(unittest.TestCase):
         rows = [
             {
                 "type": "turn.completed",
-                "usage": {"input_tokens": 1, "cached_input_tokens": 0, "output_tokens": 1, "reasoning_output_tokens": 0},
+                "usage": {
+                    "input_tokens": 1,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 1,
+                    "reasoning_output_tokens": 0,
+                },
                 "cost_state": record,
                 "claude": {"session_id": SESSION},
             }
