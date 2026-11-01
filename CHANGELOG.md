@@ -39,6 +39,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The adversarial-planning fixtures serve both scenario layouts (#2587): the
+  greeting fixture only digested the CLI tests at the repository root while
+  the cases copy them into `tests/`, and the csvcheck case had no changed-code
+  provider at all, so `scenarios.test_adversarial_planning` failed on master
+  and in every pull request whose CI selected it. The greeting provider now
+  digests either layout, the csvcheck provider pins the reference bytes and
+  serves per-line reasons plus the one equivalent-mutant judgment, and the
+  reference tests kill every other mutant on the changed lines. Test
+  infrastructure only.
 - Prompt-rendering reviewed bytes are hermetic to the host (#2113): the fixture
   renderer pinned `sys.executable` and workspace paths but not the shared source
   catalog, so any machine with a configured `~/.autocode/source-catalog.json`
@@ -57,6 +66,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Compact Investigator handoff (#2136): the Investigator prompt's "CURRENT HANDOFF
+  DATA" JSON now renders with compact separators instead of `indent=2`, a
+  formatting-only reduction (5,336 bytes on the audit's recorded handoff) that
+  trims the prefix every stuck-stage investigation re-sends. The handoff content
+  is byte-for-byte the same object; only whitespace changes.
 - The attempt-specific schema property renders last in provider prompt copies (#2136): a
   schema read back from a run's state file is alphabetized by the JSON writer, so
   `changed_code_exceptions` — whose per-attempt gap enum changes across attempts — sat at

@@ -432,7 +432,11 @@ def prompt(
     soft_budget_tokens: int = 10000,
     engine: str | None = None,
 ) -> tuple[str, dict]:
-    text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, state_path, inventory, engine), indent=2)
+    text = (
+        PROMPT
+        + "\nCURRENT HANDOFF DATA\n"
+        + json.dumps(packet(state, state_path, inventory, engine), separators=(",", ":"))
+    )
     if state["stuck_investigation"].get("mode") == "builder_failure":
         text = prompts.get("fragments/stuck-job/prompt.md") + text
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
