@@ -15,7 +15,15 @@ def validate(args, parser, explicit):
         and not (args.resume_paused or args.retry_failed_stage)
     )
     limit_flags = {"max_stage_seconds"} if args.max_stage_seconds is not None else {"max_seconds", "max_cost_usd"}
-    if args.job_retry_token and args.max_stage_seconds is not None and (args.resume_paused or args.retry_failed_stage):
+    names_a_route = any(item.partition("=")[0].startswith("route-") for item in [*args.answer, *args.delegate])
+    # A model answer takes this form too and is refused by its own rule below, which is the
+    # one the person needs to read (#463).
+    if (
+        args.job_retry_token
+        and args.max_stage_seconds is not None
+        and (args.resume_paused or args.retry_failed_stage)
+        and not names_a_route
+    ):
         parser.error("Save the stopped job's stage deadline separately, then retry with its fresh token")
     if args._job_cap_change and (
         args.task or explicit - ({"run_dir", "workspace", "unit", "chat", "job_retry_token"} | limit_flags)
@@ -38,12 +46,7 @@ def validate(args, parser, explicit):
         )
     # The answer issues a new token, so it never retries in the same invocation; refusing that
     # form here also keeps any other setting given with it from being saved (#463 review).
-    if (
-        args.job_retry_token
-        and args.resume_paused
-        and args.retry_failed_stage
-        and any(item.partition("=")[0].startswith("route-") for item in [*args.answer, *args.delegate])
-    ):
+    if args.job_retry_token and args.resume_paused and args.retry_failed_stage and names_a_route:
         parser.error(
             "--answer route-ROLE=MODEL --job-retry-token TOKEN names a stopped job's model on its own "
             "and issues a new token; then retry with --resume-paused --retry-failed-stage "

@@ -386,6 +386,14 @@ class TaskRun:
         except (ValueError, KeyError) as error:
             raise TaskRunError(f"--status did not return a status view: {error}", proc) from None
 
+    def _saved_stage_deadline(self):
+        """The run's saved stage deadline, from the status document's settings."""
+        proc = self._invoke("status", "--status")
+        try:
+            return (json.loads(proc.stdout).get("settings") or {}).get("limits", {}).get("stage_timeout_seconds")
+        except ValueError as error:
+            raise TaskRunError(f"--status did not return a status document: {error}", proc) from None
+
     def acknowledge_attention(self, view: dict) -> dict:
         """Acknowledge the displayed alert; never answer, approve or advance a task."""
         try:
@@ -515,8 +523,39 @@ class TaskRun:
         self._act("abandon stage", "--abandon-stage", attempt_id)
         return self.status()
 
+    def save_stage_deadline(self, token: str, seconds: int) -> dict:
+        """The first step of a stopped job's two-step deadline recovery: save a larger deadline alone.
+
+        The CLI refuses a stage deadline beside a retry ("Save the stopped job's stage
+        deadline separately, then retry with its fresh token"), and only an increase is
+        admitted. The job stays paused and issues the fresh token its retry then takes.
+        """
+        self._invoke(
+            "save stage deadline",
+            "--job-retry-token",
+            "-",
+            "--max-stage-seconds",
+            str(seconds),
+            "--no-chat",
+            secret_env={"AUTOCODE_JOB_RETRY_TOKEN": token},
+        )
+        fresh = (self.status().get("needs") or {}).get("job_retry_token")
+        if not fresh:
+            raise TaskRunError("save stage deadline: the run issued no fresh job retry token")
+        return {"token": fresh, "view": self.status()}
+
     def retry_job(self, token: str) -> dict:
-        """Retry exactly the inspected failed workflow job, retaining route and limits."""
+        """Retry exactly the inspected failed workflow job, retaining route and limits.
+
+        Retaining them means this never re-asserts a stage deadline: the CLI refuses one
+        beside a retry, so the saved limit stands and a differing one is rejected like any
+        other change beside a retry. Raise it first with ``save_stage_deadline``.
+        """
+        options, deadline = _split_flag(self.options, "--max-stage-seconds")
+        if deadline is not None and deadline != str(self._saved_stage_deadline()):
+            raise TaskRunError(
+                "retry job keeps the stopped job's configuration and limits; save a stage deadline on its own first"
+            )
         self._invoke(
             "retry job",
             "--resume-paused",
@@ -524,7 +563,7 @@ class TaskRun:
             "--job-retry-token",
             "-",
             "--no-chat",
-            *self.options,
+            *options,
             advancing=True,
             secret_env={"AUTOCODE_JOB_RETRY_TOKEN": token},
         )
@@ -864,6 +903,27 @@ class TaskRun:
         if usage_error or rejected_input or not accepted:
             raise TaskRunError(f"{name} exited {proc.returncode}: {_detail(proc)}", proc)
         return proc
+
+
+def _split_flag(options, flag):
+    """``options`` without ``flag``, and the value it carried (None when it is absent)."""
+    kept: list[str] = []
+    value = None
+    pending = False
+    for item in options:
+        if pending:
+            value = item
+            pending = False
+            continue
+        name, sep, inline = item.partition("=")
+        if name != flag:
+            kept.append(item)
+            continue
+        if sep:
+            value = inline
+        else:
+            pending = True
+    return tuple(kept), value
 
 
 # The lines a refusal starts with: AutoCode's own, and argparse's usage error (PROG: error: ...).

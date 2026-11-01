@@ -155,6 +155,7 @@ START_FLAGS = (
     "--requirements-reasoning-effort",
     "--resolver-model",
     "--resolver-reasoning-effort",
+    "--review-routing",
     "--role-transport",
     "--rotate-after-input-tokens",
     "--run-dir",
