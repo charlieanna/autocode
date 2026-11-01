@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Retrying a stopped job no longer fails immediately when the run was launched
+  with a stage deadline: the retry invocation no longer resends the deadline
+  flag, which #2591's parser rejects, and keeps the saved deadline instead.
 - Reliability fixes for coordinated runs, planning budgets and recovery
   (DTI-12398 stack, 20 commits):
   - Go: explicit empty test selectors are recognized as compile checks without

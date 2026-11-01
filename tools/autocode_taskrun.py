@@ -516,7 +516,12 @@ class TaskRun:
         return self.status()
 
     def retry_job(self, token: str) -> dict:
-        """Retry exactly the inspected failed workflow job, retaining route and limits."""
+        """Retry exactly the inspected failed workflow job, retaining route and limits.
+
+        The invocation carries no stage deadline: the stopped job's deadline
+        is saved separately and the retry retains it, and #2591's parser refuses a
+        deadline flag on a retry invocation.
+        """
         self._invoke(
             "retry job",
             "--resume-paused",
@@ -524,7 +529,7 @@ class TaskRun:
             "--job-retry-token",
             "-",
             "--no-chat",
-            *self.options,
+            *_retry_options(self.options),
             advancing=True,
             secret_env={"AUTOCODE_JOB_RETRY_TOKEN": token},
         )
@@ -869,6 +874,30 @@ class TaskRun:
 # The lines a refusal starts with: AutoCode's own, and argparse's usage error (PROG: error: ...).
 REFUSALS = ("Input rejected:", "autocode:")
 DETAIL_CHARACTERS = 800
+
+STAGE_DEADLINE = "--max-stage-seconds"
+
+
+def _retry_options(options):
+    """The launch options a retry invocation may carry: everything but the stage deadline.
+
+    The stopped job's stage deadline is saved separately and the retry retains it
+    (configure keeps saved settings for flags the invocation omits), so the deadline
+    flag and its value are dropped from the retry's options.
+    """
+    kept = []
+    skip_value = False
+    for token in options:
+        if skip_value:
+            skip_value = False
+            continue
+        if token == STAGE_DEADLINE:
+            skip_value = True
+            continue
+        if token.startswith(STAGE_DEADLINE + "="):
+            continue
+        kept.append(token)
+    return tuple(kept)
 
 
 def _detail(proc) -> str:
