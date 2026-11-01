@@ -11,6 +11,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The adversarial-planning fixtures serve both scenario layouts (#2587): the
+  greeting fixture only digested the CLI tests at the repository root while
+  the cases copy them into `tests/`, and the csvcheck case had no changed-code
+  provider at all, so `scenarios.test_adversarial_planning` failed on master
+  and in every pull request whose CI selected it. The greeting provider now
+  digests either layout, the csvcheck provider pins the reference bytes and
+  serves per-line reasons plus the one equivalent-mutant judgment, and the
+  reference tests kill every other mutant on the changed lines. Test
+  infrastructure only.
 - Prompt-rendering reviewed bytes are hermetic to the host (#2113): the fixture
   renderer pinned `sys.executable` and workspace paths but not the shared source
   catalog, so any machine with a configured `~/.autocode/source-catalog.json`
