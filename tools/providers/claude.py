@@ -443,10 +443,10 @@ def launch(
 def prompt_for_schema(prompt, schema, events) -> str:
     """The stage prompt with Claude's output contract and the report schema before the handoff data."""
     prompt = tool_handoff.with_capture_command(prompt)
+    prompt = tool_handoff.with_stage_events_log(prompt, events)
     schema = changed_code_review.prompt_order(schema)
     contract = (
         prompts.get("fragments/provider-claude/prompt-for-schema.md")
-        + str(events)
         + prompts.get("fragments/provider-claude/prompt-for-schema-02.md")
         # Compact, as OpenCode's: an indented schema doubled to 19 KB and tipped a repair over its cap (#1337).
         + json.dumps(schema, separators=(",", ":"))

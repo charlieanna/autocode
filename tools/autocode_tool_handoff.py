@@ -38,6 +38,30 @@ def with_capture_command(prompt: str) -> str:
     return instructions + marker + json.dumps(data, indent=2)
 
 
+def with_stage_events_log(prompt: str, events) -> str:
+    """Carry the per-attempt events-log path in the handoff so the contract text stays static.
+
+    The output contract names ``stage_events_log`` instead of embedding the path, keeping the
+    contract prefix byte-identical across attempts of one stage for provider prefix reuse (#2113 A2).
+    Never overwrites an existing key, and keeps a compact packet compact as ``with_capture_command`` does.
+    """
+    instructions, marker, packet = prompt.partition(MARKER)
+    if not marker:
+        return prompt
+    try:
+        data = json.loads(packet)
+    except ValueError as error:
+        raise ValueError("Provider handoff must contain a JSON object") from error
+    if not isinstance(data, dict):
+        raise ValueError("Provider handoff must contain a JSON object")
+    if "stage_events_log" in data:
+        return prompt
+    data["stage_events_log"] = str(events)
+    if "\n" not in packet.strip():
+        return instructions + marker + json.dumps(data, separators=(",", ":"))
+    return instructions + marker + json.dumps(data, indent=2)
+
+
 def planning_packet(prompt: str) -> bool:
     """Whether a runner-owned handoff describes planning, for output instructions."""
     _, marker, packet = prompt.partition(MARKER)

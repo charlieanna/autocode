@@ -625,9 +625,9 @@ def prompt_for_schema(prompt, schema, events):
         instructions += "\n" + json.dumps(schema, separators=(",", ":")) + "\n"
         return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
     prompt = tool_handoff.with_capture_command(prompt)
+    prompt = tool_handoff.with_stage_events_log(prompt, events)
     instructions = (
         prompts.get("fragments/provider-opencode/prompt-for-schema-02.md")
-        + str(events)
         + prompts.get("fragments/provider-opencode/prompt-for-schema.md")
         + json.dumps(schema, separators=(",", ":"))
         + "\n"
