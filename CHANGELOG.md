@@ -11,6 +11,16 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Prompt-rendering reviewed bytes are hermetic to the host (#2113): the fixture
+  renderer pinned `sys.executable` and workspace paths but not the shared source
+  catalog, so any machine with a configured `~/.autocode/source-catalog.json`
+  rendered the catalog inventory into the reviewed prompts and
+  `tests.test_prompt_rendering` failed locally while CI (no catalog) stayed
+  green. The renderer now pins the catalog context to none. Test infrastructure
+  only; reviewed bytes are unchanged.
+
+### Fixed
+
 - The `glm_revise` bounded-report-edits repair fixture emits `value_json` fields (#2563):
   the typed repair-value change hardened the repair wire schema (`additionalProperties:
   false`, edits carry `value_json` instead of `value`), but the staged provider still
