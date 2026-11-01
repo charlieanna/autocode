@@ -71,6 +71,7 @@ try:
     from . import autocode_recovery_context as recovery_context
     from . import autocode_resolver_human as human
     from . import autocode_resolver_recommendation as recommendation
+    from . import autocode_review_routing as review_routing
     from . import autocode_risk_obligations as risk_obligations
     from . import autocode_scope_question as scope_question
     from . import autocode_source_log as source_log
@@ -123,6 +124,7 @@ except ImportError:
     import autocode_recovery_context as recovery_context
     import autocode_resolver_human as human
     import autocode_resolver_recommendation as recommendation
+    import autocode_review_routing as review_routing
     import autocode_risk_obligations as risk_obligations
     import autocode_scope_question as scope_question
     import autocode_source_log as source_log
@@ -344,6 +346,7 @@ UNAUTHORED_DRAFTS = (
 
 
 def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=None, record=None, queue_human=True):
+    body = review_routing.contract_body(state, body)
     body = brief_obligations.prepare_body(state, body, origin, record)
     body = risk_obligations.prepare_body(state, body, origin, record)
     if not allow_legacy or any(key in body for key in BRIEF_FIELDS):  # a legacy body has no such box
@@ -941,7 +944,7 @@ def render(state: RunState, run_dir=None, *, details=True):
 
 def approval_summary(state: RunState, *, above=True) -> list[str]:
     contract = cast(dict, state["goal_contract"])
-    return approval_view.summary(
+    lines = approval_view.summary(
         contract["body"],
         contract["revision"],
         test_cases.proof_cases(state, all_due=True),
@@ -949,6 +952,9 @@ def approval_summary(state: RunState, *, above=True) -> list[str]:
         proxied=trace_coverage.proxied_rows(plan_retention.validated_trace(state)),
         above=above,
     )
+    if (state.get("settings") or {}).get(review_routing.SETTING) == "combined":
+        lines += ["", review_routing.POLICY]
+    return lines
 
 
 def approval_screen(state: RunState, run_dir=None) -> str:
@@ -1118,6 +1124,7 @@ def _approve(state: RunState, selected, *, initial_assignment_proof=None, source
         event["source"] = source
     state.setdefault("user_events", []).append(event)
     contract.update(approval_status="approved", approval_event=event)
+    review_routing.bind_approval(state)
     progressive_state.seal(state, selected, prepared=prepared_progressive)
     # Open findings follow the criteria this revision moved to other milestones (#447).
     finding_rescope.on_approval(

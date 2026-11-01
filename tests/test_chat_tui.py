@@ -982,3 +982,50 @@ class LivePaneTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AttentionBadgeTests(unittest.TestCase):
+    def test_the_unavailable_badge_names_the_reason(self):
+        ui = screen_ui()
+        ui.attention({"error": "`autocode attention --json` failed: exit 3"})
+        puts = []
+        ui._put = lambda row, col, text, attr=0: puts.append((row, col, text))
+        ui._draw()
+        header = next(text for row, _, text in puts if "F8" in text)
+        self.assertIn("F8: alerts unavailable:", header)
+        self.assertIn("autocode attention --json", header)
+
+    def test_counts_still_show_without_an_error(self):
+        ui = screen_ui()
+        ui.attention({"unread": 2})
+        puts = []
+        ui._put = lambda row, col, text, attr=0: puts.append((row, col, text))
+        ui._draw()
+        header = next(text for row, _, text in puts if "F8" in text)
+        self.assertIn("F8: 2 new alerts", header)
+        self.assertNotIn("unavailable", header)
+
+
+class StartingStatusTests(unittest.TestCase):
+    """A launched run with no view yet is starting, not stuck reading status."""
+
+    def drawn_status(self, ui):
+        puts = []
+        ui._put = lambda row, col, text, attr=0: puts.append((row, col, text))
+        ui._draw()
+        return [text for _, _, text in puts]
+
+    def test_a_launched_run_says_it_waits_for_the_first_view(self):
+        ui = screen_ui()
+        ui.worker_launch({"execution": {"mode": "owned"}})
+        ui._launched = True
+        self.assertIn("Run started; waiting for its first status view", " ".join(self.drawn_status(ui)))
+
+    def test_without_a_launch_it_still_reads_status(self):
+        ui = screen_ui()
+        self.assertIn("Reading run status", " ".join(self.drawn_status(ui)))
+
+    def test_once_a_view_arrives_the_line_reports_the_run(self):
+        ui = screen_ui()
+        ui.observe({"status": "RUNNING", "progress": {"headline": "Requirements working"}})
+        self.assertIn("Requirements working", " ".join(self.drawn_status(ui)))

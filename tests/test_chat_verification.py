@@ -380,3 +380,36 @@ with ChatTUI() as ui:
                 self.assertTrue(all(display_width(line) <= 120 for line in shown.splitlines()))
                 screen.keys("Enter")
                 self.assertEqual(0, screen.exit_status())
+
+
+class CompletionCurrentDeliveryTests(unittest.TestCase):
+    """A plain completed run has no dependency receipt; efficiency.delivery.current_completion says the delivery."""
+
+    def test_the_view_completion_gate_reads_as_a_verified_delivery(self):
+        import autocode_chat_verification as verification
+
+        view = current_view(delivered=False)
+        view["delivery"] = None
+        view["efficiency"] = {"delivery": {"current_completion": True}}
+        before = copy.deepcopy(view)
+        self.assertIn("Complete; current delivery verified", verification.cue(view))
+        self.assertIn("Current delivery: verified by core gate", details(view))
+        self.assertEqual(before, view)
+
+    def test_a_failing_completion_gate_reads_as_not_verified(self):
+        import autocode_chat_verification as verification
+
+        view = current_view(delivered=False)
+        view["delivery"] = None
+        view["efficiency"] = {"delivery": {"current_completion": False}}
+        self.assertIn("Saved complete; current delivery not verified", verification.cue(view))
+
+    def test_an_unjudged_gate_stays_unknown_and_the_dependency_receipt_wins(self):
+        import autocode_chat_verification as verification
+
+        view = current_view(delivered=False)
+        view["delivery"] = None
+        self.assertIn("Saved complete; current delivery unknown", verification.cue(view))
+        receipt = current_view(delivered=True)
+        receipt["efficiency"] = {"delivery": {"current_completion": False}}  # a receipt is the stronger fact
+        self.assertIn("Complete; current delivery verified", verification.cue(receipt))

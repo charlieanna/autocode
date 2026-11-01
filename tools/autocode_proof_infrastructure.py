@@ -1,7 +1,13 @@
 """Authenticate disk-only collection failures superseded by fresh runner proof."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_util as util
@@ -11,7 +17,7 @@ except ImportError:
     import autocode_verification_schedule as schedule
 
 
-def disk_collection_failure(state, row, revision):
+def disk_collection_failure(state: RunState, row, revision):
     """True only for retained runner checks that collected no behavioral failure.
 
     The caller must authenticate the current passing proof. A report's assertion

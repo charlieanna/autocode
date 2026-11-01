@@ -1,6 +1,12 @@
 """Pinned guard tests can be submitted unchanged for fresh independent review."""
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_acceptance_tests as acceptance
@@ -16,7 +22,7 @@ except ImportError:
     import autocode_util as util
 
 
-def candidate(state, record, revision):
+def candidate(state: RunState, record, revision):
     """Recognize exact spec-first preservation input, never grant proof or completion.
 
     Only authenticated coordinated producers with an approved all-guard assignment

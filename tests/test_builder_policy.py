@@ -1159,24 +1159,17 @@ class PolicyBlackbox(unittest.TestCase):
         self.assertEqual([], self.events(), "Configuration must not consume a Builder slot")
         self.env["BUILD_AUDIT_FAULT"] = "validation_fails"
         for attempt in range(3):
-            if attempt == 2:
-                previous = self.events()
-                self.build(2)
-                self.assertIn("No causal progress", self.state()["stop_reason"])
-                self.assertEqual(previous, self.events())
-                self.build(extra=["--resume-paused", "--retry-failed-stage"])
-            else:
-                self.build()
+            # #2485: every no-progress hold — the Builder's and the Resolver's — is settled by
+            # the invocation itself, so each round is one plain build that continues.
+            self.build()
             self.candidate()
             self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
             self.assertEqual("FAIL", self.state()["validation"]["verdict"])
             args = ["--run-dir", str(self.run), "--no-chat"]
             if attempt == 1:
-                previous = self.events(stage="astra_resolve")
-                self.invoke("autoresolver", args, 2)
-                self.assertIn("No causal progress", self.state()["stop_reason"])
-                self.assertEqual(previous, self.events(stage="astra_resolve"))
-                args += ["--resume-paused", "--retry-failed-stage"]
+                # #2485: the no-progress hold is AutoCode's own machinery; the invocation
+                # settles it by taking the one scoped retry itself, so one call continues.
+                args += ["--resume-paused"]
             self.invoke("autoresolver", args, 2 if attempt == 2 else 0)
         self.assertEqual(["gpt-6-luna", "gpt-6-luna", "gpt-6-sol"], [r["model"] for r in self.events()])
         self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", self.state()["status"])

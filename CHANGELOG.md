@@ -9,8 +9,38 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- Prompt-rendering reviewed bytes are hermetic to the host (#2113): the fixture
+  renderer pinned `sys.executable` and workspace paths but not the shared source
+  catalog, so any machine with a configured `~/.autocode/source-catalog.json`
+  rendered the catalog inventory into the reviewed prompts and
+  `tests.test_prompt_rendering` failed locally while CI (no catalog) stayed
+  green. The renderer now pins the catalog context to none. Test infrastructure
+  only; reviewed bytes are unchanged.
+
+### Fixed
+
+- The `glm_revise` bounded-report-edits repair fixture emits `value_json` fields (#2563):
+  the typed repair-value change hardened the repair wire schema (`additionalProperties:
+  false`, edits carry `value_json` instead of `value`), but the staged provider still
+  scripted the legacy `value` form, so the repair patch failed schema validation and
+  `tests.test_stage_repair_cli` failed on master. Test infrastructure only.
+
 ### Changed
 
+- The attempt-specific schema property renders last in provider prompt copies (#2136): a
+  schema read back from a run's state file is alphabetized by the JSON writer, so
+  `changed_code_exceptions` — whose per-attempt gap enum changes across attempts — sat at
+  the front of the prompt prefix and pushed every static property deeper. Providers now
+  render it last on their own prompt copy; saved `*.schema.json` files and the bound
+  schema are unchanged.
+- Builder prompts cache better across attempts (#2136): the attempt-specific test-style
+  excerpt (the "EXISTING TEST STYLE" section with excerpts of the project's own tests) now
+  renders after the static Builder notes (test-case house rules, acceptance-test rules, bug
+  builder notes, "BUILD OUTPUT") instead of before them, so every request in a run shares
+  one static prefix that provider caching can reuse. The excerpt still lands before the
+  handoff data and never after the output schema.
 - Smaller per-request prefixes on small fixes (#2136): the per-run citation lists (source
   trace, brief literals) no longer sit ahead of the ~11.8KB static policy block in planning
   and discovery prompts. They now render right after it — after "REGRESSION REFERENCE:" in
@@ -34,6 +64,11 @@ PR template asks for an entry here; a change without one is incomplete.
   chat says so. A revision that changes any of those, or adds a repository, is shown for approval again.
 ### Fixed
 
+- False transport drift across sibling Git workspaces (#2347): `transport_drift` now compares copied
+  identities after omitting only `None` config hash entries for v2, preserving every other identity field
+  including deletions of previously active configurations. The legacy v1 inert normalization block is
+  restored exactly from baseline, normalizing only raw schema-only stubs when current bytes are present
+  and verified inert.
 - Transient malformed supervision receipts are reopened and authenticated within a bounded retry window; identity, schema, I/O and access refusals remain immediate, and persistent corruption remains unknown.
 - The Codex final-message detector recognizes the `=`-attached flag forms (`--output-last-message={report}`,
   `-o={report}`), so a command tool using them no longer prompts a shell write of the report into a

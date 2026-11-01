@@ -113,7 +113,15 @@ class StaleDiagnosisFeedbackCliTests(unittest.TestCase):
         self.run = taskrun.TaskRun.start(
             self.workspace,
             self.scenario.brief,
-            options=(*flags, "--spec-first", "--adaptive-planning", "--max-seconds", "900"),
+            # This fixture revises the Planner's fixed AC4, not the compiler's C1..Cn contract.
+            options=(
+                *flags,
+                "--spec-first",
+                "--adaptive-planning",
+                "--no-compact-bugfix-planning",
+                "--max-seconds",
+                "900",
+            ),
             env=self.env,
             timeout=240,
             cwd=self.root,

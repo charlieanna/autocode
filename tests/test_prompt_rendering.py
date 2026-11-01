@@ -18,6 +18,7 @@ from unittest.mock import patch
 import autocode as cli
 import autocode_artifacts as artifacts
 import autocode_bug_job as bug
+import autocode_catalog_context as catalog_context
 import autocode_cmd_only_report as command_only
 import autocode_component_runtime as component_runtime
 import autocode_design_check_job as design_check
@@ -103,6 +104,9 @@ def rendered_cases():
 
     with ExitStack() as stack:
         stack.enter_context(patch.object(sys, "executable", "/prompt-fixture/python"))
+        # The shared source catalog is host state, not instruction text: a catalog
+        # configured on this machine must not change the reviewed prompt bytes.
+        stack.enter_context(patch.object(catalog_context, "context", return_value=None))
         stack.enter_context(patch.object(stage_context.source_scope, "snapshot", return_value=SNAPSHOT))
         stack.enter_context(patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}))
         stack.enter_context(patch.object(planner.artifacts, "verify_predecessor", return_value=None))

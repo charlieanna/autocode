@@ -2,11 +2,14 @@
 
 try:
     from . import autocode_approval_provenance as approval_provenance
+    from . import autocode_review_routing as review_routing
 except ImportError:
     import autocode_approval_provenance as approval_provenance
+    import autocode_review_routing as review_routing
 
 
 def add_arguments(parser):
+    review_routing.add_argument(parser)
     parser.add_argument(
         "--approve-review",
         action="append",

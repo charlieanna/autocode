@@ -46,7 +46,7 @@ except ImportError:
     import autocode_required_approver as required_approver
     import autocode_sensitive_paths as sensitive_paths
 
-ENGINE = ("engine",)
+ENGINE = ("engine", "review-routing")
 MODELS = (
     "single-model",
     "astra-model",

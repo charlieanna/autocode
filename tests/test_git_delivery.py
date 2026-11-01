@@ -12,6 +12,7 @@ import autocode_bug_job as bug_job
 import autocode_completion_result as result
 import autocode_contract_identity as identity
 import autocode_git_delivery as delivery
+import autocode_git_reconcile as reconcile
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 import autocode_source_scope as scope
@@ -20,6 +21,13 @@ from goal_fixtures import body
 
 
 class DeliveryPolicyTests(unittest.TestCase):
+    def test_unchanged_head_needs_no_reconciliation_or_git_inspection(self):
+        git = Mock(side_effect=AssertionError("Unmoved HEAD must not inspect Git"))
+        self.assertEqual(
+            [], reconcile.builder_commits({"base_commit": "head"}, Path("/workspace"), {"head": "head"}, git)
+        )
+        git.assert_not_called()
+
     def test_only_an_explicit_structured_requirement_can_authorize_a_commit(self):
         self.assertIsNone(delivery.requirement({}))
         spec = {"kind": "atomic_commit", "message": "Add JSON export"}
@@ -154,6 +162,7 @@ class AtomicDeliveryTests(unittest.TestCase):
             set(self.git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").splitlines()),
         )
         self.assertTrue(delivery.ready(self.state, after))
+        self.assertEqual([], util.read(self.run / "git-delivery.json")["reconciled_commits"])
         self.state["validation"] = {"source_revision": after["revision"]}
         self.assertFalse(delivery.prepare(self.state, self.root, after))
         self.assertEqual("1", self.git("rev-list", "--count", self.parent + "..HEAD"))
@@ -168,6 +177,202 @@ class AtomicDeliveryTests(unittest.TestCase):
         after = scope.snapshot(self.root, self.state)
         self.assertTrue(delivery.ready(self.state, after))
         self.assertEqual("1", self.git("rev-list", "--count", self.parent + "..HEAD"))
+
+    def builder_commit(self, message="Builder committed its change"):
+        before = scope.snapshot(self.root, self.state)
+        self.git("add", ".")
+        self.git("commit", "-qm", message)
+        after = scope.snapshot(self.root, self.state)
+        base = self.run / ("builder-" + str(len(self.state.get("stages", []))))
+        util.atomic_json(base.with_suffix(".before.json"), before)
+        util.atomic_json(base.with_suffix(".after.json"), after)
+        self.state.setdefault("stages", []).append(
+            {
+                "stage": "terra",
+                "exit_code": 0,
+                "contract_hash": self.state["goal_contract"]["hash"],
+                "source_revision": after["revision"],
+                "before_ref": str(base.with_suffix(".before.json")),
+                "after_ref": str(base.with_suffix(".after.json")),
+            }
+        )
+        return after["head"]
+
+    def test_builder_commit_is_reconciled_into_the_approved_atomic_delivery(self):
+        self.state["workflow"] = {"kind": "bugfix"}
+        self.state["task_branch"] = self.git("symbolic-ref", "--short", "HEAD")
+        builder = self.builder_commit()
+        checked = scope.snapshot(self.root, self.state)
+        self.assertTrue(delivery.prepare(self.state, self.root, checked))
+        after = scope.snapshot(self.root, self.state)
+        self.assertEqual(checked["files"], after["files"])
+        self.assertTrue(delivery.ready(self.state, after))
+        self.assertNotEqual(builder, after["head"])
+        self.assertEqual(self.parent, self.git("rev-parse", "HEAD^"))
+        self.assertEqual("Deliver the feature", self.git("log", "-1", "--format=%s"))
+        self.assertEqual("1", self.git("rev-list", "--count", self.parent + "..HEAD"))
+        self.assertEqual("", self.git("status", "--porcelain"))
+        receipt = util.read(self.run / "git-delivery.json")
+        self.assertEqual([builder], receipt["reconciled_commits"])
+        self.assertEqual(checked, receipt["tested_source"])
+        self.state["validation"] = {"source_revision": after["revision"]}
+        self.assertFalse(delivery.prepare(self.state, self.root, after))
+
+    def test_multiple_witnessed_builder_commits_are_delivered_as_one(self):
+        first = self.builder_commit()
+        (self.root / "app.py").write_text("second change\n")
+        second = self.builder_commit("Builder follow-up")
+        self.assertTrue(delivery.prepare(self.state, self.root, scope.snapshot(self.root, self.state)))
+        self.assertEqual("1", self.git("rev-list", "--count", self.parent + "..HEAD"))
+        self.assertEqual("second change\n", (self.root / "app.py").read_text())
+        self.assertEqual([first, second], util.read(self.run / "git-delivery.json")["reconciled_commits"])
+
+    def test_a_merge_within_a_builder_attempt_is_preserved(self):
+        (self.root / "test_app.py").unlink()
+        self.builder_commit()
+        branch = self.git("symbolic-ref", "--short", "HEAD")
+        self.git("checkout", "-qb", "side", self.parent)
+        (self.root / "test_app.py").write_text("tests\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "Side change")
+        self.git("checkout", "-q", branch)
+        self.git("merge", "--no-ff", "-qm", "Builder merged another branch", "side")
+        after = scope.snapshot(self.root, self.state)
+        row = self.state["stages"][0]
+        util.atomic_json(Path(row["after_ref"]), after)
+        row["source_revision"] = after["revision"]
+        with self.assertRaisesRegex(ValueError, "Builder"):
+            delivery.prepare(self.state, self.root, after)
+        self.assertEqual(after["head"], self.git("rev-parse", "HEAD"))
+        self.assertEqual("", self.git("status", "--porcelain"))
+
+    def test_unwitnessed_or_unsafe_head_changes_are_preserved(self):
+        builder = self.builder_commit()
+        original = copy.deepcopy(self.state)
+        for kind in (
+            "missing",
+            "reviewer",
+            "wrong_plan",
+            "rejected",
+            "report_only",
+            "stale",
+            "outside_run",
+            "tampered",
+            "dirty",
+            "hidden_dirty",
+            "staged",
+            "diverged",
+            "wrong_branch",
+            "missing_base",
+            "head_before_base",
+            "missing_capture",
+            "symlink_capture",
+        ):
+            with self.subTest(kind=kind):
+                self.state = copy.deepcopy(original)
+                row = self.state["stages"][0]
+                after_path = Path(row["after_ref"])
+                after_bytes = after_path.read_bytes()
+                if kind == "missing":
+                    self.state["stages"] = []
+                elif kind == "reviewer":
+                    row["stage"] = "sol"
+                elif kind == "wrong_plan":
+                    row["contract_hash"] = "another plan"
+                elif kind in ("rejected", "report_only"):
+                    row[kind] = True
+                elif kind == "stale":
+                    row["source_revision"] = "old source"
+                elif kind == "outside_run":
+                    row["before_ref"] = str(self.root / ".autocode/outside.json")
+                    util.atomic_json(Path(row["before_ref"]), util.read(original["stages"][0]["before_ref"]))
+                elif kind == "missing_capture":
+                    row["before_ref"] = str(self.run / "missing.json")
+                elif kind == "symlink_capture":
+                    link = self.run / "linked.json"
+                    link.symlink_to(row["before_ref"])
+                    row["before_ref"] = str(link)
+                elif kind == "tampered":
+                    altered = util.read(after_path)
+                    altered["files"]["app.py"] = "fabricated"
+                    util.atomic_json(after_path, altered)
+                elif kind in ("dirty", "hidden_dirty"):
+                    if kind == "hidden_dirty":
+                        self.git("update-index", "--assume-unchanged", "app.py")
+                    (self.root / "app.py").write_text("outside the recorded commit\n")
+                elif kind == "staged":
+                    (self.root / "app.py").write_text("staged external change\n")
+                    self.git("add", "app.py")
+                elif kind == "wrong_branch":
+                    self.state["task_branch"] = "autocode/another-task"
+                elif kind == "missing_base":
+                    self.state["base_commit"] = None
+                elif kind == "head_before_base":
+                    self.state["base_commit"] = self.git(
+                        "commit-tree", "HEAD^{tree}", "-p", builder, "-m", "later base"
+                    )
+                else:
+                    self.state["base_commit"] = self.git(
+                        "commit-tree", "HEAD^{tree}", "-p", self.parent, "-m", "unrelated base"
+                    )
+                before = self.git("status", "--porcelain")
+                with self.assertRaisesRegex(ValueError, "Builder"):
+                    delivery.prepare(self.state, self.root, scope.snapshot(self.root, self.state))
+                self.assertEqual(builder, self.git("rev-parse", "HEAD"))
+                self.assertEqual(before, self.git("status", "--porcelain"))
+                self.assertFalse((self.run / "git-delivery.json").exists())
+                after_path.write_bytes(after_bytes)
+                self.git("update-index", "--no-assume-unchanged", "app.py")
+                self.git("restore", "--staged", "--worktree", ".")
+                (self.root / ".autocode/outside.json").unlink(missing_ok=True)
+                (self.run / "linked.json").unlink(missing_ok=True)
+
+    def test_a_commit_between_builder_attempts_is_not_attributed_to_the_builder(self):
+        self.builder_commit()
+        (self.root / "app.py").write_text("external commit\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "Other developer")
+        (self.root / "app.py").write_text("Builder follow-up\n")
+        head = self.builder_commit()
+        with self.assertRaises(ValueError):
+            delivery.prepare(self.state, self.root, scope.snapshot(self.root, self.state))
+        self.assertEqual(head, self.git("rev-parse", "HEAD"))
+        self.assertEqual("3", self.git("rev-list", "--count", self.parent + "..HEAD"))
+
+    def test_committed_out_of_scope_work_cannot_disappear_from_the_delivery_diff(self):
+        (self.root / "outside.txt").write_text("unapproved\n")
+        head = self.builder_commit()
+        with self.assertRaisesRegex(ValueError, "approved affected paths"):
+            delivery.prepare(self.state, self.root, scope.snapshot(self.root, self.state))
+        self.assertEqual(head, self.git("rev-parse", "HEAD"))
+        self.assertEqual("unapproved\n", (self.root / "outside.txt").read_text())
+
+    def test_failed_hook_restores_the_builder_head_and_keeps_its_tree(self):
+        head = self.builder_commit()
+        hook = self.root / ".git/hooks/pre-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        with self.assertRaisesRegex(ValueError, "Git delivery refused"):
+            delivery.prepare(self.state, self.root, scope.snapshot(self.root, self.state))
+        self.assertEqual(head, self.git("rev-parse", "HEAD"))
+        self.assertEqual("", self.git("status", "--porcelain"))
+        self.assertEqual("new\n", (self.root / "app.py").read_text())
+        self.assertFalse((self.root / ".git/index.lock").exists())
+
+    def test_a_hook_that_advances_head_cannot_authenticate_reconciled_delivery(self):
+        self.builder_commit()
+        hook = self.root / ".git/hooks/post-commit"
+        hook.write_text(
+            "#!/bin/sh\n"
+            "hook_commit=$(git commit-tree 'HEAD^{tree}' -p HEAD -m 'Hook advanced HEAD') || exit 1\n"
+            'git update-ref HEAD "$hook_commit"\n'
+        )
+        hook.chmod(0o755)
+        with self.assertRaisesRegex(ValueError, "unexpectedly"):
+            delivery.prepare(self.state, self.root, scope.snapshot(self.root, self.state))
+        self.assertFalse(delivery.ready(self.state, scope.snapshot(self.root, self.state)))
+        self.assertEqual("prepared", util.read(self.run / "git-delivery.json")["phase"])
+        self.assertFalse((self.root / ".git/index.lock").exists())
 
     def test_tracked_bytecode_caches_are_not_unapproved_delivery_changes(self):
         # A repository that ever committed __pycache__ files (the live bugfix fixture did) must

@@ -498,10 +498,15 @@ regression proof allows the controller to create the scoped commit before the
 independent Tester inspects it. The committed revision receives fresh runner proof
 and independent verification before completion. Plans without executable regression
 cases retain the final completion boundary. Existing Git hooks are honored.
-Stage workers still cannot commit. Push, merge and deployment are separate actions.
+Stage workers must leave delivery to the controller. Push, merge and deployment are separate actions.
 
 Delivery refuses preexisting dirty launch work, staged changes, changes outside
-the approved affected paths, or a moved HEAD. A durable receipt prevents repeating
+the approved affected paths, or an unrelated moved HEAD. If a worker nevertheless
+commits, the controller can reconcile a clean, linear chain witnessed by this
+run's successful Builder source captures under the same approved plan. It preserves
+the checked files and replaces that chain with the approved atomic commit, records
+the original commits in the delivery receipt, and requires fresh proof and review.
+Unwitnessed commits, merges and dirty trees remain refused. A durable receipt prevents repeating
 a successful commit after a lost response. Uncertain Git writes or source changes
 in a hook stop for reconciliation. The supported routes are the ordinary build
 review workflow and the bugfix workflow. Older plans promising an atomic commit only in prose require

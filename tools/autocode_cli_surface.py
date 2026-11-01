@@ -3,8 +3,24 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import textwrap
+
+
+def program_name(default: str = "autocode") -> str:
+    """The program argparse should name: ``sys.argv[0]`` when it is a script, else ``default``.
+
+    Python 3.14's argparse ignores ``sys.argv[0]`` when the process started as
+    ``python -m module`` and reconstructs ``python -m module`` from ``__main__.__spec__``
+    (``_prog_name``); ``os.path.basename("python -m unittest")`` keeps that whole string.
+    A usage line must name the command that was run (#2387).
+    """
+    argv0 = os.path.basename(sys.argv[0]) if sys.argv else ""
+    if argv0 and " -m " not in argv0 and not argv0.startswith("-m") and argv0 != "-":
+        return argv0
+    return default
+
 
 # Advanced options stay public and are shown by --help-all, never SUPPRESSed.
 COMMON_OPTIONS = (

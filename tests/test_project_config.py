@@ -17,6 +17,13 @@ DOCS = Path(__file__).resolve().parents[1] / "docs" / "cli.md"
 
 
 class ProjectConfigTests(unittest.TestCase):
+    def test_review_routing_in_project_settings_is_overridden_only_by_an_explicit_flag(self):
+        self.write('review-routing = "combined"\n')
+        args, _ = self.parse("Build it")
+        self.assertEqual("combined", args.review_routing)
+        args, _ = self.parse("Build it", "--review-routing", "separate")
+        self.assertEqual("separate", args.review_routing)
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)

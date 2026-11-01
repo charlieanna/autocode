@@ -16,6 +16,24 @@ except ImportError:
 
 FIELD = "changed_code_exceptions"
 KINDS = ("defensive_unreachable", "instrumentation_unavailable", "equivalent_mutant")
+
+
+def prompt_order(schema: dict) -> dict:
+    """The prompt copy with the attempt-specific property rendered last (A3, #2113).
+
+    A schema read back from a state file is alphabetized by the JSON writer, so the
+    attempt-specific property with its per-attempt enum sorts to the front of the
+    prefix and pushes every static property deeper. Providers call this on their own
+    copy; the saved schema and the bound schema are never reordered.
+    """
+    properties = schema.get("properties") or {}
+    if FIELD not in properties:
+        return schema
+    ordered = {**schema, "properties": {key: value for key, value in properties.items() if key != FIELD}}
+    ordered["properties"][FIELD] = properties[FIELD]
+    return ordered
+
+
 SCHEMA = {
     "type": ["array", "null"],
     "items": {

@@ -95,3 +95,11 @@ def add_to_prompt(prompt: str, workspace, current_task: dict | None) -> str:
         return prompt
     marker = "\nCURRENT HANDOFF DATA\n"
     return prompt.replace(marker, extra + marker, 1) if marker in prompt else prompt + extra
+
+
+def builder_prompt(prompt: str, workspace, current_task: dict | None, notes: str = "") -> str:
+    """A Builder's stage prompt: static notes, then the attempt-specific section, then the handoff (A5, #2113)."""
+    if notes:
+        marker = "\nCURRENT HANDOFF DATA\n"
+        prompt = prompt.replace(marker, notes + marker, 1) if marker in prompt else prompt + notes
+    return add_to_prompt(prompt, workspace, current_task)

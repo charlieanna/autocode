@@ -645,7 +645,10 @@ def _proving(
             else None
         )
         number = len(state.get("regression_proofs", [])) + 1
-        out = Path(run_dir) / "regression" / f"proof-{number:02d}-{uuid.uuid4().hex}"
+        # The physical canonical path: measurement pins reads through this root without symlink
+        # traversal, and a run directory reached through one (/tmp or /var on macOS) would fail
+        # its own authenticity check (autocode_changed_code_measurement.pinned).
+        out = Path(run_dir).resolve() / "regression" / f"proof-{number:02d}-{uuid.uuid4().hex}"
         progress("Comparing regression tests and checking the full candidate suite", command=suite, output=out)
         coverage = preserve_only(state, all_due=all_due)
         if coverage and goals.task_kind(state) == "bugfix":

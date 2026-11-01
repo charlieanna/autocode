@@ -108,12 +108,21 @@ def as_program(name: str, call, argv: list[str], *, none_is=None):
     restored afterwards; ``none_is`` stands in for a None result.
     """
     saved = sys.argv
+    # Python 3.14's argparse ignores sys.argv[0] for a process started as `python -m module` and
+    # names `python -m module` from __main__.__spec__ instead (argparse._prog_name); hiding the
+    # spec for the call keeps every subcommand parser on the argv patched above.
+    main = sys.modules.get("__main__")
+    saved_spec = getattr(main, "__spec__", None)
     try:
         sys.argv = [f"autocode {name}", *argv]
+        if main is not None:
+            main.__spec__ = None
         result = call()
         return none_is if result is None else result
     finally:
         sys.argv = saved
+        if main is not None:
+            main.__spec__ = saved_spec
 
 
 def command_parser(name: str) -> argparse.ArgumentParser | None:

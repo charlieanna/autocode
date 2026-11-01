@@ -1,4 +1,4 @@
-"""The compact planning path for an opted-in, reproduced, localized bug fix (#2021, the first #1867 checkpoint).
+"""The compact planning path for a reproduced, localized bug fix (#2021, the first #1867 checkpoint).
 
 A bug-fix run plans like this: Requirements, the Investigator (``investigate_bug``), the Planner's draft
 (``astra_discovery``, a paid call), the Plan Reviewer (``astra_challenge``), the person's approval of the
@@ -11,11 +11,11 @@ the run to the full path (the Planner's draft, with the concern in its packet: f
 the regression proof, the Tester and the Completion Reviewer run as on every path. The draft is never
 approved by a policy: autocode_workflows.POLICY_ORIGINS does not know its origin.
 
-The path is taken only when every trusted signal admits it (decide): the run opted in
-(``--compact-bugfix-planning``, SETTING), it plans adaptively, Requirements named the bug-fix job, the
+The path is taken only when every trusted signal admits it (decide): the new run enables compact eligibility
+(by default with joint planning, disabled with ``--no-compact-bugfix-planning``), it plans adaptively, Requirements named the bug-fix job, the
 diagnosis is reproduced by a probe the runner ran, the Investigator sized the fix small, it names a root
 cause, an invariant and regression cases, its files are few (PATH_BOUND) and none matches the project's
-declared ``sensitive-paths`` (autocode_sensitive_paths); a project that declares none keeps the full path,
+``sensitive-paths`` (autocode_sensitive_paths; shipped defaults when the project declares none),
 as does a draft the contract validators refuse. A model's word (``fix_size``) can only keep the full path,
 never grant the compact one. The decision, its reasons and the hashes it rests on are recorded once under
 ``state["workflow"]["stage_policy"]`` (autocode_stage_policy) and shown by the status view as ``stage_policy``;
@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_adaptive_planning as adaptive
+    from . import autocode_brief_obligations as obligations
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
     from . import autocode_planning_cycle as planning_cycle
@@ -44,11 +45,13 @@ try:
     from . import autocode_run_status as run_status
     from . import autocode_scope_question as scope_question
     from . import autocode_sensitive_paths as sensitive_paths
+    from . import autocode_source_trace as source_trace
     from . import autocode_stage_policy as stage_policy
     from . import autocode_test_cases as test_cases
     from . import autocode_workflows as workflows
 except ImportError:
     import autocode_adaptive_planning as adaptive
+    import autocode_brief_obligations as obligations
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
     import autocode_planning_cycle as planning_cycle
@@ -56,6 +59,7 @@ except ImportError:
     import autocode_run_status as run_status
     import autocode_scope_question as scope_question
     import autocode_sensitive_paths as sensitive_paths
+    import autocode_source_trace as source_trace
     import autocode_stage_policy as stage_policy
     import autocode_test_cases as test_cases
     import autocode_workflows as workflows
@@ -76,7 +80,7 @@ def add_argument(parser) -> None:
         help="New runs: for a bug the Investigator reproduces, sizes small and localizes to files the project's "
         "sensitive-paths do not name, the runner writes the plan draft from the diagnosis and the Requirements "
         "record instead of the Planner's paid draft call; the Plan Reviewer reviews it and you approve it as "
-        "usual (docs/adaptive-planning.md#compact-planning-for-bug-fixes). Off by default; needs joint planning",
+        "usual (docs/adaptive-planning.md#compact-planning-for-bug-fixes). On by default with joint planning",
     )
 
 
@@ -85,11 +89,10 @@ def enabled(state: RunState) -> bool:
 
 
 def new_run_setting(requested, joint: bool) -> bool:
-    """Whether a new run may take the compact path. ``requested`` is the flag: None or False means never;
-    True opts in, and is refused without joint planning, which the Plan Reviewer's review needs."""
+    """New joint runs default to compact eligibility; an explicit opt-in requires joint planning."""
     if requested and not joint:
         raise ValueError(f"{FLAG} needs joint planning")
-    return bool(requested)
+    return joint if requested is None else bool(requested)
 
 
 def resume_refused(saved_settings: dict, requested) -> bool:
@@ -125,6 +128,13 @@ def decide(state: RunState) -> dict:
         reasons.append("Requirements did not name the job (a pinned --workflow has no Requirements record)")
     if not (handoff.get("report") or {}).get("intended_outcome"):
         reasons.append("there is no Requirements record to plan from")
+    # The compiler binds diagnosis cases, not arbitrary requested test identifiers. Let the Planner
+    # bind those explicitly instead of paying a compact review that can only reject the omission.
+    if any(
+        re.search(r"\b(?:test_[A-Za-z0-9_]+|Test[A-Z][A-Za-z0-9_]*)(?![\w]|\.py\b)", row["text"])
+        for row in source_trace.quotable(obligations.sources(state))
+    ):
+        reasons.append("requested test names need explicit plan bindings")
     if found.get("outcome") != "reproduced":
         reasons.append("the Investigator did not reproduce the bug")
     else:
@@ -181,10 +191,15 @@ def draft(state: RunState) -> dict:
     report = (state.get("requirements_handoff") or {}).get("report") or {}
     owned = list(dict.fromkeys([*_paths(found), found["note_path"]]))
     objective = "Fix the root cause: " + found["root_cause"]
+    sources = [
+        {"source_id": row["id"], "quote": row["text"]} for row in source_trace.quotable(obligations.sources(state))
+    ]
+    source_texts = [row["quote"] for row in sources]
+    command = ((state.get("settings") or {}).get("regression") or {}).get("test_command")
     validation = [
         "Run the new regression tests against the original code: each restore case must fail",
         "Run them after the fix: every case must pass",
-        "Run the project's existing test suite: it must pass",
+        command or "Run the project's existing test suite: it must pass",
     ]
     naming: list[str] = []
     names: list[str] = []
@@ -199,15 +214,17 @@ def draft(state: RunState) -> dict:
                 "criterion": test_cases.case_text(case),
                 "verification_method": (test_cases.GUARD_MARK if preserve else test_cases.MARK) + " " + name,
                 "human_review": False,
+                "sources": copy.deepcopy(sources),
             }
         )
         naming.append(
-            f"Write test case {test_cases.case_text(case)} as a test named {name} that "
+            f"Write an additional proof test named {name} for {test_cases.case_text(case)} that "
             + (
                 "passes on the original code and after the fix"
                 if preserve
                 else "fails on the original code and passes after the fix"
             )
+            + "; also deliver the requested test names and preserve every existing test"
         )
     # C1 carries the invariant with the brief's file names, so a reviewer can see where the fix and its proof live,
     # and names the case tests that uphold it; the cases follow (a live review asked for both, #2021).
@@ -222,6 +239,7 @@ def draft(state: RunState) -> dict:
             + ", ".join(names)
             + " (each restore case fails on the original code and passes after the fix), plus the existing test suite",
             "human_review": False,
+            "sources": copy.deepcopy(sources),
         },
         *cases,
     ]
@@ -229,6 +247,8 @@ def draft(state: RunState) -> dict:
     requirements = [row for row in report.get("requirements") or [] if isinstance(row, dict)]
     behaviors = list(dict.fromkeys([found["invariant"], *(str(row.get("text") or "").strip() for row in requirements)]))
     quoted = [str(row.get("source_quote") or "").strip() for row in requirements]
+    if command:
+        criteria[0]["verification_method"] += ": " + command
     return {
         "intended_outcome": str(report.get("intended_outcome") or "").strip()
         or "The reported misbehavior no longer happens: " + found["observed"],
@@ -243,6 +263,7 @@ def draft(state: RunState) -> dict:
             "Keep every existing test",
             f"Record the files you changed in the `changed` list of {found['note_path']}",
             *(f"As requested: {quote}" for quote in dict.fromkeys(quoted) if quote),
+            *source_texts,
         ],
         "permission_boundaries": ["Edit only " + ", ".join(owned)],
         "accepted_assumptions": [
@@ -271,7 +292,8 @@ def draft(state: RunState) -> dict:
             "kind": "implement",
             "milestone_id": "M1",
             "requirements": [
-                found["invariant"],
+                *[text for text in behaviors if text],
+                *source_texts,
                 "Add the regression tests in "
                 + ", ".join(found["test_paths"])
                 + "; each restore case fails on the original code and passes after the fix",

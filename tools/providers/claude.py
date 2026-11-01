@@ -32,11 +32,13 @@ from __future__ import annotations
 
 try:
     from .. import autocode_agent_env as agent_env
+    from .. import autocode_changed_code_review as changed_code_review
     from .. import autocode_prompts as prompts
     from .. import autocode_provider_env as provider_env
     from .. import autocode_tool_handoff as tool_handoff
 except ImportError:
     import autocode_agent_env as agent_env
+    import autocode_changed_code_review as changed_code_review
     import autocode_prompts as prompts
     import autocode_provider_env as provider_env
     import autocode_tool_handoff as tool_handoff
@@ -441,6 +443,7 @@ def launch(
 def prompt_for_schema(prompt, schema, events) -> str:
     """The stage prompt with Claude's output contract and the report schema before the handoff data."""
     prompt = tool_handoff.with_capture_command(prompt)
+    schema = changed_code_review.prompt_order(schema)
     contract = (
         prompts.get("fragments/provider-claude/prompt-for-schema.md")
         + str(events)
