@@ -438,11 +438,17 @@ class PromptTests(unittest.TestCase):
         contract, marker, handoff = prompt.partition("\nCURRENT HANDOFF DATA\n")
         self.assertTrue(marker)
         self.assertIn("CLAUDE CODE OUTPUT CONTRACT", contract)
-        self.assertIn(f"Your stage events log is {events}. It is read-only evidence", contract)
+        self.assertIn(
+            "Your stage events log is the `stage_events_log` path in CURRENT HANDOFF DATA. It is read-only evidence",
+            contract,
+        )
+        self.assertNotIn(events, contract)
         for words in ("StructuredOutput", "event:item_N", "capture_command"):
             self.assertIn(words, contract)
         self.assertTrue(contract.endswith(json.dumps(schema, separators=(",", ":")) + "\n"))
-        self.assertIn("capture_command", json.loads(handoff))
+        handoff_data = json.loads(handoff)
+        self.assertIn("capture_command", handoff_data)
+        self.assertEqual(events, handoff_data["stage_events_log"])
         for absent in (
             "Do not cite event: IDs",
             "Write your final report as exactly one JSON object to this file",

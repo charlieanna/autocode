@@ -53,11 +53,20 @@ class ToolHandoffTests(unittest.TestCase):
                     self.assertIn("capture_command", data)
                     helper = shlex.split(data.pop("capture_command"))
                     self.assertEqual([sys.executable, str(ROOT / "tools/autocode.py"), "capture"], helper)
+                    if name == "report_file":
+                        # A2 moved the events-log path into the OpenCode/Claude output contract's
+                        # handoff; the report-file contract keeps its own report path in its text.
+                        self.assertNotIn("stage_events_log", data)
+                    else:
+                        self.assertEqual("/run/attempt.jsonl", data.pop("stage_events_log"))
                     self.assertEqual(before, data)
                     self.assertTrue(result.startswith(prompt.split(MARKER, 1)[0]))
 
     def test_existing_capture_and_original_packet_bytes_are_preserved(self):
-        packet = '{ "capture_command": "custom-helper --mode raw", "task": "a\\nb" }\n'
+        packet = (
+            '{ "capture_command": "custom-helper --mode raw", '
+            '"stage_events_log": "/given/events.jsonl", "task": "a\\nb" }\n'
+        )
         prompt = "Keep this instruction." + MARKER + packet
         for name, render in renderers():
             with self.subTest(provider=name):

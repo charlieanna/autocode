@@ -181,6 +181,14 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tools/prompts/fragments/provider-opencode/prompt-for-schema.md",
         ("tests.test_schema_prompt_formatting", "tests.test_report_repair"),
     ),
+    (
+        "tools/prompts/fragments/provider-opencode/prompt-for-schema-02.md",
+        ("tests.test_schema_prompt_formatting", "tests.test_report_repair", "tests.test_tool_handoff"),
+    ),
+    (
+        "tools/prompts/fragments/provider-claude/prompt-for-schema.md",
+        ("tests.test_claude_provider", "tests.test_report_repair"),
+    ),
     ("tools/prompts/fragments/autocode/execute-report-repair-06.md", ("tests.test_report_repair",)),
     ("tests/coordination_provider.py", ("tests.test_coordination_tui_e2e",)),
     ("docs/schemas/status-view.schema.json", ("tests.test_json_contract",)),

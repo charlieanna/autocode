@@ -11,6 +11,24 @@ from providers import command, opencode
 
 
 class CompactSchemaPromptTests(unittest.TestCase):
+    def test_the_contract_prefix_is_identical_across_attempts_of_a_stage(self):
+        # A2 (#2113): the per-attempt events-log path lives in the handoff, so the instruction
+        # prefix a provider can reuse is byte-identical between attempts of the same stage.
+        from providers import claude
+
+        schema = {"type": "object", "properties": {"checks": {"type": "array"}}}
+        base = "Do the work.\nCURRENT HANDOFF DATA\n" + json.dumps({"workspace": "/ws"})
+        for name, render in (("opencode", opencode.prompt_for_schema), ("claude", claude.prompt_for_schema)):
+            with self.subTest(provider=name):
+                first = render(base, schema, Path("/run/iterations/001/builder-01.jsonl"))
+                second = render(base, schema, Path("/run/iterations/002/builder-02.jsonl"))
+                prefix_a, _, packet_a = first.partition("\nCURRENT HANDOFF DATA\n")
+                prefix_b, _, packet_b = second.partition("\nCURRENT HANDOFF DATA\n")
+                self.assertEqual(prefix_a, prefix_b, "instruction prefix must not name the attempt path")
+                self.assertNotIn("builder-01.jsonl", prefix_a)
+                self.assertEqual("/run/iterations/001/builder-01.jsonl", json.loads(packet_a)["stage_events_log"])
+                self.assertEqual("/run/iterations/002/builder-02.jsonl", json.loads(packet_b)["stage_events_log"])
+
     def test_standalone_review_keeps_its_schema_and_boundary_without_build_receipt_work(self):
         import autocode_review_job as review
 
