@@ -459,6 +459,44 @@ class DraftFailureCorrectionTests(unittest.TestCase):
         )
         self.assertEqual({BEFORE}, set(correction.corrections(current, changed, changes, "glm_revise")))
 
+    def test_one_refusal_reports_all_adjacent_obligation_changes(self):
+        current, review, changed, changes = fixture(named_proof=True)
+        self.admit(current, review)
+        original = copy.deepcopy(current)
+        for field in correction.LISTS:
+            changed[field].append("An unrelated new obligation")
+        changed["delegated_decisions"].append({"text": "New decision", "basis": "delegated", "answer_id": "Q1"})
+        changed["accepted_assumptions"].append({"text": "New assumption", "basis": "agent_proposed", "answer_id": ""})
+        changed["important_failure_cases"].append("An unreviewed failure")
+        changed["acceptance_criteria"][0]["verification_method"] = "Skip proof"
+        changed["acceptance_criteria"][0]["sources"] = []
+        with self.assertRaises(ValueError) as refused:
+            correction.corrections(current, changed, changes, "glm_revise")
+        for field in (
+            *correction.LISTS,
+            "delegated_decisions",
+            "accepted_assumptions",
+            "important_failure_cases",
+            "acceptance_criteria[C1]",
+            "acceptance_criteria[C1].sources",
+        ):
+            with self.subTest(field=field):
+                self.assertIn(field, str(refused.exception))
+        self.assertIn("independently qualify", str(refused.exception))
+        self.assertEqual(original, current)
+
+    def test_batch_refusal_retains_each_invalid_assumption_and_missing_criterion(self):
+        current, review, changed, changes = fixture(interpretation=True, named_proof=True)
+        self.admit(current, review)
+        for row in changed["accepted_assumptions"]:
+            row["answer_id"] = "unrelated-answer"
+        changed["acceptance_criteria"] = []
+        with self.assertRaises(ValueError) as refused:
+            correction.corrections(current, changed, changes, "glm_revise")
+        for index in range(len(changed["accepted_assumptions"])):
+            self.assertIn(f"accepted_assumptions[{index}]", str(refused.exception))
+        self.assertIn("acceptance_criteria[C1]", str(refused.exception))
+
     def test_bound_diagnosis_filling_does_not_block_the_exact_correction(self):
         diagnosis = {
             "outcome": "reproduced",
