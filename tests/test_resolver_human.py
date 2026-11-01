@@ -76,7 +76,9 @@ class ResolverHumanTests(unittest.TestCase):
         for field in ("settings", "contract", "current_task", "observed_source", "interruptions"):
             with self.subTest(field=field):
                 self.state = copy.deepcopy(original)
-                with patch.object(human, "_binding", return_value={**binding, "runtime_sources": "new", field: "changed"}):
+                with patch.object(
+                    human, "_binding", return_value={**binding, "runtime_sources": "new", field: "changed"}
+                ):
                     self.assertIsNone(human.refresh_assigned_scope(self.state))
                 self.assertEqual(original, self.state)
         for change in ("question", "token", "consumed"):

@@ -51,7 +51,15 @@ class Invocation:
         fuzzing and unknown options keep the normal test-evidence requirement.
         """
         values = {
-            "-count", "-timeout", "-p", "-parallel", "-cpu", "-shuffle", "-mod", "-modfile", "-tags",
+            "-count",
+            "-timeout",
+            "-p",
+            "-parallel",
+            "-cpu",
+            "-shuffle",
+            "-mod",
+            "-modfile",
+            "-tags",
         }
         booleans = {"-v", "-short", "-race", "-cover", "-failfast", "-json"}
         selector, index = None, 0
@@ -67,7 +75,20 @@ class Invocation:
                 if flag in ("-run", "-test.run"):
                     selector = value
             elif flag in booleans:
-                if equals and value not in ("true", "false", "1", "0", "t", "f", "T", "F", "TRUE", "FALSE", "True", "False"):
+                if equals and value not in (
+                    "true",
+                    "false",
+                    "1",
+                    "0",
+                    "t",
+                    "f",
+                    "T",
+                    "F",
+                    "TRUE",
+                    "FALSE",
+                    "True",
+                    "False",
+                ):
                     return False
             elif word.startswith("-"):
                 return False

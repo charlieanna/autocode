@@ -34,7 +34,17 @@ def named(value, run_dir, operation=None):
         raise actions.ClientGap("The coordination action names another run or output contract")
     if operation and value[2] != operation:
         raise actions.ClientGap("The coordination action differs from the displayed decision")
-    if value[2] not in ("status", "advance", "bind", "approve", "choose", "cancel", "resume", "budget", "planning-budget"):
+    if value[2] not in (
+        "status",
+        "advance",
+        "bind",
+        "approve",
+        "choose",
+        "cancel",
+        "resume",
+        "budget",
+        "planning-budget",
+    ):
         raise actions.ClientGap("Unsupported coordination action")
     return value[1:]
 

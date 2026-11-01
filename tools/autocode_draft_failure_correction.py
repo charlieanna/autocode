@@ -195,7 +195,7 @@ def repair_obligations(state: RunState):
             return None
     except ValueError:
         return None
-    body = state["goal_contract"]["body"]
+    body = (state.get("goal_contract") or {}).get("body", {})
     return {key: copy.deepcopy(body.get(key, [])) for key in ("accepted_assumptions", "delegated_decisions")}
 
 

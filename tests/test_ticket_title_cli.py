@@ -54,4 +54,3 @@ class TicketTitleCliTests(unittest.TestCase):
             reopened = taskrun.TaskRun(project, run.run_dir, env=env, timeout=180, cwd=root).status()
             self.assertEqual(view["needs"], reopened["needs"])
             self.assertEqual(attempts, reopened["usage"]["accounting"]["attempts"])
-
