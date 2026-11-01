@@ -236,7 +236,7 @@ def main():
         operations = (
             [{"find": '"summary":', "replace": ',"summary":'}]
             if text_mode
-            else [{"op": "remove", "path": ["contract", "contract_changes_placeholder"], "value": None}]
+            else [{"op": "remove", "path": ["contract", "contract_changes_placeholder"], "value_json": "null"}]
         )
         if case.endswith("authority"):
             if text_mode:
@@ -246,7 +246,7 @@ def main():
                     {
                         "op": "replace",
                         "path": ["contract", "accepted_assumptions", 0, "answer_id"],
-                        "value": "missing-answer",
+                        "value_json": '"missing-answer"',
                     }
                 )
         token = "0" * 64 if case.endswith("stale") else source["sha256"]
