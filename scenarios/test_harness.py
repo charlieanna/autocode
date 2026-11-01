@@ -4673,19 +4673,25 @@ class StockRefusalsRunTests(unittest.TestCase):
         )
 
     def test_tests_that_never_discriminate_stop_honestly_and_the_repair_is_scored_incorrect(self):
-        # The Builder keeps the vacuous tests. Since the efficiency controls (d535913) the runner holds the
-        # second review of the same incident without causal progress for a person (RESOLVER_PENDING) instead
-        # of three Resolver calls ending at PAUSED_BUILDER_RETRY_LIMIT, as plan B4 recorded on e2eadf0.
+        # The Builder keeps the vacuous tests. Since #2485 the no-causal-progress hold is AutoCode's to settle,
+        # so each new incident takes its own automatic scoped retry: the run walks three Resolver cycles and ends
+        # at the configured Builder retry limit — the shape plan B4 recorded on e2eadf0 — instead of holding a
+        # person at RESOLVER_PENDING. That last pause still asks for a human decision, which #2485 did not claim
+        # to settle; what this case proves is that the route is reached and the scoring comes out INCORRECT.
         result, state, proofs = self.run_fake("broken/vacuous-refusal-tests")
         self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
-        self.assertEqual("RESOLVER_PENDING", result["runner_status"])
-        self.assertEqual(1, result["metrics"]["model_stage_names"].count("astra_resolve"))
-        self.assertEqual(1, result["metrics"]["model_stage_names"].count("investigate_stuck"))
-        # Classifying an unknown failure precedes the one bounded execution retry.
-        self.assertEqual(["investigate", "retry"], [row["action"] for row in state["builder_retry_decisions"]])
+        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", result["runner_status"])
+        self.assertEqual(3, result["metrics"]["model_stage_names"].count("astra_resolve"))
+        self.assertEqual(4, result["metrics"]["model_stage_names"].count("investigate_stuck"))
+        # Classifying each unknown failure precedes its bounded execution retry, and AutoCode grants them itself.
+        self.assertEqual(
+            ["investigate", "retry", "investigate", "escalate", "investigate", "pause"],
+            [row["action"] for row in state["builder_retry_decisions"]],
+        )
+        self.assertEqual(["autocode"] * 3, [row["actor"] for row in state["failure_retry_authorizations"]])
         self.assertEqual({"FAIL"}, set(proofs))
         diagnosis = result["diagnosis"]
-        self.assertEqual((verdict.INCORRECT, 1), (diagnosis["verdict"], diagnosis["resolver_calls_on_trap"]))
+        self.assertEqual((verdict.INCORRECT, 3), (diagnosis["verdict"], diagnosis["resolver_calls_on_trap"]))
         self.assertEqual(
             ["repair_made_the_tests_discriminate"], [check["name"] for check in diagnosis["checks"] if not check["ok"]]
         )
