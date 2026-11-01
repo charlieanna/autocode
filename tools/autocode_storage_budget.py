@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -30,24 +29,44 @@ def conversation_only(state: RunState):
     return bool((state.get("settings") or {}).get("spec_first") and state.get("next_stage") == "requirements_gather")
 
 
-def _other_worktrees(root):
-    """Other checkouts are not source inputs, even when stored below this one."""
+def _git_common_dir(root):
+    """``root``'s git directory, or None when it is not a readable worktree."""
+    dot = root / ".git"
     try:
-        result = subprocess.run(
-            ["git", "-C", str(root), "worktree", "list", "--porcelain", "-z"],
-            capture_output=True,
-            timeout=5,
-            check=True,
-        )
-    except (OSError, subprocess.SubprocessError):
+        if dot.is_dir():
+            return dot
+        text = dot.read_text(encoding="utf-8")  # a linked worktree's .git is a file naming its gitdir
+    except (OSError, UnicodeError):
+        return None
+    for line in text.splitlines():
+        if line.startswith("gitdir:"):
+            gitdir = Path(line[len("gitdir:") :].strip())
+            if not gitdir.is_absolute():
+                gitdir = root / gitdir
+            return gitdir.resolve().parent.parent  # <common>/worktrees/<name> -> <common>
+    return None
+
+
+def _other_worktrees(root):
+    """Other checkouts are not source inputs, even when stored below this one.
+
+    Read the git directory rather than asking git. This runs before a provider
+    dispatches, and a subprocess here would share the very seam a test pins to
+    prove that no provider launched.
+    """
+    common = _git_common_dir(root)
+    if common is None:
         return set()
-    return {
-        path
-        for field in result.stdout.split(b"\0")
-        if field.startswith(b"worktree ")
-        and (path := Path(os.fsdecode(field[len(b"worktree ") :])).resolve()) != root
-        and path.is_relative_to(root)
-    }
+    found = set()
+    for pointer in sorted((common / "worktrees").glob("*/gitdir")):
+        try:
+            gitdir = Path(pointer.read_text(encoding="utf-8").strip()).resolve()
+        except (OSError, UnicodeError):
+            continue
+        path = gitdir.parent if gitdir.name == ".git" else gitdir
+        if path != root and path.is_relative_to(root):
+            found.add(path)
+    return found
 
 
 def human(size):
