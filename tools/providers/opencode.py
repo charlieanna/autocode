@@ -280,7 +280,13 @@ def transport_drift(current, checkpoint):
                 if hashlib.sha256(raw).hexdigest() == previous and _inert_native_config(raw):
                     checkpoint["config_hashes"][name] = None
     if checkpoint.get("identity_version", 1) >= 2:
-        return current != checkpoint
+        current_normalized = copy.deepcopy(current)
+        checkpoint_normalized = copy.deepcopy(checkpoint)
+        for identity in (current_normalized, checkpoint_normalized):
+            config_hashes = identity.get("config_hashes", {})
+            if config_hashes:
+                identity["config_hashes"] = {k: v for k, v in config_hashes.items() if v is not None}
+        return current_normalized != checkpoint_normalized
     # Old checkpoints did not record every config source. Check every identity
     # field they *did* record before establishing the expanded baseline.
     for key in ("engine", "executable", "version"):
