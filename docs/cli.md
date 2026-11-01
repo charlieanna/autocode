@@ -948,6 +948,16 @@ model/limits still invalidate the retry. An older attempt with no saved original
 identity exposes `recover_source` and an explanation instead of a retry action.
 Inspect its archive and current changes before starting a new run.
 
+For an authenticated hard stage timeout, an operator can preserve the selected
+model and save a larger finite deadline with `--job-retry-token TOKEN
+--max-stage-seconds N`, without resume or retry flags. This changes only that
+deadline, leaves the job paused and issues a fresh retry token. It preserves total
+time and money caps, usage, approved plans and source bindings. It refuses idle or
+tool timeouts, a stale attempt/source/token, a non-increasing deadline and mixed
+configuration changes. Inspect fresh public status, then retry separately with
+the new token. This is a public CLI recovery; the status view does not yet offer a
+deadline editor to clients.
+
 A failed Builder classification can also offer `retry_job` for the Investigator
 at `PAUSED_BUILDER_CLASSIFICATION`. Inspect `needs.retained_evidence` and use the
 current `needs.job_retry_token` through `AUTOCODE_JOB_RETRY_TOKEN` with

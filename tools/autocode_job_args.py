@@ -10,16 +10,18 @@ def validate(args, parser, explicit):
     )
     args._job_cap_change = bool(
         args.job_retry_token
-        and (args.max_seconds is not None or args.max_cost_usd is not None)
+        and (args.max_seconds is not None or args.max_cost_usd is not None or args.max_stage_seconds is not None)
         and not names_job_model
         and not (args.resume_paused or args.retry_failed_stage)
     )
+    limit_flags = {"max_stage_seconds"} if args.max_stage_seconds is not None else {"max_seconds", "max_cost_usd"}
+    if args.job_retry_token and args.max_stage_seconds is not None and (args.resume_paused or args.retry_failed_stage):
+        parser.error("Save the stopped job's stage deadline separately, then retry with its fresh token")
     if args._job_cap_change and (
-        args.task
-        or explicit - {"run_dir", "workspace", "unit", "chat", "job_retry_token", "max_seconds", "max_cost_usd"}
+        args.task or explicit - ({"run_dir", "workspace", "unit", "chat", "job_retry_token"} | limit_flags)
     ):
         parser.error(
-            "A stopped job's total-cap change takes only its token and total time/cost flags; retry separately"
+            "A stopped job's limit change takes its token and either total time/cost flags or a stage deadline; retry separately"
         )
     if args.job_retry_token and not args.run_dir:
         parser.error("--job-retry-token requires --run-dir --resume-paused --retry-failed-stage")
@@ -32,7 +34,7 @@ def validate(args, parser, explicit):
         parser.error(
             "--job-retry-token requires --resume-paused --retry-failed-stage, "
             "or --answer route-ROLE=MODEL alone to name a stopped job's model, "
-            "or only --max-seconds/--max-cost-usd to save total caps without retrying"
+            "or --max-seconds/--max-cost-usd or --max-stage-seconds alone to save limits without retrying"
         )
     # The answer issues a new token, so it never retries in the same invocation; refusing that
     # form here also keeps any other setting given with it from being saved (#463 review).

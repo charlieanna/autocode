@@ -590,7 +590,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_action_recovery.py",
             "tools/autocode_run_setup.py",
         ),
-        ("tests.test_job_cap_change",),
+        ("tests.test_job_cap_change", "tests.test_job_stage_limit"),
     ),
     (
         (
