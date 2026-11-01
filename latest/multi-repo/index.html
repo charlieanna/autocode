@@ -1984,7 +1984,7 @@
 
 
 <h1 id="work-that-spans-several-repositories">Work that spans several repositories<a class="headerlink" href="#work-that-spans-several-repositories" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/6a519d995deee2c8ff329cf375e36584ee4cbce5/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/fe76fe1cf205b62ba18afa7b6f729a98665b446e/README.md">← Back to README</a></p>
 <p>One AutoCode run changes one repository. Its workspace is one Git tree. The
 checkpoints, diffs, protected tests and the Builder's declared changes are all
 bounded to that tree, and a Builder write outside it is treated as a fault.</p>
@@ -2068,7 +2068,11 @@ not merged automatically.</p>
 members, retaining files and existing PRs. While the coordinator is working,
 Ctrl-C takes that same cancellation action; the screen labels it accordingly.
 Individual runs use Ctrl-C for a boundary pause. The TUI consumes the public
-<a href="../task-run/#automatic-coordination-from-chat">coordination contract</a>.</p>
+<a href="../task-run/#automatic-coordination-from-chat">coordination contract</a>.
+Once the cancellation has settled, the public resume offer can recover the
+saved work under an explicitly selected spending policy, including no spending
+cap when the person chooses zero. This does not approve plans or restart models;
+the existing participant gates still govern continuation.</p>
 <h2 id="manual-change-sets">Manual change sets<a class="headerlink" href="#manual-change-sets" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Requirements and the Investigator notice the other repository.</strong> When the request or the code they
@@ -2272,7 +2276,7 @@ discover an arbitrary service dependency.</p>
 <p>These are focused regressions, not one live, end-to-end multi-service production
 trial. Bounded live Kilo MiMo/GLM TUI attempts on 2026-10-27 discovered all three
 fixture repositories but stopped on planning/report validation before builds,
-joint testing or real PR publication. See the <a href="https://github.com/charlieanna/autocode/blob/6a519d995deee2c8ff329cf375e36584ee4cbce5/docs/bugs/2181-live-tui-coordination.md#final-bounded-result-2026-10-27">retained qualification evidence</a>
+joint testing or real PR publication. See the <a href="https://github.com/charlieanna/autocode/blob/fe76fe1cf205b62ba18afa7b6f729a98665b446e/docs/bugs/2181-live-tui-coordination.md#final-bounded-result-2026-10-27">retained qualification evidence</a>
 and <a href="https://github.com/charlieanna/autocode/issues/2208">remaining convergence issue #2208</a>.
 Live end-to-end delivery is not yet verified. The current implementation also has these limits:</p>
 <ul>

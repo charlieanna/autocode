@@ -1268,6 +1268,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Contained Tester Evidence">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#go-test-prerequisite-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Go test prerequisite metadata
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -1951,6 +1968,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Contained Tester Evidence">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#go-test-prerequisite-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Go test prerequisite metadata
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -2016,6 +2050,12 @@ An exit code or a printed <code>PASS test_c1_example</code> is not enough to ide
 case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
 Node's built-in <code>node:test</code> runner, Vitest 4, and an explicitly configured
 JUnit XML report from another test runner.</p>
+<p>A literal Go check with an explicit empty selector (<code>go test -run '^$' ./...</code>)
+may validate compilation in a plan. Its exit must be zero, but it supplies no
+named-test results or behavioral proof. Unknown flags, benchmark/fuzz requests,
+and custom test-program arguments retain the normal test-result requirement.
+Submitting an empty-selector command as a regression or suite still cannot
+satisfy that proof: it must execute named tests.</p>
 <p>The identifier right after <code>test:</code> or <code>guard:</code> is the one the runner proves; an
 explanation may follow after <code>—</code> or in parentheses. Without one, the test is
 named after the criterion ID (<code>test_c1_...</code>; Go's <code>TestC1...</code> matches it).</p>
@@ -2344,6 +2384,23 @@ their receipts in <code>tool_containment.scratch</code>. It cites <code>regressi
 check that reads run files, which are absent from clean replay. This changes no
 network permissions, replay policy or completion requirements. Uncontained
 Testers retain the existing instruction to run the regression command themselves.</p>
+<h3 id="go-test-prerequisite-metadata">Go test prerequisite metadata<a class="headerlink" href="#go-test-prerequisite-metadata" title="Permanent link">&para;</a></h3>
+<p>A test may import a package from an already selected transitive module whose
+indirect requirement or checksum is missing from the root manifests. Where the
+approved plan permits it, the acceptance Tester may add that loading metadata
+alongside its tests. The core admits only additive indirect requirements at the
+original Go selection and missing checksums verified against offline cached
+module artifacts. Existing requirements, versions, module/toolchain directives
+and checksums cannot be replaced or removed through this exception.</p>
+<p>The runner retains both native graph observations and exact manifest hashes,
+including any change in transitive module selection. Those observations grant no
+plan approval: a version constraint in the approved plan still applies. The
+Builder must retain admitted metadata byte-for-byte, including for blind tests.
+The final regression comparison uses identical admitted metadata on original and
+corrected production source, while the original suite baseline keeps its original
+inputs. Compilation failures never establish a bug reproduction. Other dependency
+changes remain on the ordinary proof path and are not overlaid onto the original
+source as test prerequisites.</p>
 
 
 

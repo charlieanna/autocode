@@ -2460,7 +2460,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/6a519d995deee2c8ff329cf375e36584ee4cbce5/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/fe76fe1cf205b62ba18afa7b6f729a98665b446e/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2508,7 +2508,7 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 <td>Check an existing working-tree change, branch or patch against caller-supplied criteria; retain independent review, replay and external-change proof in the canonical evidence format. See <a href="../verify/">Standalone verification</a>.</td>
 </tr>
 <tr>
-<td><code>autocode coordinate status\|advance\|bind\|approve\|choose\|cancel\|budget\|access</code></td>
+<td><code>autocode coordinate status\|advance\|bind\|approve\|choose\|cancel\|resume\|budget\|planning-budget\|access</code></td>
 <td>Coordinate a terminal-chat bug across authorized local repositories, approve member and joint-test plans together, bind verified candidates, prove the combined fix and publish linked PRs. The chat takes the core's named actions; see <a href="../multi-repo/#automatic-bug-fixes-from-terminal-chat">Automatic multi-repository fixes</a>.</td>
 </tr>
 <tr>
@@ -2692,7 +2692,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/6a519d995deee2c8ff329cf375e36584ee4cbce5/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/fe76fe1cf205b62ba18afa7b6f729a98665b446e/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3302,7 +3302,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/6a519d995deee2c8ff329cf375e36584ee4cbce5/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/fe76fe1cf205b62ba18afa7b6f729a98665b446e/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3733,8 +3733,8 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 </tr>
 <tr>
 <td><code>autocode coordinate</code></td>
-<td><code>--run-dir</code>, <code>--workspace</code>, <code>--token</code>, <code>--target</code>, <code>--max-cost-usd</code>, <code>--json</code></td>
-<td>The anchor run to coordinate, the authorized local checkout to choose, the exact token of the displayed decision, the ambiguous repository target to resolve, a finite whole-set cost cap for <code>budget</code>, and JSON output. <code>status</code> reads; <code>advance</code> performs one durable core step; <code>bind</code> snapshots exact completed member trees into the approved joint plan; <code>approve</code>, <code>choose</code> and <code>cancel</code> take the corresponding named action. At a settled cost stop, <code>budget --token TOKEN --max-cost-usd N</code> takes the current status offer, retains accumulated spend and other limits, and acknowledges only its displayed member cost pause. It cannot waive a check or approve a plan; zero/unlimited, stale, insufficient, active and cancelled requests are refused. <code>access</code> checks GitHub delivery readiness without starting a run. Configure shared roots with <code>autocode registry roots add PATH</code> and standalone checkouts with <code>autocode registry repositories add PATH</code>; <code>/repos</code> displays discovery.</td>
+<td><code>--run-dir</code>, <code>--workspace</code>, <code>--token</code>, <code>--target</code>, <code>--max-cost-usd</code>, <code>--max-planning-cost-usd</code>, <code>--json</code></td>
+<td>The anchor run to coordinate, the authorized local checkout to choose, the exact token of the displayed decision, the ambiguous repository target to resolve, a finite whole-set cost cap for <code>budget</code>, and JSON output. <code>status</code> reads; <code>advance</code> performs one durable core step; <code>bind</code> snapshots exact completed member trees into the approved joint plan; <code>approve</code>, <code>choose</code> and <code>cancel</code> take the corresponding named action. At a settled cost stop, <code>budget --token TOKEN --max-cost-usd N</code> takes the current status offer, retains accumulated spend and other limits, and acknowledges only its displayed member cost pause. It cannot waive a check or approve a plan; zero/unlimited, stale, insufficient, active and cancelled requests are refused. <code>planning-budget --token TOKEN --max-planning-cost-usd N</code> explicitly reallocates a total planning allowance inside the unchanged whole-set cap at its named stop. It preserves all prior spend and work, records the prior allocation, launches nothing, and requires a new exact checkpoint; stale/duplicate, active, unpriced, uncertain and out-of-range requests are refused. A separate ordinary cost-pause acknowledgement may still be needed. At a settled cancellation, <code>resume --token TOKEN --max-cost-usd N</code> takes the exact recovery offer without launching a model or approving a plan. It retains prior work and accounting; an explicit zero removes the shared cap and disables the planning allocation limit while retaining their history. Newer cancellations, stale tokens, active/uncertain work, changed sources and incomplete pricing refuse. <code>access</code> checks GitHub delivery readiness without starting a run. Configure shared roots with <code>autocode registry roots add PATH</code> and standalone checkouts with <code>autocode registry repositories add PATH</code>; <code>/repos</code> displays discovery.</td>
 </tr>
 <tr>
 <td><code>autocode setup</code></td>
@@ -4252,7 +4252,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/6a519d995deee2c8ff329cf375e36584ee4cbce5/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/fe76fe1cf205b62ba18afa7b6f729a98665b446e/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
@@ -4423,6 +4423,15 @@ bytes, modes and Git HEAD even when a capture artifact is missing; changed
 model/limits still invalidate the retry. An older attempt with no saved original
 identity exposes <code>recover_source</code> and an explanation instead of a retry action.
 Inspect its archive and current changes before starting a new run.</p>
+<p>For an authenticated hard stage timeout, an operator can preserve the selected
+model and save a larger finite deadline with <code>--job-retry-token TOKEN
+--max-stage-seconds N</code>, without resume or retry flags. This changes only that
+deadline, leaves the job paused and issues a fresh retry token. It preserves total
+time and money caps, usage, approved plans and source bindings. It refuses idle or
+tool timeouts, a stale attempt/source/token, a non-increasing deadline and mixed
+configuration changes. Inspect fresh public status, then retry separately with
+the new token. This is a public CLI recovery; the status view does not yet offer a
+deadline editor to clients.</p>
 <p>A failed Builder classification can also offer <code>retry_job</code> for the Investigator
 at <code>PAUSED_BUILDER_CLASSIFICATION</code>. Inspect <code>needs.retained_evidence</code> and use the
 current <code>needs.job_retry_token</code> through <code>AUTOCODE_JOB_RETRY_TOKEN</code> with
