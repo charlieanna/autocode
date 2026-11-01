@@ -7,10 +7,17 @@ migration it can execute both copies and disregard declared exclusions.
 
 Existing `--test-command` and `--regression-command` options now accept an
 explicit correction with `--resume-paused` at a reconciled pause immediately
-before the Validator or combined checkpoint. Other boundaries reject the
-change, so a passing proof from the old command cannot reach acceptance.
-Changes are recorded as `verification_commands_changed` user events. The
-contract, model routes, limits, test timeout and past proof receipts remain.
+before the Validator or combined checkpoint, or at a Completion Owner
+blocker hold (`RESOLVER_PENDING`, or `WAITING_FOR_USER` for the Resolver's
+blocker request) that the Resolver's advice names this change for. Other
+boundaries reject the change, so a passing proof from the old command cannot
+reach acceptance. From a blocker hold the core settles the pending blocker
+itself: it archives the proposal in `validation_archive` with the reason,
+withdraws a published request and its questions, and routes the run to the
+Tester so the new proof runs before the Completion Reviewer can accept. An
+active or uncertain attempt still refuses. Changes are recorded as
+`verification_commands_changed` user events. The contract, model routes,
+limits, test timeout and past proof receipts remain.
 
 The next proof compares its selected interpreter, detected framework and
 explicit commands with the saved execution context and reruns when they differ.
