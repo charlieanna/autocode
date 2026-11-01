@@ -51,7 +51,7 @@ def planning_ceiling(budget, views, current_run):
     if not allowance:
         return None
     current = next((row for row in views if row.get("run_dir") == current_run), {}) if current_run else {}
-    stage = current.get("next_stage", "").removesuffix("_report_repair")
+    stage = (current.get("next_stage") or "").removesuffix("_report_repair")
     if current.get("approved_contract") and stage not in roles.ALL_PLANNING_STAGES:
         return None
     costs = [allowance["initial"], *(planning_spend(row) for row in views)]

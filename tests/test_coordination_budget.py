@@ -62,6 +62,16 @@ class PlanningSpendTests(unittest.TestCase):
         legacy = {"cap_usd": 30, "initial_spent_usd": 1}
         self.assertEqual(["--max-cost-usd", "29"], budget.envelope(legacy, [unknown], "one")["options"])
 
+    def test_null_stage_keeps_approved_work_admitted_and_unapproved_work_bounded(self):
+        anchor = budget.initial(self.view("anchor", 1))
+        for approved, expected in ((False, 11), (True, 29)):
+            with self.subTest(approved=approved):
+                current = self.view("one", 2, 3, stage=None)
+                if approved:
+                    current["approved_contract"] = {"token": "reviewed"}
+                actual = budget.envelope(anchor, [current], "one")
+                self.assertEqual(expected, float(actual["options"][1]))
+
     def test_planning_report_repairs_and_unattributed_legacy_spend_are_retained(self):
         repaired = self.view("one", 3)
         repaired["cost"]["breakdown"]["by_stage"][0]["stage"] += "_report_repair"
