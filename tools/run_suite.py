@@ -537,8 +537,19 @@ def failure_report(output: str) -> str:
     return output[found.start() :] if found else output
 
 
+def first_skip(output: str) -> str:
+    """The first reason unittest gave for a skipped test in this module's report, or an empty string."""
+    match = re.search(r"skipped '([^']*)'", output or "")
+    return match.group(1) if match else ""
+
+
 def run_parallel(
-    modules: list[str], jobs: int, verbosity: int, unit: str = "modules", timeout: float | None = None
+    modules: list[str],
+    jobs: int,
+    verbosity: int,
+    unit: str = "modules",
+    timeout: float | None = None,
+    failed_out: Path | None = None,
 ) -> bool:
     """Run each module in its own process, ``jobs`` at a time. A failing module's whole output is printed
     as soon as it finishes, so a slow or hung module cannot hold back a finished failure (#545), and its
@@ -551,6 +562,7 @@ def run_parallel(
     "Ran N tests ... FAILED" footer (``autocode_test_setup.failure_details``), so later modules' output
     never reads as part of one."""
     started = time.monotonic()
+    rows = []
     failed = []
     tests = 0
     bound = [timeout] if timeout is not None else []
@@ -558,6 +570,7 @@ def run_parallel(
     with ThreadPoolExecutor(jobs) as pool:
         for future in as_completed([pool.submit(run_module, module, verbosity, *bound) for module in modules]):
             row = future.result()
+            rows.append(row)
             tests += row["tests"]
             # A timed-out module is a failure; its row says so without changing the ok/FAIL column.
             limit = ", timed out" if row.get("timed_out") else ""
@@ -580,6 +593,15 @@ def run_parallel(
         + (f"{len(failed)} module(s) FAILED: " + ", ".join(row["module"] for row in failed) if failed else "OK")
         + (f" ({len(timed_out)} timed out: {', '.join(timed_out)})" if timed_out else "")
     )
+    # A module that ran only skips is a green row hiding no coverage: say which ones and
+    # why, so a local run on an unsupported host is never read as a passing check.
+    quiet = [(row["module"], reason) for row in rows for reason in [first_skip(row["output"])] if row["ok"] and reason]
+    if quiet:
+        print("\nRan with skips on this host:")
+        for module, reason in quiet:
+            print(f"  {module}: {reason}")
+    if failed_out is not None:
+        failed_out.write_text(json.dumps([row["module"] for row in failed], indent=2) + "\n")
     return not failed
 
 
@@ -597,6 +619,12 @@ def main(argv: list[str] | None = None) -> int:
         help="print excluded modules and reasons, then exit without running anything",
     )
     parser.add_argument("--verbosity", type=int, default=1)
+    parser.add_argument(
+        "--failed-out",
+        type=Path,
+        default=None,
+        help="write the failed module names as JSON here, for a base attribution pass (#2603)",
+    )
     parser.add_argument(
         "--durations", type=int, metavar="N", help="report the N slowest tests (Python 3.12+; runs in one process)"
     )
@@ -721,7 +749,11 @@ def main(argv: list[str] | None = None) -> int:
         kept = unittest.TestSuite(test for test in iter_tests(kept) if _module_of(test.id()) in selected)
 
     if args.jobs > 1 and not args.durations:
-        return 0 if run_parallel(modules, args.jobs, args.verbosity, timeout=args.module_timeout) else 1
+        return (
+            0
+            if run_parallel(modules, args.jobs, args.verbosity, timeout=args.module_timeout, failed_out=args.failed_out)
+            else 1
+        )
 
     options = {"durations": args.durations} if args.durations else {}
     runner = unittest.TextTestRunner(verbosity=args.verbosity, **options)
