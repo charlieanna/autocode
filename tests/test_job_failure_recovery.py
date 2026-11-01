@@ -459,7 +459,12 @@ class JobFailureTaskRunTests(JobHarness):
         token = self.paused(run)["job_retry_token"]
         run.env["JOB_MODE"] = "success"
         changed = TaskRun(
-            self.workspace, run.run_dir, command=run.command, options=("--max-stage-seconds", "901"), env=run.env, timeout=60
+            self.workspace,
+            run.run_dir,
+            command=run.command,
+            options=("--max-stage-seconds", "901"),
+            env=run.env,
+            timeout=60,
         )
         after = changed.retry_job(token)
         self.assertTrue(after["done"], after)

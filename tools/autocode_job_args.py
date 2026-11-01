@@ -45,12 +45,7 @@ def validate(args, parser, explicit):
         )
     # The answer issues a new token, so it never retries in the same invocation; refusing that
     # form here also keeps any other setting given with it from being saved (#463 review).
-    if (
-        args.job_retry_token
-        and args.resume_paused
-        and args.retry_failed_stage
-        and names_route_model
-    ):
+    if args.job_retry_token and args.resume_paused and args.retry_failed_stage and names_route_model:
         parser.error(
             "--answer route-ROLE=MODEL --job-retry-token TOKEN names a stopped job's model on its own "
             "and issues a new token; then retry with --resume-paused --retry-failed-stage "
