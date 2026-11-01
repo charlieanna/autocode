@@ -16,9 +16,9 @@ import autocode_coordination_store as coordination_store
 import autocode_report_repair_context as repair
 import autocode_requirements_review as requirements_review
 import autocode_scope_question as scope_question
-import autocode_workspace_scope_state as workspace_scope
 import autocode_stage_context as runtime
 import autocode_trace_coverage as coverage
+import autocode_workspace_scope_state as workspace_scope
 from units import autoplanner
 
 

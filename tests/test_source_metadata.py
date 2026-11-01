@@ -70,4 +70,3 @@ class TicketTitleTests(unittest.TestCase):
         self.assertEqual(text, metadata.value_text(text, [], ticket_title_key="OTHER-12398"))
         inline = "Handle DTI-12398 as the product error code."
         self.assertEqual(inline, metadata.value_text(inline, [], ticket_title_key="DTI-12398"))
-

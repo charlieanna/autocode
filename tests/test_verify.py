@@ -4016,13 +4016,18 @@ class GoVerifyTests(unittest.TestCase):
         self.assertFalse(schedule.complete_results(result))
         # The same command submitted as a suite never proves behavioral testing.
         suite = verify.run_suite(
-            verify.Framework("go", "go test ./..."), command, project.root,
-            project.evidence / "suite", "compile", timeout=60,
+            verify.Framework("go", "go test ./..."),
+            command,
+            project.root,
+            project.evidence / "suite",
+            "compile",
+            timeout=60,
         )
         self.assertEqual(0, suite["results"]["total"])
         self.assertFalse(schedule.complete_results(suite))
         ordinary = verify.scratch_run(
-            project.root, project.evidence / "absent",
+            project.root,
+            project.evidence / "absent",
             command="go test -count=1 -run '^TestNotPresent$' ./...",
         )
         self.assertIn("zero tests", ordinary["error"])

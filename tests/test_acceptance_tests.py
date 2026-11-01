@@ -1452,7 +1452,9 @@ def test_page_size_must_be_positive():
         self.scenario = dataclasses.replace(loaded, fake_criteria={"C9": "test: test_first_page"})
         correction = "Retain the existing reproduction and revise only the test setup."
         run, project, before = self.run_to_end(
-            "--joint-planning", "--adaptive-planning", "--spec-first",
+            "--joint-planning",
+            "--adaptive-planning",
+            "--spec-first",
             plan_messages={correction: ("change", "I will revise the test setup in the existing plan.")},
         )
         self.assertEqual("PAUSED_ACCEPTANCE_TESTS", before["status"], self.details(before))
@@ -1461,7 +1463,7 @@ def test_page_size_must_be_positive():
         run.feedback(correction)
         after = run.advance_until_input()
         self.assertEqual("approve_plan", after["needs"]["kind"], self.details(after))
-        new_stages = self.stage_order(run)[len(order):]
+        new_stages = self.stage_order(run)[len(order) :]
         self.assertEqual(1, new_stages.count("requirements-gather"), "one intent reply, no repeated Requirements")
         self.assertIn("discovery", new_stages)
         self.assertNotIn("builder", new_stages)

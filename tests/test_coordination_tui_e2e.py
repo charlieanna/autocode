@@ -462,9 +462,13 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
         self.env["COORDINATION_FIXTURE_MEMBER_CONTEXT"] = "1"
         with patch.dict(os.environ, self.env, clear=True):
             client = chat.start(
-                self.intake, "Fix checkout showing the wrong final total.", ["--workflow", "bugfix"],
+                self.intake,
+                "Fix checkout showing the wrong final total.",
+                ["--workflow", "bugfix"],
                 [*FIXTURE_OPTIONS, "--no-adaptive-planning", "--spec-first"],
-                env=self.env, ask=self.answer, say=self.lines.append,
+                env=self.env,
+                ask=self.answer,
+                say=self.lines.append,
             )
             self.addCleanup(client.close)
             for _ in range(30):
@@ -478,7 +482,8 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
                 self.fail("The fixture never offered a repository assignment")
             target, identity = summary["needs"]["target"], summary["needs"]["identity"]
             with patch.object(
-                taskrun.TaskRun, "assign_linked_scope",
+                taskrun.TaskRun,
+                "assign_linked_scope",
                 side_effect=taskrun.TaskRunError("Existing run process is active; leave it untouched"),
             ):
                 with self.assertRaisesRegex(taskrun.TaskRunError, "process is active"):
@@ -489,9 +494,11 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             shutil.copytree(ROOT / "tools", broken_runtime / "tools", ignore=shutil.ignore_patterns("__pycache__"))
             shutil.copytree(ROOT / "docs", broken_runtime / "docs")
             old_action = broken_runtime / "tools" / "autocode_action_scope.py"
-            old_action.write_text(old_action.read_text().replace(
-                "human.current(state) or human.refresh_assigned_scope(state)", "human.current(state)"
-            ))
+            old_action.write_text(
+                old_action.read_text().replace(
+                    "human.current(state) or human.refresh_assigned_scope(state)", "human.current(state)"
+                )
+            )
             client.command = (sys.executable, str(broken_runtime / "tools" / "autocode.py"))
             with self.assertRaisesRegex(chat.actions.ClientGap, "cannot release this human gate"):
                 client.step()
@@ -516,9 +523,9 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
                 Path(member["workspace"]), Path(member["run_dir"]), command=client.command, env=self.env
             ).status()
             self.assertEqual("linked_repositories", view["scope"]["decision"])
-            self.assertFalse(any(
-                row["id"] == "workspace-scope-" + identity for row in view["needs"].get("questions", [])
-            ))
+            self.assertFalse(
+                any(row["id"] == "workspace-scope-" + identity for row in view["needs"].get("questions", []))
+            )
             self.assertEqual([], self.questions, "Recovery supplies no human answer or approval")
             self.assertEqual([], self.github.posts)
 
