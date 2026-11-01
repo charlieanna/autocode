@@ -83,15 +83,14 @@ def execution_request(state: "RunState", stage, state_path, schema_dir, *, repor
     response_schema = support.review_generation_schema(schema, state, report_stage or stage)
     prompt, metrics = stage_context.context_packet(state, stage, state_path, response_schema=response_schema)
     if stage == "terra":
-        prompt = test_examples.add_to_prompt(prompt, state["workspace"], state.get("current_task"))
-        prompt = prompt.replace(
-            "\nCURRENT HANDOFF DATA\n",
-            test_cases.builder_note(state)
+        prompt = test_examples.builder_prompt(
+            prompt,
+            state["workspace"],
+            state.get("current_task"),
+            notes=test_cases.builder_note(state)
             + acceptance_tests.builder_note(state)
             + bug_job.builder_note(state)
-            + assignment.BUILD_OUTPUT_NOTE
-            + "\nCURRENT HANDOFF DATA\n",
-            1,
+            + assignment.BUILD_OUTPUT_NOTE,
         )
         metrics = {**metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4}
     if stage == "sol":

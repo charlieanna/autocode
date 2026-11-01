@@ -10,9 +10,11 @@ Strict tool containment stays qualified only for the pinned 1.x release.
 from __future__ import annotations
 
 try:
+    from .. import autocode_changed_code_review as changed_code_review
     from .. import autocode_native_locators as native_locators
     from .. import autocode_prompts as prompts
 except ImportError:
+    import autocode_changed_code_review as changed_code_review
     import autocode_native_locators as native_locators
     import autocode_prompts as prompts
 
@@ -602,6 +604,7 @@ def launch(
 
 
 def prompt_for_schema(prompt, schema, events):
+    schema = changed_code_review.prompt_order(schema)
     properties = schema.get("properties", {})
     if "assistant_reply" in properties and not any(
         name in properties for name in ("checks", "criterion_results", "commands_run", "evidence_refs")
