@@ -34,6 +34,11 @@ PR template asks for an entry here; a change without one is incomplete.
   chat says so. A revision that changes any of those, or adds a repository, is shown for approval again.
 ### Fixed
 
+- False transport drift across sibling Git workspaces (#2347): `transport_drift` now compares copied
+  identities after omitting only `None` config hash entries for v2, preserving every other identity field
+  including deletions of previously active configurations. The legacy v1 inert normalization block is
+  restored exactly from baseline, normalizing only raw schema-only stubs when current bytes are present
+  and verified inert.
 - Transient malformed supervision receipts are reopened and authenticated within a bounded retry window; identity, schema, I/O and access refusals remain immediate, and persistent corruption remains unknown.
 - The Codex final-message detector recognizes the `=`-attached flag forms (`--output-last-message={report}`,
   `-o={report}`), so a command tool using them no longer prompts a shell write of the report into a
