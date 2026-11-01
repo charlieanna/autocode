@@ -747,40 +747,46 @@ def main() -> int:
         if "--output-schema" in sys.argv
         else _prompt_schema(prompt)
     )
-    if "failure_class" in schema.get("properties", {}):
+    # A repair's wire schema offers one property (repair_report) wrapping the report
+    # shape it must return; validation unwraps to that shape, so what to fill follows
+    # the wrapped report, not the wire schema's single top-level property.
+    properties = schema.get("properties", {})
+    if "repair_report" in properties:
+        branches = (properties.get("repair_report") or {}).get("anyOf") or []
+        if len(branches) == 2:
+            properties = branches[1].get("properties", {})
+    if "failure_class" in properties:
         # Match the schema introduced for builder-failure investigations,
         # including when the original report is being repaired.
         report.setdefault("failure_class", "unknown")
         report.setdefault("failure_id", "offline-fixture-failure")
     saved = _saved_report(data) if repairing else {}
-    if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in schema.get("properties", {}):
+    if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in properties:
         report["changed_code_exceptions"] = _changed_code_reasons(data)
     handoff = (data.get("requirements_handoff") or {}).get("report") or {}
     if "requirement_trace" in report and any(row.get("id") == "R5" for row in handoff.get("requirements", [])):
         report["requirement_trace"].extend(_trace(("R5", "Python standard library only")))
-    if "assistant_reply" in schema.get("properties", {}):
+    if "assistant_reply" in properties:
         report.setdefault("assistant_reply", report.get("summary", ""))
     if "source_verdict" in saved:
         report["source_verdict"] = copy.deepcopy(saved["source_verdict"])
-    if "source_verdict" in schema.get("properties", {}) or (
+    if "source_verdict" in properties or (
         stage == "astra_review" and ((contract.get("body") or {}).get("source_trace") is not None)
     ):
         report.setdefault(
             "source_verdict",
             {"verdict": "PASS", "uncovered": [], "summary": "Handwritten: every criterion traces to the brief"},
         )
-    if stage == "astra_finalize" and "retain_contract" in schema.get("properties", {}).get("contract", {}).get(
-        "properties", {}
-    ):
+    if stage == "astra_finalize" and "retain_contract" in properties.get("contract", {}).get("properties", {}):
         draft = report["contract"]
         report["contract"] = {
             "retain_contract": data.get("retained_contract")
             or (data.get("clarification_context") or {}).get("retained_contract"),
             "open_blocking_questions": draft.get("open_blocking_questions", []),
         }
-        if "initial_task" in schema["properties"]["contract"]["properties"]:
+        if "initial_task" in properties["contract"]["properties"]:
             report["contract"]["initial_task"] = draft.get("initial_task")
-        if "acceptance_criteria" in schema["properties"]["contract"]["properties"]:
+        if "acceptance_criteria" in properties["contract"]["properties"]:
             # The reference's criteria delta (#1991); empty, it retains every row.
             report["contract"]["acceptance_criteria"] = {
                 "retain_from": report["contract"]["retain_contract"],
