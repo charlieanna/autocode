@@ -575,8 +575,12 @@ class CoordinationTests(unittest.TestCase):
                 with patch.object(coordinate, "handle", return_value=Mock(status=Mock(return_value=pending))):
                     step = coordinate.next_step(self.document, views)
                 self.assertEqual(
-                    {"kind": "assign", "target": owner, "identity": "joint-scope",
-                     "members": {"history": str(self.root / "history")}},
+                    {
+                        "kind": "assign",
+                        "target": owner,
+                        "identity": "joint-scope",
+                        "members": {"history": str(self.root / "history")},
+                    },
                     step,
                 )
 
@@ -1592,6 +1596,23 @@ class CoordinationTests(unittest.TestCase):
         self.assertTrue(coordinate.follow_up_received(view, 1, "Correct history\n"))
         self.assertFalse(coordinate.follow_up_received(view, 0, "Correct history"))
         self.assertFalse(coordinate.follow_up_received(view, 1, "Different correction"))
+
+    def test_follow_up_receipt_ignores_appended_historical_resolver_display_rows(self):
+        view = {
+            "turn": 2,
+            "chat": {
+                "messages": [
+                    {"id": "feedback-current", "role": "user", "text": "Correct history"},
+                    {"id": "resolver-old-response", "role": "user", "text": "The prior runtime was repaired"},
+                ]
+            },
+        }
+        self.assertTrue(coordinate.follow_up_received(view, 1, "Correct history"))
+        self.assertFalse(coordinate.follow_up_received(view, 0, "Correct history"))
+        self.assertFalse(coordinate.follow_up_received(view, 1, "The prior runtime was repaired"))
+        view["chat"]["messages"].insert(1, {"id": "feedback-newer", "role": "user", "text": "Another request"})
+        self.assertFalse(coordinate.follow_up_received(view, 1, "Correct history"))
+        self.assertTrue(coordinate.follow_up_received(view, 1, "Another request"))
 
     def test_repository_authority_and_dependency_order_are_not_guessed(self):
         with self.assertRaisesRegex(store.CoordinationError, "configured GitHub host"):

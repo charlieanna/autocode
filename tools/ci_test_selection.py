@@ -498,6 +498,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (("tools/autocode_python_tests.py", "tools/autocode_verify.py"), ("tests.test_acceptance_tests",)),
     (
+        ("tools/autocode_coordinate.py", "tools/autocode_chat_history.py"),
+        ("tests.test_coordinate_receipt_cli",),
+    ),
+    (
         (
             "tools/autocode_go_test_prerequisites.py",
             "tools/autocode_acceptance_tests.py",

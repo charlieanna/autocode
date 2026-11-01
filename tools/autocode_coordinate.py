@@ -470,8 +470,7 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
             scope.get("decision") == "linked_repositories"
             and need.get("kind") == "answer"
             and any(
-                row.get("id") == "workspace-scope-" + str(scope.get("identity"))
-                for row in need.get("questions") or []
+                row.get("id") == "workspace-scope-" + str(scope.get("identity")) for row in need.get("questions") or []
             )
         )
         if scope.get("external_parts") and (not scope.get("decision") or assignment_pending):
@@ -785,7 +784,13 @@ def finish_rework_step(document, target):
 
 
 def follow_up_received(view, previous_turn, message):
-    submitted = [row for row in (view.get("chat") or {}).get("messages", []) if row.get("role") == "user"]
+    # Chat appends retained Resolver responses after ordinary conversation events.
+    # They are not later follow-ups and cannot replace the submitted-message receipt.
+    submitted = [
+        row
+        for row in (view.get("chat") or {}).get("messages", [])
+        if row.get("role") == "user" and not str(row.get("id") or "").startswith("resolver-")
+    ]
     # Follow-up input trims surrounding whitespace before recording the event.
     return view.get("turn") == previous_turn + 1 and bool(submitted) and submitted[-1].get("text") == message.strip()
 
