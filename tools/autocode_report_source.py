@@ -165,6 +165,7 @@ def repair_report_source(record, *, allow_empty=False):
         "bytes": len(text.encode("utf-8")),
         "truncated": False,
         "content": content,
+        **({"repair_response": True} if format_ == "text" and record.get("report_only") else {}),
     }
 
 
