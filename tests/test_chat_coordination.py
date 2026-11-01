@@ -305,6 +305,46 @@ class SharedBudgetDisplayTests(unittest.TestCase):
         self.client.ask.assert_not_called()
         self.client.advance.assert_not_called()
 
+    def test_planning_reallocation_uses_its_own_fresh_bounded_named_action(self):
+        self.need.update(
+            kind="planning_budget",
+            planning_cap_usd=3,
+            planning_spent_usd=4,
+            minimum_cap_usd=4.000001,
+            maximum_cap_usd=10,
+        )
+        self.need["next_command"][2] = "planning-budget"
+        self.need["next_command"][7] = "--max-planning-cost-usd"
+        self.client.ask.side_effect = ["9.25", "yes"]
+        with patch.object(coordination, "read", return_value=self.summary):
+            self.assertIsNone(coordination.step(self.client, {}, Mock()))
+        argv = self.client.advance.call_args.args[0]
+        self.assertEqual("planning-budget", argv[1])
+        self.assertEqual(["--max-planning-cost-usd", "9.25", "--json"], argv[-3:])
+        self.assertEqual("-", argv[argv.index("--token") + 1])
+        self.assertNotIn("--max-cost-usd", argv)
+
+    def test_planning_reallocation_rejects_above_cap_and_changed_kind(self):
+        self.need.update(
+            kind="planning_budget",
+            planning_cap_usd=3,
+            planning_spent_usd=4,
+            minimum_cap_usd=4.000001,
+            maximum_cap_usd=10,
+        )
+        self.need["next_command"][2] = "planning-budget"
+        self.need["next_command"][7] = "--max-planning-cost-usd"
+        self.client.ask.side_effect = ["10.01"]
+        with patch.object(coordination, "read", return_value=self.summary):
+            self.assertIsNone(coordination.step(self.client, {}, Mock()))
+        self.client.advance.assert_not_called()
+        self.client.ask.side_effect = ["9", "yes"]
+        changed = copy.deepcopy(self.summary)
+        changed["needs"]["kind"] = "budget"
+        with patch.object(coordination, "read", side_effect=[self.summary, changed]):
+            self.assertIsNone(coordination.step(self.client, {}, Mock()))
+        self.client.advance.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -22,6 +22,7 @@ try:
     from . import autocode_coordination_evidence as joint_evidence
     from . import autocode_coordination_joint as joint
     from . import autocode_coordination_limits as limits
+    from . import autocode_coordination_planning_limits as planning_limits
     from . import autocode_coordination_publish as publication
     from . import autocode_coordination_repositories as repos
     from . import autocode_coordination_request as request
@@ -38,6 +39,7 @@ except ImportError:
     import autocode_coordination_evidence as joint_evidence
     import autocode_coordination_joint as joint
     import autocode_coordination_limits as limits
+    import autocode_coordination_planning_limits as planning_limits
     import autocode_coordination_publish as publication
     import autocode_coordination_repositories as repos
     import autocode_coordination_request as request
@@ -431,6 +433,8 @@ def _next_step(document, views, *, command=tasks.AUTOCODE):
         return source_recovery
     if (document.get("budget") or {}).get("cap_usd"):
         rows, history = budget_observations(document, views, command=command)
+        if offered := planning_limits.offer(document, rows, history):
+            return offered
         if reason := limits.planning_refusal(document, rows, history):
             return {"kind": "blocked", "reason": reason}
         offered = limits.offer(document, rows, history)
@@ -773,6 +777,17 @@ def revise_budget(run_dir, token, amount, *, command=tasks.AUTOCODE):
             run.resume_paused()
 
         limits.apply(document, offered, token, amount, rows, resume=resume)
+    return status(run_dir, command=command)
+
+
+def revise_planning_budget(run_dir, token, amount, *, command=tasks.AUTOCODE):
+    """Apply only the fresh named allocation offer; preserve every task's saved work and gates."""
+    with store.locked(run_dir) as document:
+        if not document:
+            raise store.CoordinationError("Coordination has not started")
+        views = observe(document, command=command)
+        offered = next_step(document, views, command=command)
+        planning_limits.apply(document, offered, token, amount)
     return status(run_dir, command=command)
 
 
@@ -1155,6 +1170,7 @@ OPERATION_HELP = {
     "choose": "Resolve an ambiguous repository target to a local checkout",
     "cancel": "Cancel the coordination",
     "budget": "Raise the whole-set cost cap at a displayed cost stop",
+    "planning-budget": "Reallocate planning money inside the unchanged whole-set cost cap",
 }
 
 
@@ -1174,6 +1190,14 @@ def parser():
         if name == "budget":
             child.add_argument("--token", required=True, help="Exact token of the displayed cost stop")
             child.add_argument("--max-cost-usd", required=True, type=float, help="Finite cost cap for the whole set")
+        if name == "planning-budget":
+            child.add_argument("--token", required=True, help="Exact token of the displayed planning allocation stop")
+            child.add_argument(
+                "--max-planning-cost-usd",
+                required=True,
+                type=float,
+                help="Total planning allocation within the whole-set cap",
+            )
         if name == "choose":
             child.add_argument("--target", required=True, help="The ambiguous repository target to resolve")
             child.add_argument("--workspace", required=True, help="The authorized local checkout to use for it")
@@ -1232,6 +1256,12 @@ def cli(argv=None):
                 args.run_dir,
                 os.environ.get("AUTOCODE_COORDINATION_TOKEN", "") if args.token == "-" else args.token,
                 args.max_cost_usd,
+            )
+        elif args.operation == "planning-budget":
+            result = revise_planning_budget(
+                args.run_dir,
+                os.environ.get("AUTOCODE_COORDINATION_TOKEN", "") if args.token == "-" else args.token,
+                args.max_planning_cost_usd,
             )
         else:
             with store.locked(args.run_dir) as document:

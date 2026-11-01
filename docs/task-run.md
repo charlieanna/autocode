@@ -141,9 +141,22 @@ including the anchor's planning, every member's planning, report repairs and
 all retained joint attempts. While a run is planning its derived whole-run cap
 also respects that allowance; approved implementation uses the remaining task
 envelope. Replanning, viewer restart and reasserting a shared cap do not renew
-the planning allowance. Exhaustion or unpriced planning returns `needs.kind=blocked`
-without a spending action, including when a projected next attempt exceeds the
-allowance. Saved coordinations without this policy retain their original limits.
+the planning allowance. Exhaustion refuses further dispatch, including when a projected next attempt
+exceeds the allowance. Unpriced planning returns `needs.kind=blocked` without
+a spending action. Saved coordinations without this policy retain their original limits.
+At a settled planning stop with complete pricing and unused whole-set money,
+`needs.kind=planning_budget` offers a distinct `coordinate planning-budget`
+action. The explicit `--max-planning-cost-usd N` is a total planning allocation,
+not an additional grant; it cannot exceed the whole-set cap minus nonplanning
+spend. Its token binds the durable coordination and public participant/source,
+route, approval, accounting and attempt frontier. The action records the old
+allocation and all spending, launches no model and approves no plan. Replaying
+its token refuses without changing the allocation. Terminal chat shows the
+bounds and unchanged total cap, confirms the amount and rereads before sending
+the private token. A child cost pause still needs its separate existing public
+acknowledgement. No restart or same-cap acknowledgement increases planning money.
+Unavailable, uncertain, active or unpriced work remains blocked.
+
 These are stage-boundary checks, not a guarantee about the price of an in-flight
 request; toolchain and baseline readiness remain separate prerequisite checks.
 

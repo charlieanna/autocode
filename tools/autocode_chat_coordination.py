@@ -34,7 +34,7 @@ def named(value, run_dir, operation=None):
         raise actions.ClientGap("The coordination action names another run or output contract")
     if operation and value[2] != operation:
         raise actions.ClientGap("The coordination action differs from the displayed decision")
-    if value[2] not in ("status", "advance", "bind", "approve", "choose", "cancel", "budget"):
+    if value[2] not in ("status", "advance", "bind", "approve", "choose", "cancel", "budget", "planning-budget"):
         raise actions.ClientGap("Unsupported coordination action")
     return value[1:]
 
@@ -90,7 +90,7 @@ def step(client, view, render_plan):
             raise actions.ClientGap("The core supplied an unsupported automatic coordination action")
         client.advance(named(action, client.run_dir, operation))
         return None
-    if need["kind"] == "budget":
+    if need["kind"] in ("budget", "planning_budget"):
         return budget_reply(client, view, need)
     if summary.get("approval"):
         if need["kind"] == "approval":
@@ -194,15 +194,18 @@ def step(client, view, render_plan):
 
 
 def budget_reply(client, view, need):
-    argv = list(named(need.get("next_command"), client.run_dir, "budget"))
+    planning = need["kind"] == "planning_budget"
+    operation = "planning-budget" if planning else "budget"
+    flag = "--max-planning-cost-usd" if planning else "--max-cost-usd"
+    argv = list(named(need.get("next_command"), client.run_dir, operation))
     if argv != [
         "coordinate",
-        "budget",
+        operation,
         "--run-dir",
         str(client.run_dir.resolve()),
         "--token",
         need.get("token"),
-        "--max-cost-usd",
+        flag,
         "N",
         "--json",
     ]:
@@ -210,28 +213,37 @@ def budget_reply(client, view, need):
     minimum = need.get("minimum_cap_usd")
     if type(minimum) not in (int, float) or not math.isfinite(minimum) or minimum <= 0:
         raise actions.ClientGap("The shared-budget decision has no finite minimum")
+    maximum = need.get("maximum_cap_usd") if planning else actions.MAX_SAFE_INTEGER
+    if type(maximum) not in (int, float) or not math.isfinite(maximum) or maximum < minimum:
+        raise actions.ClientGap("The planning-budget decision has no valid maximum")
     accounting = "complete" if need.get("complete") else "incomplete; unknown costs remain unknown"
     client.say(
         f"Shared accounting cap: ${need['cap_usd']:g}; known spend: ${need['known_spent_usd']:g} ({accounting})."
     )
     client.say(need["effect"])
-    text = client.ask(f"New whole-set cap in USD ({minimum:g} or more; Enter keeps it paused): ").strip()
+    if planning:
+        client.say(
+            f"Planning allowance: ${need['planning_cap_usd']:g}; planning spend: ${need['planning_spent_usd']:g}."
+        )
+    label = "planning allowance" if planning else "whole-set accounting cap"
+    bounds = f"{minimum:g} to {maximum:g}" if planning else f"{minimum:g} or more"
+    text = client.ask(f"New {label} in USD ({bounds}; Enter keeps it paused): ").strip()
     if not text:
         return 2
-    if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,6})?", text) or not minimum <= float(text) <= actions.MAX_SAFE_INTEGER:
-        client.say("No cap changed. Enter a finite amount at or above the displayed minimum.")
+    if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,6})?", text) or not minimum <= float(text) <= maximum:
+        client.say("No cap changed. Enter a finite amount within the displayed bounds.")
         return None
     if client.ask(
-        f"Set the whole-set accounting cap to ${text} and continue the displayed cost recovery? [y/N]: "
+        f"Set the {label} to ${text} and continue the displayed cost recovery? [y/N]: "
     ).strip().lower() not in ("y", "yes"):
         return 2
     fresh = read(client, view)
-    if (fresh.get("needs") or {}).get("token") != need.get("token") or (fresh.get("needs") or {}).get(
+    if (fresh.get("needs") or {}).get("token") != need.get("token") or (fresh.get("needs") or {}).get("kind") != need[
         "kind"
-    ) != "budget":
+    ]:
         client.say("The shared-budget checkpoint changed; read the current offer before deciding.")
         return None
-    argv[argv.index("--max-cost-usd") + 1] = text
+    argv[argv.index(flag) + 1] = text
     token_index = argv.index("--token") + 1
     token = argv[token_index]
     argv[token_index] = "-"
