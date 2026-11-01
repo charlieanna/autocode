@@ -716,6 +716,7 @@ def judgments(data, root=None):
         + _regclient(data, root)
         + _leasequeue(data, root)
         + _outbox(data, root)
+        + _csvcheck(data, root)
     )
 
 
@@ -793,7 +794,15 @@ def _greeting(data, root):
     try:
         source = (root / "greet.py").read_bytes()
         digest = hashlib.sha256(source).hexdigest()
-        inputs = (digest, hashlib.sha256((root / "test_greet.py").read_bytes()).hexdigest())
+        # The adversarial-planning cases move the CLI tests into tests/ to exercise
+        # subdirectory planning; both layouts must keep serving the same judgment.
+        tests = next(
+            (candidate for candidate in (root / "test_greet.py", root / "tests/test_greet.py") if candidate.is_file()),
+            None,
+        )
+        if tests is None:
+            return []
+        inputs = (digest, hashlib.sha256(tests.read_bytes()).hexdigest())
         if inputs not in (GREETING_REFERENCE, GREETING_ACCEPTS_EMPTY_NAME):
             return []
     except OSError:
@@ -834,3 +843,163 @@ def _greeting(data, root):
                 }
             )
     return accepted
+
+
+CSVCHECK_SOURCES = {
+    "csvcheck/__init__.py": "e1bf7e66b36a78babfc904506780ff71b331bcf1a4d6bde320f8fac6fb72dafb",
+    "csvcheck/__main__.py": "0472e2ffee01c7582c667fb3eb1ef01023e7d584f175cef8cb475e45e6bd1736",
+}
+CSVCHECK_TESTS = {
+    "tests/test_csvcheck.py": "a2d7a8c0baf8c87a9a13bf14bc6e42968427a9f0aa19773ddea0474293202fec",
+    "tests/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+}
+CSVCHECK_REASONS = {
+    "csvcheck/__init__.py": {
+        "import argparse": "No supported import mutation. main builds its parser from argparse; tests/test_csvcheck.py drives `python3 -m csvcheck PATH` through the CLI, so removing the import breaks every observed flow.",
+        "import csv": "No supported import mutation. The reader, field_size_limit and csv.Error paths below are what the quoting and header tests observe through the CLI exit code and stderr.",
+        "import json": "No supported import mutation. test_valid and test_reports_errors parse the CLI's stdout as JSON; removing the import breaks that output.",
+        "import re": "No supported import mutation. The age and email field checks use re.fullmatch; the error-row tests observe those fields in the stdout JSON.",
+        "import sys": "No supported import mutation. sys.maxsize seeds the field-size search and the error path writes to sys.stderr, both observed by the CLI tests.",
+        "def strict_quoted_lines(source):": "The header declares the generator; its body lines carry the quoting behavior. The CLI tests observe quoting only through exit codes and stderr after csv.reader consumes its output.",
+        '"""Keep CSV parsing in csv.reader, rejecting quotes in unquoted fields."""': "A docstring carries no runtime behavior; the suite asserts the quoting behavior its body implements, so there is no mutation site here.",
+        'state = "start"': "No supported assignment mutation. This initializes and resets the quoting state machine; csv.reader consumes its output and the CLI tests observe malformed quoting as exit 2 with stderr.",
+        "for line in source:": "No supported loop mutation. The state machine advances per line; dropping lines changes which inputs csv.reader sees and fails the quoting-driven CLI checks.",
+        "for char in line:": "No supported loop mutation. Quoting state advances per character; skipping characters misclassifies quotes and fails the malformed-quoting exit check.",
+        'if state == "quoted":': "No supported comparison mutation. The quoting state machine's branch decides closed-quote and unterminated handling; the CLI tests observe both as specific exit codes and stderr.",
+        "if char == '\"':": "No supported comparison mutation. Detecting the closing quote drives the state machine; misreading it fails the malformed-quoting CLI check.",
+        'state = "closed"': "No supported assignment mutation. The closed state is what later doubled quotes and delimiters branch on; the CLI tests observe its effect through exit 2 on malformed quoting.",
+        'elif state == "closed" and char == \'"\':': "No supported comparison mutation. A quote directly after a closing quote is the doubled-quote form; this branch is what keeps it legal, which the valid-input CLI test requires.",
+        'state = "quoted"  # doubled quote inside a quoted field': "No supported assignment mutation. Doubled quotes inside a quoted field are legal CSV; this transition keeps them parseable, which the valid-input CLI test requires.",
+        'elif char in ",\\r\\n":': "No supported membership mutation. Delimiters reset the field state; mishandling them misclassifies later quotes and fails the CLI quoting checks.",
+        'elif state == "start":': "No supported comparison mutation. Only start-state opening quotes begin a quoted field; the CLI tests observe the difference as malformed-quoting failures.",
+        'state = "quoted" if char == \'"\' else "unquoted"': "No supported assignment or comparison mutation. Opening quotes classify the field; the quoting and valid-input CLI tests observe this through the exit code.",
+        'elif char == \'"\' or state == "closed":': "No supported comparison mutation. A bare quote outside a quoted field is malformed CSV; the CLI tests require exit 2 with stderr for it.",
+        'raise csv.Error("malformed CSV quoting")': "No supported raise mutation. The CLI tests observe rejected quoting only through this error reaching stderr with exit 2.",
+        "yield line": "No supported yield mutation. csv.reader consumes exactly these lines; withholding one starves the parser and fails the row-count and quoting checks.",
+        'raise csv.Error("unterminated quoted field")': "No supported raise mutation. An unterminated quoted field must surface as exit 2 with stderr; dropping the raise fails that CLI check.",
+        "def main(argv=None):": "The header declares the CLI entrypoint and its optional argv; every test observes main through the module CLI's exit code, stdout and stderr.",
+        'parser = argparse.ArgumentParser(description="Validate contact CSV")': "No supported call mutation. The CLI tests invoke `python3 -m csvcheck PATH`; the parser is what turns argv into the path every flow reads.",
+        'parser.add_argument("path")': "No supported call mutation. Without the positional path argument the CLI cannot be invoked as the tests require.",
+        "args = parser.parse_args(argv)": "No supported call mutation. The parsed path feeds the open below; the CLI tests observe a missing argument as argparse's own exit and usage.",
+        "limit = sys.maxsize": "No supported assignment mutation. This seeds the largest field-size search; the CLI flows below observe the resolved limit through csv.field_size_limit.",
+        "while True:": "No supported loop mutation. The search loop walks the limit down until the platform accepts it; breaking it starves field_size_limit and fails the CLI flows.",
+        "try:": "No supported statement mutation. Both guarded blocks exist to route their failures to the CLI error path the tests observe as exit 2 with stderr.",
+        "csv.field_size_limit(limit)": "No supported call mutation. The accepted limit is what lets long fields parse; the CLI tests observe a rejected limit as an uncaught failure.",
+        "break": "No supported statement mutation. Stopping at the first accepted limit is what keeps the resolved value; without it the search degrades the limit and changes parsing.",
+        "except OverflowError:": "No supported exception mutation. Platforms rejecting huge limits raise here; the search loop depends on catching it to continue.",
+        "limit //= 10": "No supported assignment mutation. The search step is what eventually satisfies field_size_limit on every platform the suite runs on.",
+        'with open(args.path, encoding="utf-8", newline="") as source:': "No supported call mutation. The CLI tests write the exact CSV this open reads; changing the mode or encoding surfaces through the error path or wrong parsing.",
+        "reader = csv.reader(strict_quoted_lines(source), strict=True)": "No supported call mutation. The strict reader over the guarded lines is the parser every row assertion observes.",
+        "header = next((row for row in reader if row), None)": "No supported call mutation. Skipping blank leader rows finds the header the bad-header test rejects.",
+        'if header != ["name", "age", "email"]:': "No supported comparison mutation. test_bad_header requires a wrong header to exit 2 with empty stdout.",
+        'raise ValueError("expected header name,age,email")': "No supported raise mutation. The wrong-header CLI check observes this through the shared error path as exit 2 and stderr.",
+        "errors = []": "No supported assignment mutation. Every error row the tests assert is appended to this list; changing it breaks the stdout JSON.",
+        "count = 0": "No supported assignment mutation. The row count the valid-input test asserts starts here.",
+        "for row in reader:": "No supported loop mutation. Dropping rows changes the asserted count and error rows in the stdout JSON.",
+        "if not row:": "No supported comparison mutation. Blank data rows are not counted; keeping them would change the asserted rows value.",
+        "continue": "No supported statement mutation. Skipping blank rows is what keeps the asserted row count exact.",
+        "count += 1": "No supported assignment mutation. The valid-input test asserts rows equals the data records this counts.",
+        "if len(row) != 3:": "No supported comparison mutation. Wrong-width rows are reported with the columns field in the asserted error JSON.",
+        'fields = ["columns"]': "No supported assignment mutation. The column-count error the tests assert names this exact field list.",
+        "else:": "No supported statement mutation. The three-field rows the valid-input test asserts flow through this branch.",
+        "name, age, email = (field.strip() for field in row)": "No supported assignment mutation. Stripped fields feed every name, age and email check the error rows assert.",
+        "fields = []": "No supported assignment mutation. The per-field error list starts empty; the asserted error JSON is built from it.",
+        "if not name:": "No supported comparison mutation. Empty names must appear in the error rows the tests assert.",
+        'fields.append("name")': "No supported call mutation. The asserted error JSON names the invalid fields exactly.",
+        'bounded_age = age.lstrip("0") or "0"': "No supported assignment mutation. Leading zeros are bounded before the length and range checks; the two-record criterion keeps age 0 valid through it.",
+        'if not re.fullmatch(r"[0-9]+", age) or len(bounded_age) > 3 or int(bounded_age) > 130:': "No supported comparison mutation. test_reports_errors asserts the age field error for a non-numeric age, and the two-record criterion keeps ages 0 and 130 valid.",
+        'fields.append("age")': "No supported call mutation. The asserted error JSON names the age field exactly.",
+        'if not re.fullmatch(r"[^@\\s]+@[^@\\s]+", email):': "No supported comparison mutation. test_reports_errors asserts the email field error for an invalid address.",
+        'fields.append("email")': "No supported call mutation. The asserted error JSON names the email field exactly.",
+        "if fields:": "No supported comparison mutation. Only faulty records reach the asserted error rows.",
+        'errors.append({"row": count + 1, "fields": fields})': "No supported call mutation. test_reports_errors asserts the exact row number and fields of each error.",
+        "except (OSError, UnicodeError, csv.Error, ValueError) as exc:": "No supported exception mutation. Every failure path the CLI tests observe as exit 2 with stderr routes through this handler.",
+        "print(str(exc), file=sys.stderr)": "No supported call mutation. test_bad_header requires the failure message on stderr.",
+        "return 2": "No supported return mutation. test_bad_header asserts exit 2 with empty stdout.",
+        'print(json.dumps({"rows": count, "errors": errors}))': "No supported call mutation. test_valid and test_reports_errors assert this exact JSON on stdout.",
+        "return 1 if errors else 0": "No supported return mutation. test_valid asserts exit 0 and test_reports_errors asserts exit 1.",
+    },
+    "csvcheck/__main__.py": {
+        "from . import main": "No supported import mutation. The CLI tests invoke `python3 -m csvcheck`; this adapter is what makes the package runnable.",
+        "raise SystemExit(main())": "No supported exit-adapter mutation. The tests assert exits 0, 1 and 2; discarding main's return value fails those checks.",
+    },
+}
+
+
+def _csvcheck(data, root):
+    """adversarial planning on ladder-03: the reference CLI's lines without a mutation site, tests pinned."""
+    proof = data.get("regression_proof") or {}
+    try:
+        sources = {path: (root / path).read_bytes() for path in CSVCHECK_SOURCES}
+        if any(hashlib.sha256(sources[path]).hexdigest() != digest for path, digest in CSVCHECK_SOURCES.items()):
+            return []
+        if any(hashlib.sha256((root / path).read_bytes()).hexdigest() != pin for path, pin in CSVCHECK_TESTS.items()):
+            return []
+    except OSError:
+        return []
+    if not proof.get("path"):
+        return []
+    accepted = []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        path, line = row.get("path"), row.get("line")
+        if (
+            row.get("status") != "reason_required"
+            or path not in CSVCHECK_SOURCES
+            or row.get("sha256") != CSVCHECK_SOURCES[path]
+            or type(line) is not int
+            or row.get("mutation_outcomes")
+        ):
+            continue
+        lines = sources[path].decode().splitlines()
+        if not 0 < line <= len(lines):
+            continue
+        if reason := CSVCHECK_REASONS[path].get(lines[line - 1].strip()):
+            accepted.append(
+                {
+                    "gap_id": row["gap_id"],
+                    "decision": "accept",
+                    "reason_kind": "instrumentation_unavailable",
+                    "reason": reason,
+                    "evidence_refs": [proof["path"], path],
+                }
+            )
+    accepted.extend(_csvcheck_equivalent_mutant(data, root, proof, sources))
+    return accepted
+
+
+def _csvcheck_equivalent_mutant(data, root, proof, sources):
+    """line 60's len(bounded_age) > 3 guard: 3 -> 4 is the one equivalent survivor."""
+    mutants = [
+        m
+        for f in (proof.get("mutation_check") or {}).get("files") or []
+        if f.get("path") == "csvcheck/__init__.py"
+        for m in f.get("mutants") or []
+    ]
+    surviving = [m for m in mutants if m.get("outcome") == "survived"]
+    if (
+        not mutants
+        or not surviving
+        or any(m.get("outcome") not in ("killed", "survived") for m in mutants)
+        or any(
+            (m.get("line"), m.get("operator"), m.get("before"), m.get("after")) != (60, "shift_bound", "3", "4")
+            for m in surviving
+        )
+    ):
+        return []
+    digest = CSVCHECK_SOURCES["csvcheck/__init__.py"]
+    return [
+        {
+            "gap_id": row["gap_id"],
+            "decision": "accept",
+            "reason_kind": "equivalent_mutant",
+            "reason": "The len(bounded_age) > 3 guard's only surviving mutant (3 -> 4) is equivalent: an age of four or more digits after leading zeros are stripped is at least 1000, which the adjacent int(bounded_age) > 130 comparison already rejects, so the guard's exact digit threshold cannot change any observable verdict. tests/test_csvcheck.py::CsvCheckTests.test_age_131_and_1000_are_invalid kills the neighboring 130 -> 131 and > -> >= mutants, and every other mutant on the line is killed; no other surviving or incomplete mutation is accepted.",
+            "evidence_refs": [proof["path"], "csvcheck/__init__.py"],
+        }
+        for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []
+        if row.get("status") == "reason_required"
+        and row.get("path") == "csvcheck/__init__.py"
+        and row.get("sha256") == digest
+        and row.get("line") == 60
+        and row.get("mutation_outcomes")
+        and set(row["mutation_outcomes"]) <= {"killed", "survived"}
+    ]
