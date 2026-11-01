@@ -538,10 +538,13 @@ def combine_accounting(attempts):
         # Each attempt contributes its own amount exactly once (#2592): its receipts' prices
         # when they carry every one, its own cost-state observation when they are unpriced, and
         # nothing when every receipt was an already-counted duplicate. A conflict stays unknown.
+        # The same decision prices the attribution: priced receipts attribute per request, a
+        # distinct attempt-bound amount attributes as that one amount, and never invented
+        # request prices (#2599 review).
         if not row.get("requests"):
-            costs.append(row.get("reported_cost_usd"))
+            amount, price_parts = row.get("reported_cost_usd"), [row]
         elif any(request.get("conflict") for request in charged):
-            costs.append(None)
+            amount, price_parts = None, charged
         elif not charged:
             # The shared receipts were already counted; a pure replay adds nothing. Only a
             # distinct attempt-bound amount (its own cost-state delta, not the receipts) is
@@ -550,11 +553,14 @@ def combine_accounting(attempts):
                 all(request.get("reported_cost_usd") is not None for request in row.get("requests") or [])
                 or row.get("reported_cost_usd") is None
             )
-            costs.append(0.0 if receipt_derived else row.get("reported_cost_usd"))
+            amount = 0.0 if receipt_derived else row.get("reported_cost_usd")
+            price_parts = [] if receipt_derived else [row]
         elif all(request.get("reported_cost_usd") is not None for request in charged):
-            costs.append(sum(request["reported_cost_usd"] for request in charged))
+            amount = sum(request["reported_cost_usd"] for request in charged)
+            price_parts = charged
         else:
-            costs.append(row.get("reported_cost_usd"))
+            amount, price_parts = row.get("reported_cost_usd"), [row]
+        costs.append(amount)
         row["attributed_tokens"] = {
             key: _quantity(
                 [_dict(part.get("tokens")).get(key) for part in portions],
@@ -564,7 +570,8 @@ def combine_accounting(attempts):
         }
         row["attributed_requests"] = len(charged) if row.get("requests") or row.get("runner_owned") else None
         row["attributed_reported_usd"] = _quantity(
-            [part.get("reported_cost_usd") for part in portions], uncertain=row.get("unobserved_usage_possible", False)
+            [part.get("reported_cost_usd") for part in price_parts],
+            uncertain=row.get("unobserved_usage_possible", False),
         )
     uncertain = any(row.get("unobserved_usage_possible") for row in rows)
     tokens = {

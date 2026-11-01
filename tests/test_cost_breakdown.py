@@ -4,6 +4,7 @@ import copy
 import unittest
 
 import autocode_cost as cost
+import autocode_route_evidence as routes
 import autocode_usage as usage
 
 
@@ -215,6 +216,12 @@ class CostStateReviewRegressions(unittest.TestCase):
                 self.assertEqual([1.0, 2.0], sorted(row["reported_cost_usd"] for row in measured["attempts"]))
                 self.assertIsNone(measured["cost"]["reported_usd"]["value"])
                 self.assertAlmostEqual(3.0, measured["cost"]["reported_usd"]["known"])
+
+    def test_recovered_cost_reaches_attempt_and_route_breakdowns(self):
+        measured = usage.accounting({"stages": [attempt("first", 2.5760102)]})
+        self.assertAlmostEqual(2.5760102, measured["cost"]["reported_usd"]["known"])
+        self.assertAlmostEqual(2.5760102, measured["attempts"][0]["attributed_reported_usd"]["known"])
+        self.assertAlmostEqual(2.5760102, routes.snapshot(measured["attempts"], 0)["reported_cost_usd"]["known"])
 
     def test_a_pure_replay_adds_nothing_so_a_priced_total_stays_complete(self):
         # The kept no-double-charge behavior: a retry whose only evidence is the shared
