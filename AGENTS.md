@@ -384,6 +384,11 @@ run the ones your change touches.
   the field inventory in `tests/test_taskrun.py`. Run `tests.test_json_contract`
   and `tests.test_taskrun`, and search `tests/` for exact-dict assertions on the
   object you extended (`grep -rn '"spans_repositories"' tests/` style).
+- **Lint and format cost seconds and fail whole CI rounds.** Run
+  `.venv/bin/ruff check tools/ tests/ scenarios/` and
+  `.venv/bin/ruff format --check tools/ tests/ scenarios/` before pushing. A pull
+  request whose only failure is one unwrapped line has spent a full CI round on
+  nothing.
 - **A terminal-screen test** (`tests/terminal_screen.py`) must `wait_for` a
   predicate covering everything it then asserts. tmux shows blank and
   half-drawn frames between a key or resize and curses' redraw; waiting for one
@@ -391,9 +396,18 @@ run the ones your change touches.
 - **A test that runs `python3`, `pytest` or another tool by name** cannot rely on
   an activated venv. CI calls `.venv/bin/python` without activating it, so put
   `Path(sys.executable).parent` on the fixture's `PATH` or call `sys.executable`.
+- **A module that skips or diverges on macOS is unverified locally.** Several gate
+  modules skip with "supervised provider requires supported Linux", and others
+  resolve `/var` to `/private/var` there. Run them in a supported Linux checkout
+  or cite the existing Ubuntu CI evidence for the revision; never conclude from a
+  macOS result alone.
 - **A failure already on master** is fixed in its own small pull request, not
   folded into a feature branch. Two feature branches fixing the same master
   failure conflict with each other as soon as one merges.
+- **A red test in your `--changed` run is not automatically yours.** Run that
+  module against `origin/master` before touching it; if it fails there too it is
+  pre-existing, and belongs in its own small pull request as above. Checking the
+  base first turns a debugging detour into a report.
 - **Merge or rebase on current `origin/master` before pushing**, and again when
   another pull request touching the same files merges. A pull request with
   merge conflicts gets no CI run at all. `tools/ci_test_selection.py` is a common
