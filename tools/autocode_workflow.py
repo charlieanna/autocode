@@ -27,6 +27,7 @@ try:
     from . import autocode_design_coverage as design_coverage
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
+    from . import autocode_review_routing as review_routing
     from . import autocode_run_status as run_status
     from . import autocode_support as support
 except ImportError:
@@ -35,6 +36,7 @@ except ImportError:
     import autocode_design_coverage as design_coverage
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
+    import autocode_review_routing as review_routing
     import autocode_run_status as run_status
     import autocode_support as support
 
@@ -73,6 +75,18 @@ def guard(state: RunState):
         return
     policy = state["settings"]["workflow"]
     event = policy.get("approval_event", {})
+    if policy.get("approval_basis") == "goal":
+        contract = state.get("goal_contract") or {}
+        if (
+            policy.get("mode") != review_routing.MODE
+            or state["settings"].get(review_routing.SETTING) != "combined"
+            or not goals.approved(state)
+            or event != contract.get("approval_event")
+            or event not in state.get("user_events", [])
+            or review_routing.POLICY not in (contract.get("body") or {}).get("constraints", [])
+        ):
+            raise support.Paused("PAUSED_WORKFLOW_APPROVAL", "Combined review needs the exact approved plan")
+        return
     if (
         event.get("kind") != "workflow_approval"
         or event.get("actor") != "user"

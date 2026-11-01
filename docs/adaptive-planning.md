@@ -274,7 +274,8 @@ The live recognizer judged every request correctly: 8 clear, 3 vague.
 
 ## Compact planning for bug fixes
 
-`--compact-bugfix-planning` (new runs only; off by default) lets a reproduced, localized bug
+Compact planning is enabled for new joint-planning runs. `--no-compact-bugfix-planning` disables it;
+`--compact-bugfix-planning` explicitly enables it. A reproduced, localized bug can
 skip one paid planning call. On the ordinary bug-fix path Requirements runs, the Investigator
 reproduces the bug (`investigate_bug`), the Planner writes the plan draft (`astra_discovery`), the
 Plan Reviewer reviews it and you approve the displayed plan. On the compact path the runner
@@ -288,18 +289,26 @@ the Planner drafts with the review in its packet; the compact draft's review cal
 full path keeps the plan-review allowance it would have had. The draft is never approved by a policy.
 Everything after approval is unchanged: acceptance tests when configured, the Builder, the
 regression proof (each restore case fails on the original code and passes after the fix), the
-Tester and a separate Completion Reviewer.
+Tester and a separate Completion Reviewer by default. A new run may independently select
+`--review-routing combined` to combine testing and completion on the configured Completion Reviewer
+route. That explicit choice replaces separate enforced milestone-checkpoint routing; it is included
+in the displayed plan and binds to its exact approval. The independent regression and changed-code
+evidence gates still apply, and existing model/effort choices are retained.
 
 The path is taken only when every trusted signal admits it; a model's word can keep the full
 path but never grant the compact one:
 
-- the run opted in and plans adaptively, with joint planning;
+- the run has compact planning enabled and plans adaptively, with joint planning;
 - Requirements named the bug-fix job (a pinned `--workflow bugfix` has no Requirements record);
+- the request does not prescribe test identifiers such as `test_positive` or `TestPositive`;
+  those need the Planner's explicit acceptance bindings before review;
 - the Investigator reproduced the bug with a probe the runner ran, sized the fix `small`, and named
   a root cause, an invariant and at least one regression case;
 - the fix touches at most four files (affected and test paths together), and none of them, nor the
   diagnosis note, matches the project's declared `sensitive-paths`
-  ([project settings](cli.md#project-settings)); a project that declares none keeps the full path;
+  ([project settings](cli.md#project-settings)); without a declaration new runs save shipped conservative
+  patterns for authentication, security, payments, billing, migrations, credentials, CI/build files and
+  dependency manifests/locks. A project may replace these patterns, including an explicit empty list;
 - the contract validators accept the runner's draft; a refused draft keeps the full path, with the
   refusal recorded.
 

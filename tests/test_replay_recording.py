@@ -53,6 +53,19 @@ def make_recording(directory, *, payload=b"print('hello')\n", head="a" * 40):
 
 
 class RecordingValidationTests(unittest.TestCase):
+    def test_planning_and_review_policy_survives_recording_without_transport_authority(self):
+        settings = {
+            **self.document["launch"]["settings"],
+            "compact_bugfix_planning": True,
+            "sensitive_paths": ["auth/**"],
+            "review_routing": "combined",
+        }
+        self.document["launch"]["settings"] = recording.launch_settings(settings)
+        self.save(self.document)
+        saved = recording.load(self.manifest).document["launch"]["settings"]
+        for key in ("compact_bugfix_planning", "sensitive_paths", "review_routing"):
+            self.assertEqual(settings[key], saved[key])
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

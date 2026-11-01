@@ -42,11 +42,13 @@ try:
     from . import autocode_quota_route as quota_route
     from . import autocode_requirements_review as requirements_review
     from . import autocode_retired_token_budget as retired_token_budget
+    from . import autocode_review_routing as review_routing
     from . import autocode_role_route as role_route
     from . import autocode_role_transport as role_transport
     from . import autocode_roles as role_names
     from . import autocode_route_fit as route_fit
     from . import autocode_route_ladder as route_ladder
+    from . import autocode_sensitive_paths as sensitive_paths
     from . import autocode_skip_requirements as skip_requirements
     from . import autocode_support as support
     from . import autocode_task_preflight as task_preflight
@@ -72,11 +74,13 @@ except ImportError:
     import autocode_quota_route as quota_route
     import autocode_requirements_review as requirements_review
     import autocode_retired_token_budget as retired_token_budget
+    import autocode_review_routing as review_routing
     import autocode_role_route as role_route
     import autocode_role_transport as role_transport
     import autocode_roles as role_names
     import autocode_route_fit as route_fit
     import autocode_route_ladder as route_ladder
+    import autocode_sensitive_paths as sensitive_paths
     import autocode_skip_requirements as skip_requirements
     import autocode_support as support
     import autocode_task_preflight as task_preflight
@@ -344,6 +348,9 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
     if opencode is None:
         opencode = autocode_opencode
     started = bool(state.get("settings") or state.get("sessions") or state.get("history"))
+    review_routing.configured(state.get("settings") or {}, getattr(args, "review_routing", None), started=started)
+    if getattr(args, "review_routing", None) == "combined" and getattr(args, "milestone_checkpoints", False):
+        raise ValueError("Combined review cannot use enforced milestone checkpoints")
     single_model = getattr(args, "single_model", None)
     if started and single_model:
         raise ValueError("--single-model is only available when starting a new run")
@@ -735,6 +742,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         "evidence_provenance": provenance,
         "milestone_checkpoints": {
             **milestones.DEFAULTS,
+            "enabled": getattr(args, "review_routing", None) != "combined",
             "max_seconds": getattr(args, "max_milestone_seconds", None)
             if getattr(args, "max_milestone_seconds", None) is not None
             else milestones.DEFAULTS["max_seconds"],
@@ -774,9 +782,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         **({"package": args.package} if getattr(args, "package", None) else {}),
         # Who may approve: the project's require-approver, fixed at launch (autocode_required_approver).
         **({"require_approver": args.require_approver} if getattr(args, "require_approver", None) else {}),
-        # Which paths a shorter planning path may never touch: the project's sensitive-paths, fixed at launch
-        # (autocode_sensitive_paths); an empty list is a declaration, so None alone means "not declared".
-        **({"sensitive_paths": args.sensitive_paths} if getattr(args, "sensitive_paths", None) is not None else {}),
+        "sensitive_paths": sensitive_paths.new_run_patterns(getattr(args, "sensitive_paths", None)),
         # The command that serves the app: the project's [serve], fixed at launch (autocode_dev_server_config).
         **({"serve": args.serve} if getattr(args, "serve", None) else {}),
         "context_soft_tokens": args.context_soft_tokens if args.context_soft_tokens is not None else 10000,
@@ -848,6 +854,9 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         settings["plan_review_full"] = True
     if compact_planning.new_run_setting(getattr(args, "compact_bugfix_planning", None), joint):
         settings[compact_planning.SETTING] = True
+    settings[review_routing.SETTING] = review_routing.configured(
+        settings, getattr(args, "review_routing", None), started=False
+    )
     settings.update(skip_requirements.new_run_settings(args, joint))
     # A persisted review allowance for new runs (#1565): the flag wins, then the
     # user's config.toml, then the machinery's built-in default. A resumed run
