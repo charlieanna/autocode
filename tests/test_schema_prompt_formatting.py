@@ -1,5 +1,6 @@
 """Compact prompt schemas retain the full output contract."""
 
+import copy
 import json
 import tempfile
 import unittest
@@ -109,7 +110,10 @@ class CompactSchemaPromptTests(unittest.TestCase):
             {"command": None, "exit_code": None, "evidence_ref": ".autocode/evidence/check.json"},
             schema["properties"]["checks"]["items"],
         )
-        self.assertIn(json.dumps(schema, separators=(",", ":")), prompt)
+        import autocode_changed_code_review as changed_code_review
+
+        # The prompt copy renders the attempt-specific property last (A3, #2113); the bound schema keeps its order.
+        self.assertIn(json.dumps(changed_code_review.prompt_order(schema), separators=(",", ":")), prompt)
 
     def test_conversation_keeps_the_schema_and_boundary_without_execution_evidence_instructions(self):
         schema = {"type": "object", "properties": {"assistant_reply": {"type": "string"}}}
@@ -155,6 +159,65 @@ class CompactSchemaPromptTests(unittest.TestCase):
         self.assertEqual(schema, rendered)
         self.assertEqual(json.dumps(schema, separators=(",", ":")), rendered_json)
         self.assertLess(len(rendered_json), len(json.dumps(schema, indent=2)))
+
+
+class AttemptSpecificSchemaLastTests(unittest.TestCase):
+    """A3 (#2113): the attempt-specific schema property renders last in the provider's prompt copy.
+
+    A schema read back from state.json is alphabetized by the JSON writer, so
+    `changed_code_exceptions` sorts to the front of the prompt prefix; the
+    prompt copy alone must render it last without touching the saved schema.
+    """
+
+    FIELD = "changed_code_exceptions"
+
+    def bound_schema(self) -> dict:
+        path = Path(__file__).resolve().parents[1] / "tools/autocode-schemas/v2/sol-report.schema.json"
+        schema = json.loads(path.read_text())
+        import autocode_changed_code_review as changed_code_review
+
+        properties = {self.FIELD: copy.deepcopy(changed_code_review.SCHEMA)}
+        properties.update(schema["properties"])
+        return {**schema, "properties": properties}
+
+    def rendered_schema(self, prompt: str) -> tuple[dict, str]:
+        prefix = prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0]
+        decoder = json.JSONDecoder()
+        for index in reversed([match for match in range(len(prefix)) if prefix.startswith("\n{", match)]):
+            try:
+                rendered, end = decoder.raw_decode(prefix[index + 1 :])
+            except ValueError:
+                continue
+            if isinstance(rendered, dict) and "properties" in rendered:
+                return rendered, prefix[index + 1 : index + 1 + end]
+        raise AssertionError("no report schema found in the prompt prefix")
+
+    def check_prompt_order(self, decorate):
+        import autocode_changed_code_review as changed_code_review
+
+        schema = self.bound_schema()
+        before = copy.deepcopy(schema)
+        prompt = decorate("Task\nCURRENT HANDOFF DATA\n{}", schema, Path("/run/events.jsonl"))
+        rendered, rendered_json = self.rendered_schema(prompt)
+        self.assertEqual(before, rendered)
+        self.assertEqual(list(before["properties"]), list(schema["properties"]))
+        self.assertEqual(self.FIELD, list(rendered["properties"])[-1])
+        self.assertGreater(rendered_json.index('"findings"'), -1)
+        self.assertIn(json.dumps(before, separators=(",", ":")).encode()[:40].decode(), rendered_json[:200])
+        # A schema without the attempt-specific field renders byte-for-byte as before.
+        plain = {"type": "object", "properties": {"summary": {"type": "string"}}}
+        self.assertIn(
+            json.dumps(plain, separators=(",", ":")),
+            decorate("Task\nCURRENT HANDOFF DATA\n{}", plain, Path("/run/events.jsonl")),
+        )
+
+    def test_opencode_renders_the_attempt_specific_property_last(self):
+        self.check_prompt_order(opencode.prompt_for_schema)
+
+    def test_claude_renders_the_attempt_specific_property_last(self):
+        import providers.claude as claude
+
+        self.check_prompt_order(claude.prompt_for_schema)
 
 
 if __name__ == "__main__":

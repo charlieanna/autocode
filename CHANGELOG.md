@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The attempt-specific schema property renders last in provider prompt copies (#2136): a
+  schema read back from a run's state file is alphabetized by the JSON writer, so
+  `changed_code_exceptions` — whose per-attempt gap enum changes across attempts — sat at
+  the front of the prompt prefix and pushed every static property deeper. Providers now
+  render it last on their own prompt copy; saved `*.schema.json` files and the bound
+  schema are unchanged.
 - Builder prompts cache better across attempts (#2136): the attempt-specific test-style
   excerpt (the "EXISTING TEST STYLE" section with excerpts of the project's own tests) now
   renders after the static Builder notes (test-case house rules, acceptance-test rules, bug
