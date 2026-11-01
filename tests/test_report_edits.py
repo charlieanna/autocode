@@ -443,3 +443,103 @@ class MalformedReportEditsTests(unittest.TestCase):
         ):
             self.assertEqual(self.schema, edits.prepare(self.schema, {**self.descriptor, **change}, "glm_revise"))
         self.assertEqual(self.schema, edits.prepare(self.schema, self.descriptor, "sol"))
+
+
+class DiscoveryFixtureSchemaTests(unittest.TestCase):
+    def test_discovery_object_fixture_emits_offered_value_json_schema(self):
+        import contextlib
+        import io
+        import os
+        import sys
+        import unittest.mock
+
+        from tests import stage_repair_provider as provider
+
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+
+        goal_schema = goals.BODY_SCHEMA
+        contract = body()
+        contract["contract_changes_placeholder"] = "to_remove"
+        rejected = {"contract": contract}
+        source = root / "rejected.json"
+        source.write_text(json.dumps(rejected))
+
+        output_schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"contract": goal_schema},
+            "required": ["contract"],
+        }
+        schema_file = root / "schema.json"
+        schema_file.write_text(json.dumps(output_schema))
+        descriptor = {
+            "path": str(source),
+            "sha256": file_hash(source),
+            "format": "json",
+            "truncated": False,
+            "content": rejected,
+        }
+        offered_schema = edits.prepare(schema_file, descriptor, "astra_discovery")
+
+        output_file = root / "repair.json"
+        data = {
+            "report_repair": True,
+            "original": {"stage": "astra_discovery"},
+            "rejected_report": {
+                "path": str(source),
+                "sha256": file_hash(source),
+                "format": "json",
+                "truncated": False,
+                "content": rejected,
+            },
+        }
+        prompt = "BOUNDED REPORT EDITS\nCURRENT HANDOFF DATA\n" + json.dumps(data)
+        delegate = root / "delegate.py"
+        delegate.write_text("import sys\nsys.exit(0)\n")
+        trace_file = root / "trace.jsonl"
+        args = [
+            "codex",
+            "exec",
+            "--output-schema",
+            str(offered_schema),
+            "-o",
+            str(output_file),
+            "resume",
+            "test-session",
+        ]
+        stdin = io.StringIO(prompt)
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with (
+            unittest.mock.patch.dict(
+                os.environ,
+                STAGE_REPAIR_CASE="discovery-edits-object",
+                STAGE_REPAIR_DELEGATE=str(delegate),
+                STAGE_REPAIR_TRACE=str(trace_file),
+            ),
+            unittest.mock.patch.object(sys, "argv", args),
+            unittest.mock.patch.object(sys, "stdin", stdin),
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
+            code = provider.main()
+            self.assertEqual(0, code)
+
+        repair = json.loads(output_file.read_text())
+        validate_schema(repair, json.loads(offered_schema.read_text()))
+        self.assertIn("repair_report", repair)
+        self.assertIn("edits", repair["repair_report"])
+        self.assertEqual(1, len(repair["repair_report"]["edits"]))
+        edit = repair["repair_report"]["edits"][0]
+        self.assertEqual("remove", edit["op"])
+        self.assertEqual(["contract", "contract_changes_placeholder"], edit["path"])
+        self.assertIn("value_json", edit)
+        self.assertEqual("null", edit["value_json"])
+
+        base = json.loads(source.read_text())
+        fixed = edits.apply(base, repair["repair_report"]["edits"])
+        expected_contract = {k: v for k, v in contract.items() if k != "contract_changes_placeholder"}
+        self.assertEqual(expected_contract, fixed["contract"])
