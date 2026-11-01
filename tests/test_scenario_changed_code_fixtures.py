@@ -191,7 +191,13 @@ class CsvcheckFixtureReviewTests(unittest.TestCase):
                                             "after": 'not (state == "quoted")',
                                             "outcome": "killed",
                                         },
-                                        {"line": 60, "operator": "swap_bound", "before": ">", "after": ">=", "outcome": "killed"},
+                                        {
+                                            "line": 60,
+                                            "operator": "swap_bound",
+                                            "before": ">",
+                                            "after": ">=",
+                                            "outcome": "killed",
+                                        },
                                         dict(
                                             {
                                                 "line": 60,
@@ -230,10 +236,7 @@ class CsvcheckFixtureReviewTests(unittest.TestCase):
                         "reason_kind": "equivalent_mutant",
                     }
                 ],
-                [
-                    {k: row[k] for k in ("gap_id", "decision", "reason_kind")}
-                    for row in served
-                ],
+                [{k: row[k] for k in ("gap_id", "decision", "reason_kind")} for row in served],
             )
             for patch in ({"after": "5"}, {"operator": "constant_return"}, {"outcome": "not_run"}, {"line": 34}):
                 with self.subTest(patch=patch):

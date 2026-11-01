@@ -797,11 +797,7 @@ def _greeting(data, root):
         # The adversarial-planning cases move the CLI tests into tests/ to exercise
         # subdirectory planning; both layouts must keep serving the same judgment.
         tests = next(
-            (
-                candidate
-                for candidate in (root / "test_greet.py", root / "tests/test_greet.py")
-                if candidate.is_file()
-            ),
+            (candidate for candidate in (root / "test_greet.py", root / "tests/test_greet.py") if candidate.is_file()),
             None,
         )
         if tests is None:
@@ -872,12 +868,12 @@ CSVCHECK_REASONS = {
         'if state == "quoted":': "No supported comparison mutation. The quoting state machine's branch decides closed-quote and unterminated handling; the CLI tests observe both as specific exit codes and stderr.",
         "if char == '\"':": "No supported comparison mutation. Detecting the closing quote drives the state machine; misreading it fails the malformed-quoting CLI check.",
         'state = "closed"': "No supported assignment mutation. The closed state is what later doubled quotes and delimiters branch on; the CLI tests observe its effect through exit 2 on malformed quoting.",
-        "elif state == \"closed\" and char == '\"':": "No supported comparison mutation. A quote directly after a closing quote is the doubled-quote form; this branch is what keeps it legal, which the valid-input CLI test requires.",
+        'elif state == "closed" and char == \'"\':': "No supported comparison mutation. A quote directly after a closing quote is the doubled-quote form; this branch is what keeps it legal, which the valid-input CLI test requires.",
         'state = "quoted"  # doubled quote inside a quoted field': "No supported assignment mutation. Doubled quotes inside a quoted field are legal CSV; this transition keeps them parseable, which the valid-input CLI test requires.",
         'elif char in ",\\r\\n":': "No supported membership mutation. Delimiters reset the field state; mishandling them misclassifies later quotes and fails the CLI quoting checks.",
         'elif state == "start":': "No supported comparison mutation. Only start-state opening quotes begin a quoted field; the CLI tests observe the difference as malformed-quoting failures.",
-        "state = \"quoted\" if char == '\"' else \"unquoted\"": "No supported assignment or comparison mutation. Opening quotes classify the field; the quoting and valid-input CLI tests observe this through the exit code.",
-        "elif char == '\"' or state == \"closed\":": "No supported comparison mutation. A bare quote outside a quoted field is malformed CSV; the CLI tests require exit 2 with stderr for it.",
+        'state = "quoted" if char == \'"\' else "unquoted"': "No supported assignment or comparison mutation. Opening quotes classify the field; the quoting and valid-input CLI tests observe this through the exit code.",
+        'elif char == \'"\' or state == "closed":': "No supported comparison mutation. A bare quote outside a quoted field is malformed CSV; the CLI tests require exit 2 with stderr for it.",
         'raise csv.Error("malformed CSV quoting")': "No supported raise mutation. The CLI tests observe rejected quoting only through this error reaching stderr with exit 2.",
         "yield line": "No supported yield mutation. csv.reader consumes exactly these lines; withholding one starves the parser and fails the row-count and quoting checks.",
         'raise csv.Error("unterminated quoted field")': "No supported raise mutation. An unterminated quoted field must surface as exit 2 with stderr; dropping the raise fails that CLI check.",
