@@ -543,7 +543,14 @@ def combine_accounting(attempts):
         elif any(request.get("conflict") for request in charged):
             costs.append(None)
         elif not charged:
-            costs.append(0.0)
+            # The shared receipts were already counted; a pure replay adds nothing. Only a
+            # distinct attempt-bound amount (its own cost-state delta, not the receipts) is
+            # not covered by the dedup and survives it (#2599 review).
+            receipt_derived = (
+                all(request.get("reported_cost_usd") is not None for request in row.get("requests") or [])
+                or row.get("reported_cost_usd") is None
+            )
+            costs.append(0.0 if receipt_derived else row.get("reported_cost_usd"))
         elif all(request.get("reported_cost_usd") is not None for request in charged):
             costs.append(sum(request["reported_cost_usd"] for request in charged))
         else:
