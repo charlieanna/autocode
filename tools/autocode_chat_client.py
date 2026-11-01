@@ -112,6 +112,10 @@ class SetApproved(Exception):
     """/changeset approved every plan of the change set: the chat reads this run again and carries on."""
 
 
+class PromptWithdrawn(Exception):
+    """Fresh public status proves this run resumed elsewhere; its old question no longer waits."""
+
+
 class Refused(actions.ClientGap):
     """The core refused a named action (another runner holds the run, a stale token): the chat stays
     open, says so and reads the run again, instead of leaving with the plan and the draft (#2000)."""
@@ -401,6 +405,7 @@ class ChatClient:
         self._status_view: dict | None = None
         self._status_serial = 0
         self._status_error = ""
+        self._prompt_waiting_key: tuple[str, str] | None = None
         self._read_errors: dict[str, str] = {}
         self._pause_pending = False
         self._attached = False
@@ -435,6 +440,7 @@ class ChatClient:
         """Pump bounded reads; also called between keys while a question is open."""
         attention.poll_acknowledgement(self)
         current = (str(self.workspace), str(self.run_dir))
+        resumed_while_asking = False
         targets: dict[polling.Key, float] = {current: self.pace(self.poll_seconds)}
         targets.update({(str(workspace), run): OTHERS_SECONDS for run, (workspace, _) in self.others.items()})
         if self.history is not None:
@@ -485,6 +491,7 @@ class ChatClient:
                     self._attention.observe(view, received=time.monotonic())
                     self._status_view = view
                     self.accept_status(view)
+                    resumed_while_asking = self._prompt_waiting_key == current and actions.working(view)
             elif key[1] in self.others:
                 if view is not None:
                     self.viewed.add(key[1])  # a background tab has answered a read too, so it can lose a view
@@ -496,6 +503,8 @@ class ChatClient:
         for row in self._attention.notifications():
             if attention.key(row) != current or self._composing_new:
                 self.say("New attention: " + attention.label(row) + ". F8 or /attention opens the inbox.")
+        if resumed_while_asking:
+            raise PromptWithdrawn
 
     def status(self) -> dict:
         # An approval/message check always starts a new read, after the person's input.
@@ -847,6 +856,19 @@ class ChatClient:
         return f"{name} {why}. Type /help for the commands; // sends text that starts with /."
 
     def _read(self, prompt: str) -> str:
+        previous = self._prompt_waiting_key
+        self._prompt_waiting_key = (
+            (str(self.workspace), str(self.run_dir))
+            if self._status_view is not None and not self._composing_new and not actions.working(self._status_view)
+            else None
+        )
+        try:
+            return self._read_reply(prompt)
+        finally:
+            self._prompt_waiting_key = previous
+
+    def _read_reply(self, prompt: str) -> str:
+        """Read a reply, preserving the existing leave and boundary-pause behavior."""
         while True:
             try:
                 return self._ask(prompt).strip()
@@ -1101,7 +1123,7 @@ class ChatClient:
                 try:
                     if (stop := self.step()) is not None:
                         return stop
-                except (Restored, Switched, SetApproved):
+                except (Restored, Switched, SetApproved, PromptWithdrawn):
                     continue  # going back to a saved step, /open or a set approval: carry on with that run
                 except Refused as error:
                     # Nothing was stopped: another driver may hold the run, or what was shown went stale. The

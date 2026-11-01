@@ -676,6 +676,23 @@ class AskTests(unittest.TestCase):
         self.assertEqual("n", ui.ask("Continue? [y/N]"))
         self.assertEqual(["/undo\nStep 1.", "Go back to step 1?\nNothing changed."], self.info(ui))
 
+    def test_unwinding_a_question_discards_its_pending_command_confirmation(self):
+        ui = screen_ui(*"/undo 1\n")
+        action = mock.Mock(return_value="Done.")
+        ui.bind(lambda name, argument: tui.panel.Confirm("Step 1.", "Go back to step 1?", action))
+
+        def resumed():
+            if ui._pending is not None:
+                raise chat_client.PromptWithdrawn
+
+        ui.idle = resumed
+        with self.assertRaises(chat_client.PromptWithdrawn):
+            ui.ask("Which model should the Tester continue on?")
+        ui._composer.reset()
+        for key in "y\n":
+            ui._handle(key, asking=False)
+        action.assert_not_called()
+
     def test_diff_with_a_step_number_goes_to_the_client_and_its_answer_is_shown(self):
         ui = screen_ui(*"/diff 2\n", *"n\n")
         calls = []

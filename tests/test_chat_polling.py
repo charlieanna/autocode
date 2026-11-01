@@ -226,3 +226,70 @@ class InitialRead(unittest.TestCase):
             ui._handle(key, asking=False)
         self.assertEqual("hello", ui._composer.text)
         self.assertIn("Reading run status", ui._transcript.blocks[-1][1])
+
+
+class ExternallyResumedPromptTests(unittest.TestCase):
+    def client(self, fresh, error=""):
+        client = chat.ChatClient(WORKSPACE, RUN, say=lambda _: None)
+        self.addCleanup(client.close)
+        waiting = {"status": "WAITING_FOR_USER", "needs": {"kind": "answer"}}
+        key = (str(WORKSPACE), str(RUN))
+        client._poller.tick = mock.Mock(return_value=[(key, json.dumps({"view": fresh}), error)])
+        client._status_view = waiting
+        client.accept_status(waiting)
+        return client
+
+    def test_external_worker_retires_the_old_question_and_returns_to_observation(self):
+        working = {"status": "RUNNING", "needs": {"kind": "continue"}, "liveness": {"kind": "supervised"}}
+        client = self.client(working)
+        steps = []
+
+        def read(prompt):
+            client.poll()
+            self.fail("The obsolete question must stop waiting for a reply once this run is working")
+
+        def step():
+            steps.append(True)
+            if len(steps) == 1:
+                client.ask("Which model should the Tester continue on? ")
+            else:
+                return 0
+
+        client._ask = read
+        client.step = step
+        client.take = mock.Mock()
+        self.assertEqual(0, client.converse())
+        self.assertEqual(2, len(steps))
+        client.take.assert_not_called()
+
+    def test_unknown_stale_or_other_run_status_does_not_withdraw_a_question(self):
+        cases = [
+            ({"status": "RUNNING", "needs": {"kind": "continue"}}, ""),
+            ({"liveness": {"kind": "supervised"}}, "status timed out"),
+            ({"run_dir": "/other/run", "liveness": {"kind": "supervised"}}, ""),
+            ({"status": "WAITING_FOR_USER", "needs": {"kind": "answer"}}, ""),
+        ]
+        for view, error in cases:
+            with self.subTest(view=view, error=error):
+                client = self.client(view, error)
+                client._ask = lambda prompt: (client.poll(), "kept reply")[1]
+                self.assertEqual("kept reply", client.ask("Which model?"))
+
+    def test_local_new_chat_and_existing_working_prompts_are_not_retired(self):
+        working = {"needs": {"kind": "continue"}, "liveness": {"kind": "supervised"}}
+        for new_chat in (True, False):
+            with self.subTest(new_chat=new_chat):
+                client = self.client(working)
+                if new_chat:
+                    client._composing_new = True
+                else:
+                    client._status_view = working
+                client._ask = lambda prompt: (client.poll(), "local reply")[1]
+                self.assertEqual("local reply", client.ask("Local confirmation?"))
+
+    def test_leaving_a_prompt_clears_its_observation_guard(self):
+        working = {"needs": {"kind": "continue"}, "liveness": {"kind": "supervised"}}
+        client = self.client(working)
+        client._ask = lambda prompt: "answer"
+        self.assertEqual("answer", client.ask("Which model?"))
+        client.poll()  # a later normal observation must not unwind a finished input call

@@ -232,3 +232,77 @@ print('VIEWER-CLOSED')
         print(
             f"Hung status real TUI: /help rendered in {help_seconds:.3f}s; healthy chat updated; timed-out child reaped"
         )
+
+
+class ResumedQuestionTerminal(unittest.TestCase):
+    def test_external_resume_removes_stale_question_without_a_reply_or_second_action(self):
+        from tests.terminal_screen import TerminalScreen, require_tmux
+
+        tmux = require_tmux(self)
+        with tempfile.TemporaryDirectory(prefix="resumed-question-") as folder:
+            root = Path(folder)
+            run = root / "saved-run"
+            backend = root / "public_status.py"
+            backend.write_text("""import json, pathlib, sys
+root = pathlib.Path(__file__).parent
+with (root / 'commands.jsonl').open('a') as out:
+    out.write(json.dumps(sys.argv[1:]) + '\\n')
+if '--status' not in sys.argv:
+    sys.exit('No action was offered to this viewer')
+phase = (root / 'phase').read_text() if (root / 'phase').exists() else 'waiting'
+view = {'workspace': str(root), 'run_dir': str(root / 'saved-run'), 'done': phase == 'done'}
+if phase == 'waiting':
+    view.update(status='PAUSED_JOB', needs={'kind': 'answer', 'questions': [{'id':'route-tester', 'question':'Choose the recovery model'}], 'route': {'question_id':'route-tester', 'role':'tester', 'job':'Tester', 'cause':'timeout', 'stopped_model':'kept-model'}}, next_command='autocode --answer route-tester=MODEL')
+elif phase == 'running':
+    view.update(status='RUNNING', needs={'kind':'continue'}, liveness={'kind':'supervised'}, progress={'line':'Tester working'})
+else:
+    view.update(status='DONE', needs={'kind':'none'})
+print(json.dumps({'view':view}))
+""")
+            viewer = root / "viewer.py"
+            viewer.write_text(f"""import sys
+from pathlib import Path
+sys.path.insert(0, {str(ROOT / "tools")!r})
+from autocode_chat_client import ChatClient
+from autocode_chat_tui import ChatTUI
+ui=ChatTUI()
+client=ChatClient(Path({str(root)!r}), Path({str(run)!r}), command=(sys.executable,{str(backend)!r}), ask=ui.ask, say=ui.say, observe=ui.observe, wait=ui.wait, poll_seconds=0.05)
+ui.idle=client.poll
+ui.bind(client.slash)
+try:
+    result=client.converse()
+finally:
+    ui.close()
+raise SystemExit(result)
+""")
+            screen = TerminalScreen(
+                [sys.executable, str(viewer)],
+                cwd=root,
+                env={**os.environ, "TERM": "xterm-256color"},
+                cols=120,
+                rows=34,
+                tmux=tmux,
+            )
+            self.addCleanup(screen.close)
+            screen.wait_for("? Which model should the Tester continue on?", timeout=15)
+            screen.type("unsent draft")
+            screen.wait_for(lambda shown: "unsent draft" in shown and "? Which model" in shown, timeout=10)
+            (root / "phase").write_text("running")
+            shown = screen.wait_for(
+                lambda shown: (
+                    "RUNNING" in shown
+                    and "? Which model" not in shown
+                    and "ctrl-c asks AutoCode" in shown
+                    and "unsent draft" in shown
+                ),
+                timeout=10,
+                what="working view without the retired model question",
+            )
+            self.assertNotIn("? Which model", shown)
+            (root / "phase").write_text("done")
+            self.assertEqual(0, screen.exit_status(timeout=15))
+            import json
+
+            calls = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()]
+            self.assertTrue(calls)
+            self.assertTrue(all("--status" in call for call in calls), calls)
