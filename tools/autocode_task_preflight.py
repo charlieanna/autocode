@@ -37,6 +37,7 @@ try:
     from . import autocode_preflight_design as design
     from . import autocode_preflight_worker as workers
     from . import autocode_runner_check as runner_check
+    from . import autocode_storage_budget as storage_budget
     from . import autocode_util as util
     from . import autocode_verify as verify
 except ImportError:
@@ -47,6 +48,7 @@ except ImportError:
     import autocode_preflight_design as design
     import autocode_preflight_worker as workers
     import autocode_runner_check as runner_check
+    import autocode_storage_budget as storage_budget
     import autocode_util as util
     import autocode_verify as verify
 
@@ -273,6 +275,8 @@ def guard(state: RunState, workspace, run_dir, *, worker=None, persist=lambda _p
     scrubbing and process cleanup. Run output is retained beneath this run only.
     A failed readiness result is always rerun after an explicit resume.
     """
+    if reason := storage_budget.dispatch_refusal(workspace, run_dir):
+        raise util.Paused("PAUSED_TASK_PREFLIGHT", reason)
     config = state.get("settings", {}).get("task_preflight")
     if not config:
         return

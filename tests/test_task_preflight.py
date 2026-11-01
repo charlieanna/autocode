@@ -344,6 +344,48 @@ class PrerequisiteCliTests(PreflightFixture):
             timeout=60,
         )
 
+    def test_temporary_storage_is_rechecked_before_spend_and_cached_readiness(self):
+        full = self.root / "scratch-full"
+        full.touch()
+        launcher = self.root / "storage_fault.py"
+        launcher.write_text(
+            "import sys, tempfile\nfrom pathlib import Path\n"
+            f"sys.path.insert(0, {str(ROOT / 'tools')!r})\n"
+            "import autocode, autocode_storage_budget as storage\n"
+            "original = storage.shutil.disk_usage\n"
+            "def disk(path):\n"
+            f"    if Path({str(full)!r}).exists() and Path(path).resolve() == Path(tempfile.gettempdir()).resolve():\n"
+            "        return original(path)._replace(free=0)\n"
+            "    return original(path)\n"
+            "storage.shutil.disk_usage = disk\n"
+            "raise SystemExit(autocode.main())\n"
+        )
+        run = taskrun.TaskRun.start(
+            self.workspace,
+            BRIEF,
+            options=(*OPTIONS, "--pause-after-stage"),
+            start_options=("--workflow", "build", "--task-preflight", str(self.path)),
+            command=(sys.executable, str(launcher)),
+            env=self.env,
+            timeout=60,
+        )
+        self.assertEqual("PAUSED_TASK_PREFLIGHT", run.status()["status"])
+        self.assertFalse(self.marker.exists(), "no provider may run with full scratch storage")
+        full.unlink()
+        ready = run.resume_paused()
+        self.assertEqual(["requirements_gather"], self.marker.read_text().splitlines())
+        receipt = ready["task_preflight"]["receipt"]
+        full.touch()
+        stopped = run.resume_paused()
+        self.assertEqual("PAUSED_TASK_PREFLIGHT", stopped["status"])
+        self.assertIn("temporary files", stopped["stop_reason"])
+        self.assertEqual(["requirements_gather"], self.marker.read_text().splitlines())
+        self.assertEqual(receipt, stopped["task_preflight"]["receipt"])
+        full.unlink()
+        resumed = run.resume_paused()
+        self.assertEqual(["requirements_gather", "astra_discovery"], self.marker.read_text().splitlines())
+        self.assertEqual(receipt, resumed["task_preflight"]["receipt"])
+
     def test_no_paid_stage_on_failed_setup_one_offline_dispatch_after_explicit_resume(self):
         (self.workspace / "probe.py").write_text(
             "from pathlib import Path\nraise SystemExit(9 if '/.autocode/' in str(Path.cwd()) else 0)\n"

@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -112,6 +113,31 @@ def refusal(projection):
             f"preparing even one source copy of the workspace ({human(projection['workspace_bytes'])}) exceeds the "
             f"free space ({human(projection['free_bytes'])}); free disk space or move the workspace to a larger disk"
         )
+    return ""
+
+
+def dispatch_refusal(workspace, run_dir):
+    """Recheck every storage destination before spend; free space is never reusable evidence.
+
+    Workspace copies, run artifacts and tools' temporary files can be on different
+    filesystems. Use the existing one-copy floor, without treating it as proof that
+    a complete build will fit. Check the nearest existing ancestor of a fresh run.
+    """
+    size = workspace_bytes(workspace)
+    for label, destination in (
+        ("workspace", workspace),
+        ("run artifacts", run_dir),
+        ("temporary files", tempfile.gettempdir()),
+    ):
+        root = Path(destination).resolve()
+        while not root.exists() and root != root.parent:
+            root = root.parent
+        free = shutil.disk_usage(root).free
+        if free < max(1, size):
+            return (
+                f"Insufficient storage for {label} at {root}: {human(free)} free; "
+                f"even one source copy needs {human(size)}. Free space or move the storage before resuming."
+            )
     return ""
 
 

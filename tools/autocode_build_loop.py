@@ -127,6 +127,8 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         consume_boundary(state)
         if (run_dir / "pause-requested").exists():
             raise support.Paused("PAUSED_REQUESTED", "Pause requested; previous model access probe saved")
+        if reason := storage_budget.dispatch_refusal(workspace, run_dir):
+            raise support.Paused("PAUSED_TASK_PREFLIGHT", reason)
 
     try:
         model_preflight.check(
