@@ -95,7 +95,44 @@ class RevisionReferenceTests(unittest.TestCase):
             covered=True,
             cites_user_event=lambda text: False,
         )
-        self.assertEqual(["Requirement R1 is not covered by a behavior or criterion"], errors)
+        self.assertEqual(1, len(errors))
+        self.assertTrue(errors[0].startswith("Requirement R1 is not covered by a behavior or criterion"))
+        self.assertIn("required_behaviors entry copied exactly", errors[0])
+        for criterion in result["contract"]["acceptance_criteria"]:
+            self.assertIn(criterion["id"], errors[0])
+
+    def test_requirement_own_text_is_refused_and_the_error_names_the_accepted_forms(self):
+        # Issue #2592 shape (report-repair residual): R11's evidence paraphrased
+        # its source and R12's was the requirement's own text copied exactly.
+        # The gate refused both; its error must name the accepted forms and the
+        # contract's criterion IDs because the repair turn sees only that text.
+        contract = {
+            "required_behaviors": [],
+            "acceptance_criteria": [{"id": "AC1", "sources": []}],
+        }
+        errors = coverage.coverage_errors(
+            [{"id": "R11"}, {"id": "R12"}],
+            {
+                "R11": {
+                    "requirement_id": "R11",
+                    "disposition": "covered",
+                    "evidence": "The saved correction revises the proposal only and grants no implementation approval.",
+                },
+                "R12": {
+                    "requirement_id": "R12",
+                    "disposition": "covered",
+                    "evidence": "Retain completed Requirements and existing evidence while revising the affected proposal.",
+                },
+            },
+            contract,
+            covered=True,
+            cites_user_event=lambda text: False,
+        )
+        self.assertEqual(2, len(errors))
+        for error in errors:
+            self.assertIn("required_behaviors entry copied exactly", error)
+            self.assertIn("AC1", error)
+            self.assertIn("requirement's own text is not evidence, even copied exactly", error)
 
     def test_new_schema_and_repairs_offer_reference_but_old_pins_do_not(self):
         old = copy.deepcopy(planner.SCHEMAS["glm_revise"])
