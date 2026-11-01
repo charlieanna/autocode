@@ -12,9 +12,13 @@ if TYPE_CHECKING:
 try:
     from . import autocode_changeset_store as store
     from . import autocode_coordination_store as coordination_store
+    from . import autocode_scope_assignment as scope_assignment
+    from . import autocode_scope_question as scope_question
 except ImportError:
     import autocode_changeset_store as store
     import autocode_coordination_store as coordination_store
+    import autocode_scope_assignment as scope_assignment
+    import autocode_scope_question as scope_question
 
 JOINT_PROXY_RULE = """
 REAL JOINT PROOF IS NOT A LOCAL PROXY. For this authenticated automatic member,
@@ -171,6 +175,20 @@ def context(state: RunState):
             "Existing protected criteria still require their normal revision basis.\n" + JOINT_PROXY_RULE
         ),
     }
+    if (assigned := scope_assignment.current(state)) and scope_question.decision(state) == "linked_repositories":
+        result["scope_assignment"] = {
+            "identity": assigned["identity"],
+            "members": dict(assigned["members"]),
+            "aliases": dict(assigned.get("aliases") or {}),
+        }
+        result["instruction"] += (
+            "\nscope_assignment is the current authenticated core receipt for this member's external work. "
+            "Ownership of that exact scope is already settled by the core; use its assigned owners instead of "
+            "asking for the same repository-scope choice or rediscovering the assignment from another CLI environment. "
+            "Report genuinely new external work normally. Do not turn this operational receipt into an acceptance "
+            "criterion or a user requirement. Keep this member's edits local and retain the joint obligations. "
+            "Plan approval and independent verification remain required.\n"
+        )
     hint = _reported_work(record, member)
     if hint:
         result["reported_work"] = hint

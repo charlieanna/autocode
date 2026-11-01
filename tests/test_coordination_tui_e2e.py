@@ -437,6 +437,23 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             self.assertIn(
                 "Coordinated checkout repository", [part["target"] for part in peer_view["scope"]["external_parts"]]
             )
+            # Observe the actual provider handoff after the core assigned scope.
+            # A model must not need another CLI environment to rediscover it.
+            calls = Path(checkout["workspace"]) / ".autocode/provider-calls.jsonl"
+            for _ in range(20):
+                rows = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+                planning = [row for row in rows if row["stage"] == "astra_discovery"]
+                if planning:
+                    break
+                client.step()
+            else:
+                self.fail("Assigned checkout never reached the Planner")
+            assigned = run.status()["scope"]
+            receipt = planning[0].get("scope_assignment")
+            self.assertIsNotNone(receipt, "Planner must receive the authenticated assignment directly")
+            self.assertEqual(assigned["identity"], receipt["identity"])
+            self.assertEqual({"history"}, set(receipt["members"]))
+            self.assertTrue(receipt["members"]["history"].endswith("/.autocode/runs/coordinated-fix"))
             self.assertEqual([], self.github.posts, "Ownership assignment grants no publication authority")
             self.assertEqual([], self.questions, "Clear member requirements need no separate confirmation")
 

@@ -644,6 +644,7 @@ def main():
                     "model": sys.argv[sys.argv.index("--model") + 1],
                     # Which investigate calls were normal attempts and which repairs.
                     "repair": bool(data.get("report_repair")),
+                    "scope_assignment": (data.get("coordinated_member") or {}).get("scope_assignment"),
                 }
             )
             + "\n"

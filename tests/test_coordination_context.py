@@ -1,5 +1,6 @@
 """Automatic members know where real joint proof belongs, without gaining authority."""
 
+import copy
 import json
 import os
 import shutil
@@ -14,6 +15,8 @@ import autocode_coordination_context as coordination
 import autocode_coordination_store as coordination_store
 import autocode_report_repair_context as repair
 import autocode_requirements_review as requirements_review
+import autocode_scope_question as scope_question
+import autocode_workspace_scope_state as workspace_scope
 import autocode_stage_context as runtime
 import autocode_trace_coverage as coverage
 from units import autoplanner
@@ -69,6 +72,74 @@ class CoordinationContextTests(unittest.TestCase):
 
     def automatic(self):
         store.set_fields(self.record["id"], {"automatic_anchor": str(self.root / "anchor")})
+
+    def assigned_scope(self):
+        self.automatic()
+        self.state["workspace_scope"] = {
+            "turn": 0,
+            "spans_repositories": True,
+            "external_parts": [{"target": "history", "work": "Fix receipt serialization"}],
+        }
+        receipt = {
+            "identity": workspace_scope.identity(self.state),
+            "members": {"history": str(self.root / "history/.autocode/runs/fix")},
+            "aliases": {},
+        }
+        store.set_fields(self.record["id"], {"scope_assignments": {str(self.run): receipt}})
+        return receipt
+
+    def test_current_scope_assignment_is_core_context_without_new_requirements_or_authority(self):
+        receipt = self.assigned_scope()
+        before = copy.deepcopy(self.state)
+        found = coordination.context(self.state)
+        self.assertEqual(receipt, found["scope_assignment"])
+        self.assertIn("already settled by the core", found["instruction"])
+        self.assertIn("Do not turn this operational receipt into an acceptance criterion", found["instruction"])
+        self.assertIn("Plan approval and independent verification remain required", found["instruction"])
+        self.assertEqual(before, self.state)
+        found["scope_assignment"]["members"]["history"] = "/forged/run"
+        self.assertEqual(receipt, coordination.context(self.state)["scope_assignment"])
+
+    def test_stale_incomplete_and_wrong_run_assignments_never_claim_scope_is_settled(self):
+        for invalid in ("stale", "incomplete", "wrong-run", "new-scope", "new-turn"):
+            with self.subTest(invalid=invalid):
+                receipt = self.assigned_scope()
+                state = copy.deepcopy(self.state)
+                if invalid == "stale":
+                    receipt["identity"] = "old-scope"
+                elif invalid == "incomplete":
+                    receipt["members"] = {}
+                elif invalid == "wrong-run":
+                    receipt["members"]["history"] = "/unregistered/run"
+                elif invalid == "new-scope":
+                    state["workspace_scope"]["external_parts"][0]["work"] = "Different work"
+                else:
+                    state["turns"] = [{"task": "Different request"}]
+                store.set_fields(self.record["id"], {"scope_assignments": {str(self.run): receipt}})
+                found = coordination.context(state)
+                self.assertNotIn("scope_assignment", found)
+                self.assertNotIn("already settled by the core", found["instruction"])
+
+    def test_an_explicit_personal_scope_decision_takes_precedence_over_an_assignment(self):
+        self.assigned_scope()
+        store.set_fields(self.record["id"], {"scope_assignments": {}})
+        question = scope_question.question(self.state)
+        answer = {"actor": "user_cli", "question": question, "text": scope_question.THIS_REPOSITORY}
+        self.state.update(answers={question["id"]: answer}, user_events=[answer])
+        self.assigned_scope()
+        self.assertEqual("this_repository", scope_question.decision(self.state))
+        self.assertNotIn("scope_assignment", coordination.context(self.state))
+
+    def test_planning_and_report_repair_receive_exact_scope_assignment_without_catalog_rediscovery(self):
+        receipt = self.assigned_scope()
+        for stage in ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"):
+            with self.subTest(stage=stage):
+                prompt, _ = autoplanner.context(self.state, stage, self.run / "state.json")
+                packets = [json.loads(line) for line in prompt.splitlines() if line.startswith('{"task":')]
+                self.assertEqual(receipt, packets[-1]["coordinated_member"]["scope_assignment"])
+                repaired = repair.clarification_context(self.state, stage)
+                self.assertEqual(receipt, repaired["coordinated_member"]["scope_assignment"])
+                self.assertFalse(any((repaired["protected_contract"] or {}).values()))
 
     def joint_intent(self):
         anchor = str(self.root / "intake/.autocode/runs/fix")
