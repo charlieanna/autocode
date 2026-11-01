@@ -10,6 +10,15 @@ def summarize(rows, request_context, reported_cost):
     ]
     keys = ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"]
     usage = {k: sum(u[k] for u in usages) if usages and all(k in u for u in usages) else None for k in keys}
+    # The CLI's saved cost-state records (#2592) and the sessions this provider activity
+    # belongs to, so an amount can bind to the exact attempt that earned it.
+    cost_states = [r["cost_state"] for r in rows if isinstance(r.get("cost_state"), dict)]
+    sessions = {
+        session
+        for r in rows
+        for session in (r.get("session_id"), r.get("sessionID"), (r.get("claude") or {}).get("session_id"))
+        if isinstance(session, str)
+    }
     return {
         "provider_tokens": usage,
         "request_context": request_context,
@@ -19,4 +28,6 @@ def summarize(rows, request_context, reported_cost):
         "completed_turns": len(completed),
         "headroom_transformed": None,
         "provider_cost_usd": reported_cost,
+        "cost_state": cost_states or None,
+        "provider_sessions": sorted(sessions) or None,
     }

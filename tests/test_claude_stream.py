@@ -160,6 +160,29 @@ class LiveSampleTests(TempMixin, unittest.TestCase):
         other, _ = translate(sample(RESUME), resumed="another-session", previous_cost=0.0665591)
         self.assertNotIn("cost_usd", other[-1])
 
+    def test_the_terminal_row_carries_the_saved_cost_state_for_reconciliation(self):
+        rows, _ = translate(sample(RUN))
+        state = rows[-1]["cost_state"]
+        self.assertEqual(sample(RUN)[2]["session_id"], state["session_id"])
+        self.assertAlmostEqual(0.0665591, state["total_cost_usd"])
+        self.assertNotIn("previous_total_usd", state)  # a fresh session's total is its own spend
+        self.assertEqual(0.0, state["updated_at"])
+        session = sample(RESUME)[2]["session_id"]
+        resumed, _ = translate(sample(RESUME), resumed=session, previous_cost=0.0665591)
+        state = resumed[-1]["cost_state"]
+        self.assertEqual(0.0665591, state["previous_total_usd"])  # the chain delta is this attempt's spend
+        self.assertAlmostEqual(resumed[-1]["cost_usd"], state["total_cost_usd"] - state["previous_total_usd"])
+        # A resume answered with another session keeps the ledger total out of the record, as out of the cost.
+        other, _ = translate(sample(RESUME), resumed="another-session", previous_cost=0.0665591)
+        self.assertNotIn("cost_state", other[-1])
+        # A failed call still carries its spend; a cut stream knows no session total and reports none.
+        failed, _ = translate([init(), result(is_error=True, subtype="error_max_structured_output_retries", result="")])
+        self.assertAlmostEqual(0.25, failed[-1]["cost_state"]["total_cost_usd"])
+        rows = sample(RUN)
+        last_bash = max(index for index, row in enumerate(rows) if "tool_use_result" in row and "hello" in json.dumps(row))
+        out, _ = translate(rows[: last_bash + 1], exit_code=1)
+        self.assertNotIn("cost_state", out[-1])
+
     def test_live_length_stop_is_an_authenticated_output_cap(self):
         rows, code = translate(sample(LENGTH_STOP), exit_code=1)
         self.assertEqual(0, code)

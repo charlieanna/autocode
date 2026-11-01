@@ -609,6 +609,27 @@ class Translator:
         delta = round(self.total_cost_usd - self.previous_cost, 10)
         return delta if delta > 0 else None
 
+    def _cost_state(self) -> dict | None:
+        """The CLI's cumulative cost-state observation for this session (#2592).
+
+        Saved so the stage ledger can price an interrupted call from the CLI's own accounting:
+        the cumulative total, plus the previous total a resume started from. No record when the
+        session total is unknown, when streams mixed sessions, or when a resume's earlier total
+        belongs to another session and the delta is unknowable.
+        """
+        if self._mixed or self.total_cost_usd is None:
+            return None
+        session = self.session_id or (self._result or {}).get("session_id")
+        if not isinstance(session, str) or not session:
+            return None
+        if self.resumed is not None and self.previous_cost is None:
+            return None
+        record = {"session_id": session, "total_cost_usd": self.total_cost_usd}
+        if self.resumed is not None:
+            record["previous_total_usd"] = self.previous_cost
+        record["updated_at"] = self.clock()
+        return record
+
     def _partial_usage(self) -> dict | None:
         mapped = [usage_of(raw) or {} for raw in self._usage.values()]
         if not mapped:
@@ -647,6 +668,7 @@ class Translator:
             "error": error,
             "usage": usage_of(result.get("usage")) if result else None,
             "cost_usd": self._cost(),
+            "cost_state": self._cost_state(),
             "claude": self._diagnostics(exit_code, failed=bool(error)),
         }
         return {key: value for key, value in values.items() if value is not None}
