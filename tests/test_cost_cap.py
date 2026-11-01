@@ -121,9 +121,10 @@ class CostCapCliTests(unittest.TestCase):
 
     def test_a_next_attempt_projected_past_the_cap_pauses_before_it_launches(self):
         """#2019: an attempt of a job that already ran is priced before it launches, not only a climb. The fixture's
-        Requirements runs twice, around its one question, on gpt-5.6-sol at 100 input and 50 output tokens a stage,
+        Planner runs twice, around its one question (astra_discovery drafts, glm_revise revises), on gpt-5.6-sol at
+        100 input and 50 output tokens a stage,
         (100 x $4 + 50 x $20) / 1M = $0.0014, after the Job recognizer's $0.0014. A cap of $0.0035 admits those two
-        stages, and the second Requirements attempt, projected at another $0.0014, would pass it."""
+        stages, and the second Planner attempt, projected at another $0.0014, would pass it."""
         cap = "0.0035"
         started = taskrun.TaskRun.start(
             self.workspace, BRIEF, options=OPTIONS, start_options=("--max-cost-usd", cap), env=self.env, timeout=300
@@ -144,8 +145,8 @@ class CostCapCliTests(unittest.TestCase):
         self.assertEqual(2, self.model_stages(view), "the projected attempt must not launch")
         self.assertEqual(0.0028, view["cost"]["spent_usd"])
         for part in (
-            "The next Requirements attempt (gpt-5.6-sol at high effort) did not launch: projected at $0.0014",
-            "the last Requirements attempt's 100 input and 50 output tokens at gpt-5.6-sol's price",
+            "The next Planner attempt (gpt-5.6-sol at high effort) did not launch: projected at $0.0014",
+            "the last Planner attempt's 100 input and 50 output tokens at gpt-5.6-sol's price",
             "it would take the spend from $0.0028 to $0.0042, past the $0.0035 cost cap",
             "resume with --max-cost-usd 0.01 or more",
         ):

@@ -52,7 +52,7 @@ class NamesFollowTheJobNotTheAi(unittest.TestCase):
     def test_configured_slot_labels_follow_the_canonical_jobs_and_planning_flow(self):
         for role, expected in {
             "astra": "Planner",
-            "glm": "Requirements",
+            "glm": "Planner",
             "requirements": "Requirements",
             "plan_reviewer": "Plan Reviewer",
             "terra": "Builder",
@@ -69,6 +69,18 @@ class NamesFollowTheJobNotTheAi(unittest.TestCase):
             self.assertEqual(expected, roles.route_name(role, {}))
         self.assertEqual("Planner", roles.route_name("glm", {"settings": {"planning_flow": "v2"}}))
         self.assertEqual("Future Role", roles.route_name("future_role", {}))
+
+    def test_the_glm_slot_label_follows_the_planner_work_it_runs(self):
+        # role_for sends the Planner's draft (astra_discovery) and revision (glm_revise)
+        # to the glm slot in the legacy flow, and plan/plan_revise in v2: its primary job
+        # is the Planner's in both (#2592).
+        from autocode_role_route import record as route_record
+
+        for flow in ({}, {"settings": {"planning_flow": "v2"}}):
+            with self.subTest(flow=flow):
+                self.assertEqual("Planner", roles.route_name("glm", flow))
+        state = {"settings": {"roles": {"glm": {"model": "zai-coding-plan/glm-5.3"}}}}
+        self.assertEqual("Planner", route_record(state, "glm")["job"])
 
     def test_v2_names_follow_the_actual_planning_stages(self):
         from units.autoplanner import V2_STAGE_ROLES, V2_STAGES
@@ -106,8 +118,17 @@ class NamesFollowTheJobNotTheAi(unittest.TestCase):
             self.assertEqual("Completion Reviewer", status.role_name(stage))
         self.assertEqual("Code Reviewer", status.role_name("review_change"))
 
-    def test_requirements_and_resolver_job_names(self):
-        for stage in ("astra_discovery", "glm_revise", "requirements_planner", "requirements_revision"):
+    def test_planner_draft_and_revision_job_names(self):
+        # prompts/discovery.md and prompts/requirements-revise.md both open "You are the
+        # Planner": astra_discovery drafts the plan and glm_revise revises it (#2592).
+        for stage in ("astra_discovery", "glm_revise"):
+            self.assertEqual("Planner", status.role_name(stage))
+            self.assertEqual("Planner", status.role_name(stage + "_report_repair"))
+
+    def test_figma_requirements_brief_and_resolver_job_names(self):
+        # The Figma workflow's Requirements Planner writes both the UI brief and its
+        # revision (autocode_ui prompts: "Act as the Requirements Planner").
+        for stage in ("requirements_planner", "requirements_revision"):
             self.assertEqual("Requirements", status.role_name(stage))
         self.assertEqual("Resolver", status.role_name("astra_resolve"))
 

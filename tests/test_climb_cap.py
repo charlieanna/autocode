@@ -7,6 +7,7 @@ import autocode_builder_policy as builder_policy
 import autocode_climb_cap as climb_cap
 import autocode_escalation as escalation
 import autocode_util as util
+import autocode_workflow as workflow
 
 # 1,000 input and 200 output tokens at GPT-6 Sol's $2 / $10 per million (tools/autocode_prices.json) cost $0.004.
 TOKENS = {"input_tokens": 1000, "output_tokens": 200}
@@ -363,8 +364,30 @@ class NextAttemptCapTests(unittest.TestCase):
         climb_cap.guard(state, "terra", "terra")
 
     def test_the_basis_is_the_jobs_last_attempt_on_whatever_route_it_ran(self):
-        # Requirements runs requirements_gather on the `requirements` route and astra_discovery on the `glm` route
-        # (#1860): the second is the job's next attempt, priced from the first at the glm route's rate.
+        # Under reviewer routing the Tester runs `sol` on the `sol` route and astra_checkpoint on the
+        # `plan_reviewer` route: the second is the job's next attempt, priced from the first at that route's rate.
+        glm = route("low", "zai-coding-plan/glm-5.3", "opencode")
+        checked = attempt(glm, {"input_tokens": 20000, "output_tokens": 800}, stage="sol", role="sol")
+        state = {
+            "settings": {
+                "engine": "opencode",
+                "workflow": {"mode": workflow.MODE},
+                "roles": {"sol": dict(glm), "plan_reviewer": dict(glm)},
+                "limits": {"max_cost_usd": 0.03},
+            },
+            "stages": [checked],
+        }
+        self.assertEqual([], climb_cap.attempts_of(state, "plan_reviewer"))
+        self.assertEqual([checked], climb_cap.job_attempts(state, "astra_checkpoint"))
+        reason = stop(state, "astra_checkpoint", "plan_reviewer")
+        self.assertIn("The next Tester attempt (zai-coding-plan/glm-5.3 at low effort) did not launch", reason)
+        self.assertIn("the last Tester attempt's 20,000 input and 800 output tokens", reason)
+        # Another job's first attempt is not priced from it.
+        climb_cap.guard(state, "astra_plan", "astra")
+
+    def test_the_planners_draft_is_priced_from_its_own_job_not_the_gatherers(self):
+        # #2592: astra_discovery is the Planner's job, not the Requirements Gatherer's, so the Planner's first
+        # attempt has no projection (#2019) and its revision is priced from its own draft.
         glm = route("low", "zai-coding-plan/glm-5.3", "opencode")
         gather = attempt(
             glm, {"input_tokens": 20000, "output_tokens": 800}, stage="requirements_gather", role="requirements"
@@ -377,13 +400,12 @@ class NextAttemptCapTests(unittest.TestCase):
             },
             "stages": [gather],
         }
-        self.assertEqual([], climb_cap.attempts_of(state, "glm"))
-        self.assertEqual([gather], climb_cap.job_attempts(state, "astra_discovery"))
-        reason = stop(state, "astra_discovery", "glm")
-        self.assertIn("The next Requirements attempt (zai-coding-plan/glm-5.3 at low effort) did not launch", reason)
-        self.assertIn("the last Requirements attempt's 20,000 input and 800 output tokens", reason)
-        # Another job's first attempt is not priced from it.
-        climb_cap.guard(state, "astra_plan", "astra")
+        self.assertEqual([], climb_cap.job_attempts(state, "astra_discovery"))
+        climb_cap.guard(state, "astra_discovery", "glm")  # the Planner's first attempt launches
+        state["stages"].append(attempt(glm, {"input_tokens": 20000, "output_tokens": 800}, stage="astra_discovery", role="glm"))
+        reason = stop(state, "glm_revise", "glm")
+        self.assertIn("The next Planner attempt (zai-coding-plan/glm-5.3 at low effort) did not launch", reason)
+        self.assertIn("the last Planner attempt's 20,000 input and 800 output tokens", reason)
 
     def test_a_next_attempt_without_a_projection_never_pauses(self):
         # No cap, no token counts, a model without a rate, only report repairs or dry runs before it, or a parallel

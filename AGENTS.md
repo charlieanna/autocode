@@ -311,7 +311,8 @@ AutoCode, AutoReview, AutoResolver) stay behind the scenes.
 | In code | Job on screen (`autocode_roles`) | Unit |
 | --- | --- | --- |
 | `recognize_workflow` | Job recognizer: which of the five workflows (`autocode_workflows.py`) | AutoPlanner |
-| `requirements_gather`, `astra_discovery`, `glm_revise` | Requirements | AutoPlanner |
+| `requirements_gather` | Requirements | AutoPlanner |
+| `astra_discovery`, `glm_revise` | Planner | AutoPlanner |
 | `astra_plan` | Planner | AutoCode build unit |
 | `astra_challenge`, `astra_finalize` | Plan Reviewer | AutoPlanner |
 | `orchestrator` | Orchestrator: parallel milestone scheduling (no model) | AutoCode build unit |

@@ -122,6 +122,52 @@ class CostBreakdownTests(unittest.TestCase):
         cost.line(view)
 
 
+class LegacyPlanningLaunchLabels(unittest.TestCase):
+    """Issue #2592: the Planner's draft, revision and their repairs are Planner launches.
+
+    The prompts name astra_discovery and glm_revise as the Planner (prompts/discovery.md,
+    prompts/requirements-revise.md: "You are the Planner"), so a saved ledger must display
+    their launches under Planner, while requirements_gather stays Requirements.
+    """
+
+    def test_saved_legacy_planning_ledger_displays_one_requirements_and_three_planner_launches(self):
+        state = {
+            "stages": [
+                record("requirements_gather", 0.10, exit_code=0),
+                record("astra_discovery", 0.20, exit_code=0),
+                record("glm_revise", 0.30, exit_code=0),
+                record("glm_revise_report_repair", 0.40, exit_code=0),
+            ]
+        }
+        view = cost.view(state)
+        by_stage = {row["stage"]: row for row in view["breakdown"]["by_stage"]}
+        self.assertEqual("Requirements", by_stage["requirements_gather"]["job"])
+        self.assertEqual("Planner", by_stage["astra_discovery"]["job"])
+        self.assertEqual("Planner", by_stage["glm_revise"]["job"])
+        self.assertEqual("Planner (report repair)", by_stage["glm_revise_report_repair"]["job"])
+        launches = {}
+        for row in by_stage.values():
+            job = row["job"].replace(" (report repair)", "")
+            launches[job] = launches.get(job, 0) + row["stages"]
+        self.assertEqual({"Requirements": 1, "Planner": 3}, launches)
+        # Relabelling never changes the ledger's totals.
+        self.assertEqual(4, sum(row["stages"] for row in by_stage.values()))
+        self.assertEqual((1.0, 1.0, None), (view["spent_usd"], view["reported_usd"], view["estimated_usd"]))
+        self.assertEqual(0, view["unpriced_stages"])
+
+    def test_plain_and_report_repair_stages_cover_the_full_legacy_planning_ledger(self):
+        expected = {
+            "requirements_gather": "Requirements",
+            "requirements_gather_report_repair": "Requirements (report repair)",
+            "astra_discovery": "Planner",
+            "astra_discovery_report_repair": "Planner (report repair)",
+            "glm_revise": "Planner",
+            "glm_revise_report_repair": "Planner (report repair)",
+        }
+        view = cost.view({"stages": [record(stage, 0.25, exit_code=0) for stage in expected]})
+        self.assertEqual(expected, {row["stage"]: row["job"] for row in view["breakdown"]["by_stage"]})
+
+
 class BillingBreakdownTests(unittest.TestCase):
     """How each stage bills, so an API-equivalent figure is not read as a subscription's bill (#1924)."""
 
