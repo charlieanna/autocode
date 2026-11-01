@@ -40,6 +40,7 @@ def eligible(stage, source):
     return bool(
         stage in STAGES
         and not source.get("truncated")
+        and not source.get("repair_response")
         and (
             source.get("format") == "json"
             and isinstance(source.get("content"), dict)
