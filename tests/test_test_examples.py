@@ -87,6 +87,32 @@ class SectionTests(unittest.TestCase):
         )
 
 
+class BuilderPromptTests(unittest.TestCase):
+    """The Builder's stage prompt: static notes first, then the attempt-specific section (A5, #2113)."""
+
+    def setUp(self):
+        self.root = repo({"app.py": "x = 1\n", "test_app.py": "import app\n"})
+
+    def test_the_section_lands_after_the_static_notes_before_the_handoff(self):
+        prompt = examples.builder_prompt(
+            "P\nCURRENT HANDOFF DATA\n{}", self.root, {"affected_paths": ["app.py"]}, notes="BUILD OUTPUT: scratch\n"
+        )
+        prefix, after = prompt.split("\nCURRENT HANDOFF DATA\n")
+        self.assertEqual("{}", after)
+        notes = prefix.find("BUILD OUTPUT: scratch")
+        self.assertLess(notes, prefix.find("EXISTING TEST STYLE"))
+        self.assertIn("--- test_app.py", prefix)
+
+    def test_without_tests_the_notes_still_precede_the_handoff(self):
+        prompt = examples.builder_prompt(
+            "P\nCURRENT HANDOFF DATA\n{}", Path(tempfile.mkdtemp()), {"affected_paths": ["app.py"]}, notes="NOTES\n"
+        )
+        prefix, after = prompt.split("\nCURRENT HANDOFF DATA\n")
+        self.assertEqual("{}", after)
+        self.assertIn("NOTES\n", prefix)
+        self.assertNotIn("EXISTING TEST STYLE", prompt)
+
+
 class BuilderRequestTests(unittest.TestCase):
     def test_the_builders_request_carries_the_examples_and_the_validators_does_not(self):
         from units import common
@@ -104,6 +130,26 @@ class BuilderRequestTests(unittest.TestCase):
         self.assertEqual((len(builder.prompt.encode()) + 3) // 4, builder.metrics["estimated_prompt_tokens"])
         validator = common.execution_request(state, "sol", root / "state.json", schemas)
         self.assertNotIn("EXISTING TEST STYLE", validator.prompt)
+
+    def test_the_examples_follow_the_static_notes_in_the_builders_request(self):
+        from units import common
+
+        from tests.test_bug_job import approved_small_fix
+
+        state = approved_small_fix()
+        root = Path(state["workspace"])
+        (root / "tests").mkdir(exist_ok=True)
+        (root / "tests" / "test_client.py").write_text("import unittest\n")
+        subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+        schemas = Path(examples.__file__).with_name("autocode-schemas")
+        builder = common.execution_request(state, "terra", root / "state.json", schemas)
+        prefix = builder.prompt.split("\nCURRENT HANDOFF DATA\n")[0]
+        self.assertLess(
+            prefix.find("BUILD OUTPUT: do not leave compiled programs"),
+            prefix.find("EXISTING TEST STYLE"),
+            "the attempt-specific excerpt must come after the static Builder notes (A5, #2113)",
+        )
+        self.assertIn("EXISTING TEST STYLE", prefix)
 
 
 if __name__ == "__main__":

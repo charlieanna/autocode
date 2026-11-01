@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Builder prompts cache better across attempts (#2136): the attempt-specific test-style
+  excerpt (the "EXISTING TEST STYLE" section with excerpts of the project's own tests) now
+  renders after the static Builder notes (test-case house rules, acceptance-test rules, bug
+  builder notes, "BUILD OUTPUT") instead of before them, so every request in a run shares
+  one static prefix that provider caching can reuse. The excerpt still lands before the
+  handoff data and never after the output schema.
 - Smaller per-request prefixes on small fixes (#2136): the per-run citation lists (source
   trace, brief literals) no longer sit ahead of the ~11.8KB static policy block in planning
   and discovery prompts. They now render right after it — after "REGRESSION REFERENCE:" in
