@@ -356,6 +356,19 @@ HANDOFF = {
 
 
 class FeedbackOnAShownPlan(unittest.TestCase):
+    def test_acceptance_feedback_revises_the_reviewed_plan_without_regathering(self):
+        state = awaiting(handoff=HANDOFF, status="PAUSED_ACCEPTANCE_TESTS")
+        state["goal_contract"].update(approval_status="approved", approval_event={"actor": "user_cli"})
+        saved = json.loads(json.dumps(state["requirements_handoff"]))
+        goals.feedback(state, "The Tester can now admit verified Go prerequisites.", interpret=False)
+        self.assertEqual("astra_discovery", state["next_stage"])
+        self.assertEqual(saved, state["requirements_handoff"])
+        self.assertEqual({"requirements_handoff": HANDOFF["output"]}, state["brief_feedback"][-1][adaptive.FEEDBACK])
+        self.assertEqual("draft", state["goal_contract"]["approval_status"])
+        self.assertIsNone(state["goal_contract"]["approval_event"])
+        self.assertEqual(1, len(adaptive.feedback_requirements(state)))
+        self.assertTrue(adaptive.can_rerun(state), "real requirement changes may still return to Requirements")
+
     def test_feedback_on_a_plan_waiting_for_approval_goes_to_the_planner(self):
         state = awaiting(handoff=HANDOFF)
         goals.feedback(state, "Also accept --shout.")
