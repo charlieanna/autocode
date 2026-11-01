@@ -17,6 +17,60 @@ import autocode_coordination_limits as limits
 import autocode_coordination_store as store
 
 
+class PlanningSpendTests(unittest.TestCase):
+    def view(self, run, planning, build=0, *, stage="requirements_gather", unknown=False):
+        return {
+            "run_dir": run,
+            "next_stage": stage,
+            "cost": {
+                "cap_usd": 30,
+                "spent_usd": planning + build,
+                "complete": not unknown,
+                "breakdown": {
+                    "by_stage": [
+                        {"stage": "astra_discovery", "spent_usd": planning, "complete": not unknown},
+                        {"stage": "terra", "spent_usd": build, "complete": True},
+                    ]
+                },
+            },
+        }
+
+    def test_new_coordination_reserves_seventy_percent_after_counting_anchor_planning(self):
+        anchor = budget.initial(self.view("anchor", 1))
+        self.assertEqual(9, anchor["planning_allowance"]["cap_usd"])
+        first = self.view("one", 2)
+        second = self.view("two", 1, 3)
+        envelope = budget.envelope(anchor, [first, second], "two")
+        self.assertEqual(["--max-cost-usd", "9.0"], envelope["options"])
+        self.assertEqual(7, envelope["known_spent_usd"])
+
+    def test_replanning_and_new_joint_runs_do_not_reset_the_shared_allowance(self):
+        anchor = budget.initial(self.view("anchor", 1))
+        history = [self.view("one", 4), self.view("old-joint", 4)]
+        for current in (None, "one"):
+            with self.subTest(current=current), self.assertRaisesRegex(store.CoordinationError, "planning allowance"):
+                budget.envelope(anchor, history, current)
+        history[0]["next_stage"] = "terra"
+        history[0]["approved_contract"] = {"token": "exact-reviewed-plan"}
+        self.assertEqual(25, float(budget.envelope(anchor, history, "one")["options"][1]))
+
+    def test_unpriced_planning_is_not_zero_and_legacy_budgets_keep_their_limits(self):
+        anchor = budget.initial(self.view("anchor", 1))
+        unknown = self.view("one", 0, unknown=True)
+        with self.assertRaisesRegex(store.CoordinationError, "unpriced|incomplete"):
+            budget.envelope(anchor, [unknown])
+        legacy = {"cap_usd": 30, "initial_spent_usd": 1}
+        self.assertEqual(["--max-cost-usd", "29"], budget.envelope(legacy, [unknown], "one")["options"])
+
+    def test_planning_report_repairs_and_unattributed_legacy_spend_are_retained(self):
+        repaired = self.view("one", 3)
+        repaired["cost"]["breakdown"]["by_stage"][0]["stage"] += "_report_repair"
+        self.assertEqual({"spent_usd": 3, "complete": True}, budget.planning_spend(repaired))
+        self.assertEqual(
+            {"spent_usd": 7, "complete": False}, budget.planning_spend({"cost": {"spent_usd": 7, "complete": False}})
+        )
+
+
 class SharedBudgetTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -110,6 +164,29 @@ class SharedBudgetTests(unittest.TestCase):
 
     def offered(self):
         return coordinate.status(self.anchor)["needs"]
+
+    def test_exhausted_planning_cannot_offer_same_cap_recovery_or_dispatch(self):
+        saved = store.read(self.anchor)
+        saved["budget"]["planning_allowance"] = {"cap_usd": 3, "initial": {"spent_usd": 0.5, "complete": True}}
+        self.views["history"]["cost"]["complete"] = True
+        store.save(saved)
+        need = self.offered()
+        self.assertEqual("blocked", need["kind"])
+        self.assertIn("planning allowance", need["reason"])
+        self.assertIsNone(coordinate.status(self.anchor)["next_command"])
+        coordinate.advance(self.anchor)
+        self.run.advance.assert_not_called()
+        self.run.resume_paused.assert_not_called()
+
+    def test_new_member_and_joint_planning_are_refused_before_their_start(self):
+        document = copy.deepcopy(self.document)
+        document["budget"]["planning_allowance"] = {"cap_usd": 3, "initial": {"spent_usd": 0.5, "complete": True}}
+        self.views["history"]["cost"]["complete"] = True
+        for step in ({"kind": "start", "target": "new-member"}, {"kind": "joint_plan_start"}):
+            with self.subTest(step=step), patch.object(coordinate, "_next_step", return_value=step):
+                refused = coordinate.next_step(document, self.views)
+                self.assertEqual("blocked", refused["kind"])
+                self.assertIn("planning allowance", refused["reason"])
 
     def test_public_cli_revises_shared_cap_and_fences_exactly_one_member_resume(self):
         before = copy.deepcopy(self.views)

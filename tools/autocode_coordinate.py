@@ -407,7 +407,7 @@ def carried_approval(document, summary, joint_plan):
     return {"revision": record["revision"], "token": record["token"], "unchanged": unchanged}
 
 
-def next_step(document, views, *, command=tasks.AUTOCODE):
+def _next_step(document, views, *, command=tasks.AUTOCODE):
     if store.cancelled(document["anchor"]):
         return {"kind": "cancelled"}
     expected_sources = document.get("source_catalog")
@@ -431,6 +431,8 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
         return source_recovery
     if (document.get("budget") or {}).get("cap_usd"):
         rows, history = budget_observations(document, views, command=command)
+        if reason := limits.planning_refusal(document, rows, history):
+            return {"kind": "blocked", "reason": reason}
         offered = limits.offer(document, rows, history)
         if offered:
             return offered
@@ -580,6 +582,30 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
         "kind": "blocked",
         "reason": "Some members completed while others need a new coordinated plan; inspect their current gates",
     }
+
+
+def next_step(document, views, *, command=tasks.AUTOCODE):
+    """Expose a budget refusal before offering an action that could spend money."""
+    step = _next_step(document, views, command=command)
+    if (document.get("budget") or {}).get("planning_allowance") and step["kind"] in (
+        "start",
+        "advance",
+        "joint_plan_start",
+        "joint_plan_advance",
+        "joint_advance",
+        "request_feedback",
+        "refresh",
+        "rework",
+    ):
+        target = step.get("target")
+        member = next((row for row in document["members"] if row["target"] == target), None)
+        if step["kind"] in ("joint_plan_advance", "joint_advance"):
+            member = document.get("joint")
+        try:
+            budget_options(document, views, member["run_dir"] if member else None, command=command)
+        except store.CoordinationError as error:
+            return {"kind": "blocked", "reason": str(error)}
+    return step
 
 
 AUTOMATIC = {

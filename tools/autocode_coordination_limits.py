@@ -53,9 +53,28 @@ def _bound(view):
         return None
 
 
+def planning_refusal(document, rows, history):
+    """A child planning ceiling cannot be renewed by reasserting the whole-set cap."""
+    if not (document.get("budget") or {}).get("planning_allowance"):
+        return None
+    for row in rows:
+        if not cost_pause(row["view"]):
+            continue
+        try:
+            ceiling = budget.planning_ceiling(document["budget"], history, row["run_dir"])
+        except store.CoordinationError as error:
+            return str(error)
+        bound = _bound(row["view"])
+        if ceiling is not None and bound and bound["minimum"] > ceiling:
+            return "The next planning attempt would exceed the shared planning allowance; implementation and verification money remains reserved"
+    return None
+
+
 def offer(document, rows, history):
     """A finite shared-cap decision, only at a settled cost boundary."""
     cap = (document.get("budget") or {}).get("cap_usd")
+    if planning_refusal(document, rows, history):
+        return None
     if (
         type(cap) not in (int, float)
         or not math.isfinite(cap)

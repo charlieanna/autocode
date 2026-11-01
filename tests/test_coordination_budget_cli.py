@@ -96,6 +96,27 @@ class SharedBudgetCliTests(unittest.TestCase):
         offer = view["needs"]
         self.assertEqual("budget", offer["kind"])
         self.assertGreater(offer["known_spent_usd"], before["cost"]["spent_usd"])
+        # The same real child stop under the new policy must retain the remaining
+        # task money rather than offering a loop of same-cap acknowledgements.
+        legacy_budget = dict(document["budget"])
+        document["budget"] = {
+            **legacy_budget,
+            "cap_usd": 2,
+            "planning_allowance": {"cap_usd": 0.000000001, "initial": {"spent_usd": 0, "complete": True}},
+        }
+        store.save(document)
+        launches = probe.read_bytes()
+        for operation in ("status", "advance"):
+            reply, held = cli(operation)
+            self.assertEqual(0, reply.returncode, reply.stdout + reply.stderr)
+            self.assertEqual("blocked", held["needs"]["kind"])
+            self.assertIn("planning allowance", held["needs"]["reason"])
+            self.assertIsNone(held["next_command"])
+            self.assertEqual(launches, probe.read_bytes())
+        document["budget"] = legacy_budget
+        store.save(document)
+        _, view = cli("status")
+        offer = view["needs"]
         reply, revised = cli("budget", "--token", offer["token"], "--max-cost-usd", "2")
         self.assertEqual(0, reply.returncode, reply.stdout + reply.stderr)
         self.assertNotEqual("budget", revised["needs"]["kind"])

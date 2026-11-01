@@ -135,6 +135,18 @@ It grants no plan approval, proof waiver or general recovery retry. Durable
 intent precedes the resume; an uncertain reply is retained for inspection and
 never automatically replayed. No saved member state is edited by coordination.
 
+New coordinations with a finite cost cap reserve 70% for implementation and
+verification. Their shared planning allowance is 30% of the original cap,
+including the anchor's planning, every member's planning, report repairs and
+all retained joint attempts. While a run is planning its derived whole-run cap
+also respects that allowance; approved implementation uses the remaining task
+envelope. Replanning, viewer restart and reasserting a shared cap do not renew
+the planning allowance. Exhaustion or unpriced planning returns `needs.kind=blocked`
+without a spending action, including when a projected next attempt exceeds the
+allowance. Saved coordinations without this policy retain their original limits.
+These are stage-boundary checks, not a guarantee about the price of an in-flight
+request; toolchain and baseline readiness remain separate prerequisite checks.
+
 The coordinator drives each member using `TaskRun`. `related_profile` is the
 public configuration export: selected role routes, efforts, providers, run limits
 and policies, without sessions or approvals. Fresh related runs accept a pinned
