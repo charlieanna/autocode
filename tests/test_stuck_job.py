@@ -82,6 +82,41 @@ def report(recommendation="retry", **overrides):
     return value
 
 
+class PromptHandoffTests(unittest.TestCase):
+    """C1 (#2113): the Investigator handoff renders as one compact line and round-trips its packet exactly."""
+
+    def state(self, mode="ordinary"):
+        state = state_for()
+        request = {
+            "stage": "terra",
+            "status": "PAUSED_REPEATED_FAILURE",
+            "reason": "rejected three times",
+            "identity": "fixed-identity",
+            "mode": mode,
+        }
+        if mode == "builder_failure":
+            request["failure_evidence"] = {"failure_id": "F1", "evidence_refs": ["run/failure.json"]}
+        state["stuck_investigation"] = request
+        return state
+
+    def check_compact_round_trip(self, mode):
+        state = self.state(mode)
+        text, metrics = stuck.prompt(state, "/run/state.json", engine="opencode")
+        _, handoff = text.split("\nCURRENT HANDOFF DATA\n", 1)
+        self.assertNotIn("\n", handoff, "the Investigator handoff must be one compact line (C1)")
+        self.assertEqual(
+            stuck.packet(state, "/run/state.json", engine="opencode"),
+            json.loads(handoff),
+        )
+        self.assertEqual((len(text.encode()) + 3) // 4, metrics["estimated_prompt_tokens"])
+
+    def test_the_ordinary_handoff_is_compact_and_round_trips(self):
+        self.check_compact_round_trip("ordinary")
+
+    def test_the_builder_failure_handoff_is_compact_and_round_trips(self):
+        self.check_compact_round_trip("builder_failure")
+
+
 class InterceptTests(unittest.TestCase):
     def test_a_non_convergence_pause_goes_to_the_investigator(self):
         state = state_for(
@@ -731,7 +766,7 @@ class RouteTests(unittest.TestCase):
         # The stuck Plan Reviewer runs GPT-6 Astra: another GPT model shares its family, so GLM investigates.
         self.assertEqual("zai-coding-plan/glm-5.3", state["settings"]["roles"][stuck.ROUTE]["model"])
         self.assertNotIn(stuck.ROUTE, state["sessions"])
-        self.assertIn('"status": "PAUSED_PLANNING_BUDGET"', request.prompt)
+        self.assertIn('"status":"PAUSED_PLANNING_BUDGET"', request.prompt)
         self.assertIn(str(Path(workspace) / "state.json"), request.prompt)
         self.assertEqual("autoresolver", autopilot.unit_for(stuck.STAGE))
         self.assertIn(stuck.STAGE, jobs.STAGES)

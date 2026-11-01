@@ -38,6 +38,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Compact Investigator handoff (#2136): the Investigator prompt's "CURRENT HANDOFF
+  DATA" JSON now renders with compact separators instead of `indent=2`, a
+  formatting-only reduction (5,336 bytes on the audit's recorded handoff) that
+  trims the prefix every stuck-stage investigation re-sends. The handoff content
+  is byte-for-byte the same object; only whitespace changes.
 - The attempt-specific schema property renders last in provider prompt copies (#2136): a
   schema read back from a run's state file is alphabetized by the JSON writer, so
   `changed_code_exceptions` — whose per-attempt gap enum changes across attempts — sat at
