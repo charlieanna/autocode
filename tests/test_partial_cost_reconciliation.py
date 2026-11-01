@@ -301,6 +301,32 @@ class ProviderTranslationTests(unittest.TestCase):
         self.assertEqual([SESSION], metrics["provider_sessions"])
         self.assertAlmostEqual(FIRST_TOTAL, autocode_usage.cost_state_cost(metrics))
 
+    def test_the_thread_start_binds_a_cut_failure_s_cost_state(self):
+        """A cut stream's rows lose their diagnostics; the thread's own id still names the session."""
+        cut = {
+            "type": "turn.failed",
+            "error": {"code": "incomplete_turn", "message": "cut"},
+            "cost_state": {"session_id": SESSION, "total_cost_usd": FIRST_TOTAL, "updated_at": 2.0},
+        }
+        metrics = autocode_event_metrics.summarize(
+            [{"type": "thread.started", "thread_id": SESSION}, cut], receipts(), None
+        )
+        self.assertEqual([SESSION], metrics["provider_sessions"])
+        self.assertAlmostEqual(FIRST_TOTAL, autocode_usage.cost_state_cost(metrics))
+        foreign = autocode_event_metrics.summarize(
+            [
+                {"type": "thread.started", "thread_id": SESSION},
+                {
+                    "type": "turn.failed",
+                    "error": {"code": "incomplete_turn", "message": "cut"},
+                    "cost_state": {"session_id": "another-session", "total_cost_usd": FIRST_TOTAL, "updated_at": 2.0},
+                },
+            ],
+            receipts(),
+            None,
+        )
+        self.assertIsNone(autocode_usage.cost_state_cost(foreign))
+
 
 if __name__ == "__main__":
     unittest.main()

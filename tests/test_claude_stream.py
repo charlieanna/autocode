@@ -25,6 +25,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import autocode_event_metrics
 import autocode_output_cap as output_cap
 import autocode_provider_env as provider_env
 import autocode_report_edits as report_edits
@@ -513,6 +514,118 @@ class FailClosedTests(TempMixin, unittest.TestCase):
                 )
                 self.assertEqual(last["cost_usd"], autocode_usage.reported_cost(rows))  # still counted
 
+    def test_a_cost_state_is_accounting_not_the_failure_text(self):
+        """The cost state carries a cost and a clock; a 429 among their digits is no rate limit."""
+
+        def run(session, stamp):
+            rows, _ = translate(
+                [
+                    init(session),
+                    api_error("server_error", "API Error"),
+                    result(is_error=True, result="API Error", session_id=session, total_cost_usd=0.5),
+                ],
+                1,
+                clock=lambda: stamp,
+            )
+            self.assertEqual("turn.failed", rows[-1]["type"])
+            self.assertAlmostEqual(0.5, rows[-1]["cost_state"]["total_cost_usd"])  # still counted
+            self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.write(rows)), rows[-1])
+
+        for session, stamp in (("s-session", 429.5), ("s-429", 0.0)):
+            with self.subTest(session=session, stamp=stamp):
+                run(session, stamp)
+
+    def test_only_one_exact_whole_record_prices_a_cut_call(self):
+        """Claude Code's saved cost state prices the cut call it names; nothing else does."""
+        cases = {
+            "the saved record": (
+                [{"type": "cost-state", "sessionId": SESSION, "totalCostUSD": 3.5, "hasUnknownModelCost": False}],
+                3.5,
+            ),
+            "no record": ([], None),
+            "a foreign session": (
+                [
+                    {
+                        "type": "cost-state",
+                        "sessionId": "another-session",
+                        "totalCostUSD": 3.5,
+                        "hasUnknownModelCost": False,
+                    }
+                ],
+                None,
+            ),
+            "an unknown model cost": (
+                [{"type": "cost-state", "sessionId": SESSION, "totalCostUSD": 3.5, "hasUnknownModelCost": True}],
+                None,
+            ),
+            "a dirty last row": (
+                [
+                    {"type": "cost-state", "sessionId": SESSION, "totalCostUSD": 3.5, "hasUnknownModelCost": False},
+                    {"type": "cost-state", "sessionId": SESSION, "totalCostUSD": 4.0, "hasUnknownModelCost": True},
+                ],
+                None,
+            ),
+        }
+        for name, (records, expected) in cases.items():
+            with self.subTest(name):
+                directory = self.root / "cases" / name.replace(" ", "-") / "workspace"
+                directory.mkdir(parents=True)
+                (directory / f"{SESSION}.jsonl").write_text("".join(json.dumps(row) + "\n" for row in records))
+                out, _ = translate([init()], 1, native_projects=[directory.parent])
+                self.assertEqual(("turn.failed", "incomplete_turn"), (out[-1]["type"], out[-1]["error"]["code"]))
+                state = out[-1].get("cost_state")
+                if expected is None:
+                    self.assertIsNone(state, out[-1])
+                else:
+                    self.assertEqual(SESSION, state["session_id"])
+                    self.assertAlmostEqual(expected, state["total_cost_usd"])
+                    self.assertNotIn("previous_total_usd", state)
+
+    def test_two_saved_records_price_a_cut_call_only_when_they_agree(self):
+        """The same session saved under two workspaces is one amount only when their totals agree."""
+        for label, totals, expected in (("agreeing", (3.5, 3.5), 3.5), ("conflicting", (3.5, 4.0), None)):
+            with self.subTest(label):
+                projects = self.root / "two" / label
+                for index, total in enumerate(totals):
+                    directory = projects / f"workspace-{index}"
+                    directory.mkdir(parents=True)
+                    (directory / f"{SESSION}.jsonl").write_text(
+                        json.dumps(
+                            {
+                                "type": "cost-state",
+                                "sessionId": SESSION,
+                                "totalCostUSD": total,
+                                "hasUnknownModelCost": False,
+                            }
+                        )
+                        + "\n"
+                    )
+                out, _ = translate([init()], 1, native_projects=[projects])
+                state = out[-1].get("cost_state")
+                if expected is None:
+                    self.assertIsNone(state, out[-1])
+                else:
+                    self.assertAlmostEqual(expected, state["total_cost_usd"])
+
+    def test_an_oversized_record_the_reader_cannot_inspect_stays_unknown(self):
+        """A bounded read never prices from an earlier row when a later record could not be inspected."""
+        directory = self.root / "big" / "workspace"
+        directory.mkdir(parents=True)
+        path = directory / f"{SESSION}.jsonl"
+        clean = json.dumps(
+            {"type": "cost-state", "sessionId": SESSION, "totalCostUSD": 3.5, "hasUnknownModelCost": False}
+        )
+        oversize = json.dumps(
+            {"type": "cost-state", "sessionId": SESSION, "totalCostUSD": 4.0, "hasUnknownModelCost": False}
+        ) + "x" * (2 << 20)
+        path.write_text(clean + "\n" + oversize + "\n")
+        out, _ = translate([init()], 1, native_projects=[self.root / "big"])
+        self.assertIsNone(out[-1].get("cost_state"), out[-1])
+        # A large line that cannot be a cost record is skipped, and the priced record still reads.
+        path.write_text(clean + "\n" + json.dumps({"type": "tool_result", "content": "y" * (2 << 20)}) + "\n")
+        out, _ = translate([init()], 1, native_projects=[self.root / "big"])
+        self.assertAlmostEqual(3.5, out[-1]["cost_state"]["total_cost_usd"])
+
     def test_an_api_key_source_stops_the_stage(self):
         """An init row naming an API key source (synthesized: live subscription calls say "none")."""
         for source in ("ANTHROPIC_API_KEY", "apiKeyHelper", "/login managed key"):
@@ -756,6 +869,90 @@ class ProcessTests(TempMixin, unittest.TestCase):
         self.assertEqual(["system", "result", "stderr", "exit"], [row["type"] for row in raw])
         resumed = self.run_stream(fake, "--resumed", "s-ledger")
         self.assertNotIn("cost_usd", json.loads(resumed.stdout.splitlines()[-1]))  # same total: nothing new spent
+
+    def reported_spend(self, rows):
+        """The public chain for these rows: one attempt's metrics, then its reported spend."""
+        metrics = autocode_event_metrics.summarize(
+            rows, {"accounting": {"requests": [], "complete": True, "issues": []}}, None
+        )
+        measured = autocode_usage.accounting(
+            {
+                "stages": [
+                    {
+                        "stage": "write_acceptance_tests",
+                        "role": "Tester",
+                        "attempt_id": "001/cut",
+                        "command": ["autocode", "--model", "claude-opus-5-5"],
+                        "interrupted": True,
+                        "metrics": metrics,
+                    }
+                ]
+            }
+        )
+        return measured["attempts"][0]["reported_cost_usd"]
+
+    def test_an_interrupted_call_recovers_the_cli_cost_record_for_reconciliation(self):
+        """A stream cut before its result prices from the CLI's saved cost record (#2599 review)."""
+        home = self.root / "home"
+        transcript = home / ".claude" / "projects" / "workspace" / f"{SESSION}.jsonl"
+        transcript.parent.mkdir(parents=True)
+        transcript.write_text(
+            json.dumps(
+                {
+                    "type": "cost-state",
+                    "sessionId": SESSION,
+                    "totalCostUSD": 3.5,
+                    "totalDuration": 2000,
+                    "modelUsage": {},
+                    "hasUnknownModelCost": False,
+                }
+            )
+            + "\n"
+        )
+        fake = self.fake(
+            f"""
+            print(json.dumps({{"type": "system", "subtype": "init", "session_id": {SESSION!r}}}), flush=True)
+            raise SystemExit(143)
+            """
+        )
+        done = self.run_stream(fake, env={"HOME": str(home), "CLAUDE_CONFIG_DIR": str(self.root / "config")})
+        self.assertEqual((143, ""), (done.returncode, done.stderr))
+        rows = [json.loads(line) for line in done.stdout.splitlines()]
+        self.assertEqual(("turn.failed", "incomplete_turn"), (rows[-1]["type"], rows[-1]["error"]["code"]))
+        state = rows[-1]["cost_state"]
+        self.assertEqual(SESSION, state["session_id"])
+        self.assertAlmostEqual(3.5, state["total_cost_usd"])
+        self.assertNotIn("previous_total_usd", state)
+        self.assertAlmostEqual(3.5, self.reported_spend(rows))
+
+    def test_a_resumed_interrupted_call_prices_only_its_own_chain_delta(self):
+        """The resumed cut call prices its own spend: the saved total minus the earlier attempt's (#2592)."""
+        home = self.root / "home"
+        transcript = home / ".claude" / "projects" / "workspace" / f"{SESSION}.jsonl"
+        transcript.parent.mkdir(parents=True)
+        transcript.write_text(
+            json.dumps({"type": "cost-state", "sessionId": SESSION, "totalCostUSD": 3.0, "hasUnknownModelCost": False})
+            + "\n"
+        )
+        (self.root / "ledger").mkdir(exist_ok=True)
+        (self.root / "ledger" / f"{SESSION}.json").write_text(
+            json.dumps({"session_id": SESSION, "total_cost_usd": 1.0})
+        )
+        fake = self.fake(
+            f"""
+            print(json.dumps({{"type": "system", "subtype": "init", "session_id": {SESSION!r}}}), flush=True)
+            raise SystemExit(143)
+            """
+        )
+        done = self.run_stream(
+            fake, "--resumed", SESSION, env={"HOME": str(home), "CLAUDE_CONFIG_DIR": str(self.root / "config")}
+        )
+        self.assertEqual(143, done.returncode)
+        rows = [json.loads(line) for line in done.stdout.splitlines()]
+        state = rows[-1]["cost_state"]
+        self.assertAlmostEqual(3.0, state["total_cost_usd"])
+        self.assertAlmostEqual(1.0, state["previous_total_usd"])
+        self.assertAlmostEqual(2.0, self.reported_spend(rows))
 
     def test_a_report_edit_offer_reaches_claude_code_without_autocodes_annotation(self):
         # Live, Claude Code 2.1.314 refused the Requirements report repair before any request:
