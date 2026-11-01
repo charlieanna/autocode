@@ -243,6 +243,18 @@ class ReadyGateTests(unittest.TestCase):
                 records=[{"id": "task:0", "kind": "task", "text": literal}],
             )
 
+    def test_joint_report_title_keeps_all_obligations_without_tracking_digits(self):
+        title = "Implement a joint regression for this original bug report:\nDTI-12398: Incomplete history"
+        values = "Preserve domain 232027272 and result codes 1000 and 2304."
+        records = [{"id": "task:0", "kind": "task", "text": title + "\n\n" + values}]
+        kept = "Prove the joint history regression for domain 232027272 with result codes 1000 and 2304."
+        self.ready(body([criterion("C1", kept, [title, values])]), records=records)
+        for number in ("232027272", "1000", "2304"):
+            with self.subTest(number=number), self.assertRaisesRegex(ValueError, "changed a number.*" + number):
+                self.ready(body([criterion("C1", kept.replace(number, "other"), [title, values])]), records=records)
+        with self.assertRaisesRegex(ValueError, "neither cited nor out of scope"):
+            self.ready(body([criterion("C1", kept, [values])]), records=records)
+
     def test_documentary_location_labels_do_not_become_product_values(self):
         for location in ("tools/parser.py:292–363", "src/parser.py:292-363", "parser.py:292"):
             with self.subTest(location=location):

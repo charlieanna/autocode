@@ -16,21 +16,25 @@ _LOCATION_LABEL = re.compile(
 )
 _INLINE_CODE = re.compile(r"(`[^`\n]*`)")
 _OUTPUT = re.compile(r"\b(?:print|emit|output|return|literal|exactly)\b", re.I)
-_TICKET_TITLE = re.compile(r"\A\s*(?:#{1,6}[ \t]+)?(?P<key>[A-Z][A-Z0-9]+-[1-9]\d*):[ \t]+(?=\S)")
+_TICKET_TITLE = re.compile(
+    r"\A\s*(?:Implement a joint regression for this original bug report:[ \t]*\r?\n[ \t]*)?"
+    r"(?:#{1,6}[ \t]+)?(?P<key>[A-Z][A-Z0-9]+-[1-9]\d*):[ \t]+(?=\S)"
+)
 _TITLE_VALUE = re.compile(r"\b(?:code|identifier|key|version|sku)\b", re.I)
 
 
 def ticket_title_key(text: str) -> str:
     """A leading ticket-title label, unless the source also uses it as a value.
 
-    Only the first line's bare KEY-number: title convention is documentary.
+    Only a leading bare KEY-number: title convention is documentary, including
+    the original title immediately after the coordinator's fixed joint-task intro.
     Inline codes, titles describing a value/output and a key used again anywhere
     in the source remain ambiguous and keep their numbers. The prose stays owed.
     """
     match = _TICKET_TITLE.match(text)
     if not match:
         return ""
-    title = text.lstrip().splitlines()[0]
+    title = text[match.start("key") :].splitlines()[0]
     if _OUTPUT.search(title) or _TITLE_VALUE.search(title):
         return ""
     key = match["key"]

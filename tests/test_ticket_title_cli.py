@@ -18,18 +18,26 @@ from harness.project import materialize, without_maintenance
 
 class TicketTitleCliTests(unittest.TestCase):
     def test_cited_ticket_title_reaches_reviewed_plan_without_report_repair_and_reopens(self):
+        self._assert_reviewed_plan("")
+
+    def test_joint_wrapped_title_reaches_reviewed_plan_without_report_repair_and_reopens(self):
+        self._assert_reviewed_plan(
+            "Implement a joint regression for this original bug report:\n", scenario_name="bugfix-trivial"
+        )
+
+    def _assert_reviewed_plan(self, prefix, *, scenario_name="greenfield-greeting-cli"):
         with tempfile.TemporaryDirectory(prefix="ticket-title-cli-") as temporary:
             root = Path(temporary)
-            scenario = catalog.load("greenfield-greeting-cli")
+            scenario = catalog.load(scenario_name)
             project = without_maintenance(materialize(scenario.seed, root / "project"))
             flags, env = fake_setup(scenario, root, scenario.dir / "reference")
             env.update(AUTOCODE_HOME=str(root / "registry"), PYTHONDONTWRITEBYTECODE="1")
             paths = env["PATH"].split(os.pathsep)
             env["PATH"] = os.pathsep.join([paths[0], str(Path(sys.executable).parent), *paths[1:]])
-            title = "APP-12398: Missing greeting CLI"
+            title = "APP-12398: Missing greeting CLI" if not prefix else "APP-12398: Missing partial page"
             run = taskrun.TaskRun.start(
                 project,
-                title + "\n\n" + scenario.brief,
+                prefix + title + "\n\n" + scenario.brief,
                 options=(*flags, "--no-adaptive-planning"),
                 env=env,
                 timeout=180,
