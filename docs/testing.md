@@ -197,6 +197,33 @@ copies by file name and runs, which no import names, goes in `SCENARIO_FIXTURES`
 `tools/run_suite.py` with that module: a pull request that changes the script then
 runs the scenario harness step and selects the module.
 
+#### Checking out an old revision: a standalone clone, never a linked worktree
+
+Bisecting, or running any suite at an older revision, needs a repository of its own.
+A linked worktree shares the main checkout's `.git/config`, and an older revision's
+test or delivery code writes repository settings there — with the hundreds of managed
+worktrees this repository carries, that single file decides whether every worktree has
+a work tree at all. Observed on 2026-10-31 while bisecting `50bab5745..0614ea9b`:
+running one case of that window from a linked worktree left `bare = true` in the shared
+main config, and every worktree then failed with `fatal: this operation must be run in
+a work tree` — including the checkout the installed CLI runs from. The same revision,
+the same case and the same machine in a standalone clone passed and left its own config
+byte-identical, so the difference was the shared `.git`, not the revision.
+
+Recover by putting the value back (`git -C <main checkout> config core.bare false`,
+then `git rev-parse --is-bare-repository` in each affected worktree), and move the work
+into a clone before resuming:
+
+```sh
+git clone --no-checkout file:///path/to/checkout /tmp/bisect && cd /tmp/bisect
+git checkout --detach <bad>            # materialize the tree, then the env it expects
+uv venv && uv pip install -e . pytest coverage
+git bisect start <bad> <good> && git bisect run sh /tmp/predicate.sh
+```
+
+This asks no revision to behave differently; the rule is only that an old revision must
+never be the one editing configuration shared with current work.
+
 ### Unit suite
 
 Select the checks affected by the change. This host-admission policy test mocks
