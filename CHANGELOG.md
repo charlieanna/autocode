@@ -9,6 +9,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- The `glm_revise` bounded-report-edits repair fixture emits `value_json` fields (#2563):
+  the typed repair-value change hardened the repair wire schema (`additionalProperties:
+  false`, edits carry `value_json` instead of `value`), but the staged provider still
+  scripted the legacy `value` form, so the repair patch failed schema validation and
+  `tests.test_stage_repair_cli` failed on master. Test infrastructure only.
+
 ### Changed
 
 - The attempt-specific schema property renders last in provider prompt copies (#2136): a
