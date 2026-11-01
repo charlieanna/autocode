@@ -193,8 +193,6 @@ class AttemptSpecificSchemaLastTests(unittest.TestCase):
         raise AssertionError("no report schema found in the prompt prefix")
 
     def check_prompt_order(self, decorate):
-        import autocode_changed_code_review as changed_code_review
-
         schema = self.bound_schema()
         before = copy.deepcopy(schema)
         prompt = decorate("Task\nCURRENT HANDOFF DATA\n{}", schema, Path("/run/events.jsonl"))

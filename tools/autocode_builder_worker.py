@@ -153,7 +153,10 @@ def execute(state: RunState, directory, workspace, mode):
         state.update({"status": "RUNNING", "next_stage": "terra"})
         prompt, metrics = stage_context.context_packet(state, "terra", directory / "state.json")
         prompt = test_examples.builder_prompt(
-            prompt, workspace, state.get("current_task"), notes=test_cases.builder_note(state) + assignment.BUILD_OUTPUT_NOTE
+            prompt,
+            workspace,
+            state.get("current_task"),
+            notes=test_cases.builder_note(state) + assignment.BUILD_OUTPUT_NOTE,
         )
         metrics = {**metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4}
         prompt = (
