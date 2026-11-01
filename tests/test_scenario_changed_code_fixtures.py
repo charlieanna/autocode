@@ -162,6 +162,37 @@ class GreetingFixtureReviewTests(unittest.TestCase):
             (root / "test_greet.py").write_text("# CLI assertions removed\n")
             self.assertEqual([], fixture.judgments(data, root))
 
+    def test_greeting_judgments_serve_the_planning_layout_with_tests_in_a_subdirectory(self):
+        reference = REFERENCE.parents[1] / "greenfield-greeting-cli/reference"
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            shutil.copytree(reference, root, dirs_exist_ok=True)
+            (root / "tests").mkdir()
+            (root / "test_greet.py").rename(root / "tests/test_greet.py")
+            (root / "tests/__init__.py").write_text("")
+            original = (root / "greet.py").read_bytes()
+            data = {
+                "regression_proof": {
+                    "path": "proof.json",
+                    "changed_code_evidence": {
+                        "obligations": [
+                            {
+                                "gap_id": f"gap:{i}",
+                                "path": "greet.py",
+                                "line": i,
+                                "status": "reason_required",
+                                "sha256": hashlib.sha256(original).hexdigest(),
+                                "mutation_outcomes": [],
+                            }
+                            for i in range(1, len(original.splitlines()) + 1)
+                        ]
+                    },
+                }
+            }
+            self.assertEqual(7, len(fixture.judgments(data, root)))
+            (root / "tests/test_greet.py").write_text("# CLI assertions removed\n")
+            self.assertEqual([], fixture.judgments(data, root))
+
     def test_the_capacity_broken_variant_gets_reasons_only_with_its_own_tests_and_no_empty_name_claim(self):
         broken = REFERENCE.parents[1] / "capacity-recovery/broken/accepts-empty-name"
         with tempfile.TemporaryDirectory() as folder:

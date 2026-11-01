@@ -793,7 +793,19 @@ def _greeting(data, root):
     try:
         source = (root / "greet.py").read_bytes()
         digest = hashlib.sha256(source).hexdigest()
-        inputs = (digest, hashlib.sha256((root / "test_greet.py").read_bytes()).hexdigest())
+        # The adversarial-planning cases move the CLI tests into tests/ to exercise
+        # subdirectory planning; both layouts must keep serving the same judgment.
+        tests = next(
+            (
+                candidate
+                for candidate in (root / "test_greet.py", root / "tests/test_greet.py")
+                if candidate.is_file()
+            ),
+            None,
+        )
+        if tests is None:
+            return []
+        inputs = (digest, hashlib.sha256(tests.read_bytes()).hexdigest())
         if inputs not in (GREETING_REFERENCE, GREETING_ACCEPTS_EMPTY_NAME):
             return []
     except OSError:
