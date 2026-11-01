@@ -274,6 +274,14 @@ class CoordinationContextTests(unittest.TestCase):
     def test_requirements_planning_runtime_and_report_repair_receive_the_same_bound_context(self):
         self.automatic()
         expected = coordination.context(self.state)
+        self.assertIsNotNone(expected)
+        instruction = expected["instruction"]
+        self.assertIn("Source citations establish provenance", instruction)
+        self.assertIn("not fulfillment", instruction)
+        self.assertIn("LOCAL test or guard", instruction)
+        self.assertIn("verbatim in required_behaviors/constraints", instruction)
+        self.assertIn("do not create separate global coordinator-only", instruction.lower())
+        self.assertIn("Observable boundary preservation", instruction)
         for stage in ("requirements_gather", "astra_discovery", "astra_challenge"):
             with self.subTest(stage=stage):
                 prompt, _ = autoplanner.context(self.state, stage, self.run / "state.json")
