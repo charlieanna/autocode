@@ -38,7 +38,7 @@ AFTER_INTERPRETATION = (
 
 
 class DraftFailureCorrectionCliTests(unittest.TestCase):
-    def start(self, *, stale=False, adaptive=False, compose=False, wording=False, adjacent=False):
+    def start(self, *, stale=False, adaptive=False, compose=False, wording=False, adjacent=False, obligations=False):
         workspace, env = fixture_workspace(self)
         (workspace / "pager.py").write_text(
             "def page(items, number, size):\n"
@@ -70,6 +70,10 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
                 witness.write(json.dumps({{"stage": stage, "repair": repairing, "error": repair_error}}) + "\\n")
             if stage == "astra_discovery":
                 report["contract"]["important_failure_cases"].append({WRONG!r})
+                if {obligations!r}:
+                    report["contract"]["accepted_assumptions"].append({{
+                        "text": "The unrelated helper retains its existing argument validation",
+                        "basis": "agent_proposed", "answer_id": ""}})
                 if {compose!r}:
                     feedback = next(row for row in data["brief_feedback"] if row["text"] == {FEEDBACK!r})
                     report["contract"]["accepted_assumptions"].append({{
@@ -87,11 +91,14 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
                     "requested_change": "Correct only the mistaken preservation statement",
                     "acceptance_test": "The plan preserves the existing [] result",
                     "blocking": True, "draft_failure_correction": receipt}}]
-            elif stage == "glm_revise" and repairing and {adjacent!r}:
+            elif stage == "glm_revise" and repairing and ({adjacent!r} or {obligations!r}):
                 report = copy.deepcopy(data["rejected_report"]["content"])
                 for field in ("required_behaviors", "constraints"):
                     if field in repair_error:
                         report["contract"][field] = copy.deepcopy(data["protected_contract"][field])
+                if {obligations!r} and "accepted_assumptions" in repair_error:
+                    report["contract"]["accepted_assumptions"] = copy.deepcopy(
+                        data.get("draft_failure_adjacent_obligations", {{}}).get("accepted_assumptions", []))
             elif stage == "glm_revise":
                 report["contract"] = copy.deepcopy(data["goal_contract"]["body"])
                 report["contract"]["important_failure_cases"] = [
@@ -121,6 +128,8 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
                 if {adjacent!r}:
                     report["contract"]["required_behaviors"].append("An unrelated extra behavior")
                     report["contract"]["constraints"].append("An unrelated extra constraint")
+                if {obligations!r}:
+                    report["contract"]["accepted_assumptions"] = []
             elif stage == "astra_finalize":
                 # Keep the real provider fixture's retention-format contract:
                 # it already references the corrected revision in the handoff.
@@ -230,6 +239,20 @@ class DraftFailureCorrectionCliTests(unittest.TestCase):
         token = view["needs"]["token"]
         reopened = taskrun.TaskRun(workspace, run.run_dir, env=run.env).status()
         self.assertEqual(token, reopened["needs"]["token"])
+        self.assertFalse(any(row["stage"] == "terra" for row in self.attempts(trace)))
+
+    def test_repair_restores_exact_model_assumptions_from_its_public_handoff(self):
+        run, view, trace, workspace = self.start(obligations=True)
+        self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), self.diagnostic(view, trace))
+        repairs = [row for row in self.attempts(trace) if row["repair"]]
+        self.assertEqual(1, len(repairs), repairs)
+        self.assertIn("accepted_assumptions", repairs[0]["error"])
+        shown = run.show_goal()
+        self.assertIn("The unrelated helper retains its existing argument validation", shown)
+        self.assertIn("agent_proposed", shown)
+        self.assertFalse((workspace / "greet.py").exists())
+        reopened = taskrun.TaskRun(workspace, run.run_dir, env=run.env).status()
+        self.assertEqual(view["needs"]["token"], reopened["needs"]["token"])
         self.assertFalse(any(row["stage"] == "terra" for row in self.attempts(trace)))
 
     def test_receipt_composes_with_independently_allowed_feedback_interpretation(self):

@@ -136,6 +136,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/autocode_planning_report_policy.py", ("tests.test_conflict_generation_cli",)),
     ("tools/units/autoplanner.py", ("tests.test_conflict_generation_cli",)),
     ("tools/autocode_draft_failure_correction.py", ("tests.test_draft_failure_correction_cli",)),
+    ("tools/autocode_report_repair_context.py", ("tests.test_draft_failure_correction_cli",)),
     (
         "tools/prompts/fragments/autoplanner/draft-failure-correction.md",
         ("tests.test_draft_failure_correction", "tests.test_draft_failure_correction_cli"),

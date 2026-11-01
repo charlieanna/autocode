@@ -19,6 +19,7 @@ import json
 try:
     from . import autocode_contract_revision as contract_revision
     from . import autocode_coordination_context as coordination_context
+    from . import autocode_draft_failure_correction as failure_correction
     from . import autocode_goals as goals
     from . import autocode_plan_retention as retention
     from . import autocode_regression_reference as regression_reference
@@ -29,6 +30,7 @@ try:
 except ImportError:
     import autocode_contract_revision as contract_revision
     import autocode_coordination_context as coordination_context
+    import autocode_draft_failure_correction as failure_correction
     import autocode_goals as goals
     import autocode_plan_retention as retention
     import autocode_regression_reference as regression_reference
@@ -261,6 +263,7 @@ def prompt_parts(
     )
     receipt_instruction, receipt_handoff = receipt_parts
     interpretations = goals.feedback_interpretation_context(state) if stage in PLANNING_STAGES else {}
+    adjacent = failure_correction.repair_obligations(state) if stage == "glm_revise" else None
     # Revision validation uses the current review, not the execution findings ledger.
     # Carry that report once without restoring superseded predecessor contracts.
     review = (
@@ -300,6 +303,15 @@ def prompt_parts(
         + historical_instruction
         + review_instruction
         + difference_instruction
+        + (
+            "DRAFT FAILURE ADJACENT OBLIGATIONS. draft_failure_adjacent_obligations supplies the exact saved "
+            "assumption and decision rows that must be retained beside a receipted failure-case correction. "
+            "Use these rows directly, including their order, basis and answer_id; no private-state lookup is needed. "
+            "This context does not make a model-proposed assumption human-approved and grants no change authority. "
+            "Any separately permitted change must still satisfy its independent correction rules.\n"
+            if adjacent is not None
+            else ""
+        )
         + syntax_instruction
         + (
             "EMPTY REPAIR RESPONSE. The latest report-only attempt returned no final report. "
@@ -315,6 +327,7 @@ def prompt_parts(
             "header": {
                 **receipt_handoff,
                 **({"protected_list_differences": differences} if differences else {}),
+                **({"draft_failure_adjacent_obligations": adjacent} if adjacent is not None else {}),
                 **references,
                 **review,
                 **({"feedback_interpretations": interpretations} if interpretations else {}),

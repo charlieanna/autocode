@@ -98,6 +98,7 @@ class DynamicDependenciesTests(unittest.TestCase):
         consumer = "tests.test_draft_failure_correction_cli"
         for path in (
             "tools/autocode_draft_failure_correction.py",
+            "tools/autocode_report_repair_context.py",
             "tools/prompts/fragments/autoplanner/draft-failure-correction.md",
         ):
             with self.subTest(path=path):

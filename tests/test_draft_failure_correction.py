@@ -11,6 +11,7 @@ import autocode as runner
 import autocode_draft_failure_correction as correction
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
+import autocode_report_repair_context as repair_context
 import autocode_run_view as run_view
 import autocode_source_log as source_log
 import autopilot
@@ -496,6 +497,58 @@ class DraftFailureCorrectionTests(unittest.TestCase):
         for index in range(len(changed["accepted_assumptions"])):
             self.assertIn(f"accepted_assumptions[{index}]", str(refused.exception))
         self.assertIn("acceptance_criteria[C1]", str(refused.exception))
+
+    def test_repair_obligations_include_exact_model_and_editable_assumptions_without_authority(self):
+        current, review, _, _ = fixture(interpretation=True)
+        contract = current["goal_contract"]
+        contract["body"]["delegated_decisions"].append(
+            {"text": "Use the existing local fixture", "basis": "delegated", "answer_id": "Q1"}
+        )
+        contract["hash"] = runner.util.digest({key: contract[key] for key in ("task_id", "revision", "body")})
+        review["concerns"][0][correction.FIELD]["snapshot"] = correction.snapshot(current)
+        self.admit(current, review)
+        before = copy.deepcopy(current)
+        fields = ("accepted_assumptions", "delegated_decisions")
+        expected = {field: current["goal_contract"]["body"][field] for field in fields}
+        result = correction.repair_obligations(current)
+        self.assertEqual(expected, result)
+        result["accepted_assumptions"][0]["text"] = "Not the saved assumption"
+        result["delegated_decisions"][0]["answer_id"] = "Not the saved provenance"
+        self.assertEqual(before, current)
+
+    def test_repair_obligations_require_a_fresh_valid_failure_receipt(self):
+        for mutation in ("missing", "stale", "nonblocking", "approved"):
+            with self.subTest(mutation=mutation):
+                current, review, _, _ = fixture()
+                self.admit(current, review)
+                if mutation == "missing":
+                    current["planning"]["reports"].clear()
+                elif mutation == "stale":
+                    current["task"] += " A new requirement."
+                elif mutation == "nonblocking":
+                    current["planning"]["reports"]["astra_challenge"]["report"]["concerns"][0]["blocking"] = False
+                else:
+                    current["goal_contract"]["approval_status"] = "approved"
+                self.assertIsNone(correction.repair_obligations(current))
+
+    def test_revision_repair_packet_supplies_adjacent_rows_without_reclassifying_them_as_human(self):
+        current, review, changed, _ = fixture(interpretation=True)
+        self.admit(current, review)
+        source = {"format": "json", "truncated": False, "content": {"contract": changed}}
+        for stage in ("glm_revise", "astra_finalize", "astra_challenge"):
+            with self.subTest(stage=stage):
+                instruction, payload = repair_context.prompt_parts(
+                    current, {"original": {"stage": stage}}, source, source, ("", {})
+                )
+                if stage == "glm_revise":
+                    expected = current["goal_contract"]["body"]["accepted_assumptions"]
+                    self.assertEqual(
+                        expected, payload["header"]["draft_failure_adjacent_obligations"]["accepted_assumptions"]
+                    )
+                    self.assertIn("does not make a model-proposed assumption human-approved", instruction)
+                    self.assertIn("independent correction rules", instruction)
+                else:
+                    self.assertNotIn("draft_failure_adjacent_obligations", payload["header"])
 
     def test_bound_diagnosis_filling_does_not_block_the_exact_correction(self):
         diagnosis = {

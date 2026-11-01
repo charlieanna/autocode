@@ -185,6 +185,20 @@ def receipts(state: RunState, report):
     return allowed
 
 
+def repair_obligations(state: RunState):
+    """Supply exact adjacent rows omitted by the human-protected-field snapshot."""
+    report = ((state.get("planning") or {}).get("reports", {}).get("astra_challenge") or {}).get("report")
+    if not isinstance(report, dict):
+        return None
+    try:
+        if not receipts(state, report):
+            return None
+    except ValueError:
+        return None
+    body = state["goal_contract"]["body"]
+    return {key: copy.deepcopy(body.get(key, [])) for key in ("accepted_assumptions", "delegated_decisions")}
+
+
 def _obligation_mismatches(before, after, replacements, interpretation_corrections, criterion_corrections):
     # The failure receipt grants no authority over adjacent obligations. Only the caller's
     # existing assumption and criterion guards independently authorize their own draft corrections.
