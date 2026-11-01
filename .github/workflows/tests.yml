@@ -185,10 +185,25 @@ jobs:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
           if [ "${{ github.event_name }}" = pull_request ]; then
-            .venv/bin/python tools/run_suite.py --verbosity 2 --changed "$BASE"
+            .venv/bin/python tools/run_suite.py --verbosity 2 --changed "$BASE" --failed-out .suite-failed.json
           else
-            .venv/bin/python tools/run_suite.py --verbosity 2
+            .venv/bin/python tools/run_suite.py --verbosity 2 --failed-out .suite-failed.json
           fi
+
+      - name: Attribute red to base or head
+        # A red suite does not say whose failure it is, so an agent debugs its own
+        # breakage and somebody else's alike (#2603). Run only the failing modules
+        # against the event's pinned base and say which are introduced here and which
+        # were already red there. Informational: ci-required is what blocks the merge.
+        if: ${{ failure() && github.event_name == 'pull_request' }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          .venv/bin/python tools/attribute_failure.py --base "$BASE" --failed .suite-failed.json | tee .attribution.md
+          cat .attribution.md >> "$GITHUB_STEP_SUMMARY"
+          gh pr comment "$PR" --body-file .attribution.md || echo "could not post the attribution comment"
 
       - name: Run the scenario harness
         if: needs.scope.outputs.scenarios == 'true'
@@ -566,6 +581,24 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
+      - name: Refuse a base whose suite is red
+        # Red accumulates when pull requests stack on a red master (#2603). If the
+        # base's own suite concluded failure this branch cannot get a meaningful
+        # verdict, and the break belongs in its own small pull request first
+        # (AGENTS.md). A read failure never blocks: only a confirmed red does.
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          count=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/tests.yml/runs?head_sha=${BASE}&per_page=20" \
+            --jq '[.workflow_runs[] | select(.conclusion == "failure")] | length' 2>/dev/null) || count=""
+          if [ -z "$count" ]; then
+            echo "::warning::could not read the base suite run for ${BASE}; not blocking"
+          elif [ "$count" -gt 0 ]; then
+            echo "::error::base ${BASE} is red - its tests run concluded failure. Fix it forward in its own small pull request first (AGENTS.md). See #2603."
+            exit 1
+          fi
       - name: Require every selected check
         env:
           NEEDS: ${{ toJSON(needs) }}
