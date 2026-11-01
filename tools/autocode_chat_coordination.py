@@ -34,7 +34,7 @@ def named(value, run_dir, operation=None):
         raise actions.ClientGap("The coordination action names another run or output contract")
     if operation and value[2] != operation:
         raise actions.ClientGap("The coordination action differs from the displayed decision")
-    if value[2] not in ("status", "advance", "bind", "approve", "choose", "cancel", "budget", "planning-budget"):
+    if value[2] not in ("status", "advance", "bind", "approve", "choose", "cancel", "resume", "budget", "planning-budget"):
         raise actions.ClientGap("Unsupported coordination action")
     return value[1:]
 
@@ -90,7 +90,7 @@ def step(client, view, render_plan):
             raise actions.ClientGap("The core supplied an unsupported automatic coordination action")
         client.advance(named(action, client.run_dir, operation))
         return None
-    if need["kind"] in ("budget", "planning_budget"):
+    if need["kind"] in ("budget", "planning_budget", "coordination_resume"):
         return budget_reply(client, view, need)
     if summary.get("approval"):
         if need["kind"] == "approval":
@@ -195,7 +195,8 @@ def step(client, view, render_plan):
 
 def budget_reply(client, view, need):
     planning = need["kind"] == "planning_budget"
-    operation = "planning-budget" if planning else "budget"
+    resuming = need["kind"] == "coordination_resume"
+    operation = "resume" if resuming else "planning-budget" if planning else "budget"
     flag = "--max-planning-cost-usd" if planning else "--max-cost-usd"
     argv = list(named(need.get("next_command"), client.run_dir, operation))
     if argv != [
@@ -227,15 +228,23 @@ def budget_reply(client, view, need):
         )
     label = "planning allowance" if planning else "whole-set accounting cap"
     bounds = f"{minimum:g} to {maximum:g}" if planning else f"{minimum:g} or more"
+    no_cap = resuming and need.get("allows_no_cap") is True
+    if no_cap:
+        bounds += "; 0 removes spending limits"
     text = client.ask(f"New {label} in USD ({bounds}; Enter keeps it paused): ").strip()
     if not text:
         return 2
-    if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,6})?", text) or not minimum <= float(text) <= maximum:
+    if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,6})?", text) or not (
+        minimum <= float(text) <= maximum or (no_cap and float(text) == 0)
+    ):
         client.say("No cap changed. Enter a finite amount within the displayed bounds.")
         return None
-    if client.ask(
-        f"Set the {label} to ${text} and continue the displayed cost recovery? [y/N]: "
-    ).strip().lower() not in ("y", "yes"):
+    confirmation = (
+        "Remove spending limits and recover this saved coordination? [y/N]: "
+        if no_cap and float(text) == 0
+        else f"Set the {label} to ${text} and continue the displayed cost recovery? [y/N]: "
+    )
+    if client.ask(confirmation).strip().lower() not in ("y", "yes"):
         return 2
     fresh = read(client, view)
     if (fresh.get("needs") or {}).get("token") != need.get("token") or (fresh.get("needs") or {}).get("kind") != need[

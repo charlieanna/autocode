@@ -8,6 +8,14 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_cancel_recovery_keeps_public_budget_reopen_regression(self):
+        consumer = "tests.test_coordination_budget_cli"
+        for path in ("tools/autocode_coordination_resume.py", "tools/autocode_coordination_store.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_ticket_title_trace_keeps_public_plan_and_reopen_consumer(self):
         consumer = "tests.test_ticket_title_cli"
         for path in ("tools/autocode_source_metadata.py", "tools/autocode_source_trace.py"):

@@ -280,6 +280,30 @@ class SharedBudgetDisplayTests(unittest.TestCase):
         self.assertIn("incomplete", shown)
         self.assertNotIn("secret-budget-token", shown)
 
+    def test_cancel_recovery_can_explicitly_remove_caps_without_approving_plans(self):
+        self.need.update(kind="coordination_resume", allows_no_cap=True, current_cap_usd=10)
+        self.need["next_command"][2] = "resume"
+        self.client.ask.side_effect = ["0", "yes"]
+        with patch.object(coordination, "read", return_value=self.summary):
+            self.assertIsNone(coordination.step(self.client, {}, Mock()))
+        argv = self.client.advance.call_args.args[0]
+        self.assertEqual("resume", argv[1])
+        self.assertEqual("0", argv[argv.index("--max-cost-usd") + 1])
+        prompts = " ".join(c.args[0] for c in self.client.ask.call_args_list)
+        self.assertIn("remove", prompts)
+        self.assertIn("spending", prompts)
+        self.assertNotIn("Approve", prompts)
+
+    def test_cancel_recovery_rechecks_its_exact_kind_after_confirmation(self):
+        self.need.update(kind="coordination_resume", allows_no_cap=True, current_cap_usd=10)
+        self.need["next_command"][2] = "resume"
+        self.client.ask.side_effect = ["0", "yes"]
+        changed = copy.deepcopy(self.summary)
+        changed["needs"]["kind"] = "budget"
+        with patch.object(coordination, "read", side_effect=[self.summary, changed]):
+            coordination.step(self.client, {}, Mock())
+        self.client.advance.assert_not_called()
+
     def test_decline_blank_and_invalid_amounts_never_change_a_cap(self):
         for answers in ([""], ["15", "no"], ["0"], ["nan"], ["inf"], ["9"], ["1e30"]):
             with self.subTest(answers=answers):

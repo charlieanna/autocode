@@ -17,6 +17,9 @@ from .test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 
 class SharedBudgetCliTests(unittest.TestCase):
+    def test_cancelled_real_members_can_resume_uncapped_without_repeating_saved_planning(self):
+        self.exercise_recovery(planning=False, cancelled=True)
+
     def test_real_member_cost_pause_resumes_with_retained_spend_and_no_plan_approval(self):
         self.exercise_recovery(planning=False)
 
@@ -26,7 +29,7 @@ class SharedBudgetCliTests(unittest.TestCase):
     def test_real_reallocated_planning_stops_again_without_consuming_the_whole_set_cap(self):
         self.exercise_recovery(planning=True, exhaust=True)
 
-    def exercise_recovery(self, *, planning, exhaust=False):
+    def exercise_recovery(self, *, planning, exhaust=False, cancelled=False):
         first, env = fixture_workspace(self)
         second, _ = fixture_workspace(self)
         first, second = first.resolve(), second.resolve()
@@ -105,6 +108,40 @@ class SharedBudgetCliTests(unittest.TestCase):
         offer = view["needs"]
         self.assertEqual("budget", offer["kind"])
         self.assertGreater(offer["known_spent_usd"], before["cost"]["spent_usd"])
+        if cancelled:
+            reply, _ = cli("cancel")
+            self.assertEqual(0, reply.returncode)
+            reply, held = cli("status")
+            self.assertEqual("coordination_resume", held["needs"]["kind"], held)
+            launches = probe.read_bytes()
+            token = held["needs"]["token"]
+            reply, resumed = cli("resume", "--token", token, "--max-cost-usd", "0")
+            self.assertEqual(0, reply.returncode, resumed)
+            self.assertEqual(launches, probe.read_bytes())
+            self.assertEqual(before["cost"], stopped.status()["cost"])
+            self.assertEqual(peer_before["needs"]["token"], peer.status()["needs"]["token"])
+            _, reopened = cli("status")
+            self.assertEqual(resumed["needs"]["kind"], reopened["needs"]["kind"])
+            self.assertEqual(resumed["needs"]["target"], reopened["needs"]["target"])
+            self.assertEqual(resumed["needs"]["view"]["needs"], reopened["needs"]["view"]["needs"])
+            self.assertEqual(resumed["needs"]["view"]["cost"], reopened["needs"]["view"]["cost"])
+            reply, _ = cli("resume", "--token", token, "--max-cost-usd", "0")
+            self.assertEqual(2, reply.returncode)
+            self.assertEqual(launches, probe.read_bytes())
+            # Public child recovery applies the explicitly selected no-cap policy.
+            # The coordinator recovery itself neither starts nor approves this work.
+            stopped.options = ("--max-cost-usd", "0")
+            after = stopped.resume_paused()
+            self.assertEqual("approve_plan", after["needs"]["kind"], after["stop_reason"])
+            self.assertEqual(before["routes"], after["routes"])
+            prior = before["usage"]["accounting"]["attempts"]
+            current = after["usage"]["accounting"]["attempts"]
+            self.assertEqual([x["identity"] for x in prior], [x["identity"] for x in current[: len(prior)]])
+            self.assertFalse(after.get("approved_contract"))
+            self.assertTrue(all(row["kind"] == "resume" for row in after["approvals"]))
+            self.assertFalse((first / "greet.py").exists())
+            self.assertFalse(store.cancelled(stopped.run_dir))
+            return
         if planning:
             # The same real child stop under the new policy must retain the remaining
             # task money rather than offering a loop of same-cap acknowledgements.

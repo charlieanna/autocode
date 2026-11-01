@@ -135,6 +135,19 @@ It grants no plan approval, proof waiver or general recovery retry. Durable
 intent precedes the resume; an uncertain reply is retained for inspection and
 never automatically replayed. No saved member state is edited by coordination.
 
+A settled cancellation offers `needs.kind=coordination_resume`. Its named
+`coordinate resume --token TOKEN --max-cost-usd N` action retains all work,
+attempts and accounting and launches no model. Terminal chat confirms the
+selected policy and rereads the exact kind and token. A finite amount keeps
+the planning allocation unchanged; an explicit `0` removes the shared spending
+cap and disables its planning allocation limit. The retained allocation and
+prior cap stay in history. Subsequent participant advances receive an explicit
+zero cap so they cannot silently inherit an old spending limit. Other limits,
+routes, approvals and verification gates remain unchanged. A child pause still
+requires its own public recovery. Active or uncertain work, incomplete pricing,
+changed source/catalog/checkpoint and duplicate requests refuse. Cancellation
+receipts are retained; a newer cancellation always takes precedence.
+
 New coordinations with a finite cost cap reserve 70% for implementation and
 verification. Their shared planning allowance is 30% of the original cap,
 including the anchor's planning, every member's planning, report repairs and

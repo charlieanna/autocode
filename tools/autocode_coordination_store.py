@@ -72,7 +72,15 @@ def command(run_dir, operation="advance", *arguments):
 
 
 def cancelled(run_dir):
-    return (root(run_dir) / "cancel-request.json").exists()
+    path = root(run_dir) / "cancel-request.json"
+    if not path.exists():
+        return False
+    try:
+        request = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return True
+    resumptions = (read(run_dir) or {}).get("resumptions") or []
+    return not resumptions or resumptions[-1].get("cancel_request") != request
 
 
 def offer(run_dir, *, eligible=False):

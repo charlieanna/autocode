@@ -48,7 +48,7 @@ def planning_ceiling(budget, views, current_run):
     Existing saved coordinations retain their original policy.
     """
     allowance = budget.get("planning_allowance")
-    if not allowance:
+    if not allowance or budget.get("cap_usd") == 0:
         return None
     current = next((row for row in views if row.get("run_dir") == current_run), {}) if current_run else {}
     stage = (current.get("next_stage") or "").removesuffix("_report_repair")
@@ -110,6 +110,8 @@ def envelope(budget, views, current_run=None):
         cost.get("spent_usd") or 0 for run, cost in costs if run != current_run
     )
     result = {**accounting(budget, views), "options": []}
+    if cap == 0:
+        result["options"] = ["--max-cost-usd", "0"]
     total = result["known_spent_usd"]
     if cap:
         if total >= cap or cap - other <= 0:
