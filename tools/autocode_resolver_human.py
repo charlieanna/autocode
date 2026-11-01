@@ -774,6 +774,49 @@ def restage_pending(state: RunState):
     return True
 
 
+def refresh_assigned_scope(state: RunState):
+    """Reissue an authentic scope-only receipt stranded solely by a runtime repair.
+
+    The caller still validates the exact core-owned repository assignment. No
+    source, contract, settings, accounting or other frontier change is accepted.
+    Publication grants no answer, plan approval or execution authority.
+    """
+    live = current(state)
+    if live:
+        return live
+    entry = pending_issued(state)
+    if not entry:
+        return None
+    identity = entry["identity"]
+    proposal = identity.get("proposal") or {}
+    questions = proposal.get("questions") or []
+    if (
+        proposal.get("scope") not in ("clarification", "intake")
+        or not questions
+        or any(not str(row.get("id", "")).startswith("workspace-scope-") for row in questions)
+        or state.get("status") not in (proposal.get("status"), "PAUSED_INVALID_OUTPUT")
+    ):
+        return None
+    binding = _binding(state)
+    previous = identity.get("binding") or {}
+    if (
+        {key: value for key, value in binding.items() if key != "runtime_sources"}
+        != {key: value for key, value in previous.items() if key != "runtime_sources"}
+        or any(binding["interruptions"].values())
+        or not _evidence_valid(proposal)
+    ):
+        return None
+    # Reconstruct the old publication from its digest-authenticated ledger entry.
+    # Comparing the entire public body also rejects edited questions or tokens.
+    checked = copy.deepcopy(state)
+    expected = _publish(checked, identity)
+    if state.get(PUBLIC) != expected or state.get("pending_questions") != checked["pending_questions"]:
+        return None
+    if entry.get("receipt_hash") != expected["receipt_hash"]:
+        return None
+    return _publish(state, {**identity, "binding": binding})
+
+
 def supersede_assigned_scope(state: RunState, published, remaining, receipt):
     """Retire an exact core-assigned scope question without fabricating a user answer."""
     if current(state) != published or published.get("scope") not in ("clarification", "intake"):

@@ -22,9 +22,11 @@ try:
     from . import autocode_coordination_evidence as joint_evidence
     from . import autocode_coordination_joint as joint
     from . import autocode_coordination_limits as limits
+    from . import autocode_coordination_planning_limits as planning_limits
     from . import autocode_coordination_publish as publication
     from . import autocode_coordination_repositories as repos
     from . import autocode_coordination_request as request
+    from . import autocode_coordination_resume as cancellation
     from . import autocode_coordination_store as store
     from . import autocode_github as github
     from . import autocode_taskrun as tasks
@@ -38,9 +40,11 @@ except ImportError:
     import autocode_coordination_evidence as joint_evidence
     import autocode_coordination_joint as joint
     import autocode_coordination_limits as limits
+    import autocode_coordination_planning_limits as planning_limits
     import autocode_coordination_publish as publication
     import autocode_coordination_repositories as repos
     import autocode_coordination_request as request
+    import autocode_coordination_resume as cancellation
     import autocode_coordination_store as store
     import autocode_github as github
     import autocode_taskrun as tasks
@@ -407,7 +411,7 @@ def carried_approval(document, summary, joint_plan):
     return {"revision": record["revision"], "token": record["token"], "unchanged": unchanged}
 
 
-def next_step(document, views, *, command=tasks.AUTOCODE):
+def _next_step(document, views, *, command=tasks.AUTOCODE):
     if store.cancelled(document["anchor"]):
         return {"kind": "cancelled"}
     expected_sources = document.get("source_catalog")
@@ -431,6 +435,10 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
         return source_recovery
     if (document.get("budget") or {}).get("cap_usd"):
         rows, history = budget_observations(document, views, command=command)
+        if offered := planning_limits.offer(document, rows, history):
+            return offered
+        if reason := limits.planning_refusal(document, rows, history):
+            return {"kind": "blocked", "reason": reason}
         offered = limits.offer(document, rows, history)
         if offered:
             return offered
@@ -465,7 +473,15 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
     by_target.update({alias: by_target[canonical] for alias, canonical in aliases.items()})
     for target, view in discovery_views.items():
         scope = view.get("scope") or {}
-        if scope.get("external_parts") and not scope.get("decision"):
+        need = view.get("needs") or {}
+        assignment_pending = (
+            scope.get("decision") == "linked_repositories"
+            and need.get("kind") == "answer"
+            and any(
+                row.get("id") == "workspace-scope-" + str(scope.get("identity")) for row in need.get("questions") or []
+            )
+        )
+        if scope.get("external_parts") and (not scope.get("decision") or assignment_pending):
             required = {part["target"] for part in scope["external_parts"]}
             if required <= by_target.keys():
                 return {
@@ -572,6 +588,33 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
         "kind": "blocked",
         "reason": "Some members completed while others need a new coordinated plan; inspect their current gates",
     }
+
+
+def next_step(document, views, *, command=tasks.AUTOCODE):
+    """Expose a budget refusal before offering an action that could spend money."""
+    step = _next_step(document, views, command=command)
+    if step["kind"] == "cancelled":
+        rows, history = budget_observations(document, views, command=command)
+        return cancellation.offer(document, rows, history) or step
+    if (document.get("budget") or {}).get("planning_allowance") and step["kind"] in (
+        "start",
+        "advance",
+        "joint_plan_start",
+        "joint_plan_advance",
+        "joint_advance",
+        "request_feedback",
+        "refresh",
+        "rework",
+    ):
+        target = step.get("target")
+        member = next((row for row in document["members"] if row["target"] == target), None)
+        if step["kind"] in ("joint_plan_advance", "joint_advance"):
+            member = document.get("joint")
+        try:
+            budget_options(document, views, member["run_dir"] if member else None, command=command)
+        except store.CoordinationError as error:
+            return {"kind": "blocked", "reason": str(error)}
+    return step
 
 
 AUTOMATIC = {
@@ -742,6 +785,28 @@ def revise_budget(run_dir, token, amount, *, command=tasks.AUTOCODE):
     return status(run_dir, command=command)
 
 
+def revise_planning_budget(run_dir, token, amount, *, command=tasks.AUTOCODE):
+    """Apply only the fresh named allocation offer; preserve every task's saved work and gates."""
+    with store.locked(run_dir) as document:
+        if not document:
+            raise store.CoordinationError("Coordination has not started")
+        views = observe(document, command=command)
+        offered = next_step(document, views, command=command)
+        planning_limits.apply(document, offered, token, amount)
+    return status(run_dir, command=command)
+
+
+def resume_cancelled(run_dir, token, amount, *, command=tasks.AUTOCODE):
+    """Apply the exact cancellation recovery offer without dispatching a participant."""
+    with store.locked(run_dir) as document:
+        if not document:
+            raise store.CoordinationError("Coordination has not started")
+        views = observe(document, command=command)
+        offered = next_step(document, views, command=command)
+        cancellation.apply(document, offered, token, amount)
+    return status(run_dir, command=command)
+
+
 def require_joint_evidence(document, *, command=tasks.AUTOCODE):
     active = document["joint"]
     if active["verification"].get("kind") == "task_run":
@@ -776,7 +841,13 @@ def finish_rework_step(document, target):
 
 
 def follow_up_received(view, previous_turn, message):
-    submitted = [row for row in (view.get("chat") or {}).get("messages", []) if row.get("role") == "user"]
+    # Chat appends retained Resolver responses after ordinary conversation events.
+    # They are not later follow-ups and cannot replace the submitted-message receipt.
+    submitted = [
+        row
+        for row in (view.get("chat") or {}).get("messages", [])
+        if row.get("role") == "user" and not str(row.get("id") or "").startswith("resolver-")
+    ]
     # Follow-up input trims surrounding whitespace before recording the event.
     return view.get("turn") == previous_turn + 1 and bool(submitted) and submitted[-1].get("text") == message.strip()
 
@@ -1114,7 +1185,9 @@ OPERATION_HELP = {
     "approve": "Approve the coordinated plans by their exact token",
     "choose": "Resolve an ambiguous repository target to a local checkout",
     "cancel": "Cancel the coordination",
+    "resume": "Recover a settled cancellation with an explicit spending policy",
     "budget": "Raise the whole-set cost cap at a displayed cost stop",
+    "planning-budget": "Reallocate planning money inside the unchanged whole-set cost cap",
 }
 
 
@@ -1131,9 +1204,17 @@ def parser():
         child.add_argument("--json", action="store_true", help="Print the result as JSON")
         if name == "approve":
             child.add_argument("--token", required=True, help="Exact token of the coordinated plans shown")
-        if name == "budget":
+        if name in ("budget", "resume"):
             child.add_argument("--token", required=True, help="Exact token of the displayed cost stop")
             child.add_argument("--max-cost-usd", required=True, type=float, help="Finite cost cap for the whole set")
+        if name == "planning-budget":
+            child.add_argument("--token", required=True, help="Exact token of the displayed planning allocation stop")
+            child.add_argument(
+                "--max-planning-cost-usd",
+                required=True,
+                type=float,
+                help="Total planning allocation within the whole-set cap",
+            )
         if name == "choose":
             child.add_argument("--target", required=True, help="The ambiguous repository target to resolve")
             child.add_argument("--workspace", required=True, help="The authorized local checkout to use for it")
@@ -1143,7 +1224,9 @@ def parser():
 def cancel(run_dir, *, command=tasks.AUTOCODE):
     """A lock-independent boundary request; never interrupt or replay an agent."""
     document = store.read(run_dir)
-    util.atomic_json(store.root(run_dir) / "cancel-request.json", {"requested_at": util.now()})
+    util.atomic_json(
+        store.root(run_dir) / "cancel-request.json", {"requested_at": util.now(), "request_id": uuid.uuid4().hex}
+    )
     receipts = []
     if not document:
         return {"cancelled": True, "pause_receipts": receipts}
@@ -1187,11 +1270,23 @@ def cli(argv=None):
             )
         elif args.operation == "cancel":
             result = cancel(args.run_dir)
+        elif args.operation == "resume":
+            result = resume_cancelled(
+                args.run_dir,
+                os.environ.get("AUTOCODE_COORDINATION_TOKEN", "") if args.token == "-" else args.token,
+                args.max_cost_usd,
+            )
         elif args.operation == "budget":
             result = revise_budget(
                 args.run_dir,
                 os.environ.get("AUTOCODE_COORDINATION_TOKEN", "") if args.token == "-" else args.token,
                 args.max_cost_usd,
+            )
+        elif args.operation == "planning-budget":
+            result = revise_planning_budget(
+                args.run_dir,
+                os.environ.get("AUTOCODE_COORDINATION_TOKEN", "") if args.token == "-" else args.token,
+                args.max_planning_cost_usd,
             )
         else:
             with store.locked(args.run_dir) as document:

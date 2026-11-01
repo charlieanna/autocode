@@ -44,6 +44,37 @@ class Invocation:
     command: str
 
     @property
+    def compile_only(self):
+        """An explicit empty selector is a build check, with no named-test credit.
+
+        Recognize only understood flags: custom test arguments, benchmarks,
+        fuzzing and unknown options keep the normal test-evidence requirement.
+        """
+        values = {
+            "-count", "-timeout", "-p", "-parallel", "-cpu", "-shuffle", "-mod", "-modfile", "-tags",
+        }
+        booleans = {"-v", "-short", "-race", "-cover", "-failfast", "-json"}
+        selector, index = None, 0
+        while index < len(self.arguments):
+            word = self.arguments[index]
+            flag, equals, value = word.partition("=")
+            if flag in ("-run", "-test.run") or flag in values:
+                if not equals:
+                    index += 1
+                    if index >= len(self.arguments):
+                        return False
+                    value = self.arguments[index]
+                if flag in ("-run", "-test.run"):
+                    selector = value
+            elif flag in booleans:
+                if equals and value not in ("true", "false", "1", "0", "t", "f", "T", "F", "TRUE", "FALSE", "True", "False"):
+                    return False
+            elif word.startswith("-"):
+                return False
+            index += 1
+        return selector == "^$"
+
+    @property
     def json_flags(self):
         flags, index = [], 0
         while index < len(self.arguments):

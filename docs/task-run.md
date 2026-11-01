@@ -104,6 +104,14 @@ regression proof, review and the joint gate still run normally.
 Concurrent member checkpoints wait up to ten seconds for the shared approval
 record lock. A longer hold still refuses the write; contention never releases
 approvals or starts a provider without its ordinary admission checks.
+If a linked repository assignment is recorded before its child action is refused,
+the coordinator offers that assignment again while the child still holds the
+exact scope question. Reopening takes the existing named advance action; it
+requires no repository selection or human answer. Other questions and stale
+scope identities remain untouched, and assignment grants no plan approval. A runtime-only
+repair may refresh the authenticated scope receipt before retiring it, including
+a prior refused-action pause. Source, contract, settings, accounting and other
+frontier changes still invalidate it; no answer or approval is manufactured.
 A fresh authenticated proof can also settle a runner finding on unchanged source
 when the retained earlier proof failed entirely at Go test collection because
 its disk was full. The core checks owned receipt chronology, matching source,
@@ -126,6 +134,44 @@ with that run's current public recovery token and its derived share of the cap.
 It grants no plan approval, proof waiver or general recovery retry. Durable
 intent precedes the resume; an uncertain reply is retained for inspection and
 never automatically replayed. No saved member state is edited by coordination.
+
+A settled cancellation offers `needs.kind=coordination_resume`. Its named
+`coordinate resume --token TOKEN --max-cost-usd N` action retains all work,
+attempts and accounting and launches no model. Terminal chat confirms the
+selected policy and rereads the exact kind and token. A finite amount keeps
+the planning allocation unchanged; an explicit `0` removes the shared spending
+cap and disables its planning allocation limit. The retained allocation and
+prior cap stay in history. Subsequent participant advances receive an explicit
+zero cap so they cannot silently inherit an old spending limit. Other limits,
+routes, approvals and verification gates remain unchanged. A child pause still
+requires its own public recovery. Active or uncertain work, incomplete pricing,
+changed source/catalog/checkpoint and duplicate requests refuse. Cancellation
+receipts are retained; a newer cancellation always takes precedence.
+
+New coordinations with a finite cost cap reserve 70% for implementation and
+verification. Their shared planning allowance is 30% of the original cap,
+including the anchor's planning, every member's planning, report repairs and
+all retained joint attempts. While a run is planning its derived whole-run cap
+also respects that allowance; approved implementation uses the remaining task
+envelope. Replanning, viewer restart and reasserting a shared cap do not renew
+the planning allowance. Exhaustion refuses further dispatch, including when a projected next attempt
+exceeds the allowance. Unpriced planning returns `needs.kind=blocked` without
+a spending action. Saved coordinations without this policy retain their original limits.
+At a settled planning stop with complete pricing and unused whole-set money,
+`needs.kind=planning_budget` offers a distinct `coordinate planning-budget`
+action. The explicit `--max-planning-cost-usd N` is a total planning allocation,
+not an additional grant; it cannot exceed the whole-set cap minus nonplanning
+spend. Its token binds the durable coordination and public participant/source,
+route, approval, accounting and attempt frontier. The action records the old
+allocation and all spending, launches no model and approves no plan. Replaying
+its token refuses without changing the allocation. Terminal chat shows the
+bounds and unchanged total cap, confirms the amount and rereads before sending
+the private token. A child cost pause still needs its separate existing public
+acknowledgement. No restart or same-cap acknowledgement increases planning money.
+Unavailable, uncertain, active or unpriced work remains blocked.
+
+These are stage-boundary checks, not a guarantee about the price of an in-flight
+request; toolchain and baseline readiness remain separate prerequisite checks.
 
 The coordinator drives each member using `TaskRun`. `related_profile` is the
 public configuration export: selected role routes, efforts, providers, run limits

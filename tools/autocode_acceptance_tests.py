@@ -280,9 +280,9 @@ def all_files(state: RunState) -> dict[str, dict]:
 
 
 def protected(state: RunState) -> dict[str, dict]:
-    """The Tester's files under the current contract that stay fixed in the workspace; {} when blind."""
+    """Fixed Tester files; blind tests hide source, but their loading metadata stays fixed."""
     if is_blind(state):
-        return {}
+        return {path: entry for path, entry in all_files(state).items() if Path(path).name in ("go.mod", "go.sum")}
     return all_files(state)
 
 
@@ -325,6 +325,10 @@ def edited(state: RunState, patch: bytes) -> list[str]:
             and not line.startswith(b"---")
             or current in files
             and line.startswith((b"deleted file", b"rename from"))
+            or current in files
+            and Path(current).name in ("go.mod", "go.sum")
+            and line.startswith(b"+")
+            and not line.startswith(b"+++")
         ):
             touched.add(current)
     return sorted(touched)
@@ -345,7 +349,10 @@ def check_untouched(state: RunState, workspace) -> bool:
     for path, entry in sorted(protected(state).items()):
         target = Path(workspace) / path
         archived = Path(entry["archive"]).read_bytes()
-        if sha256(target) == entry["sha256"] or kept(archived, target.read_bytes() if target.is_file() else None):
+        if sha256(target) == entry["sha256"] or (
+            Path(path).name not in ("go.mod", "go.sum")
+            and kept(archived, target.read_bytes() if target.is_file() else None)
+        ):
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(archived)
@@ -388,13 +395,21 @@ def builder_note(state: RunState) -> str:
         if last
         else ""
     )
-    return restored + (
-        "\nThe tests for the cases above are already written, by the Tester, before you started (spec-first "
-        "run): "
-        + ", ".join(files)
-        + ". Do not write them again. They fail on the code as it was and must pass when you finish. You may add "
-        "tests to these files, but never change, move or delete a line the Tester wrote; the runner puts such a "
-        "file back.\n"
+    return (
+        restored
+        + (
+            "\nThe tests for the cases above are already written, by the Tester, before you started (spec-first "
+            "run): "
+            + ", ".join(files)
+            + ". Do not write them again. They fail on the code as it was and must pass when you finish. You may add "
+            "tests to these files, but never change, move or delete a line the Tester wrote; the runner puts such a "
+            "file back.\n"
+        )
+        + (
+            "Go prerequisite files are fixed byte-for-byte, including against additions; keep the reviewed metadata unchanged.\n"
+            if any(Path(path).name in ("go.mod", "go.sum") for path in files)
+            else ""
+        )
     )
 
 

@@ -211,6 +211,50 @@ class ReadyGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "dropped a literal"):
             self.ready(draft)
 
+    def test_ticket_title_keeps_coverage_and_values_without_repeating_tracking_digits(self):
+        title = "DTI-12398: Incomplete INames EPP history"
+        values = "Preserve domain 232027272 and result codes 1000 and 2304."
+        records = [{"id": "task:0", "kind": "task", "text": title + "\n\n" + values}]
+        kept = "Restore INames EPP history for domain 232027272 with result codes 1000 and 2304."
+        self.ready(body([criterion("C1", kept, [title, values])]), records=records)
+        for number in ("232027272", "1000", "2304"):
+            with self.subTest(number=number), self.assertRaisesRegex(ValueError, "changed a number.*" + number):
+                self.ready(body([criterion("C1", kept.replace(number, "other"), [title, values])]), records=records)
+        with self.assertRaisesRegex(ValueError, "neither cited nor out of scope"):
+            self.ready(body([criterion("C1", kept, [values])]), records=records)
+
+    def test_ticket_title_metadata_cannot_hide_product_codes_or_literals(self):
+        for text in (
+            "Handle ERR-12398 when requests fail.",
+            "ERR-12398: Error code for invalid requests.",
+            "DTI-12398: Print this identifier exactly.",
+            "DTI-12398: Incomplete history\n\nReturn DTI-12398.",
+            "`DTI-12398`: Incomplete history",
+        ):
+            with self.subTest(text=text), self.assertRaisesRegex(ValueError, "changed a number.*12398"):
+                self.ready(
+                    body([criterion("C1", "Handle the history output.", [text])]),
+                    records=[{"id": "task:0", "kind": "task", "text": text}],
+                )
+        literal = "DTI-12398: Incomplete history\n\nEmit `TASK-7` exactly."
+        with self.assertRaisesRegex(ValueError, "dropped a literal"):
+            self.ready(
+                body([criterion("C1", "Restore history and emit 7.", [literal])]),
+                records=[{"id": "task:0", "kind": "task", "text": literal}],
+            )
+
+    def test_joint_report_title_keeps_all_obligations_without_tracking_digits(self):
+        title = "Implement a joint regression for this original bug report:\nDTI-12398: Incomplete history"
+        values = "Preserve domain 232027272 and result codes 1000 and 2304."
+        records = [{"id": "task:0", "kind": "task", "text": title + "\n\n" + values}]
+        kept = "Prove the joint history regression for domain 232027272 with result codes 1000 and 2304."
+        self.ready(body([criterion("C1", kept, [title, values])]), records=records)
+        for number in ("232027272", "1000", "2304"):
+            with self.subTest(number=number), self.assertRaisesRegex(ValueError, "changed a number.*" + number):
+                self.ready(body([criterion("C1", kept.replace(number, "other"), [title, values])]), records=records)
+        with self.assertRaisesRegex(ValueError, "neither cited nor out of scope"):
+            self.ready(body([criterion("C1", kept, [values])]), records=records)
+
     def test_documentary_location_labels_do_not_become_product_values(self):
         for location in ("tools/parser.py:292–363", "src/parser.py:292-363", "parser.py:292"):
             with self.subTest(location=location):

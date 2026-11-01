@@ -67,6 +67,7 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tools/prompts/acceptance-tests.md", ("tests.test_go_prerequisites_execution",)),
     ("tools/autocode_capability_startup.py", ("tests.test_capability_startup", "tests.test_demo")),
     ("tools/autocode_native_invocation.py", ("tests.test_capability_startup", "tests.test_demo")),
     (
@@ -135,6 +136,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/autocode_planning_report_policy.py", ("tests.test_conflict_generation_cli",)),
     ("tools/units/autoplanner.py", ("tests.test_conflict_generation_cli",)),
     ("tools/autocode_draft_failure_correction.py", ("tests.test_draft_failure_correction_cli",)),
+    ("tools/autocode_report_repair_context.py", ("tests.test_draft_failure_correction_cli",)),
     (
         "tools/prompts/fragments/autoplanner/draft-failure-correction.md",
         ("tests.test_draft_failure_correction", "tests.test_draft_failure_correction_cli"),
@@ -341,6 +343,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
+        ("tools/autocode_source_metadata.py", "tools/autocode_source_trace.py"),
+        ("tests.test_ticket_title_cli",),
+    ),
+    (
         (
             "tools/autocode_role_transport.py",
             "tools/autocode_quota_route.py",
@@ -497,6 +503,19 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (("tools/autocode_python_tests.py", "tools/autocode_verify.py"), ("tests.test_acceptance_tests",)),
     (
+        ("tools/autocode_coordinate.py", "tools/autocode_chat_history.py"),
+        ("tests.test_coordinate_receipt_cli",),
+    ),
+    (
+        (
+            "tools/autocode_go_test_prerequisites.py",
+            "tools/autocode_acceptance_tests.py",
+            "tools/autocode_acceptance_tests_job.py",
+            "tools/autocode_verify.py",
+        ),
+        ("tests.test_go_prerequisites_execution",),
+    ),
+    (
         (
             "tools/autocode_acceptance_provenance.py",
             "tools/autocode_acceptance_recovery.py",
@@ -571,7 +590,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_action_recovery.py",
             "tools/autocode_run_setup.py",
         ),
-        ("tests.test_job_cap_change",),
+        ("tests.test_job_cap_change", "tests.test_job_stage_limit"),
     ),
     (
         (

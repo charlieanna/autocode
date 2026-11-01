@@ -188,14 +188,20 @@ def _handoff(state: RunState) -> str:
 
 def feedback_marker(state: RunState) -> dict:
     """What to save on a brief_feedback event given now: {FEEDBACK: ...} when it revises the plan the user was
-    shown (an adaptive run, on the default joint-planning flow, waiting for approval of a complete plan), else {}.
+    shown (an adaptive run, on the default joint-planning flow, waiting for approval or at the approved
+    acceptance-test hold), else {}. A correction revokes approval in the caller; it does not discard the
+    stable requirements. The Planner can still return a genuine requirements change to Requirements.
     Feedback while questions are open, or queued during execution, keeps the full pipeline."""
     settings = state.get("settings") or {}
     if (
         enabled(state)
         and settings.get("joint_planning")
         and roles.planning_flow(settings) != "v2"
-        and state.get("status") == "AWAITING_GOAL_APPROVAL"
+        and (
+            state.get("status") == "AWAITING_GOAL_APPROVAL"
+            or state.get("status") == "PAUSED_ACCEPTANCE_TESTS"
+            and (state.get("goal_contract") or {}).get("approval_status") == "approved"
+        )
         and (state.get("goal_contract") or {}).get("body")
     ):
         return {FEEDBACK: {"requirements_handoff": _handoff(state)}}

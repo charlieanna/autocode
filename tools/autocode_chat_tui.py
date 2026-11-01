@@ -1027,6 +1027,7 @@ class ChatTUI:
                 self._screen.timeout(-1)
                 if self._context_key == asked_context:
                     self._prompt = ""
+                    self._pending = None
                 self._frame = 0
                 self._cursor(0)
                 self._draw()

@@ -1447,6 +1447,28 @@ def test_page_size_must_be_positive():
         with self.assertRaises(taskrun.TaskRunError):
             run.approve_plan(approved["token"])
 
+    def test_adaptive_acceptance_feedback_reuses_requirements_but_requires_new_approval(self):
+        loaded = catalog.load("bugfix-trivial")
+        self.scenario = dataclasses.replace(loaded, fake_criteria={"C9": "test: test_first_page"})
+        correction = "Retain the existing reproduction and revise only the test setup."
+        run, project, before = self.run_to_end(
+            "--joint-planning", "--adaptive-planning", "--spec-first",
+            plan_messages={correction: ("change", "I will revise the test setup in the existing plan.")},
+        )
+        self.assertEqual("PAUSED_ACCEPTANCE_TESTS", before["status"], self.details(before))
+        order = self.stage_order(run)
+        token = before["approved_contract"]["token"]
+        run.feedback(correction)
+        after = run.advance_until_input()
+        self.assertEqual("approve_plan", after["needs"]["kind"], self.details(after))
+        new_stages = self.stage_order(run)[len(order):]
+        self.assertEqual(1, new_stages.count("requirements-gather"), "one intent reply, no repeated Requirements")
+        self.assertIn("discovery", new_stages)
+        self.assertNotIn("builder", new_stages)
+        self.assertNotEqual(token, after["needs"]["token"])
+        with self.assertRaises(taskrun.TaskRunError):
+            run.approve_plan(token)
+
     def test_a_bug_fix_plans_case_that_already_works_goes_back_to_plan_review_as_a_guard(self):
         # A bug fix's plan can add test: cases beside the Investigator's reproduction (#1868). One that already
         # passes is the same disagreement as in a build: the runner relabels it guard:, plan review runs again,

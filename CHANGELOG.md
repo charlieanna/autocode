@@ -11,6 +11,34 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Reliability fixes for coordinated runs, planning budgets and recovery
+  (DTI-12398 stack, 20 commits):
+  - Go: explicit empty test selectors are recognized as compile checks without
+    earning behavioral-test credit, and verified, approved Go loading
+    prerequisites are admitted when running acceptance tests.
+  - Linked scope: refused child scope assignments are retried, runtime-stale
+    assignment receipts are refreshed, and the exact assignment survives pause
+    admission.
+  - Planning: authenticated repository scope assignments reach planning models;
+    reviewed Requirements are reused across acceptance-plan corrections;
+    coordinated planning reserves spend across planning generations, handles
+    null stages in budget calculations, and allows explicit planning
+    reallocation within the shared task cap.
+  - Dispatch: scratch and artifact storage are rechecked before provider
+    dispatch so a full disk fails before spending on a model call.
+  - Repair: adjacent obligation violations are reported together, and report
+    repairs receive the exact saved adjacent draft obligations they must
+    preserve.
+  - Tracing: documentary ticket titles are treated as source metadata rather
+    than behavioral requirements, including in joint regression briefs.
+  - Recovery: cancelled coordination resumes with an explicit spending policy,
+    exact hard-timeout stage failures recover without changing the selected
+    model, follow-up reconciliation passes historical Resolver display rows,
+    Requirements-only chat storage semantics are preserved, and the TUI
+    withdraws stale questions after external run recovery.
+
+### Fixed
+
 - The adversarial-planning fixtures serve both scenario layouts (#2587): the
   greeting fixture only digested the CLI tests at the repository root while
   the cases copy them into `tests/`, and the csvcheck case had no changed-code

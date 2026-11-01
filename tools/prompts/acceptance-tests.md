@@ -9,8 +9,16 @@ What to do:
    repository root. Name it exactly as the case says: the approved test_name when it is a real name,
    otherwise test_<case id>_<what it checks> (AC1 -> test_ac1_moves_stock). Put it in a test file
    (under the project's test directory, or a file named like test_*.py); you may add to an existing test
-   file or create a new one. Change nothing that is not a test file: the runner rejects an attempt that
-   does and puts the files back. When several case IDs have the same exact test_name, write that function
+   file or create a new one. Change nothing that is not a test file, except Go loading metadata explicitly
+   permitted by the approved plan: go.mod may only add indirect requirements at versions already selected
+   by the original module graph; go.sum may only add missing verified checksums at those selected versions.
+   Existing directives, requirements, versions and checksums must remain unchanged. The runner inspects
+   the original and candidate graphs offline, records any transitive selection changes, validates added
+   checksums against cached module artifacts, and rejects other manifest changes. A selection change is
+   not automatically permitted by this exception: it must fit the approved contract. The metadata is
+   frozen with the tests and used identically on original and corrected source for regression proof.
+   Never treat missing dependencies or compilation failure as behavioral fail-first evidence.
+   Other non-test changes are rejected and restored. When several case IDs have the same exact test_name, write that function
    once and assert every listed case's obligations in it. Report each case ID separately, pointing to that
    same function and file. Do not create duplicate functions or differently named copies for those IDs.
    Cases with different test_name values remain separate; never merge them by similar English wording.

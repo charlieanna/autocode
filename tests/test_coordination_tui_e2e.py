@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlparse
 
 import autocode_chat_client as chat
 import autocode_chat_coordination as coordination
+import autocode_coordinate as coordinate
 import autocode_taskrun as taskrun
 
 from .test_taskrun import FIXTURE_OPTIONS
@@ -436,8 +437,90 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             self.assertIn(
                 "Coordinated checkout repository", [part["target"] for part in peer_view["scope"]["external_parts"]]
             )
+            # Observe the actual provider handoff after the core assigned scope.
+            # A model must not need another CLI environment to rediscover it.
+            calls = Path(checkout["workspace"]) / ".autocode/provider-calls.jsonl"
+            for _ in range(20):
+                rows = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+                planning = [row for row in rows if row["stage"] == "astra_discovery"]
+                if planning:
+                    break
+                client.step()
+            else:
+                self.fail("Assigned checkout never reached the Planner")
+            assigned = run.status()["scope"]
+            receipt = planning[0].get("scope_assignment")
+            self.assertIsNotNone(receipt, "Planner must receive the authenticated assignment directly")
+            self.assertEqual(assigned["identity"], receipt["identity"])
+            self.assertEqual({"history"}, set(receipt["members"]))
+            self.assertTrue(receipt["members"]["history"].endswith("/.autocode/runs/coordinated-fix"))
             self.assertEqual([], self.github.posts, "Ownership assignment grants no publication authority")
             self.assertEqual([], self.questions, "Clear member requirements need no separate confirmation")
+
+    def test_refused_scope_assignment_reopens_as_a_named_retry_without_a_human_answer(self):
+        self.env["COORDINATION_FIXTURE_EARLY_SCOPE"] = "1"
+        self.env["COORDINATION_FIXTURE_MEMBER_CONTEXT"] = "1"
+        with patch.dict(os.environ, self.env, clear=True):
+            client = chat.start(
+                self.intake, "Fix checkout showing the wrong final total.", ["--workflow", "bugfix"],
+                [*FIXTURE_OPTIONS, "--no-adaptive-planning", "--spec-first"],
+                env=self.env, ask=self.answer, say=self.lines.append,
+            )
+            self.addCleanup(client.close)
+            for _ in range(30):
+                current = client.status()
+                if current.get("coordination"):
+                    summary = coordination.read(client, current)
+                    if summary["needs"]["kind"] == "assign":
+                        break
+                client.step()
+            else:
+                self.fail("The fixture never offered a repository assignment")
+            target, identity = summary["needs"]["target"], summary["needs"]["identity"]
+            with patch.object(
+                taskrun.TaskRun, "assign_linked_scope",
+                side_effect=taskrun.TaskRunError("Existing run process is active; leave it untouched"),
+            ):
+                with self.assertRaisesRegex(taskrun.TaskRunError, "process is active"):
+                    coordinate.advance(str(client.run_dir))
+            # Reproduce the first runtime's real refusal, which persists an
+            # invalid-output pause before the repaired runtime is available.
+            broken_runtime = self.root / "old-runtime"
+            shutil.copytree(ROOT / "tools", broken_runtime / "tools", ignore=shutil.ignore_patterns("__pycache__"))
+            shutil.copytree(ROOT / "docs", broken_runtime / "docs")
+            old_action = broken_runtime / "tools" / "autocode_action_scope.py"
+            old_action.write_text(old_action.read_text().replace(
+                "human.current(state) or human.refresh_assigned_scope(state)", "human.current(state)"
+            ))
+            client.command = (sys.executable, str(broken_runtime / "tools" / "autocode.py"))
+            with self.assertRaisesRegex(chat.actions.ClientGap, "cannot release this human gate"):
+                client.step()
+            # A repaired immutable runtime changes receipt bindings. Reopen
+            # with identical resources and one harmless source marker; never
+            # edit the child state to simulate the stranded handoff.
+            repaired = self.root / "repaired-runtime"
+            shutil.copytree(ROOT / "tools", repaired / "tools", ignore=shutil.ignore_patterns("__pycache__"))
+            shutil.copytree(ROOT / "docs", repaired / "docs")
+            marker = repaired / "tools" / "autocode_action_scope.py"
+            marker.write_text(marker.read_text() + "\n# runtime repair fixture\n")
+            client.command = (sys.executable, str(repaired / "tools" / "autocode.py"))
+            # Reopen through public status after the receipt was registered but
+            # the real child action was refused; no run state is edited here.
+            recovered = coordination.read(client, client.status())
+            self.assertEqual("assign", recovered["needs"]["kind"])
+            self.assertEqual(identity, recovered["needs"]["identity"])
+            self.assertEqual("advance", recovered["next_command"][2])
+            client.step()
+            member = next(row for row in recovered["members"] if row["target"] == target)
+            view = taskrun.TaskRun(
+                Path(member["workspace"]), Path(member["run_dir"]), command=client.command, env=self.env
+            ).status()
+            self.assertEqual("linked_repositories", view["scope"]["decision"])
+            self.assertFalse(any(
+                row["id"] == "workspace-scope-" + identity for row in view["needs"].get("questions", [])
+            ))
+            self.assertEqual([], self.questions, "Recovery supplies no human answer or approval")
+            self.assertEqual([], self.github.posts)
 
     def test_joint_requirements_discover_a_missing_member_before_any_approval(self):
         self.env["COORDINATION_FIXTURE_JOINT_SCOPE"] = "1"

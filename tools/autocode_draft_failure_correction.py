@@ -185,17 +185,32 @@ def receipts(state: RunState, report):
     return allowed
 
 
-def _obligation_mismatch(before, after, replacements, interpretation_corrections, criterion_corrections):
+def repair_obligations(state: RunState):
+    """Supply exact adjacent rows omitted by the human-protected-field snapshot."""
+    report = ((state.get("planning") or {}).get("reports", {}).get("astra_challenge") or {}).get("report")
+    if not isinstance(report, dict):
+        return None
+    try:
+        if not receipts(state, report):
+            return None
+    except ValueError:
+        return None
+    body = state["goal_contract"]["body"]
+    return {key: copy.deepcopy(body.get(key, [])) for key in ("accepted_assumptions", "delegated_decisions")}
+
+
+def _obligation_mismatches(before, after, replacements, interpretation_corrections, criterion_corrections):
     # The failure receipt grants no authority over adjacent obligations. Only the caller's
     # existing assumption and criterion guards independently authorize their own draft corrections.
+    mismatches = []
     for key in (*LISTS, "delegated_decisions"):
         if before.get(key) != after.get(key):
-            return key
+            mismatches.append(key)
     old_assumptions = before.get("accepted_assumptions", [])
     new_assumptions = after.get("accepted_assumptions", [])
     if len(old_assumptions) != len(new_assumptions):
-        return "accepted_assumptions"
-    for index, (old, new) in enumerate(zip(old_assumptions, new_assumptions, strict=True)):
+        mismatches.append("accepted_assumptions")
+    for index, (old, new) in enumerate(zip(old_assumptions, new_assumptions, strict=False)):
         if old == new:
             continue
         if not (
@@ -206,26 +221,27 @@ def _obligation_mismatch(before, after, replacements, interpretation_corrections
             and new["text"].strip()
             and {**old, "text": new["text"]} == new
         ):
-            return f"accepted_assumptions[{index}]"
+            mismatches.append(f"accepted_assumptions[{index}]")
     expected = [replacements.get(item, item) for item in before.get("important_failure_cases", [])]
     if expected != after.get("important_failure_cases", []):
-        return "important_failure_cases outside the exact receipted replacements"
+        mismatches.append("important_failure_cases outside the exact receipted replacements")
     new_criteria = {row["id"]: row for row in after.get("acceptance_criteria", [])}
     for old in before.get("acceptance_criteria", []):
         new = new_criteria.get(old["id"])
+        if new is None:
+            mismatches.append(f"acceptance_criteria[{old['id']}]")
+            continue
         independent = {
             key
             for key, ids in (criterion_corrections or {}).items()
             if key in ("criterion", "verification_method", "current_behavior") and old["id"] in ids
         }
         ignored = {"sources"} | independent
-        if new is None or {k: v for k, v in old.items() if k not in ignored} != {
-            k: v for k, v in new.items() if k not in ignored
-        }:
-            return f"acceptance_criteria[{old['id']}]"
+        if {k: v for k, v in old.items() if k not in ignored} != {k: v for k, v in new.items() if k not in ignored}:
+            mismatches.append(f"acceptance_criteria[{old['id']}]")
         if any(source not in new.get("sources", []) for source in old.get("sources", [])):
-            return f"acceptance_criteria[{old['id']}].sources"
-    return None
+            mismatches.append(f"acceptance_criteria[{old['id']}].sources")
+    return mismatches
 
 
 def corrections(state: RunState, body, changes, origin, *, interpretation_corrections=(), criterion_corrections=None):
@@ -258,18 +274,19 @@ def corrections(state: RunState, body, changes, origin, *, interpretation_correc
         return {}
     replacements = {item: binding["receipt"]["after"] for item, binding in allowed.items()}
     contract = cast(dict, state["goal_contract"])  # revision_guard has already established the previous contract
-    mismatch = _obligation_mismatch(
+    mismatches = _obligation_mismatches(
         contract["body"], body, replacements, interpretation_corrections, criterion_corrections
     )
-    if mismatch:
+    if mismatches:
         hint = (
             " An assumption text update must independently qualify under the feedback-interpretation rule "
             "and retain its list position, basis and answer_id."
-            if mismatch.startswith("accepted_assumptions")
-            else " Keep that obligation unchanged."
+            if any(item.startswith("accepted_assumptions") for item in mismatches)
+            else " Keep every listed obligation unchanged."
         )
+        retention = "is not retained" if len(mismatches) == 1 else "are not retained"
         raise ValueError(
-            f"Draft failure correction receipt matches, but adjacent {mismatch} is not retained."
+            f"Draft failure correction receipt matches, but adjacent {', '.join(mismatches)} {retention}."
             + hint
             + " The receipt authorizes only its exact failure-case replacement."
         )

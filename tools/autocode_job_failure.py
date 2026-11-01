@@ -414,13 +414,35 @@ def _validate_retry(state: RunState, workspace, token):
 
 
 def change_total_caps(runtime, state: RunState, run_dir, workspace, args):
-    """Save only explicitly chosen total caps; retain the stop and require a fresh retry (#2156)."""
+    """Save total caps or a longer failed stage deadline; neither grants a retry."""
     failure = _validate_retry(state, workspace, args.job_retry_token)
     previous_settings = copy.deepcopy(state["settings"])
     expected = copy.deepcopy(previous_settings)
     changes = {}
-    for name in ("max_seconds", "max_cost_usd"):
-        chosen = getattr(args, name, None)
+    stage_seconds = getattr(args, "max_stage_seconds", None)
+    if stage_seconds is not None:
+        recovery = state.get("recovery_context") or {}
+        old = expected.get("limits", {}).get("stage_timeout_seconds")
+        if (
+            failure.get("kind") != "timeout"
+            or recovery.get("timeout_kind") != "stage"
+            or recovery.get("attempt_id") != failure.get("attempt_id")
+            or recovery.get("stage") != failure.get("stage")
+            or type(old) is not int
+            or type(stage_seconds) is not int
+            or not 0 < old < stage_seconds <= 2_147_483_647
+            or args.max_seconds is not None
+            or args.max_cost_usd is not None
+        ):
+            raise ValueError(
+                "A stage deadline change requires only a larger finite limit for this exact hard-stage timeout"
+            )
+    selected = (
+        (("stage_timeout_seconds", stage_seconds),)
+        if stage_seconds is not None
+        else ((name, getattr(args, name, None)) for name in ("max_seconds", "max_cost_usd"))
+    )
+    for name, chosen in selected:
         if chosen is not None:
             old = expected.setdefault("limits", {}).get(name)
             expected["limits"][name] = chosen
@@ -429,7 +451,7 @@ def change_total_caps(runtime, state: RunState, run_dir, workspace, args):
                 changes[name] = {"from": old, "to": chosen}
     if expected != args._job_cap_settings or not changes:
         raise ValueError(
-            "Name changed total time/cost caps only; other settings and retry authority must stay unchanged"
+            "Name changed total caps or the failed stage deadline only; other settings and retry authority must stay unchanged"
         )
     previous_token = failure["job_retry_token"]
     state["settings"] = expected
@@ -449,12 +471,16 @@ def change_total_caps(runtime, state: RunState, run_dir, workspace, args):
             "at": util.now(),
             "previous": previous_settings,
             "selected": copy.deepcopy(expected),
-            "reason": "Explicit total caps changed at an exact failed-job boundary; no retry authorized",
+            "reason": (
+                "Explicit stage deadline increased at an exact failed-job boundary; no retry authorized"
+                if stage_seconds is not None
+                else "Explicit total caps changed at an exact failed-job boundary; no retry authorized"
+            ),
         }
     )
     state.setdefault("user_events", []).append(
         {
-            "kind": "job_total_caps_changed",
+            "kind": "job_stage_deadline_changed" if stage_seconds is not None else "job_total_caps_changed",
             "actor": "user_cli",
             "at": util.now(),
             "attempt_id": failure["attempt_id"],

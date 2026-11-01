@@ -86,7 +86,7 @@ def gate_failures(runner, args, parser, state: RunState, state_path, run_dir, wo
             print(f"Input rejected: {error}", file=sys.stderr)
             return 2
         print(
-            "Total caps saved; job remains paused. Inspect the fresh retry token before authorizing a retry. No provider launched."
+            "Limits saved; job remains paused. Inspect the fresh retry token before authorizing a retry. No provider launched."
         )
         return 0
     classification_gate = classification_recovery.gate(

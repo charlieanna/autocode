@@ -36,7 +36,7 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         if not any(str(row.get("id", "")).startswith("workspace-scope-") for row in questions):
             return 0
         raise ValueError("The current repository question differs from the assigned scope")
-    published = human.current(state)
+    published = human.current(state) or human.refresh_assigned_scope(state)
     if not published or published.get("scope") not in ("clarification", "intake"):
         raise ValueError("The scope assignment cannot release this human gate")
     remaining = [row for row in questions if row not in matching]

@@ -45,6 +45,13 @@ case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
 Node's built-in `node:test` runner, Vitest 4, and an explicitly configured
 JUnit XML report from another test runner.
 
+A literal Go check with an explicit empty selector (`go test -run '^$' ./...`)
+may validate compilation in a plan. Its exit must be zero, but it supplies no
+named-test results or behavioral proof. Unknown flags, benchmark/fuzz requests,
+and custom test-program arguments retain the normal test-result requirement.
+Submitting an empty-selector command as a regression or suite still cannot
+satisfy that proof: it must execute named tests.
+
 The identifier right after `test:` or `guard:` is the one the runner proves; an
 explanation may follow after ` — ` or in parentheses. Without one, the test is
 named after the criterion ID (`test_c1_...`; Go's `TestC1...` matches it).
@@ -413,3 +420,23 @@ their receipts in `tool_containment.scratch`. It cites `regression_proof` direct
 check that reads run files, which are absent from clean replay. This changes no
 network permissions, replay policy or completion requirements. Uncontained
 Testers retain the existing instruction to run the regression command themselves.
+
+### Go test prerequisite metadata
+
+A test may import a package from an already selected transitive module whose
+indirect requirement or checksum is missing from the root manifests. Where the
+approved plan permits it, the acceptance Tester may add that loading metadata
+alongside its tests. The core admits only additive indirect requirements at the
+original Go selection and missing checksums verified against offline cached
+module artifacts. Existing requirements, versions, module/toolchain directives
+and checksums cannot be replaced or removed through this exception.
+
+The runner retains both native graph observations and exact manifest hashes,
+including any change in transitive module selection. Those observations grant no
+plan approval: a version constraint in the approved plan still applies. The
+Builder must retain admitted metadata byte-for-byte, including for blind tests.
+The final regression comparison uses identical admitted metadata on original and
+corrected production source, while the original suite baseline keeps its original
+inputs. Compilation failures never establish a bug reproduction. Other dependency
+changes remain on the ordinary proof path and are not overlaid onto the original
+source as test prerequisites.

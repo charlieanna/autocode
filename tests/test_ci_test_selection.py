@@ -8,6 +8,44 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_cancel_recovery_keeps_public_budget_reopen_regression(self):
+        consumer = "tests.test_coordination_budget_cli"
+        for path in ("tools/autocode_coordination_resume.py", "tools/autocode_coordination_store.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_ticket_title_trace_keeps_public_plan_and_reopen_consumer(self):
+        consumer = "tests.test_ticket_title_cli"
+        for path in ("tools/autocode_source_metadata.py", "tools/autocode_source_trace.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_coordinator_receipt_keeps_public_reopen_consumer(self):
+        consumer = "tests.test_coordinate_receipt_cli"
+        for path in ("tools/autocode_coordinate.py", "tools/autocode_chat_history.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_go_prerequisites_keep_public_execution_consumer(self):
+        consumer = "tests.test_go_prerequisites_execution"
+        for path in (
+            "tools/autocode_go_test_prerequisites.py",
+            "tools/autocode_acceptance_tests.py",
+            "tools/autocode_acceptance_tests_job.py",
+            "tools/autocode_verify.py",
+            "tools/prompts/acceptance-tests.md",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_capability_startup_keeps_the_public_demo_consumer(self):
         consumers = {"tests.test_capability_startup", "tests.test_demo"}
         for path in ("tools/autocode_capability_startup.py", "tools/autocode_native_invocation.py"):
@@ -60,6 +98,7 @@ class DynamicDependenciesTests(unittest.TestCase):
         consumer = "tests.test_draft_failure_correction_cli"
         for path in (
             "tools/autocode_draft_failure_correction.py",
+            "tools/autocode_report_repair_context.py",
             "tools/prompts/fragments/autoplanner/draft-failure-correction.md",
         ):
             with self.subTest(path=path):
