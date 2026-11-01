@@ -110,6 +110,32 @@ class WorkspaceBytesTests(unittest.TestCase):
 
 
 class VerdictTests(unittest.TestCase):
+    def test_dispatch_without_source_copy_does_not_scan_source_and_refuses_full_storage(self):
+        with (
+            tempfile.TemporaryDirectory() as root,
+            mock.patch.object(storage_budget, "workspace_bytes") as size,
+            mock.patch.object(storage_budget.shutil, "disk_usage", side_effect=fake_disk(free=999)),
+        ):
+            self.assertEqual("", storage_budget.dispatch_refusal(root, root, source_copy=False))
+            size.assert_not_called()
+            with mock.patch.object(storage_budget.shutil, "disk_usage", side_effect=fake_disk(free=0)):
+                self.assertIn("storage", storage_budget.dispatch_refusal(root, root, source_copy=False))
+
+    def test_requirements_chat_needs_writable_storage_but_not_a_source_copy(self):
+        state = {"settings": {"spec_first": True}, "next_stage": "requirements_gather"}
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root)
+            (workspace / "large.py").write_bytes(b"x" * 1000)
+            with mock.patch.object(storage_budget.shutil, "disk_usage", side_effect=fake_disk(free=999)):
+                task_preflight.guard(state, workspace, workspace / "run")
+                state["next_stage"] = "astra_discovery"
+                with self.assertRaisesRegex(util.Paused, "source copy"):
+                    task_preflight.guard(state, workspace, workspace / "run")
+            state["next_stage"] = "requirements_gather"
+            with mock.patch.object(storage_budget.shutil, "disk_usage", side_effect=fake_disk(free=0)):
+                with self.assertRaisesRegex(util.Paused, "storage"):
+                    task_preflight.guard(state, workspace, workspace / "run")
+
     def test_dispatch_checks_workspace_run_and_temporary_storage_each_time(self):
         with tempfile.TemporaryDirectory() as root:
             workspace, run, scratch = (Path(root).resolve() / name for name in ("project", "runs", "scratch"))
@@ -145,7 +171,7 @@ class VerdictTests(unittest.TestCase):
                 with self.assertRaisesRegex(util.Paused, "scratch is full") as caught:
                     task_preflight.guard({"settings": settings}, Path("/workspace"), Path("/run"))
                 self.assertEqual("PAUSED_TASK_PREFLIGHT", caught.exception.status)
-                guard.assert_called_once_with(Path("/workspace"), Path("/run"))
+                guard.assert_called_once_with(Path("/workspace"), Path("/run"), source_copy=True)
 
     def budget(self, size=1000, free=5000, multiplier=3):
         return {

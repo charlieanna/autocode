@@ -116,14 +116,15 @@ def refusal(projection):
     return ""
 
 
-def dispatch_refusal(workspace, run_dir):
+def dispatch_refusal(workspace, run_dir, *, source_copy=True):
     """Recheck every storage destination before spend; free space is never reusable evidence.
 
     Workspace copies, run artifacts and tools' temporary files can be on different
     filesystems. Use the existing one-copy floor, without treating it as proof that
-    a complete build will fit. Check the nearest existing ancestor of a fresh run.
+    a complete build will fit. A Requirements-only chat needs writable storage,
+    but does not make or scan a source copy. Check a fresh run's existing ancestor.
     """
-    size = workspace_bytes(workspace)
+    size = workspace_bytes(workspace) if source_copy else 0
     for label, destination in (
         ("workspace", workspace),
         ("run artifacts", run_dir),
@@ -134,9 +135,10 @@ def dispatch_refusal(workspace, run_dir):
             root = root.parent
         free = shutil.disk_usage(root).free
         if free < max(1, size):
+            needed = f"even one source copy needs {human(size)}" if source_copy else "run artifacts need free storage"
             return (
                 f"Insufficient storage for {label} at {root}: {human(free)} free; "
-                f"even one source copy needs {human(size)}. Free space or move the storage before resuming."
+                f"{needed}. Free space or move the storage before resuming."
             )
     return ""
 
