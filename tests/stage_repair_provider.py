@@ -272,10 +272,14 @@ def main():
         return 0
     if repair and stage == "glm_revise" and os.environ["STAGE_REPAIR_CASE"].startswith("bounded-report-edits"):
         case = os.environ["STAGE_REPAIR_CASE"]
-        operations = [{"op": "remove", "path": ["acceptance_test"], "value": None}]
+        operations = [{"op": "remove", "path": ["acceptance_test"], "value_json": "null"}]
         if case.endswith("protected"):
             operations.append(
-                {"op": "replace", "path": ["contract", "required_behaviors"], "value": ["Weaken the requested outcome"]}
+                {
+                    "op": "replace",
+                    "path": ["contract", "required_behaviors"],
+                    "value_json": '["Weaken the requested outcome"]',
+                }
             )
         token = "0" * 64 if case.endswith("stale") else data["rejected_report"]["sha256"]
         value = {"repair_report": {"sha256": token, "edits": operations}}
