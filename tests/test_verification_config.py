@@ -15,6 +15,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import autocode_resolver_human as human
+import autocode_support as support
 import autocode_verification_config as configuration
 
 from . import test_bugfix_workflow as bugfix
@@ -185,6 +187,225 @@ class VerificationCommandGuards(unittest.TestCase):
         args = SimpleNamespace(test_command="old suite", resume_paused=False)
         configuration.configure_resume(state, state["settings"], args)
         self.assertEqual(before, state)
+
+
+class VerificationCommandBlockerHold(unittest.TestCase):
+    """A Resolver's `--resume-paused --test-command` advice must work from the hold it was given at.
+
+    The Completion Owner's blocker holds a run at RESOLVER_PENDING (queued) or WAITING_FOR_USER
+    (published) with the Completion Reviewer next. The old command's proof must still not reach
+    acceptance, so the change routes the run through the Tester and retires the blocker with a
+    recorded reason.
+    """
+
+    QUESTION = {
+        "id": "resolver-fixture",
+        "question": "The saved suite does not exercise the change; which command proves it?",
+        "why": "The Completion Owner cannot accept an unproved source",
+        "options": [],
+        "proposed_default": "",
+    }
+
+    def proposal(self, stage="astra_review", **changes):
+        proposal = {
+            "version": human.VERSION,
+            "scope": "blocker",
+            "origin": {"stage": stage, "output": "/run/review.json"},
+            "request": {
+                "kind": "blocker",
+                "discovered": "The saved suite never runs the changed module",
+                "impact": "The Completion Owner cannot accept an unproved source",
+                "decision_needed": "Run a suite that covers the change",
+                "options": [],
+                "proposed_delta": "--resume-paused --test-command 'new suite'",
+            },
+            "questions": [],
+            "evidence": {},
+            "status": "WAITING_FOR_USER",
+            "phase": "RESOLVING",
+            "next_stage": "astra_review",
+            "previous_status": "RUNNING",
+        }
+        proposal.update(changes)
+        return proposal
+
+    def base(self):
+        return {
+            "status": "RESOLVER_PENDING",
+            "phase": "RESOLVING",
+            "next_stage": "astra_review",
+            "settings": {"regression": {"test_command": "old suite", "test_timeout": 7200}},
+            "goal_contract": {"hash": "approved"},
+            "regression_proof": {"verdict": "PASS", "source_revision": "current"},
+            "validation": {"verdict": "FAIL", "source_revision": "current"},
+            "pending_questions": [],
+        }
+
+    def queued(self, **changes):
+        state = self.base()
+        state[human.PRIVATE] = self.proposal(**changes)
+        return state
+
+    def published(self, identity_changes=None, **changes):
+        state = self.base()
+        proposal = self.proposal(questions=[copy.deepcopy(self.QUESTION)], **changes)
+        identity = {
+            "version": human.VERSION,
+            "issuer": "resolver",
+            "binding": {"task_id": "fixture"},
+            "proposal": proposal,
+            "action": "escalate",
+            "reason": "The Completion Owner still does not accept this source",
+            **(identity_changes or {}),
+        }
+        key = support.digest(identity)
+        state.update(
+            status="WAITING_FOR_USER",
+            pending_questions=[copy.deepcopy(self.QUESTION)],
+            user_request=copy.deepcopy(proposal["request"]),
+            resolver={
+                "human_escalations": {
+                    key: {"identity": identity, "receipt_hash": key, "status": "pending", "issued_at": "2026-10-31"}
+                }
+            },
+        )
+        state[human.PUBLIC] = {"request_id": key, "scope": "blocker", "questions": [copy.deepcopy(self.QUESTION)]}
+        return state
+
+    def args(self, **changes):
+        return SimpleNamespace(**{"test_command": "new suite", "resume_paused": True, **changes})
+
+    def resume(self, state, **changes):
+        return configuration.configure_resume(state, state["settings"], self.args(**changes))
+
+    def assertRefused(self, state, **changes):
+        before = copy.deepcopy(state)
+        with self.assertRaises(ValueError):
+            self.resume(state, **changes)
+        self.assertEqual(before, state)
+
+    def test_queued_blocker_hold_accepts_the_change_and_routes_to_the_tester(self):
+        state = self.queued()
+        proposal = copy.deepcopy(state[human.PRIVATE])
+        settings = self.resume(state)
+        self.assertEqual("new suite", settings["regression"]["test_command"])
+        self.assertEqual(7200, settings["regression"]["test_timeout"])
+        self.assertEqual("PAUSED_RESOLVER", state["status"])
+        self.assertEqual("sol", state["next_stage"])
+        self.assertNotIn(human.PRIVATE, state)
+        self.assertEqual({"verdict": "PASS", "source_revision": "current"}, state["regression_proof"])
+        (archived,) = state["validation_archive"]
+        self.assertEqual(proposal, archived["resolver_proposal"])
+        self.assertEqual(state["validation"], archived["validation"])
+        self.assertEqual({"verdict": "PASS", "source_revision": "current"}, archived["regression_proof"])
+        (event,) = state["user_events"]
+        self.assertEqual("verification_commands_changed", event["kind"])
+        self.assertEqual({"test_command": "old suite"}, event["previous"])
+        self.assertEqual({"test_command": "new suite"}, event["current"])
+        self.assertIn("blocker", archived["reason"])
+
+    def test_published_blocker_hold_is_withdrawn_before_the_run_resumes(self):
+        state = self.published()
+        (key,) = state["resolver"]["human_escalations"]
+        self.resume(state)
+        self.assertEqual("PAUSED_RESOLVER", state["status"])
+        self.assertEqual("sol", state["next_stage"])
+        self.assertEqual([], state["pending_questions"])
+        self.assertNotIn("user_request", state)
+        self.assertNotIn(human.PUBLIC, state)
+        entry = state["resolver"]["human_escalations"][key]
+        self.assertEqual("superseded", entry["status"])
+        self.assertIn("superseded_at", entry)
+        self.assertIn("verification command", entry["superseded_reason"])
+        (archived,) = state["validation_archive"]
+        self.assertEqual(entry["identity"]["proposal"], archived["resolver_proposal"])
+
+    def test_published_withdrawal_keeps_questions_the_blocker_did_not_issue(self):
+        state = self.published()
+        other = {"id": "q-other", "question": "Unrelated?", "options": []}
+        state["pending_questions"].append(other)
+        self.resume(state)
+        self.assertEqual([other], state["pending_questions"])
+        self.assertTrue(state["status"].startswith("PAUSED_"))
+
+    def test_tester_stage_follows_the_workflow_mode(self):
+        for mode, stage in (("glm_first_v1", "astra_checkpoint"), ("glm_final_audit_v2", "terra"), (None, "sol")):
+            for build in (self.queued, self.published):
+                with self.subTest(mode=mode, hold=build.__name__):
+                    state = build()
+                    if mode:
+                        state["settings"]["workflow"] = {"mode": mode}
+                    self.resume(state)
+                    self.assertEqual(stage, state["next_stage"])
+
+    def test_pause_status_comes_from_the_hold_when_it_names_one(self):
+        state = self.queued(origin={"stage": "astra_review", "pause_status": "PAUSED_COMPLETION_GATE"})
+        self.resume(state)
+        self.assertEqual("PAUSED_COMPLETION_GATE", state["status"])
+        state = self.queued(previous_status="PAUSED_REQUESTED")
+        self.resume(state)
+        self.assertEqual("PAUSED_REQUESTED", state["status"])
+
+    def test_resolver_origin_blocker_is_accepted_too(self):
+        state = self.queued(stage="astra_resolve")
+        self.resume(state)
+        self.assertEqual("sol", state["next_stage"])
+        self.assertNotIn(human.PRIVATE, state)
+
+    def test_an_unchanged_command_leaves_the_hold_alone(self):
+        for build in (self.queued, self.published):
+            with self.subTest(hold=build.__name__):
+                state = build()
+                before = copy.deepcopy(state)
+                self.resume(state, test_command="old suite")
+                self.assertEqual(before, state)
+
+    def test_active_or_uncertain_attempts_still_refuse_from_a_hold(self):
+        for build in (self.queued, self.published):
+            for key in ("active_stage", "active_runner_check", "pending_report_repair", "uncertain_artifacts"):
+                with self.subTest(hold=build.__name__, key=key):
+                    state = build()
+                    state[key] = {"stage": "astra_review"}
+                    self.assertRefused(state)
+
+    def test_a_hold_is_changed_only_under_resume_paused(self):
+        for build in (self.queued, self.published):
+            with self.subTest(hold=build.__name__):
+                self.assertRefused(build(), resume_paused=False)
+
+    def test_holds_that_are_not_a_completion_blocker_still_refuse(self):
+        for scope in ("operational_exhaustion", "goal_approval", "requirements"):
+            for build in (self.queued, self.published):
+                with self.subTest(scope=scope, hold=build.__name__):
+                    self.assertRefused(build(scope=scope))
+        for build in (self.queued, self.published):
+            with self.subTest(origin="terra", hold=build.__name__):
+                self.assertRefused(build(stage="terra"))
+
+    def test_a_hold_with_no_authentic_blocker_still_refuses(self):
+        state = self.base()
+        self.assertRefused(state)
+        state = self.published()
+        (entry,) = state["resolver"]["human_escalations"].values()
+        entry["status"] = "consumed"
+        self.assertRefused(state)
+        state = self.published()
+        (entry,) = state["resolver"]["human_escalations"].values()
+        entry["identity"]["reason"] = "changed after sealing"
+        self.assertRefused(state)
+        state = self.published(identity_changes={"issuer": "builder"})
+        self.assertRefused(state)
+        state = self.published()
+        state[human.PUBLIC]["request_id"] = "unknown"
+        self.assertRefused(state)
+        state = self.published()
+        state["status"] = "RUNNING"
+        self.assertRefused(state)
+
+    def test_a_pause_that_is_not_a_checkpoint_or_a_hold_still_refuses(self):
+        state = self.base()
+        state.update(status="PAUSED_REQUESTED", next_stage="astra_review")
+        self.assertRefused(state)
 
 
 class VerificationProofCache(unittest.TestCase):
