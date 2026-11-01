@@ -128,6 +128,120 @@ class TotalsFixtureReviewTests(unittest.TestCase):
                 self.assertEqual([], fixture.judgments(data, root), "weakened tests cannot borrow the judgment")
 
 
+class CsvcheckFixtureReviewTests(unittest.TestCase):
+    def test_csvcheck_judgments_cover_every_reference_line_and_require_the_pinned_tests(self):
+        reference = REFERENCE.parents[1] / "ladder-03-csv-validation-cli/reference"
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            shutil.copytree(reference, root, dirs_exist_ok=True)
+            obligations = []
+            for name in ("csvcheck/__init__.py", "csvcheck/__main__.py"):
+                original = (root / name).read_bytes()
+                obligations.extend(
+                    {
+                        "gap_id": f"gap:{name}:{i}",
+                        "path": name,
+                        "line": i,
+                        "status": "reason_required",
+                        "sha256": hashlib.sha256(original).hexdigest(),
+                        "mutation_outcomes": [],
+                    }
+                    for i in range(1, len(original.splitlines()) + 1)
+                )
+            data = {
+                "regression_proof": {
+                    "path": "proof.json",
+                    "changed_code_evidence": {
+                        "obligations": [
+                            row
+                            for row in obligations
+                            if (root / row["path"]).read_text().splitlines()[row["line"] - 1].strip()
+                        ]
+                    },
+                }
+            }
+            served = fixture.judgments(data, root)
+            self.assertEqual(
+                {row["gap_id"] for row in data["regression_proof"]["changed_code_evidence"]["obligations"]},
+                {row["gap_id"] for row in served},
+            )
+            (root / "tests/test_csvcheck.py").write_text("# CLI assertions removed\n")
+            self.assertEqual([], fixture.judgments(data, root))
+
+    def test_csvcheck_judgments_accept_only_the_equivalent_age_bound_survivor(self):
+        reference = REFERENCE.parents[1] / "ladder-03-csv-validation-cli/reference"
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            shutil.copytree(reference, root, dirs_exist_ok=True)
+            digest = hashlib.sha256((root / "csvcheck/__init__.py").read_bytes()).hexdigest()
+
+            def build(survivor):
+                return {
+                    "regression_proof": {
+                        "path": "proof.json",
+                        "mutation_check": {
+                            "files": [
+                                {
+                                    "path": "csvcheck/__init__.py",
+                                    "mutants": [
+                                        {
+                                            "line": 13,
+                                            "operator": "negate_condition",
+                                            "before": 'state == "quoted"',
+                                            "after": 'not (state == "quoted")',
+                                            "outcome": "killed",
+                                        },
+                                        {"line": 60, "operator": "swap_bound", "before": ">", "after": ">=", "outcome": "killed"},
+                                        dict(
+                                            {
+                                                "line": 60,
+                                                "operator": "shift_bound",
+                                                "before": "3",
+                                                "after": "4",
+                                                "outcome": "survived",
+                                            },
+                                            **survivor,
+                                        ),
+                                    ],
+                                }
+                            ]
+                        },
+                        "changed_code_evidence": {
+                            "obligations": [
+                                {
+                                    "gap_id": "gap:csvcheck/__init__.py:60",
+                                    "path": "csvcheck/__init__.py",
+                                    "line": 60,
+                                    "status": "reason_required",
+                                    "sha256": digest,
+                                    "mutation_outcomes": ["killed", "survived"],
+                                }
+                            ]
+                        },
+                    }
+                }
+
+            served = fixture.judgments(build({}), root)
+            self.assertEqual(
+                [
+                    {
+                        "gap_id": "gap:csvcheck/__init__.py:60",
+                        "decision": "accept",
+                        "reason_kind": "equivalent_mutant",
+                    }
+                ],
+                [
+                    {k: row[k] for k in ("gap_id", "decision", "reason_kind")}
+                    for row in served
+                ],
+            )
+            for patch in ({"after": "5"}, {"operator": "constant_return"}, {"outcome": "not_run"}, {"line": 34}):
+                with self.subTest(patch=patch):
+                    self.assertEqual([], fixture.judgments(build(patch), root))
+            (root / "tests/test_csvcheck.py").write_text("# CLI assertions removed\n")
+            self.assertEqual([], fixture.judgments(build({}), root), "weakened tests cannot borrow the judgment")
+
+
 class GreetingFixtureReviewTests(unittest.TestCase):
     def test_greeting_judgments_require_the_exact_cli_assertions_and_no_surviving_observations(self):
         reference = REFERENCE.parents[1] / "greenfield-greeting-cli/reference"
