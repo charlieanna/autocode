@@ -64,6 +64,8 @@ class ReviewedPlanFeedbackCliTests(unittest.TestCase):
         held = run.advance()
         self.assertEqual("PAUSED_INTERVENTION", held["status"])
         self.assertEqual("resume", held["needs"]["kind"])
+        self.assertEqual("autocode", held["pause_category"])
+        self.assertEqual("Feedback applied. Your work is saved; continue to update the plan.", held["chat"]["notice"])
         self.assertEqual("astra_discovery", held["next_stage"])
         self.assertEqual(stages_before, calls.read_text().splitlines(), "Consuming feedback launches no model")
         repeated = subprocess.run(command, env={**os.environ, **env}, capture_output=True, text=True, timeout=30)

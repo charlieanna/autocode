@@ -64,6 +64,17 @@ class PauseCategoryTests(unittest.TestCase):
         ended = {"kind": "resume", "reason": "AutoCode could not finish this task: the sol check kept failing: x."}
         self.assertEqual("autocode", pauses.category("PAUSED_INTERVENTION", ended))
 
+    def test_feedback_application_is_an_automatic_checkpoint_not_a_requested_stop(self):
+        for stage in ("Requirements discovery", "Planner revision"):
+            need = {"kind": "resume", "reason": f"Queued feedback was applied; explicitly continue to {stage}."}
+            before = deepcopy(need)
+            self.assertEqual("autocode", pauses.category("PAUSED_INTERVENTION", need))
+            self.assertEqual(before, need)
+        self.assertEqual(
+            "your_decision",
+            pauses.category("PAUSED_INTERVENTION", {"kind": "resume", "reason": "Queued pause was applied"}),
+        )
+
     def test_active_or_complete_status_is_not_a_pause_even_with_an_action(self):
         for status in (None, "", "BUILDING", "RUNNING", "COMPLETE", "TASK_COMPLETE", "COMPLETE_WITH_RISKS"):
             with self.subTest(status=status):

@@ -56,3 +56,5 @@ def awaiting_approval(state: RunState, **fields) -> RunState:
 # How the stop reason of a run AutoCode ended itself begins (autocode_stop.end, #2485). Named here, the
 # leaf module, so the stop policy, the explanation and the pause category read one value.
 ENDED_PREFIX = "AutoCode could not finish this task: "
+# Existing saved feedback checkpoints use this prefix; it describes AutoCode's pause, not a pause request.
+APPLIED_FEEDBACK_PREFIX = "Queued feedback was applied;"
