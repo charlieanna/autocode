@@ -159,3 +159,47 @@ class CaptureEventContractTests(unittest.TestCase):
                         with self.assertRaisesRegex(ValueError, "No independently executed Validator tool event"):
                             support.verify_checks([check], workspace, events)
                     self.assertEqual(original, (receipt_path.read_bytes(), raw.read_bytes()))
+
+    def test_a_stage_that_shortens_captures_display_still_authenticates_its_receipt(self):
+        # Live Testers piped capture through `| tail -c 500`, `| grep -o '"exit_code": [0-9]*'` or `>/dev/null`;
+        # the receipt line was cut, and each report was rejected, repaired and re-run (2026-11-02). The short
+        # attestation line capture prints on stderr names the receipt's exact bytes, so it authenticates instead.
+        capture = shlex.join([sys.executable, str(Path(support.__file__).parent / "autocode.py"), "capture"])
+        argv = [sys.executable, "-c", "print('ok')"]
+        filters = {
+            "tail": "| tail -c 200",
+            "merged-tail": "2>&1 | tail -c 200",
+            "grep": "| grep -o '\"exit_code\": [0-9]*'",
+            "discarded": ">/dev/null",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary).resolve()
+            environment = {key: value for key, value in os.environ.items() if not key.startswith("AUTOCODE_")}
+            environment["AUTOCODE_OUTPUT_STORE"] = str(workspace / ".output-store")
+            for number, (kind, shortened) in enumerate(filters.items(), 1):
+                with self.subTest(kind=kind):
+                    ref = f".autocode/evidence/{kind}.json"
+                    command = f"{capture} --output {ref} -- {shlex.join(argv)} {shortened}"
+                    ran = subprocess.run(
+                        ["sh", "-c", command], cwd=workspace, env=environment, capture_output=True, text=True
+                    )
+                    self.assertEqual(0, ran.returncode, ran.stderr)
+                    whole = json.dumps(json.loads((workspace / ref).read_text()))
+                    self.assertNotIn(whole, ran.stdout)
+                    # Claude Code's Bash result: stdout, then stderr (providers/claude_stream._output).
+                    events = workspace / f"events-{kind}.jsonl"
+                    item = {
+                        "type": "command_execution",
+                        "id": f"item_{number}",
+                        "command": command,
+                        "exit_code": 0,
+                        "aggregated_output": ran.stdout + "\n" + ran.stderr,
+                    }
+                    events.write_text(json.dumps({"type": "item.completed", "item": item}) + "\n")
+                    check = {"command": shlex.join(argv), "exit_code": 0, "evidence_ref": ref}
+                    support.verify_checks([check], workspace, events)
+                    # The line attests these bytes only: a receipt edited afterwards is refused.
+                    receipt = workspace / ref
+                    receipt.write_text(json.dumps({**json.loads(receipt.read_text()), "duration_seconds": 0}))
+                    with self.assertRaisesRegex(ValueError, "No independently executed Validator tool event"):
+                        support.verify_checks([dict(check)], workspace, events)

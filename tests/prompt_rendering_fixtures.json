@@ -1,7 +1,7 @@
 {
   "bug/prepared-scratch": {
-    "bytes": 11959,
-    "sha256": "a7f86f13168128e51cf2f419bff2bae4a408a9aaed525d4faa43752b07d74f30"
+    "bytes": 12173,
+    "sha256": "7457bfdcd4bf41eec279c3246937acf68c6b064f3d040eb7c50f7b2f05912f43"
   },
   "containment/astra_checkpoint/False": {
     "bytes": 693,
@@ -148,12 +148,12 @@
     "sha256": "fe353d07decc9ac95fcefce97a112855608e669e44c162cac23f4da33971a580"
   },
   "job/autocode_bug_job/codex": {
-    "bytes": 10750,
-    "sha256": "2584f5b2a96c919014710b66c3443ca964dfa1a24a00a7fff679d611323af048"
+    "bytes": 10964,
+    "sha256": "552f1311416b4bb016609ee8be698c9e95552e4edfcd62e60bdcdb59c3905994"
   },
   "job/autocode_bug_job/opencode": {
-    "bytes": 10753,
-    "sha256": "55da82682c505338b080ca1d9914cf1b17c046b5ea7bd2e1b26f4e7c17ec7f35"
+    "bytes": 10967,
+    "sha256": "2c80c88d8f24073e8eb104b9aa9a7a063029137cfcf2a93b626325caa554ab41"
   },
   "job/autocode_design_check_job/codex": {
     "bytes": 3290,
@@ -260,8 +260,8 @@
     "sha256": "61d037404ebbf4a786172395bfa53ced7b7da822bdcbf8cddba0434be4d96b5e"
   },
   "package/investigate_bug": {
-    "bytes": 13188,
-    "sha256": "ca6a0f448616b85f78d112dc6e02ecec064f12dfc9773cf54c505d259d9f9e15"
+    "bytes": 13402,
+    "sha256": "0608ec4850e48380d8f536947d73b8437f77bfe3de8beeb3820fe21f1a46b06f"
   },
   "package/terra": {
     "bytes": 13313,
@@ -492,8 +492,8 @@
     "sha256": "b306d5a2daab9306e33277650689607a86c13a4dad649faee7f32ca9fcd905c8"
   },
   "provider/opencode-output-contract": {
-    "bytes": 5113,
-    "sha256": "60e6c4842c4445fdc1d36ad4cd8e25f87cf44df2199499787693fb32a8704065"
+    "bytes": 5267,
+    "sha256": "91921e9d46d75c26f28335185425f39fec14342bd6ee1e487a28f46f9d408ee9"
   },
   "provider/opencode-review-output-contract": {
     "bytes": 8375,

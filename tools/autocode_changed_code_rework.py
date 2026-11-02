@@ -22,9 +22,11 @@ except ImportError:
     import autocode_util as util
 
 REPAIR_ROUNDS = 2
+# The Tester's rejected reasons the Builder sees; each names the test its line still needs.
+REJECTIONS_SHOWN = 20
 
 
-def route(state: RunState, record, *, investigation_enabled):
+def route(state: RunState, record, *, investigation_enabled, rejected=()):
     """Consume only a reconciled independent review of this exact measurement."""
     actual = record.get("original_stage") or record.get("stage")
     if (actual, record.get("role")) not in (("sol", "sol"), ("astra_checkpoint", "astra")):
@@ -74,6 +76,10 @@ def route(state: RunState, record, *, investigation_enabled):
             reason + ". Add meaningful tests for these exact lines, or retain a precise reason "
             "for the independent Tester to check. Preserve the approved product scope and existing tests; "
             "do not install a coverage dependency or ask the person to resolve test machinery."
+            + "".join(
+                f"\nTester rejected a reason for {row['path']}:{row['line']}: {row['reason']}"
+                for row in list(rejected)[:REJECTIONS_SHOWN]
+            )
         ),
     )
     if event["action"] == "builder":

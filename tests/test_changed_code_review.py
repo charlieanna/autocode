@@ -232,3 +232,84 @@ class ChangedCodeReviewTests(unittest.TestCase):
         projected["changed_code_evidence"]["obligations"].clear()
         self.assertEqual(1, len(self.assessment["obligations"]))
         self.assertIsNone(view.project({})["changed_code_evidence"])
+
+
+class TesterOnlyGapTests(unittest.TestCase):
+    """A gap no Builder test can close goes to the Tester, never back to the unchanged Builder."""
+
+    def setUp(self):
+        # Line 2 has a surviving mutant (a test can kill it); line 3 has no mutation outcome at all.
+        self.assessment = evidence.assess(
+            [{"path": "calc.py", "sha256": "a" * 64, "lines": [2, 3]}],
+            None,
+            {
+                "source_revision": "source-one",
+                "proof_context": "proof-one",
+                "files": [
+                    {
+                        "path": "calc.py",
+                        "sha256": "a" * 64,
+                        "mutants": [{"line": 2, "outcome": "survived", "operator": "swap_bound", "tests": []}],
+                    }
+                ],
+            },
+            source_revision="source-one",
+            proof_context="proof-one",
+        )
+        self.survivor, self.no_site = self.assessment["obligations"]
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.schema = Path(folder.name) / "tester.schema.json"
+        self.schema.write_text(json.dumps(wire(state={"regression_proof": {"changed_code_evidence": self.assessment}})))
+        self.state = {"regression_proof": {"changed_code_evidence": self.assessment, "path": "/run/proof.json"}}
+        self.record = {"stage": "sol", "source_revision": "source-one", "schema": str(self.schema)}
+
+    def test_only_the_line_with_no_mutation_outcome_needs_the_testers_decision(self):
+        self.assertEqual("reason_required", self.no_site["status"])
+        self.assertEqual([], self.no_site["mutation_outcomes"])
+        self.assertTrue(self.survivor["mutation_outcomes"])
+        offered = json.loads(self.schema.read_text())
+        self.assertEqual([self.no_site], review.tester_only_gaps(self.assessment, [], offered, "sol"))
+        decided = [{"gap_id": self.no_site["gap_id"], "decision": "reject"}]
+        self.assertEqual([], review.tester_only_gaps(self.assessment, decided, offered, "sol"))
+        self.assertEqual([], review.tester_only_gaps(self.assessment, [], {"properties": {}}, "sol"))
+
+    def test_a_pass_that_leaves_it_undecided_is_returned_for_that_decision(self):
+        import autocode_changed_code_review_application as application
+
+        with self.assertRaisesRegex(ValueError, r"calc\.py:3 \(changed-code:[0-9a-f]+\)") as raised:
+            application.require_tester_decisions(
+                self.state, {"verdict": "PASS", "changed_code_exceptions": []}, self.record
+            )
+        self.assertNotIn("calc.py:2", str(raised.exception))
+        self.assertIn("/run/proof.json", str(raised.exception))
+        for value, record in (
+            ({"verdict": "FAIL", "changed_code_exceptions": []}, self.record),
+            ({"verdict": "PASS", "changed_code_exceptions": None}, {**self.record, "stage": "sol_report_repair"}),
+            ({"verdict": "PASS", "changed_code_exceptions": []}, {**self.record, "source_revision": "stale"}),
+            (
+                {"verdict": "PASS", "changed_code_exceptions": [{"gap_id": self.no_site["gap_id"]}]},
+                self.record,
+            ),
+        ):
+            with self.subTest(value=value, stage=record["stage"]):
+                self.assertIsNone(application.require_tester_decisions(self.state, value, record))
+
+    def test_the_builder_receives_the_testers_rejected_reason(self):
+        import autocode_changed_code_rework as rework
+
+        state = {
+            "status": "RUNNING",
+            "iteration": 1,
+            "regression_proof": {"verdict": "PASS", "changed_code_evidence": self.assessment},
+            "current_task": {"id": "task-1"},
+            "goal_contract": {"hash": "h" * 64, "revision": 1},
+        }
+        record = {"stage": "sol", "role": "sol", "source_revision": "source-one", "output": "/run/tester.json"}
+        rejected = [{"path": "calc.py", "line": 3, "reason": "No test calls adjust(0); add one asserting 0."}]
+        self.assertTrue(rework.route(state, record, investigation_enabled=False, rejected=rejected))
+        self.assertEqual(("terra", "builder"), (state["next_stage"], state["regression_proofs"][-1]["action"]))
+        self.assertIn(
+            "Tester rejected a reason for calc.py:3: No test calls adjust(0); add one asserting 0.",
+            state["next_action"],
+        )

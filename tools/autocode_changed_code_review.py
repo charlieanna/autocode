@@ -114,6 +114,29 @@ def normalize_absent(value, schema, record):
     return result
 
 
+def tester_only_gaps(assessment, decisions, offered_schema, stage):
+    """Offered gaps no Builder test can close and no supplied decision settles.
+
+    A ``reason_required`` line with no mutation outcome has no mutant any test could kill: its
+    statement has no supported mutation site, or its language has no mutation check. Sending the
+    Builder back cannot change it, so only the independent Tester's accept or reject settles it.
+    Returns those obligations in proof order when the saved generation schema offered them; a
+    legacy schema without the field returns nothing.
+    """
+    field = _fields(offered_schema if isinstance(offered_schema, dict) else {}, stage).get(FIELD)
+    if not isinstance(field, dict):
+        return []
+    offered = field.get("items", {}).get("properties", {}).get("gap_id", {}).get("enum")
+    if not isinstance(offered, list):
+        return []
+    decided = {row.get("gap_id") for row in decisions or [] if isinstance(row, dict)}
+    return [
+        row
+        for identity, row in _gaps(assessment).items()
+        if identity in offered and identity not in decided and not row.get("mutation_outcomes")
+    ]
+
+
 def bind(assessment, decisions, record, *, offered_schema, verified_refs):
     """Return explicit, source-bound review decisions for the domain assessor.
 

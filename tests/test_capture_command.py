@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import autocode_capture_command as capture
@@ -46,6 +47,19 @@ class CaptureOutputLocationTests(unittest.TestCase):
         code, _ = self.run_capture(self.scratch, Path(".autocode/evidence/repro.json"))
         self.assertEqual(0, code)
         self.assertTrue((self.scratch / ".autocode/evidence/repro.json").is_file())
+
+    def test_a_relative_output_from_a_project_subfolder_lands_in_the_projects_own_evidence(self):
+        # A Go module or monorepo package runs its tests from a subfolder. The receipt used to land in a new
+        # client/v3/.autocode there, outside the assigned paths, and the Builder attempt was rejected.
+        module = self.project / "client/v3"
+        module.mkdir(parents=True)
+        # Stages bind the output store to the workspace (autocode_output_policy); the receipt path is the test.
+        with unittest.mock.patch.dict(os.environ, {"AUTOCODE_OUTPUT_WORKSPACE": str(self.project)}):
+            code, _ = self.run_capture(module, Path(".autocode/evidence/resolver-tests.json"))
+        self.assertEqual(0, code)
+        saved = json.loads((self.project / ".autocode/evidence/resolver-tests.json").read_text())
+        self.assertEqual(str(module), Path(saved["full_output"]).read_text().strip())
+        self.assertFalse((module / ".autocode").exists())
 
     def test_outside_the_nearest_project_autocode_is_refused(self):
         for cwd, output in (
