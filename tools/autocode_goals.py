@@ -756,8 +756,14 @@ def feedback(state: RunState, text, *, interpret=True, semantic_hold=False):
 
 
 def apply_intervention_feedback(state: RunState, receipt, applied_receipt):
-    """Save runner-applied feedback without treating it as a checkpoint approval."""
+    """Save queued feedback; exact reviewed-plan corrections retain the stable requirements."""
     contract = state.get("goal_contract")
+    # Queue delivery must not turn feedback on the same reviewed plan into a new
+    # Requirements episode. Stale receipts and execution-time input keep the full
+    # pipeline; the existing adaptive policy admits only reviewed-plan checkpoints.
+    marker = (
+        adaptive.feedback_marker(state) if contract and receipt.get("observed_goal_token") == token(contract) else {}
+    )
     event = {
         "kind": "brief_feedback",
         "id": "intervention-" + receipt["id"],
@@ -771,6 +777,7 @@ def apply_intervention_feedback(state: RunState, receipt, applied_receipt):
             "stages": len(state.get("stages", [])),
         },
         "starts_episode": True,
+        **marker,
     }
     source_log.save_feedback(state, event)
     start_clarification_episode(state, event["id"])
@@ -796,8 +803,12 @@ def apply_intervention_feedback(state: RunState, receipt, applied_receipt):
     run_status.pause(
         state,
         "PAUSED_INTERVENTION",
-        "Queued feedback was applied; explicitly continue to Requirements discovery.",
-        next_stage=first_stage,
+        (
+            "Queued feedback was applied; explicitly continue to Planner revision."
+            if marker
+            else "Queued feedback was applied; explicitly continue to Requirements discovery."
+        ),
+        next_stage=adaptive.feedback_stage(event, first_stage),
         pending_questions=[],
     )
 
