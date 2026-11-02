@@ -111,7 +111,9 @@ def approval_text(summary, render_plan):
                 )
         for row in need["summary"]["runs"]:
             lines.append("\n" + row["target"] + "\n" + render_plan(row["plan"]))
-        if need.get("joint_plan"):
+        if need.get("joint_plan") and not any(
+            row.get("role") == "joint" and row.get("plan") == need["joint_plan"] for row in need["summary"]["runs"]
+        ):
             lines.append("\nJoint regression\n" + render_plan(need["joint_plan"]))
     else:
         lines.append("\nJoint regression\n" + render_plan(need["plan"]))

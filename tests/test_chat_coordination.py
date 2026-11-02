@@ -14,6 +14,26 @@ import autocode_chat_coordination as coordination
 
 
 class ApprovalPacketTests(unittest.TestCase):
+    def test_identical_joint_summary_is_displayed_once_without_hiding_distinct_plans(self):
+        for role, included, count in (
+            ("joint", {"token": "r6:joint", "body": "Joint plan text"}, 1),
+            ("joint", {"token": "r5:joint", "body": "Earlier joint text"}, 1),
+            ("member", {"token": "r6:joint", "body": "Joint plan text"}, 2),
+        ):
+            with self.subTest(role=role, token=included["token"]):
+                summary = {
+                    "members": [],
+                    "needs": {
+                        "kind": "approval",
+                        "summary": {"runs": [{"target": "Joint regression", "role": role, "plan": included}]},
+                        "joint_plan": {"token": "r6:joint", "body": "Joint plan text"},
+                    },
+                    "approval": {"publication": "No automatic merge."},
+                }
+                text = coordination.approval_text(summary, lambda plan: plan["body"])
+                self.assertEqual(count, text.count("Joint plan text"))
+                self.assertIn(included["body"], text, "a different or non-joint plan must remain visible")
+
     def test_packet_preserves_all_plans_provenance_and_publication_in_order(self):
         summary = {
             "source_catalog": {"catalog": "local", "catalog_identity": "catalog-id", "source_snapshot": "snapshot"},
