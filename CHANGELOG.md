@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Coordinated task messages reuse each participant's public status while choosing one action,
+  reducing repeated status subprocesses. Execution and the returned status still read fresh
+  evidence, including new pauses and stops.
 - Requirements questions appear once when the assistant includes them in a greeting, and
   answering no longer repeats the same question as its saved conversation receipt arrives.
   Reopened chats retain the exchange and later independent replies remain visible.

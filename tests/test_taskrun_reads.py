@@ -1,10 +1,11 @@
-"""One read-only coordination response reuses public observations, never action authority."""
+"""Read-only coordination decisions share observations; actions read fresh evidence."""
 
 import importlib
 import json
 import os
 import subprocess
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -106,6 +107,105 @@ class TaskRunReadTests(unittest.TestCase):
 
 
 class CoordinatorReadTests(unittest.TestCase):
+    def test_advance_reuses_preflight_reads_but_execution_and_response_read_fresh(self):
+        anchor = "/source/.autocode/runs/task"
+        member = {"target": "member", "workspace": "/member", "run_dir": "/member/run", "started": True, "base": "base"}
+        document = {
+            "id": "coordination",
+            "anchor": anchor,
+            "phase": "fixing",
+            "revision": 1,
+            "members": [member],
+            "choices": {},
+            "joint_attempts": [],
+            "budget": {"source_run_dir": anchor},
+        }
+        current, calls = {"hold": False}, []
+
+        def invoke(run, name, *args, **kwargs):
+            self.assertEqual(("status", ("--status",), {}), (name, args, kwargs))
+            calls.append(str(run.run_dir))
+            return subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "view": {
+                            "run_dir": str(run.run_dir),
+                            "workspace": str(run.workspace),
+                            "status": "PAUSED_INTERVENTION" if current["hold"] else "RUNNING",
+                            "cost": {"spent_usd": 1, "complete": True},
+                        },
+                        "interventions": {"stop_intent": current["hold"]},
+                    }
+                ),
+                "",
+            )
+
+        def choose(document, views, **kwargs):
+            _, participants, _ = coordinate.conversation_inputs(document, views)
+            if participants["member"]["interventions"]["stop_intent"]:
+                return {"kind": "blocked", "reason": "Independent stop"}
+            return {"kind": "conversation", "operation": "begin", "request_id": "message"}
+
+        def execute(document, step, requests, views, source, *, run_for, limits_for):
+            self.assertEqual([member["run_dir"], anchor], calls, "one public observation per run before acting")
+            run = run_for("member")
+            self.assertFalse(run.intervention_status()["interventions"]["stop_intent"])
+            current["hold"] = True
+            self.assertTrue(run.intervention_status()["interventions"]["stop_intent"])
+
+        with (
+            patch.object(coordinate.store, "locked", return_value=nullcontext(document)),
+            patch.object(coordinate.store, "read", return_value=document),
+            patch.object(coordinate.store, "save"),
+            patch.object(coordinate.message_watch, "watch", return_value=nullcontext()),
+            patch.object(coordinate.message_inbox, "read", return_value=[{"id": "message", "text": "Question"}]),
+            patch.object(coordinate, "next_step", side_effect=choose),
+            patch.object(coordinate.conversation_runtime, "execute", side_effect=execute) as action,
+            patch.object(
+                coordinate,
+                "anchor_view",
+                side_effect=lambda *a, **kw: tasks.TaskRun(Path("/source"), Path(anchor)).status(),
+            ),
+            patch.object(tasks.TaskRun, "_invoke", autospec=True, side_effect=invoke),
+        ):
+            result = coordinate.advance(anchor)
+        action.assert_called_once()
+        self.assertEqual("blocked", result["needs"]["kind"])
+        self.assertEqual("PAUSED_INTERVENTION", result["members"][0]["status"])
+        self.assertEqual(
+            [member["run_dir"], anchor, member["run_dir"], member["run_dir"], member["run_dir"], anchor], calls
+        )
+
+    def test_failed_advance_preflight_does_not_retain_observations_or_start_an_action(self):
+        document = {"anchor": "/source/.autocode/runs/task", "members": []}
+        run = tasks.TaskRun(Path("/source"), Path(document["anchor"]))
+        current = {"view": {"status": "RUNNING"}}
+
+        def choose(*args, **kwargs):
+            self.assertEqual("RUNNING", run.status()["status"])
+            raise tasks.TaskRunError("status unavailable")
+
+        with (
+            patch.object(coordinate.store, "locked", return_value=nullcontext(document)),
+            patch.object(coordinate.store, "save") as save,
+            patch.object(coordinate.message_watch, "watch", return_value=nullcontext()),
+            patch.object(coordinate, "next_step", side_effect=choose),
+            patch.object(coordinate.conversation_runtime, "execute") as execute,
+            patch.object(
+                tasks.TaskRun,
+                "_invoke",
+                side_effect=lambda *a, **kw: subprocess.CompletedProcess([], 0, json.dumps(current), ""),
+            ),
+        ):
+            with self.assertRaisesRegex(tasks.TaskRunError, "status unavailable"):
+                coordinate.advance(document["anchor"])
+            current["view"]["status"] = "PAUSED_INTERVENTION"
+            self.assertEqual("PAUSED_INTERVENTION", run.status()["status"])
+        save.assert_not_called()
+        execute.assert_not_called()
+
     def test_status_reuses_reads_then_next_status_observes_changed_hold_and_accounting(self):
         anchor = "/source/.autocode/runs/task"
         member = {"target": "member", "workspace": "/member", "run_dir": "/member/run", "started": True, "base": "base"}
