@@ -2372,7 +2372,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/b2b1df604361188cc70dcbad06eec669d142b684/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/6a25f084c2a072221d3229db3f546457ae9a6226/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2519,7 +2519,15 @@ cap and disables its planning allocation limit. The retained allocation and
 prior cap stay in history. Subsequent participant advances receive an explicit
 zero cap so they cannot silently inherit an old spending limit. Other limits,
 routes, approvals and verification gates remain unchanged. A child pause still
-requires its own public recovery. Active or uncertain work, incomplete pricing,
+requires its own public recovery. An archived attempt with a current retry token
+and positively dead owner, keeper and provider may recover coordination while
+retaining that child retry gate. If successful abandonment removed the active
+metadata, the exact finished, rejected attempt in the public accounting ledger
+must instead match the gate's run, stage, attempt and archive, with verified
+original-source restoration. Missing or mismatched archival evidence, malformed
+metadata and failed process inspection still refuse. Incomplete pricing refuses a finite cap; an
+already uncapped coordination may preserve its explicit zero cap and unknown
+costs, without inventing prices or authorizing a retry. Active or uncertain work,
 changed source/catalog/checkpoint and duplicate requests refuse. Cancellation
 receipts are retained; a newer cancellation always takes precedence.</p>
 <p>New coordinations with a finite cost cap reserve 70% for implementation and
@@ -2902,7 +2910,14 @@ and joint evidence. For a change, the coordinator archives superseded authority
 and routes the original human text to affected authorized members and their
 dependents through ordinary feedback/review. It resumes only its own exclusively
 held pauses. Separate user stops, operational holds and uncertain receipts remain
-held. All Requirements usage counts against the same task and planning limits.</p>
+held. All Requirements usage counts against the same task and planning limits.
+Once every participant has settled, an independent queued participant hold does
+not prevent Requirements from assessing a task message. The hold is neither
+consumed nor resumed. A captured answer appears in <code>conversation.results</code> while
+its routing is still held; that display is not permission to apply a change.
+Questions can finish without changing participant authority. Changes wait for
+the independent hold to be reconciled before invalidation or feedback delivery.
+Unreadable intervention evidence and source conversation holds still refuse.</p>
 <p><code>TaskRun.intervention_status()</code> reads the existing public status document's
 <code>view</code> and sibling <code>interventions</code> together, so coordinators can verify pause
 ownership without reading another run's private state. Missing or malformed
@@ -3452,7 +3467,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/b2b1df604361188cc70dcbad06eec669d142b684/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/6a25f084c2a072221d3229db3f546457ae9a6226/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4140,7 +4155,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/b2b1df604361188cc70dcbad06eec669d142b684/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/6a25f084c2a072221d3229db3f546457ae9a6226/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
