@@ -38,6 +38,14 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
                 self.assertEqual([consumer], list(kept))
 
+    def test_queued_feedback_keeps_public_revision_and_reopen_regression(self):
+        consumer = "tests.test_intervention_plan_feedback_cli"
+        for path in ("tools/autocode_goals.py", "tools/autocode_adaptive_planning.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_cancel_recovery_keeps_public_budget_reopen_regression(self):
         consumer = "tests.test_coordination_budget_cli"
         for path in ("tools/autocode_coordination_resume.py", "tools/autocode_coordination_store.py"):

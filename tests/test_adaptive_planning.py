@@ -355,6 +355,62 @@ HANDOFF = {
 }
 
 
+class QueuedFeedbackOnAShownPlan(unittest.TestCase):
+    def apply(self, state, observed=None):
+        receipt = {
+            "id": "queued-correction",
+            "text": "Also accept --shout.",
+            "observed_goal_token": goals.token(state["goal_contract"]) if observed is None else observed,
+        }
+        goals.apply_intervention_feedback(state, receipt, {"applied_at": "2026-11-02T12:00:00Z"})
+
+    def test_exact_plan_feedback_reuses_requirements_but_revokes_approval(self):
+        for status in ("AWAITING_GOAL_APPROVAL", "PAUSED_ACCEPTANCE_TESTS"):
+            with self.subTest(status=status):
+                state = awaiting(handoff=HANDOFF, status=status)
+                state["goal_contract"].update(approval_status="approved", approval_event={"actor": "user_cli"})
+                state["stages"] = [{"stage": "requirements_gather", "cost": 1.5}]
+                original = json.loads(json.dumps(state))
+                self.apply(state)
+                self.assertEqual("PAUSED_INTERVENTION", state["status"])
+                self.assertEqual("astra_discovery", state["next_stage"])
+                self.assertEqual(original["requirements_handoff"], state["requirements_handoff"])
+                self.assertEqual(original["settings"], state["settings"])
+                self.assertEqual(original["stages"], state["stages"])
+                self.assertEqual("draft", state["goal_contract"]["approval_status"])
+                self.assertIsNone(state["goal_contract"]["approval_event"])
+                rows = adaptive.feedback_requirements(state)
+                self.assertEqual(["Also accept --shout."], [row["text"] for row in rows])
+                self.assertIn(
+                    "intervention-queued-correction",
+                    [row["requirement_id"] for row in autoplanner.trace_rows(state, "astra_discovery")],
+                )
+                self.assertTrue(adaptive.can_rerun(state), "Planner can send genuine requirement changes back")
+                self.assertIn("Planner", state["stop_reason"])
+
+    def test_stale_or_missing_plan_binding_keeps_requirements(self):
+        for observed in ("", "r0:old-plan"):
+            with self.subTest(observed=observed):
+                state = awaiting(handoff=HANDOFF)
+                self.apply(state, observed)
+                self.assertEqual("requirements_gather", state["next_stage"])
+                self.assertNotIn(adaptive.FEEDBACK, state["brief_feedback"][-1])
+
+    def test_execution_questions_and_fixed_flow_keep_full_pipeline(self):
+        for state in (
+            awaiting(handoff=HANDOFF, status="RUNNING"),
+            awaiting(handoff=HANDOFF, status="WAITING_FOR_USER"),
+            awaiting(handoff=HANDOFF, status="PAUSED_INTERVENTION"),
+            awaiting(handoff=HANDOFF, status="PAUSED_PLANNING_BUDGET"),
+            awaiting(handoff=HANDOFF, setting=False),
+            awaiting(handoff=HANDOFF, status="TASK_COMPLETE"),
+        ):
+            with self.subTest(status=state["status"], adaptive=state["settings"]["adaptive_planning"]):
+                self.apply(state)
+                self.assertEqual("requirements_gather", state["next_stage"])
+                self.assertNotIn(adaptive.FEEDBACK, state["brief_feedback"][-1])
+
+
 class FeedbackOnAShownPlan(unittest.TestCase):
     def test_acceptance_feedback_revises_the_reviewed_plan_without_regathering(self):
         state = awaiting(handoff=HANDOFF, status="PAUSED_ACCEPTANCE_TESTS")
