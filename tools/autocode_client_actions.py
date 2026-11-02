@@ -508,7 +508,7 @@ def message(
         raise ClientGap("This conversation changed; review its current state before sending")
     command = parse(offered["next_command"], *own(view, workspace, run_dir))
     if offered.get("kind") == "message":
-        expected = [
+        message_expected = [
             "intervention",
             "submit",
             "--request-id",
@@ -519,7 +519,7 @@ def message(
             "MESSAGE",
             "--json",
         ]
-        if command.argv != expected or command.env or not isinstance(request_id, str) or not request_id:
+        if command.argv != message_expected or command.env or not isinstance(request_id, str) or not request_id:
             raise ClientGap("Unsupported live message action or missing request identity")
         return NamedCommand(
             ["intervention", "submit", "--request-id", request_id, "--kind", "message", "--text", text, "--json"], {}
