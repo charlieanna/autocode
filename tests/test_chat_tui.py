@@ -576,6 +576,35 @@ class SmallTerminalTests(unittest.TestCase):
 
 
 class StatusLineTests(unittest.TestCase):
+    def test_planning_screen_hides_stale_completion_counts_until_execution(self):
+        ui = screen_ui()
+        current = {
+            "status": "RUNNING",
+            "phase": "PLANNING",
+            "progress": {
+                "stage": "Plan Reviewer",
+                "headline": "Plan Reviewer working",
+                "tasks": {"label": "0 of 1 task done", "items": [{"number": 1, "label": "Fix metadata"}]},
+                "requirements": {"label": "0 of 6 requirements checked", "items": [{"id": "AC1", "label": "Code"}]},
+                "problems": {"open": 0},
+            },
+        }
+        ui.observe(current)
+        ui._transcript.activity = (
+            "Plan Reviewer working · 0 of 1 task done · 0 of 6 requirements checked · 0 open problems"
+        )
+        shown = " ".join(text for _, text in drawn(ui))
+        self.assertIn("Plan Reviewer working", shown)
+        self.assertIn("STAGE  Plan Reviewer", shown)
+        self.assertNotIn("0 of", shown)
+        self.assertNotIn("0 open problems", shown)
+        current["phase"] = "READY_TO_EXECUTE"
+        current["progress"].update(stage="Builder", headline="Builder working")
+        ui.observe(current)
+        shown = " ".join(text for _, text in drawn(ui))
+        self.assertIn("TASKS  0 of 1 task done", shown)
+        self.assertIn("ACCEPTANCE CHECKS  0 of 6", shown)
+
     def test_the_status_row_reads_in_plain_words_before_any_status_read(self):
         ui = screen_ui()
         shown = []

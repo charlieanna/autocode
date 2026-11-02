@@ -49,6 +49,41 @@ with ChatTUI() as ui:
 
 
 class LiveDefaultScreenTests(unittest.TestCase):
+    def test_planning_shows_its_stage_without_premature_completion_counters(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI, PROGRESS_PREFIX
+with ChatTUI() as ui:
+    ui.say('You: Fix the history.')
+    ui.observe({'status': 'RUNNING', 'phase': 'PLANNING',
+                'progress': {'stage': 'Plan Reviewer', 'headline': 'Plan Reviewer working',
+                    'requirements': {'label': '0 of 6 requirements checked',
+                                     'items': [{'id': 'AC1', 'label': 'Mapped codes'}]},
+                    'tasks': {'label': '0 of 1 task done',
+                              'items': [{'number': 1, 'label': 'Fix history'}]}}})
+    ui.say(PROGRESS_PREFIX + 'Plan Reviewer working · 0 of 1 task done · 0 of 6 requirements checked · 0 open problems')
+    while True:
+        ui.wait(0.1)
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for(
+            lambda shown: (
+                all(
+                    text in shown
+                    for text in ("STAGE  Plan Reviewer", "Plan Reviewer working", "Fix the history.", "╰─")
+                )
+                and "0 of" not in shown
+                and "0 open problems" not in shown
+                and "ACCEPTANCE CHECKS" not in shown
+                and "TASKS" not in shown
+            ),
+            what="planning stage and complete composer without implementation completion counters",
+        )
+
     def test_stage_names_stay_visible_in_the_unified_timeline_and_waiting_status(self):
         script = """
 import sys

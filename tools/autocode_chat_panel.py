@@ -233,8 +233,20 @@ def event_row(event: dict) -> Row:
     return Row("✗" if failed else EVENT_MARKS[event["kind"]], event["text"], style)
 
 
+def _planning(view: dict | None) -> bool:
+    """The public phase still describes a proposed plan, not execution progress."""
+    view = view or {}
+    return view.get("status") not in ("COMPLETE", "TASK_COMPLETE") and (
+        view.get("phase") in ("DISCOVERING", "PLANNING")
+        or view.get("status") == "AWAITING_GOAL_APPROVAL"
+        or _mapping(view.get("needs")).get("kind") == "approve_plan"
+    )
+
+
 def doing(view: dict | None) -> str | None:
     """The newest event as a short phrase for the status row, or None when the view has none."""
+    if _planning(view) and (headline := _mapping(_mapping(view).get("progress")).get("headline")):
+        return str(headline)
     activity_rows = _rows(_mapping(_mapping(view).get("chat")).get("activity"))
     if activity_rows and activity_rows[-1].get("kind") == "command":
         return None
@@ -395,6 +407,8 @@ def compact_sections(view: dict | None, *, launched: bool = False, task_total: d
     result = []
     for section in sections(view, launched=launched, task_total=task_total):
         if section.title in ("Activity", "Plan path", "Current work", "What went wrong", "Change set"):
+            continue
+        if _planning(view) and section.title in ("Acceptance checks", "Tasks"):
             continue
         if section.title == "Now":
             rows = tuple(row for row in section.rows if row.style in ("warn", "bad"))
