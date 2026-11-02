@@ -342,3 +342,13 @@ class ExternallyResumedPromptTests(unittest.TestCase):
         client._ask = lambda prompt: "answer"
         self.assertEqual("answer", client.ask("Which model?"))
         client.poll()  # a later normal observation must not unwind a finished input call
+
+    def test_a_pending_plan_approval_is_not_withdrawn_when_the_run_resumes_elsewhere(self):
+        # The stale viewer's approval must reach the fresh-status guard and be refused
+        # ("The plan changed while you were reading it"), never silently dropped:
+        # tests/test_worker_host.py::test_three_projects_two_viewers_share_attention_without_replaying_a_stale_approval.
+        working = {"status": "RUNNING", "needs": {"kind": "continue"}, "liveness": {"kind": "supervised"}}
+        client = self.client(working)
+        client._approval_open = True  # approve()'s prompt is on screen
+        client._ask = lambda prompt: (client.poll(), "y")[1]
+        self.assertEqual("y", client.ask("\nApprove this plan? [y/N], or type what to change: "))

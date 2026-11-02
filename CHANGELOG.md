@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Terminal chat: a plan approval left on screen no longer disappears without a word when
+  the run resumes working elsewhere — the person's answer reaches the fresh-status guard
+  and is refused with "The plan changed while you were reading it" instead of being
+  silently dropped; other stale questions still retire quietly as before.
 - Fewer avoidable retry loops: a changed line no added test can mark tested (no mutation
   outcome) now goes to the Tester for a reason instead of sending the Builder back three
   times; Go coverage maps nested modules to their own files; `capture --output .autocode/...`
