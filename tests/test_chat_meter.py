@@ -73,7 +73,29 @@ class StageTests(unittest.TestCase):
         )
         (row,) = meter.stages(shown, NOW)
         self.assertEqual((meter.RETRYING, 2, 270.0), (row["state"], row["attempts"], row["seconds"]))
-        self.assertEqual("Builder · attempt 2 · 4m30s · last one answer rejected", meter.struggling(shown, NOW))
+        self.assertEqual("Builder · attempt 2 · 4m00s · last one answer rejected", meter.struggling(shown, NOW))
+
+    def test_retry_time_is_distinct_from_the_stage_total(self):
+        shown = view(
+            attempt("sol", "Tester", timed_out=True, duration_seconds=900),
+            attempt("sol", "Tester", timed_out=True, duration_seconds=2100),
+            attempt("sol", "Tester", active=True, duration_seconds=None, started_at="2026-11-02T01:05:00Z"),
+        )
+        (row,) = meter.stages(shown, NOW)
+        self.assertEqual(3300, row["seconds"])
+        self.assertEqual(300, row["attempt_seconds"])
+        self.assertEqual("Tester · attempt 3 · 5m00s · last one timed out", meter.struggling(shown, NOW))
+        self.assertEqual("↻ Tester · 55m00s total · attempt 3", meter.stage_lines(row)[0])
+
+    def test_retry_with_unknown_start_does_not_show_previous_time_as_current(self):
+        shown = view(
+            attempt("sol", "Tester", timed_out=True, duration_seconds=900),
+            attempt("sol", "Tester", active=True, duration_seconds=None, started_at="unknown"),
+        )
+        (row,) = meter.stages(shown, NOW)
+        self.assertIsNone(row["attempt_seconds"])
+        self.assertEqual("Tester · attempt 2 · last one timed out", meter.struggling(shown, NOW))
+        self.assertIn("15m00s total", meter.stage_lines(row)[0])
 
     def test_a_report_repair_is_the_repaired_stages_next_attempt(self):
         # As in the live run of 2026-11-02: sol was rejected, the Resolver ran, then sol_report_repair passed.
@@ -88,7 +110,7 @@ class StageTests(unittest.TestCase):
         )
         shown = view(rejected, attempt("resolver", "Resolver"), repairing)
         self.assertEqual(["Tester", "Resolver"], [row["job"] for row in meter.stages(shown, NOW)])
-        self.assertEqual("Tester · attempt 2 · 1m00s · last one answer rejected", meter.struggling(shown, NOW))
+        self.assertEqual("Tester · attempt 2 · 30s · last one answer rejected", meter.struggling(shown, NOW))
         repaired = {**repairing, "active": False, "duration_seconds": 18}
         costs = [{"stage": "sol", "spent_usd": 0.25}, {"stage": "sol_report_repair", "spent_usd": 0.1}]
         tester = meter.stages(view(rejected, attempt("resolver", "Resolver"), repaired, by_stage=costs), NOW)[0]
@@ -109,7 +131,7 @@ class StageTests(unittest.TestCase):
         (row,) = meter.stages(shown, NOW)
         self.assertEqual((meter.WORKING, 2), (row["state"], row["attempts"]))
         self.assertEqual("", meter.struggling(shown, NOW))
-        self.assertEqual("● Plan Reviewer · 1m30s · 2 runs", meter.stage_lines(row)[0])
+        self.assertEqual("● Plan Reviewer · 1m30s total · 2 runs", meter.stage_lines(row)[0])
 
     def test_a_first_attempt_at_work_is_not_struggling(self):
         shown = view(attempt("terra", "Builder", active=True, duration_seconds=None, started_at="2026-11-02T01:09:00Z"))
@@ -122,6 +144,22 @@ class StageTests(unittest.TestCase):
         self.assertTrue(head.startswith("✗ Tester"))
         self.assertIn("timed out", detail)
         self.assertEqual("bad", style)
+
+    def test_execution_failure_is_not_mislabeled_as_a_rejected_answer(self):
+        # The public ledger also marks an attempt rejected when no acceptable
+        # answer exists because its provider timed out or was interrupted.
+        for flags, expected in (
+            ({"timed_out": True}, "timed out"),
+            ({"interrupted": True}, "interrupted"),
+            ({"timed_out": True, "interrupted": True}, "timed out"),
+        ):
+            with self.subTest(flags=flags):
+                failed = attempt("sol", "Tester", rejected=True, exit_code=-15, **flags)
+                (row,) = meter.stages(view(failed), NOW)
+                self.assertEqual(expected, row["why"])
+                self.assertNotIn("answer rejected", meter.stage_lines(row)[1])
+                retry = attempt("sol", "Tester", active=True, duration_seconds=10)
+                self.assertIn(f"last one {expected}", meter.struggling(view(failed, retry), NOW))
 
     def test_incomplete_tokens_are_marked_as_a_floor(self):
         partial = attempt("terra", "Builder")

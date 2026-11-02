@@ -77,7 +77,6 @@ def too_small(rows: int, cols: int) -> str:
     )
 
 
-LIVE_MIN_ROWS = 24  # below this the live log stays hidden unless /live asks for it
 LIVE_SHARE = 0.45  # of the conversation's rows the live log takes
 PANEL_WRAP = {"Now": 3, "Requirements": 2, "Tasks": 2}  # side panel rows a section's line may take
 AGENT_STYLES = 4  # agents in the live log cycle through this many colors
@@ -676,7 +675,7 @@ class ChatTUI:
         self._launch_execution: dict | None = None
         self._log = panel.StageLog()
         self._live = panel.LiveLog()  # what each agent thinks and does, from the view's chat.log
-        self._live_on: bool | None = None  # None: shown when the terminal is tall enough and an agent works
+        self._live_on: bool | None = None  # None: shown while running or when retained activity exists
         self._panel_on: bool | None = None  # None: shown when the terminal is wide enough
         self._menu_index = 0
         self._waiting = False
@@ -1475,7 +1474,7 @@ class ChatTUI:
             return False
         if self._live_on is not None:
             return self._live_on
-        return rows >= LIVE_MIN_ROWS and bool(panel.log_entries(self._view))
+        return (self._view or {}).get("status") == "RUNNING" or bool(self._live.entries)
 
     def _draw(self) -> None:
         with self._lock:
@@ -1721,6 +1720,8 @@ class ChatTUI:
             waiting = (
                 "Nothing matches the filter yet; /live all shows every agent."
                 if self._live.filter
+                else "AutoCode is working; no agent activity reported yet."
+                if (self._view or {}).get("status") == "RUNNING"
                 else (
                     "No agent is working right now. Their thinking, messages and tool calls show here as they happen."
                 )
