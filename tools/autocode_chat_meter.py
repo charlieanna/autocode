@@ -100,9 +100,9 @@ def _failed(row: dict) -> bool:
 
 def _why(row: dict) -> str:
     for key, words in (
-        ("rejected", "answer rejected"),
         ("timed_out", "timed out"),
         ("interrupted", "interrupted"),
+        ("rejected", "answer rejected"),
     ):
         if row.get(key):
             return words

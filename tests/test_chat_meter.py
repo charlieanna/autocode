@@ -123,6 +123,22 @@ class StageTests(unittest.TestCase):
         self.assertIn("timed out", detail)
         self.assertEqual("bad", style)
 
+    def test_execution_failure_is_not_mislabeled_as_a_rejected_answer(self):
+        # The public ledger also marks an attempt rejected when no acceptable
+        # answer exists because its provider timed out or was interrupted.
+        for flags, expected in (
+            ({"timed_out": True}, "timed out"),
+            ({"interrupted": True}, "interrupted"),
+            ({"timed_out": True, "interrupted": True}, "timed out"),
+        ):
+            with self.subTest(flags=flags):
+                failed = attempt("sol", "Tester", rejected=True, exit_code=-15, **flags)
+                (row,) = meter.stages(view(failed), NOW)
+                self.assertEqual(expected, row["why"])
+                self.assertNotIn("answer rejected", meter.stage_lines(row)[1])
+                retry = attempt("sol", "Tester", active=True, duration_seconds=10)
+                self.assertIn(f"last one {expected}", meter.struggling(view(failed, retry), NOW))
+
     def test_incomplete_tokens_are_marked_as_a_floor(self):
         partial = attempt("terra", "Builder")
         partial["attributed_tokens"]["output_tokens"] = {"value": None, "known": 50, "complete": False}
