@@ -22,6 +22,7 @@ import autocode_builder_policy as builder_policy
 import autocode_completion as completion_gate
 import autocode_configure
 import autocode_goals as goals
+import autocode_legacy_process as legacy_process
 import autocode_milestones as milestones
 import autocode_planning as planning
 import autocode_run_view as run_view
@@ -542,9 +543,9 @@ class RetrofitTest(unittest.TestCase):
             s.assert_no_legacy_process(self.run, self.root)
 
     def test_active_legacy_guard_and_process_check_failure(self):
-        # A fake listing pid that can never be this test's own runner or its parent:
-        # the guard skips both by design, and a container runner may really hold pid 101 (#2446).
-        pid = next(candidate for candidate in itertools.count(101) if candidate not in (os.getpid(), os.getppid()))
+        # A fake listing pid that can never be this test's own runner or an ancestor:
+        # the guard skips its lineage by design, and a container runner may really hold pid 101 (#2446).
+        pid = next(candidate for candidate in itertools.count(101) if candidate not in legacy_process.own_lineage())
         result = subprocess.CompletedProcess([], 0, stdout=f"{pid} python tools/autocode.py --run-dir {self.run}\n")
         with patch.object(s.subprocess, "run", return_value=result):
             with self.assertRaisesRegex(s.Paused, str(pid)):
@@ -554,7 +555,7 @@ class RetrofitTest(unittest.TestCase):
                 s.assert_no_legacy_process(self.run, self.root)
 
     def test_legacy_guard_scopes_run_paths_without_matching_another_workspace(self):
-        pid = next(candidate for candidate in itertools.count(101) if candidate not in (os.getpid(), os.getppid()))
+        pid = next(candidate for candidate in itertools.count(101) if candidate not in legacy_process.own_lineage())
         relative = os.path.relpath(self.run, self.root)
         for command in (
             f"python tools/autocode.py --run-dir /another-workspace/{relative}",
