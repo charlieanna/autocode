@@ -557,12 +557,34 @@ change does not alter the source run: its owner must reconcile and route the
 original human text through ordinary planning and review. The assistant row in
 `chat.messages` exposes optional `conversation` metadata: `request_id`, `intent`,
 `affected_targets` and `context_sha256`. A question restores the source checkpoint
-and never becomes a new requirement. This transport alone does not implement
-coordinated scheduling or advertise a coordinated TUI message action. New coordinations
+and never becomes a new requirement. The coordinated owner schedules this assessment through its existing advance action. New coordinations
 also bind the source run's ledger in their budget: later Requirements replies
 count toward the same task and planning allowance. The current full source ledger
 replaces its frozen initial snapshot in calculations; that original snapshot is
 retained for evidence and legacy records. Unknown prices remain unknown.
+
+
+Coordinated status includes the stable coordination `id` and an optional `conversation` object with `requests`,
+`results` and a pending-only `input` offer. Its `coordination_message` command is
+`autocode coordinate message --run-dir RUN --request-id REQUEST_ID --text MESSAGE --json`.
+The client fills only those placeholders and binds the command to the displayed
+anchor. Exact retries return the same receipt; different text under the same
+identity refuses. Publication closes new submissions. Accepting a message does
+not approve, resume or dispatch work.
+
+The existing coordinator asks active participants for their named boundary pause,
+waits for saved work, and invokes source Requirements with current public plans.
+Its observer never starts a second worker. Questions preserve plans, approvals
+and joint evidence. For a change, the coordinator archives superseded authority
+and routes the original human text to affected authorized members and their
+dependents through ordinary feedback/review. It resumes only its own exclusively
+held pauses. Separate user stops, operational holds and uncertain receipts remain
+held. All Requirements usage counts against the same task and planning limits.
+
+`TaskRun.intervention_status()` reads the existing public status document's
+`view` and sibling `interventions` together, so coordinators can verify pause
+ownership without reading another run's private state. Missing or malformed
+intervention evidence refuses instead of implying that no hold exists.
 
 
 A client compares the displayed `context` with a fresh status before submitting;

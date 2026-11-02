@@ -6,6 +6,27 @@ import autocode_run_view as run_view
 
 
 class CoordinationRequestTests(unittest.TestCase):
+    def test_task_messages_extend_only_their_members_without_triggering_legacy_recovery(self):
+        from autocode_coordination_request import brief, recovery
+
+        doc = {
+            "task": "Fix history",
+            "request_sources": [],
+            "members": [
+                {
+                    "target": "api",
+                    "started": True,
+                    "brief": "Fix history\n\nPreserve XML.",
+                    "message_sources": [{"request_id": "message", "text": "Preserve XML."}],
+                },
+                {"target": "other", "started": True, "brief": "Fix history"},
+            ],
+        }
+        self.assertEqual("Fix history\n\nPreserve XML.", brief(doc, target="api"))
+        self.assertEqual("Fix history", brief(doc, target="other"))
+        self.assertIsNone(recovery(doc, {}, []))
+        self.assertEqual("Fix history", brief(doc))
+
     def test_saved_unapproved_runs_adopt_sources_and_refresh_each_old_member_brief(self):
         from autocode_coordination_request import recovery
 

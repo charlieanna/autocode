@@ -19,9 +19,13 @@ try:
     from . import autocode_client_actions as actions
     from . import autocode_coordination_access as access
     from . import autocode_coordination_budget as budget
+    from . import autocode_coordination_conversation as conversation
+    from . import autocode_coordination_conversation_runtime as conversation_runtime
     from . import autocode_coordination_evidence as joint_evidence
     from . import autocode_coordination_joint as joint
     from . import autocode_coordination_limits as limits
+    from . import autocode_coordination_message_inbox as message_inbox
+    from . import autocode_coordination_message_watch as message_watch
     from . import autocode_coordination_planning_limits as planning_limits
     from . import autocode_coordination_publish as publication
     from . import autocode_coordination_repositories as repos
@@ -38,9 +42,13 @@ except ImportError:
     import autocode_client_actions as actions
     import autocode_coordination_access as access
     import autocode_coordination_budget as budget
+    import autocode_coordination_conversation as conversation
+    import autocode_coordination_conversation_runtime as conversation_runtime
     import autocode_coordination_evidence as joint_evidence
     import autocode_coordination_joint as joint
     import autocode_coordination_limits as limits
+    import autocode_coordination_message_inbox as message_inbox
+    import autocode_coordination_message_watch as message_watch
     import autocode_coordination_planning_limits as planning_limits
     import autocode_coordination_publish as publication
     import autocode_coordination_repositories as repos
@@ -413,6 +421,22 @@ def carried_approval(document, summary, joint_plan):
     return {"revision": record["revision"], "token": record["token"], "unchanged": unchanged}
 
 
+def conversation_inputs(document, views, *, command=tasks.AUTOCODE):
+    """Read participant/source observations only when task messages exist."""
+    requests = message_inbox.read(document["anchor"])
+    if not requests:
+        return requests, views, {}
+    participants = dict(views)
+    for member in document["members"]:
+        if member.get("started"):
+            participants[member["target"]] = conversation_runtime.observation(handle(member, command=command))
+    if (document.get("joint") or {}).get("started"):
+        participants["Joint regression"] = conversation_runtime.observation(handle(document["joint"], command=command))
+    workspace = Path(document["anchor"]).parents[2]
+    source = conversation_runtime.observation(tasks.TaskRun(workspace, Path(document["anchor"]), command=command))
+    return requests, participants, source
+
+
 def _next_step(document, views, *, command=tasks.AUTOCODE):
     if store.cancelled(document["anchor"]):
         return {"kind": "cancelled"}
@@ -429,6 +453,16 @@ def _next_step(document, views, *, command=tasks.AUTOCODE):
             }
     if document.get("pending"):
         return {"kind": "reconcile", **document["pending"]}
+    requests, participants, source = conversation_inputs(document, views, command=command)
+    message_step = conversation.step(document, requests, participants, source)
+    if message_step:
+        if (document.get("budget") or {}).get("cap_usd"):
+            rows, history = budget_observations(document, views, command=command)
+            if offered := planning_limits.offer(document, rows, history):
+                return offered
+            if offered := limits.offer(document, rows, history):
+                return offered
+        return message_step
     sources = document.get("request_sources")
     if sources is None and document.get("anchor_turn"):
         sources = anchor_view(document["anchor"], command=command).get("request_sources")
@@ -607,11 +641,19 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
         "request_feedback",
         "refresh",
         "rework",
+        "conversation",
     ):
         target = step.get("target")
         member = next((row for row in document["members"] if row["target"] == target), None)
         if step["kind"] in ("joint_plan_advance", "joint_advance"):
             member = document.get("joint")
+        if step["kind"] == "conversation":
+            if step["operation"] not in ("source_advance", "prepare_source", "consume", "resume"):
+                return step
+            if step["operation"] in ("source_advance", "prepare_source"):
+                member = {"run_dir": document["anchor"]}
+            elif step.get("target") == "Joint regression":
+                member = document.get("joint")
         try:
             budget_options(document, views, member["run_dir"] if member else None, command=command)
         except store.CoordinationError as error:
@@ -620,6 +662,7 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
 
 
 AUTOMATIC = {
+    "conversation",
     "sync_request",
     "request_feedback",
     "resolve",
@@ -665,6 +708,7 @@ def status(run_dir, *, command=tasks.AUTOCODE):
     source = anchor_view(run_dir, command=command)
     output = {
         "version": 1,
+        "id": document["id"],
         "anchor": document["anchor"],
         "revision": document["revision"],
         "accounting": usage.snapshot(
@@ -745,6 +789,20 @@ def status(run_dir, *, command=tasks.AUTOCODE):
             }
             for row in step["candidates"]
         ]
+    requests = message_inbox.read(run_dir)
+    if requests or document.get("members"):
+        output["conversation"] = {
+            "requests": requests,
+            "results": (document.get("conversation") or {}).get("results", []),
+            "input": {
+                "kind": "coordination_message",
+                "next_command": store.command(
+                    run_dir, "message", "--request-id", "REQUEST_ID", "--text", "MESSAGE", "--json"
+                ),
+            }
+            if document.get("members") and document.get("phase") not in ("publishing", "complete")
+            else None,
+        }
     return output
 
 
@@ -895,7 +953,7 @@ def start_member(document, member, *, command=tasks.AUTOCODE, limits=()):
 
 
 def advance(run_dir, *, command=tasks.AUTOCODE):
-    with store.locked(run_dir) as document:
+    with store.locked(run_dir) as document, message_watch.watch(run_dir, command=command):
         if not document and store.cancelled(run_dir):
             return status(run_dir, command=command)
         document = document or initialize(run_dir, command=command)
@@ -912,14 +970,36 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
             (row for row in document["members"] if row["target"] == step.get("target")),
             document.get("joint") if step.get("target") == "Joint regression" else None,
         )
-        if kind == "sync_request":
+        if kind == "conversation":
+            requests, participants, source = conversation_inputs(document, views, command=command)
+
+            def run_for(target):
+                row = (
+                    {"workspace": source["workspace"], "run_dir": document["anchor"]}
+                    if target == "Task conversation"
+                    else document.get("joint")
+                    if target == "Joint regression"
+                    else next(row for row in document["members"] if row["target"] == target)
+                )
+                return handle(row, command=command)
+
+            conversation_runtime.execute(
+                document,
+                step,
+                requests,
+                participants,
+                source,
+                run_for=run_for,
+                limits_for=lambda run: budget_options(document, views, run, command=command),
+            )
+        elif kind == "sync_request":
             document["request_sources"] = step["sources"]
             document.setdefault("request_recovery", []).append(
                 {"at": util.now(), "reason": "Retain authenticated request clarifications before planning"}
             )
             for row in document["members"]:
                 if not row.get("started"):
-                    row["brief"] = request.brief(document)
+                    row["brief"] = request.brief(document, target=row["target"])
         elif kind == "request_feedback":
             document["pending"] = {
                 "operation": "request_feedback",
@@ -1202,6 +1282,7 @@ def bind_candidates(run_dir, *, command=tasks.AUTOCODE):
 
 
 OPERATION_HELP = {
+    "message": "Queue a task message for Requirements without approving or resuming work",
     "status": "Read the coordination state and its named actions",
     "advance": "Perform one durable core step",
     "bind": "Bind exact completed repository candidates to the approved joint plan",
@@ -1225,6 +1306,9 @@ def parser():
         child = commands.add_parser(name, help=text)
         child.add_argument("--run-dir", required=True, type=Path, help="The anchor run")
         child.add_argument("--json", action="store_true", help="Print the result as JSON")
+        if name == "message":
+            child.add_argument("--request-id", required=True, help="Stable identity for exact message retries")
+            child.add_argument("--text", required=True, help="Original message for Requirements to assess")
         if name == "approve":
             child.add_argument("--token", required=True, help="Exact token of the coordinated plans shown")
         if name in ("budget", "resume"):
@@ -1283,6 +1367,8 @@ def cli(argv=None):
         os.environ.setdefault("AUTOCODE_HOME", str(args.run_dir.resolve().parents[2] / ".autocode" / "registry"))
         if args.operation == "status":
             result = status(args.run_dir)
+        elif args.operation == "message":
+            result = message_inbox.submit(args.run_dir, request_id=args.request_id, text=args.text)
         elif args.operation == "advance":
             result = advance(args.run_dir)
         elif args.operation == "bind":
