@@ -23,6 +23,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A pre-build acceptance proof whose test suite cannot run the Tester's files now names the
+  detected suite and says the tests are not at fault, instead of asking to correct them;
+  `--test-command` with `--resume-paused` is accepted at that pause, and the proof runs the
+  Tester's files with the saved command when it is a plain runner invocation (#2609).
+
 - Terminal chat: plan approval opens on the plan when it fits the screen instead of
   an older requirements summary; a new or just-started chat no longer shows loading
   states as errors; a new chat opens on its welcome; a finished run names the files

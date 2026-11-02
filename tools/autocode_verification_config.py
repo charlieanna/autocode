@@ -141,7 +141,11 @@ def configure_resume(state: RunState, settings, args):
     hold = blocker_hold(state)
     if not getattr(args, "resume_paused", False) or not (str(state.get("status", "")).startswith("PAUSED_") or hold):
         raise ValueError("Changing saved verification commands requires a paused run and --resume-paused")
-    if not hold and state.get("next_stage") not in ("sol", "astra_checkpoint"):
+    # The pre-build acceptance proof pause, before its proof has run, is such a checkpoint too (#2609).
+    before_proof = (
+        state.get("status") == "PAUSED_ACCEPTANCE_TESTS" and state.get("next_stage") == "write_acceptance_tests"
+    )
+    if not hold and not before_proof and state.get("next_stage") not in ("sol", "astra_checkpoint"):
         raise ValueError(
             "Changing verification commands requires a stopped checkpoint before the Validator "
             "or combined checkpoint; the new proof must run before any acceptance"

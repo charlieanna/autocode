@@ -329,12 +329,21 @@ def apply(
     try:
         verdicts = _verdicts(state, cases, value, workspace, run, inherited=inherited)
     except ExecutionEvidenceRequired as error:
+        if "no test command runs these files" in str(error):
+            # The run's suite cannot name these files: a binding gap, not a fault in the tests (#2609).
+            remedy = (
+                "The tests are not at fault: the run's test suite cannot run them. Resume with a saved "
+                "--test-command that runs them, and the runner executes a fresh proof with it."
+            )
+        else:
+            remedy = (
+                "Resume explicitly to correct the tests and execute a fresh proof, or use --feedback to revise "
+                "the plan. A report-only repair cannot change test files or rerun proof."
+            )
         run_status.pause(
             state,
             PAUSE,
-            f"The runner could not establish the approved pre-build proof: {error}. "
-            "Resume explicitly to correct the tests and execute a fresh proof, or use --feedback to revise the plan. "
-            "A report-only repair cannot change test files or rerun proof.",
+            f"The runner could not establish the approved pre-build proof: {error}. {remedy}",
             next_stage=STAGE,
         )
         return

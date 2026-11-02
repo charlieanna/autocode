@@ -18,6 +18,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_acceptance_tests as acceptance
 import autocode_taskrun as taskrun
@@ -442,6 +443,64 @@ class RunnerCollectionTests(unittest.TestCase):
                     run_tests=lambda files: {"results": {"passed": ["test_example"], "failed": []}},
                 )
             self.assertNotIsInstance(error.exception, ExecutionEvidenceRequired)
+
+    def test_a_suite_that_cannot_run_the_tests_is_not_blamed_on_the_tests(self):
+        # #2609: a Go test under a Python unittest binding is a binding gap; the stop says so.
+        import autocode_acceptance_tests_job as job
+        import autocode_verification_commands as command_policy
+        from autocode_test_framework import Framework
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root)
+            (workspace / "sink_test.go").write_text("package log\n")
+            report = {
+                "tests": [{"case_id": "T1", "test_name": "TestSink", "file": "sink_test.go"}],
+                "cannot_write": [],
+                "already_passing": [],
+            }
+            unittest_suite = Framework("unittest", "python3 -m unittest discover -v")
+            error = command_policy.untargeted(unittest_suite, ["sink_test.go"])
+            state = approved({"T1": "test: TestSink"})
+            acceptance.route(state)
+            job.apply(
+                state,
+                report,
+                {"changed_files": ["sink_test.go"]},
+                workspace,
+                run_tests=lambda files: {"error": error, "results": None},
+            )
+            self.assertEqual((job.PAUSE, job.STAGE), (state["status"], state["next_stage"]))
+            self.assertIn("the detected unittest suite `python3 -m unittest discover -v`", state["stop_reason"])
+            self.assertIn("The tests are not at fault", state["stop_reason"])
+            self.assertIn("--test-command", state["stop_reason"])
+            self.assertNotIn("correct the tests", state["stop_reason"])
+        self.assertIn("(no detected test suite cannot run them)", command_policy.untargeted(None, ["a_test.go"]))
+
+    def test_the_acceptance_proof_narrows_a_saved_test_command_to_the_reported_files(self):
+        # #2609: the operator's saved suite, not a fresh guess, runs the Tester's files when it can.
+        from units import autoreview
+
+        calls, captured = [], {}
+
+        def clean_run(workspace, run_dir, **kwargs):
+            calls.append(kwargs)
+            return {"results": None, "error": "stub"}
+
+        state = {"settings": {"regression": {"test_command": "go test ./..."}}}
+        with (
+            mock.patch.object(autoreview.launch_inputs, "runners", return_value=(clean_run, None)),
+            mock.patch.object(autoreview.acceptance_tests_job, "apply", side_effect=lambda *a, **k: captured.update(k)),
+            tempfile.TemporaryDirectory() as root,
+        ):
+            record = {"output": str(Path(root) / "iterations" / "tester.jsonl")}
+            autoreview.apply_job(autoreview.acceptance_tests_job.STAGE, state, {}, record, root, run_dir=Path(root))
+            captured["run_tests"](["pkg/util/log/sink_test.go"])
+            state["settings"]["regression"]["test_command"] = "make check"
+            captured["run_tests"](["pkg/util/log/sink_test.go"])
+            state["settings"] = {}
+            captured["run_tests"](["pkg/util/log/sink_test.go"])
+        self.assertEqual(["go test ./pkg/util/log", None, None], [call["command"] for call in calls])
+        self.assertEqual([["pkg/util/log/sink_test.go"]] * 3, [call["tests"] for call in calls])
 
     def already_working_bug_fix(self, passing):
         """Apply a bug fix's Tester report (#1868) whose runner sees the ``passing`` tests pass on today's code.
