@@ -976,11 +976,47 @@ class LivePaneTests(unittest.TestCase):
         self.assertEqual("/pl", ui._composer.text)
         self.assertIsNotNone(ui._layout(30, 120).live_start)
 
-    def test_without_agent_work_or_on_a_short_terminal_there_is_no_pane(self):
+    def test_without_agent_work_or_without_room_there_is_no_pane(self):
         ui = screen_ui()
         self.assertIsNone(ui._layout(30, 120).live_start)
         ui.observe(self.VIEW)
-        self.assertIsNone(ui._layout(20, 120).live_start)
+        self.assertIsNone(ui._layout(17, 120).live_start)
+
+    def test_running_chat_shows_live_before_the_first_agent_message(self):
+        ui = screen_ui()
+        ui.observe({"status": "RUNNING", "chat": {"log": []}})
+        puts = self.drawn(ui)
+        self.assertIsNotNone(ui._layout(30, 120).live_start)
+        text = "\n".join(text for _, _, text in puts)
+        self.assertIn("LIVE · all agents", text)
+        self.assertIn("AutoCode is working; no agent activity reported yet.", text)
+        self.assertNotIn("No agent is working", text)
+
+    def test_default_live_uses_available_room_on_short_terminal(self):
+        ui = screen_ui()
+        ui.observe(self.VIEW)
+        self.assertIsNotNone(ui._layout(20, 120).live_start)
+
+    def test_empty_status_log_does_not_hide_retained_live_activity(self):
+        ui = screen_ui()
+        ui.observe(self.VIEW)
+        ui.observe({"chat": {"log": []}})
+        self.assertIsNotNone(ui._layout(30, 120).live_start)
+        self.assertTrue(any("Read greet.py first" in text for _, _, text in self.drawn(ui)))
+
+    def test_explicitly_hiding_live_survives_new_running_status(self):
+        ui = screen_ui()
+        ui._run("/live", False, "off")
+        ui.observe({"status": "RUNNING", **self.VIEW})
+        self.assertIsNone(ui._layout(30, 120).live_start)
+
+    def test_empty_visible_log_does_not_claim_a_running_agent_stopped(self):
+        ui = screen_ui()
+        ui.observe({"status": "RUNNING", "chat": {"log": []}})
+        ui._run("/live", False, "all")
+        text = "\n".join(text for _, _, text in self.drawn(ui))
+        self.assertIn("AutoCode is working; no agent activity reported yet.", text)
+        self.assertNotIn("No agent is working", text)
 
     def test_live_hides_shows_and_filters_the_pane(self):
         ui = screen_ui()
