@@ -376,6 +376,9 @@ class ChatClient:
         self._observe_coordination = observe_coordination
         self._observe_conversation = observe_conversation
         self._unavailable = unavailable
+        # Coordination temporarily detaches these callbacks while a member owns
+        # the foreground; the terminal still has its persistent status indicators.
+        self._status_in_view = observe is not None and unavailable is not None
         self._wait = wait or (lambda seconds: time.sleep(seconds))
         self._stream = stream  # the reply AutoCode is writing, as the view streams it; the line chat skips it
         # Chats opened earlier this session, by run: (workspace, what each last waited on), so that one
@@ -494,7 +497,7 @@ class ChatClient:
             stale = key[1] in self.viewed
             # Full-screen availability lives in its persistent header/tab indicator.
             # Line clients need messages because they have no updating read indicator.
-            announce = stale and not (self._observe is not None and self._unavailable is not None)
+            announce = stale and not self._status_in_view
             if error:
                 self._attention.unavailable(key)
                 if announce and self._read_errors.get(key[1]) != error:
