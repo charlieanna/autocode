@@ -58,6 +58,25 @@ FIXTURE_OPTIONS = (
 
 
 class RunViewTests(unittest.TestCase):
+    def test_coordination_offer_inventory_includes_the_published_integration_identity(self):
+        import autocode_coordination_store as store
+
+        with patch.object(store, "read", return_value=None):
+            self.assertEqual(
+                {
+                    "version",
+                    "status_command",
+                    "next_command",
+                    "phase",
+                    "revision",
+                    "cancel_command",
+                    "active",
+                    "members",
+                    "integration",
+                },
+                set(store.offer("/anchor", eligible=True)),
+            )
+
     def test_ready_boundary_names_advance_without_inventing_a_pause_category(self):
         for status in ("RUNNING", "DISCOVERING"):
             with self.subTest(status=status):

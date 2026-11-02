@@ -454,9 +454,16 @@
             "revision",
             "cancel_command",
             "active",
-            "members"
+            "members",
+            "integration"
           ],
           "properties": {
+            "integration": {
+              "type": ["object", "null"],
+              "required": ["workspace", "run_dir"],
+              "properties": {"workspace": {"type": "string"}, "run_dir": {"type": "string"}},
+              "description": "Current joint participant's public status identity, published before its start action returns; null before preparation or after retirement. Display only; grants no action authority."
+            },
             "version": {
               "type": "integer",
               "enum": [

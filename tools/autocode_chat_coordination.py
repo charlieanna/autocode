@@ -226,41 +226,61 @@ def step(client, view, render_plan):
 
 def advance_with_progress(client, summary, argv):
     """Observe the named participant while the anchor keeps sole control of advancement."""
-    target = summary["needs"].get("target")
+    need = summary["needs"]
+    target = need.get("target")
+    joint_work = (
+        target == "Joint regression"
+        or need.get("kind") in ("joint_plan_start", "joint_plan_advance", "joint_advance")
+        or (need.get("kind") == "reconcile" and need.get("operation") in ("joint_plan_start", "joint_start"))
+    )
     participant = (
         summary.get("integration")
-        if target == "Joint regression"
+        if joint_work
         else next((row for row in summary["members"] if row["target"] == target), None)
     )
-    if not participant or not participant.get("workspace") or not participant.get("run_dir") or not client._observe:
+    if not client._observe or (not participant and not joint_work):
         client.advance(argv)
         return
     observe, unavailable, wait = client._observe, client._unavailable, client._wait
-    child = type(client)(
-        Path(participant["workspace"]),
-        Path(participant["run_dir"]),
-        command=client.command,
-        env=client.env,
-        ask=client._ask,
-        say=client._say,
-        observe=observe,
-        unavailable=unavailable,
-        wait=wait,
-        poll_seconds=client.poll_seconds,
-    )
+    child = None
 
     def wait_with_progress(seconds):
+        nonlocal child
+        # A joint identity is published only after the advancing core prepares
+        # its workspace. Reuse the anchor's bounded public polls; never guess
+        # its path or launch an expensive coordinator read on every UI tick.
+        current = participant
+        if not current and joint_work:
+            current = ((client._status_view or {}).get("coordination") or {}).get("integration")
+        if child is None and current and current.get("workspace") and current.get("run_dir"):
+            child = type(client)(
+                Path(current["workspace"]),
+                Path(current["run_dir"]),
+                command=client.command,
+                env=client.env,
+                ask=client._ask,
+                say=client._say,
+                observe=observe,
+                unavailable=unavailable,
+                wait=wait,
+                poll_seconds=client.poll_seconds,
+            )
+            client._observe, client._unavailable = None, None
         # poll schedules bounded public reads and consumes completed ones; it
         # never waits on a status subprocess or advances the participant.
-        child.poll()
+        if child is not None:
+            child.poll()
         return wait(seconds)
 
-    client._observe, client._unavailable, client._wait = None, None, wait_with_progress
+    if participant:
+        client._observe, client._unavailable = None, None
+    client._wait = wait_with_progress
     try:
         client.advance(argv)
     finally:
         client._observe, client._unavailable, client._wait = observe, unavailable, wait
-        child.close()
+        if child is not None:
+            child.close()
 
 
 def budget_reply(client, view, need):

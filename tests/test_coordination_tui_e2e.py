@@ -533,6 +533,7 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
         self.env["COORDINATION_FIXTURE_JOINT_SCOPE"] = "1"
         self.env["COORDINATION_FIXTURE_EARLY_SCOPE"] = "1"
         with patch.dict(os.environ, self.env, clear=True):
+            observed = []
             client = chat.start(
                 self.intake,
                 "Fix checkout showing the wrong final total.",
@@ -541,6 +542,7 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
                 env=self.env,
                 ask=self.answer,
                 say=self.lines.append,
+                observe=observed.append,
             )
             self.addCleanup(client.close)
             for _ in range(80):
@@ -554,6 +556,10 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
                 self.fail("Joint discovery never expanded the two-member cohort: " + str(self.lines[-5:]))
             self.assertEqual({"checkout", "history", "tax"}, {row["target"] for row in summary["members"]})
             self.assertEqual(1, summary["joint_attempts"], "The incomplete joint attempt remains recorded")
+            self.assertTrue(
+                any("/joint-1/" in view.get("run_dir", "") for view in observed),
+                "The public TUI must follow the joint participant while the coordinator starts it",
+            )
             self.assertIsNone(summary["integration"], "The old joint plan cannot approve an expanded cohort")
             self.assertNotIn("approval", summary)
             self.assertEqual([], self.github.posts)

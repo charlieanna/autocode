@@ -293,12 +293,20 @@ class TaskUsage:
 
     def __init__(self):
         self.rows = {}
+        self.anchor = None
 
     def accept(self, snapshot):
+        self.anchor = snapshot["anchor"]
         self.rows = {row["run_dir"]: run_total(row) for row in snapshot["runs"]}
 
     def observe(self, view):
         run = view.get("run_dir")
+        if self.anchor is not None and run == self.anchor:
+            integration = (view.get("coordination") or {}).get("integration") or {}
+            if integration.get("workspace") and integration.get("run_dir"):
+                # A newly prepared joint run was absent from the earlier full
+                # snapshot. Only this task's anchor can publish its membership.
+                self.rows.setdefault(integration["run_dir"], None)
         if run in self.rows:
             self.rows[run] = run_total(view)
 
