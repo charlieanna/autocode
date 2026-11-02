@@ -35,6 +35,7 @@ try:
     from . import autocode_coordination_usage as usage
     from . import autocode_github as github
     from . import autocode_taskrun as tasks
+    from . import autocode_taskrun_reads as reads
     from . import autocode_util as util
 except ImportError:
     import autocode_changeset as changesets
@@ -58,6 +59,7 @@ except ImportError:
     import autocode_coordination_usage as usage
     import autocode_github as github
     import autocode_taskrun as tasks
+    import autocode_taskrun_reads as reads
     import autocode_util as util
 
 MAX_REPOSITORIES = 12
@@ -683,6 +685,7 @@ AUTOMATIC = {
 }
 
 
+@reads.snapshot()
 def status(run_dir, *, command=tasks.AUTOCODE):
     document = store.read(run_dir)
     if not document:
