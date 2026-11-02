@@ -23,6 +23,38 @@ def view(*, headline="Builder working", needs="nothing needed from you", task="w
 
 
 class SectionTests(unittest.TestCase):
+    def test_recent_notes_roll_over_only_readable_messages_from_the_current_stage(self):
+        current = {
+            "status": "RUNNING",
+            "progress": {"stage": "Planner"},
+            "chat": {
+                "log": [
+                    {"id": str(n), "agent": agent, "kind": kind, "text": text}
+                    for n, (agent, kind, text) in enumerate(
+                        [
+                            ("Planner", "message", "Reading the request."),
+                            ("Planner", "message", "Checking the history interface."),
+                            ("Requirements", "message", "Earlier requirement."),
+                            ("Planner", "thinking", "Private working notes."),
+                            ("Planner", "command", "bash -lc secret-command"),
+                            ("Planner", "message", "Structured response received."),
+                            ("Planner", "message", "thinking ~100 tokens; writing bash input: 900 chars"),
+                            ("Planner", "message", "I’m checking the result mapping."),
+                            ("Planner", "message", "I’m checking the result mapping."),
+                        ]
+                    )
+                ]
+            },
+        }
+        self.assertEqual(
+            ["Checking the history interface.", "I'm checking the result mapping."],
+            panel.recent_notes(current),
+        )
+        self.assertEqual(["I'm checking the result mapping."], panel.recent_notes(current, limit=1))
+        for status in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL", "TASK_COMPLETE"):
+            self.assertEqual([], panel.recent_notes({**current, "status": status}))
+        self.assertEqual([], panel.recent_notes({**current, "progress": {}}))
+
     def test_compact_usage_keeps_incomplete_accounting_visible(self):
         current = view()
         current["cost"] = {"spent_usd": 1.25, "complete": False, "unpriced_stages": 2}

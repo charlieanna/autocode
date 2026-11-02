@@ -658,6 +658,8 @@ class Layout:
     panel_col: int | None = None
     live_start: int | None = None  # the live log's title row, below the transcript; it ends at panel_end
     panel_end: int = 0  # where the side panel ends: the transcript's end, or the live log's
+    notes_start: int | None = None
+    notes: list[str] = field(default_factory=list)
 
 
 def _unicode_terminal() -> bool:
@@ -1586,20 +1588,34 @@ class ChatTUI:
         live_start = None
         if self._live_visible(rows, cols) and panel_end - header_rows >= 10:
             live_start = panel_end - max(4, int((panel_end - header_rows) * LIVE_SHARE))
+        body_width = width - panel_width - (2 if panel_width else 0)
+        notes = []
+        notes_start = None
+        room = panel_end - header_rows
+        if not self._asking and live_start is None and room >= 7:
+            latest = panel.recent_notes(self._view, limit=2 if room >= 12 else 1)
+            if latest:
+                stage = (self._view.get("progress") or {}).get("stage")
+                notes = [f"{stage} · latest updates"]
+                for note in latest:
+                    notes.extend(wrapped_rows(note, max(1, body_width - 2), 2))
+                notes_start = panel_end - len(notes)
         return Layout(
-            body_width=width - panel_width - (2 if panel_width else 0),
+            body_width=body_width,
             panel_col=width - panel_width if panel_width else None,
             live_start=live_start,
             panel_end=panel_end,
             width=width,
             body_start=header_rows,
-            body_end=live_start if live_start is not None else panel_end,
+            body_end=notes_start if notes_start is not None else live_start if live_start is not None else panel_end,
             status_start=status_start,
             box_top=box_top,
             box_text=box_text,
             box_bottom=box_bottom,
             hints_row=hints_row,
             question=question,
+            notes_start=notes_start,
+            notes=notes,
         )
 
     def _panel_visible(self, rows: int, cols: int) -> bool:
@@ -1631,6 +1647,7 @@ class ChatTUI:
                 layout = self._layout(rows, cols)
                 self._header(layout)
                 self._body(layout)
+                self._recent_activity(layout)
                 self._live_pane(layout)
                 self._side_panel(layout)
                 self._question_or_status(layout)
@@ -1778,6 +1795,18 @@ class ChatTUI:
                 self._put_inline(row, text, width, role)
             else:
                 self._put(row, 0, truncate(text, width), self._style(role))
+
+    def _recent_activity(self, layout: Layout) -> None:
+        """Keep a few current prose updates visible while the conversation is scrolled."""
+        if layout.notes_start is None:
+            return
+        for offset, text in enumerate(layout.notes):
+            self._put(
+                layout.notes_start + offset,
+                0 if offset == 0 else 2,
+                truncate(text, layout.body_width - (0 if offset == 0 else 2)),
+                self._style("panel-title" if offset == 0 else "assistant-body"),
+            )
 
     def _put_inline(self, row: int, text: str, width: int, role: str) -> None:
         """A message line with its `code` and **bold** spans drawn as such, clipped at ``width``."""

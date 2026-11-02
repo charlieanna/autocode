@@ -15,6 +15,9 @@ PR template asks for an entry here; a change without one is incomplete.
   independent hold. Coordinated messages can also recover saved instances of that exact
   boundary when every outstanding pause belongs to the conversation; unrelated pauses,
   exhausted limits, stops and inbox errors remain protected.
+- While an agent works, terminal chat keeps its latest plain-English progress notes above the
+  input even when the conversation is scrolled. The short rolling view preserves the draft,
+  adapts to terminal height, and leaves questions and explicit agent details their space.
 - Coordinated task messages reuse each participant's public status while choosing one action,
   reducing repeated status subprocesses. Execution and the returned status still read fresh
   evidence, including new pauses and stops.
