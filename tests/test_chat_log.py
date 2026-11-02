@@ -427,13 +427,15 @@ class StatusViewTests(unittest.TestCase):
             "chat.activity still never copies reasoning",
         )
 
-    def test_supervised_hashed_kilo_progress_reaches_the_live_tui(self):
+    def test_supervised_hashed_kilo_progress_waits_for_the_thinking_view(self):
         import autocode_chat_panel as panel
 
         chat = self.render({}, [progress()])
         self.assertIn("log", chat)
         live = panel.LiveLog()
         self.assertTrue(live.observe({"chat": chat}))
+        self.assertEqual("No readable updates in this view.", live.text())
+        live.filter = "thinking"
         self.assertIn("Builder", live.text())
         self.assertIn("Reasoning stream activity received", live.text())
         self.assertNotIn("No agent is working", live.text())

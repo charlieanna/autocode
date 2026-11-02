@@ -137,7 +137,7 @@ class PanelTests(unittest.TestCase):
         titles = [section.title for section in shown]
         self.assertIn("Plan path", titles)
         self.assertLess(titles.index("Now"), titles.index("Plan path"))
-        self.assertLess(titles.index("Plan path"), titles.index("Requirements"))
+        self.assertLess(titles.index("Plan path"), titles.index("Acceptance checks"))
         section = next(section for section in shown if section.title == "Plan path")
         self.assertEqual("compact · no Planner draft", section.summary)
         self.assertEqual("dim", section.rows[0].style)
