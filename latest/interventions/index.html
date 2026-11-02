@@ -1940,7 +1940,7 @@
 
 
 <h1 id="queued-interventions">Queued interventions<a class="headerlink" href="#queued-interventions" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a341bb3702530742a2d7e44c1adee2c5f63e42d8/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/bf148b76d87049584fe49678523ec9b101a37bd0/README.md">← Back to README</a></p>
 <p>The browser can submit a durable change request without competing for the workspace
 writer lock or changing <code>state.json</code>:</p>
 <pre><code class="language-text">[&quot;autocode&quot;, &quot;intervention&quot;, &quot;submit&quot;, &quot;--workspace&quot;, &quot;/project&quot;, &quot;--run-dir&quot;, &quot;/project/.autocode/runs/run&quot;, &quot;--request-id&quot;, &quot;request-123&quot;, &quot;--kind&quot;, &quot;feedback&quot;, &quot;--text&quot;, &quot;Keep the partial implementation&quot;, &quot;--json&quot;]
@@ -1963,6 +1963,25 @@ locked, invalid, or failed-write inboxes return JSON errors and exit 2 without c
 receipt. <code>inspect</code> is read-only, creates neither inbox nor lock, and reports only pending
 requests; it does not claim that a currently running older binary can consume them.</p>
 <h2 id="consumption">Consumption<a class="headerlink" href="#consumption" title="Permanent link">&para;</a></h2>
+<p>For a spec-first task that has not completed or stopped, <code>--kind message --text TEXT</code>
+queues a conversation rather than assuming a requirements correction. Submission is
+pending-only and uses the same exact request-ID deduplication as other interventions.
+At a saved, idle checkpoint, the existing Requirements stage answers the message using
+the task, requirements, plan and earlier exchanges. It may make focused read-only source
+inspections to assess a technical question. A question restores the saved work checkpoint
+without changing the plan, approvals, requirements sources or completed stages. An explicit
+requested change keeps the reply and forwards the original human text through ordinary
+planning and exact-plan review. Messages are answered in submission order.
+A message already accepted before the final result is answered at that boundary too:
+a question restores completion, while a change archives it and returns through review.
+New messages after completion use the existing follow-up path instead. A runtime must
+have recorded <code>intervention_capability.supports_messages=true</code> at an owned checkpoint
+before a message can be accepted; updating a viewer alone cannot enable an older worker.</p>
+<p>An explicit pause or stop wins over a message in the same batch. A message cannot release
+an exhausted budget, an operational hold, uncertain work or an outstanding report repair.
+It remains saved until that checkpoint can continue under its existing authority. Saving
+a message itself launches no model. The ordinary named continuation runs its conversation;
+the invocation may first return at the saved boundary with <code>needs.kind=continue</code>.</p>
 <p>The workspace-lock owner checks the inbox after recovery and before every provider
 admission, and after every saved stage result, including question, approval, review and
 completion exits. Inbox acceptance and admission are serialized by the short inbox lock:

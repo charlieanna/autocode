@@ -2372,7 +2372,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a341bb3702530742a2d7e44c1adee2c5f63e42d8/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/bf148b76d87049584fe49678523ec9b101a37bd0/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2423,6 +2423,16 @@ the current inventory and refresh incomplete member briefs through public,
 receipted feedback actions. Interrupted feedback is reconciled against its
 public chat receipt; an uncertain outcome is never submitted twice. Approved
 or active work cannot use this recovery to replace its request.</p>
+<p>The coordination view's <code>accounting</code> snapshot contains <code>version</code>, <code>anchor</code>, and
+<code>runs</code>: one bounded public ledger per distinct source, repository or retained
+joint attempt. Each row exposes <code>run_dir</code>, the cost's <code>spent_usd</code>, <code>inherited_usd</code>
+and <code>complete</code>, and <code>usage.accounting.tokens</code>. A not-yet-started repository has
+zero usage; missing usage from an observed attempt stays unknown. This snapshot
+is display data and changes no spending cap, pricing rule or approval token.
+Clients can update the active run's row from its public status while keeping the
+other rows, subtract inherited spend when adding ledgers, and retain a known
+incomplete total when a price or token count is missing. Reopening reads the
+whole inventory again; repository switching must not reset the task total.</p>
 <p>The version-1 coordination view identifies the anchor, record revision, phase,
 member workspaces/runs/PRs, <code>done</code>, <code>needs</code>, and optional <code>next_command</code> and
 <code>approval</code>. The joint-test baseline and plan are prepared before any Builder.
@@ -2835,13 +2845,42 @@ review workflow and the bugfix workflow. Older plans promising an atomic commit 
 a revised, explicitly approved structured delivery contract; prose cannot authorize
 a Git write and cannot silently satisfy the completion gate.</p>
 <p><code>input</code> is null when free text is not an admitted action. Otherwise it names
-<code>kind</code> (<code>feedback</code>, <code>follow_up</code>, or <code>resolver_response</code>), a display <code>label</code>, and <code>next_command</code> with
+<code>kind</code> (<code>feedback</code>, <code>follow_up</code>, <code>resolver_response</code>, or <code>message</code>), a display <code>label</code>, and <code>next_command</code> with
 one literal <code>MESSAGE</code> placeholder. A client replaces that argument with the
 person's text, checks that the command names the same workspace/run, and runs it
 as an argument array without a shell. Compare against the view's <code>workspace</code> and
 <code>run_dir</code> fields: after bootstrap relocation they name the run's effective
 location, which can differ from the handle the client started with. The headless
 conformance client's <code>message_command()</code> implements this same parsing boundary.</p>
+<p>While a capable spec-first run works, <code>message</code> offers the pending-only
+<code>intervention submit --kind message</code> action. It also has a <code>REQUEST_ID</code> placeholder;
+the client creates one identity for the submission and reuses it when reconciling
+an uncertain receipt. This saves the person's text without approving a plan,
+changing requirements or interrupting the active provider. Requirements answers
+at the next admitted saved boundary. A question preserves the saved plan; an
+explicit change takes ordinary planning and review. The confirmed receipt's
+<code>message_id</code> is the public chat message ID, so a local echo is shown only once.
+The terminal keeps an unconfirmed draft, including when a plan prompt arrives
+before its receipt is reconciled. An older worker without message support and
+a coordinated member viewed on its own do not advertise this action.</p>
+<p>A coordinating owner may include <code>--context-file PATH</code> on a message submission.
+The file is bounded to 128 KiB and contains <code>kind: coordinated_task</code> and one to
+12 <code>participants</code>, each with an exact <code>target</code> label, <code>status</code> and public <code>plan</code>
+(object or null). It confers no path, repository or execution authority. The
+original text and context together bind the receipt and its idempotent retry.
+A runtime must advertise <code>interventions.runner_capability.supports_message_context</code>;
+older writers refuse this context instead of silently ignoring it. Requirements
+returns its assessment and <code>affected_targets</code> (empty for a question). A routed
+change does not alter the source run: its owner must reconcile and route the
+original human text through ordinary planning and review. The assistant row in
+<code>chat.messages</code> exposes optional <code>conversation</code> metadata: <code>request_id</code>, <code>intent</code>,
+<code>affected_targets</code> and <code>context_sha256</code>. A question restores the source checkpoint
+and never becomes a new requirement. This transport alone does not implement
+coordinated scheduling or advertise a coordinated TUI message action. New coordinations
+also bind the source run's ledger in their budget: later Requirements replies
+count toward the same task and planning allowance. The current full source ledger
+replaces its frozen initial snapshot in calculations; that original snapshot is
+retained for evidence and legacy records. Unknown prices remain unknown.</p>
 <p>A client compares the displayed <code>context</code> with a fresh status before submitting;
 if it changed, retain the draft and ask the person to review the new checkpoint.
 The ordinary CLI independently rechecks admission when saving the action.
@@ -3387,7 +3426,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/a341bb3702530742a2d7e44c1adee2c5f63e42d8/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/bf148b76d87049584fe49678523ec9b101a37bd0/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4075,7 +4114,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/a341bb3702530742a2d7e44c1adee2c5f63e42d8/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/bf148b76d87049584fe49678523ec9b101a37bd0/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
