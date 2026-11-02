@@ -121,7 +121,8 @@ def stages(view: dict | None, now: datetime | None = None) -> list[dict]:
     """One row per stage the run has launched, in the order it first ran.
 
     Each row: ``job`` (the screen name), ``route`` (model and reasoning level of its newest
-    attempt), ``state`` (working, done, failed or retrying), ``attempts``, ``seconds``,
+    attempt), ``state`` (working, done, failed or retrying), ``attempts``, ``seconds``
+    (the stage total), ``attempt_seconds`` (the newest attempt),
     ``tokens`` (input and output known so far, and whether complete), ``spent_usd`` and why
     its newest attempt did not succeed, when it did not.
     """
@@ -171,6 +172,7 @@ def stages(view: dict | None, now: datetime | None = None) -> list[dict]:
                 "attempts": len(rows),
                 "failed_attempts": sum(_failed(row) for row in rows),
                 "seconds": sum(seconds) if seconds else None,
+                "attempt_seconds": _seconds(newest, now),
                 "input_tokens": counted["input"],
                 "output_tokens": counted["output"],
                 "tokens_complete": complete,
@@ -187,7 +189,7 @@ def stage_lines(row: dict, *, unicode: bool = True) -> tuple[str, str, str]:
     mark = row["state"] if unicode else ASCII_MARKS[row["state"]]
     head = [row["job"]]
     if row["seconds"] is not None:
-        head.append(duration(row["seconds"]))
+        head.append(duration(row["seconds"]) + (" total" if row["attempts"] > 1 else ""))
     if row["spent_usd"] is not None and (row["spent_usd"] or row["route"]):  # a stage with no model costs nothing
         head.append(money(row["spent_usd"]))
     if row["attempts"] > 1:
@@ -213,8 +215,8 @@ def struggling(view: dict | None, now: datetime | None = None) -> str:
         return ""
     row = working[-1]
     parts = [row["job"], f"attempt {row['attempts']}"]
-    if row["seconds"] is not None:
-        parts.append(duration(row["seconds"]))
+    if row["attempt_seconds"] is not None:
+        parts.append(duration(row["attempt_seconds"]))
     if row["why"]:
         parts.append(f"last one {row['why']}")
     return " · ".join(parts)
