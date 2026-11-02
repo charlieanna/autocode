@@ -32,6 +32,42 @@ def response(event, intent="question"):
 
 
 class LiveConversationTests(unittest.TestCase):
+    def test_message_suspends_and_restores_a_clarification_rebound_after_settings_change(self):
+        for intent in ("question", "change"):
+            state = working()
+            state.update(
+                status="RESOLVER_PENDING",
+                phase="DISCOVERING",
+                next_stage="astra_discovery",
+                resolver_human_proposal={"scope": "clarification", "identity": "new-settings"},
+                pending_questions=[{"id": "scope", "question": "Which behavior?"}],
+            )
+            before = copy.deepcopy(state)
+            event = messages.receive(state, receipt())
+            self.assertTrue(messages.activate(state))
+            self.assertNotIn("resolver_human_proposal", state)
+            messages.accept(state, response(event, intent), {})
+            for key in before.keys() - {"user_events"}:
+                self.assertEqual(before[key], state[key], key)
+            self.assertEqual(intent == "change", messages.correction_admitted(state, event["text"]))
+
+    def test_pending_unknown_or_operational_resolver_never_grants_conversation_admission(self):
+        for proposal in (None, {}, {"scope": "blocker"}, {"scope": "operational_exhaustion"}):
+            state = working()
+            state.update(status="RESOLVER_PENDING", resolver_human_proposal=proposal)
+            messages.receive(state, receipt())
+            before = copy.deepcopy(state)
+            self.assertFalse(messages.activate(state))
+            self.assertEqual(before, state)
+        state = working()
+        event = messages.receive(state, receipt())
+        messages.activate(state)
+        event["return_checkpoint"].update(
+            status="RESOLVER_PENDING", resolver_human_proposal={"scope": "operational_exhaustion"}
+        )
+        with self.assertRaises(ValueError):
+            messages.accept(state, response(event), {})
+
     def test_receiving_a_message_is_idempotent_and_does_not_interrupt_or_change_the_plan(self):
         state = working()
         state["active_stage"] = {"stage": "astra_challenge"}

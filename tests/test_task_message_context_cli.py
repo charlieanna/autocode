@@ -43,6 +43,9 @@ class TaskMessageContextCliTests(unittest.TestCase):
         )
         original = run.advance_until_input()
         self.assertEqual("answer", original["needs"]["kind"], original["needs"])
+        # A legitimate shared-budget update rebinds the clarification before
+        # queued input is consumed; it must not strand an accepted message.
+        run.options = ("--max-cost-usd", "0")
         packet = workspace / ".autocode/public-participants.json"
         packet.write_text(json.dumps(context()))
         before_calls = [json.loads(line) for line in calls.read_text().splitlines()]

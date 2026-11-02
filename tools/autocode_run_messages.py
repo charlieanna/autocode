@@ -25,6 +25,15 @@ QUESTION_KEYS = ("pending_questions", "user_request", "resolver_human_proposal",
 CHECKPOINT_KEYS = ("status", "phase", "next_stage", "stop_reason", *COMPLETION_KEYS, *QUESTION_KEYS)
 
 
+def checkpoint_allowed(state):
+    """Settings may rebind a genuine clarification before queued input is applied."""
+    return state.get("status") in CHECKPOINTS or (
+        state.get("status") == "RESOLVER_PENDING"
+        and (state.get("resolver_human_proposal") or {}).get("scope") == "clarification"
+        and (state.get("resolver_human_request") or {}).get("scope") in (None, "clarification")
+    )
+
+
 def _token(state):
     contract = state.get("goal_contract")
     if not contract:
@@ -75,7 +84,7 @@ def active(state):
 def activate(state):
     """Start one queued conversation only at a clear, non-protected checkpoint."""
     if (
-        state.get("status") not in CHECKPOINTS
+        not checkpoint_allowed(state)
         or not (state.get("settings") or {}).get("spec_first")
         or any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair"))
         or any(
@@ -144,7 +153,7 @@ def accept(state, value, record):
     ):
         raise ValueError("Conversation response does not match the saved task and message")
     checkpoint = event["return_checkpoint"]
-    if checkpoint.get("status") not in CHECKPOINTS or set(checkpoint) - set(CHECKPOINT_KEYS):
+    if not checkpoint_allowed(checkpoint) or set(checkpoint) - set(CHECKPOINT_KEYS):
         raise ValueError("Conversation cannot replace an unrelated checkpoint")
     reply = value.get("assistant_reply")
     if (
@@ -175,7 +184,7 @@ def correction_admitted(state, text):
         and event.get("reply_after")
         and not event.get("forwarded")
         and event.get("text") == text
-        and state.get("status") in CHECKPOINTS
+        and checkpoint_allowed(state)
     ):
         return False
     checkpoint = event.get("return_checkpoint") or {}

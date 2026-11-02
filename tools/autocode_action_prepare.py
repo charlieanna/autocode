@@ -63,7 +63,9 @@ def prepare(runner, args, parser, state: RunState, state_path, run_dir, workspac
         )
     try:
         if runner.consume_interventions(state, run_dir, workspace, released=released):
-            print(f"{state['status']}: {state['stop_reason']}")
+            print(
+                f"{state['status']}: {state.get('stop_reason') or 'Queued input saved; current checkpoint retained.'}"
+            )
             if args.retry_builder:
                 print(
                     "--retry-builder was not applied: queued input was applied first, so it was not checked.",
