@@ -26,6 +26,7 @@ except ImportError:
 
 def accept(state: RunState, validation, record, *, pin):
     """Bind explicitly offered decisions after checks have their actual receipts."""
+    require_tester_decisions(state, validation, record)
     decisions = validation.get(review.FIELD)
     if not decisions:
         return
@@ -49,10 +50,49 @@ def accept(state: RunState, validation, record, *, pin):
     )
 
 
+# Listed in the error the Tester's report repair receives; the rest are in the offered gap_id enum.
+LISTED_GAPS = 40
+
+
+def require_tester_decisions(state: RunState, value, record):
+    """Return a PASS that leaves Tester-only gaps undecided for that decision.
+
+    A Builder round cannot settle a gap with no mutation outcome (autocode_changed_code_review
+    .tester_only_gaps), so the bounded report repair asks the Tester instead. The repair itself
+    is never refused for this: an undecided gap left after it keeps the existing Builder and
+    Investigator rounds.
+    """
+    stage = str(record.get("stage", ""))
+    if value.get("verdict") != "PASS" or stage.endswith("_report_repair") or not record.get("schema"):
+        return
+    assessment = (state.get("regression_proof") or {}).get("changed_code_evidence") or {}
+    if assessment.get("source_revision") != record.get("source_revision"):
+        return
+    decisions = value.get(review.FIELD)
+    gaps = review.tester_only_gaps(
+        assessment,
+        decisions if isinstance(decisions, list) else [],
+        util.read(record["schema"]),
+        str(record.get("original_stage") or stage).removesuffix("_report_repair"),
+    )
+    if not gaps:
+        return
+    listed = ", ".join(f"{row['path']}:{row['line']} ({row['gap_id']})" for row in gaps[:LISTED_GAPS])
+    more = f", and {len(gaps) - LISTED_GAPS} more in the gap_id enum" if len(gaps) > LISTED_GAPS else ""
+    raise ValueError(
+        "The PASS leaves changed lines that no added test can mark tested, because they have no "
+        f"mutation outcome: {listed}{more}. Give one changed_code_exceptions decision for each: accept "
+        "with the concrete reason the tests cover the line, or reject with the test it still needs. "
+        f"The lines and their tests are in {(state.get('regression_proof') or {}).get('path')}."
+    )
+
+
 def route(state: RunState, validation, record, *, investigation_enabled):
     """Keep unresolved obligations inside Builder/Investigator repair."""
     proof = state.get("regression_proof") or {}
     if not proof.get("changed_code_evidence"):
         return False
-    proof["changed_code_evidence"] = proof_policy.reviewed(proof, validation.get("changed_code_decisions") or [])
-    return rework.route(state, record, investigation_enabled=investigation_enabled)
+    decisions = validation.get("changed_code_decisions") or []
+    proof["changed_code_evidence"] = proof_policy.reviewed(proof, decisions)
+    rejected = [row for row in decisions if not row.get("accepted")]
+    return rework.route(state, record, investigation_enabled=investigation_enabled, rejected=rejected)

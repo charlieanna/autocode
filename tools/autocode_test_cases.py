@@ -388,6 +388,16 @@ def _counterexample_error(row: dict, what: str, key: str) -> str:
     return ""
 
 
+# A probe that runs a test written only in the stage's own scratch workspace finds no such test in the
+# runner's copy and fails there; in a live etcd run both repairs then dropped the reproduction
+# (docs/bugs/2026-11-02-retry-loops.md).
+PROBE_COPY_NOTE = (
+    " The runner's copy holds the repository's files only, not files you created or edited in your own "
+    "scratch workspace: a probe that runs a new test must write that test itself (for example with a "
+    "heredoc in the probe command) or run a test the repository already has."
+)
+
+
 def run_probes(
     rows: list[dict], run_probe, *, what: str = "claim", key: str = "claim", run_counterexample=None
 ) -> list[dict]:
@@ -452,6 +462,7 @@ def run_probes(
             + "; ".join(
                 f"{row[key]!r} ({row['probe']}: exit {row['exit_code']}) {row['tail'][-200:]}" for row in failed
             )
+            + PROBE_COPY_NOTE
         )
     if vacuous:
         raise ValueError(

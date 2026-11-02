@@ -203,18 +203,48 @@ def go_module(root) -> str | None:
     return match.group(1).strip('"') if match else None
 
 
+# Directories never searched for a nested go.mod: dependencies, metadata and AutoCode's own files.
+GO_MODULE_SKIP = frozenset({".git", ".autocode", "vendor", "node_modules", "testdata"})
+
+
+def go_modules(root) -> dict[str, str]:
+    """Every module in the checkout: its declared path, mapped to its directory relative to root.
+
+    A repository can hold several modules (etcd's client/v3 is ``go.etcd.io/etcd/client/v3``), and a
+    cover profile names each file by its own module's path, not by the root go.mod's.
+    """
+    root = Path(root)
+    modules: dict[str, str] = {}
+    for directory, names, files in os.walk(root):
+        names[:] = sorted(name for name in names if name not in GO_MODULE_SKIP and not name.startswith("."))
+        if "go.mod" in files:
+            module = go_module(directory)
+            relative = Path(directory).relative_to(root).as_posix()
+            if module and module not in modules:
+                modules[module] = "" if relative == "." else relative
+    return modules
+
+
+def _go_relative(path, modules) -> str:
+    """A profile path made checkout-relative by its longest matching module path."""
+    for module in sorted(modules, key=len, reverse=True):
+        if path.startswith(module + "/"):
+            directory = modules[module]
+            rest = path[len(module) + 1 :]
+            return f"{directory}/{rest}" if directory else rest
+    return path
+
+
 def parse_go_cover(text, root=None) -> tuple[dict, dict]:
     """``file:startLine.col,endLine.col statements count`` blocks, with files made checkout-relative."""
-    module = go_module(root) if root else None
+    modules = go_modules(root) if root else {}
     executed: dict[str, set] = {}
     missing: dict[str, set] = {}
     for line in text.splitlines():
         match = re.match(r"(.+):(\d+)\.\d+,(\d+)\.\d+ \d+ (\d+)$", line)
         if not match:
             continue
-        path = match.group(1)
-        if module and path.startswith(module + "/"):
-            path = path[len(module) + 1 :]
+        path = _go_relative(match.group(1), modules)
         bucket = executed if int(match.group(4)) else missing
         bucket.setdefault(path, set()).update(range(int(match.group(2)), int(match.group(3)) + 1))
     for path in set(executed) | set(missing):

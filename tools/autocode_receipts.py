@@ -9,12 +9,33 @@ as `go build -o <tmpdir>/policy .` or `python3 -c <combined assertions>` (live C
 runs, 2026-09-29). The first is accepted and recorded as the receipt spells it; the second is
 still refused, with a message that shows both commands so one repair can copy the right one.
 
+Capture also prints a short attestation line on stderr after the receipt (``attestation_line``).
+Stages shortened capture's display (``| tail -c 500``, ``| grep exit_code``, ``>/dev/null``) and
+dropped the one-line receipt the runner authenticates; each such report was rejected, repaired
+and often re-run (live Claude-model runs, 2026-11-02, docs/bugs/2026-11-02-retry-loops.md). The
+line names the SHA-256 of the receipt file's exact bytes, so it attests what the whole receipt
+line did and the runner accepts either.
+
 Pure functions; imports nothing from the runner.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import shlex
+
+ATTESTATION = "autocode_receipt_sha256"
+
+
+def attestation_line(receipt_bytes: bytes) -> str:
+    """The line capture prints after the receipt: the digest of the receipt file's bytes."""
+    return json.dumps({ATTESTATION: hashlib.sha256(receipt_bytes).hexdigest()}) + "\n"
+
+
+def attests(value, receipt_bytes: bytes) -> bool:
+    """True when a parsed output line is capture's attestation of exactly these receipt bytes."""
+    return value == {ATTESTATION: hashlib.sha256(receipt_bytes).hexdigest()}
 
 
 def adopt_command(check: dict, argv: list[str]) -> bool:

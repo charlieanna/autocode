@@ -93,8 +93,10 @@ class ProbeRowTests(unittest.TestCase):
 
     def test_a_probe_that_does_not_exit_zero_names_its_row(self):
         _, run = self.runner(exit_code=1)
-        with self.assertRaisesRegex(ValueError, "probes did not exit 0"):
+        with self.assertRaisesRegex(ValueError, "probes did not exit 0") as raised:
             test_cases.run_probes(self.rows("python3 -c 'assert False'"), run)
+        # A probe that ran a test only the stage's own scratch workspace had: the repair is told how to fix it.
+        self.assertIn("must write that test itself", str(raised.exception))
 
     def test_a_reference_in_the_probe_field_is_refused_without_running_it(self):
         # Live run 2026-10-21: an Analyst repair answered the schema's bare `probe` string with its own

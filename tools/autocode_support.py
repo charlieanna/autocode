@@ -233,8 +233,14 @@ def _authenticate_check_receipt(receipt, path, workspace, tool_outputs, *, recei
         if not capture_context or receipt.get("capture_context") != capture_context:
             raise ValueError("Capture receipt does not belong to this validation attempt")
         return "attempt_bound_capture"
-    # capture prints one JSON object. Match structurally even if event text
-    # adds shell notices. No word-search for PASS/COMPLETE is used.
+    # capture prints one JSON object, then its attestation of the receipt's bytes on stderr
+    # (autocode_receipts.attestation_line). Match structurally even if event text adds shell
+    # notices or a display filter dropped the receipt line. No word-search for PASS/COMPLETE.
+    try:
+        receipt_bytes = path.read_bytes()
+        attested = receipt_bytes if json.loads(receipt_bytes) == receipt else None
+    except (OSError, ValueError):
+        attested = None
     matched = False
     for item in tool_outputs:
         if item["type"] == "tool_output":
@@ -250,7 +256,8 @@ def _authenticate_check_receipt(receipt, path, workspace, tool_outputs, *, recei
                 continue
         for line in item.get("aggregated_output", "").splitlines():
             with contextlib.suppress(ValueError):
-                matched |= json.loads(line) == receipt
+                value = json.loads(line)
+                matched |= value == receipt or (attested is not None and receipts.attests(value, attested))
     if not matched:
         raise ValueError("No independently executed Validator tool event matches receipt")
     return "executed_capture_event"

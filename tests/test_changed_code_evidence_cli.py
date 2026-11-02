@@ -57,6 +57,13 @@ EQUIVALENT_TEST = (
     "        self.assertEqual(10, adjust(10))\n"
     "        self.assertEqual(0, adjust(0))\n"
 )
+# min() is a call, not a literal, so the mutator has no site on line 2: no Builder test can mark it
+# tested, and only the independent Tester's decision settles it.
+NO_SITE_SOURCE = "def adjust(n):\n    limit = min(n, 10)\n    return limit\n"
+NO_SITE_REASON = (
+    "min(n, 10) has no supported mutation site. test_t1_adjusts_limits asserts adjust(50), adjust(11) and "
+    "adjust(10) are 10 and adjust(0) is 0, so any other bound or call fails it."
+)
 GUIDANCE = (
     "Add assertions for adjust(-1), adjust(0), adjust(10) and adjust(11) to test_t1_adjusts_limits; "
     "retain the upper assertion and the existing public behavior."
@@ -65,7 +72,9 @@ GUIDANCE = (
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "supervised fake-provider workflow requires supported Linux")
 class ChangedCodeEvidenceCliTests(unittest.TestCase):
-    def start(self, *, ignored_result=False, equivalent=False, wait_for_investigator=False, checkpoint=False):
+    def start(
+        self, *, ignored_result=False, equivalent=False, wait_for_investigator=False, checkpoint=False, no_site=False
+    ):
         temporary = tempfile.TemporaryDirectory(prefix="changed-code-cli-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
@@ -82,8 +91,8 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
             (self.strong, STRONG_TEST),
         ):
             (folder / "tests").mkdir(parents=True)
-            source = EQUIVALENT_SOURCE if equivalent else FIXED
-            tests = EQUIVALENT_TEST if equivalent else tests
+            source = NO_SITE_SOURCE if no_site else EQUIVALENT_SOURCE if equivalent else FIXED
+            tests = EQUIVALENT_TEST if equivalent or no_site else tests
             if checkpoint:
                 source = source.replace("return 1\n", "return 0\n")
                 tests = tests.replace("self.assertEqual(1, adjust(-1))", "self.assertEqual(0, adjust(-1))")
@@ -92,7 +101,7 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         brief = (
             "Fix adjust(n) so numbers above 10 return 10 while all other numbers remain unchanged. "
             "Preserve the public function and add regression tests."
-            if equivalent
+            if equivalent or no_site
             else BRIEF
         )
         if checkpoint:
@@ -189,6 +198,21 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
             """)
                 .replace("REASON_LITERAL", repr(reason))
                 .replace("REASON_LINE", str(reason_line))
+                + witness
+            )
+        if no_site:
+            # A Tester that, like the live etcd one, passes the change but leaves the line no test can settle
+            # undecided; asked for that decision in its report repair, it gives it.
+            witness = (
+                textwrap.dedent("""
+                if stage in ("sol", "astra_checkpoint") and data.get("report_repair"):
+                    import re as _re
+                    target = report["validation"] if stage == "astra_checkpoint" else report
+                    target["changed_code_exceptions"] = [
+                        {"gap_id": gap, "decision": "accept", "reason_kind": "instrumentation_unavailable",
+                         "reason": REASON_LITERAL, "evidence_refs": ["calc.py", "tests/test_limits.py"]}
+                        for gap in dict.fromkeys(_re.findall(r"\\((changed-code:[0-9a-f]+)\\)", data.get("error") or ""))]
+            """).replace("REASON_LITERAL", repr(NO_SITE_REASON))
                 + witness
             )
         self.assertEqual(1, source.count(marker))
@@ -327,6 +351,24 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         self.assertTrue(any(row["stage"] == "astra_review" for row in attempts))
         self.assertFalse(any(row["repair"] for row in attempts), self.diagnostic())
         self.assertEqual(EQUIVALENT_SOURCE, (self.workspace / "calc.py").read_text())
+
+    def test_a_line_no_test_can_settle_goes_to_the_tester_not_the_builder(self):
+        view = self.start(no_site=True)
+        self.assertEqual("TASK_COMPLETE", view["status"], self.diagnostic())
+        attempts = self.attempts()
+        # Before the Tester was asked, its silent PASS sent the unchanged code back to the Builder twice.
+        self.assertEqual(1, sum(row["stage"] == "terra" for row in attempts), self.diagnostic())
+        self.assertFalse(any(row["stage"] == "investigate_stuck" for row in attempts), self.diagnostic())
+        testers = [row for row in attempts if row["stage"] == "sol"]
+        self.assertEqual([False, True], [row["repair"] for row in testers], self.diagnostic())
+        self.assertIn("calc.py:2", testers[1]["error"])
+        self.assertIn("no mutation outcome", testers[1]["error"])
+        changed = view["verification"]["changed_code_evidence"]
+        self.assertEqual("PASS", changed["status"], changed)
+        settled = next(row for row in changed["obligations"] if row["line"] == 2)
+        self.assertEqual(("excepted", []), (settled["status"], settled["mutation_outcomes"]), settled)
+        self.assertEqual(NO_SITE_REASON, settled["exception"]["reason"])
+        self.assertEqual(NO_SITE_SOURCE, (self.workspace / "calc.py").read_text())
 
     def test_unexecuted_branch_returns_exact_line_to_builder_then_completes(self):
         self.assert_repaired(self.start())

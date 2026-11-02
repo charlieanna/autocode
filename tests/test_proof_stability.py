@@ -219,6 +219,26 @@ class DiffCoverageTests(unittest.TestCase):
         self.assertEqual({"cart/cart.go": {3, 4, 5}}, executed)
         self.assertEqual({"cart/cart.go": {6, 7, 8}}, missing)
 
+    def test_a_nested_go_module_profile_names_files_by_their_own_module(self):
+        # etcd: the root module is go.etcd.io/etcd/v3 and client/v3 is go.etcd.io/etcd/client/v3, so a
+        # profile of the client package matched no root-module prefix and every changed line read unmeasured.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "go.mod").write_text("module go.etcd.io/etcd/v3\n\ngo 1.24\n")
+            (root / "client/v3").mkdir(parents=True)
+            (root / "client/v3/go.mod").write_text("module go.etcd.io/etcd/client/v3\n\ngo 1.24\n")
+            (root / "vendor/x").mkdir(parents=True)
+            (root / "vendor/x/go.mod").write_text("module go.etcd.io/etcd/client/v3/internal\n")
+            executed, missing = diff_coverage.parse_go_cover(
+                "mode: set\n"
+                "go.etcd.io/etcd/client/v3/internal/resolver/resolver.go:48.2,50.16 3 1\n"
+                "go.etcd.io/etcd/client/v3/internal/resolver/resolver.go:51.3,52.4 1 0\n"
+                "go.etcd.io/etcd/v3/server/main.go:3.1,4.2 1 1\n",
+                root,
+            )
+        self.assertEqual({"client/v3/internal/resolver/resolver.go": {48, 49, 50}, "server/main.go": {3, 4}}, executed)
+        self.assertEqual({"client/v3/internal/resolver/resolver.go": {51, 52}, "server/main.go": set()}, missing)
+
     def test_istanbul_and_coverage_py_reports_become_checkout_relative(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

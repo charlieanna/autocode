@@ -80,7 +80,9 @@ What to do:
    - probe: a shell command, run from the repository root, that exits 0 exactly when the bug is present:
      it asserts today's WRONG result (for example: python3 -c "from pager import page_count; assert
      page_count(5, 2) == 2"). The runner runs it in a scratch copy of the code as it is and rejects a
-     reproduced outcome whose probe does not exit 0, so only claim what you have run. When no command
+     reproduced outcome whose probe does not exit 0, so only claim what you have run. That copy holds
+     the repository's files only, not anything you wrote in investigation_workspace: a probe that runs
+     a new test must write the test itself (a heredoc in the command) or run an existing test. When no command
      can show the bug here (it needs a live registry, a race, a device), leave probe "" and say why in
      untestable; otherwise untestable is "".
    - counterexample: with a probe, the smallest edit to one repository file that removes the bug, as
