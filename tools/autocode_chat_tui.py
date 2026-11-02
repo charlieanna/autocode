@@ -366,6 +366,7 @@ class Transcript:
     live: str = ""  # an assistant reply still being written (the view's streaming message), shown last
     asked: int = 0  # how many blocks there were when the last question was put to the person
     block_starts: list[int] = field(default_factory=list)  # set by lines(): where each spoken block begins
+    progress_blocks: dict[str, int] = field(default_factory=dict)
     _revision: int = field(default=0, init=False, repr=False)
     _lines_width: int | None = field(default=None, init=False, repr=False)
     _lines_revision: int = field(default=-1, init=False, repr=False)
@@ -398,6 +399,22 @@ class Transcript:
         """What a ``/`` command shows: the chat's own words, not the run's conversation."""
         self.blocks.append(("info", f"{title}\n{safe_text(body)}"))
         self._revision += 1
+
+    def progress(self, view: dict) -> None:
+        """Keep readable agent updates in the same history, replacing streamed snapshots in place."""
+        for row in panel.log_entries(view):
+            text = panel.live_text(row["text"])
+            if row["kind"] != "message" or row.get("status") == "streaming" or not text.strip():
+                continue
+            block = ("info", f"{safe_text(row['agent'])}\n{safe_text(text)}")
+            index = self.progress_blocks.get(row["id"])
+            if index is None:
+                self.progress_blocks[row["id"]] = len(self.blocks)
+                self.blocks.append(block)
+                self._revision += 1
+            elif self.blocks[index] != block:
+                self.blocks[index] = block
+                self._revision += 1
 
     def closing(self) -> list[str]:
         """What to leave on the terminal after the screen closes: the client's last words, whole.
@@ -685,7 +702,7 @@ class ChatTUI:
         self._launch_execution: dict | None = None
         self._log = panel.StageLog()
         self._live = panel.LiveLog()  # what each agent thinks and does, from the view's chat.log
-        self._live_on: bool | None = None  # None: shown while running or when retained activity exists
+        self._live_on: bool | None = None  # detailed agent pane appears only on request
         self._panel_on: bool | None = None  # None: shown when the terminal is wide enough
         self._menu_index = 0
         self._waiting = False
@@ -1024,6 +1041,7 @@ class ChatTUI:
             self._launch_execution = None
             self._log.observe(view)
             self._live.observe(view)
+            self._transcript.progress(view)
             if view.get("workspace") and view.get("run_dir"):  # the run the chat talks to, after going back too
                 self._context_key = contexts.identity(view["workspace"], view["run_dir"])
                 self._context = f"{Path(view['workspace']).name} · {Path(view['run_dir']).name}"
@@ -1592,9 +1610,7 @@ class ChatTUI:
     def _live_visible(self, rows: int, cols: int) -> bool:
         if rows < 16 or cols < 40:
             return False
-        if self._live_on is not None:
-            return self._live_on
-        return (self._view or {}).get("status") == "RUNNING" or bool(self._live.entries)
+        return bool(self._live_on)
 
     def _draw(self) -> None:
         with self._lock:
@@ -1777,7 +1793,7 @@ class ChatTUI:
             col += display_width(shown)
 
     def _side_panel(self, layout: Layout) -> None:
-        """The run beside the conversation: where it is, its requirements, tasks and problems, then the log."""
+        """Fixed status and totals; detailed history belongs to the conversation's / commands."""
         if layout.panel_col is None:
             return
         col, width = layout.panel_col, layout.width - layout.panel_col
@@ -1785,7 +1801,7 @@ class ChatTUI:
         for row in range(top, bottom):
             self._put(row, col - 2, self._glyphs.vertical, self._style("border"))
         rows: list[tuple[str, str]] = []
-        for section in panel.sections(self._view, launched=self._launched, task_total=self._task_total()):
+        for section in panel.compact_sections(self._view, launched=self._launched, task_total=self._task_total()):
             rows.append(
                 (
                     "panel-title",
@@ -1807,10 +1823,6 @@ class ChatTUI:
                     rows.append((f"panel-{item.style}", f"{mark if number == 0 else ' '} {line}"))
             rows.append(("plain", ""))
         room = bottom - top
-        log_room = room - len(rows) - 1
-        if log_room > 0 and self._log.lines:
-            rows.append(("panel-title", "LOG"))
-            rows.extend(("dim", line) for line in self._log.lines[-log_room:])
         for row, (style, text) in enumerate(rows[:room], top):
             self._put(row, col, truncate(text, width), self._style(style))
 

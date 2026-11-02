@@ -23,6 +23,30 @@ def view(*, headline="Builder working", needs="nothing needed from you", task="w
 
 
 class SectionTests(unittest.TestCase):
+    def test_compact_sections_keep_decisions_and_totals_without_scrolling_detail(self):
+        current = view(needs="plan approval needed")
+        current["needs"] = {"kind": "approve_plan"}
+        current["chat"] = {
+            "progress": ["Review the plan", "Recent steps: Requirements finished"],
+            "activity": [{"kind": "edit", "text": "edited example.go"}],
+        }
+        total = {
+            "spent_usd": 9.5,
+            "inherited_usd": 0,
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "cost_complete": True,
+            "tokens_complete": True,
+        }
+        shown = panel.compact_sections(current, task_total=total)
+        self.assertEqual(["Now", "Task usage", "Acceptance checks", "Tasks"], [s.title for s in shown])
+        self.assertEqual((panel.Row("!", "plan approval needed", "warn"),), shown[0].rows)
+        self.assertIn("$9.50", shown[1].summary)
+        self.assertTrue(all(not s.rows for s in shown[1:]))
+        self.assertNotIn("Recent steps", repr(shown))
+        self.assertNotIn("edited example.go", repr(shown))
+        self.assertIn("Greets by name", panel.text("/plan", current, panel.StageLog()))
+
     def test_coordinated_task_is_one_compact_section_without_internal_member_states(self):
         current = view()
         current["scope"] = {"linked": [{"target": "history", "role": "member"}]}

@@ -57,6 +57,46 @@ class WrapTests(unittest.TestCase):
 
 
 class TranscriptTests(unittest.TestCase):
+    def test_progress_messages_share_the_conversation_and_update_by_identity(self):
+        transcript = tui.Transcript()
+        transcript.add("You: Fix the history.")
+        row = {"id": "attempt:message", "agent": "Planner", "kind": "message", "text": "Checking the registry."}
+        transcript.progress({"chat": {"log": [row]}})
+        transcript.add("You: Preserve the existing result mappings.")
+        transcript.progress({"chat": {"log": [{**row, "text": "Checked the registry mappings."}]}})
+        transcript.progress({"chat": {"log": [{**row, "text": "Checked the registry mappings."}]}})
+        self.assertEqual(3, len(transcript.blocks))
+        shown = "\n".join(text for _, text in transcript.lines(100))
+        self.assertEqual(1, shown.count("Checked the registry mappings."))
+        self.assertLess(shown.index("Checked the registry mappings."), shown.index("Preserve the existing"))
+
+    def test_progress_excludes_tool_reasoning_and_transport_counters(self):
+        transcript = tui.Transcript()
+        transcript.progress(
+            {
+                "chat": {
+                    "log": [
+                        {"id": "tool", "agent": "Planner", "kind": "command", "text": "bash hidden"},
+                        {"id": "thought", "agent": "Planner", "kind": "thinking", "text": "hidden thought"},
+                        {
+                            "id": "counter",
+                            "agent": "Planner",
+                            "kind": "message",
+                            "text": "writing Bash input: 25 chars",
+                        },
+                        {
+                            "id": "stream",
+                            "agent": "Planner",
+                            "kind": "message",
+                            "text": "Response stream activity received; text unavailable.",
+                            "status": "streaming",
+                        },
+                    ]
+                }
+            }
+        )
+        self.assertEqual([], transcript.blocks)
+
     def test_messages_and_roles(self):
         transcript = tui.Transcript()
         self.assertTrue(transcript.add("\nAutoCode: hello"))
@@ -1159,8 +1199,49 @@ class LivePaneTests(unittest.TestCase):
         ui._draw()
         return puts
 
+    def test_default_progress_uses_one_conversation_and_keeps_paged_history_still(self):
+        ui = screen_ui()
+        for number in range(30):
+            ui.say(f"You: Earlier question {number}")
+        ui.observe(self.VIEW)
+        layout = ui._layout(30, 120)
+        self.assertIsNone(layout.live_start)
+        self.assertEqual(layout.body_end, layout.panel_end)
+        self.assertIn("Checking the greeting behavior.", repr(ui._transcript.blocks))
+        self.assertNotIn("pytest -q", repr(ui._transcript.blocks))
+        ui._scroll_by(12)
+        before = [
+            (row, text) for row, col, text in self.drawn(ui) if col == 0 and layout.body_start <= row < layout.body_end
+        ]
+        ui.observe(
+            {"chat": {"log": [{"id": "new", "agent": "Planner", "kind": "message", "text": "Checking another path."}]}}
+        )
+        after = [
+            (row, text) for row, col, text in self.drawn(ui) if col == 0 and layout.body_start <= row < layout.body_end
+        ]
+        self.assertEqual(before, after)
+
+    def test_sidebar_keeps_status_and_totals_without_activity_history(self):
+        ui = screen_ui()
+        ui._panel_on = True
+        ui.observe(
+            {
+                "status": "RUNNING",
+                "progress": {"headline": "Planner working"},
+                "chat": {"progress": ["Planner working", "Recent steps: Requirements finished"]},
+            }
+        )
+        layout = ui._layout(30, 120)
+        shown = "\n".join(text for _, col, text in self.drawn(ui) if col == layout.panel_col)
+        self.assertIn("Planner working", shown)
+        self.assertNotIn("Recent steps", shown)
+        self.assertNotIn("LOG", shown)
+        ui._run("/log", False)
+        self.assertIn("Planner working", repr(ui._transcript.blocks))
+
     def test_the_pane_shows_each_agent_above_the_composer(self):
         ui = screen_ui()
+        ui._run("/live", False, "all")
         ui.observe(self.VIEW)
         puts = self.drawn(ui)
         layout = ui._layout(30, 120)
@@ -1178,6 +1259,7 @@ class LivePaneTests(unittest.TestCase):
 
     def test_typing_while_autocode_works_keeps_the_pane(self):
         ui = screen_ui(*"/pl")
+        ui._run("/live", False, "all")
         ui.observe(self.VIEW)
         self.assertIsNone(ui.wait(0.3))
         self.assertEqual("/pl", ui._composer.text)
@@ -1189,26 +1271,27 @@ class LivePaneTests(unittest.TestCase):
         ui.observe(self.VIEW)
         self.assertIsNone(ui._layout(17, 120).live_start)
 
-    def test_running_chat_shows_live_before_the_first_agent_message(self):
+    def test_running_chat_uses_status_without_an_empty_extra_pane(self):
         ui = screen_ui()
         ui.observe({"status": "RUNNING", "chat": {"log": []}})
         puts = self.drawn(ui)
-        self.assertIsNotNone(ui._layout(30, 120).live_start)
+        self.assertIsNone(ui._layout(30, 120).live_start)
         text = "\n".join(text for _, _, text in puts)
-        self.assertIn("LIVE · all agents", text)
-        self.assertIn("Working; waiting for a plain-English progress update.", text)
+        self.assertNotIn("LIVE · all agents", text)
+        self.assertIn("AutoCode is working", text)
         self.assertNotIn("No agent is working", text)
 
-    def test_default_live_uses_available_room_on_short_terminal(self):
+    def test_default_progress_keeps_full_conversation_on_short_terminal(self):
         ui = screen_ui()
         ui.observe(self.VIEW)
-        self.assertIsNotNone(ui._layout(20, 120).live_start)
+        self.assertIsNone(ui._layout(20, 120).live_start)
+        self.assertIn("Checking the greeting behavior.", repr(ui._transcript.blocks))
 
     def test_empty_status_log_does_not_hide_retained_live_activity(self):
         ui = screen_ui()
         ui.observe(self.VIEW)
         ui.observe({"chat": {"log": []}})
-        self.assertIsNotNone(ui._layout(30, 120).live_start)
+        self.assertIsNone(ui._layout(30, 120).live_start)
         self.assertTrue(any("Checking the greeting behavior." in text for _, _, text in self.drawn(ui)))
 
     def test_explicitly_hiding_live_survives_new_running_status(self):
@@ -1229,7 +1312,7 @@ class LivePaneTests(unittest.TestCase):
         ui = screen_ui()
         ui.observe(self.VIEW)
         ui._run("/live", False)
-        self.assertIsNone(ui._layout(30, 120).live_start)
+        self.assertIsNotNone(ui._layout(30, 120).live_start)
         ui._run("/live", False, "M2")
         self.assertIsNotNone(ui._layout(30, 120).live_start)
         self.assertEqual([], ui._live.shown())
@@ -1462,7 +1545,7 @@ class MeterScreenTests(unittest.TestCase):
         puts = drawn(ui)
         status = next(text for _, text in puts if "attempt 2" in text and "Builder" in text and "exit 1" in text)
         self.assertIn("last one exit 1", status)
-        self.assertIn("STAGES  $0.42 · 184k tokens", " ".join(text for _, text in puts))
+        self.assertIn("USAGE  $0.42 · 184k tokens", " ".join(text for _, text in puts))
 
 
 class ClosingSummaryTests(unittest.TestCase):
@@ -1597,13 +1680,12 @@ class SidePanelWrapTests(unittest.TestCase):
         },
     }
 
-    def test_a_long_requirement_takes_two_rows_and_says_where_it_was_cut(self):
-        self.assertEqual(["one two", "three"], tui.wrapped_rows("one two three", 8, 2))
-        self.assertEqual(["one two", "three f…"], tui.wrapped_rows("one two three four", 8, 2))
+    def test_requirements_have_a_fixed_count_and_full_text_on_request(self):
         ui = screen_ui()
         ui.observe(self.VIEW)
         layout = ui._layout(30, 120)
         panel_rows = [text for row, col, text in [(r, c, t) for r, c, t, _ in styled(ui)] if col == layout.panel_col]
-        first = next(index for index, text in enumerate(panel_rows) if "AC1 Given the command" in text)
-        self.assertTrue(panel_rows[first + 1].startswith("  "), panel_rows[first : first + 2])
-        self.assertTrue(panel_rows[first + 1].endswith("…"), panel_rows[first + 1])
+        self.assertIn("ACCEPTANCE CHECKS  0 of 1", " ".join(panel_rows))
+        self.assertNotIn("Given the command", " ".join(panel_rows))
+        ui._run("/plan", False)
+        self.assertIn(self.VIEW["progress"]["requirements"]["items"][0]["label"], ui._transcript.blocks[-1][1])

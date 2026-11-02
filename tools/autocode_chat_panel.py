@@ -390,6 +390,20 @@ def sections(view: dict | None, *, launched: bool = False, task_total: dict | No
     return result
 
 
+def compact_sections(view: dict | None, *, launched: bool = False, task_total: dict | None = None) -> list[Section]:
+    """Fixed sidebar summaries, with decisions visible and detailed history available through commands."""
+    result = []
+    for section in sections(view, launched=launched, task_total=task_total):
+        if section.title in ("Activity", "Plan path", "Current work", "What went wrong", "Change set"):
+            continue
+        if section.title == "Now":
+            rows = tuple(row for row in section.rows if row.style in ("warn", "bad"))
+            result.append(Section(section.title, section.summary, rows))
+        elif section.summary:
+            result.append(Section("Usage" if section.title == "Stages" else section.title, section.summary))
+    return result
+
+
 def activity(view: dict | None) -> list[str]:
     """What the run is doing, as the view's ``chat.progress`` lines say: the current step, then its
     recent attempts. The task and requirement counts it repeats are left to their own sections."""

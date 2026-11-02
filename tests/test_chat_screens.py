@@ -109,7 +109,7 @@ with ChatTUI() as ui:
         self.addCleanup(screen.close)
         screen.wait_for(
             lambda shown: (
-                "LIVE · all agents" in shown
+                "LIVE · all agents" not in shown
                 and "Plan Reviewer working" in shown
                 and "ACCEPTANCE CHECKS" in shown
                 and "Checking the caller route against the saved" in shown
@@ -164,8 +164,8 @@ with ChatTUI() as ui:
             lambda shown: all(
                 text in " ".join(shown.split())
                 for text in (
-                    "[message] Checking that [partial]",
-                    "[message] I'm checking; I'll report back.",
+                    "Checking that [partial]",
+                    "I'm checking; I'll report back.",
                     "[earlier text omitted]",
                     "Which codes should history show?",
                 )
@@ -180,7 +180,7 @@ with ChatTUI() as ui:
             what="thinking remains available only on request",
         )
 
-    def test_running_view_shows_live_without_a_command_and_respects_hiding(self):
+    def test_running_view_has_one_default_conversation_and_optional_live_details(self):
         # Real curses rendering of a public view; no provider or task is launched.
         script = """
 import sys
@@ -196,10 +196,8 @@ with ChatTUI() as ui:
         )
         self.addCleanup(screen.close)
         screen.wait_for(
-            lambda shown: (
-                "LIVE · all agents" in shown and "Working; waiting for a plain-English progress update." in shown
-            ),
-            what="live activity visible before the first agent message",
+            lambda shown: "LIVE · all agents" not in shown and "AutoCode is working" in shown,
+            what="one conversation before the first progress message",
         )
         screen.type("/live off")
         screen.keys("Enter")
