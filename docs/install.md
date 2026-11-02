@@ -315,21 +315,21 @@ the plan before any Builder starts. See [Workflow](workflow.md).
 
 ## Advanced entry points
 
-Use the whole workflow through `autopilot`, or invoke one unit at its saved boundary:
+Use the whole workflow through `autocode`, or invoke one unit at its saved boundary with `--unit`:
 
 ```sh
-autopilot "Build a greeting CLI" --workspace /path/to/project --chat
+autocode "Build a greeting CLI" --workspace /path/to/project --chat
 
 # Or invoke individual units at their saved boundaries:
-autoplanner "Build a greeting CLI" --workspace /path/to/project --chat
+autocode "Build a greeting CLI" --unit autoplanner --workspace /path/to/project --chat
 # After approval, this stops before any Builder starts.
 # Each unit continues the project's unfinished run (add --run-dir RUN when it has several):
-autocode-build --workspace /path/to/project --no-chat
-autoreview --workspace /path/to/project --no-chat
+autocode --unit autocode --workspace /path/to/project --no-chat
+autocode --unit autoreview --workspace /path/to/project --no-chat
 # If review requests rework, diagnose it without launching a Builder:
-autoresolver --workspace /path/to/project --no-chat
+autocode --unit autoresolver --workspace /path/to/project --no-chat
 # Let Autopilot continue through any remaining build/review cycles:
-autopilot --workspace /path/to/project --no-chat
+autocode --workspace /path/to/project --no-chat
 ```
 
 Each unit command stops successfully before dispatching another unit.
@@ -377,7 +377,7 @@ A saved run keeps the provider it started with, and `--engine codex` runs still
 use Codex. `autocode doctor` then checks the default provider instead of OpenCode.
 `AUTOCODE_PROVIDER=codex` does not select the Codex engine: it names a provider config
 `codex.toml`, and doctor reports it missing. Use `--engine codex` for Codex.
-`autocode-dashboard --provider <name>` overrides the default for the dashboard; its
+`autocode dashboard --provider <name>` overrides the default for the dashboard; its
 model pickers list that tool's models.
 
 See also: [CLI](cli.md) · [Providers](providers.md) · [Models](models.md)

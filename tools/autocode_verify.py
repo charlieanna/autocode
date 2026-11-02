@@ -78,6 +78,7 @@ try:
     from . import autocode_test_environment as test_env
     from . import autocode_test_root as test_roots
     from . import autocode_test_setup as test_setup
+    from . import autocode_toolchain_suite as toolchain_suite
     from . import autocode_util as util
     from . import autocode_verification_preparation as preparation
     from . import autocode_verification_schedule as schedule
@@ -115,6 +116,7 @@ except ImportError:
     import autocode_test_environment as test_env
     import autocode_test_root as test_roots
     import autocode_test_setup as test_setup
+    import autocode_toolchain_suite as toolchain_suite
     import autocode_util as util
     import autocode_verification_preparation as preparation
     import autocode_verification_schedule as schedule
@@ -548,100 +550,78 @@ def detect_framework(root, *, python=None, test_root=None, base=None, package=No
     ]
     if test_root is not None:
         return _rooted_python(root, test_roots.normalize(test_root), files, python, base=base)
-    has_python = any(p.endswith(".py") for p in files)
-    if has_python:
-        python = python or python_for(root)
-        configured = _pytest_configured(root, files)
-        style = python_tests.prefers_pytest_in(root, files, _read)
-        if style or (configured and _python_can_import(python, "pytest")):
-            return Framework(
-                "pytest",
-                f"{shlex.quote(python)} -m pytest -q -p no:cacheprovider --continue-on-collection-errors",
-                python=python,
+    if any(p.endswith(".py") for p in files):
+        # A stray Python helper must not hide a Go, Rust or Node project's own suite (#2604).
+        if toolchain_suite.python_is_secondary(files) and (found := toolchain_suite.detect(root, files, is_test_path)):
+            return found
+        if found := _python_framework(root, files, python, base):
+            return found
+    return toolchain_suite.detect(root, files, is_test_path)
+
+
+def _python_framework(root, files, python, base) -> Framework | None:
+    python = python or python_for(root)
+    configured = _pytest_configured(root, files)
+    style = python_tests.prefers_pytest_in(root, files, _read)
+    if style or (configured and _python_can_import(python, "pytest")):
+        return Framework(
+            "pytest",
+            f"{shlex.quote(python)} -m pytest -q -p no:cacheprovider --continue-on-collection-errors",
+            python=python,
+        )
+    # One family inventory (autocode_python_tests.family_inventory) drives both nested
+    # layouts: components/ and the joint repos/<member>/ workspace (#2414), where no
+    # root discovery shape collects the members and a later markerless root tests/
+    # directory must not drop them either.
+    families = python_tests.family_inventory(files, _read, root)
+    tests = families.tests
+    if families.any_family():
+        note = f"pytest is configured but {python} cannot import it; using unittest" if configured else ""
+        plain_start = None
+        if base:
+            pinned_files = _git(root, "ls-tree", "-rz", "--name-only", base).split("\0")
+            pinned_tests = [p for p in pinned_files if PYTHON_TEST_MODULE.match(PurePosixPath(p).name)]
+            plain_start = test_roots.added_empty_marker_start(root, tests, pinned_tests, pinned_files)
+        if plain_start:
+            start = " -s " + plain_start
+        elif (
+            any("/" not in p for p in tests)
+            or (root / "tests" / "__init__.py").is_file()
+            or (root / "test" / "__init__.py").is_file()
+        ):
+            start = ""
+        elif (root / "tests").is_dir():
+            start = " -s tests"
+        elif (root / "test").is_dir():
+            start = " -s test"
+        else:
+            start = ""
+        runner = str(Path(__file__).with_name("autocode_component_tests.py"))
+        if families.collected_by_runner():
+            # One command for the whole suite, with bounded derived relative member
+            # paths per family: the collector runs the selected root suite once plus
+            # each family through the one shared family algorithm (parent hooks own
+            # collection; otherwise parent TestCases once and every member isolated),
+            # so baseline originals are never hidden by later root joint tests (#2414).
+            command = shlex.join(
+                [
+                    python,
+                    runner,
+                    "-v",
+                    "--root",
+                    start.removeprefix(" -s ") or ".",
+                    *(["--components", *families.components] if families.has_components() else []),
+                    *(["--repos", *families.repo_members] if families.has_repos() else []),
+                ]
             )
-        # One family inventory (autocode_python_tests.family_inventory) drives both nested
-        # layouts: components/ and the joint repos/<member>/ workspace (#2414), where no
-        # root discovery shape collects the members and a later markerless root tests/
-        # directory must not drop them either.
-        families = python_tests.family_inventory(files, _read, root)
-        tests = families.tests
-        if families.any_family():
-            note = f"pytest is configured but {python} cannot import it; using unittest" if configured else ""
-            plain_start = None
-            if base:
-                pinned_files = _git(root, "ls-tree", "-rz", "--name-only", base).split("\0")
-                pinned_tests = [p for p in pinned_files if PYTHON_TEST_MODULE.match(PurePosixPath(p).name)]
-                plain_start = test_roots.added_empty_marker_start(root, tests, pinned_tests, pinned_files)
-            if plain_start:
-                start = " -s " + plain_start
-            elif (
-                any("/" not in p for p in tests)
-                or (root / "tests" / "__init__.py").is_file()
-                or (root / "test" / "__init__.py").is_file()
-            ):
-                start = ""
-            elif (root / "tests").is_dir():
-                start = " -s tests"
-            elif (root / "test").is_dir():
-                start = " -s test"
-            else:
-                start = ""
-            runner = str(Path(__file__).with_name("autocode_component_tests.py"))
-            if families.collected_by_runner():
-                # One command for the whole suite, with bounded derived relative member
-                # paths per family: the collector runs the selected root suite once plus
-                # each family through the one shared family algorithm (parent hooks own
-                # collection; otherwise parent TestCases once and every member isolated),
-                # so baseline originals are never hidden by later root joint tests (#2414).
-                command = shlex.join(
-                    [
-                        python,
-                        runner,
-                        "-v",
-                        "--root",
-                        start.removeprefix(" -s ") or ".",
-                        *(["--components", *families.components] if families.has_components() else []),
-                        *(["--repos", *families.repo_members] if families.has_repos() else []),
-                    ]
-                )
-                return Framework("unittest", command, python=python, note=note)
-            return Framework(
-                "unittest", f"{shlex.quote(python)} -m unittest discover -v{start}", python=python, note=note
-            )
-    if "go.mod" in files:
-        return Framework("go", "go test ./...")
-    node_files = node_tests.test_files(root, [p for p in files if is_test_path(p)])
-    if "package.json" in files:
-        try:
-            package = json.loads(_read(root / "package.json") or "{}")
-        except ValueError:
-            package = {}
-        deps = {**package.get("dependencies", {}), **package.get("devDependencies", {})}
-        script = package.get("scripts", {}).get("test", "")
-        suite = "npm test --silent" if script and "no test specified" not in script else None
-        for name in ("vitest", "jest", "mocha"):
-            if name in deps:
-                return Framework(name, suite or f"npx --no-install {'vitest run' if name == 'vitest' else name}")
-        if node_files or node_tests.command_words(script):
-            return Framework(
-                "node", suite or "node --test " + " ".join(map(shlex.quote, node_files)), node_files=node_files
-            )
-        if suite:
-            return Framework("npm", suite)
-    if node_files:
-        return Framework("node", "node --test " + " ".join(map(shlex.quote, node_files)), node_files=node_files)
-    if "Cargo.toml" in files:
-        return Framework("cargo", "cargo test")
-    if "Gemfile" in files and any(p.endswith("_spec.rb") for p in files):
-        return Framework("rspec", "bundle exec rspec", runner="bundle exec rspec")
-    if "Makefile" in files and re.search(r"^test\s*:", _read(root / "Makefile"), re.M):
-        return Framework("make", "make test")
+            return Framework("unittest", command, python=python, note=note)
+        return Framework("unittest", f"{shlex.quote(python)} -m unittest discover -v{start}", python=python, note=note)
     return None
 
 
 # Native pytest policy names are configurations even when empty. Other project
 # configuration files require pytest sections or dependency declarations.
-_PYTEST_NATIVE_CONFIGS = frozenset(("pytest.ini", ".pytest.ini", "pytest.toml", ".pytest.toml"))
+_PYTEST_NATIVE_CONFIGS = toolchain_suite.PYTEST_NATIVE_CONFIGS
 
 
 def _pytest_configured(directory, files, *, read=None) -> bool:

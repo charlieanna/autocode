@@ -3,7 +3,7 @@
 Arena runs pinned repository issues through the existing public TaskRun interface,
 scores the candidate with evaluator-owned checks, and retains a SQLite attempt
 ledger. It never opens an issue or PR, pushes a patch, edits AutoCode itself, or
-promotes a version. The `autocode-issue` workflow remains the operator's route for
+promotes a version. The `autocode issue` workflow remains the operator's route for
 an individual issue and eventual PR submission.
 
 Install the checkout with `pip install -e .`. Commands can also be invoked as
@@ -367,8 +367,8 @@ oracle against the frozen failing baseline and the reference. Both controls must
 behave as expected before the case enters the catalog:
 
 ```sh
-autocode-arena init
-autocode-arena ingest OSS-0001 \
+autocode arena init
+autocode arena ingest OSS-0001 \
   --repository /path/to/local/repo \
   --base FULL_COMMIT_SHA \
   --issue owner/repo#123 --issue-file /path/to/historical-issue.json \
@@ -377,7 +377,7 @@ autocode-arena ingest OSS-0001 \
 ```
 
 Without `--issue-file`, ingestion uses the existing GitHub client to read the issue
-and its latest comments; `GH_TOKEN` / `GITHUB_TOKEN` work as in `autocode-issue`.
+and its latest comments; `GH_TOKEN` / `GITHUB_TOKEN` work as in `autocode issue`.
 The supplied snapshot is an evaluator declaration, not independently authenticated
 history. A control failure leaves its case directory for inspection; remove that
 new failed directory before retrying the same ID. Do not change a cataloged case;
@@ -386,11 +386,11 @@ declare a new case instead.
 ## Attempt and score
 
 ```sh
-autocode-arena run OSS-0001 --cohort baseline-v1 \
+autocode arena run OSS-0001 --cohort baseline-v1 \
   --runner /path/to/autocode-v1 \
   --i-authorize-live-model-spend \
   --option=--provider --option=YOUR_CONFIGURED_PROVIDER
-autocode-arena report --cohort baseline-v1
+autocode arena report --cohort baseline-v1
 ```
 
 Each attempt gets a fresh repository with only the frozen source tree and one
@@ -432,10 +432,10 @@ results cannot qualify an AutoCode version. It does not solve arbitrary OSS issu
 ## Controlled improvement
 
 ```sh
-autocode-arena propose --cohort baseline-v1
+autocode arena propose --cohort baseline-v1
 # Investigate the development failures, implement a candidate in another checkout.
 # Run every declared case freshly under baseline-v1 and candidate-v2, then:
-autocode-arena compare --baseline baseline-v1 --candidate candidate-v2
+autocode arena compare --baseline baseline-v1 --candidate candidate-v2
 ```
 
 `propose` saves development failures, failed check names, and investigation areas.
@@ -445,7 +445,7 @@ does not disclose holdout failures in an improvement proposal or automatically
 generate a self-modification. The operator can give this evidence to AutoCode's
 ordinary planning/build workflow and review the proposed change.
 
-After investigation, `autocode-arena annotate ATTEMPT --report attribution.json`
+After investigation, `autocode arena annotate ATTEMPT --report attribution.json`
 appends evidence references and free-text suspicion without modifying the saved
 attempt or its outcome. A confirmed diagnosis also needs `--reviewer NAME` and
 pinned independent fail-before/pass-after regression reports. `propose` includes

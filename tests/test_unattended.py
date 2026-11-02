@@ -178,7 +178,7 @@ class CompletionNoticeTests(unittest.TestCase):
                 contextlib.redirect_stdout(out),
             ):
                 self.assertEqual(0, unattended.run(["Build it"]))
-            self.assertIn(f"autocode-unattended --analyze --run-dir {run_dir}", out.getvalue())
+            self.assertIn(f"autocode unattended --analyze --run-dir {run_dir}", out.getvalue())
 
 
 class AnalyzeTests(unittest.TestCase):

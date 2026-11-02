@@ -1138,7 +1138,7 @@ default_provider = "kilocode"
 ```
 
 A saved run keeps the provider it started with, and `--engine codex` runs still
-use Codex. `autocode-dashboard --provider <name>` overrides the default for the
+use Codex. `autocode dashboard --provider <name>` overrides the default for the
 dashboard; its model pickers list that tool's models.
 
 See also: [Models](models.md) · [Install](install.md) · [CLI](cli.md)

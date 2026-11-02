@@ -235,7 +235,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     )
     parser.add_argument("--figma-file", help="Figma Design URL to implement using the connected Codex plugin")
     design_args.add_additional_file(parser)
-    parser.add_argument("--ui-run", type=Path, help="Accepted autocode-ui run to implement")
+    parser.add_argument("--ui-run", type=Path, help="Accepted autocode ui run to implement")
     parser.add_argument(
         "--figma-review",
         choices=["automatic", "human"],

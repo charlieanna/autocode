@@ -4,7 +4,7 @@
 
 ## Connected task lanes
 
-Use `autocode tasks` (or `autocode-tasks`) when several complete Autocode tasks must
+Use `autocode tasks` (or `autocode tasks`) when several complete Autocode tasks must
 run in order or independently. Tasks inside one lane run sequentially in the same
 worktree, so later tasks see earlier source changes. Different lanes use different
 worktrees and may run concurrently. Every item invokes the normal UI or code loop;

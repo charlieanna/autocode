@@ -62,7 +62,7 @@ Do not edit files, answer questions, approve, retry or resume on the operator's 
 
 DONE_NOTICE = """\
 AUTOCODE COMPLETED THE TASK.
-Analyze the work with: autocode-unattended --analyze --run-dir {run_dir}"""
+Analyze the work with: autocode unattended --analyze --run-dir {run_dir}"""
 
 
 def refused(argv: list[str]) -> str | None:
@@ -212,7 +212,7 @@ def analyze(run_dir: Path, out: Path | None) -> int:
     run_dir = run_dir.resolve()
     state_path = run_dir / "state.json"
     if not state_path.is_file():
-        print(f"autocode-unattended: no state.json in {run_dir}", file=sys.stderr)
+        print(f"autocode unattended: no state.json in {run_dir}", file=sys.stderr)
         return 2
     state = json.loads(state_path.read_text())
     workspace = Path(state.get("workspace") or run_dir.parents[2])
@@ -362,7 +362,7 @@ def analyze(run_dir: Path, out: Path | None) -> int:
 
 def run(argv: list[str]) -> int:
     if "--analyze" in argv:
-        parser = argparse.ArgumentParser(prog="autocode-unattended --analyze", allow_abbrev=False)
+        parser = argparse.ArgumentParser(prog="autocode unattended --analyze", allow_abbrev=False)
         parser.add_argument("--analyze", action="store_true", help="Read-only analysis of a saved run")
         parser.add_argument("--run-dir", type=Path, required=True, help="The saved run")
         parser.add_argument("--workspace", type=Path, help="Accepted for symmetry; the run records its own")
@@ -371,7 +371,7 @@ def run(argv: list[str]) -> int:
         return analyze(args.run_dir, args.out)
     reason = refused(argv)
     if reason:
-        print(f"autocode-unattended: refused: {reason}", file=sys.stderr)
+        print(f"autocode unattended: refused: {reason}", file=sys.stderr)
         return 2
     command = autocode_command()
     status_only = "--status" in argv or "--dry-run" in argv
@@ -423,7 +423,7 @@ def completed(run_dir: Path) -> bool:
 def cli() -> int:
     if sys.argv[1:2] in (["-h"], ["--help"]):
         argparse.ArgumentParser(
-            prog="autocode-unattended",
+            prog="autocode unattended",
             description=__doc__.split("\n\n")[1],
             epilog="Takes AutoCode's own arguments, minus operator decisions: "
             + ", ".join(DECISION_FLAGS)

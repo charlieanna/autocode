@@ -128,7 +128,7 @@ bound to, so the request is asked again).
   which fails on master: the queued pause is never applied).
 - **`--joint-planning`.** `load_locked` set `RUNNING` and `requirements_gather`
   directly on an answered pause, so a plain invocation launched Requirements. That
-  worked even through `autocode-unattended`, which refuses `--resume-paused` as an
+  worked even through `autocode unattended`, which refuses `--resume-paused` as an
   operator decision. The setting is still saved, and planning restarts once the pause
   is released. With an unanswered request, `configure` already refused it.
 - **`--feedback TEXT` on an unanswered request.** `goals.feedback` accepted
