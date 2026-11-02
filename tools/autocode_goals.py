@@ -803,11 +803,7 @@ def apply_intervention_feedback(state: RunState, receipt, applied_receipt):
     run_status.pause(
         state,
         "PAUSED_INTERVENTION",
-        (
-            "Queued feedback was applied; explicitly continue to Planner revision."
-            if marker
-            else "Queued feedback was applied; explicitly continue to Requirements discovery."
-        ),
+        adaptive.feedback_pause_reason(event),
         next_stage=adaptive.feedback_stage(event, first_stage),
         pending_questions=[],
     )
