@@ -1391,6 +1391,18 @@ final-audit-only routing goes to the Completion Reviewer instead.
 Permission, product and scope decisions still require their existing bound human
 controls.
 
+The Builder retry policy settles its own ladder the same way (#2597). The
+ordinary retries and the stronger attempt stay automatic; when the ladder is
+spent — the stronger attempt failed, the provider offers no stronger Builder
+model, or that model would be checked by its own model — the run ends there with
+the same recorded outcome (`autocode_stop.end`): "AutoCode could not finish this
+task" with the reason (the milestone, the failing incident and the evidence
+ledger's novelty note) and the incident's evidence packet. The reason names no
+CLI flag and no provider-config key; a route or cost choice about the next run
+stays the person's, made before the run starts. `PAUSED_BUILDER_RETRY_LIMIT`
+occurs only in saved runs from before this change; they keep the Investigator's
+diagnosis and the explicit `--resume-paused --retry-builder` operator flag.
+
 ### Budget ownership and human escalation
 
 Budget limits are not all provider quota. New runs record whether each configured
@@ -1474,7 +1486,8 @@ recovery flag) consumes it, without a provider call:
   evaluation; Resolver asks a fresh request for it the same way.
 - If the stop needs an operator control that information cannot supply (a spent
   automatic-recovery allowance, a reached time, iteration, milestone or
-  no-progress bound, a repeated failure, a Builder retry limit, a stopped
+  no-progress bound, a repeated failure, a Builder retry limit (saved runs only:
+  a new run ends with a recorded could-not-finish outcome instead), a stopped
   parallel member, a parallel member stopped on its quota or by its
   provider's content filter, a stalled milestone, spent report-only repairs, an
   unreconciled attempt), the run stays paused. A member stopped on its model

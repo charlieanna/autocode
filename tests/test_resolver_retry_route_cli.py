@@ -52,10 +52,10 @@ class ResolverRetryRouteCLI(unittest.TestCase):
         self.assertEqual("derived", before["routes"]["resolver"]["origin"])
         for step in driver.steps:
             self.assertNotIn("--retry-failed-stage", step["stdout_tail"] + step["stderr_tail"], step)
-        # At the stop the run reaches instead, a rerouted scoped retry is a recovery decision the run no
-        # longer offers a person: it is refused and launches nothing. (The model flag itself is an
-        # ordinary settings change at this pause, saved as at any other.) Only settings explicitly
-        # supplied here may change; starting defaults must not be replayed.
+        # At the stop the run reaches instead, the ladder's end is a recorded could-not-finish
+        # outcome (#2597): the rerouted scoped retry is refused at the terminal stop and launches
+        # nothing, and no settings change is saved — not even the model flag. Starting defaults
+        # must not be replayed either.
         driver.flags = []
         before_trace = (root / "rework-trace.jsonl").read_text().splitlines()
         rejected = driver.call(
@@ -67,13 +67,13 @@ class ResolverRetryRouteCLI(unittest.TestCase):
             "--resolver-reasoning-effort",
             "medium",
         )
-        self.assertIn("Input rejected", rejected.stderr)
+        self.assertEqual(2, rejected.returncode)
+        self.assertEqual("", rejected.stderr, rejected.stdout)
+        self.assertIn("PAUSED_INTERVENTION", rejected.stdout)
+        self.assertIn("could not finish", rejected.stdout)
         after = driver.view()
         self.assertEqual(before["status"], after["status"])
-        self.assertEqual(
-            {k: v for k, v in before["routes"].items() if k != "resolver"},
-            {k: v for k, v in after["routes"].items() if k != "resolver"},
-        )
+        self.assertEqual(before["routes"], after["routes"])
         self.assertEqual(before_trace, (root / "rework-trace.jsonl").read_text().splitlines())
 
 

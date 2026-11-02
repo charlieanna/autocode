@@ -846,8 +846,8 @@ class StrongerAttemptTests(unittest.TestCase):
         """The Completion Reviewer sends the stronger attempt's unchanged work back to the Tester as a validate task, a
         new task of M1 with no Builder attempt: after the Tester passed it (the runner then stamps every open escalation
         `passed`, the validation being that PASS) or failed it. The review of the recheck sends the work back, and
-        astra_resolve charges that review's output to the Builder's lane: the retry-limit pause, on the stronger
-        attempt's work. Neither PASS ended it: the run paused on it, as its status says."""
+        astra_resolve charges that review's output to the Builder's lane: the ladder's end, on the stronger
+        attempt's work. Neither PASS ended it: the run ends on it, as its status says (#2597)."""
         for first, recheck in (("PASS", "FAIL"), ("FAIL", "PASS")):
             with self.subTest(stronger_attempts_check=first, recheck=recheck):
                 state = self.state()
@@ -863,7 +863,7 @@ class StrongerAttemptTests(unittest.TestCase):
                 state["validation"] = verdict(rechecked, recheck)
                 self.assertEqual("pause", policy.failure(state, review["output"], "Completion Reviewer REWORK"))
                 self.decided_row(state, "pause")["at"] = at(6, escalated)  # made after the review it charges
-                self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", state["status"])
+                self.assertEqual("PAUSED_INTERVENTION", state["status"])
                 [row] = rows(json.loads(json.dumps(state)))
                 self.assertEqual(
                     ("paused", "recorded", [strong["started_at"]]), (row["outcome"], row["outcome_basis"], started(row))
