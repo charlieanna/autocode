@@ -107,8 +107,11 @@ def failure_status(path, *, record=None):
         # stage may already have partial work; retain its reconciliation/no-replay
         # authority while exit_message and job classification name the cause.
         return "PAUSED_AUTH" if record is None else "PAUSED_PROVIDER_UNCERTAIN"
-    # A failed turn's accounting (its token counts and cost) is never its error: they can contain 429.
-    said = [{key: value for key, value in e.items() if key not in ("usage", "cost_usd")} for e in failures]
+    # A failed turn's accounting (its token counts, cost and cost state) is never its error:
+    # they can contain 429 (a total, a clock, a session id).
+    said = [
+        {key: value for key, value in e.items() if key not in ("usage", "cost_usd", "cost_state")} for e in failures
+    ]
     # A command-line tool can end with the failed request as plain text instead (#562).
     text = "\n".join([json.dumps(said), *provider_error_lines.trailing(path)]).lower()
     # Structured length authority precedes prose/numeric matching: token counts can contain 429.

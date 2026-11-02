@@ -15,6 +15,7 @@ import autocode_goals as goals
 import autocode_planning as planning
 import autocode_planning_artifacts as artifacts
 import autocode_planning_graph as planning_graph
+import autocode_source_trace as source_trace
 import autocode_support as support
 import autopilot
 from goal_fixtures import body
@@ -190,6 +191,65 @@ class PlanningArtifactTests(unittest.TestCase):
                         self.assertEqual("responses" in names, planning.RESPONSE_EVIDENCE_RULE in rules)
                         self.assertNotIn("REQUIREMENT TRACE:", rules)
                     self.assertEqual(original, schema)
+
+    def test_repair_rules_preserve_sentence_id_citations_the_runner_resolves(self):
+        # Issue #2592 (report-repair residual): the repair prompt taught only
+        # "a verbatim quote", so a repair rewrote all 18 valid sentence-id
+        # citations the rejection never named. The rules must teach the id form
+        # the drafting stage sanctions and forbid rewriting citations already
+        # in it (avoidable rework inside the repair budget).
+        schema = {"properties": {"contract": {}}}
+        rules = planning.repair_rules("astra_discovery", schema)
+        self.assertIn("task:0#3", rules)
+        self.assertIn("before anything checks it", rules)
+        self.assertIn("citation whose quote is a sentence id naming an existing sentence", rules)
+        self.assertIn("do not rewrite citations it did not name", rules)
+        self.assertIn("Do not invent source IDs", rules)
+
+    def test_saved_fixture_sentence_id_citations_already_cite_the_repaired_sentences(self):
+        # Issue #2592 (report-repair residual): reproduce the exact rejected
+        # shape from the coordinated-fix fixture. Every rejected quote is a
+        # sentence id; the repair rewrote each into verbatim text. The runner's
+        # own resolution shows the rewrite was semantically null churn: the ids
+        # already named exactly the sentences the repair wrote, and both forms
+        # pass the same citation gate.
+        fixture = json.loads(
+            (Path(__file__).resolve().parent / "fixtures" / "report-repair-sentence-id-fixture.json").read_text()
+        )
+        records = [
+            {"id": "task:0", "kind": "task", "text": fixture["task"]},
+            {"id": "feedback:feedback-94523865e251", "kind": "feedback", "text": fixture["feedback"]},
+        ]
+
+        def body(shape):
+            return {
+                "acceptance_criteria": [
+                    {"id": cid, "sources": [{"source_id": s, "quote": q} for s, q in pairs]}
+                    for cid, pairs in shape.items()
+                ]
+            }
+
+        rejected = body(fixture["rejected_ids"])
+        self.assertTrue(
+            all(
+                source_trace.SENTENCE_ID.match(citation["quote"])
+                for row in rejected["acceptance_criteria"]
+                for citation in row["sources"]
+            )
+        )
+        source_trace.resolve_sentence_ids(rejected, records)
+        source_trace.check_citations(rejected, records)  # the id form is valid citation input
+        repaired = body(fixture["repaired_quotes"])
+        source_trace.check_citations(repaired, records)  # the rewritten form passes the same gate
+        resolved = {
+            row["id"]: [citation["quote"] for citation in row["sources"]] for row in rejected["acceptance_criteria"]
+        }
+        for row in repaired["acceptance_criteria"]:
+            rewritten = [citation["quote"] for citation in row["sources"]]
+            self.assertTrue(all(not source_trace.SENTENCE_ID.match(q) for q in rewritten))
+            self.assertEqual(
+                sorted(resolved[row["id"]]), sorted(rewritten)
+            )  # same sentences, only form and order changed
 
     def test_all_v2_handoffs_have_stable_hashed_artifact_and_delta_files(self):
         self.initialize_plan()

@@ -96,6 +96,57 @@ def estimate(model, tokens, at=None):
     )
 
 
+def cost_state_cost(metrics, sessions=None):
+    """A CLI-reported cost-state amount for exactly one attempt's own session spend (#2592).
+
+    The cost state is cumulative per provider session, so the amount here is the delta against
+    `previous_total_usd` (a record without one states the whole session, which is that attempt's
+    spend when its session started there). The record must bind to the attempt — its session must
+    appear in the attempt's own request receipts or observed provider sessions — and its arithmetic
+    must hold. Repeated reports of the same record count once; conflicting distinct amounts resolve
+    only through their recorded timestamps. Anything else stays unknown rather than guessed at.
+    """
+    records = metrics.get("cost_state")
+    records = [records] if isinstance(records, dict) else records if isinstance(records, list) else []
+    bound = {session for session in (sessions or ()) if isinstance(session, str)}
+    for item in _dict(_dict(metrics.get("request_context")).get("accounting")).get("requests") or []:
+        identity = item.get("identity") if isinstance(item, dict) else None
+        if isinstance(identity, list) and identity and isinstance(identity[0], str):
+            bound.add(identity[0])
+    observed = metrics.get("provider_sessions")
+    if isinstance(observed, list):
+        bound.update(session for session in observed if isinstance(session, str))
+    deltas = {}
+    for record in records:
+        if not isinstance(record, dict) or not isinstance(record.get("session_id"), str):
+            continue
+        session = record["session_id"]
+        if session not in bound:
+            continue  # an unbound record prices no attempt (#2592)
+        total = _money(record.get("total_cost_usd"))
+        raw_previous = record.get("previous_total_usd")
+        previous = 0.0 if raw_previous is None else _money(raw_previous)
+        if total is None or previous is None:
+            continue
+        delta = round(total - previous, 10)
+        if not delta > 0:
+            continue  # a zero or reversed delta is not a price
+        stamp = record.get("updated_at")
+        stamps = deltas.setdefault(session, {}).setdefault(delta, [])
+        stamps.append(stamp if type(stamp) in (int, float) and math.isfinite(stamp) else None)
+    if len(deltas) != 1:
+        return None  # one attempt's cost needs one session's amount
+    values = next(iter(deltas.values()))
+    if len(values) == 1:
+        return round(next(iter(values)), 10)
+    ordered = {delta: max(stamps) for delta, stamps in values.items() if stamps and None not in stamps}
+    if len(ordered) != len(values):
+        return None  # conflicting amounts that cannot be ordered stay unknown
+    latest = max(ordered.values())
+    winners = [delta for delta, stamp in ordered.items() if stamp == latest]
+    return round(winners[0], 10) if len(winners) == 1 else None
+
+
 def _dict(value):
     return value if isinstance(value, dict) else {}
 
@@ -137,12 +188,26 @@ def stage_rows(state: RunState, estimator=None):
     stages = state.get("stages")
     for record in [item for item in stages if isinstance(item, dict)] if isinstance(stages, list) else []:
         metrics = _dict(record.get("metrics"))
-        tokens = _dict(metrics.get("provider_tokens"))
+        tokens = dict(_dict(metrics.get("provider_tokens")))
         model = _model(record)
+        native = _dict(_dict(metrics.get("request_context")).get("accounting"))
+        requests = native.get("requests") or []
+        # A cut stream's saved receipts are the only usage left; their sums are a lower bound
+        # (hence partial below), and a request missing a key leaves that key unknown (#2592).
+        fallback_used = False
+        if requests and any(_count(tokens.get(key)) is None for key in ("input_tokens", "output_tokens")):
+            for key in TOKEN_KEYS:
+                if _count(tokens.get(key)) is None:
+                    values = [_count(_dict(item.get("tokens")).get(key)) for item in requests]
+                    if all(value is not None for value in values):
+                        tokens[key] = sum(values)
+                        fallback_used = True
         if record.get("runner_owned") is True and record.get("engine") == "runner":
             cost, basis = 0.0, "runner"
         elif _money(metrics.get("provider_cost_usd")) is not None:
             cost, basis = metrics["provider_cost_usd"], "reported"
+        elif (observation := cost_state_cost(metrics)) is not None:
+            cost, basis = observation, "reported"
         elif (guess := estimator(model, tokens, record.get("finished_at"))) is not None:
             cost, basis = guess, "estimated"
         else:
@@ -154,7 +219,8 @@ def stage_rows(state: RunState, estimator=None):
                 "role": str(record.get("role") or record.get("route_role") or ""),
                 "model": model,
                 "tokens": row_tokens,
-                "partial": metrics.get("provider_tokens_partial") is True,
+                "partial": metrics.get("provider_tokens_partial") is True
+                or (fallback_used and native.get("complete") is not True),
                 # Process completion is not a passing review or accepted work.
                 "process_outcome": (
                     "interrupted"
@@ -319,6 +385,11 @@ def accounting(state: RunState):
         if requests:
             costs = [row.get("reported_cost_usd") for row in requests]
             reported = sum(costs) if all(cost is not None for cost in costs) else None
+        if reported is None and not runner:
+            # A cost-state observation is the failed call's own spend when its requests never
+            # priced (#2592); it replaces an estimate, never adds to a reported amount.
+            sessions = [item.get("identity") or [None] for item in requests]
+            reported = cost_state_cost(metrics, sessions={row[0] for row in sessions if isinstance(row[0], str)})
         guessed = None if reported is not None or runner else estimate(model, tokens)
         local_id = record.get("attempt_id")
         if not local_id and type(record.get("iteration")) is int and record.get("output"):
@@ -460,9 +531,36 @@ def combine_accounting(attempts):
             if key not in requests or item.get("conflict"):
                 requests[key] = item
     sources.extend(requests.values())
+    costs = []
     for row in rows:
         charged = [request for key, request in requests.items() if owners[key] == row["identity"]]
         portions = charged if row.get("requests") else [row]
+        # Each attempt contributes its own amount exactly once (#2592): its receipts' prices
+        # when they carry every one, its own cost-state observation when they are unpriced, and
+        # nothing when every receipt was an already-counted duplicate. A conflict stays unknown.
+        # The same decision prices the attribution: priced receipts attribute per request, a
+        # distinct attempt-bound amount attributes as that one amount, and never invented
+        # request prices (#2599 review).
+        if not row.get("requests"):
+            amount, price_parts = row.get("reported_cost_usd"), [row]
+        elif any(request.get("conflict") for request in charged):
+            amount, price_parts = None, charged
+        elif not charged:
+            # The shared receipts were already counted; a pure replay adds nothing. Only a
+            # distinct attempt-bound amount (its own cost-state delta, not the receipts) is
+            # not covered by the dedup and survives it (#2599 review).
+            receipt_derived = (
+                all(request.get("reported_cost_usd") is not None for request in row.get("requests") or [])
+                or row.get("reported_cost_usd") is None
+            )
+            amount = 0.0 if receipt_derived else row.get("reported_cost_usd")
+            price_parts = [] if receipt_derived else [row]
+        elif all(request.get("reported_cost_usd") is not None for request in charged):
+            amount = sum(request["reported_cost_usd"] for request in charged)
+            price_parts = charged
+        else:
+            amount, price_parts = row.get("reported_cost_usd"), [row]
+        costs.append(amount)
         row["attributed_tokens"] = {
             key: _quantity(
                 [_dict(part.get("tokens")).get(key) for part in portions],
@@ -472,14 +570,14 @@ def combine_accounting(attempts):
         }
         row["attributed_requests"] = len(charged) if row.get("requests") or row.get("runner_owned") else None
         row["attributed_reported_usd"] = _quantity(
-            [part.get("reported_cost_usd") for part in portions], uncertain=row.get("unobserved_usage_possible", False)
+            [part.get("reported_cost_usd") for part in price_parts],
+            uncertain=row.get("unobserved_usage_possible", False),
         )
     uncertain = any(row.get("unobserved_usage_possible") for row in rows)
     tokens = {
         key: _quantity([_dict(row.get("tokens")).get(key) for row in sources], uncertain=uncertain)
         for key in request_usage.TOKEN_KEYS
     }
-    costs = [row.get("reported_cost_usd") for row in sources]
     # Historic flat estimates are stage-based comparison figures, never combined
     # with native reported cost or described as a current API rate-card estimate.
     estimates = [row.get("historical_estimated_cost_usd") for row in rows if not row.get("runner_owned")]

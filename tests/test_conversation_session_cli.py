@@ -289,7 +289,7 @@ class ConversationSessionCliTests(unittest.TestCase):
         self.assertEqual("current", conversation["current_draft"]["freshness"])
         records = {row["stage"]: row for row in conversation["planning_records"]}
         for stage, role, model in (
-            ("astra_discovery", "Requirements", "openai/gpt-6-sol"),
+            ("astra_discovery", "Planner", "openai/gpt-6-sol"),
             ("astra_challenge", "Plan Reviewer", "zai-coding-plan/glm-5.3"),
         ):
             with self.subTest(stage=stage):

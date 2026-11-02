@@ -86,12 +86,12 @@ class OutputLengthRouteCliTests(unittest.TestCase):
         self.assertTrue(completed["done"], completed["needs"])
         self.assertEqual(original_events, event_path.read_bytes())
 
-    def test_requirements_length_stop_offers_a_route_without_replaying_on_plain_resume(self):
+    def test_planner_length_stop_offers_a_route_without_replaying_on_plain_resume(self):
         run, state = self.stopped("astra_discovery")
         view = run.status()
         route = view["needs"]["route"]
         self.assertEqual("output_limit", route["cause"])
-        self.assertEqual("Requirements", route["job"])
+        self.assertEqual("Planner", route["job"])
         before = (run.run_dir / "state.json").read_bytes()
         original_events = Path(state["active_stage"]["events"]).read_bytes()
         original_usage = view["usage"]

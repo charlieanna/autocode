@@ -302,8 +302,8 @@ def attempts_of(state: RunState, role):
 
 def job_attempts(state: RunState, stage):
     """The finished attempts of `stage`'s job in this run, oldest first: the attempts of every stage that does the
-    same job on screen (autocode_roles.screen_name), whatever route each ran on. Requirements, for one, runs
-    `requirements_gather` on one route and `astra_discovery` on another; the second is the job's next attempt."""
+    same job on screen (autocode_roles.screen_name), whatever route each ran on. Under reviewer routing the Tester,
+    for one, runs `sol` on one route and `astra_checkpoint` on another; the second is the job's next attempt."""
     job = roles.screen_name(stage, state)
     return [row for row in _attempts(state) if roles.screen_name(row.get("stage"), state) == job]
 

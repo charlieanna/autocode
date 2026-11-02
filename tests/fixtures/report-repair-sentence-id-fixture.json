@@ -1,0 +1,160 @@
+{
+ "task": "DTI-12398: Incomplete INames EPP history for fulfillment-registry-domains-api\n\nBackground: RegManager New EPP History (API) shows registry call history for a domain, labeled as {app_key} ({operation}) with an EPP result code. For the same .co.kr domain, rows from RegAgentSvc and fulfillment-registry-domains-api look different even when both successfully talked to INames.\n\nProblem: On INames domains (.kr, .co.kr), fulfillment-registry-domains-api rows have an empty operation, result code 0 instead of real EPP codes such as 1000 or 2304, and blank Request/Response when EPP Request & Response is expanded. RegAgentSvc rows on the same timeline correctly show domain:info with 1000 and domain:update with 1000 or 2304.\n\nExample: sageautomotiveinteriors.co.kr, domain ID 232027272. RegCompare/live registry data is present. The gap is specifically in New EPP History (API), not whether the registry call succeeded.\n\nImpact: Operators cannot distinguish info, update or status changes or successful versus failed outcomes for the AGS3 registry-domains-api client. INames debugging through RegManager history is unreliable.\n\nAcceptance criteria: Restore readable operation/domain and real EPP result codes and populated EPP Request/Response for this path with raw/debug logging disabled. Redact sensitive data. Preserve HTTP outcomes, metrics, reset behavior, other registry paths and existing tests. Prove the regression with credential-free local tests and tests exercising the actual combined system.\n",
+ "feedback": "Operator decision under the existing planning delegation: for the complete revised plan only, withdraw the model-proposed client stdout-suppression requirement and its regression, and propose the source-supported client transport/conversion guards. This corrects the draft; it grants no implementation approval. Preserve every original whole-system outcome: readable operation/domain, actual EPP result codes, populated redacted request/response history with raw/debug logging disabled, unchanged HTTP outcomes, metrics, reset behavior, other registry paths and existing tests, and independent proof using the actual coordinated repositories. Include any necessary prerequisite or dependency exceptions explicitly in the complete coordinated review packet; do not assume they are authorized. Retain completed Requirements and existing evidence and revise the affected plan portions.",
+ "rejected_ids": {
+  "AC2": [
+   [
+    "task:0",
+    "task:0#1"
+   ],
+   [
+    "task:0",
+    "task:0#2"
+   ],
+   [
+    "task:0",
+    "task:0#3"
+   ],
+   [
+    "task:0",
+    "task:0#4"
+   ],
+   [
+    "task:0",
+    "task:0#5"
+   ],
+   [
+    "task:0",
+    "task:0#6"
+   ],
+   [
+    "task:0",
+    "task:0#7"
+   ],
+   [
+    "task:0",
+    "task:0#8"
+   ],
+   [
+    "task:0",
+    "task:0#9"
+   ],
+   [
+    "task:0",
+    "task:0#10"
+   ],
+   [
+    "task:0",
+    "task:0#11"
+   ],
+   [
+    "task:0",
+    "task:0#12"
+   ],
+   [
+    "task:0",
+    "task:0#14"
+   ]
+  ],
+  "AC5": [
+   [
+    "feedback:feedback-94523865e251",
+    "feedback:feedback-94523865e251#1"
+   ],
+   [
+    "feedback:feedback-94523865e251",
+    "feedback:feedback-94523865e251#2"
+   ],
+   [
+    "feedback:feedback-94523865e251",
+    "feedback:feedback-94523865e251#3"
+   ],
+   [
+    "feedback:feedback-94523865e251",
+    "feedback:feedback-94523865e251#4"
+   ],
+   [
+    "feedback:feedback-94523865e251",
+    "feedback:feedback-94523865e251#5"
+   ]
+  ]
+ },
+ "repaired_quotes": {
+  "AC2": [
+   [
+    "task:0",
+    "DTI-12398: Incomplete INames EPP history for fulfillment-registry-domains-api"
+   ],
+   [
+    "task:0",
+    "Problem: On INames domains (.kr, .co.kr), fulfillment-registry-domains-api rows have an empty operation, result code 0 instead of real EPP codes such as 1000 or 2304, and blank Request/Response when EPP Request & Response is expanded."
+   ],
+   [
+    "task:0",
+    "The gap is specifically in New EPP History (API), not whether the registry call succeeded."
+   ],
+   [
+    "task:0",
+    "Impact: Operators cannot distinguish info, update or status changes or successful versus failed outcomes for the AGS3 registry-domains-api client."
+   ],
+   [
+    "task:0",
+    "INames debugging through RegManager history is unreliable."
+   ],
+   [
+    "task:0",
+    "Acceptance criteria: Restore readable operation/domain and real EPP result codes and populated EPP Request/Response for this path with raw/debug logging disabled."
+   ],
+   [
+    "task:0",
+    "Redact sensitive data."
+   ],
+   [
+    "task:0",
+    "Background: RegManager New EPP History (API) shows registry call history for a domain, labeled as {app_key} ({operation}) with an EPP result code."
+   ],
+   [
+    "task:0",
+    "For the same .co.kr domain, rows from RegAgentSvc and fulfillment-registry-domains-api look different even when both successfully talked to INames."
+   ],
+   [
+    "task:0",
+    "RegAgentSvc rows on the same timeline correctly show domain:info with 1000 and domain:update with 1000 or 2304."
+   ],
+   [
+    "task:0",
+    "Example: sageautomotiveinteriors.co.kr, domain ID 232027272."
+   ],
+   [
+    "task:0",
+    "RegCompare/live registry data is present."
+   ],
+   [
+    "task:0",
+    "Prove the regression with credential-free local tests and tests exercising the actual combined system."
+   ]
+  ],
+  "AC5": [
+   [
+    "feedback:feedback-94523865e251",
+    "Operator decision under the existing planning delegation: for the complete revised plan only, withdraw the model-proposed client stdout-suppression requirement and its regression, and propose the source-supported client transport/conversion guards."
+   ],
+   [
+    "feedback:feedback-94523865e251",
+    "This corrects the draft; it grants no implementation approval."
+   ],
+   [
+    "feedback:feedback-94523865e251",
+    "Preserve every original whole-system outcome: readable operation/domain, actual EPP result codes, populated redacted request/response history with raw/debug logging disabled, unchanged HTTP outcomes, metrics, reset behavior, other registry paths and existing tests, and independent proof using the actual coordinated repositories."
+   ],
+   [
+    "feedback:feedback-94523865e251",
+    "Include any necessary prerequisite or dependency exceptions explicitly in the complete coordinated review packet; do not assume they are authorized."
+   ],
+   [
+    "feedback:feedback-94523865e251",
+    "Retain completed Requirements and existing evidence and revise the affected plan portions."
+   ]
+  ]
+ }
+}

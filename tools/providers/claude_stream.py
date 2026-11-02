@@ -244,7 +244,8 @@ def _completed(identifier: str, kind: str, text: str) -> dict:
 
 
 class Translator:
-    """Claude stream-json rows in, Codex rows out. Pure: tests drive it without processes."""
+    """Claude stream-json rows in, Codex rows out. Tests drive it without processes; the only
+    outside read is the CLI's own saved cost record (``native_projects``)."""
 
     def __init__(
         self,
@@ -252,10 +253,12 @@ class Translator:
         resumed: str | None = None,
         previous_cost: float | None = 0.0,
         clock: Callable[[], float] = time.monotonic,
+        native_projects: list[Path] | None = None,
     ) -> None:
         self.resumed = resumed
         self.previous_cost = previous_cost
         self.clock = clock
+        self.native_projects = list(native_projects or [])
         self.session_id: str | None = None
         self.billing_source: str | None = None
         self.total_cost_usd: float | None = None
@@ -609,6 +612,51 @@ class Translator:
         delta = round(self.total_cost_usd - self.previous_cost, 10)
         return delta if delta > 0 else None
 
+    def _cost_state(self) -> dict | None:
+        """The CLI's cumulative cost-state observation for this session (#2592).
+
+        Saved so the stage ledger can price an interrupted call from the CLI's own accounting:
+        the cumulative total, plus the previous total a resume started from. The total comes
+        from the result when there is one, otherwise from the CLI's own saved record for the
+        exact session (#2599 review). No record when the session total is unknown, when streams
+        mixed sessions, or when a resume's earlier total belongs to another session and the
+        delta is unknowable.
+        """
+        if self._mixed:
+            return None
+        session = self.session_id or (self._result or {}).get("session_id")
+        if not isinstance(session, str) or not session:
+            return None
+        if self.resumed is not None and self.previous_cost is None:
+            return None
+        total = self.total_cost_usd
+        if total is None:
+            total = self._native_total(session)
+        if total is None:
+            return None
+        record = {"session_id": session, "total_cost_usd": total}
+        if self.resumed is not None:
+            record["previous_total_usd"] = self.previous_cost
+        record["updated_at"] = self.clock()
+        return record
+
+    def _native_total(self, session: str) -> float | None:
+        """Claude Code's own saved cost state for one exact session (#2599 review).
+
+        A stream cut before its result never reports a total, but the CLI keeps its accounting
+        in the project transcripts. Only one whole, priced record for this session counts;
+        foreign, disagreeing or partly unreadable records stay unknown.
+        """
+        if not self.native_projects or not _SESSION_NAME.fullmatch(session):
+            return None
+        totals = {
+            total
+            for root in self.native_projects
+            for path in root.glob(f"*/{session}.jsonl")
+            if (total := _native_file_total(path, session)) is not None
+        }
+        return totals.pop() if len(totals) == 1 else None
+
     def _partial_usage(self) -> dict | None:
         mapped = [usage_of(raw) or {} for raw in self._usage.values()]
         if not mapped:
@@ -647,6 +695,7 @@ class Translator:
             "error": error,
             "usage": usage_of(result.get("usage")) if result else None,
             "cost_usd": self._cost(),
+            "cost_state": self._cost_state(),
             "claude": self._diagnostics(exit_code, failed=bool(error)),
         }
         return {key: value for key, value in values.items() if value is not None}
@@ -868,6 +917,49 @@ def _ledger_total(ledger: Path, session: str) -> float | None:
     return _money(value.get("total_cost_usd"))
 
 
+_NATIVE_LINE_LIMIT = 1 << 20  # a cost-state record is small; a larger line is never one
+
+
+def _native_file_total(path: Path, session: str) -> float | None:
+    """One transcript's whole cost state for ``session``: its last saved record decides.
+
+    The read is bounded: a line past the limit is skipped unless its head can name a cost
+    record, where the tail cannot be inspected and the file reports nothing at all — never an
+    earlier total the uninspected record would have replaced.
+    """
+    last = None
+    try:
+        with path.open("rb") as handle:
+            while line := handle.readline(_NATIVE_LINE_LIMIT + 1):
+                if len(line) > _NATIVE_LINE_LIMIT:
+                    if b"cost" in line[:256].lower():
+                        return None
+                    while line and not line.endswith(b"\n"):
+                        line = handle.readline(_NATIVE_LINE_LIMIT + 1)
+                    continue
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(row, dict) and row.get("type") == "cost-state" and row.get("sessionId") == session:
+                    last = row
+    except OSError:
+        return None
+    if last is None or last.get("hasUnknownModelCost"):
+        return None
+    return _money(last.get("totalCostUSD"))
+
+
+def _native_projects() -> list[Path]:
+    """Where Claude Code saves its transcripts: the configured location and the default."""
+    roots: list[Path] = []
+    config = os.environ.get("CLAUDE_CONFIG_DIR")
+    if config:
+        roots.append(Path(config) / "projects")
+    roots.append(Path.home() / ".claude" / "projects")
+    return list(dict.fromkeys(roots))
+
+
 def _write_ledger(ledger: Path, translator: Translator) -> None:
     session, total = translator.session_id, translator.total_cost_usd
     if translator._mixed or session is None or total is None or not _SESSION_NAME.fullmatch(session):
@@ -904,7 +996,7 @@ def _run(arguments: list[str]) -> int:
     ledger.mkdir(mode=0o700, parents=True, exist_ok=True)
     resumed = options.get("--resumed")
     previous = 0.0 if resumed is None else _ledger_total(ledger, resumed)
-    translator = Translator(resumed=resumed, previous_cost=previous)
+    translator = Translator(resumed=resumed, previous_cost=previous, native_projects=_native_projects())
     raw = _Sidecar(options.get("--raw"))
     try:
         try:
