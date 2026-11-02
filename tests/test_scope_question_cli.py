@@ -19,6 +19,28 @@ PART = f"greet-history|Record each greeting|{ELSEWHERE}"
 
 
 class ScopeQuestionCliTests(unittest.TestCase):
+    def test_automatic_coordination_keeps_scope_gate_out_of_the_persons_conversation(self):
+        workspace, env = fixture_workspace(self)
+        env["AUTOCODE_FIXTURE_EXTERNAL_PART"] = PART
+        run = taskrun.TaskRun.start(
+            workspace,
+            f"{BRIEF} {ELSEWHERE}",
+            options=(*FIXTURE_OPTIONS, "--workflow", "bugfix", "--spec-first", "--no-adaptive-planning"),
+            env=env,
+            timeout=180,
+        )
+        view = run.advance_until_input()
+        self.assertIsNotNone(view["coordination"])
+        question = view["needs"]["questions"][0]
+        self.assertTrue(question["id"].startswith("workspace-scope-"))
+        self.assertNotIn(question["question"], [row["text"] for row in view["chat"]["messages"]])
+        reopened = run.status()
+        self.assertEqual(view["needs"], reopened["needs"])
+        self.assertEqual(view["chat"]["messages"], reopened["chat"]["messages"])
+        self.assertIsNone(reopened["scope"]["decision"])
+        stages = [row["stage"] for row in reopened["usage"]["accounting"]["attempts"]]
+        self.assertEqual(["requirements_gather"], stages)
+
     def test_requirements_question_is_answered_before_repository_scope_is_decided(self):
         workspace, env = fixture_workspace(self)
         env["AUTOCODE_FIXTURE_EXTERNAL_PART"] = PART

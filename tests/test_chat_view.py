@@ -489,6 +489,48 @@ class ChatViewTests(unittest.TestCase):
         self.assertEqual(1, len(first))
         self.assertNotEqual(first, second)
 
+    def test_automatic_repository_routing_is_not_presented_as_a_requirements_question(self):
+        for coordinated in ("anchor", "member", "manual"):
+            with self.subTest(coordinated=coordinated):
+                state = {
+                    "status": "WAITING_FOR_USER",
+                    "settings": {"spec_first": True, "coordination_member": coordinated == "member"},
+                    "next_stage": "astra_discovery",
+                    "requirements_handoff": {
+                        "report": {
+                            "assistant_reply": "I understand the history should identify the operation.",
+                            "workspace_scope": {
+                                "spans_repositories": True,
+                                "external_parts": [
+                                    {
+                                        "target": "history",
+                                        "work": "Preserve the operation",
+                                        "source_quote": "Fix history",
+                                    }
+                                ],
+                            },
+                        }
+                    },
+                }
+                scope = requirements_review.scope_question.question(state)
+                self.assertIsNotNone(scope)
+                public = {"status": state["status"], "needs": {"kind": "answer", "questions": [scope]}}
+                if coordinated == "anchor":
+                    public["coordination"] = {"version": 1, "status_command": ["named-coordinator-status"]}
+                before = copy.deepcopy((state, public))
+                result = chat.project(state, public, workspace="/ws", run_dir="/run")
+                asked = [row for row in result["messages"] if row["id"].startswith(chat.REQUIREMENTS_QUESTION)]
+                self.assertEqual([scope["question"]] if coordinated == "manual" else [], [row["text"] for row in asked])
+                self.assertIn(
+                    state["requirements_handoff"]["report"]["assistant_reply"],
+                    [row["text"] for row in result["messages"]],
+                )
+                self.assertEqual(before, (state, public), "rendering must not answer or remove the scope gate")
+                genuine = {"id": "Q1", "question": "Which operation is missing?", "options": []}
+                public["needs"]["questions"] = [genuine]
+                result = chat.project(state, public, workspace="/ws", run_dir="/run")
+                self.assertIn(genuine["question"], [row["text"] for row in result["messages"]])
+
     def test_a_report_repair_note_never_displaces_the_question_the_person_must_answer(self):
         # The Requirements stage's own prose is not always a question: after a report repair
         # it describes the repair, and a client asks whatever this message carries.
