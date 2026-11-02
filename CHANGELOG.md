@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Terminal chat and status: when AutoCode pauses to apply queued feedback it no longer says you
+  requested a pause — the notice reads "Feedback applied. Your work is saved; continue to update
+  the plan." and the pause is categorized as AutoCode's own checkpoint instead of a person's stop.
 - A contained stage's prompt no longer rewrites its capture examples to the launch's
   private scratch path — both examples now render as the stable token
   `--output <tool_containment.scratch>/evidence-<unique-name>.json`, whose exact
@@ -20,6 +23,18 @@ PR template asks for an entry here; a change without one is incomplete.
   provider prefix reuse the audit measured as lost (8,322 of 24,412 shared bytes
   for the contained Tester). The scratch-replaces sentence and the refusal of
   receipts written outside the scratch are unchanged.
+- Terminal chat: the default live agent log shows plain-English progress messages from every agent
+  instead of raw reasoning and command lines — commands (including failures) and edits stay in the
+  explicit `tools` view, `thinking` shows reasoning text, and an agent-name filter narrows progress
+  by agent; the side panel's requirement section reads "Acceptance checks".
+- Live chat log: readable prose survives tool calls — provider transport counters ("thinking ~N
+  tokens", "writing … input: N chars") no longer displace the agent's own words, and commands keep a
+  `[command]` mark in the retained detail.
+- Plan Reviewer stages are asked for concise public progress updates, so the live feed shows what the
+  reviewer is checking in the reviewer's own words.
+- Requirement tracing: a documentary ticket reference (such as "the original DTI-12398 outcome") no
+  longer turns the ticket number into a numeric obligation — the requirement's real values stay
+  enforced and the ticket stays cited as the source.
 - An exhausted Builder ladder no longer pauses to ask the person for a decision or a config change
   (#2597). The ordinary retries and the stronger attempt stay automatic; when the ladder is spent — the
   stronger attempt failed, the provider offers no stronger Builder model, or that model would be checked
@@ -34,6 +49,10 @@ PR template asks for an entry here; a change without one is incomplete.
   intervention read it performs) spawns one CLI read instead of repeating the same
   read for view, intervention and evidence layers; results are deep-copy isolated
   so no caller sees another's mutations.
+- Queued plan feedback: follow-up feedback bound to the exact reviewed plan token reuses the
+  run's saved requirements and continues to Planner revision instead of re-running
+  Requirements discovery; the revised plan still passes independent review and needs a fresh
+  approval bound to the new plan token.
 - Live chat log: an unfinished multiword streamed thought or message is now labelled
   `[partial]` — bounded and redacted like final prose — instead of being shown as if it
   were the agent's final text; the completion snapshot still replaces it, and a fragment
