@@ -132,7 +132,8 @@ def stages(view: dict | None, now: datetime | None = None) -> list[dict]:
     }
     grouped: dict[str, list[dict]] = {}
     for row in attempts:
-        stage = row.get("stage")
+        # A report repair (``sol_report_repair``) is another attempt at the stage it repairs.
+        stage = row.get("original_stage") or row.get("stage")
         if isinstance(stage, str) and stage:
             grouped.setdefault(stage, []).append(row)
     result = []
@@ -153,7 +154,11 @@ def stages(view: dict | None, now: datetime | None = None) -> list[dict]:
                 amount, whole = _known(used.get(f"{side}_tokens"))
                 counted[side] += amount or 0
                 complete = complete and whole
-        cost_row = _mapping(spend.get(stage))
+        # A repaired stage's cost is its own stage row and its repair's: separate stages of one ledger.
+        costs = [
+            _mapping(spend.get(name)).get("spent_usd") for name in dict.fromkeys(str(row.get("stage")) for row in rows)
+        ]
+        costs = [value for value in costs if _number(value)]
         # A stage on a later attempt says why the one before it did not succeed.
         previous = _why(rows[-2]) if newest.get("active") and len(rows) > 1 else ""
         result.append(
@@ -168,7 +173,7 @@ def stages(view: dict | None, now: datetime | None = None) -> list[dict]:
                 "input_tokens": counted["input"],
                 "output_tokens": counted["output"],
                 "tokens_complete": complete,
-                "spent_usd": cost_row.get("spent_usd") if _number(cost_row.get("spent_usd")) else None,
+                "spent_usd": sum(costs) if costs else None,
                 "why": _why(newest) if _failed(newest) else previous,
             }
         )

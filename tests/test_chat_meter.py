@@ -75,6 +75,25 @@ class StageTests(unittest.TestCase):
         self.assertEqual((meter.RETRYING, 2, 270.0), (row["state"], row["attempts"], row["seconds"]))
         self.assertEqual("Builder · attempt 2 · 4m30s · last one answer rejected", meter.struggling(shown, NOW))
 
+    def test_a_report_repair_is_the_repaired_stages_next_attempt(self):
+        # Live, Sonnet as Tester: sol was rejected, the Resolver ran, then sol_report_repair passed.
+        rejected = attempt("sol", "Tester", rejected=True)
+        repairing = attempt(
+            "sol_report_repair",
+            "Tester",
+            original_stage="sol",
+            active=True,
+            duration_seconds=None,
+            started_at="2026-11-02T01:09:30Z",
+        )
+        shown = view(rejected, attempt("resolver", "Resolver"), repairing)
+        self.assertEqual(["Tester", "Resolver"], [row["job"] for row in meter.stages(shown, NOW)])
+        self.assertEqual("Tester · attempt 2 · 1m00s · last one answer rejected", meter.struggling(shown, NOW))
+        repaired = {**repairing, "active": False, "duration_seconds": 18}
+        costs = [{"stage": "sol", "spent_usd": 0.25}, {"stage": "sol_report_repair", "spent_usd": 0.1}]
+        tester = meter.stages(view(rejected, attempt("resolver", "Resolver"), repaired, by_stage=costs), NOW)[0]
+        self.assertEqual((meter.DONE, 2, 0.35), (tester["state"], tester["attempts"], tester["spent_usd"]))
+
     def test_a_first_attempt_at_work_is_not_struggling(self):
         shown = view(attempt("terra", "Builder", active=True, duration_seconds=None, started_at="2026-11-02T01:09:00Z"))
         self.assertEqual(meter.WORKING, meter.stages(shown, NOW)[0]["state"])

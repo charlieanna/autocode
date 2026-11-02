@@ -1224,3 +1224,9 @@ class ClosingSummaryTests(unittest.TestCase):
             "Changed 2 files: greet.py, README.md. /diff shows what changed.", tui.panel.finished_text(shown)
         )
         self.assertEqual("", tui.panel.finished_text({}))
+        # Live: the acceptance tests the Tester wrote are not a Builder step, but the run changed them too.
+        with_tests = {**shown, "acceptance_tests": {"files": ["test_greet.py", "greet.py"]}}
+        self.assertEqual(
+            "Changed 3 files: greet.py, README.md, test_greet.py. /diff shows what changed.",
+            tui.panel.finished_text(with_tests),
+        )

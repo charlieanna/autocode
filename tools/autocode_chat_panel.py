@@ -391,11 +391,14 @@ def steps(view: dict | None) -> list[dict]:
 
 
 def finished_text(view: dict | None) -> str:
-    """A finished run's closing line: the files its saved steps changed, and where to see the change.
-    Empty when no step recorded a file, so nothing is claimed that the view does not name."""
+    """A finished run's closing line: the files its saved steps and its acceptance tests changed, and
+    where to see the change. Empty when the view names no file, so nothing is claimed it does not name."""
     files: list[str] = []
-    for row in steps(view):
-        files.extend(str(path) for path in row.get("changed_files") or [] if str(path) not in files)
+    named_files = [path for row in steps(view) for path in row.get("changed_files") or []]
+    named_files += _mapping(_mapping(view).get("acceptance_tests")).get("files") or []
+    for path in named_files:
+        if str(path) not in files:
+            files.append(str(path))
     if not files:
         return ""
     named = ", ".join(files[:6]) + (f" and {len(files) - 6} more" if len(files) > 6 else "")
