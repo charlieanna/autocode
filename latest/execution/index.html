@@ -2450,7 +2450,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/dbe188f6943d2591ad08532b5530133b84180a28/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/ef00d1158a20317f49c4323f4529257360d9e8d1/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2806,17 +2806,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and once the work is
   committed and merged it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/dbe188f6943d2591ad08532b5530133b84180a28/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/ef00d1158a20317f49c4323f4529257360d9e8d1/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/dbe188f6943d2591ad08532b5530133b84180a28/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/ef00d1158a20317f49c4323f4529257360d9e8d1/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/dbe188f6943d2591ad08532b5530133b84180a28/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/ef00d1158a20317f49c4323f4529257360d9e8d1/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -3093,7 +3093,7 @@ plan and review approval the harness gave a run must also be listed among that r
 and so must each budget pause the scenario's person acknowledged, as the resume that names it.
 In a components scenario each such gate names the task run it was given to, so an
 approval listed only in another component's run fails
-(<a href="https://github.com/charlieanna/autocode/blob/dbe188f6943d2591ad08532b5530133b84180a28/scenarios/README.md">scenarios/README.md</a>).</p>
+(<a href="https://github.com/charlieanna/autocode/blob/ef00d1158a20317f49c4323f4529257360d9e8d1/scenarios/README.md">scenarios/README.md</a>).</p>
 <h4 id="required-approver">Required approver<a class="headerlink" href="#required-approver" title="Permanent link">&para;</a></h4>
 <p>A team that wants only named people to approve can list their Git email addresses as
 <code>require-approver</code> in its <a href="../cli/#project-settings">project settings</a>:</p>
@@ -3751,6 +3751,17 @@ held by novelty as it would be without the grant; a Builder timeout outside
 final-audit-only routing goes to the Completion Reviewer instead.
 Permission, product and scope decisions still require their existing bound human
 controls.</p>
+<p>The Builder retry policy settles its own ladder the same way (#2597). The
+ordinary retries and the stronger attempt stay automatic; when the ladder is
+spent — the stronger attempt failed, the provider offers no stronger Builder
+model, or that model would be checked by its own model — the run ends there with
+the same recorded outcome (<code>autocode_stop.end</code>): "AutoCode could not finish this
+task" with the reason (the milestone, the failing incident and the evidence
+ledger's novelty note) and the incident's evidence packet. The reason names no
+CLI flag and no provider-config key; a route or cost choice about the next run
+stays the person's, made before the run starts. <code>PAUSED_BUILDER_RETRY_LIMIT</code>
+occurs only in saved runs from before this change; they keep the Investigator's
+diagnosis and the explicit <code>--resume-paused --retry-builder</code> operator flag.</p>
 <h3 id="budget-ownership-and-human-escalation">Budget ownership and human escalation<a class="headerlink" href="#budget-ownership-and-human-escalation" title="Permanent link">&para;</a></h3>
 <p>Budget limits are not all provider quota. New runs record whether each configured
 bound is a runner default or an explicit CLI constraint, including abbreviated
@@ -3849,7 +3860,8 @@ recovery flag) consumes it, without a provider call:</p>
   evaluation; Resolver asks a fresh request for it the same way.</li>
 <li>If the stop needs an operator control that information cannot supply (a spent
   automatic-recovery allowance, a reached time, iteration, milestone or
-  no-progress bound, a repeated failure, a Builder retry limit, a stopped
+  no-progress bound, a repeated failure, a Builder retry limit (saved runs only:
+  a new run ends with a recorded could-not-finish outcome instead), a stopped
   parallel member, a parallel member stopped on its quota or by its
   provider's content filter, a stalled milestone, spent report-only repairs, an
   unreconciled attempt), the run stays paused. A member stopped on its model
