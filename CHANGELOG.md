@@ -11,6 +11,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- An exhausted Builder ladder no longer pauses to ask the person for a decision or a config change
+  (#2597). The ordinary retries and the stronger attempt stay automatic; when the ladder is spent — the
+  stronger attempt failed, the provider offers no stronger Builder model, or that model would be checked
+  by its own model — the run ends with a recorded "could not finish" outcome (its reason and the
+  incident's evidence), shown by `--status`, the terminal chat and the VS Code panel as a finished,
+  failed run, the way a stop you asked for is shown. The outcome names no CLI flag and no
+  provider-config key. A saved run paused at `PAUSED_BUILDER_RETRY_LIMIT` keeps its diagnosis and its
+  `--retry-builder` operator flag; on a run that ended, `--resume-paused --retry-builder` is refused
+  with the saved reason.
 - Coordination message inbox: a queued conversation answer survives clarification
   settings changes — re-answering a question keeps the saved conversation instead of
   dropping the queued message and forcing replanning.

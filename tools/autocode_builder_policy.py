@@ -14,6 +14,7 @@ try:
     from . import autocode_route_ladder as route_ladder
     from . import autocode_route_permission as permission
     from . import autocode_run_status as run_status
+    from . import autocode_stop as stop
     from . import autocode_util as s
     from . import autocode_verifier_independence as independence
     from .autocode_failure_classification import CLASSES
@@ -23,6 +24,7 @@ except ImportError:
     import autocode_route_ladder as route_ladder
     import autocode_route_permission as permission
     import autocode_run_status as run_status
+    import autocode_stop as stop
     import autocode_util as s
     import autocode_verifier_independence as independence
     from autocode_failure_classification import CLASSES
@@ -48,21 +50,19 @@ CHECKERS = independence.verifiers("terra")
 SERIAL = "SERIAL_ESCALATION"
 # Efforts a replacement checker keeps; a climbed xhigh/max rung belongs to the GPT ladder.
 CHECKER_EFFORTS = ("low", "medium", "high")
-EXHAUSTED = "Implementation remains blocked after configured retry/escalation; human decision or replanning required"
+EXHAUSTED = "Implementation remains blocked after the configured retries and the stronger Builder attempt"
 CHECKER_STUCK = (
     "Implementation remains blocked after the ordinary retries; the stronger Builder model {model} "
-    "would be checked by its own model: {why}; human decision or replanning required"
+    "would be checked by its own model: {why}"
 )
 NO_STRONG_MODEL = (
     "Implementation remains blocked after the ordinary retries; this run's provider offers no stronger "
-    "Builder model (name one, and the model its checkers move to, under [builder_retry] in the provider "
-    "config); human decision or replanning required"
+    "Builder model, so the ordinary retries were all this run had"
 )
 # A new run whose provider did not list a model the stronger attempt needs has none (route_ladder.serve).
 NOT_OFFERED = (
     "Implementation remains blocked after the ordinary retries; this run has no stronger Builder attempt "
-    "because its provider does not offer {model}, which that attempt needs (start a run with "
-    "--builder-strong-model naming a model it lists); human decision or replanning required"
+    "because its provider does not offer {model}"
 )
 # What the evidence ledger (autocode_evidence_ledger) adds to a charge's decision, and to its pause (#611).
 NOVELTY_NOTES = {
@@ -425,7 +425,21 @@ def _decide(state: RunState, current, action, evidence, reason, checkers, stop_r
     )
     if action == "pause":
         route_ladder.record_outcome(state, "paused")
-        run_status.pause(state, "PAUSED_BUILDER_RETRY_LIMIT", "Execution failure: " + stop_reason)
+        row = (current.get("ledger") or [{}])[-1]
+        stop.end(
+            state,
+            stop_reason,
+            {
+                "milestone_key": key(state),
+                "stage": "terra",
+                "failure": evidence,
+                "attempt": len(current["failures"]),
+                **({"novelty": novelty} if novelty else {}),
+                "failing_checks": row.get("failing") or [],
+                "changed_files": row.get("changed") or [],
+            },
+            at=s.now(),
+        )
     elif action == "defer":
         state.update({"status": SERIAL, "stop_reason": "Execution failure: " + stop_reason})
 
