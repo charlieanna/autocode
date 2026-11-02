@@ -23,6 +23,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A run no longer stops with `PAUSED_WORKSPACE_BUSY` ("Existing run process N is active")
+  because of a process that runs no stage: an `autocode chat` open on the same run, a
+  Python program that launched AutoCode further up (a terminal holder, a test harness,
+  a supervisor), or one whose arguments merely carry a runner command line. The guard
+  skips every process this command descends from, not only its parent, and settles
+  chats and launchers from their exact arguments, which `ps` text loses; a real second
+  runner, a provider command and anything it cannot read exactly still block.
 - A workflow job (the Investigator, the Code Reviewer, the acceptance Tester...) that
   reaches its hard stage deadline no longer pauses on a question about which model to
   use. AutoCode retries it on the same model with the deadline doubled, never past the
