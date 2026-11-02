@@ -23,6 +23,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Go, Rust or Node repository that carries a stray Python helper, fixture or vendored
+  script is no longer bound to `python -m unittest discover`: a root `go.mod`, `Cargo.toml`
+  or `package.json` decides the suite unless the root declares a Python project
+  (`pyproject.toml`, `setup.py`, `requirements*.txt`, `conftest.py`, pytest config) or keeps
+  Python tests at the root or in a top-level `tests/`/`test/` directory (#2604).
+
 - Terminal chat: plan approval opens on the plan when it fits the screen instead of
   an older requirements summary; a new or just-started chat no longer shows loading
   states as errors; a new chat opens on its welcome; a finished run names the files

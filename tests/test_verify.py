@@ -159,6 +159,39 @@ class ComponentCollectionTests(unittest.TestCase):
                     self.assertEqual(expected, framework.name)
                     self.assertNotIn("autocode_component_tests.py", framework.suite)
 
+    def test_a_stray_python_helper_does_not_hide_a_go_rust_or_node_suite(self):
+        # #2604: one helper script or fixture anywhere bound a Go repository to unittest.
+        stray = {
+            "pkg/acceptance/testdata/python/test.py": "import unittest\nclass T(unittest.TestCase):\n def test_a(self): pass\n",
+            "pkg/cli/interactive_tests/test_auth_cookie.py": "import unittest\n",
+            ".claude/skills/tool/test_tool.py": "import unittest\nclass T(unittest.TestCase):\n def test_b(self): pass\n",
+            "scripts/release-notes.py": "print('notes')\n",
+        }
+        for files, expected in (
+            ({"go.mod": "module sample\ngo 1.22\n", "pkg/lib_test.go": "package lib\n"}, "go"),
+            ({"Cargo.toml": "[package]\nname = 'sample'\n", "src/lib.rs": ""}, "cargo"),
+            ({"package.json": json.dumps({"scripts": {"test": "node --test"}}), "app.test.js": ""}, "node"),
+        ):
+            with self.subTest(framework=expected):
+                project = Project({**stray, **files})
+                self.addCleanup(project.close)
+                framework = verify.detect_framework(project.root, python=sys.executable)
+                self.assertEqual(expected, framework.name)
+
+    def test_a_declared_python_project_keeps_its_suite_beside_another_toolchain(self):
+        test = "import unittest\nclass T(unittest.TestCase):\n def test_a(self): pass\n"
+        for extra in (
+            {"pyproject.toml": "[project]\nname = 'sample'\n", "pkg/test_lib.py": test},
+            {"requirements.txt": "requests\n", "pkg/test_lib.py": test},
+            {"tests/test_lib.py": test},
+            {"test_lib.py": test},
+        ):
+            with self.subTest(extra=sorted(extra)):
+                project = Project({"go.mod": "module sample\ngo 1.22\n", **extra})
+                self.addCleanup(project.close)
+                framework = verify.detect_framework(project.root, python=sys.executable)
+                self.assertEqual("unittest", framework.name)
+
     def collect(self, files):
         project = Project(files)
         self.addCleanup(project.close)
