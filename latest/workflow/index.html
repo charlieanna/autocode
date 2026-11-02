@@ -2406,7 +2406,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -2553,8 +2553,8 @@ pauses for approval, and enforces the final completion gate. Unit reports are pr
 Autopilot checks them against the approved plan and current evidence before advancing.
 Planning revisions, implementation handoffs, review outcomes and repair routing are
 applied by Autopilot. The shared runtime supplies provider calls, locking and persistence.</p>
-<p>The public <code>autocode</code> command and the internal <code>autocode-orchestrator</code> compatibility
-alias delegate to the same controller, including dashboard launches. <code>tools/autocode_orchestrator.py</code> is a
+<p>The public <code>autocode</code> command and the <code>autocode_orchestrator</code> compatibility
+module delegate to the same controller, including dashboard launches. <code>tools/autocode_orchestrator.py</code> is a
 compatibility import. The saved stage named <code>orchestrator</code> remains the milestone
 scheduler inside Autocode so existing runs can resume. Autopilot owns the overall loop.</p>
 <p>Each unit command stops successfully before dispatching another unit. Clarification,
@@ -3093,7 +3093,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3171,7 +3171,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   also leaves a change outside the package <code>UNVERIFIED</code>, because the package
   suite never ran it.</p>
 <p>The <code>feature-monorepo-package</code> scenario
-(<a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
+(<a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
 one package of a two-package repository with <code>--package</code> and the scripted
 model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open <code>runner</code> finding.
@@ -3426,7 +3426,7 @@ it is generated from the front matter so reviewers can read the plan.</p>
 holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
 (<code>scenarios/run.py</code>) checks this at every plan approval its catalog runs reach: it exports the plan
 and reads the file back with <code>--check</code> before it approves the plan
-(<a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
+(<a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
 committing it approves nothing. Text that looks like a credential is masked before the file is
 written, with the same policy as <code>autocode bundle</code>; the export then says that the file's goal hash
 differs from the run's.</p>
@@ -3461,7 +3461,7 @@ records, so that plan's goal hash differs from the file's; any other change is n
 token locks the revision on the screen, as always. <code>--goal-file</code> revises a saved run; it does not
 start a new one.</p>
 <p>When the run completes, its evidence report (<code>evidence.md</code>, and so the pull request body
-<code>autocode-issue pr</code> writes around it) gives the approved plan's goal hash, the one <code>--check</code> prints
+<code>autocode issue pr</code> writes around it) gives the approved plan's goal hash, the one <code>--check</code> prints
 for a file holding exactly that plan. When the approved plan came from a plan file, the report also
 names the file, its goal hash and the plan revision it was loaded as, and says how the two differ:
 the approved plan is the file's plan unchanged (the two goal hashes are equal), differs from it only
@@ -3475,8 +3475,8 @@ Plan file: `/repo/plans/refunds.md` (goal hash 9a07…), loaded as plan revision
 <p>Put together, a team reviews a plan like this:</p>
 <ol>
 <li><strong>AutoCode drafts the plan.</strong> A run stops with its plan waiting for approval. For a GitHub issue,
-   <code>autocode-issue start</code> gets it there.</li>
-<li><strong>A person opens a pull request with the file.</strong> <code>autocode-issue plan ISSUE --open</code> exports the
+   <code>autocode issue start</code> gets it there.</li>
+<li><strong>A person opens a pull request with the file.</strong> <code>autocode issue plan ISSUE --open</code> exports the
    plan, commits it as <code>plans/issue-N.md</code> on a branch of its own and opens a draft pull request
    (<a href="../issues/#reviewing-the-plan-in-a-pull-request">GitHub issues</a>). Without an issue, run
    <code>autocode plan --export FILE</code>, then commit, push and open the pull request yourself.</li>

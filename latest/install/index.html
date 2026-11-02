@@ -2150,7 +2150,7 @@
 
 
 <h1 id="install-and-run">Install and run<a class="headerlink" href="#install-and-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/README.md">← Back to README</a></p>
 <h2 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">&para;</a></h2>
 <p>You need macOS or Linux (Windows through WSL), Python 3.11 or newer, Git,
 <a href="https://pipx.pypa.io/">pipx</a>, and npm (Node.js) to install the engine.</p>
@@ -2179,7 +2179,7 @@ autocode demo
 These commands install the tagged release, not current master; this guide's
 <code>latest</code> documentation can describe newer features and fixes. Use the
 <a href="#advanced-install-from-a-checkout">advanced checkout/master installation</a>
-when you need those changes. The <a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/docs/bugs/2026-10-27-release-installation.md">release verification record</a>
+when you need those changes. The <a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/docs/bugs/2026-10-27-release-installation.md">release verification record</a>
 distinguishes distribution smoke checks from task/provider qualification.
 If pipx's Python is older than 3.11, add <code>--python python3.11</code>. The demo is
 offline: no sign-in or model spend. Once installed, you do not need to activate
@@ -2405,19 +2405,19 @@ script lists the options of the version that wrote it, so write it again after u
 outcome, a Planner drafts a task DAG, and a Plan Reviewer challenges it. You approve
 the plan before any Builder starts. See <a href="../workflow/">Workflow</a>.</p>
 <h2 id="advanced-entry-points">Advanced entry points<a class="headerlink" href="#advanced-entry-points" title="Permanent link">&para;</a></h2>
-<p>Use the whole workflow through <code>autopilot</code>, or invoke one unit at its saved boundary:</p>
-<pre><code class="language-sh">autopilot &quot;Build a greeting CLI&quot; --workspace /path/to/project --chat
+<p>Use the whole workflow through <code>autocode</code>, or invoke one unit at its saved boundary with <code>--unit</code>:</p>
+<pre><code class="language-sh">autocode &quot;Build a greeting CLI&quot; --workspace /path/to/project --chat
 
 # Or invoke individual units at their saved boundaries:
-autoplanner &quot;Build a greeting CLI&quot; --workspace /path/to/project --chat
+autocode &quot;Build a greeting CLI&quot; --unit autoplanner --workspace /path/to/project --chat
 # After approval, this stops before any Builder starts.
 # Each unit continues the project's unfinished run (add --run-dir RUN when it has several):
-autocode-build --workspace /path/to/project --no-chat
-autoreview --workspace /path/to/project --no-chat
+autocode --unit autocode --workspace /path/to/project --no-chat
+autocode --unit autoreview --workspace /path/to/project --no-chat
 # If review requests rework, diagnose it without launching a Builder:
-autoresolver --workspace /path/to/project --no-chat
+autocode --unit autoresolver --workspace /path/to/project --no-chat
 # Let Autopilot continue through any remaining build/review cycles:
-autopilot --workspace /path/to/project --no-chat
+autocode --workspace /path/to/project --no-chat
 </code></pre>
 <p>Each unit command stops successfully before dispatching another unit.
 <code>autocode --unit autoplanner|autocode|autoreview|autoresolver</code> provides the same
@@ -2453,7 +2453,7 @@ kilo auth list
 use Codex. <code>autocode doctor</code> then checks the default provider instead of OpenCode.
 <code>AUTOCODE_PROVIDER=codex</code> does not select the Codex engine: it names a provider config
 <code>codex.toml</code>, and doctor reports it missing. Use <code>--engine codex</code> for Codex.
-<code>autocode-dashboard --provider &lt;name&gt;</code> overrides the default for the dashboard; its
+<code>autocode dashboard --provider &lt;name&gt;</code> overrides the default for the dashboard; its
 model pickers list that tool's models.</p>
 <p>See also: <a href="../cli/">CLI</a> · <a href="../providers/">Providers</a> · <a href="../models/">Models</a></p>
 

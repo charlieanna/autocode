@@ -2450,7 +2450,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2806,17 +2806,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and once the work is
   committed and merged it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -3082,7 +3082,7 @@ identity, host, command and any <code>--as</code> name, marked as a claim. A rec
 says it was not recorded, a workflow-policy approval says no person made it, and a run with none says
 <code>None recorded</code>. When the table names an approver, the report's "Not verified" list adds that
 approver identity is recorded as given; it also counts any records saved without a recorded
-approver. Because <code>autocode-issue pr</code> wraps that <code>evidence.md</code> exactly
+approver. Because <code>autocode issue pr</code> wraps that <code>evidence.md</code> exactly
 (<a href="../issues/#what-it-does">Issues</a>), the pull request body lists the approvals too. A completed
 components run's report lists its child runs' approvals, each with the child it came from, in
 the same way (<a href="../task-run/#canonical-completion-evidence">Canonical completion evidence</a>).</p>
@@ -3093,7 +3093,7 @@ plan and review approval the harness gave a run must also be listed among that r
 and so must each budget pause the scenario's person acknowledged, as the resume that names it.
 In a components scenario each such gate names the task run it was given to, so an
 approval listed only in another component's run fails
-(<a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/scenarios/README.md">scenarios/README.md</a>).</p>
+(<a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/scenarios/README.md">scenarios/README.md</a>).</p>
 <h4 id="required-approver">Required approver<a class="headerlink" href="#required-approver" title="Permanent link">&para;</a></h4>
 <p>A team that wants only named people to approve can list their Git email addresses as
 <code>require-approver</code> in its <a href="../cli/#project-settings">project settings</a>:</p>
@@ -3409,7 +3409,7 @@ and records what AutoCode itself did, one JSON object per event:</p>
 <tbody>
 <tr>
 <td><code>invocation</code></td>
-<td>Program, flag names (never values), and caller: <code>unattended</code> through <code>autocode-unattended</code>, otherwise <code>direct</code>. Written by any command that saves the run.</td>
+<td>Program, flag names (never values), and caller: <code>unattended</code> through <code>autocode unattended</code>, otherwise <code>direct</code>. Written by any command that saves the run.</td>
 </tr>
 <tr>
 <td><code>transition</code></td>
@@ -3438,7 +3438,7 @@ text, file names, code, diffs or model output. Those stay in <code>state.json</c
 per-stage artifacts. Nothing is trimmed, unlike <code>progress_messages</code> in
 <code>state.json</code>. Only saves that change the run add lines, so read-only commands such
 as <code>--status</code> add none. A failure to append never fails the checkpoint.</p>
-<p><code>autocode-unattended --analyze</code> summarizes the log (calls by caller, stages, stops,
+<p><code>autocode unattended --analyze</code> summarizes the log (calls by caller, stages, stops,
 operator decisions) and <code>--out</code> copies it. Runs saved before this log existed have
 no <code>activity.jsonl</code>; their log starts with the next save.</p>
 <h2 id="pause-recovery-and-abandonment">Pause, recovery, and abandonment<a class="headerlink" href="#pause-recovery-and-abandonment" title="Permanent link">&para;</a></h2>

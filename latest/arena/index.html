@@ -2121,7 +2121,7 @@
 <p>Arena runs pinned repository issues through the existing public TaskRun interface,
 scores the candidate with evaluator-owned checks, and retains a SQLite attempt
 ledger. It never opens an issue or PR, pushes a patch, edits AutoCode itself, or
-promotes a version. The <code>autocode-issue</code> workflow remains the operator's route for
+promotes a version. The <code>autocode issue</code> workflow remains the operator's route for
 an individual issue and eventual PR submission.</p>
 <p>Install the checkout with <code>pip install -e .</code>. Commands can also be invoked as
 <code>python tools/autocode_arena.py</code>. The default store is <code>.autocode/arena</code>, ignored
@@ -2132,7 +2132,7 @@ repetitions, original limits and all-outcome reporting beside the catalogue.
 It contains no campaign results and is not an automatic runner.</p>
 <h2 id="start-with-the-included-projects">Start with the included projects<a class="headerlink" href="#start-with-the-included-projects" title="Permanent link">&para;</a></h2>
 <p>The checkout includes eight original pinned upstream bug cases in
-<a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/arena/catalog.json"><code>arena/catalog.json</code></a>: three starter Python cases and five
+<a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/arena/catalog.json"><code>arena/catalog.json</code></a>: three starter Python cases and five
 hard cases across Python, TypeScript and Go. A ninth declaration is a separate
 corrected TypeScript successor; it preserves the original case and results.
 Problem descriptions and self-contained oracles live under <code>arena/cases/</code>; the
@@ -2500,8 +2500,8 @@ environment are <strong>not</strong> transitively pinned; prefer self-contained 
 <p>Provide a separate known-good reference workspace. Ingestion actually runs the
 oracle against the frozen failing baseline and the reference. Both controls must
 behave as expected before the case enters the catalog:</p>
-<pre><code class="language-sh">autocode-arena init
-autocode-arena ingest OSS-0001 \
+<pre><code class="language-sh">autocode arena init
+autocode arena ingest OSS-0001 \
   --repository /path/to/local/repo \
   --base FULL_COMMIT_SHA \
   --issue owner/repo#123 --issue-file /path/to/historical-issue.json \
@@ -2509,17 +2509,17 @@ autocode-arena ingest OSS-0001 \
   --check greeting --split development
 </code></pre>
 <p>Without <code>--issue-file</code>, ingestion uses the existing GitHub client to read the issue
-and its latest comments; <code>GH_TOKEN</code> / <code>GITHUB_TOKEN</code> work as in <code>autocode-issue</code>.
+and its latest comments; <code>GH_TOKEN</code> / <code>GITHUB_TOKEN</code> work as in <code>autocode issue</code>.
 The supplied snapshot is an evaluator declaration, not independently authenticated
 history. A control failure leaves its case directory for inspection; remove that
 new failed directory before retrying the same ID. Do not change a cataloged case;
 declare a new case instead.</p>
 <h2 id="attempt-and-score">Attempt and score<a class="headerlink" href="#attempt-and-score" title="Permanent link">&para;</a></h2>
-<pre><code class="language-sh">autocode-arena run OSS-0001 --cohort baseline-v1 \
+<pre><code class="language-sh">autocode arena run OSS-0001 --cohort baseline-v1 \
   --runner /path/to/autocode-v1 \
   --i-authorize-live-model-spend \
   --option=--provider --option=YOUR_CONFIGURED_PROVIDER
-autocode-arena report --cohort baseline-v1
+autocode arena report --cohort baseline-v1
 </code></pre>
 <p>Each attempt gets a fresh repository with only the frozen source tree and one
 local base commit. It has no upstream remotes, later commits or copied hooks.
@@ -2575,10 +2575,10 @@ maintainer acceptance, or independently measured test coverage.</p>
 engines/providers, and needs no live-spend authorization. It tests plumbing; fixture
 results cannot qualify an AutoCode version. It does not solve arbitrary OSS issues.</p>
 <h2 id="controlled-improvement">Controlled improvement<a class="headerlink" href="#controlled-improvement" title="Permanent link">&para;</a></h2>
-<pre><code class="language-sh">autocode-arena propose --cohort baseline-v1
+<pre><code class="language-sh">autocode arena propose --cohort baseline-v1
 # Investigate the development failures, implement a candidate in another checkout.
 # Run every declared case freshly under baseline-v1 and candidate-v2, then:
-autocode-arena compare --baseline baseline-v1 --candidate candidate-v2
+autocode arena compare --baseline baseline-v1 --candidate candidate-v2
 </code></pre>
 <p><code>propose</code> saves development failures, failed check names, and investigation areas.
 Uninvestigated root cause remains <code>UNDETERMINED</code>: an oracle failure alone cannot establish whether
@@ -2586,7 +2586,7 @@ the bug was in requirements, planning, implementation or validation. It delibera
 does not disclose holdout failures in an improvement proposal or automatically
 generate a self-modification. The operator can give this evidence to AutoCode's
 ordinary planning/build workflow and review the proposed change.</p>
-<p>After investigation, <code>autocode-arena annotate ATTEMPT --report attribution.json</code>
+<p>After investigation, <code>autocode arena annotate ATTEMPT --report attribution.json</code>
 appends evidence references and free-text suspicion without modifying the saved
 attempt or its outcome. A confirmed diagnosis also needs <code>--reviewer NAME</code> and
 pinned independent fail-before/pass-after regression reports. <code>propose</code> includes

@@ -2106,8 +2106,8 @@
 
 
 <h1 id="github-issues-to-pull-requests">GitHub issues to pull requests<a class="headerlink" href="#github-issues-to-pull-requests" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/README.md">← Back to README</a></p>
-<p><code>autocode-issue</code> takes a GitHub issue, runs AutoCode on it in a branch of its
+<p><a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/README.md">← Back to README</a></p>
+<p><code>autocode issue</code> takes a GitHub issue, runs AutoCode on it in a branch of its
 own, and turns the finished run into a pull request whose body carries the
 run's evidence. It sits on top of the <a href="../task-run/">task-run interface</a> and
 changes nothing about how a run plans, builds or completes.</p>
@@ -2121,14 +2121,14 @@ built (<a href="#reviewing-the-plan-in-a-pull-request">below</a>).</p>
 <p>Run these from inside a clone of the repository whose issue you want resolved.
 Its dependencies must be installed there, and the <code>origin</code> remote must point
 at GitHub.</p>
-<pre><code class="language-sh">autocode-issue brief #812                      # the brief AutoCode would get; no side effects
-autocode-issue start #812 -- --engine codex --test-command &quot;uv run pytest&quot;
+<pre><code class="language-sh">autocode issue brief #812                      # the brief AutoCode would get; no side effects
+autocode issue start #812 -- --engine codex --test-command &quot;uv run pytest&quot;
 autocode --show-goal --workspace WT --run-dir RUN
 autocode --approve-goal TOKEN --workspace WT --run-dir RUN
-autocode-issue continue #812                   # repeat after each answer or approval
-autocode-issue status #812                     # where it stands and the next command, at any time
-autocode-issue pr #812                         # commit the change and write the PR body; no push
-autocode-issue pr #812 --open                  # push the branch and open a draft pull request
+autocode issue continue #812                   # repeat after each answer or approval
+autocode issue status #812                     # where it stands and the next command, at any time
+autocode issue pr #812                         # commit the change and write the PR body; no push
+autocode issue pr #812 --open                  # push the branch and open a draft pull request
 </code></pre>
 <p><code>start</code> and <code>status</code> print <code>WT</code>, <code>RUN</code> and <code>TOKEN</code> for you, with every command
 filled in.</p>
@@ -2214,8 +2214,8 @@ gate is evidence for review, not proof of correctness.</p>
 <p>On a team, what will be built is worth reviewing before AutoCode builds it. When
 <code>start</code> or <code>continue</code> stops with the plan waiting for approval, put it in a pull
 request instead of approving it at once:</p>
-<pre><code class="language-sh">autocode-issue plan #812                       # commit the plan as plans/issue-812.md on its own branch; no push
-autocode-issue plan #812 --open                # push that branch and open a draft pull request
+<pre><code class="language-sh">autocode issue plan #812                       # commit the plan as plans/issue-812.md on its own branch; no push
+autocode issue plan #812 --open                # push that branch and open a draft pull request
 </code></pre>
 <ul>
 <li><strong>What it commits.</strong> The plan is exported as <code>autocode plan --export</code> writes
@@ -2246,13 +2246,13 @@ describes. Merging it approves nothing. Once <code>plan --open</code> has opened
 issue's run, to run once it is merged and pulled into your checkout; loading and
 approving stay with you:</p>
 <pre><code class="language-sh">autocode --goal-file /path/to/project/plans/issue-812.md --workspace WT --run-dir RUN
-autocode-issue continue #812                   # in joint planning the Plan Reviewer reviews the loaded plan first
+autocode issue continue #812                   # in joint planning the Plan Reviewer reviews the loaded plan first
 autocode --approve-goal TOKEN --workspace WT --run-dir RUN
 </code></pre>
 <p>The approval stop names the file and its goal hash. The merged file goes back
 into the run that drafted the plan; starting a new run from it is not available
 yet (<a href="../workflow/#a-teams-plan-review">A team's plan review</a>).</p>
-<p><code>autocode-issue</code> counts the pull request as merged once the base branch, here or
+<p><code>autocode issue</code> counts the pull request as merged once the base branch, here or
 as last fetched from the remote (<code>plan</code> fetches it first once it has committed a
 plan, with or without <code>--open</code>), holds a different file at its path than the plan
 branch started from, whatever the merge method, and whether or not the plan
@@ -2275,8 +2275,8 @@ that holds the merged file, so it shows only what changed since.</p>
 <li><strong>GitHub Enterprise:</strong> set <code>AUTOCODE_GITHUB_API=https://HOST/api/v3</code>.</li>
 </ul>
 <h2 id="label-triggered-action-example">Label-triggered Action example<a class="headerlink" href="#label-triggered-action-example" title="Permanent link">&para;</a></h2>
-<p><a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/examples/github-issue/issue.yml">The example workflow</a> and
-<a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/examples/github-issue/issue_action.py">its handler</a> use the same issue CLI
+<p><a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/examples/github-issue/issue.yml">The example workflow</a> and
+<a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/examples/github-issue/issue_action.py">its handler</a> use the same issue CLI
 and public task-run interface. Applying the configured label starts a run and
 posts its current status with exact human commands. Applying it again
 reattaches to the same issue worktree and run, without advancing it or approving
@@ -2392,7 +2392,7 @@ comment is updated; if GitHub accepted the comment before the local receipt was
 saved, the handler finds its marker and author rather than posting another.
 A partial initial launch, damaged attachment, unavailable GitHub permission
 check or mismatched comment receipt fails closed and retains the files. Inspect
-the saved attachment and use <code>autocode-issue status</code> and the public task-run
+the saved attachment and use <code>autocode issue status</code> and the public task-run
 commands to diagnose it; do not delete an existing run to make a retry succeed.
 GitHub accepting a PR just before its local URL is saved may need a human to
 reconcile that PR before retrying. The example does not promise transactions
@@ -2432,7 +2432,7 @@ The normal CI suite discovers it on every PR through <code>--all-fast</code> and
 <h2 id="reviewing-a-pull-request">Reviewing a pull request<a class="headerlink" href="#reviewing-a-pull-request" title="Permanent link">&para;</a></h2>
 <p><code>autocode review-pr</code> reviews an existing pull request without changing your local
 project or starting Requirements, planning, approval or building. The
-<code>autocode-issue review-pr</code> alias runs the same command.</p>
+<code>autocode issue review-pr</code> alias runs the same command.</p>
 <pre><code class="language-sh">autocode review-pr https://github.com/OWNER/REPO/pull/NUMBER -- \
   --provider opencode --single-model zai-coding-plan/glm-5.3 --reasoning-effort high
 </code></pre>
@@ -2480,10 +2480,10 @@ may still change after that read; the submitted review's <code>commit_id</code> 
 the captured reviewed head. Repeating <code>--post</code> creates a separate review.
 GitHub posting tokens and Git authentication helper/header values are blanked
 at the TaskRun child boundary; normal provider configuration stays available.</p>
-<p>The companion <a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/examples/github-review/review.yml">pull request Action</a> uses
+<p>The companion <a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/examples/github-review/review.yml">pull request Action</a> uses
 trusted installed AutoCode/provider tooling on an explicitly configured runner.
 It reviews without posting by default, and keeps its result as a workflow
-artifact. Follow <a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/examples/github-review/README.md">its setup</a>; never install
+artifact. Follow <a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/examples/github-review/README.md">its setup</a>; never install
 AutoCode or provider tooling from the PR with secrets available.</p>
 
 

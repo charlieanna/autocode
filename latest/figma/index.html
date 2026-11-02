@@ -2074,21 +2074,21 @@
 
 
 <h1 id="figma-design-and-implementation">Figma design and implementation<a class="headerlink" href="#figma-design-and-implementation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/README.md">← Back to README</a></p>
 <p>The native connected-Figma workflow uses Codex with the Figma plugin. Requirements planning,
 plan review, plan finalization, validation, and completion decisions use the review model
 tier (Sol); the review and decision steps default to Sol High. Figma editing uses the
 Builder model tier (Terra). OpenCode is not needed for this path. The plugin must
 be available in Codex CLI sessions; a connection only in another app is insufficient.</p>
 <pre><code class="language-sh"># Design only (both commands are equivalent):
-autocode-ui &quot;Design a responsive team operations dashboard&quot;
+autocode ui &quot;Design a responsive team operations dashboard&quot;
 autocode ui &quot;Design a responsive team operations dashboard&quot;
 
 # Design, review, then hand the accepted Figma result to the implementation runner:
 autocode ui &quot;Build a responsive team operations dashboard&quot; --build
 
 # Refine a selected file:
-autocode-ui &quot;Refine the project detail layout&quot; --figma-file &quot;https://www.figma.com/design/FILEKEY/Project&quot;
+autocode ui &quot;Refine the project detail layout&quot; --figma-file &quot;https://www.figma.com/design/FILEKEY/Project&quot;
 
 # Implement an existing file, or import a completed design run:
 autocode &quot;Build the supplied design&quot; --figma-file &quot;https://www.figma.com/design/FILEKEY/Project&quot;
@@ -2117,7 +2117,7 @@ comparisons and independent validation by default; they do not require another
 human visual approval. Add <code>--figma-review human</code> to a new implementation run if
 that review is wanted. Explicitly supplied review requirements still take precedence.
 The workflow uses the connected Figma editing tools, not an assumed Figma Make API.</p>
-<p>The Figma and code paths use the same durable Autocode stage driver. <code>autocode-ui</code>
+<p>The Figma and code paths use the same durable Autocode stage driver. <code>autocode ui</code>
 is an installed alias for <code>autocode ui</code>, not a separate orchestration product. Each
 target supplies its own prompts, report schemas and acceptance rules while sharing
 stage selection, checkpoint persistence, retry/skip behavior and terminal-state
@@ -2248,7 +2248,7 @@ criterion evidence for inspection; do not cite deleted scratch paths as live evi
 replace the <a href="../visual-captures/">capture-provenance mechanisms</a> delivered in #291.
 Connecting the comparator to those collector-owned captures is separate from this
 project-owned command. Discovery, independent image review and efficiency work remain
-tracked in #250, #251 and #255. See the <a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/docs/plans/figma-visual-comparison.md">implementation plan</a>.</p>
+tracked in #250, #251 and #255. See the <a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/docs/plans/figma-visual-comparison.md">implementation plan</a>.</p>
 <h3 id="opt-in-live-qualification">Opt-in live qualification<a class="headerlink" href="#opt-in-live-qualification" title="Permanent link">&para;</a></h3>
 <p>The reproducible qualification uses a real local Chromium reference and the existing
 <code>codex-only</code> live model profile. Despite its name, that profile uses OpenCode transport;

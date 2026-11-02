@@ -1843,7 +1843,7 @@ the scenario run directory; pins are lowercase SHA-256 digests of retained files
 }
 </code></pre>
 <p>Replace <code>FILE_SHA256</code> with the file's 64-digit digest. Append a suspicion with:</p>
-<pre><code class="language-sh">autocode-arena annotate ATTEMPT --report attribution.json
+<pre><code class="language-sh">autocode arena annotate ATTEMPT --report attribution.json
 python scenarios/run.py annotate RUN_DIRECTORY --report attribution.json
 </code></pre>
 <p>After independent review, set <code>confirmed_diagnosis</code> to the reviewed explanation

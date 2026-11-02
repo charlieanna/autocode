@@ -2460,7 +2460,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2580,7 +2580,7 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 <td>Compare Vitest failure evidence (see <a href="../execution/#baseline-comparison">Execution</a>).</td>
 </tr>
 <tr>
-<td><code>autocode review-pr URL [--post] [--out NEW_DIRECTORY] [--json] -- PROVIDER_OPTIONS</code> / <code>autocode-issue review-pr</code></td>
+<td><code>autocode review-pr URL [--post] [--out NEW_DIRECTORY] [--json] -- PROVIDER_OPTIONS</code> / <code>autocode issue review-pr</code></td>
 <td>Fetch the exact PR head into an owned checkout, run Code Reviewer only, and print authenticated findings/evidence. <code>--post</code> submits COMMENT only after every new-side anchor and the head are rechecked (see <a href="../issues/#reviewing-a-pull-request">Pull request reviews</a>).</td>
 </tr>
 <tr>
@@ -2675,11 +2675,11 @@ is unknown. Customer repositories are never treated as AutoCode provenance.</p>
 (or <code>python tools/autocode.py</code> with your ordinary task options). Doctor also prints
 a deliberately invoked reinstall command for the current interpreter. It never
 updates an installation or rewrites run state itself.</p>
-<p>The old console-script aliases remain for compatibility. The unit entry points
-<code>autopilot</code>, <code>autoplanner</code>, <code>autocode-build</code>, <code>autoreview</code>, <code>autoresolver</code>,
-<code>autocode-orchestrator</code> and <code>autocode-unattended</code> are internal entry points; use
-<code>autocode</code> and its public subcommands in new instructions. Internal stage and unit
-names keep their existing meaning.</p>
+<p><code>autocode</code> is the only installed command. The earlier per-unit scripts (<code>autopilot</code>, <code>autoplanner</code>,
+<code>autocode-build</code>, <code>autoreview</code>, <code>autoresolver</code>, <code>autocode-orchestrator</code> and the per-tool scripts) are no
+longer installed: use <code>autocode --unit autoplanner|autocode|autoreview|autoresolver</code> and the public
+subcommands (<code>autocode issue</code>, <code>unattended</code>, <code>ui</code>, <code>tasks</code>, <code>components</code>, <code>arena</code>, <code>dashboard</code>). Their modules still run as
+<code>python -m autocode_cli.&lt;module&gt;</code>. Internal stage and unit names keep their existing meaning.</p>
 <h2 id="offline-demo">Offline demo<a class="headerlink" href="#offline-demo" title="Permanent link">&para;</a></h2>
 <p>Run <code>autocode demo</code> after installation; Git and Python are enough. You do not need
 OpenCode, Codex or an account. The demo answers its sample requirements question
@@ -2692,7 +2692,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3018,7 +3018,7 @@ not approve a plan or start a model.</p>
 </tr>
 <tr>
 <td><code>--as NAME</code></td>
-<td>With <code>--approve-goal</code>, <code>--approve-review</code>, <code>--accept-completion</code>, <code>--edit-goal</code>, <code>--goal-file</code> or a resume (<code>--resume-paused</code>, or <code>autocode resume</code> at a pause) on a shared machine: the name of the person approving, accepting completion, editing or resuming, saved beside the Git identity as their claim, never verified (<a href="../execution/#who-approved">Who approved</a>). With a resume it is saved only when the resume releases a pause; a resume that finds none, or that the pause keeps, ignores it. <code>--status</code>, the completion summary and, for a build, bug-fix or design run, the completed run's evidence report (and so the <code>autocode-issue pr</code> body) list it with the rest of the record. A project's <code>require-approver</code> checks the Git identity, never this name (<a href="../execution/#required-approver">Required approver</a>).</td>
+<td>With <code>--approve-goal</code>, <code>--approve-review</code>, <code>--accept-completion</code>, <code>--edit-goal</code>, <code>--goal-file</code> or a resume (<code>--resume-paused</code>, or <code>autocode resume</code> at a pause) on a shared machine: the name of the person approving, accepting completion, editing or resuming, saved beside the Git identity as their claim, never verified (<a href="../execution/#who-approved">Who approved</a>). With a resume it is saved only when the resume releases a pause; a resume that finds none, or that the pause keeps, ignores it. <code>--status</code>, the completion summary and, for a build, bug-fix or design run, the completed run's evidence report (and so the <code>autocode issue pr</code> body) list it with the rest of the record. A project's <code>require-approver</code> checks the Git identity, never this name (<a href="../execution/#required-approver">Required approver</a>).</td>
 </tr>
 <tr>
 <td><code>--reject-review C1 --review-token '…' --review-note TEXT</code></td>
@@ -3302,7 +3302,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -4259,7 +4259,7 @@ terminal) still works and is being replaced by this client. Scripts that call pl
 <code>autocode</code> without a terminal are unchanged.</p>
 <h2 id="unattended-callers-agents">Unattended callers (agents)<a class="headerlink" href="#unattended-callers-agents" title="Permanent link">&para;</a></h2>
 <p><code>autocode unattended</code> (or the internal compatibility wrapper
-<code>autocode-unattended</code> / <code>scripts/autocode-unattended</code> from a checkout) runs AutoCode
+<code>autocode unattended</code> / <code>scripts/autocode-unattended</code> from a checkout) runs AutoCode
 for another agent without letting that agent make the operator's decisions. It takes
 AutoCode's own arguments but refuses every decision or recovery flag (<code>--answer</code>,
 <code>--delegate*</code>, <code>--approve-*</code>, <code>--resume-paused</code>, <code>--retry-*</code>, <code>--feedback</code>, <code>--follow-up</code>,
@@ -4283,8 +4283,8 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/17370bebc8a3b855f493ed75828edd927b55b417/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
-allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
+<a href="https://github.com/charlieanna/autocode/blob/37fcccdd144675108776abf6873531a585d848b9/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
 analyze the work read-only. Keep that directory outside the target workspace.</p>
