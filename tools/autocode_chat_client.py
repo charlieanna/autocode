@@ -420,6 +420,7 @@ class ChatClient:
         self._status_serial = 0
         self._status_error = ""
         self._prompt_waiting_key: tuple[str, str] | None = None
+        self._approval_open = False
         self._read_errors: dict[str, str] = {}
         self._summarized: set[str] = set()  # runs whose closing summary this chat already said
         self._totals: dict[str, dict | None] = {}  # each tab's run total from its newest view, for the session line
@@ -510,7 +511,14 @@ class ChatClient:
                     self._attention.observe(view, received=time.monotonic())
                     self._status_view = view
                     self.accept_status(view)
-                    resumed_while_asking = self._prompt_waiting_key == current and actions.working(view)
+                    resumed_while_asking = (
+                        self._prompt_waiting_key == current
+                        and actions.working(view)
+                        # An open plan approval stays answerable: the fresh view's token guard must
+                        # refuse it ("The plan changed while you were reading it") instead of the
+                        # chat silently dropping the person's reply (#2593 withdrew other questions).
+                        and not self._approval_open
+                    )
             elif key[1] in self.others:
                 if view is not None:
                     self.viewed.add(key[1])  # a background tab has answered a read too, so it can lose a view
@@ -1366,7 +1374,11 @@ class ChatClient:
         if hint := changeset.approval_hint(view):
             self.say(hint)
         context = (view.get("chat") or {}).get("context") or ""
-        reply = self.ask("\nApprove this plan? [y/N], or type what to change: ")
+        self._approval_open = True
+        try:
+            reply = self.ask("\nApprove this plan? [y/N], or type what to change: ")
+        finally:
+            self._approval_open = False
         if reply.lower() in YES:
             fresh = self.status()
             if actions.approval_token(fresh) != token:
