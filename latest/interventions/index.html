@@ -1940,7 +1940,7 @@
 
 
 <h1 id="queued-interventions">Queued interventions<a class="headerlink" href="#queued-interventions" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/ef00d1158a20317f49c4323f4529257360d9e8d1/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/2d0d49758f3105af283bb1d412fad13e7411440b/README.md">← Back to README</a></p>
 <p>The browser can submit a durable change request without competing for the workspace
 writer lock or changing <code>state.json</code>:</p>
 <pre><code class="language-text">[&quot;autocode&quot;, &quot;intervention&quot;, &quot;submit&quot;, &quot;--workspace&quot;, &quot;/project&quot;, &quot;--run-dir&quot;, &quot;/project/.autocode/runs/run&quot;, &quot;--request-id&quot;, &quot;request-123&quot;, &quot;--kind&quot;, &quot;feedback&quot;, &quot;--text&quot;, &quot;Keep the partial implementation&quot;, &quot;--json&quot;]
@@ -1996,7 +1996,13 @@ when every marked ID is already applied. Receipts retain their original IDs, tex
 order.</p>
 <p>Applied feedback saves a <code>brief_feedback</code> provenance event, preserves stage artifacts and
 partial edits, archives stale validation/review authorization, invalidates goal approval,
-and pauses with <code>astra_discovery</code> selected. It never starts Requirements discovery automatically: invoke
+and pauses before further planning. In an adaptive run, feedback bound to the exact
+current plan at its approval or approved acceptance-test checkpoint reuses the saved
+requirements and selects Planner revision (<code>astra_discovery</code>). The feedback becomes a
+traced requirement; the Planner may return a genuine requirements change to Requirements,
+and independent review and fresh exact-plan approval remain required. Stale or missing
+plan bindings, open questions, execution-time feedback and fixed planning flows retain
+Requirements discovery. Consumption itself never starts a model: invoke
 the existing explicit Continue action as an argument array, for example
 <code>["autocode", "--workspace", "/project", "--run-dir", "/project/.autocode/runs/run", "--resume-paused"]</code>.
 The revised brief still requires its exact displayed approval token. Pending feedback also
@@ -2030,7 +2036,7 @@ limits unless overridden.</p>
 <h2 id="intervention-ordering-and-recovery">Intervention ordering and recovery<a class="headerlink" href="#intervention-ordering-and-recovery" title="Permanent link">&para;</a></h2>
 <p>Each request ID retains its original receipt after application. An identical explicit retry returns it without requeueing; changed text or kind under that ID is a conflict. Receipt order increases across consumed batches. The observed goal token is read under the inbox lock when accepting the request.</p>
 <p>Submission and provider admission share the short inbox lock. Preparation occurs before admission; a request accepted first prevents the next provider launch. A request accepted after admission is queued while that stage finishes. The lock is released before waiting for the provider or asking for terminal input. Pending requests also prevent a prepared answer, goal approval, artifact approval or operator completion from committing. Stage results and recovery preserve completed work and consume earlier requests before committing any completion authorization.</p>
-<p>The owner commits pause effects, feedback invalidation and applied receipt IDs in one authoritative state write before removing inbox requests. Restart recovers both acknowledgement crash windows without applying an ID twice. Pause confirmation requires the saved paused state, not merely a receipt. Explicit <code>--resume-paused</code> acknowledges a saved pause; feedback still requires Requirements discovery and a newly displayed exact-token brief approval before implementation can resume.</p>
+<p>The owner commits pause effects, feedback invalidation and applied receipt IDs in one authoritative state write before removing inbox requests. Restart recovers both acknowledgement crash windows without applying an ID twice. Pause confirmation requires the saved paused state, not merely a receipt. Explicit <code>--resume-paused</code> acknowledges a saved pause; feedback still requires the selected planning path and a newly displayed exact-token brief approval before implementation can resume.</p>
 <p>Applied receipts include <code>applied_at</code>; explicit continuation adds <code>resumed_at</code> to previously applied receipts. Status exposes these durable timestamps. Submission retries omit these owner-only fields and continue to return the original acceptance receipt.</p>
 <p>See also: <a href="../dashboard/">Dashboard</a> · <a href="../workflow/">Workflow</a> · <a href="../registry-api/">Registry API</a></p>
 
