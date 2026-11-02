@@ -817,6 +817,21 @@ class DynamicDependenciesTests(unittest.TestCase):
             sorted(module for module in declared if not root.joinpath(*module.split(".")).with_suffix(".py").is_file()),
         )
 
+    def test_job_retry_invocation_keeps_public_job_failure_consumers(self):
+        consumers = {
+            "tests.test_job_failure_recovery",
+            "tests.test_output_length_route_cli",
+            "tests.test_job_stage_limit",
+            "tests.test_job_route",
+            "tests.test_run_finder",
+        }
+        for path in ("tools/autocode_taskrun.py", "tools/autocode_job_args.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {name: "" for name in (*consumers, "tests.test_unrelated")})
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+                self.assertNotIn("tests.test_unrelated", kept)
+
     def test_internal_question_wiring_selects_its_public_cli_regression(self):
         consumer = "tests.test_technical_questions_cli"
         for path in (

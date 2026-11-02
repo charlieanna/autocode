@@ -46,6 +46,42 @@ class StageLimitPolicyTests(unittest.TestCase):
                         {"run_dir", "job_retry_token", "max_stage_seconds", extra[0][2:].replace("-", "_")},
                     )
 
+    def test_the_model_answer_refusal_precedes_the_stage_deadline_refusal(self):
+        # A model answer with the retry it cannot make (#463) must get the model-owning refusal
+        # even when the mix also carries a stage deadline; the deadline rule never preempts it.
+        for flags in (("--answer", "route-sol=gpt-6-luna"), ("--delegate", "route-sol")):
+            with self.subTest(flags=flags), contextlib.redirect_stderr(io.StringIO()) as stderr:
+                parser = arguments.build_parser(None, arguments.DEFAULT_ROLE_MODELS)
+                args = parser.parse_args(
+                    [
+                        "--run-dir",
+                        "/run",
+                        *flags,
+                        "--resume-paused",
+                        "--retry-failed-stage",
+                        "--max-stage-seconds",
+                        "60",
+                        "--job-retry-token",
+                        "T",
+                    ]
+                )
+                with self.assertRaises(SystemExit):
+                    job_args.validate(
+                        args,
+                        parser,
+                        {
+                            "run_dir",
+                            "job_retry_token",
+                            "resume_paused",
+                            "retry_failed_stage",
+                            "max_stage_seconds",
+                            flags[0][2:].replace("-", "_"),
+                        },
+                    )
+                message = stderr.getvalue()
+                self.assertIn("names a stopped job's model on its own", message)
+                self.assertNotIn("Save the stopped job's stage deadline", message)
+
     def state(self):
         return {
             "settings": {

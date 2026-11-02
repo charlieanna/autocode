@@ -601,6 +601,16 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_job_cap_change", "tests.test_job_stage_limit"),
     ),
     (
+        ("tools/autocode_taskrun.py", "tools/autocode_job_args.py"),
+        (
+            "tests.test_job_failure_recovery",
+            "tests.test_output_length_route_cli",
+            "tests.test_job_stage_limit",
+            "tests.test_job_route",
+            "tests.test_run_finder",
+        ),
+    ),
+    (
         (
             "tools/autocode_configure.py",
             "tools/autocode_resolver_retry_route.py",
