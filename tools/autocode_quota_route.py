@@ -161,10 +161,25 @@ def _routable(state: RunState, record: dict) -> str | None:
 
 
 def job_stop_status(failure: dict) -> str | None:
-    """Include retained pre-auth/timeout-routing failures without mutating their evidence."""
+    """Include retained pre-auth/timeout-routing failures without mutating their evidence.
+
+    A stage-deadline stop (``deadline_stop``) is not a model stop: it is retried exactly (#2605).
+    """
+    if deadline_stop(failure) and not failure.get("pause_status"):
+        return None
     return failure.get("pause_status") or {"provider_auth": AUTH_STATUS, "timeout": TIMEOUT_STATUS}.get(
         str(failure.get("kind") or "")
     )
+
+
+def deadline_stop(failure: dict) -> bool:
+    """A workflow job stopped by its hard stage deadline: AutoCode's own limit, never a question about models.
+
+    autocode_job_deadline extends the deadline first; once that is spent the job takes its exact
+    retry on the same model (#2605). Another limit (the exploration budget, ``progress``) still
+    asks its model question, and a failure saved before the kind was recorded keeps its own.
+    """
+    return failure.get("kind") == "timeout" and failure.get("timeout_kind") == "stage"
 
 
 def job_pause_current(state: RunState) -> bool:

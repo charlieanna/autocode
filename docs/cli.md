@@ -988,7 +988,8 @@ never past the run's remaining total time, at most twice for that job in a run, 
 under the run's money cap. Each extension is saved in the run's limits and recorded
 with its reason as a runner `automatic_job_stage_deadline_extended` event and a
 configuration change. No question is asked. Only when no extension is left, or the
-total time cap leaves no room, does the job pause as below.
+total time cap leaves no room, does the job pause as below, for its exact retry on the
+same model: a stage-deadline stop asks no model question and takes no model answer.
 
 For an authenticated hard stage timeout that still paused, an operator can preserve the selected
 model and save a larger finite deadline with `--job-retry-token TOKEN
