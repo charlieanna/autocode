@@ -9,11 +9,13 @@ from copy import deepcopy
 try:
     from . import autocode_client_actions as actions
     from . import autocode_coordination_store as store
+    from . import autocode_interventions as interventions
     from . import autocode_message_context as message_context
     from . import autocode_util as util
 except ImportError:
     import autocode_client_actions as actions
     import autocode_coordination_store as store
+    import autocode_interventions as interventions
     import autocode_message_context as message_context
     import autocode_util as util
 
@@ -27,6 +29,7 @@ def resumable(view, owned):
     """Never release somebody else's hold, even if a newer pause hid its intent."""
     intervention = view.get("interventions") or {}
     intent = intervention.get("pause_intent") or {}
+    held = intent.get("held_pause") or {}
     receipts = intervention.get("applied_receipts") or []
     outstanding = [row for row in receipts if row.get("kind") in ("pause", "feedback") and not row.get("resumed_at")]
     return bool(
@@ -40,7 +43,7 @@ def resumable(view, owned):
         and not intervention.get("inbox_error")
         and not intervention.get("stop_intent")
         and not any(row.get("kind") == "stop" for row in receipts)
-        and not intent.get("held_pause")
+        and (not held or interventions.pending_admission_pause(held.get("status"), held.get("stop_reason")))
         and outstanding
         and all(row.get("id") in owned for row in outstanding)
         and all(identifier in owned for identifier in intent.get("request_ids") or [])

@@ -41,6 +41,20 @@ def paused(*receipts, held=None):
 
 
 class ConversationPolicyTests(unittest.TestCase):
+    def test_saved_owned_pause_can_recover_its_known_admission_boundary_only(self):
+        own = {"id": "owned", "kind": "pause"}
+        held = {
+            "status": "PAUSED_INTERVENTION_PENDING",
+            "stop_reason": "Queued intervention must be applied before this action; explicitly continue.",
+        }
+        self.assertTrue(policy().resumable(paused(own, held=held), {"owned"}))
+        self.assertFalse(policy().resumable(paused({"id": "person", "kind": "pause"}, own, held=held), {"owned"}))
+        self.assertFalse(policy().resumable(paused(own, held={**held, "stop_reason": "Unreadable inbox"}), {"owned"}))
+        self.assertFalse(policy().resumable(paused(own, held={**held, "status": "PAUSED_COST_LIMIT"}), {"owned"}))
+        waiting = paused(own, held=held)
+        waiting["interventions"].update(pending_count=1, pending_ids=["new"])
+        self.assertFalse(policy().resumable(waiting, {"owned"}))
+
     def test_request_identity_is_stable_and_binds_task_request_target_and_operation(self):
         record, message = document(), {"id": "question-1", "text": "What do you think?"}
         original = policy().request_id(record, message, "api", "pause")

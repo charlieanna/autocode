@@ -2,6 +2,7 @@
 
 import contextlib
 import copy
+import json
 import os
 import sys
 import threading
@@ -255,6 +256,32 @@ class InterventionOrderingTests(unittest.TestCase):
         self.assertEqual(2, result)
         self.assertFalse(goals.approved(self.fixture.state))
         self.assertEqual("PAUSED_INTERVENTION_PENDING", self.fixture.state["status"])
+
+    def test_cli_consumption_resolves_the_pending_boundary_without_hiding_the_pause_owner(self):
+        self.fixture.draft()
+        lifecycle.human.evaluate(self.state)
+        lifecycle.present(self.state)
+        original = lifecycle.approve
+
+        def approve_then_pause(state, token):
+            original(state, token)
+            self.submit("owned-pause", "pause")
+
+        with patch.object(lifecycle, "approve", side_effect=approve_then_pause):
+            self.assertEqual(2, self.fixture.invoke("--approve-goal", self.state["displayed_goal"]))
+        self.assertEqual(0, self.fixture.invoke("--status"))
+        pending = json.loads(self.fixture.stdout)
+        self.assertEqual("PAUSED_INTERVENTION_PENDING", pending["view"]["status"])
+        self.assertEqual(["owned-pause"], pending["interventions"]["pending_ids"])
+
+        self.assertEqual(2, self.fixture.invoke("--no-chat"))
+        self.assertEqual(0, self.fixture.invoke("--status"))
+        settled = json.loads(self.fixture.stdout)
+        self.assertEqual("PAUSED_INTERVENTION", settled["view"]["status"])
+        self.assertEqual("resume", settled["view"]["needs"]["kind"])
+        self.assertEqual([], settled["interventions"]["pending_ids"])
+        self.assertEqual(["owned-pause"], settled["interventions"]["pause_intent"]["request_ids"])
+        self.assertNotIn("held_pause", settled["interventions"]["pause_intent"])
 
     def test_interactive_approval_does_not_hold_lock_over_input_and_rechecks_after_reply(self):
         self.fixture.draft()

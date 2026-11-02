@@ -28,6 +28,12 @@ INBOX_VERSION = 1
 LOCK_TIMEOUT_SECONDS = 1.0
 INBOX_NAME = "interventions.json"
 LOCK_NAME = "interventions.lock"
+PENDING_ADMISSION_REASON = "Queued intervention must be applied before this action; explicitly continue."
+
+
+def pending_admission_pause(status, reason) -> bool:
+    """Recognize only our queued-inbox boundary, never an unreadable inbox or other hold."""
+    return status == "PAUSED_INTERVENTION_PENDING" and reason == PENDING_ADMISSION_REASON
 
 
 class InterventionError(RuntimeError):
@@ -292,7 +298,7 @@ def admission(run_dir: Path):
             if _read_inbox(inbox)["requests"]:
                 raise util.Paused(
                     "PAUSED_INTERVENTION_PENDING",
-                    "Queued intervention must be applied before this action; explicitly continue.",
+                    PENDING_ADMISSION_REASON,
                 )
             yield
     except InterventionError as error:

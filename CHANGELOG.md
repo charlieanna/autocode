@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Applying a queued pause no longer retains its own inbox-admission boundary as another
+  independent hold. Coordinated messages can also recover saved instances of that exact
+  boundary when every outstanding pause belongs to the conversation; unrelated pauses,
+  exhausted limits, stops and inbox errors remain protected.
 - Coordinated task messages reuse each participant's public status while choosing one action,
   reducing repeated status subprocesses. Execution and the returned status still read fresh
   evidence, including new pauses and stops.
