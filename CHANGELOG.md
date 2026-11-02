@@ -17,6 +17,12 @@ PR template asks for an entry here; a change without one is incomplete.
   from a project subfolder writes to the project's evidence directory; and `capture` prints a
   short receipt hash on stderr, so a Tester that shortens its output with `| tail` or
   `| grep` no longer has its report rejected. Findings: `docs/bugs/2026-11-02-retry-loops.md`.
+- Terminal chat: a stage row separates the stage total from the newest attempt's elapsed
+  time, the working line times the current attempt rather than the whole stage, and an
+  execution timeout is named before a generic "answer rejected" when a stage fails.
+- Terminal chat: the live agent log stays visible by default while a run is working (the
+  minimum terminal height is gone), with a clearer empty state before the first agent
+  reports.
 
 ### Added
 
