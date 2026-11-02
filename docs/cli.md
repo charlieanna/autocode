@@ -754,6 +754,11 @@ that extra pane without stopping ordinary progress updates in the conversation.
 Detailed logs retain the last 500 entries. Everything shown is display only:
 a progress message is not verification, and a command shown is not a passed check.
 
+After coordinated work stops at a saved cancellation boundary, the full-screen chat
+stays open. `/runs`, `/open` and `/quit` remain available; typed messages use only
+the current task's public message offer and do not resume the work. The line client
+still exits with status 2 at that boundary.
+
 Type `/` in the composer for commands, at a question or while AutoCode works. The
 menu narrows as you type; `Up`/`Down` choose, `Tab` completes and `Enter` runs the
 highlighted one:

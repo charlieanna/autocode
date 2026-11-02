@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Cancelling coordinated work at a saved boundary keeps the full-screen chat open for
+  inspection, navigation and offered task messages. It does not resume work automatically;
+  the line client retains its existing exit status.
 - Applying a queued pause no longer retains its own inbox-admission boundary as another
   independent hold. Coordinated messages can also recover saved instances of that exact
   boundary when every outstanding pause belongs to the conversation; unrelated pauses,
