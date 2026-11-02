@@ -296,6 +296,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/autocode_capture_bootstrap.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/autocode_native_capture_linux.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/prompts/plan-chat.md", ("tests.test_plan_chat_cli",)),
+    ("tools/prompts/run-chat.md", ("tests.test_run_messages", "tests.test_run_messages_cli")),
     ("tools/autocode_kilo_image_delivery.mjs", ("tests.test_kilo_image_delivery", "tests.test_native_image")),
     ("tools/fixtures/multicomponent_fake.py", ("tests.test_multicomponent", "tests.test_local_compose_scenario")),
     (

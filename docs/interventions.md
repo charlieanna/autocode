@@ -31,6 +31,27 @@ requests; it does not claim that a currently running older binary can consume th
 
 ## Consumption
 
+For a spec-first task that has not completed or stopped, `--kind message --text TEXT`
+queues a conversation rather than assuming a requirements correction. Submission is
+pending-only and uses the same exact request-ID deduplication as other interventions.
+At a saved, idle checkpoint, the existing Requirements stage answers the message using
+the task, requirements, plan and earlier exchanges. It may make focused read-only source
+inspections to assess a technical question. A question restores the saved work checkpoint
+without changing the plan, approvals, requirements sources or completed stages. An explicit
+requested change keeps the reply and forwards the original human text through ordinary
+planning and exact-plan review. Messages are answered in submission order.
+A message already accepted before the final result is answered at that boundary too:
+a question restores completion, while a change archives it and returns through review.
+New messages after completion use the existing follow-up path instead. A runtime must
+have recorded `intervention_capability.supports_messages=true` at an owned checkpoint
+before a message can be accepted; updating a viewer alone cannot enable an older worker.
+
+An explicit pause or stop wins over a message in the same batch. A message cannot release
+an exhausted budget, an operational hold, uncertain work or an outstanding report repair.
+It remains saved until that checkpoint can continue under its existing authority. Saving
+a message itself launches no model. The ordinary named continuation runs its conversation;
+the invocation may first return at the saved boundary with `needs.kind=continue`.
+
 The workspace-lock owner checks the inbox after recovery and before every provider
 admission, and after every saved stage result, including question, approval, review and
 completion exits. Inbox acceptance and admission are serialized by the short inbox lock:

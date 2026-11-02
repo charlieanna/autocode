@@ -94,7 +94,7 @@ def _read_inbox(inbox: Path) -> dict[str, Any]:
             not isinstance(request, dict)
             or not isinstance(request.get("id"), str)
             or not request["id"]
-            or request.get("kind") not in {"feedback", "pause", "stop"}
+            or request.get("kind") not in {"feedback", "message", "pause", "stop"}
             or not isinstance(request.get("text"), str)
             or not isinstance(request.get("order"), int)
             or isinstance(request["order"], bool)
@@ -140,9 +140,9 @@ def _locked_inbox(lock: Path) -> Any:
 def _payload(request_id: str, kind: str, text: str) -> dict[str, str]:
     if not isinstance(request_id, str) or not request_id:
         raise InterventionError("invalid_request_id", "Request ID must be a nonempty string")
-    if kind not in {"feedback", "pause", "stop"}:
-        raise InterventionError("invalid_kind", "Intervention kind must be feedback, pause or stop")
-    if not isinstance(text, str) or (kind == "feedback" and not text):
+    if kind not in {"feedback", "message", "pause", "stop"}:
+        raise InterventionError("invalid_kind", "Intervention kind must be feedback, message, pause or stop")
+    if not isinstance(text, str) or (kind in {"feedback", "message"} and not text.strip()):
         raise InterventionError("invalid_text", "Feedback text must be a nonempty string")
     if kind == "pause" and text:
         raise InterventionError("invalid_text", "Pause requests do not accept feedback text")
@@ -197,6 +197,13 @@ def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: 
                 "consumer": "already_applied",
                 "receipt": _original_receipt(applied),
             }
+        if kind == "message" and (
+            not (current_state.get("settings") or {}).get("spec_first")
+            or (current_state.get("intervention_capability") or {}).get("supports_messages") is not True
+            or current_state.get("status") == "TASK_COMPLETE"
+            or any(item.get("kind") == "stop" for item in current_state.get("applied_interventions", []))
+        ):
+            raise InterventionError("message_unavailable", "This run cannot accept a live conversation message")
         contract = current_state.get("goal_contract")
         try:
             token = goals.token(contract) if isinstance(contract, dict) else None
@@ -282,6 +289,7 @@ def consume(
     *,
     write_state: Any,
     apply_feedback: Any,
+    apply_message: Any = None,
     before_commit: Any = None,
     lock_held: bool = False,
 ) -> list[dict[str, Any]]:
@@ -303,6 +311,12 @@ def consume(
                 applied_receipt = {**receipt, "applied_at": util.now()}
                 if receipt["kind"] == "feedback":
                     apply_feedback(receipt, applied_receipt)
+                elif receipt["kind"] == "message":
+                    if apply_message is None:
+                        raise InterventionError(
+                            "unsupported_message", "This consumer cannot apply conversation messages"
+                        )
+                    apply_message(receipt, applied_receipt)
                 applied.append(applied_receipt)
             if before_commit is not None:
                 before_commit(new)
@@ -330,13 +344,15 @@ def consume(
 def cli(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Submit or inspect pending Autocode interventions")
     commands = parser.add_subparsers(dest="operation", required=True)
-    submit_parser = commands.add_parser("submit", help="Queue a feedback, pause or stop request for a run")
+    submit_parser = commands.add_parser("submit", help="Queue a feedback, message, pause or stop request for a run")
     submit_parser.add_argument("--workspace", required=True, type=Path, help="Project directory")
     submit_parser.add_argument("--run-dir", required=True, type=Path, help="The saved run")
     submit_parser.add_argument(
         "--request-id", required=True, help="Stable ID of this request, so a repeat is recognized"
     )
-    submit_parser.add_argument("--kind", required=True, choices=("feedback", "pause", "stop"), help="What is requested")
+    submit_parser.add_argument(
+        "--kind", required=True, choices=("feedback", "message", "pause", "stop"), help="What is requested"
+    )
     submit_parser.add_argument("--text", default="", help="The feedback text")
     submit_parser.add_argument("--json", action="store_true", help="Print the receipt as JSON")
     inspect_parser = commands.add_parser("inspect", help="List the pending interventions of a run")

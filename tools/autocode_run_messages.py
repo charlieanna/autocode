@@ -1,0 +1,185 @@
+"""Durable conversation turns at a task's saved execution boundary.
+
+Receiving text changes no requirements or execution authority. Requirements answers
+one queued message at a time; questions restore the exact checkpoint. The normal
+feedback path alone applies a classified change after the answer is recorded.
+"""
+
+import json
+from copy import deepcopy
+
+try:
+    from . import autocode_contract_identity as identity
+    from . import autocode_run_status as run_status
+except ImportError:
+    import autocode_contract_identity as identity
+    import autocode_run_status as run_status
+
+# Completed runs reject new submissions. A previously accepted message may still
+# reach this boundary after the last in-flight result has been committed.
+CHECKPOINTS = {"RUNNING", "AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER", "TASK_COMPLETE"}
+COMPLETION_KEYS = ("completed_at", "completion_actor", "final_decision")
+CHECKPOINT_KEYS = ("status", "phase", "next_stage", "stop_reason", *COMPLETION_KEYS)
+
+
+def _token(state):
+    contract = state.get("goal_contract")
+    if not contract:
+        return "none"
+    if not identity.sealed(contract):
+        raise ValueError("Conversation needs an intact saved contract")
+    return identity.token(contract)
+
+
+def receive(state, receipt):
+    """Keep one exact user message once, including retries after its answer."""
+    identifier, text = receipt.get("id"), receipt.get("text")
+    if not isinstance(identifier, str) or not identifier or not isinstance(text, str) or not text.strip():
+        raise ValueError("Conversation needs a request identity and nonempty text")
+    events = state.setdefault("user_events", [])
+    for event in events:
+        if event.get("live") and event.get("request_id") == identifier:
+            if event["text"] != text:
+                raise ValueError("Conversation request identity already names different text")
+            return event
+    event = {
+        "kind": "run_message",
+        "actor": "user_intervention",
+        "id": "run-message-" + identifier,
+        "request_id": identifier,
+        "text": text,
+        "at": receipt.get("submitted_at"),
+        "live": True,
+    }
+    events.append(event)
+    return event
+
+
+def active(state):
+    """The conversation currently occupying the Requirements stage, if any."""
+    return next(
+        (
+            row
+            for row in state.get("user_events", [])
+            if row.get("kind") == "plan_message" and row.get("live") and "reply_after" not in row
+        ),
+        None,
+    )
+
+
+def activate(state):
+    """Start one queued conversation only at a clear, non-protected checkpoint."""
+    if (
+        state.get("status") not in CHECKPOINTS
+        or not (state.get("settings") or {}).get("spec_first")
+        or any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair"))
+        or any(row.get("kind") == "plan_message" and "reply_after" not in row for row in state.get("user_events", []))
+    ):
+        return False
+    event = next((row for row in state.get("user_events", []) if row.get("kind") == "run_message"), None)
+    if event is None:
+        return False
+    selected = _token(state)
+    event.update(
+        kind="plan_message",
+        contract_token=selected,
+        return_checkpoint={key: deepcopy(state[key]) for key in CHECKPOINT_KEYS if key in state},
+        return_stage=state.get("next_stage"),
+    )
+    for key in COMPLETION_KEYS:
+        state.pop(key, None)
+    run_status.running(state, "PLANNING", next_stage="requirements_gather")
+    return True
+
+
+def context(state):
+    """Give Requirements the message and saved task context, without rewriting it."""
+    event = active(state)
+    if event is None or event["contract_token"] != _token(state):
+        raise ValueError("No current live conversation")
+    return {
+        "stage": "requirements_gather",
+        "task": state.get("task"),
+        "workspace": state.get("workspace"),
+        "goal_contract": deepcopy(state.get("goal_contract")),
+        "requirements_handoff": deepcopy(state.get("requirements_handoff")),
+        "current_task": deepcopy(state.get("current_task")),
+        "planning_reports": {
+            stage: {
+                key: json.dumps(value, ensure_ascii=False)[:12000]
+                for key, value in (entry.get("report") or {}).items()
+                if key != "contract"
+            }
+            for stage, entry in (state.get("planning") or {}).get("reports", {}).items()
+        },
+        "message": deepcopy(event),
+        "prior_exchanges": [
+            {"text": row["text"], "assistant_reply": row["reply_after"]}
+            for row in state.get("user_events", [])
+            if row.get("kind") == "plan_message" and row.get("reply_after")
+        ][-8:],
+    }
+
+
+def accept(state, value, record):
+    """Save the answer and restore the checkpoint; never approve or apply a change."""
+    event = active(state)
+    if (
+        event is None
+        or state.get("status") != "RUNNING"
+        or state.get("next_stage") != "requirements_gather"
+        or value.get("message_id") != event["id"]
+        or value.get("contract_token") != event["contract_token"]
+        or event["contract_token"] != _token(state)
+    ):
+        raise ValueError("Conversation response does not match the saved task and message")
+    checkpoint = event["return_checkpoint"]
+    if checkpoint.get("status") not in CHECKPOINTS or set(checkpoint) - set(CHECKPOINT_KEYS):
+        raise ValueError("Conversation cannot replace an unrelated checkpoint")
+    reply = value.get("assistant_reply")
+    if (
+        value.get("intent") not in ("question", "change")
+        or not isinstance(reply, str)
+        or not reply.strip()
+        or len(reply) > 12000
+    ):
+        raise ValueError("Conversation response needs an intent and a bounded nonempty answer")
+    event.update(intent=value["intent"], reply_after=reply, output=record.get("output"))
+    for key in CHECKPOINT_KEYS:
+        state.pop(key, None)
+    state.update(deepcopy(checkpoint))
+    return event
+
+
+def correction_admitted(state, text):
+    """Only this answered change can enter feedback from its restored work checkpoint."""
+    event = next(
+        (row for row in reversed(state.get("user_events", [])) if row.get("live") and row.get("reply_after")),
+        None,
+    )
+    if not event or not (
+        event.get("kind") == "plan_message"
+        and event.get("intent") == "change"
+        and event.get("reply_after")
+        and not event.get("forwarded")
+        and event.get("text") == text
+        and state.get("status") in CHECKPOINTS
+    ):
+        return False
+    checkpoint = event.get("return_checkpoint") or {}
+    return all(state.get(key) == checkpoint.get(key) for key in CHECKPOINT_KEYS) and event.get(
+        "contract_token"
+    ) == _token(state)
+
+
+def archive_completion(state):
+    """Retain a completed result before an admitted live correction revises it."""
+    if state.get("status") == "TASK_COMPLETE":
+        state.setdefault("completion_archive", []).append(
+            {
+                "completed_at": state.pop("completed_at", None),
+                "decision": state.pop("final_decision", None),
+                "reason": "Message accepted before completion requested a reviewed change",
+            }
+        )
+        state.pop("completion_actor", None)
