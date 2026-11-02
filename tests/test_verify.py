@@ -2754,6 +2754,14 @@ class VerifyCase(unittest.TestCase):
         )
         self.assert_base_definition_fails(base_suite, result)
 
+    def test_a_test_file_the_detected_suite_cannot_run_names_that_suite(self):
+        # #2609: the refusal must show the binding, so a wrong suite does not read as bad tests.
+        project = self.project({**SEED, "pkg/log/sink_test.go": "package log\n"})
+        result = verify.scratch_run(project.root, project.evidence, tests=["pkg/log/sink_test.go"])
+        self.assertIsNone(result["results"])
+        self.assertIn("no test command runs these files: pkg/log/sink_test.go", result["error"])
+        self.assertIn("the detected unittest suite `", result["error"])
+
     def test_ignored_vendor_reaches_scratch_probe_without_sharing_writes(self):
         project = self.project({**SEED, ".gitignore": "vendor/\n"})
         project.write({"vendor/example/resource.txt": "offline"})

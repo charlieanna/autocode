@@ -23,6 +23,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A pre-build acceptance proof whose test suite cannot run the Tester's files now names the
+  detected suite and says the tests are not at fault, instead of asking to correct them;
+  `--test-command` with `--resume-paused` is accepted at that pause, and the proof runs the
+  Tester's files with the saved command when it is a plain runner invocation (#2609).
 - A Go, Rust or Node repository that carries a stray Python helper, fixture or vendored
   script is no longer bound to `python -m unittest discover`: a root `go.mod`, `Cargo.toml`
   or `package.json` decides the suite unless the root declares a Python project

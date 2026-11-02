@@ -84,3 +84,20 @@ def command_framework(command, *, test_report=None):
     if invocation and not invocation.compile_only:
         return Framework("go", command)
     return None
+
+
+def configured_targeted(settings, test_paths):
+    """The saved ``--test-command`` narrowed to these test files, or None to use the detected suite (#2609).
+
+    Only a plain runner invocation (``command_framework``) is narrowed; any other saved command
+    leaves the files to the detected suite, never a guessed spelling.
+    """
+    command = ((settings or {}).get("regression") or {}).get("test_command")
+    framework = command_framework(command) if isinstance(command, str) and command.strip() else None
+    return framework.targeted(list(test_paths)) if framework else None
+
+
+def untargeted(framework, test_paths) -> str:
+    """Say which suite could not run these test files, so a wrong binding reads as one (#2609)."""
+    found = f"the detected {framework.name} suite `{framework.suite}`" if framework else "no detected test suite"
+    return f"no test command runs these files: {', '.join(test_paths)} ({found} cannot run them)"

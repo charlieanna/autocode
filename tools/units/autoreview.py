@@ -35,6 +35,7 @@ try:
     from .. import autocode_run_status as run_status
     from .. import autocode_source_scope as source_scope
     from .. import autocode_task_authority as task_authority
+    from .. import autocode_verification_commands as command_policy
     from .. import autocode_verification_plan as verification_plan
     from .. import autocode_verify as verify
 except ImportError:
@@ -53,6 +54,7 @@ except ImportError:
     import autocode_run_status as run_status
     import autocode_source_scope as source_scope
     import autocode_task_authority as task_authority
+    import autocode_verification_commands as command_policy
     import autocode_verification_plan as verification_plan
     import autocode_verify as verify
 from . import autoplanner
@@ -239,7 +241,11 @@ def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None)
             record,
             workspace,
             run_tests=lambda tests: clean_run(
-                workspace, evidence_dir / "acceptance-proof", tests=tests, timeout=verify.DEFAULT_TIMEOUT
+                workspace,
+                evidence_dir / "acceptance-proof",
+                tests=tests,
+                command=command_policy.configured_targeted(state.get("settings"), tests),
+                timeout=verify.DEFAULT_TIMEOUT,
             ),
             evidence_dir=evidence_dir,
             send_back=lambda body, changes: send_back_plan(state, body, changes, record),

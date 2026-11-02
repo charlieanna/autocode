@@ -180,6 +180,23 @@ class VerificationCommandGuards(unittest.TestCase):
                     configuration.configure_resume(state, state["settings"], args)
                 self.assertEqual(before, state)
 
+    def test_the_acceptance_proof_pause_accepts_a_suite_correction_before_its_proof(self):
+        # #2609: no proof has run at this pause, so the saved command is the only correction it needs.
+        state = self.state()
+        state.update(status="PAUSED_ACCEPTANCE_TESTS", next_stage="write_acceptance_tests")
+        args = SimpleNamespace(test_command="go test ./...", resume_paused=True)
+        settings = configuration.configure_resume(state, state["settings"], args)
+        self.assertEqual("go test ./...", settings["regression"]["test_command"])
+        self.assertEqual("verification_commands_changed", state["user_events"][-1]["kind"])
+        for status, stage in (("PAUSED_ACCEPTANCE_TESTS", "terra"), ("PAUSED_REQUESTED", "write_acceptance_tests")):
+            with self.subTest(status=status, stage=stage):
+                state = self.state()
+                state.update(status=status, next_stage=stage)
+                before = copy.deepcopy(state)
+                with self.assertRaisesRegex(ValueError, "stopped checkpoint"):
+                    configuration.configure_resume(state, state["settings"], args)
+                self.assertEqual(before, state)
+
     def test_same_command_is_a_noop_even_when_run_has_not_reached_a_repair_checkpoint(self):
         state = self.state()
         state.update(status="RUNNING", active_runner_check={"stage": "regression_proof"})

@@ -254,8 +254,10 @@ TABLE: dict[str, tuple[str, str]] = {
         "The stop reason names the gap; supply the evidence, then --accept-completion, or --resume-paused for a fresh review.",
     ),
     "PAUSED_ACCEPTANCE_TESTS": (
-        "Before any building, the Tester found the approved plan and the code disagree: a case already works or cannot be tested.",
-        "--feedback revises the plan; the Tester runs again on the newly approved plan.",
+        "Before any building, the Tester found the approved plan and the code disagree: a case already works or cannot be "
+        "tested; or the run's test suite cannot run the Tester's files.",
+        "--feedback revises the plan; the Tester runs again on the newly approved plan. When the stop reason names a suite "
+        "that cannot run the files, --resume-paused with a corrected --test-command reruns the proof.",
     ),
     "PAUSED_COMPLETION_REVIEW": (
         "The Completion Reviewer asked for a decision before the run can end.",

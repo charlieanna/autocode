@@ -85,7 +85,7 @@ try:
     from . import autocode_vitest_tests as vitest_tests
     from .autocode_suite_health import suite_health
     from .autocode_test_framework import Framework
-    from .autocode_verification_commands import _go_test, command_framework, select_commands
+    from .autocode_verification_commands import _go_test, command_framework, select_commands, untargeted
     from .autocode_verification_commands import _mentions_tests as _mentions_tests
 except ImportError:
     import autocode_agent_env as agent_env
@@ -123,7 +123,7 @@ except ImportError:
     import autocode_vitest_tests as vitest_tests
     from autocode_suite_health import suite_health
     from autocode_test_framework import Framework
-    from autocode_verification_commands import _go_test, command_framework, select_commands
+    from autocode_verification_commands import _go_test, command_framework, select_commands, untargeted
     from autocode_verification_commands import _mentions_tests as _mentions_tests
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
@@ -2025,7 +2025,7 @@ def scratch_run(
                 framework = Framework("unittest", f"{shlex.quote(python)} -m unittest discover -v", python=python)
             command = framework.targeted(list(tests)) if framework else None
             if not command:
-                return {"error": "no test command runs these files: " + ", ".join(tests), "results": None}
+                return {"error": untargeted(framework, tests), "results": None}
             receipt = run_suite(
                 framework, command, tree, run_dir, "scratch-tests", timeout=timeout, native_execution=native_execution
             )
