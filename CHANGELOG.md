@@ -11,6 +11,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Terminal chat: starting a joint multi-repository run now shows the joint run's live progress and
+  usage. The cheap anchor status publishes the current joint participant's public identity
+  (`coordination.integration`: `workspace` and `run_dir`, or null), so the live-progress observer
+  and the usage meter can follow a joint run that is prepared during a long start action; before,
+  a new joint run was invisible to live progress because no participant existed when advancement
+  began. Every joint work kind is observed (joint regression, joint plan start/advance, and
+  reconcile of a joint start). The published identity is display-only; the advancing coordinator
+  keeps sole advancement control.
 - Terminal chat and status: when AutoCode pauses to apply queued feedback it no longer says you
   requested a pause — the notice reads "Feedback applied. Your work is saved; continue to update
   the plan." and the pause is categorized as AutoCode's own checkpoint instead of a person's stop.

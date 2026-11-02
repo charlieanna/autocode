@@ -255,6 +255,37 @@ if __name__ == "__main__":
 
 
 class CoordinatedTaskUsageTests(unittest.TestCase):
+    def test_new_joint_identity_from_own_anchor_keeps_prior_task_spend(self):
+        from tests.test_coordination_usage import ledger
+
+        task = meter.TaskUsage()
+        task.accept(self.snapshot())
+        publication = {"integration": {"workspace": "/joint", "run_dir": "/joint/run"}}
+        task.observe({**ledger("/source", 1, 100), "coordination": publication})
+        self.assertEqual(6, task.total("/joint/run")["spent_usd"])
+        self.assertFalse(task.total("/joint/run")["cost_complete"])
+        task.observe(ledger("/joint/run", 0.5, 50))
+        task.observe({**ledger("/source", 1, 100), "coordination": publication})
+        self.assertEqual(6.5, task.total("/joint/run")["spent_usd"])
+        self.assertEqual(650, task.total("/joint/run")["input_tokens"])
+        task.observe({**ledger("/source", 1, 100), "coordination": {"integration": None}})
+        self.assertEqual(6.5, task.total("/source")["spent_usd"], "Retired joint attempts remain accounted")
+        task.accept({"anchor": "/next", "runs": [ledger("/next", 2, 200)]})
+        task.observe({**ledger("/source", 1, 100), "coordination": publication})
+        self.assertIsNone(task.total("/joint/run"), "A previous task cannot enroll a run in the new task")
+
+    def test_unknown_views_and_member_offers_cannot_enroll_new_task_ledgers(self):
+        from tests.test_coordination_usage import ledger
+
+        task = meter.TaskUsage()
+        for run in ("/source", "/stranger"):
+            task.observe({**ledger(run, 1, 100), "coordination": {"integration": {"run_dir": "/untrusted"}}})
+        task.accept(self.snapshot())
+        for run in ("/api", "/stranger"):
+            task.observe({**ledger(run, 2, 200), "coordination": {"integration": {"run_dir": "/untrusted"}}})
+        self.assertIsNone(task.total("/untrusted"))
+        self.assertEqual(6, task.total("/source")["spent_usd"])
+
     def snapshot(self):
         from tests.test_coordination_usage import ledger
 

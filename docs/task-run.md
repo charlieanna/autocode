@@ -28,6 +28,10 @@ For an unresolved bug with grounded external scope, `view.coordination` names
 `status_command`, `next_command` and `cancel_command`. The terminal client reads
 `autocode coordinate status --run-dir RUN --json` and executes only its named
 actions. It does not read child state, select repositories or compose tests.
+The cheap anchor offer also publishes `integration` (`workspace`, `run_dir`, or
+null), so a viewer can begin bounded public status reads when the joint run is
+prepared during a long start action. This display identity grants no advancement
+authority; the coordinator remains the sole owner of the action.
 `/repos` displays the shared local source catalog; configure its roots with
 `autocode registry roots add PATH` and standalone repositories with
 `autocode registry repositories add PATH`.

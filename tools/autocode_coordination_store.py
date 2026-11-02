@@ -96,6 +96,9 @@ def offer(run_dir, *, eligible=False):
         "revision": (document or {}).get("revision", 0),
         "cancel_command": command(run_dir, "cancel", "--json"),
         "active": (document or {}).get("active"),
+        "integration": {key: document["joint"][key] for key in ("workspace", "run_dir")}
+        if (document or {}).get("joint")
+        else None,
         "members": [
             {
                 "target": row["target"],

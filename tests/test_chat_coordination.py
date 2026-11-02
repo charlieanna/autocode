@@ -15,6 +15,12 @@ import autocode_chat_coordination as coordination
 
 class CoordinatedLiveScreenTests(unittest.TestCase):
     def test_real_terminal_shows_member_log_during_one_gated_coordinator_action(self):
+        self.assert_live_terminal()
+
+    def test_real_terminal_follows_joint_identity_published_during_start(self):
+        self.assert_live_terminal(joint_start=True)
+
+    def assert_live_terminal(self, joint_start=False):
         from tests import ROOT
         from tests.terminal_screen import TerminalScreen, require_tmux
 
@@ -28,17 +34,21 @@ import json, os, sys
 from pathlib import Path
 root = Path(sys.argv[1])
 anchor, member = str(root / 'anchor'), str(root / 'member')
-args = sys.argv[2:]
+joint_start = sys.argv[2] == 'joint'
+args = sys.argv[3:]
 command = ['autocode', 'coordinate', 'advance', '--run-dir', anchor, '--json']
 def ledger(run, spend, tokens, complete=True):
     return {'run_dir': run, 'cost': {'spent_usd': spend, 'complete': complete},
             'usage': {'accounting': {'tokens': {'input_tokens': tokens, 'output_tokens': 0}}}}
 accounting = {'version': 1, 'anchor': anchor, 'runs': [ledger(anchor, 1, 100),
               ledger(str(root / 'previous'), 2, 200), ledger(member, 0, 0, False)]}
+if joint_start:
+    accounting['runs'].pop()
 if args[:2] == ['coordinate', 'status']:
     print(json.dumps({'version': 1, 'anchor': anchor, 'done': False, 'accounting': accounting,
-        'members': [{'target': 'api', 'workspace': str(root), 'run_dir': member, 'status': 'RUNNING'}],
-        'needs': {'kind': 'start', 'target': 'api'}, 'next_command': command}))
+        'members': [] if joint_start else [{'target': 'api', 'workspace': str(root), 'run_dir': member, 'status': 'RUNNING'}],
+        'needs': {'kind': 'joint_plan_start'} if joint_start else {'kind': 'start', 'target': 'api'},
+        'next_command': command}))
 elif args[:2] == ['coordinate', 'advance']:
     with (root / 'advances').open('a') as stream:
         stream.write('anchor\\n')
@@ -55,6 +65,8 @@ elif '--status' in args:
                                'text': 'Inspecting the actual request path'}]
     else:
         view['coordination'] = {'status_command': ['autocode', 'coordinate', 'status', '--run-dir', anchor, '--json']}
+        if joint_start and (root / 'advances').exists():
+            view['coordination']['integration'] = {'workspace': str(root), 'run_dir': member}
     print(json.dumps({'view': view}))
 else:
     raise SystemExit('Unexpected command: ' + repr(args))
@@ -73,7 +85,7 @@ with ChatTUI() as ui:
         said.append(text)
         ui.say(text)
     meter_options = dict(observe_coordination=ui.observe_coordination) if hasattr(ui, "observe_coordination") else dict()
-    client = ChatClient(root, root / 'anchor', command=(sys.executable, {str(backend)!r}, str(root)),
+    client = ChatClient(root, root / 'anchor', command=(sys.executable, {str(backend)!r}, str(root), {"joint" if joint_start else "member"!r}),
                         observe=ui.observe, **meter_options, unavailable=ui.status_unavailable, say=say,
                         ask=ui.ask, wait=ui.wait, poll_seconds=0.1)
     ui.bind(client.slash, run=True)
@@ -229,7 +241,7 @@ class CoordinatedDisplayTests(unittest.TestCase):
                     self.assertIn("Status available again", said[1])
 
     def test_automatic_member_and_joint_actions_show_live_status_without_transferring_control(self):
-        for target in ("api", "Joint regression"):
+        for target in ("api", "Joint regression", "joint_plan_advance", "joint_advance", "joint_plan_start"):
             for fail in (False, True):
                 with self.subTest(target=target, action_fails=fail):
                     workspace = Path("/tmp/coordinated-live-display").resolve()
@@ -258,9 +270,11 @@ class CoordinatedDisplayTests(unittest.TestCase):
                     summary = {
                         "members": [{**member, "target": "api"}],
                         "done": False,
-                        "needs": {"kind": "start", "target": target},
+                        "needs": {"kind": target}
+                        if target.startswith("joint_")
+                        else {"kind": "start", "target": target},
                         "next_command": action,
-                        "integration": member if target == "Joint regression" else None,
+                        "integration": member if target != "api" else None,
                     }
 
                     def poll(child):
@@ -301,6 +315,73 @@ class CoordinatedDisplayTests(unittest.TestCase):
                     wait.assert_called_once_with(0.05)
                     self.assertEqual(Path(anchor["run_dir"]), parent.run_dir)
                     self.assertIs(parent._observe, observed)
+                    self.assertIs(parent._unavailable, unavailable)
+                    self.assertIs(parent._wait, wait)
+
+    def test_joint_start_follows_later_public_identity_without_guessing_a_run_path(self):
+        for kind in ("joint_plan_start", "reconcile"):
+            for fail in (False, True):
+                with self.subTest(kind=kind, fail=fail):
+                    workspace = Path("/tmp/joint-start-progress").resolve()
+                    anchor = {"workspace": str(workspace), "run_dir": str(workspace / "anchor")}
+                    member = {
+                        "workspace": str(workspace / "published-joint"),
+                        "run_dir": str(workspace / "published-joint/run"),
+                        "status": "RUNNING",
+                        "needs": {"kind": "continue"},
+                    }
+                    seen, watched, closed = [], [], []
+                    observe, unavailable, wait = seen.append, Mock(), Mock(return_value="pause")
+                    parent = chat.ChatClient(
+                        workspace,
+                        Path(anchor["run_dir"]),
+                        say=Mock(),
+                        observe=observe,
+                        unavailable=unavailable,
+                        wait=wait,
+                    )
+                    self.addCleanup(parent.close)
+                    summary = {"members": [], "needs": {"kind": kind, "operation": "joint_plan_start"}}
+
+                    def poll(child):
+                        watched.append(child.run_dir)
+                        child.accept_status(member)
+
+                    def advance(argv):
+                        self.assertEqual(["named-action"], argv)
+                        parent._status_view = anchor
+                        self.assertEqual("pause", parent._wait(0.05))
+                        self.assertEqual([], watched, "No unpublished path may be guessed")
+                        parent._status_view = {**anchor, "coordination": {"integration": member}}
+                        self.assertEqual("pause", parent._wait(0.05))
+                        parent.accept_status(anchor)
+                        parent._wait(0.05)
+                        if fail:
+                            raise RuntimeError("coordinator refused")
+
+                    original_close = chat.ChatClient.close
+
+                    def close(child):
+                        closed.append(child.run_dir)
+                        original_close(child)
+
+                    with (
+                        patch.object(parent, "advance", side_effect=advance) as dispatched,
+                        patch.object(chat.ChatClient, "poll", new=poll),
+                        patch.object(chat.ChatClient, "close", new=close),
+                        patch.object(chat.ChatClient, "respond") as respond,
+                    ):
+                        if fail:
+                            with self.assertRaisesRegex(RuntimeError, "coordinator refused"):
+                                coordination.advance_with_progress(parent, summary, ["named-action"])
+                        else:
+                            coordination.advance_with_progress(parent, summary, ["named-action"])
+                    self.assertEqual([Path(member["run_dir"])] * 2, watched)
+                    self.assertEqual([member, member], seen)
+                    self.assertEqual([Path(member["run_dir"])], closed)
+                    dispatched.assert_called_once()
+                    respond.assert_not_called()
+                    self.assertIs(parent._observe, observe)
                     self.assertIs(parent._unavailable, unavailable)
                     self.assertIs(parent._wait, wait)
 
