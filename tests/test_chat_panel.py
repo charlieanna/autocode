@@ -23,6 +23,42 @@ def view(*, headline="Builder working", needs="nothing needed from you", task="w
 
 
 class SectionTests(unittest.TestCase):
+    def test_coordinated_task_is_one_compact_section_without_internal_member_states(self):
+        current = view()
+        current["scope"] = {"linked": [{"target": "history", "role": "member"}]}
+        current["coordination"] = {
+            "phase": "discovering",
+            "active": "api",
+            "members": [
+                {"target": "api", "status": "WAITING_FOR_USER"},
+                {"target": "history", "status": "STARTING"},
+            ],
+        }
+        shown = panel.sections(current)
+        task = next(section for section in shown if section.title == "Task")
+        self.assertEqual("One task across 2 repositories", task.summary)
+        self.assertEqual((panel.Row("·", "/changeset shows repository details", "dim"),), task.rows)
+        self.assertNotIn("Change set", [section.title for section in shown])
+        self.assertNotIn("WAITING_FOR_USER", repr(shown))
+        self.assertEqual("Builder working", shown[0].summary)
+
+    def test_coordinated_child_keeps_task_summary_when_it_owns_foreground(self):
+        current = view()
+        current["scope"] = {"linked": [{"target": "api", "role": "source"}]}
+        total = {
+            "spent_usd": 2.5,
+            "inherited_usd": 0,
+            "input_tokens": 300,
+            "output_tokens": 0,
+            "cost_complete": True,
+            "tokens_complete": True,
+        }
+        shown = panel.sections(current, task_total=total)
+        task = next(section for section in shown if section.title == "Task")
+        self.assertEqual("One task across 2 repositories", task.summary)
+        self.assertNotIn("source run", repr(shown))
+        self.assertNotIn("Change set", [section.title for section in shown])
+
     def test_a_working_run_shows_where_it_is_its_requirements_and_tasks(self):
         shown = panel.sections(view())
         self.assertEqual(["Now", "Acceptance checks", "Tasks"], [section.title for section in shown])

@@ -319,6 +319,36 @@ assert calls == [((['coordinate', 'resume', '--run-dir', str(run), '--token', '-
 
 
 class CoordinatedDisplayTests(unittest.TestCase):
+    def test_fullscreen_progress_does_not_append_internal_repository_statuses_to_chat(self):
+        summary = {
+            "done": False,
+            "members": [{"target": "api", "status": "WAITING_FOR_USER"}],
+            "needs": {"kind": "watch"},
+        }
+        for fullscreen in (True, False):
+            with self.subTest(fullscreen=fullscreen):
+                client = Mock(said=set(), _observe=Mock() if fullscreen else None)
+                with patch.object(coordination, "read", return_value=summary):
+                    coordination.step(client, {}, str)
+                if fullscreen:
+                    client.say.assert_not_called()
+                else:
+                    client.say.assert_called_once_with("api: WAITING_FOR_USER")
+                client.pace.assert_called_once_with(client.poll_seconds)
+
+    def test_fullscreen_completion_still_shows_each_published_result(self):
+        summary = {
+            "done": True,
+            "members": [{"target": "api", "status": "TASK_COMPLETE", "pr_url": "https://example.test/pr/1"}],
+        }
+        client = Mock(said=set(), _observe=Mock())
+        with patch.object(coordination, "read", return_value=summary):
+            self.assertEqual(0, coordination.step(client, {}, str))
+        self.assertEqual(
+            ["Joint regression passed. Linked pull requests are ready:", "api: https://example.test/pr/1"],
+            [call.args[0] for call in client.say.call_args_list],
+        )
+
     def test_anchor_outage_uses_the_existing_status_indicator_during_member_display(self):
         for fullscreen in (True, False):
             with self.subTest(fullscreen=fullscreen):

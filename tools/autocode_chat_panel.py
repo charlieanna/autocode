@@ -319,23 +319,20 @@ def sections(view: dict | None, *, launched: bool = False, task_total: dict | No
     if path := stage_policy.compact(view):  # which planning path a bug-fix run took and why (#1884 F2)
         summary, entries = path
         result.append(Section("Plan path", summary, tuple(Row("·", line, "dim") for line in entries)))
-    if linked := changeset.compact(view):  # the other runs of this run's change set (#2066)
-        summary, entries = linked
-        result.append(Section("Change set", summary, tuple(Row("·", line, "dim") for line in entries)))
-    if coordinated := _mapping(view.get("coordination")):
-        summary = str(coordinated.get("phase", "discovering")).replace("_", " ")
-        if coordinated.get("active"):
-            summary += " · " + str(coordinated["active"])
+    coordinated = _mapping(view.get("coordination"))
+    linked_rows = changeset.linked(view)
+    if coordinated or (task_total is not None and linked_rows):
+        count = len(_rows(coordinated.get("members"))) if coordinated else len(linked_rows) + 1
         result.append(
             Section(
-                "Coordinated bug fix",
-                summary,
-                tuple(
-                    Row("·", f"{row['target']}: {row.get('pr_url') or row['status']}", "plain")
-                    for row in _rows(coordinated.get("members"))
-                ),
+                "Task",
+                f"One task across {count} repositories" if count > 1 else "Finding the affected code",
+                (Row("·", "/changeset shows repository details", "dim"),),
             )
         )
+    elif linked := changeset.compact(view):  # manually linked runs retain their set display
+        summary, entries = linked
+        result.append(Section("Change set", summary, tuple(Row("·", line, "dim") for line in entries)))
     if recent := events(view):
         result.append(Section("Activity", "", tuple(event_row(event) for event in recent[-EVENT_ROWS:])))
     requirements = _mapping(progress.get("requirements"))

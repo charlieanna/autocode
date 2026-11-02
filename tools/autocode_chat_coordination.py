@@ -123,11 +123,14 @@ def approval_text(summary, render_plan):
 
 def step(client, view, render_plan):
     summary = read(client, view)
-    for row in summary["members"]:
-        line = f"{row['target']}: {row['status']}" + (f" · {row['pr_url']}" if row.get("pr_url") else "")
-        if line not in client.said:
-            client.say(line)
-            client.said.add(line)
+    # The full-screen panel carries progress. Keep its conversation for replies,
+    # decisions and results; the line client still needs progress messages.
+    if not getattr(client, "_observe", None):
+        for row in summary["members"]:
+            line = f"{row['target']}: {row['status']}" + (f" · {row['pr_url']}" if row.get("pr_url") else "")
+            if line not in client.said:
+                client.say(line)
+                client.said.add(line)
     if summary["done"]:
         client.say("Joint regression passed. Linked pull requests are ready:")
         for row in summary["members"]:
