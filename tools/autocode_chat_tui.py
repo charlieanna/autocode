@@ -36,6 +36,7 @@ try:
     from . import autocode_chat_attention as attention
     from . import autocode_chat_attention_panel as attention_panel
     from . import autocode_chat_context as contexts
+    from . import autocode_chat_messages as messages
     from . import autocode_chat_meter as meter
     from . import autocode_chat_observation as observation
     from . import autocode_chat_panel as panel
@@ -46,6 +47,7 @@ except ImportError:
     import autocode_chat_attention as attention
     import autocode_chat_attention_panel as attention_panel
     import autocode_chat_context as contexts
+    import autocode_chat_messages as messages
     import autocode_chat_meter as meter
     import autocode_chat_observation as observation
     import autocode_chat_panel as panel
@@ -686,6 +688,10 @@ class ChatTUI:
         self._launched_at: float | None = None  # when the first step began, before any status was read
         # The client's own commands (/diff, /undo), and one of them waiting for the person's yes.
         self._act: Callable[[str, str], str | panel.Confirm | attention.Menu] | None = None
+        self.send_message = None
+        self._message_retry = None
+        self._message_sending = False
+        self._message_keys = []
         self._run_open = True  # whether a chat is open: the run-only commands wait for one
         # Whether the bound act is a chat client's (bind run=True): a tab that Ctrl-T opened has no run
         # yet, but that client still serves /tab, so leaving it is allowed (#1997).
@@ -933,6 +939,7 @@ class ChatTUI:
                 "_history_file",
                 "_unsaved",
                 "_observation",
+                "_message_retry",
             )
             if self._context_key is not None:
                 self._contexts.keep(
@@ -954,6 +961,7 @@ class ChatTUI:
                 self._prompt, self._draft_context = "", None
                 self._history_file, self._unsaved = None, []
                 self._observation = observation.Read()
+                self._message_retry = None
             self._restore_context = saved["context"] if saved else None
             self._restored_session = saved is not None
             # Refresh before offering decisions. Confirm closures and queued keys
@@ -1221,6 +1229,10 @@ class ChatTUI:
         if key == curses.KEY_MOUSE:
             self._mouse_scroll()
             return None
+        if self._message_sending and key not in (curses.KEY_PPAGE, curses.KEY_NPAGE, "\x03"):
+            if key not in (None, curses.KEY_ENTER, 10, 13, "\n", "\r"):
+                self._message_keys.append(key)
+            return None
         if key == curses.KEY_F8 and self._act is not None:
             self._run("/attention", asking)
             return None
@@ -1305,6 +1317,8 @@ class ChatTUI:
 
     def _enter(self, asking: bool) -> str | None:
         """Enter: run a ``/`` command, or send the reply (at a question only)."""
+        if self._message_sending:
+            return None
         if self._pending is not None:
             self._decide(self._pending)
             return None
@@ -1332,6 +1346,27 @@ class ChatTUI:
             if " " not in text.strip():
                 self._composer.clear()  # a mistyped command; a sentence stays, to fix with //
             return None
+        sent = text[1:] if text.startswith("//") else text
+        retry = self._message_retry and self._message_retry[0] == sent
+        if retry or (not asking and self._can_message()):
+            shown = self._message_retry[1] if retry else self._view
+            self._message_sending = True
+            try:
+                self.send_message(sent, shown)
+            except messages.MessageError as error:
+                self._message_retry = (sent, shown)
+                self._transcript.info("Message not confirmed", str(error))
+                return None
+            finally:
+                self._message_sending = False
+                self._queued.extend(self._message_keys)
+                self._message_keys.clear()
+            self._message_retry = None
+            self._composer.text = sent
+            self._submit()
+            self._asking = asking
+            self._transcript.info("Message saved", "Requirements will reply after the current step is saved.")
+            return None
         if not asking:
             if self._view is None:
                 self._transcript.info("Reading run status", "Your text is kept; wait for the run's current view.")
@@ -1343,6 +1378,12 @@ class ChatTUI:
         if text.startswith("//"):
             self._composer.text, self._composer.cursor = text[1:], max(0, self._composer.cursor - 1)
         return self._submit()
+
+    def _can_message(self) -> bool:
+        """A typed message is available only through a core-named pending action."""
+        return self.send_message is not None and (
+            (((self._view or {}).get("chat") or {}).get("input") or {}).get("kind") == "message"
+        )
 
     def _run(self, name: str, asking: bool, argument: str = "") -> str | None:
         """A ``/`` command: "pause" goes back to the client, /diff and /undo are the client's,
@@ -1909,6 +1950,8 @@ class ChatTUI:
         width = layout.width
         active = self._asking
         label = composer_label(self._prompt, active)
+        if not active and self._can_message():
+            label = "Message"
         border = self._style("border-active" if active else "border")
         self._put(layout.box_top, 0, self._box_top(width, label), border)
         self._put(layout.box_top, 3, label, self._style("brand" if active else "dim"))
@@ -1923,6 +1966,8 @@ class ChatTUI:
                 if self._view is None and self._launched
                 else "Reading run status… type / for commands"
                 if self._view is None
+                else "Type a message, then Enter; work is saved before the reply"
+                if self._can_message()
                 else WORKING_PLACEHOLDER
             )
             self._put(layout.box_text, 4, truncate(placeholder, inner), self._style("placeholder"))

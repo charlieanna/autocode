@@ -318,13 +318,32 @@ class ConformanceDriver(Driver):
         words[row["arg_index"]] = str(int(value))
         return words, env, "needs.command_inputs.command"
 
-    def message_command(self, view: dict, text: str) -> tuple[list[str], dict, str]:
+    def message_command(self, view: dict, text: str, *, request_id=None) -> tuple[list[str], dict, str]:
         """A person's feedback/follow-up through the optional chat input offer (#884)."""
         offered = (view.get("chat") or {}).get("input") or {}
         flag = {"feedback": "--feedback", "follow_up": "--follow-up"}.get(offered.get("kind"))
         if not text.strip() or not offered.get("next_command"):
             raise ConformanceGap("The view names no message action at this checkpoint")
         words, env, _ = self.named_command({**view, "next_command": offered["next_command"]})
+        if offered.get("kind") == "message":
+            expected = [
+                "intervention",
+                "submit",
+                "--request-id",
+                "REQUEST_ID",
+                "--kind",
+                "message",
+                "--text",
+                "MESSAGE",
+                "--json",
+            ]
+            if words != expected or env or not isinstance(request_id, str) or not request_id:
+                raise ConformanceGap("Unsupported live message action or missing request identity")
+            return (
+                ["intervention", "submit", "--request-id", request_id, "--kind", "message", "--text", text, "--json"],
+                {},
+                "chat.input.next_command",
+            )
         need = view.get("needs") or {}
         if offered.get("kind") == "resolver_response":
             expected = [

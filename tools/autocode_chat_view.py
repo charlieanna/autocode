@@ -199,6 +199,38 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         )
     context_token = context(state, public)
     message_input = None
+    if (
+        status == "RUNNING"
+        and (state.get("settings") or {}).get("spec_first")
+        and (state.get("intervention_capability") or {}).get("supports_messages") is True
+        and not (state.get("settings") or {}).get("coordination_member")
+        and not public.get("coordination")
+        and not any(row.get("kind") == "stop" for row in state.get("applied_interventions", []))
+        and run_dir is not None
+        and workspace is not None
+    ):
+        message_input = {
+            "kind": "message",
+            "label": "Send message",
+            "next_command": shlex.join(
+                [
+                    "autocode",
+                    "intervention",
+                    "submit",
+                    "--workspace",
+                    str(workspace),
+                    "--run-dir",
+                    str(run_dir),
+                    "--request-id",
+                    "REQUEST_ID",
+                    "--kind",
+                    "message",
+                    "--text",
+                    "MESSAGE",
+                    "--json",
+                ]
+            ),
+        }
     if action and run_dir is not None and workspace is not None:
         kind, label, flag = action
         message_input = {

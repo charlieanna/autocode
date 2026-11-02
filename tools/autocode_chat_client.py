@@ -59,6 +59,7 @@ try:
     from . import autocode_chat_context as contexts
     from . import autocode_chat_coordination as coordination
     from . import autocode_chat_inventory as inventory
+    from . import autocode_chat_messages as messages
     from . import autocode_chat_meter as meter
     from . import autocode_chat_panel as panel
     from . import autocode_chat_polling as polling
@@ -76,6 +77,7 @@ except ImportError:
     import autocode_chat_context as contexts
     import autocode_chat_coordination as coordination
     import autocode_chat_inventory as inventory
+    import autocode_chat_messages as messages
     import autocode_chat_meter as meter
     import autocode_chat_panel as panel
     import autocode_chat_polling as polling
@@ -2161,6 +2163,7 @@ def cli(argv: list[str] | None = None) -> int:
         if ui is not None:
             ui.set_context(client.workspace, client.run_dir)
             ui.bind(client.slash)
+            ui.send_message = messages.Sender(client).send
             client.switched = ui.switch
             client.tabs_changed = ui.tabs
             client.attention_changed = ui.attention

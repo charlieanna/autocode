@@ -218,6 +218,7 @@ def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: 
         )
         receipt = {
             **payload,
+            **({"message_id": "run-message-" + request_id} if kind == "message" else {}),
             "order": order,
             "submitted_at": util.now(),
             "observed_goal_token": token,

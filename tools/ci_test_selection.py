@@ -748,6 +748,16 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_review_attribution_cli",),
     ),
     (("tools/autocode_chat_", "tools/autocode_run_view.py", "tools/autocode_follow_up.py"), ("tests.test_chat_cli",)),
+    (
+        (
+            "tools/autocode_chat_",
+            "tools/autocode_client_actions.py",
+            "tools/autocode_interventions.py",
+            "tools/autocode_run_messages.py",
+            "tools/prompts/run-chat.md",
+        ),
+        ("tests.test_chat_live_messages_cli",),
+    ),
     # The bridge drives the CLI as a subprocess (its tests launch the CLI, so imports cannot select them).
     (
         ("tools/autocode_bridge_", "tools/autocode_github.py", "tools/autocode_subcommands.py"),

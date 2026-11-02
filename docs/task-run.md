@@ -525,13 +525,25 @@ a revised, explicitly approved structured delivery contract; prose cannot author
 a Git write and cannot silently satisfy the completion gate.
 
 `input` is null when free text is not an admitted action. Otherwise it names
-`kind` (`feedback`, `follow_up`, or `resolver_response`), a display `label`, and `next_command` with
+`kind` (`feedback`, `follow_up`, `resolver_response`, or `message`), a display `label`, and `next_command` with
 one literal `MESSAGE` placeholder. A client replaces that argument with the
 person's text, checks that the command names the same workspace/run, and runs it
 as an argument array without a shell. Compare against the view's `workspace` and
 `run_dir` fields: after bootstrap relocation they name the run's effective
 location, which can differ from the handle the client started with. The headless
 conformance client's `message_command()` implements this same parsing boundary.
+
+While a capable spec-first run works, `message` offers the pending-only
+`intervention submit --kind message` action. It also has a `REQUEST_ID` placeholder;
+the client creates one identity for the submission and reuses it when reconciling
+an uncertain receipt. This saves the person's text without approving a plan,
+changing requirements or interrupting the active provider. Requirements answers
+at the next admitted saved boundary. A question preserves the saved plan; an
+explicit change takes ordinary planning and review. The confirmed receipt's
+`message_id` is the public chat message ID, so a local echo is shown only once.
+The terminal keeps an unconfirmed draft, including when a plan prompt arrives
+before its receipt is reconciled. An older worker without message support and
+a coordinated member viewed on its own do not advertise this action.
 
 A client compares the displayed `context` with a fresh status before submitting;
 if it changed, retain the draft and ask the person to review the new checkpoint.
