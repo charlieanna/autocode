@@ -39,6 +39,8 @@ if sys.argv[1:]==['--version']:
 sys.stdin.read()
 with Path(os.environ['JOB_CALLS']).open('a') as f:f.write('request\n')
 mode=os.environ['JOB_MODE']
+# JOB_TIMEOUTS=N: the first N requests time out, later ones succeed (#2605).
+if os.environ.get('JOB_TIMEOUTS') and len(Path(os.environ['JOB_CALLS']).read_text().splitlines())>int(os.environ['JOB_TIMEOUTS']):mode='success'
 if mode=='lock':print('Error: database is locked',flush=True);raise SystemExit(42)
 if mode=='filtered':print(Path(os.environ['JOB_REPLAY']).read_text(),end='',flush=True);raise SystemExit(0)
 print(json.dumps({'type':'thread.started','thread_id':str(uuid.uuid4())}),flush=True)
@@ -93,8 +95,12 @@ if mode=='abandon':
   except autocode.support.Paused:os._exit(0)
  autocode.run_role=crash
 if mode not in ('success','terminal','abandon','exit42','capacity','rate','external','lock','filtered'):
+ real_deadline=autocode.processes.wait_for_stage
  def deadline(child, seconds, checkpoint, *, activity=None, **kwargs):
-  code=child.wait(timeout=10);checkpoint([])
+  code=child.wait(timeout=10)
+  if os.environ.get('JOB_TIMEOUTS') and len(Path(os.environ['JOB_CALLS']).read_text().splitlines())>int(os.environ['JOB_TIMEOUTS']):
+   return real_deadline(child, seconds, checkpoint, activity=activity, **kwargs)
+  checkpoint([])
   if mode=='cleanup':raise autocode.processes.ProcessError('injected cleanup cannot be proved')
   if mode=='idle':
    # Move the real monitor run_role built past its limit: its own reason is the stop reason.
@@ -207,8 +213,10 @@ class JobHarness(unittest.TestCase):
             "gpt-6-sol",
             "--max-stage-seconds",
             "900",
+            # No room under the run's total time to extend a stopped job's deadline (#2605), so a
+            # timed-out job still pauses for the exact retry these cases exercise.
             "--max-seconds",
-            "1200",
+            "900",
             "--max-idle-seconds",
             "0",
             "--max-tool-seconds",
@@ -240,6 +248,53 @@ class JobHarness(unittest.TestCase):
         self.assertTrue(view["needs"]["job_retry_token"])
         self.assertEqual(1, self.count())
         return view["needs"]
+
+
+class JobDeadlineExtensionTests(JobHarness):
+    """#2605: a job's hard stage deadline is AutoCode's to settle, on the same model, inside the run's caps."""
+
+    def roomy(self, timeouts=None):
+        options = list(self.options)
+        options[options.index("--max-seconds") + 1] = "5000"
+        self.options = tuple(options)
+        if timeouts is not None:
+            self.env["JOB_TIMEOUTS"] = str(timeouts)
+
+    def limits(self, run):
+        """The run's saved limits, from the status document's settings."""
+        shown = subprocess.run(
+            [*run.command, "--run-dir", str(run.run_dir), "--status", "--json"],
+            env=run.env,
+            cwd=run.cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(0, shown.returncode, shown.stderr)
+        return json.loads(shown.stdout)["settings"]["limits"]
+
+    def test_a_timed_out_job_retries_on_a_longer_deadline_and_completes_without_a_question(self):
+        self.roomy(timeouts=1)
+        run = self.start()
+        view = run.status()
+        self.assertTrue(view["done"], view.get("needs"))
+        self.assertEqual(2, self.count())
+        self.assertEqual(1800, self.limits(run)["stage_timeout_seconds"])
+        self.assertEqual(5000, self.limits(run)["max_seconds"])
+
+    def test_extensions_stop_at_two_and_the_job_then_pauses_for_its_exact_retry(self):
+        self.roomy()
+        run = self.start()
+        view = run.status()
+        self.assertEqual("PAUSED_JOB_FAILURE", view["status"], view)
+        self.assertEqual(3, self.count())
+        self.assertEqual(3600, self.limits(run)["stage_timeout_seconds"])
+        self.assertTrue(view["needs"]["job_retry_token"])
+
+    def test_no_extension_without_room_under_the_total_time_cap(self):
+        run = self.start()
+        self.paused(run)
+        self.assertEqual(900, self.limits(run)["stage_timeout_seconds"])
 
 
 class JobFailureTaskRunTests(JobHarness):

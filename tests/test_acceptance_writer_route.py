@@ -166,9 +166,17 @@ class AcceptanceWriterRouteCLI(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         return json.loads(result.stdout)
 
+    def assert_deadline_extended_before_pause(self, run):
+        """#2605: AutoCode settled the hard deadline itself, twice on the same model, before it paused."""
+        rows = [json.loads(line) for line in self.calls.read_text().splitlines()]
+        self.assertEqual(3, len(rows))
+        self.assertEqual(1, len({row["model"] for row in rows}))
+        return self.snapshot(run)["settings"]["limits"]["stage_timeout_seconds"]
+
     def test_timeout_route_answer_keeps_verifiers_and_requires_fresh_retry(self):
         run, held = self.start()
         self.assertEqual("PAUSED_JOB_FAILURE", held["status"])
+        self.assert_deadline_extended_before_pause(run)
         self.assertEqual("write_acceptance_tests", held["next_stage"])
         self.assertEqual("acceptance_tester", held["needs"]["route"]["role"])
         original = self.calls.read_bytes()
@@ -223,7 +231,7 @@ class AcceptanceWriterRouteCLI(unittest.TestCase):
         completed = run.retry_job(fresh)
         self.assertTrue(completed["done"], {k: completed.get(k) for k in ("status", "needs")})
         rows = [json.loads(line) for line in self.calls.read_text().splitlines()]
-        self.assertEqual(2, len(rows))
+        self.assertEqual(4, len(rows))
         self.assertEqual("gpt-6-luna", rows[-1]["model"])
         self.assertNotEqual(rows[0]["model"], rows[-1]["model"])
         for role in ("sol", "completion", "terra"):

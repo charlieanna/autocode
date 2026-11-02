@@ -23,6 +23,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A workflow job (the Investigator, the Code Reviewer, the acceptance Tester...) that
+  reaches its hard stage deadline no longer pauses on a question about which model to
+  use. AutoCode retries it on the same model with the deadline doubled, never past the
+  run's remaining time, at most twice per job, under the run's money cap, and records
+  each extension and its reason in the run (#2605).
+
 - A pre-build acceptance proof whose test suite cannot run the Tester's files now names the
   detected suite and says the tests are not at fault, instead of asking to correct them;
   `--test-command` with `--resume-paused` is accepted at that pause, and the proof runs the
