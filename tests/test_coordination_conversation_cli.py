@@ -1,5 +1,6 @@
 """Public coordinated questions preserve peer work; changes enter normal review."""
 
+import hashlib
 import json
 import os
 import subprocess
@@ -141,7 +142,13 @@ class CoordinatedConversationCliTests(unittest.TestCase):
 
     def test_question_preserves_plans_and_change_delivers_only_original_text_with_fresh_review(self):
         workspace, env = fixture_workspace(self)
-        peer_workspace, _ = fixture_workspace(self)
+        peer_origin, _ = fixture_workspace(self)
+        peer_workspace = peer_origin.parent / "peer-worktree"
+        subprocess.run(
+            ["git", "-C", str(peer_origin), "worktree", "add", "--detach", str(peer_workspace), "HEAD"],
+            check=True,
+            capture_output=True,
+        )
         self.enterContext(patch.dict(os.environ, env))
         provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"
         calls = provider.parent / "conversation-calls"
@@ -169,12 +176,16 @@ class CoordinatedConversationCliTests(unittest.TestCase):
         )
         planned = peer.advance_until_input()
         self.assertEqual("approve_plan", planned["needs"]["kind"])
+        profile = workspace.parent / "related-profile.json"
+        profile.write_text(json.dumps(source_before["related_profile"]))
         saved = {
             "version": 1,
             "id": "conversation-fixture",
             "anchor": str(source.run_dir),
             "phase": "fixing",
             "task": BRIEF,
+            "profile": str(profile),
+            "profile_sha256": hashlib.sha256(profile.read_bytes()).hexdigest(),
             "initial_scope": [],
             "choices": {},
             "joint_attempts": [],
@@ -183,9 +194,14 @@ class CoordinatedConversationCliTests(unittest.TestCase):
             "members": [
                 {
                     "target": "peer",
+                    "slug": "peer",
+                    "origin": str(peer_origin),
+                    "git_dir": str(peer_origin / ".git"),
                     "workspace": str(peer.workspace),
                     "run_dir": str(peer.run_dir),
-                    "base": "fixture",
+                    "base": subprocess.check_output(
+                        ["git", "-C", str(peer_workspace), "rev-parse", "HEAD"], text=True
+                    ).strip(),
                     "started": True,
                     "brief": BRIEF,
                 }
@@ -261,4 +277,20 @@ class CoordinatedConversationCliTests(unittest.TestCase):
         self.assertEqual(2, len([row for row in stages if row.get("message")]))
         self.assertEqual([json.loads(row) for row in before_calls], [row for row in stages if not row.get("message")])
         self.assertEqual(source_before["request_sources"], source.status()["request_sources"])
+        self.assertFalse((peer_workspace / "greet.py").exists())
+        self.assertEqual("approve_plan", peer.resume_paused()["needs"]["kind"])
+        member_token = peer.status()["needs"]["token"]
+        started = invoke("advance")
+        integration = started["integration"]
+        self.assertIsNotNone(integration, started["needs"])
+        joint = taskrun.TaskRun(Path(integration["workspace"]), Path(integration["run_dir"]), env=env)
+        joint_task = joint.status()["task"]
+        self.assertIn("Applied task message for peer:\nPlease change the peer to preserve the result.", joint_task)
+        self.assertEqual(1, joint_task.count("Please change the peer to preserve the result."))
+        self.assertNotIn("Could we reuse the conversion?", joint_task)
+        self.assertNotIn("Peer plan needs review.", joint_task)
+        self.assertEqual(integration, invoke("status")["integration"])
+        self.assertEqual(joint_task, joint.status()["task"])
+        self.assertEqual(member_token, peer.status()["needs"]["token"])
+        self.assertIsNone(joint.status().get("approved_contract"))
         self.assertFalse((peer_workspace / "greet.py").exists())

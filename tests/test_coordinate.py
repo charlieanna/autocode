@@ -271,6 +271,12 @@ class CoordinationTests(unittest.TestCase):
         self.document["request_sources"] = [{"id": "answer:Q1", "kind": "user_answer", "text": "Preserve 2304."}]
         self.assertIn("Preserve 2304.", joint.brief(self.document))
 
+    def test_joint_brief_carries_applied_member_messages_into_integration_planning(self):
+        self.document["members"] = [
+            {"target": "api", "message_sources": [{"request_id": "routes", "text": "Cover both routes."}]}
+        ]
+        self.assertIn("Applied task message for api:\nCover both routes.", joint.brief(self.document))
+
     def test_old_coordinator_offers_source_recovery_before_any_child_advance(self):
         self.document["anchor_turn"] = 1
         sources = [{"id": "task:0", "kind": "task", "text": self.document["task"]}]

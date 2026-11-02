@@ -6,6 +6,49 @@ import autocode_run_view as run_view
 
 
 class CoordinationRequestTests(unittest.TestCase):
+    def test_joint_request_keeps_applied_messages_once_with_their_member_scope_and_order(self):
+        from autocode_coordination_request import joint_brief
+
+        shared = {"request_id": "first", "text": "Preserve both supported routes.\nKeep existing results."}
+        later = {"request_id": "second", "text": "Keep the consumer change test-only."}
+        doc = {
+            "task": "Fix history",
+            "request_sources": [{"text": "Keep legacy history."}],
+            "members": [
+                {"target": "consumer", "message_sources": [later]},
+                {"target": "api", "message_sources": [shared]},
+                {"target": "client", "message_sources": [shared]},
+            ],
+            "conversation": {
+                "results": [
+                    {"request_id": "question", "text": "Could we convert this?", "affected_targets": []},
+                    {"request_id": "first", "text": "Not an alternative source of message text"},
+                    {"request_id": "second"},
+                ],
+                "active": {"text": "Unapplied change"},
+            },
+        }
+        self.assertEqual(
+            "Fix history\n\nKeep legacy history.\n\n"
+            "Applied task message for api, client:\nPreserve both supported routes.\nKeep existing results.\n\n"
+            "Applied task message for consumer:\nKeep the consumer change test-only.",
+            joint_brief(doc),
+        )
+
+    def test_joint_request_keeps_legacy_text_and_unindexed_applied_messages(self):
+        from autocode_coordination_request import joint_brief
+
+        self.assertEqual("Fix history", joint_brief({"task": "Fix history"}))
+        self.assertEqual(
+            "Fix history\n\nApplied task message for api:\nKeep XML.",
+            joint_brief(
+                {
+                    "task": "Fix history",
+                    "members": [{"target": "api", "message_sources": [{"request_id": "saved", "text": "Keep XML."}]}],
+                }
+            ),
+        )
+
     def test_task_messages_extend_only_their_members_without_triggering_legacy_recovery(self):
         from autocode_coordination_request import brief, recovery
 

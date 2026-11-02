@@ -168,7 +168,7 @@ def bind_candidates(document, directory):
 def brief(document):
     return (
         "Implement a joint regression for this original bug report:\n"
-        + request.brief(document)
+        + request.joint_brief(document)
         + "\n\nThis is an isolated integration workspace. Every repository in repositories.json is already "
         "present under repos/. Treat them as local components of this workspace, not external repositories. "
         "The committed baseline contains their original broken code. After the coordinated plan is approved "

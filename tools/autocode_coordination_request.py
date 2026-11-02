@@ -9,6 +9,23 @@ def brief(document, *, target=None):
     return "\n\n".join(dict.fromkeys(text for text in texts if text))
 
 
+def joint_brief(document):
+    """Carry applied member messages into joint planning without broadening their scope."""
+    messages = {}
+    for member in document.get("members", []):
+        for source in member.get("message_sources", []):
+            key = (source["request_id"], source["text"])
+            messages.setdefault(key, []).append(member["target"])
+    order = {
+        row["request_id"]: index for index, row in enumerate((document.get("conversation") or {}).get("results", []))
+    }
+    parts = [brief(document)]
+    for key in sorted(messages, key=lambda key: order.get(key[0], len(order))):
+        targets = ", ".join(dict.fromkeys(messages[key]))
+        parts.append(f"Applied task message for {targets}:\n{key[1]}")
+    return "\n\n".join(parts)
+
+
 def recovery(document, views, sources):
     """Refresh a legacy unapproved request through ordinary, receipted feedback."""
     if sources is None:
