@@ -2040,7 +2040,7 @@
 
 
 <h1 id="vs-code-extension">VS Code extension<a class="headerlink" href="#vs-code-extension" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/857bf041c63b84f7cd6e5e65a1c0d2454e4c1a05/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/bb82dd41fcd98240be53db9a1ef648d28f250b6b/README.md">← Back to README</a></p>
 <p>Chat with AutoCode in the sidebar (issue #884). The extension starts the CLI,
 reads <code>--status</code> and <code>registry list --json</code>, and takes the actions the public
 <a href="../task-run/">task-run interface</a> names. It imports no runner internals and never
@@ -2089,7 +2089,7 @@ Markdown and code blocks for assistant replies. A fixed composer grows with your
 draft. New output follows the bottom until you scroll up or select text;
 <strong>Latest messages</strong> returns to the bottom. These composer and scrolling components
 are adapted from Kilo Code's open-source UI; the exact revision and attribution
-are in <a href="https://github.com/charlieanna/autocode/blob/857bf041c63b84f7cd6e5e65a1c0d2454e4c1a05/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
+are in <a href="https://github.com/charlieanna/autocode/blob/bb82dd41fcd98240be53db9a1ef648d28f250b6b/vscode-extension/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a>.</p>
 <p><strong>Models &amp; usage</strong> stays above the composer and starts expanded. <strong>Configured
 models</strong> lists every saved role assignment with its full model ID, provider and
 reasoning <strong>Variant</strong> (such as medium or high), even before that role runs.
@@ -2107,6 +2107,27 @@ accounting beside the configured cap. Partial totals say <strong>at least</stron
 unpriced stages; unknown amounts stay unknown. The expanded breakdown keeps the
 historical comparison estimate separately. These figures describe recorded usage,
 not an invoice or a guarantee that the next step fits within the cap.</p>
+<p><strong>Stages</strong> sits above Models &amp; usage once a run has launched one. Each stage
+takes a row for how it went (✓ done, ● working, ↻ retrying, ✗ failed), its time,
+cost and attempt number, and a second row for its model, reasoning level and
+tokens (<code>+</code> when some are not reported yet). The newest four show; <strong>N earlier</strong>
+lists the rest. A report repair counts as the repaired stage's next attempt. When
+the working stage is retrying after a failed attempt, the working card shows a
+warning with which attempt it is, how long it has run and why the last one
+failed. A stage that runs again after succeeding, such as a second plan-review
+round, shows <strong>2 runs</strong> and no warning. The toolbar
+shows the run's cost against its cap and its tokens; with two or more chats open
+it adds a total for all of them, which leaves out what a restored run carried
+over and ends in <code>+</code> while any chat has not been read yet. These figures are the
+same ones the terminal chat's stage panel reads: <code>usage.accounting.attempts</code>,
+<code>cost.breakdown.by_stage</code>, <code>cost.spent_usd</code> and <code>usage.accounting.tokens</code>.</p>
+<p>A finished run closes with a card: its result, how many requirements were
+checked, the files its saved steps and acceptance tests changed, the time its
+stages ran and its cost, with <strong>Show changes</strong> (the saved code changes below)
+and <strong>Run details</strong>. A new chat opens with what AutoCode does and three example
+requests; choosing one only fills the message box. A tab shows ● while its run
+waits for you and ✓ once it has finished, and the status bar names the working
+stage and the run's cost.</p>
 <p>Provider-reported cost and the core's historical comparison estimates are shown
 separately. These estimates are not current API prices or your token-plan bill.
 The extension reads the public accounting view and does not calculate its own
@@ -2180,7 +2201,7 @@ conversation.</p>
 Requirements follow-up has passed a real Kilo/token-plan greeting conversation;
 full build/test/completion qualification remains outstanding. The earlier full
 task attempt stopped on a MiMo network failure before building.
-See the <a href="https://github.com/charlieanna/autocode/blob/857bf041c63b84f7cd6e5e65a1c0d2454e4c1a05/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
+See the <a href="https://github.com/charlieanna/autocode/blob/bb82dd41fcd98240be53db9a1ef648d28f250b6b/docs/bugs/2026-10-16-vscode-chat-qualification.md">qualification record</a>.
 The jsdom tests alone establish neither editor-host nor live-provider compatibility.</p>
 <h2 id="settings">Settings<a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
 <table>
