@@ -89,6 +89,18 @@ test("a report repair is the repaired stage's next attempt, and its cost is adde
   assert.equal(stageLines(tester).head, "Tester · 48s · $0.35 · attempt 2");
 });
 
+test("a stage running again after a success is another round, not a retry", () => {
+  // Live (bugfix-trivial on Claude): the Plan Reviewer's second round read as "attempt 2", struggling.
+  const shown = view([
+    attempt("astra_challenge", "Plan Reviewer"),
+    attempt("astra_challenge", "Plan Reviewer", { active: true, duration_seconds: null, exit_code: null, started_at: "2026-11-02T01:09:30Z" }),
+  ]);
+  const [row] = stages(shown, NOW);
+  assert.equal(row!.state, "working");
+  assert.equal(struggling(shown, NOW), "");
+  assert.equal(stageLines(row!).head, "Plan Reviewer · 1m00s · 2 runs");
+});
+
 test("a first attempt at work is not struggling", () => {
   const shown = view([attempt("terra", "Builder", { active: true, duration_seconds: null, started_at: "2026-11-02T01:09:00Z" })]);
   assert.equal(stages(shown, NOW)[0]!.state, "working");
@@ -115,7 +127,11 @@ test("incomplete tokens are marked as a floor, and runner-owned attempts are not
 
 test("the run total is the core's own, with its cap", () => {
   assert.equal(totalText(runTotal(view([]))), "$0.42 · 184k tokens");
-  assert.equal(totalText(runTotal(view([], { complete: false }))), "$0.42+ · 184k tokens");
+  assert.equal(totalText(runTotal(view([], { complete: false }))), "$0.42+ · 184k+ tokens");
+  // Live (bugfix-trivial on Claude, final view): the cost was complete while some tokens were not reported.
+  const priced = view([]) as unknown as { usage: { accounting: { tokens: Record<string, unknown> } } };
+  priced.usage.accounting.tokens.output_tokens = { value: null, known: 20730, complete: false };
+  assert.equal(totalText(runTotal(priced)), "$0.42 · 171k+ tokens");
   assert.equal(totalText(runTotal(view([], { spent: 1.21, cap: 5 }))), "$1.21 of $5.00 · 184k tokens");
   assert.equal(totalText(runTotal(view([], { spent: 1.21, cap: 5 })), false), "$1.21 · 184k tokens");
   assert.equal(runTotal({}), null);
@@ -128,7 +144,7 @@ test("the session adds chats without counting a restored step's spend twice", ()
 });
 
 test("a chat not read yet makes the session total a floor", () => {
-  assert.equal(totalText(sessionTotal([runTotal(view([], { spent: 1.0 })), null])), "$1.00+ · 184k tokens");
+  assert.equal(totalText(sessionTotal([runTotal(view([], { spent: 1.0 })), null])), "$1.00+ · 184k+ tokens");
   assert.equal(sessionTotal([null, null]), null);
 });
 

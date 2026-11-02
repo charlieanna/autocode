@@ -19,6 +19,8 @@ export interface StageRow {
   route: string;
   state: StageState;
   attempts: number;
+  /** How many of its attempts were rejected, timed out, interrupted or exited nonzero. */
+  failedAttempts: number;
   seconds: number | null;
   tokens: number;
   tokensComplete: boolean;
@@ -32,7 +34,9 @@ export interface RunTotal {
   inheritedUsd: number;
   capUsd: number | null;
   tokens: number;
-  complete: boolean;
+  /** Each part is a floor while anything it covers is not reported yet. */
+  costComplete: boolean;
+  tokensComplete: boolean;
 }
 
 export interface FinishSummary {
@@ -155,6 +159,7 @@ export function stages(view: unknown, now = Date.now()): StageRow[] {
       route: routeOf(newest),
       state,
       attempts: group.length,
+      failedAttempts: group.filter(failed).length,
       seconds: seconds.length ? seconds.reduce((a, b) => a + b, 0) : null,
       tokens: used,
       tokensComplete: complete,
@@ -169,18 +174,22 @@ export function stageLines(row: StageRow): { head: string; detail: string } {
   const head = [row.job];
   if (row.seconds !== null) head.push(duration(row.seconds));
   if (row.spentUsd !== null && (row.spentUsd || row.route)) head.push(money(row.spentUsd));
-  if (row.attempts > 1) head.push(`attempt ${row.attempts}`);
+  // A stage that ran again after succeeding (a second plan-review round) is not a retry.
+  if (row.attempts > 1) head.push(row.failedAttempts ? `attempt ${row.attempts}` : `${row.attempts} runs`);
   const detail = row.route ? [row.route] : [];
   if (row.tokens) detail.push(`${tokens(row.tokens)}${row.tokensComplete ? "" : "+"} tokens`);
   if (row.why && row.state !== "done") detail.push(row.why);
   return { head: head.join(" · "), detail: detail.join(" · ") };
 }
 
-/** The working stage on its second attempt or later: which attempt, how long, and why the last one failed. */
+/**
+ * The working stage retrying after a failed attempt: which attempt, how long, and why the last one
+ * failed. A stage running again after a success (another review round) is not struggling.
+ */
 export function struggling(view: unknown, now = Date.now()): string {
   const working = stages(view, now).filter((row) => row.state === "working" || row.state === "retrying");
   const row = working[working.length - 1];
-  if (!row || row.attempts < 2) return "";
+  if (!row || row.state !== "retrying") return "";
   const parts = [row.job, `attempt ${row.attempts}`];
   if (row.seconds !== null) parts.push(duration(row.seconds));
   if (row.why) parts.push(`last one ${row.why}`);
@@ -201,17 +210,18 @@ export function runTotal(view: unknown): RunTotal | null {
     inheritedUsd: isNumber(cost.inherited_usd) ? cost.inherited_usd : 0,
     capUsd: isNumber(cost.cap_usd) && cost.cap_usd > 0 ? cost.cap_usd : null,
     tokens: (input ?? 0) + (output ?? 0),
-    complete: cost.complete === true && inputWhole && outputWhole,
+    costComplete: cost.complete === true && spent !== null,
+    tokensComplete: inputWhole && outputWhole,
   };
 }
 
-/** "$1.21 of $5 · 651k tokens", with `+` when part of it is not reported yet. */
+/** "$1.21 of $5.00 · 651k tokens", each part with `+` while some of it is not reported yet. */
 export function totalText(total: RunTotal | null, withCap = true): string {
   if (!total) return "";
   let spent = total.spentUsd === null ? "$?" : money(total.spentUsd);
-  if (!total.complete) spent += "+";
+  if (!total.costComplete && total.spentUsd !== null) spent += "+";
   if (withCap && total.capUsd !== null) spent += ` of ${money(total.capUsd)}`;
-  return total.tokens ? `${spent} · ${tokens(total.tokens)} tokens` : spent;
+  return total.tokens ? `${spent} · ${tokens(total.tokens)}${total.tokensComplete ? "" : "+"} tokens` : spent;
 }
 
 /**
@@ -228,7 +238,8 @@ export function sessionTotal(totals: (RunTotal | null)[]): RunTotal | null {
     inheritedUsd: 0,
     capUsd: null,
     tokens: shown.reduce((sum, total) => sum + total.tokens, 0),
-    complete: shown.every((total) => total.complete) && shown.length === totals.length,
+    costComplete: shown.every((total) => total.costComplete) && shown.length === totals.length,
+    tokensComplete: shown.every((total) => total.tokensComplete) && shown.length === totals.length,
   };
 }
 

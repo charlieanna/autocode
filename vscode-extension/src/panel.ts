@@ -724,7 +724,9 @@ function trim(text: string, max: number): string {
  */
 /** The chat's stage rows, cost line, welcome and closing card. Colors come from the VS Code theme. */
 const METER_STYLES = `
-  #run-cost { margin-right: auto; align-self: center; font-size: .75rem; opacity: .85; white-space: nowrap;
+  .chat-toolbar { flex-wrap: nowrap; }
+  .chat-toolbar button.icon { flex: none; }
+  #run-cost { flex: 1 1 auto; align-self: center; font-size: .75rem; opacity: .85; white-space: nowrap;
               overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   #run-cost .session { opacity: .75; }
   #stages { flex-shrink: 0; margin: 0 6px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
