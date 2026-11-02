@@ -356,6 +356,18 @@ HANDOFF = {
 
 
 class QueuedFeedbackOnAShownPlan(unittest.TestCase):
+    def test_feedback_pause_reason_names_the_selected_planning_path(self):
+        for event, stage in (
+            ({}, "Requirements discovery"),
+            ({adaptive.FEEDBACK: {"requirements_handoff": "saved"}}, "Planner revision"),
+        ):
+            before = json.loads(json.dumps(event))
+            self.assertEqual(
+                f"Queued feedback was applied; explicitly continue to {stage}.",
+                adaptive.feedback_pause_reason(event),
+            )
+            self.assertEqual(before, event)
+
     def apply(self, state, observed=None):
         receipt = {
             "id": "queued-correction",

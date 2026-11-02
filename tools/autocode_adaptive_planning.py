@@ -60,9 +60,11 @@ if TYPE_CHECKING:
 try:
     from . import autocode_prompts as prompts
     from . import autocode_roles as roles
+    from . import autocode_run_status as run_status
 except ImportError:
     import autocode_prompts as prompts
     import autocode_roles as roles
+    import autocode_run_status as run_status
 
 
 import copy
@@ -211,6 +213,12 @@ def feedback_marker(state: RunState) -> dict:
 def feedback_stage(event: dict, default: str) -> str:
     """The first stage after a brief_feedback event: the Planner when the feedback revises the shown plan."""
     return "astra_discovery" if event.get(FEEDBACK) else default
+
+
+def feedback_pause_reason(event: dict) -> str:
+    """Explain the saved feedback checkpoint using the same plan-revision marker as its route."""
+    stage = "Planner revision" if event.get(FEEDBACK) else "Requirements discovery"
+    return f"{run_status.APPLIED_FEEDBACK_PREFIX} explicitly continue to {stage}."
 
 
 def feedback_requirements(state: RunState) -> list[dict]:
