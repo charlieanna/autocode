@@ -1109,6 +1109,7 @@ class ChatTUI:
             if self._closed:
                 raise EOFError
             asked_context = self._context_key
+            reading = self._history_anchor() if not self._anchored else None
             with contextlib.suppress(curses.error):
                 curses.flushinp()  # keys typed while AutoCode worked never answer a question nobody saw
             if self._launched:
@@ -1142,7 +1143,11 @@ class ChatTUI:
             self._pending = None
             if not keep_draft:
                 self._composer.reset()
-            if not keep_context:
+            if reading is not None:
+                # A question changes the body height, but does not take ownership
+                # of a plan the person has already paged into.
+                self._keep_history_anchor(reading)
+            elif not keep_context:
                 self._scroll = 0
                 self._anchored = False
                 # The question's own rows shrink the body after say() anchored the reply with

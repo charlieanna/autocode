@@ -190,6 +190,35 @@ with ChatTUI() as ui:
 
 
 class MouseHistoryScreenTests(unittest.TestCase):
+    def test_approval_prompt_does_not_move_the_plan_under_the_reader(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI
+with ChatTUI() as ui:
+    ui.say('Plan to approve:\\n' + '\\n'.join(f'READING-LINE-{n:03d}' for n in range(100)))
+    while ui._composer.text != 'ready':
+        ui.wait(0.1)
+    try:
+        ui.ask('Approve this plan?')
+    except EOFError:
+        ui.say('No approval given.')
+"""
+        with TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=100, rows=25, tmux=require_tmux(self)
+        ) as screen:
+            screen.wait_for("Plan to approve:")
+            screen.keys("NPage")
+            before = screen.wait_for(
+                lambda shown: "History" in shown and "READING-LINE-" in shown and "Plan to approve:" not in shown
+            )
+            first = next(line for line in before.splitlines() if "READING-LINE-" in line)
+            screen.type("ready")
+            after = screen.wait_for("Approve this plan?")
+            self.assertEqual(first, next(line for line in after.splitlines() if "READING-LINE-" in line))
+            screen.keys("C-d")
+            self.assertEqual(0, screen.exit_status())
+
     def test_incomplete_mouse_packet_cannot_stall_the_status_loop(self):
         script = """
 import sys

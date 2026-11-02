@@ -1044,6 +1044,18 @@ class TallReplyAnchorTests(unittest.TestCase):
         self.assertIn("row 10", shown, "their window holds")
         self.assertNotIn("a new short block", shown, "a new block does not pull the person's view away")
 
+    def test_a_new_approval_prompt_keeps_the_plan_position_the_person_is_reading(self):
+        ui = self.ui("\x03")
+        ui.say("Plan to approve:\n" + "\n".join(f"reading row {number}" for number in range(40)))
+        ui._scroll_by(-ui._page())
+        before = self.shown(ui)
+        self.assertNotIn("Plan to approve:", before)
+        with self.assertRaises(KeyboardInterrupt):
+            ui.ask("Approve the complete plan? [y/N], or type what to change: ")
+        after = self.shown(ui)
+        self.assertTrue(before.startswith(after), (before, after))
+        self.assertFalse(ui._anchored, "the person's paging remains in control")
+
     def test_an_old_tall_block_the_person_answered_is_not_reached_back_for(self):
         ui = self.ui("y", "\x03")
         ui.say("AutoCode: " + "\n".join(["first line of the understanding", *["understanding"] * 20]))
