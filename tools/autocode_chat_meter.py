@@ -155,10 +155,11 @@ def stages(view: dict | None, now: datetime | None = None) -> list[dict]:
                 counted[side] += amount or 0
                 complete = complete and whole
         # A repaired stage's cost is its own stage row and its repair's: separate stages of one ledger.
-        costs = [
-            _mapping(spend.get(name)).get("spent_usd") for name in dict.fromkeys(str(row.get("stage")) for row in rows)
-        ]
-        costs = [value for value in costs if _number(value)]
+        costs: list[float] = []
+        for name in dict.fromkeys(str(row.get("stage")) for row in rows):
+            value = _mapping(spend.get(name)).get("spent_usd")
+            if isinstance(value, int | float) and _number(value):
+                costs.append(float(value))
         # A stage on a later attempt says why the one before it did not succeed.
         previous = _why(rows[-2]) if newest.get("active") and len(rows) > 1 else ""
         result.append(
