@@ -202,7 +202,7 @@ def _local(workspace: Path) -> list[tuple[Path, Path]]:
 def _pairs(workspace: Path, all_workspaces: bool) -> list[tuple[Path, Path]]:
     """(run directory, its workspace) for one project, or for every registered project.
 
-    A project's own runs include those of its autocode-issue worktrees, so its chat can open them (#1731),
+    A project's own runs include those of its autocode issue worktrees, so its chat can open them (#1731),
     and those of its task worktrees (a task started without ``--in-place``), the lanes ``--status`` and
     ``resume`` already find."""
     if not all_workspaces:

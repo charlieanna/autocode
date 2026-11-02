@@ -712,7 +712,7 @@ identity, host, command and any `--as` name, marked as a claim. A record saved w
 says it was not recorded, a workflow-policy approval says no person made it, and a run with none says
 `None recorded`. When the table names an approver, the report's "Not verified" list adds that
 approver identity is recorded as given; it also counts any records saved without a recorded
-approver. Because `autocode-issue pr` wraps that `evidence.md` exactly
+approver. Because `autocode issue pr` wraps that `evidence.md` exactly
 ([Issues](issues.md#what-it-does)), the pull request body lists the approvals too. A completed
 components run's report lists its child runs' approvals, each with the child it came from, in
 the same way ([Canonical completion evidence](task-run.md#canonical-completion-evidence)).
@@ -1033,7 +1033,7 @@ and records what AutoCode itself did, one JSON object per event:
 
 | Event | Recorded |
 | --- | --- |
-| `invocation` | Program, flag names (never values), and caller: `unattended` through `autocode-unattended`, otherwise `direct`. Written by any command that saves the run. |
+| `invocation` | Program, flag names (never values), and caller: `unattended` through `autocode unattended`, otherwise `direct`. Written by any command that saves the run. |
 | `transition` | Status, phase, next stage, iteration, task ID, which of those changed, and the runner's stop reason (up to 500 characters) when the status changed. |
 | `stage_started` / `stage_finished` | Stage, role, route role, iteration, engine, model, task ID, times, duration, exit code, timeout, rejection, number of changed files, token counts. |
 | `findings` | Counts by status and severity. |
@@ -1046,7 +1046,7 @@ per-stage artifacts. Nothing is trimmed, unlike `progress_messages` in
 `state.json`. Only saves that change the run add lines, so read-only commands such
 as `--status` add none. A failure to append never fails the checkpoint.
 
-`autocode-unattended --analyze` summarizes the log (calls by caller, stages, stops,
+`autocode unattended --analyze` summarizes the log (calls by caller, stages, stops,
 operator decisions) and `--out` copies it. Runs saved before this log existed have
 no `activity.jsonl`; their log starts with the next save.
 

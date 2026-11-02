@@ -2,7 +2,7 @@
 
 [← Back to README](../README.md)
 
-`autocode-issue` takes a GitHub issue, runs AutoCode on it in a branch of its
+`autocode issue` takes a GitHub issue, runs AutoCode on it in a branch of its
 own, and turns the finished run into a pull request whose body carries the
 run's evidence. It sits on top of the [task-run interface](task-run.md) and
 changes nothing about how a run plans, builds or completes.
@@ -21,14 +21,14 @@ Its dependencies must be installed there, and the `origin` remote must point
 at GitHub.
 
 ```sh
-autocode-issue brief #812                      # the brief AutoCode would get; no side effects
-autocode-issue start #812 -- --engine codex --test-command "uv run pytest"
+autocode issue brief #812                      # the brief AutoCode would get; no side effects
+autocode issue start #812 -- --engine codex --test-command "uv run pytest"
 autocode --show-goal --workspace WT --run-dir RUN
 autocode --approve-goal TOKEN --workspace WT --run-dir RUN
-autocode-issue continue #812                   # repeat after each answer or approval
-autocode-issue status #812                     # where it stands and the next command, at any time
-autocode-issue pr #812                         # commit the change and write the PR body; no push
-autocode-issue pr #812 --open                  # push the branch and open a draft pull request
+autocode issue continue #812                   # repeat after each answer or approval
+autocode issue status #812                     # where it stands and the next command, at any time
+autocode issue pr #812                         # commit the change and write the PR body; no push
+autocode issue pr #812 --open                  # push the branch and open a draft pull request
 ```
 
 `start` and `status` print `WT`, `RUN` and `TOKEN` for you, with every command
@@ -96,8 +96,8 @@ On a team, what will be built is worth reviewing before AutoCode builds it. When
 request instead of approving it at once:
 
 ```sh
-autocode-issue plan #812                       # commit the plan as plans/issue-812.md on its own branch; no push
-autocode-issue plan #812 --open                # push that branch and open a draft pull request
+autocode issue plan #812                       # commit the plan as plans/issue-812.md on its own branch; no push
+autocode issue plan #812 --open                # push that branch and open a draft pull request
 ```
 
 - **What it commits.** The plan is exported as `autocode plan --export` writes
@@ -130,7 +130,7 @@ approving stay with you:
 
 ```sh
 autocode --goal-file /path/to/project/plans/issue-812.md --workspace WT --run-dir RUN
-autocode-issue continue #812                   # in joint planning the Plan Reviewer reviews the loaded plan first
+autocode issue continue #812                   # in joint planning the Plan Reviewer reviews the loaded plan first
 autocode --approve-goal TOKEN --workspace WT --run-dir RUN
 ```
 
@@ -138,7 +138,7 @@ The approval stop names the file and its goal hash. The merged file goes back
 into the run that drafted the plan; starting a new run from it is not available
 yet ([A team's plan review](workflow.md#a-teams-plan-review)).
 
-`autocode-issue` counts the pull request as merged once the base branch, here or
+`autocode issue` counts the pull request as merged once the base branch, here or
 as last fetched from the remote (`plan` fetches it first once it has committed a
 plan, with or without `--open`), holds a different file at its path than the plan
 branch started from, whatever the merge method, and whether or not the plan
@@ -267,7 +267,7 @@ comment is updated; if GitHub accepted the comment before the local receipt was
 saved, the handler finds its marker and author rather than posting another.
 A partial initial launch, damaged attachment, unavailable GitHub permission
 check or mismatched comment receipt fails closed and retains the files. Inspect
-the saved attachment and use `autocode-issue status` and the public task-run
+the saved attachment and use `autocode issue status` and the public task-run
 commands to diagnose it; do not delete an existing run to make a retry succeed.
 GitHub accepting a PR just before its local URL is saved may need a human to
 reconcile that PR before retrying. The example does not promise transactions
@@ -314,7 +314,7 @@ The normal CI suite discovers it on every PR through `--all-fast` and on master.
 
 `autocode review-pr` reviews an existing pull request without changing your local
 project or starting Requirements, planning, approval or building. The
-`autocode-issue review-pr` alias runs the same command.
+`autocode issue review-pr` alias runs the same command.
 
 ```sh
 autocode review-pr https://github.com/OWNER/REPO/pull/NUMBER -- \

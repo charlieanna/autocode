@@ -2,7 +2,7 @@
 
 Every checkpoint save compares a small snapshot of the run with the last one
 logged and appends the differences to RUN/activity.jsonl: which command was
-invoked (flag names only, and whether through autocode-unattended), status and phase transitions, stages started and
+invoked (flag names only, and whether through autocode unattended), status and phase transitions, stages started and
 finished (role, model, exit, duration, token counts), findings counts, and
 approvals. It records activity, never content: no prompts, plans, answers,
 feedback, code, diffs, file names, findings text or model output. Flag values

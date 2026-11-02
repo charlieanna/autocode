@@ -10,14 +10,14 @@ be available in Codex CLI sessions; a connection only in another app is insuffic
 
 ```sh
 # Design only (both commands are equivalent):
-autocode-ui "Design a responsive team operations dashboard"
+autocode ui "Design a responsive team operations dashboard"
 autocode ui "Design a responsive team operations dashboard"
 
 # Design, review, then hand the accepted Figma result to the implementation runner:
 autocode ui "Build a responsive team operations dashboard" --build
 
 # Refine a selected file:
-autocode-ui "Refine the project detail layout" --figma-file "https://www.figma.com/design/FILEKEY/Project"
+autocode ui "Refine the project detail layout" --figma-file "https://www.figma.com/design/FILEKEY/Project"
 
 # Implement an existing file, or import a completed design run:
 autocode "Build the supplied design" --figma-file "https://www.figma.com/design/FILEKEY/Project"
@@ -50,7 +50,7 @@ human visual approval. Add `--figma-review human` to a new implementation run if
 that review is wanted. Explicitly supplied review requirements still take precedence.
 The workflow uses the connected Figma editing tools, not an assumed Figma Make API.
 
-The Figma and code paths use the same durable Autocode stage driver. `autocode-ui`
+The Figma and code paths use the same durable Autocode stage driver. `autocode ui`
 is an installed alias for `autocode ui`, not a separate orchestration product. Each
 target supplies its own prompts, report schemas and acceptance rules while sharing
 stage selection, checkpoint persistence, retry/skip behavior and terminal-state

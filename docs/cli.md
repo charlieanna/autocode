@@ -38,7 +38,7 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | `autocode output read\|retrieve` | Read or retrieve exact retained file bytes (see [Exact output](exact-output.md)). |
 | `autocode visual-capture --config FILE` / `autocode visual-check --policy FILE` | Capture visual references or run a source-owned visual check (see [Visual checks](visual-captures.md)). |
 | `autocode compare-baseline` | Compare Vitest failure evidence (see [Execution](execution.md#baseline-comparison)). |
-| `autocode review-pr URL [--post] [--out NEW_DIRECTORY] [--json] -- PROVIDER_OPTIONS` / `autocode-issue review-pr` | Fetch the exact PR head into an owned checkout, run Code Reviewer only, and print authenticated findings/evidence. `--post` submits COMMENT only after every new-side anchor and the head are rechecked (see [Pull request reviews](issues.md#reviewing-a-pull-request)). |
+| `autocode review-pr URL [--post] [--out NEW_DIRECTORY] [--json] -- PROVIDER_OPTIONS` / `autocode issue review-pr` | Fetch the exact PR head into an owned checkout, run Code Reviewer only, and print authenticated findings/evidence. `--post` submits COMMENT only after every new-side anchor and the head are rechecked (see [Pull request reviews](issues.md#reviewing-a-pull-request)). |
 | `autocode review --workspace PATH [--run-dir RUN]` | Inspect pending human-review criteria and their recorded evidence, then approve, reject with a note, or skip. Reads decisions from terminal or piped input. `--show` and `--json` display without prompting; decisions never start a model. See [Human review](execution.md#human-review-in-the-terminal). |
 | `autocode serve start\|stop\|status [--workspace PATH] [--run-dir RUN]` | Run the run's development server in the foreground from the project's saved `serve` command ([Project settings](#project-settings)) on a free loopback port until Ctrl-C or `autocode serve stop`; `stop` ends it and waits (`--timeout`); `status` shows whether it is configured, running and its address (`--json`). See [Development server](#development-server). |
 | `autocode forget [--workspace PATH] [--json]` | Clear only the learned project record; keep explicit configuration, saved runs and evidence. See [Project memory](project-memory.md). |
@@ -72,11 +72,11 @@ To run the checkout directly from its root, use `python tools/autocode.py doctor
 a deliberately invoked reinstall command for the current interpreter. It never
 updates an installation or rewrites run state itself.
 
-The old console-script aliases remain for compatibility. The unit entry points
-`autopilot`, `autoplanner`, `autocode-build`, `autoreview`, `autoresolver`,
-`autocode-orchestrator` and `autocode-unattended` are internal entry points; use
-`autocode` and its public subcommands in new instructions. Internal stage and unit
-names keep their existing meaning.
+`autocode` is the only installed command. The earlier per-unit scripts (`autopilot`, `autoplanner`,
+`autocode-build`, `autoreview`, `autoresolver`, `autocode-orchestrator` and the per-tool scripts) are no
+longer installed: use `autocode --unit autoplanner|autocode|autoreview|autoresolver` and the public
+subcommands (`autocode issue`, `unattended`, `ui`, `tasks`, `components`, `arena`, `dashboard`). Their modules still run as
+`python -m autocode_cli.<module>`. Internal stage and unit names keep their existing meaning.
 
 ## Offline demo
 
@@ -247,7 +247,7 @@ not approve a plan or start a model.
 | `--edit-goal body.json` | Load a full contract body as a new draft revision. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). |
 | `--goal-file PATH` | Load a plan file (`autocode plan --export`, reviewed and edited in a pull request) into a saved run as its next draft revision, as `--edit-goal` loads a body; the plan then goes through ordinary approval (in joint planning the Plan Reviewer reviews it first). Refused with the run left as it was when the file cannot be read, its text no longer matches its front matter, it still holds text the export masked as credential-shaped, its runner records are not the run's, or a planner's draft of it would be sent back: a literal the request states that the plan drops (with the message the planner gets), a Go test the request names that no criterion proves by that name, `git status` in a check, or a command the shell cannot parse. The approval stop then names the file and its goal hash and says whether the plan to approve is still the plan loaded from it, and the completed run's evidence report (and the PR body built from it) cites the file, its goal hash and the approved plan's. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). It does not start a new run. See [Reviewing a plan in a pull request](workflow.md#reviewing-a-plan-in-a-pull-request). |
 | `--approve-review C1 --review-token '…'` | Record a human-review decision for criterion `C1`. |
-| `--as NAME` | With `--approve-goal`, `--approve-review`, `--accept-completion`, `--edit-goal`, `--goal-file` or a resume (`--resume-paused`, or `autocode resume` at a pause) on a shared machine: the name of the person approving, accepting completion, editing or resuming, saved beside the Git identity as their claim, never verified ([Who approved](execution.md#who-approved)). With a resume it is saved only when the resume releases a pause; a resume that finds none, or that the pause keeps, ignores it. `--status`, the completion summary and, for a build, bug-fix or design run, the completed run's evidence report (and so the `autocode-issue pr` body) list it with the rest of the record. A project's `require-approver` checks the Git identity, never this name ([Required approver](execution.md#required-approver)). |
+| `--as NAME` | With `--approve-goal`, `--approve-review`, `--accept-completion`, `--edit-goal`, `--goal-file` or a resume (`--resume-paused`, or `autocode resume` at a pause) on a shared machine: the name of the person approving, accepting completion, editing or resuming, saved beside the Git identity as their claim, never verified ([Who approved](execution.md#who-approved)). With a resume it is saved only when the resume releases a pause; a resume that finds none, or that the pause keeps, ignores it. `--status`, the completion summary and, for a build, bug-fix or design run, the completed run's evidence report (and so the `autocode issue pr` body) list it with the rest of the record. A project's `require-approver` checks the Git identity, never this name ([Required approver](execution.md#required-approver)). |
 | `--reject-review C1 --review-token '…' --review-note TEXT` | Reject the current reviewed artifact for criterion `C1`, retaining the nonempty note as feedback for a fresh plan and approval. Uses the same artifact freshness checks as approval. |
 | `--investigator-model MODEL`, `--investigator-reasoning-effort LEVEL` | Pin the stuck-stage Investigator's model for this run (default, at high: in `kilocode` runs the run's own direct route outside the stuck stage's model family, never a `kilo/` gateway route; otherwise GPT-6 Sol, or GLM 5.3 when the stuck stage runs on Sol). A `provider/model` id runs it through OpenCode. See [Workflow](workflow.md#when-a-stage-stops-making-progress). |
 | `--utility-model MODEL`, `--utility-reasoning-effort LEVEL` | New runs only: run the stages that only classify or reformat (today the Job recognizer, `recognize_workflow`, which runs only on a flow without Requirements) on a cheaper model. The route keeps the Plan Reviewer's engine, provider and reasoning effort and replaces only the model. Never used for a stage that writes code or judges evidence. Without it every stage keeps its own route. Refused on a saved run. See [Models](models.md#the-utility-route). |
@@ -872,7 +872,7 @@ terminal) still works and is being replaced by this client. Scripts that call pl
 ## Unattended callers (agents)
 
 `autocode unattended` (or the internal compatibility wrapper
-`autocode-unattended` / `scripts/autocode-unattended` from a checkout) runs AutoCode
+`autocode unattended` / `scripts/autocode-unattended` from a checkout) runs AutoCode
 for another agent without letting that agent make the operator's decisions. It takes
 AutoCode's own arguments but refuses every decision or recovery flag (`--answer`,
 `--delegate*`, `--approve-*`, `--resume-paused`, `--retry-*`, `--feedback`, `--follow-up`,
@@ -899,7 +899,7 @@ including new untracked files, plus a summary of the run's always-on [activity l
 
 To lock a Claude Code agent to it, launch the agent from a copy of
 [`examples/agent-operator`](../examples/agent-operator): its `.claude/settings.json`
-allows only `autocode-unattended` and read-only tools, denies edits and other
+allows only `autocode unattended` and read-only tools, denies edits and other
 AutoCode or provider commands, and uses `dontAsk` so anything else is refused
 without a prompt. Its `CLAUDE.md` has the agent report stops verbatim and, after completion,
 analyze the work read-only. Keep that directory outside the target workspace.
