@@ -56,7 +56,7 @@ class Sender:
             expected = ["autocode", "coordinate", "status", "--run-dir", anchor, "--json"]
             if (view.get("coordination") or {}).get("status_command") != expected:
                 raise ValueError("No public task status offer")
-            response = client.cli(expected[1:])
+            response = client.cli(expected[1:], timeout=120)
             fresh = json.loads(response.stdout)
             if response.returncode or fresh.get("version") != 1 or fresh.get("id") != shown.get("id"):
                 raise ValueError("Task identity changed")
@@ -64,7 +64,7 @@ class Sender:
             command(shown, anchor, text, request)
             self.pending[key] = (request, command(fresh, anchor, text, request))
         request, argv = self.pending[key]
-        response = client.cli(argv)
+        response = client.cli(argv, timeout=30)
         value = json.loads(response.stdout)
         receipt = value.get("receipt") or {}
         if (

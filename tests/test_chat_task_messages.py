@@ -116,6 +116,21 @@ class TaskMessageTests(unittest.TestCase):
         self.assertEqual(["status", "message"], [call.args[0][1] for call in client.cli.call_args_list])
         self.assertIn("task-message-" + receipt["id"], client.seen)
 
+    def test_status_and_receipt_use_bounded_coordinator_deadlines(self):
+        client = self.client()
+        respond = client.cli.side_effect
+
+        def delayed_status(argv, *, timeout=5):
+            if argv[1] == "status" and timeout < 10:
+                raise coordination.actions.ClientGap("Three-repository status exceeds a single-run read deadline")
+            return respond(argv)
+
+        client.cli.side_effect = delayed_status
+        receipt = messages.Sender(client).send("Question?", summary())
+        self.assertEqual("Question?", receipt["text"])
+        self.assertEqual(120, client.cli.call_args_list[0].kwargs.get("timeout"))
+        self.assertEqual(30, client.cli.call_args_list[1].kwargs.get("timeout"))
+
     def test_uncertain_retry_retains_exact_identity_without_targeting_another_chat(self):
         client = self.client()
         sender = messages.Sender(client)
