@@ -152,6 +152,17 @@ class SharedBudgetTests(unittest.TestCase):
         observed = patch.object(coordinate, "observe", side_effect=lambda *_a, **_k: copy.deepcopy(self.views))
         observed.start()
         self.addCleanup(observed.stop)
+        source = patch.object(
+            coordinate,
+            "anchor_view",
+            return_value={
+                "run_dir": str(self.anchor),
+                "workspace": str(self.anchor.parents[2]),
+                "cost": {"spent_usd": 0.5, "complete": True},
+            },
+        )
+        source.start()
+        self.addCleanup(source.stop)
         self.run = Mock()
         self.run.env = {}
         self.run.status.return_value = copy.deepcopy(self.views["checkout"])

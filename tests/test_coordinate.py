@@ -451,7 +451,7 @@ class CoordinationTests(unittest.TestCase):
         run_dir.mkdir(parents=True)
         output = io.StringIO()
         with (
-            patch.dict(os.environ, {}, clear=True),
+            patch.dict(os.environ, {"HOME": str(self.root)}, clear=True),
             patch.object(coordinate, "status", return_value={"version": 1}),
             redirect_stdout(output),
         ):
