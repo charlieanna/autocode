@@ -34,8 +34,8 @@ class Discovery:
             if not isinstance(key, polling.ProjectRuns):
                 self._attention.listing(raw, error, started=self._poller.completed.get(key, time.monotonic()))
         self.attention_changed(self._attention.summary())
-        for row in self._attention.notifications():
-            self.say("New attention: " + attention.label(row) + ". F8 opens the inbox.")
+        # Discovery belongs to the full-screen view: its badge/inbox owns alerts.
+        self._attention.notifications()
 
     def menu(self):
         def refresh():

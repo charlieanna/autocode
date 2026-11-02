@@ -534,7 +534,9 @@ class ChatClient:
         if self.attention_changed is not None:
             self.attention_changed(self._attention.summary())
         for row in self._attention.notifications():
-            if attention.key(row) != current or self._composing_new:
+            if not (self._status_in_view and self.attention_changed is not None) and (
+                attention.key(row) != current or self._composing_new
+            ):
                 self.say("New attention: " + attention.label(row) + ". F8 or /attention opens the inbox.")
         if resumed_while_asking:
             raise PromptWithdrawn
