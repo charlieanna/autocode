@@ -22,6 +22,7 @@ try:
     from . import autocode_planning_feedback as planning_feedback
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_review as requirements_review
+    from . import autocode_run_status as run_status
 except ImportError:
     import autocode_acceptance_tests_job as acceptance_tests_job
     import autocode_chat_history as history
@@ -29,6 +30,7 @@ except ImportError:
     import autocode_planning_feedback as planning_feedback
     import autocode_requirements_chat as requirements_chat
     import autocode_requirements_review as requirements_review
+    import autocode_run_status as run_status
 
 
 # The id prefix of the Requirements question the chat is waiting on; the rest names the question.
@@ -79,6 +81,13 @@ def notice(public):
     if isinstance(ended, dict) and ended.get("reason"):
         # AutoCode ended the run itself with a recorded outcome (#2485): say so, with the reason; ask nothing.
         return f"I couldn’t finish this task: {ended['reason']} Your work so far is saved; new work is a new task."
+    need = public.get("needs") or {}
+    if (
+        status == "PAUSED_INTERVENTION"
+        and need.get("kind") == "resume"
+        and str(need.get("reason") or "").startswith(run_status.APPLIED_FEEDBACK_PREFIX)
+    ):
+        return "Feedback applied. Your work is saved; continue to update the plan."
     if status in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED"):
         # A pause someone asked for is not a failure (#1598).
         return "Paused as you asked. Your work so far is saved; resume when you’re ready."

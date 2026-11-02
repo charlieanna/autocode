@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Terminal chat and status: when AutoCode pauses to apply queued feedback it no longer says you
+  requested a pause — the notice reads "Feedback applied. Your work is saved; continue to update
+  the plan." and the pause is categorized as AutoCode's own checkpoint instead of a person's stop.
 - A contained stage's prompt no longer rewrites its capture examples to the launch's
   private scratch path — both examples now render as the stable token
   `--output <tool_containment.scratch>/evidence-<unique-name>.json`, whose exact

@@ -109,6 +109,22 @@ class ChatViewTests(unittest.TestCase):
         self.assertIn("Paused to apply your request", applying)
         self.assertNotIn("couldn’t finish", applying)
 
+    def test_applied_feedback_does_not_claim_the_person_requested_a_pause(self):
+        for stage in ("Requirements discovery", "Planner revision"):
+            public = {
+                "status": "PAUSED_INTERVENTION",
+                "needs": {"kind": "resume", "reason": f"Queued feedback was applied; explicitly continue to {stage}."},
+            }
+            before = copy.deepcopy(public)
+            self.assertEqual("Feedback applied. Your work is saved; continue to update the plan.", chat.notice(public))
+            self.assertEqual(before, public)
+        # A real pause request and a different pending action retain their own explanations.
+        for status, reason in (
+            ("PAUSED_INTERVENTION", "Queued pause was applied; explicitly resume when ready."),
+            ("PAUSED_REQUESTED", "Queued feedback was applied; explicitly continue to Planner revision."),
+        ):
+            self.assertIn("Paused as you asked", chat.notice({"status": status, "needs": {"reason": reason}}))
+
     def test_a_run_autocode_ended_itself_says_why_and_asks_nothing(self):
         # #2485: AutoCode's own end is not "paused as you asked", and names no flag, token or packet.
         ended = {"status": "PAUSED_INTERVENTION", "recovery": {"outcome": {"reason": "the sol check kept failing: x."}}}
