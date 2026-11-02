@@ -65,65 +65,28 @@ class JobModelRouteTests(JobHarness):
         self.env.update(REFUSE_KIND=kind, REFUSE_MODEL=model)
         return self.start(mode, workflow)
 
-    def test_timeout_can_explicitly_keep_its_model_without_launching_or_resetting_usage(self):
-        (self.workspace / ".autocode" / "bin" / "codex").write_text(PROVIDER)
-        run = self.start("timeout")
-        held = run.advance_until_input()
-        calls = self.calls.read_text()
-        token = held["needs"]["job_retry_token"]
-        model = held["routes"]["sol"]["model"]
-        assigned = run.assign_model("sol", model)
-        self.assertEqual(calls, self.calls.read_text())
-        self.assertEqual(held["usage"], assigned["usage"])
-        for role, route in held["routes"].items():
-            self.assertEqual(route["model"], assigned["routes"][role]["model"])
-            self.assertEqual(route["reasoning_effort"], assigned["routes"][role]["reasoning_effort"])
-        self.assertIn("--resume-paused --retry-failed-stage", assigned["next_command"])
-        next_token = assigned["needs"]["job_retry_token"]
-        self.assertNotEqual(token, next_token)
-        with self.assertRaises(TaskRunError):
-            run.retry_job(token)
-        self.assertEqual(calls, self.calls.read_text())
-        run.env["JOB_MODE"] = "success"
-        self.assertTrue(run.retry_job(next_token)["done"])
-
-    def test_timeout_model_answer_rotates_token_preserves_limits_and_retries_once(self):
+    def test_a_stage_deadline_stop_asks_no_model_question_and_takes_its_exact_retry(self):
+        # #2605: the deadline is AutoCode's own limit. Once its extensions are spent (none fit under
+        # this harness's total cap) the job waits for its exact retry; no model is asked or accepted.
         (self.workspace / ".autocode" / "bin" / "codex").write_text(PROVIDER)
         run = self.start("timeout")
         held = run.advance_until_input()
         need = held["needs"]
-        self.assertEqual("timeout", need["route"]["cause"])
-        self.assertIn("--answer route-sol=MODEL --job-retry-token -", held["next_command"])
-        calls = self.calls.read_text()
-        token = need["job_retry_token"]
+        self.assertEqual("retry_job", need["kind"])
+        self.assertNotIn("route", need)
+        self.assertFalse(need.get("questions"))
+        self.assertNotIn("--answer", held["next_command"])
+        self.assertNotIn("MODEL", held["stop_reason"])
+        self.assertNotIn("--", held["stop_reason"])
+        calls, before = self.calls.read_text(), self.saved(run)
         with self.assertRaises(TaskRunError):
-            run.assign_model("sol", "gpt-6-luna", job_retry_token="jr:wrong")
-        blocked = self.cli(
-            run,
-            "--answer",
-            "route-sol=gpt-6-luna",
-            "--job-retry-token",
-            token,
-            "--max-seconds",
-            "1300",
-        )
-        self.assertEqual(2, blocked.returncode)
-        self.assertIn("configuration its exact retry is bound to", blocked.stderr)
-        self.assertEqual(held["needs"], run.status()["needs"])
-        assigned = run.assign_model("sol", "gpt-6-luna")
-        self.assertEqual(calls, self.calls.read_text(), "choosing a model cannot launch it")
-        self.assertEqual(held["usage"], assigned["usage"])
-        for role in set(held["routes"]) - {"sol"}:
-            self.assertEqual(held["routes"][role], assigned["routes"][role], role)
-        next_token = assigned["needs"]["job_retry_token"]
-        self.assertNotEqual(token, next_token)
-        with self.assertRaises(TaskRunError):
-            run.retry_job(token)
+            run.assign_model("sol", "gpt-6-luna")
         self.assertEqual(calls, self.calls.read_text())
+        self.assertEqual(before, self.saved(run))
         run.env["JOB_MODE"] = "success"
-        done = run.retry_job(next_token)
+        done = run.retry_job(need["job_retry_token"])
         self.assertEqual("TASK_COMPLETE", done["status"])
-        self.assertTrue(done["done"])
+        self.assertEqual(held["routes"]["sol"]["model"], done["routes"]["sol"]["model"])
 
     def models(self):
         return [line.split(" ", 1)[1] for line in self.calls.read_text().splitlines()] if self.calls.exists() else []

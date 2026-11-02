@@ -30,6 +30,11 @@ PR template asks for an entry here; a change without one is incomplete.
   skips every process this command descends from, not only its parent, and settles
   chats and launchers from their exact arguments, which `ps` text loses; a real second
   runner, a provider command and anything it cannot read exactly still block.
+- A workflow job that runs out of its automatic deadline extensions now waits for its
+  exact retry on the same model: the stop no longer asks which model to use, takes no
+  model answer, and its reason says AutoCode already extended it instead of spelling out
+  flags and the retry token. An exploration-budget stop keeps its effort question (#2605).
+
 - A workflow job (the Investigator, the Code Reviewer, the acceptance Tester...) that
   reaches its hard stage deadline no longer pauses on a question about which model to
   use. AutoCode retries it on the same model with the deadline doubled, never past the

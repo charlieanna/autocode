@@ -173,66 +173,25 @@ class AcceptanceWriterRouteCLI(unittest.TestCase):
         self.assertEqual(1, len({row["model"] for row in rows}))
         return self.snapshot(run)["settings"]["limits"]["stage_timeout_seconds"]
 
-    def test_timeout_route_answer_keeps_verifiers_and_requires_fresh_retry(self):
+    def test_a_writer_past_its_deadline_extensions_retries_exactly_without_a_model_question(self):
+        # #2605: after AutoCode's own extensions the writer waits for its exact retry on the same model.
         run, held = self.start()
         self.assertEqual("PAUSED_JOB_FAILURE", held["status"])
         self.assert_deadline_extended_before_pause(run)
         self.assertEqual("write_acceptance_tests", held["next_stage"])
-        self.assertEqual("acceptance_tester", held["needs"]["route"]["role"])
+        self.assertEqual("retry_job", held["needs"]["kind"])
+        self.assertNotIn("route", held["needs"])
+        self.assertIn("AutoCode already retried", held["stop_reason"])
+        self.assertNotIn("--", held["stop_reason"])
         original = self.calls.read_bytes()
-        before = self.snapshot(run)
-        token = held["needs"]["job_retry_token"]
         with self.assertRaises(TaskRunError):
-            run.assign_model("acceptance_tester", "gpt-6-luna", job_retry_token="jr:stale")
-        self.assertEqual(held["needs"], run.status()["needs"])
-        refused = subprocess.run(
-            [
-                *run.command,
-                "--run-dir",
-                str(run.run_dir),
-                "--answer",
-                "route-acceptance_tester=gpt-6-luna",
-                "--job-retry-token",
-                token,
-                "--max-seconds",
-                "9000",
-                "--no-chat",
-            ],
-            env=run.env,
-            cwd=run.cwd,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        self.assertNotEqual(0, refused.returncode)
-        self.assertEqual(before["settings"], self.snapshot(run)["settings"])
-        drift = run.workspace / "later.txt"
-        drift.write_text("later owner edit\n")
-        with self.assertRaisesRegex(TaskRunError, "Source changed"):
             run.assign_model("acceptance_tester", "gpt-6-luna")
-        self.assertEqual(held["needs"], run.status()["needs"])
-        drift.unlink()
-        assigned = run.assign_model("acceptance_tester", "gpt-6-luna@medium")
-        after = self.snapshot(run)
-        self.assertEqual(before["settings"]["limits"], after["settings"]["limits"])
-        self.assertEqual("medium", after["settings"]["roles"]["acceptance_tester"]["reasoning_effort"])
-        self.assertEqual(original, self.calls.read_bytes(), "saving a route launches no model")
-        self.assertEqual(held["usage"], assigned["usage"])
-        self.assertEqual(held["cost"], assigned["cost"])
-        self.assertEqual(held["approved_contract"], assigned["approved_contract"])
-        for role in set(held["routes"]) - {"acceptance_tester"}:
-            self.assertEqual(held["routes"][role], assigned["routes"][role], role)
-        fresh = assigned["needs"]["job_retry_token"]
-        self.assertNotEqual(token, fresh)
-        with self.assertRaises(TaskRunError):
-            run.retry_job(token)
-        self.assertEqual(original, self.calls.read_bytes())
+        self.assertEqual(original, self.calls.read_bytes(), "a refused model answer launches nothing")
         run.env.pop("WRITER_TIMEOUT")
-        completed = run.retry_job(fresh)
+        completed = run.retry_job(held["needs"]["job_retry_token"])
         self.assertTrue(completed["done"], {k: completed.get(k) for k in ("status", "needs")})
         rows = [json.loads(line) for line in self.calls.read_text().splitlines()]
         self.assertEqual(4, len(rows))
-        self.assertEqual("gpt-6-luna", rows[-1]["model"])
-        self.assertNotEqual(rows[0]["model"], rows[-1]["model"])
+        self.assertEqual(1, len({row["model"] for row in rows}))
         for role in ("sol", "completion", "terra"):
             self.assertEqual(held["routes"][role]["model"], completed["routes"][role]["model"])
