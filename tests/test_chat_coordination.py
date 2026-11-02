@@ -236,7 +236,8 @@ with ChatTUI() as ui:
             self.addCleanup(screen.close)
             screen.wait_for(
                 lambda text: (
-                    "LIVE · all agents" in text
+                    "▌ Requirements" in text
+                    and "LIVE · all agents" not in text
                     and "Inspecting the actual request path" in text
                     and "task $3.00+" in text
                     and "300 tokens" in text
@@ -249,6 +250,11 @@ with ChatTUI() as ui:
             screen.keys("Enter")
             screen.wait_for("List these commands", what="responsive help during the coordinated action")
             self.assertEqual("anchor\n", (root / "advances").read_text())
+            # Help shares the conversation now; earlier progress remains reachable
+            # by paging while the persistent status indicator continues updating.
+            for _ in range(8):
+                screen.keys("PPage")
+            screen.wait_for("Inspecting the actual request path", what="member progress retained above help")
             outage = root / "fail-anchor-status"
             outage.touch()
             screen.wait_for(
@@ -261,6 +267,8 @@ with ChatTUI() as ui:
                 timeout=10,
                 what="recovered anchor indicator without a stale outage in the transcript",
             )
+            for _ in range(8):
+                screen.keys("NPage")
             with gate.open("w") as release:
                 release.write("done")
             screen.wait_for(
