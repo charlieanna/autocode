@@ -275,6 +275,12 @@ class LiveLogTests(unittest.TestCase):
             panel.live_text("thinking ~1200 tokens; writing Edit input: 40 chars; ran ls"),
         )
 
+    def test_live_prose_uses_terminal_safe_apostrophes_and_plain_kind_labels(self):
+        self.assertEqual("I'm checking; I'll report back.", panel.live_text("I’m checking; I’ll report back."))
+        self.assertEqual("[thinking]", panel.LIVE_MARKS["thinking"])
+        self.assertEqual("[message]", panel.LIVE_MARKS["message"])
+        self.assertEqual("thought ~600 tokens", panel.live_text("[earlier text omitted] tokens; thinking ~600 tokens"))
+
     def test_the_models_own_words_are_shown_as_they_are(self):
         for words in ("Read greet.py first; then run the tests.", "thinking about ~3 options", ""):
             self.assertEqual(words, panel.live_text(words))
@@ -282,7 +288,7 @@ class LiveLogTests(unittest.TestCase):
     def test_the_log_text_the_conversation_prints_is_condensed_too(self):
         live = panel.LiveLog()
         live.observe(self.view(("a:r1", "Tester", "thinking", self.NOTES)))
-        self.assertIn("Tester ∴ thought ~600 tokens · writing its answer · 6.8k chars", live.text())
+        self.assertIn("Tester [thinking] thought ~600 tokens · writing its answer · 6.8k chars", live.text())
         self.assertNotIn("thinking ~450", live.text())
 
     @staticmethod

@@ -62,7 +62,7 @@ ASCII_MARKS = {
 }
 EVENT_MARKS = {"edit": "±", "tool": "·"}  # user-facing activity; internal command text stays hidden
 EVENT_ROWS = 6  # how many of the newest events the panel lists
-LIVE_MARKS = {"thinking": "∴", "message": "»", "edit": "±", "tool": "·"}  # visible live-log entry kinds
+LIVE_MARKS = {"thinking": "[thinking]", "message": "[message]", "edit": "[edit]", "tool": "[tool]"}
 LIVE_KINDS = {"thinking": ("thinking",), "messages": ("message",), "tools": ("edit", "tool")}
 LIVE_LIMIT = 500  # entries the live log keeps
 
@@ -557,7 +557,8 @@ def live_text(text: str) -> str:
     """An entry's text as the live log shows it. A provider's running progress notes ("thinking ~150
     tokens; thinking ~300 tokens; writing StructuredOutput input: 900 chars; …") say one growing thing
     over and over: they read as their newest value of each, in the order first seen. Any other text,
-    the model's own words, is shown as it is."""
+    the model's own words, is kept with terminal-safe apostrophes."""
+    text = text.replace("’", "'").replace("‘", "'")
     parts = [part.strip() for part in text.split(";")]
     if not any(_THOUGHT.fullmatch(part) or _WRITING.fullmatch(part) for part in parts):
         return text
@@ -570,7 +571,7 @@ def live_text(text: str) -> str:
         elif writing := _WRITING.fullmatch(part):
             tool = _ANSWER_TOOLS.get(writing.group(1), writing.group(1))
             shown[f"writing {tool}"] = f"writing {tool} · " + _amount(int(writing.group(2)), "chars")
-        elif not (number == 0 and part.startswith("…")):  # the cut-off head of an older note
+        elif not (number == 0 and part.startswith(("…", "[earlier text omitted]"))):
             shown[f"text {number}"] = part
     return " · ".join(shown.values())
 

@@ -20,6 +20,44 @@ RUN_SECONDS = 300  # a fixture stage is quick, but CI hosts are shared
 
 
 class LiveDefaultScreenTests(unittest.TestCase):
+    def test_live_prose_is_readable_in_the_terminal(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_log import prose_event
+from autocode_chat_tui import ChatTUI
+events = [
+    ('item.updated', 'reasoning', 'Conf'),
+    ('item.completed', 'agent_message', 'I’m checking; I’ll report back.'),
+    ('item.completed', 'agent_message', 'older context ' * 50 + 'Which codes should history show?'),
+]
+rows = []
+for n, (event, kind, text) in enumerate(events):
+    key, entry = prose_event({'type': event, 'item': {'id': str(n), 'type': kind, 'text': text}})
+    rows.append({'id': key, 'agent': 'Plan Reviewer', **entry})
+with ChatTUI() as ui:
+    ui.observe({'status': 'RUNNING', 'chat': {'log': rows}})
+    while True:
+        ui.wait(0.1)
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=140, rows=40, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for(
+            lambda shown: all(
+                text in " ".join(shown.split())
+                for text in (
+                    "[thinking] Partial thought received.",
+                    "[message] I'm checking; I'll report back.",
+                    "[earlier text omitted]",
+                    "Which codes should history show?",
+                )
+            ),
+            timeout=10,
+            what="readable labels, apostrophes, streaming notice and complete newest words",
+        )
+
     def test_running_view_shows_live_without_a_command_and_respects_hiding(self):
         # Real curses rendering of a public view; no provider or task is launched.
         script = """

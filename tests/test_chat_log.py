@@ -194,7 +194,39 @@ class ReadTests(unittest.TestCase):
         self.assertNotIn("\n", first)
         self.assertNotIn("abcdefghijkl", first)
         self.assertLessEqual(len(second), log.PROSE_LIMIT)
-        self.assertTrue(second.startswith("…") and second.endswith("newest"))
+        self.assertTrue(second.startswith("[earlier text omitted] ") and second.endswith("newest"))
+
+    def test_truncated_prose_starts_at_a_word_boundary_with_a_clear_notice(self):
+        text = "older context " * 50 + "Which codes should the history show?"
+        shown = log._prose(text)
+        self.assertTrue(shown.startswith("[earlier text omitted] "))
+        tail = shown.removeprefix("[earlier text omitted] ")
+        self.assertIn(" " + tail, text)
+        self.assertTrue(shown.endswith("Which codes should the history show?"))
+        self.assertLessEqual(len(shown), log.PROSE_LIMIT)
+        self.assertEqual("[long text omitted]", log._prose("x" * 500))
+
+    def test_an_unfinished_first_token_is_activity_not_a_finished_word(self):
+        write(
+            self.events,
+            [
+                codex("item.updated", "r1", type="reasoning", text="Conf"),
+                codex("item.updated", "m1", type="agent_message", text="I’ll"),
+                codex("item.completed", "m2", type="agent_message", text="Done"),
+            ],
+        )
+        self.assertEqual(
+            [("thinking", "Partial thought received."), ("message", "Partial message received."), ("message", "Done")],
+            self.entries(),
+        )
+        write(
+            self.events,
+            [
+                codex("item.updated", "r1", type="reasoning", text="Conf"),
+                codex("item.updated", "r1", type="reasoning", text="Confirm the behavior first"),
+            ],
+        )
+        self.assertEqual([("thinking", "Confirm the behavior first")], self.entries())
 
     def test_blank_prose_and_tool_output_are_not_entries(self):
         write(

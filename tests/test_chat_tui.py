@@ -1205,7 +1205,7 @@ class LivePaneTests(unittest.TestCase):
         ui._run("/live", False, "all")
         [(role, text)] = ui._transcript.blocks[-1:]
         self.assertEqual("info", role)
-        self.assertIn("Builder · task M1 ∴ Read greet.py first", text)
+        self.assertIn("Builder · task M1 [thinking] Read greet.py first", text)
         self.assertNotIn("pytest -q", text)
 
     def test_long_entries_wrap_under_their_agent_and_never_carry_escapes(self):
