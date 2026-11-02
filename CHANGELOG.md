@@ -35,6 +35,26 @@ PR template asks for an entry here; a change without one is incomplete.
 - Terminal chat: the live agent log stays visible by default while a run is working (the
   minimum terminal height is gone), with a clearer empty state before the first agent
   reports.
+- Requirements citation checks report every invalid citation in one pass, so a plan with
+  several stale citations is repaired once instead of one citation per repair round.
+- Coordination: recovering a member run without a shared spending cap renders its state in
+  the TUI instead of crashing, an explicitly disabled shared cap is labelled "no cap"
+  rather than "$0", and pause acknowledgement waits long enough for the coordinated run's
+  receipt before reporting a failure.
+- Coordination: a member run's live activity shows from the repository it is working in
+  while the anchor advances, and whole-task cost and token totals survive repository
+  switches.
+- Terminal chat: the transcript scrolls with a mouse wheel or trackpad, and reads of
+  incomplete mouse input are bounded so a partial packet no longer freezes input; streamed
+  agent text renders readable, with labels, apostrophes and word fragments no longer
+  clipped mid-character.
+- Task messages: queued answers are delivered at saved execution boundaries without
+  replanning the task, a running single-run TUI can send receipted conversation messages
+  with duplicate protection, and Requirements assessing coordinated messages keeps each
+  message's source gates and identifies the repositories a reply affects. Messages sent
+  while a member is actively working persist for delivery instead of being lost, without
+  duplicate submissions or changing approvals, and a resumed Requirements conversation
+  charges the coordinated task's budget.
 
 ### Added
 
