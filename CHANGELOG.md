@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Coordination: a status response reuses identical public reads within that one
+  response — a coordinator `coordinate status` (and each TaskRun status or
+  intervention read it performs) spawns one CLI read instead of repeating the same
+  read for view, intervention and evidence layers; results are deep-copy isolated
+  so no caller sees another's mutations.
 - Live chat log: an unfinished multiword streamed thought or message is now labelled
   `[partial]` — bounded and redacted like final prose — instead of being shown as if it
   were the agent's final text; the completion snapshot still replaces it, and a fragment
