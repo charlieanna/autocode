@@ -562,6 +562,21 @@ class ChatViewTests(unittest.TestCase):
         result = chat.project(state, {"status": "WAITING_FOR_USER", "needs": need}, workspace="/ws", run_dir="/run")
         self.assertEqual([question], [row["text"] for row in result["messages"]])
 
+    def test_a_greeting_with_the_complete_question_is_one_question_message(self):
+        question = "Should I investigate the history entry or fix the display?"
+        spoken = f"Hi! {question}"
+        state = {
+            "status": "WAITING_FOR_USER",
+            "settings": {"spec_first": True},
+            "next_stage": "requirements_gather",
+            "requirements_handoff": {"report": {"assistant_reply": spoken}},
+        }
+        need = {"kind": "answer", "questions": [{"id": "Q1", "question": question, "options": []}]}
+        result = chat.project(state, {"status": "WAITING_FOR_USER", "needs": need}, workspace="/ws", run_dir="/run")
+        self.assertEqual([spoken], [row["text"] for row in result["messages"]])
+        self.assertTrue(result["messages"][0]["id"].startswith(chat.REQUIREMENTS_QUESTION))
+        self.assertEqual("feedback", result["input"]["kind"])
+
     def test_history_preserves_original_request_answers_feedback_and_followups(self):
         state = {
             "status": "TASK_COMPLETE",
