@@ -808,6 +808,29 @@ class TallReplyAnchorTests(unittest.TestCase):
         ui._handle(tui.curses.KEY_PPAGE, asking=True)
         self.assertIn("Plan to approve:", self.shown(ui), "PageUp walks back to the plan's head")
 
+    def test_a_plan_that_fits_is_not_scrolled_away_for_an_older_tall_summary(self):
+        """At 80x24 the plan fit the body, so the question reached back to the requirements
+        summary repeated after the person's replies and opened there, with the plan it asked
+        about off screen."""
+        ui = self.ui("y", "\x03", rows=24, cols=80)
+        ui.say("You: y")
+        ui.say("AutoCode: " + "\n".join(["Here is what I understand.", *[f"  behavior {n}" for n in range(1, 20)]]))
+        ui.say("Working on your request…")
+        ui.say(
+            "\nPlan to approve:\n"
+            "  [C1] Greeting contract holds\n"
+            "      Checked by: Execute greeting and invalid-input regression checks\n"
+            "  Milestone M1 (proves C1): Deliver and verify the greeting CLI\n"
+            "Constraints:\n  - Python standard library only\n"
+            "What it may do:\n  - Read and edit only this fixture Git workspace"
+        )
+        with self.assertRaises(KeyboardInterrupt):
+            ui.ask("Approve this plan? [y/N], or type what to change: ")
+        shown = self.shown(ui)
+        self.assertIn("Plan to approve:", shown)
+        self.assertIn("Read and edit only this fixture Git workspace", shown, "the whole plan is on screen")
+        self.assertNotIn("Here is what I understand.", shown)
+
     def test_a_short_acknowledgement_after_a_tall_listing_stays_visible(self):
         """The attached-viewer pause bug: a tall listing must not pin the view over the
         acknowledgement said after it, once no question asks for the listing's head."""
@@ -1046,3 +1069,158 @@ class StartingStatusTests(unittest.TestCase):
         ui = screen_ui()
         ui.observe({"status": "RUNNING", "progress": {"headline": "Requirements working"}})
         self.assertIn("Requirements working", " ".join(self.drawn_status(ui)))
+
+
+def drawn(ui, rows=30, cols=120):
+    """Every string the screen was asked to draw, by row."""
+    ui._screen.getmaxyx.return_value = (rows, cols)
+    puts = []
+    ui._put = lambda row, col, text, attr=0: puts.append((row, text))
+    ui._draw()
+    return puts
+
+
+def row_text(puts, number):
+    return " ".join(text for row, text in puts if row == number)
+
+
+class NewChatScreenTests(unittest.TestCase):
+    """A new chat before anything is sent: a welcome, and no loading noise that reads as a fault."""
+
+    def new_chat(self):
+        ui = screen_ui()
+        ui.set_context(Path("/p/project"))
+        ui.say("New chats: Full · Codex. /mode and /engine change them.")
+        return ui
+
+    def test_the_welcome_shows_under_the_chats_settings(self):
+        shown = " ".join(text for _, text in drawn(self.new_chat()))
+        self.assertIn(tui.TAGLINE, shown)
+        self.assertIn("Try asking:", shown)
+        self.assertIn(tui.EXAMPLES[0], shown)
+        self.assertIn("New chats: Full · Codex", shown)
+
+    def test_the_welcome_leaves_once_the_person_has_spoken(self):
+        ui = self.new_chat()
+        ui.say("You: fix the typo")
+        self.assertNotIn("Try asking:", " ".join(text for _, text in drawn(ui)))
+
+    def test_a_new_chat_has_no_status_to_read_and_no_alerts_loading_badge(self):
+        ui = self.new_chat()
+        ui.attention({"unread": 0, "unknown": 0, "error": "Reading saved attention", "loading": True})
+        puts = drawn(ui)
+        self.assertEqual("New chat", row_text(puts, 2).strip())
+        self.assertNotIn("F8", row_text(puts, 0))
+        self.assertNotIn("unavailable", " ".join(text for _, text in puts))
+
+    def test_a_just_launched_run_that_cannot_be_read_yet_is_starting(self):
+        ui = self.new_chat()
+        ui._launched, ui._launched_at = True, tui.time.monotonic()
+        ui.status_unavailable("no state.json yet")
+        shown = " ".join(text for _, text in drawn(ui))
+        self.assertIn(tui.STARTING, shown)
+        self.assertNotIn("Status unavailable", shown)
+
+    def test_a_run_unreadable_past_its_start_reports_the_outage(self):
+        ui = self.new_chat()
+        ui._launched, ui._launched_at = True, tui.time.monotonic() - tui.STARTUP_GRACE_SECONDS - 1
+        ui.status_unavailable("no state.json yet")
+        self.assertIn("Status unavailable", " ".join(text for _, text in drawn(ui)))
+
+
+class SpeakerTests(unittest.TestCase):
+    def test_the_clients_own_words_after_a_reply_are_autocodes_turn(self):
+        transcript = tui.Transcript()
+        transcript.add("New chats: Full · Codex.")  # before anyone speaks: a plain settings line
+        transcript.add("You: y")
+        transcript.add("Prepare a reviewed plan?\nPlanning uses your selected models.")
+        transcript.add("Plan to approve:\n  [C1] Greeting")
+        transcript.add("You: y")
+        self.assertEqual(
+            [
+                ("plain", "New chats: Full · Codex."),
+                ("plain", ""),
+                ("user-label", "You"),
+                ("user-body", "  y"),
+                ("plain", ""),
+                ("assistant-label", "AutoCode"),
+                ("plain", "  Prepare a reviewed plan?"),
+                ("plain", "  Planning uses your selected models."),
+                ("plain", ""),
+                ("plain", "  Plan to approve:"),
+                ("plain", "    [C1] Greeting"),
+                ("plain", ""),
+                ("user-label", "You"),
+                ("user-body", "  y"),
+                ("plain", ""),
+            ],
+            transcript.lines(80),
+        )
+
+
+class AttentionShownChatTests(unittest.TestCase):
+    def test_the_badge_leaves_out_the_chat_on_screen(self):
+        ui = screen_ui()
+        ui.attention({"unread": 1, "shown_unread": 1})
+        self.assertNotIn("F8", row_text(drawn(ui), 0))
+        ui.attention({"unread": 2, "shown_unread": 1})
+        self.assertIn("F8: 1 new alert", row_text(drawn(ui), 0))
+
+
+SPENDING_VIEW = {
+    "status": "RUNNING",
+    "progress": {"headline": "Builder working"},
+    "cost": {"spent_usd": 0.42, "complete": True},
+    "usage": {
+        "accounting": {
+            "tokens": {
+                "input_tokens": {"value": 150000, "complete": True},
+                "output_tokens": {"value": 34000, "complete": True},
+            },
+            "attempts": [
+                {"stage": "terra", "job": "Builder", "exit_code": 1, "duration_seconds": 40},
+                {"stage": "terra", "job": "Builder", "active": True, "duration_seconds": 20},
+            ],
+        }
+    },
+}
+
+
+class MeterScreenTests(unittest.TestCase):
+    def test_the_header_shows_the_runs_cost_and_tokens(self):
+        ui = screen_ui()
+        ui.observe(SPENDING_VIEW)
+        self.assertIn("$0.42 · 184k tokens", row_text(drawn(ui), 0))
+
+    def test_with_two_chats_the_header_adds_the_session_total(self):
+        ui = screen_ui()
+        ui.observe(SPENDING_VIEW)
+        other = {"spent_usd": 1.0, "inherited_usd": 0, "input_tokens": 1000, "output_tokens": 0, "complete": True}
+        ui.tabs(
+            [
+                {"number": 1, "run": "/p/r1", "title": "Other", "state": "done", "current": False, "total": other},
+                {"number": 2, "run": "/p/r2", "title": "This", "state": "working", "current": True, "total": None},
+            ]
+        )
+        self.assertIn("chat $0.42 · 184k tokens · session $1.42 · 185k tokens", row_text(drawn(ui, cols=140), 0))
+
+    def test_a_struggling_stage_takes_the_status_row(self):
+        ui = screen_ui()
+        ui.observe(SPENDING_VIEW)
+        puts = drawn(ui)
+        status = next(text for _, text in puts if "attempt 2" in text and "Builder" in text and "exit 1" in text)
+        self.assertIn("last one exit 1", status)
+        self.assertIn("STAGES  $0.42 · 184k tokens", " ".join(text for _, text in puts))
+
+
+class ClosingSummaryTests(unittest.TestCase):
+    def test_a_finished_run_names_the_files_it_changed(self):
+        shown = {
+            "code_checkpoints": {
+                "rows": [{"changed_files": ["greet.py", "README.md"]}, {"changed_files": ["greet.py"]}]
+            }
+        }
+        self.assertEqual(
+            "Changed 2 files: greet.py, README.md. /diff shows what changed.", tui.panel.finished_text(shown)
+        )
+        self.assertEqual("", tui.panel.finished_text({}))

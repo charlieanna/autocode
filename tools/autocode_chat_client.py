@@ -59,6 +59,7 @@ try:
     from . import autocode_chat_context as contexts
     from . import autocode_chat_coordination as coordination
     from . import autocode_chat_inventory as inventory
+    from . import autocode_chat_meter as meter
     from . import autocode_chat_panel as panel
     from . import autocode_chat_polling as polling
     from . import autocode_chat_setup as setup
@@ -74,6 +75,7 @@ except ImportError:
     import autocode_chat_context as contexts
     import autocode_chat_coordination as coordination
     import autocode_chat_inventory as inventory
+    import autocode_chat_meter as meter
     import autocode_chat_panel as panel
     import autocode_chat_polling as polling
     import autocode_chat_setup as setup
@@ -407,6 +409,8 @@ class ChatClient:
         self._status_error = ""
         self._prompt_waiting_key: tuple[str, str] | None = None
         self._read_errors: dict[str, str] = {}
+        self._summarized: set[str] = set()  # runs whose closing summary this chat already said
+        self._totals: dict[str, dict | None] = {}  # each tab's run total from its newest view, for the session line
         self._pause_pending = False
         self._attached = False
         self._execution_offer = execution or {}
@@ -498,6 +502,7 @@ class ChatClient:
                     self._attention.observe(view, received=time.monotonic())
                     self.other_status(key[1], Path(key[0]), view)
             self.show_tabs()
+        self._attention.shown = None if self._composing_new else current
         if self.attention_changed is not None:
             self.attention_changed(self._attention.summary())
         for row in self._attention.notifications():
@@ -525,6 +530,7 @@ class ChatClient:
         self.own(view)
         self.identity = wait_identity(view)
         self.titles[str(self.run_dir)] = title_of(view) or self.titles.get(str(self.run_dir), "")
+        self._totals[str(self.run_dir)] = meter.run_total(view)
         self.show_tabs()
         if self._observe is not None:
             self._observe(view)
@@ -1023,7 +1029,16 @@ class ChatClient:
             if run in self._read_errors:
                 state = "unavailable"
             title = self.titles.get(run) or Path(run).name
-            rows.append({"number": len(rows) + 1, "run": run, "title": title, "state": state, "current": current})
+            rows.append(
+                {
+                    "number": len(rows) + 1,
+                    "run": run,
+                    "title": title,
+                    "state": state,
+                    "current": current,
+                    "total": self._totals.get(run),
+                }
+            )
         return rows
 
     def show_tabs(self) -> None:
@@ -1108,6 +1123,7 @@ class ChatClient:
         now = wait_identity(view)
         self.others[run] = (workspace, now)
         self.titles[run] = title_of(view) or self.titles.get(run, "")
+        self._totals[run] = meter.run_total(view)
         if now is None or now == before:
             return
         if ((view.get("attention") or {}).get("item") or {}).get("id"):
@@ -1572,6 +1588,10 @@ class ChatClient:
         if offer.get("kind") != "follow_up":
             return False
         context = (view.get("chat") or {}).get("context") or ""
+        if view.get("done") and str(self.run_dir) not in self._summarized:
+            self._summarized.add(str(self.run_dir))
+            if closing := panel.finished_text(view):
+                self.say(closing)
         try:
             reply = self.ask("\nAnything else? Any text starts a new task in this chat; press Enter to finish: ")
         except Left:

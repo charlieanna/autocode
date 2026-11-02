@@ -923,6 +923,20 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual([["--follow-up", "Add a --shout flag"]], client.taken)
         self.assertIn("Any text starts a new task in this chat; press Enter to finish:", client.text())
 
+    def test_a_finished_run_says_what_it_changed_once_before_the_follow_up(self):
+        done = {
+            **DONE,
+            "code_checkpoints": {"rows": [{"changed_files": ["greet.py", "README.md"]}]},
+            "chat": {
+                "context": "c9",
+                "input": {"kind": "follow_up", "next_command": f"autocode {PLACE} --follow-up MESSAGE"},
+            },
+        }
+        client = ScriptedChat(done, done, replies=["", ""])
+        client.follow_up(done)
+        client.follow_up(done)
+        self.assertEqual(1, client.text().count("Changed 2 files: greet.py, README.md. /diff shows what changed."))
+
     REVIEW = {
         "status": "WAITING_FOR_USER",
         "needs": {"kind": "answer", "questions": [{"id": "RQ", "question": "Is this right?"}]},
@@ -1444,8 +1458,15 @@ class TabTests(unittest.TestCase):
         client, other = self.client()
         self.assertEqual(
             [
-                {"number": 1, "run": other, "title": "Add a flag", "state": "done", "current": False},
-                {"number": 2, "run": str(RUN), "title": "Fix the typo", "state": "needs you", "current": True},
+                {"number": 1, "run": other, "title": "Add a flag", "state": "done", "current": False, "total": None},
+                {
+                    "number": 2,
+                    "run": str(RUN),
+                    "title": "Fix the typo",
+                    "state": "needs you",
+                    "current": True,
+                    "total": None,
+                },
             ],
             client.tabs(),
         )

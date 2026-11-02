@@ -6,6 +6,7 @@ which is how the type-ahead, paste, echo and `/` menu bugs fixed in #1639 were f
 """
 
 import os
+import re
 import sys
 import unittest
 
@@ -120,7 +121,7 @@ class ChatScreenTests(unittest.TestCase):
         self.assertIn("1 of 1 task done", done, "the side panel at 120 columns")
         screen.type("/diff")
         screen.keys("Enter")
-        screen.wait_for("README.md, greet.py, test_greet.py")
+        screen.wait_for("Type /diff N")  # the listing, not the closing summary naming the same files
         screen.keys("Enter")
         self.assertEqual(0, screen.exit_status())
         self.assertIn("Done.", screen.text(), "the closing words stay on the terminal")
@@ -173,8 +174,8 @@ class ChatScreenTests(unittest.TestCase):
 
 
 def chat_heading(screen: str) -> str:
-    """The selected chat's identity, excluding the independently changing global attention badge."""
-    return screen.splitlines()[0].split("F8:", 1)[0].rstrip()
+    """The selected chat's identity, excluding the independently changing spend and attention badge."""
+    return re.split(r"\s+(?:chat \$|\$|F8:)", screen.splitlines()[0], maxsplit=1)[0].rstrip()
 
 
 def composer_text(screen: str) -> str:

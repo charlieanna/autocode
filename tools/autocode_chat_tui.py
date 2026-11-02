@@ -27,12 +27,14 @@ import time
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 try:
     from . import autocode_chat_attention as attention
     from . import autocode_chat_attention_panel as attention_panel
     from . import autocode_chat_context as contexts
+    from . import autocode_chat_meter as meter
     from . import autocode_chat_observation as observation
     from . import autocode_chat_panel as panel
     from . import autocode_chat_stages as stages
@@ -42,6 +44,7 @@ except ImportError:
     import autocode_chat_attention as attention
     import autocode_chat_attention_panel as attention_panel
     import autocode_chat_context as contexts
+    import autocode_chat_meter as meter
     import autocode_chat_observation as observation
     import autocode_chat_panel as panel
     import autocode_chat_stages as stages
@@ -53,9 +56,16 @@ HISTORY_LIMIT = 100
 HISTORY_FILE = "chat-history.jsonl"  # in the project's .autocode directory
 BRAND = "AutoCode chat"
 TAGLINE = "Plan, build and test, with a reviewer at every step."
+EXAMPLES = (  # a new chat's welcome: the kinds of request AutoCode takes, in a person's words
+    "Fix the failing test in tests/test_api.py",
+    "Add a --json option to the export command",
+    "Why does sign-in time out on slow networks?",
+)
 NEW_CHAT_PLACEHOLDER = "Ask for a change, a fix, or a question…"
 REPLY_PLACEHOLDER = "Type your reply, then Enter"
 WORKING_PLACEHOLDER = "AutoCode is working… type / for commands"
+STARTING = "Starting the run…"
+STARTUP_GRACE_SECONDS = 30.0  # a launched run's first failed reads are its start, not an outage
 PANEL_MIN_COLS = 100  # below this the panel stays hidden unless /panel asks for it
 MIN_ROWS, MIN_COLS = 12, 32  # below either the chat cannot be drawn
 
@@ -341,10 +351,19 @@ class Transcript:
             return self._lines_cache
         rendered: list[tuple[str, str]] = []
         starts: list[int] = []
+        talked = False  # once the person has spoken, the client's own words are AutoCode's turn
+        previous = ""
         for role, text in self.blocks:
             starts.append(len(rendered))
             label = _LABELS.get(role)
-            if label is None:
+            talked = talked or role == "user"
+            if label is None and talked:
+                # The client's unprefixed words (a plan to approve, a spend confirmation) are
+                # AutoCode speaking: under its label, or continuing the AutoCode turn before them.
+                if previous not in ("assistant", "plain"):
+                    rendered.append(("assistant-label", _LABELS["assistant"]))
+                rendered.extend(("plain", "  " + line) for line in wrap(text.strip("\n"), max(1, width - 2)))
+            elif label is None:
                 rendered.extend(("plain", line) for line in wrap(text, width))
             else:
                 body = text
@@ -356,6 +375,7 @@ class Transcript:
                 rendered.append((f"{role}-label", label))
                 rendered.extend((f"{role}-body", "  " + line) for line in wrap(body, max(1, width - 2)))
             rendered.append(("plain", ""))
+            previous = role
         if self.live.strip():
             rendered.append(("assistant-label", "AutoCode · writing…"))
             text = safe_text(self.live).strip("\n")
@@ -588,6 +608,7 @@ class ChatTUI:
         self._menu_index = 0
         self._waiting = False
         self._launched = False  # a step is running since the last question; its first views may predate it
+        self._launched_at: float | None = None  # when the first step began, before any status was read
         # The client's own commands (/diff, /undo), and one of them waiting for the person's yes.
         self._act: Callable[[str, str], str | panel.Confirm | attention.Menu] | None = None
         self._run_open = True  # whether a chat is open: the run-only commands wait for one
@@ -702,7 +723,8 @@ class ChatTUI:
         block after a tall one (a pause acknowledgement, the next command's answer) takes the
         view back to the tail and stays visible; a question may cross the reply's closing
         blocks (where the recorded plan lives, a change-set hint) to open the tall plan they
-        follow. The anchor is plain scroll state, so the History header shows it, PageDown
+        follow, but never crosses a block of half the body or more, which is the reply's own
+        content and stays on screen. The anchor is plain scroll state, so the History header shows it, PageDown
         walks forward through the block toward the live tail, PageUp walks back, and the tail
         is followed again exactly when the person pages back to it.
         """
@@ -726,6 +748,11 @@ class ChatTUI:
             if end - start > height:
                 self._scroll = len(lines) - start - height
                 self._anchored = True
+                return
+            if 2 * (end - start) >= height:
+                # A block this big is what the question is about (a plan that fits), not a
+                # closing note: reaching past it to an older tall block (a repeated summary)
+                # would scroll it off the screen the person is asked to approve.
                 return
 
     def _history_anchor(self) -> tuple[int, int] | None:
@@ -935,6 +962,8 @@ class ChatTUI:
         deadline = time.monotonic() + seconds
         if not self._asking:
             self._launched = True
+            if self._launched_at is None:
+                self._launched_at = time.monotonic()
         was_waiting = self._waiting
         self._waiting = True  # this loop animates the marker; the ticker must not draw beside a key read
         try:
@@ -1404,18 +1433,44 @@ class ChatTUI:
             except curses.error:
                 pass
 
+    def _new_chat(self) -> bool:
+        """A new chat's request not sent yet: no run exists, so there is no status to read."""
+        return self._context_key is not None and self._context_key[1] is None and not self._launched
+
+    def _starting(self) -> bool:
+        """A run just launched and not yet read: its first failed reads are its start, not an outage."""
+        return (
+            self._observation.received is None
+            and self._launched_at is not None
+            and time.monotonic() - self._launched_at < STARTUP_GRACE_SECONDS
+        )
+
     def _attention_badge(self) -> str:
         """The F8 count of decisions waiting for the person, in plain words (#2559)."""
+        if self._attention_view.get("loading"):
+            return ""  # the first read of saved alerts has not finished: nothing to report yet
         if error := self._attention_view.get("error"):
             # Say why, not just that: an unexplained permanent badge reads as a broken panel.
             reason = " ".join(str(error).split())[:60]
             return f" F8: alerts unavailable: {reason}"
-        new, unchecked = self._attention_view.get("unread", 0), self._attention_view.get("unknown", 0)
+        new = max(0, self._attention_view.get("unread", 0) - self._attention_view.get("shown_unread", 0))
+        unchecked = self._attention_view.get("unknown", 0)
         if new:
             return f" F8: {new} new alert{'s' if new != 1 else ''}" + (f", {unchecked} unchecked" if unchecked else "")
         if unchecked:
             return f" F8: {unchecked} unchecked alert{'s' if unchecked != 1 else ''}"
         return ""
+
+    def _spend(self) -> str:
+        """What this chat's run has used, and with more than one chat open, the session's total."""
+        here = meter.run_total(self._view)
+        if len(self._tabs) < 2:
+            return meter.total_text(here)
+        totals = [here if row.get("current") else row.get("total") for row in self._tabs]
+        session = meter.total_text(meter.session_total(totals))
+        if not session:
+            return ""
+        return f"chat {meter.total_text(here) or '$0'} · session {session}"
 
     def _header(self, layout: Layout) -> None:
         brand = f"{self._glyphs.bar} {BRAND}"
@@ -1423,6 +1478,10 @@ class ChatTUI:
         used = display_width(brand)
         context = f"  {self._context}" if self._context else ""
         badge = self._attention_badge()
+        spend = self._spend()
+        # The run's spend sits before the badge where it fits whole beside the chat's name, never over it.
+        if spend and used + display_width(context) + display_width(badge) + display_width(spend) + 4 <= layout.width:
+            badge = f" {spend} " + (f"·{badge}" if badge else "")
         remaining = max(0, layout.width - used - display_width(badge))
         if context and remaining:
             self._put(0, used, truncate(context, remaining), self._style("dim"))
@@ -1436,10 +1495,15 @@ class ChatTUI:
         unavailable = bool(self._observation.error) or any(
             row.get("current") and row.get("state") == "unavailable" for row in self._tabs
         )
-        cue = verification.cue(self._view, unavailable=unavailable)
         label = "History · " if self._scroll else ""
-        style = self._style("panel-warn" if unavailable else "panel-now")
-        self._put(2, 0, truncate(f"{label}{cue} ({self._observation.compact(time.monotonic())})", layout.width), style)
+        if self._view is None and (self._new_chat() or self._starting()):
+            status = "New chat" if self._new_chat() else STARTING
+            self._put(2, 0, truncate(f"{label}{status}", layout.width), self._style("panel-now"))
+        else:
+            cue = verification.cue(self._view, unavailable=unavailable)
+            style = self._style("panel-warn" if unavailable else "panel-now")
+            line = f"{label}{cue} ({self._observation.compact(time.monotonic())})"
+            self._put(2, 0, truncate(line, layout.width), style)
         if len(self._tabs) < 2:
             self._put(1, 0, self._glyphs.rule * layout.width, self._style("dim"))
             return
@@ -1468,6 +1532,9 @@ class ChatTUI:
             return
         if not height:
             return
+        if self._welcome() and len(lines) < height:
+            # A new chat's notices (the mode it starts in) sit at the top; the welcome fills the rest.
+            self._hero(layout, height - len(lines), top=layout.body_start + len(lines))
         self._scroll = min(self._scroll, max(0, len(lines) - height))
         end = len(lines) - self._scroll
         start = max(0, end - height)
@@ -1595,26 +1662,39 @@ class ChatTUI:
             line += " " * max(0, width - display_width(line))
             self._put(first + offset, 2, line, self._style("menu-selected" if selected else "menu"))
 
-    def _hero(self, layout: Layout, height: int) -> None:
+    def _welcome(self) -> bool:
+        """Nothing said in this chat yet and nothing started: the welcome still has the screen."""
+        return not self._launched and not any(role in ("user", "assistant") for role, _ in self._transcript.blocks)
+
+    def _hero(self, layout: Layout, height: int, *, top: int | None = None) -> None:
         if height <= 0:
             return
-        brand_rows = 2 if self._glyphs.unicode and layout.width >= 35 else 1
+        width = layout.body_width or layout.width
+        brand_rows = 2 if self._glyphs.unicode and width >= 35 else 1
         hero: list[tuple[str, str]] = []
         if brand_rows == 2:
             hero.extend(("brand", line) for line in WORDMARK)
         else:
             hero.append(("brand", "AutoCode"))
         hero.append(("plain", ""))
-        tagline = TAGLINE if display_width(TAGLINE) <= layout.width else "Plan, build and test."
+        tagline = TAGLINE if display_width(TAGLINE) <= width else "Plan, build and test."
         hero.append(("dim", tagline))
-        hero.append(("plain", ""))
-        if self._context:
+        if self._context and top is None:
             hero.append(("dim", self._context))
+        # The examples only where they fit whole, with a blank row above and below the welcome.
+        examples = [("plain", ""), ("dim", "Try asking:"), *(("dim", f"  {text}") for text in EXAMPLES)]
+        if len(hero) + len(examples) + 2 <= height and all(display_width(text) <= width for _, text in examples):
+            hero.extend(examples)
         hero = hero[:height]
-        top = layout.body_start + max(0, (height - len(hero)) // 2)
+        first = (layout.body_start if top is None else top) + max(0, (height - len(hero)) // 2)
+        block = max((display_width(text) for role, text in hero if role == "dim" and text.startswith("  ")), default=0)
+        left = max(0, (width - block) // 2)
         for offset, (role, text) in enumerate(hero):
-            col = max(0, (layout.width - display_width(text)) // 2)
-            self._put(top + offset, col, truncate(text, layout.width - col), self._style(role))
+            if text.startswith("  ") or text == "Try asking:":
+                col = left  # the examples line up under one another
+            else:
+                col = max(0, (width - display_width(text)) // 2)
+            self._put(first + offset, col, truncate(text, width - col), self._style(role))
 
     def _question_or_status(self, layout: Layout) -> None:
         if layout.question:
@@ -1627,7 +1707,9 @@ class ChatTUI:
         marker = spinner[self._frame % len(spinner)] if spinner else "*"
         reading = self._view is None
         text = (
-            f"Status unavailable; {self._observation.outage()}"
+            STARTING
+            if reading and self._starting()
+            else f"Status unavailable; {self._observation.outage()}"
             if self._observation.error
             else "Run started; waiting for its first status view…"
             if reading and self._launched
@@ -1635,8 +1717,12 @@ class ChatTUI:
             if reading
             else panel.doing(self._view) or self._transcript.activity or "AutoCode is working…"
         )
+        trouble = "" if reading else meter.struggling(self._view, datetime.now(UTC))
+        if trouble:
+            text = trouble  # a stage on its second attempt or later says so where the person looks
         lead = f"  {marker} {text}"
-        self._put(layout.status_start, 0, truncate(lead, layout.width), self._style("working"))
+        style = self._style("panel-warn" if trouble else "working")
+        self._put(layout.status_start, 0, truncate(lead, layout.width), style)
         if reading:
             return
         tail = (
@@ -1663,7 +1749,7 @@ class ChatTUI:
         self._put(layout.box_text, 2, glyphs.prompt, self._style("prompt" if active else "dim"))
         if not active and not self._composer.text:
             placeholder = (
-                "Run started; waiting for its first status view… type / for commands"
+                "Type / for commands while the run starts"
                 if self._view is None and self._launched
                 else "Reading run status… type / for commands"
                 if self._view is None

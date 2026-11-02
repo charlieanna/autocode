@@ -774,6 +774,22 @@ highlighted one:
 | `/help` | List the commands |
 | `/quit` | At a question: leave the chat; the run stays as it is |
 
+A new chat opens on a welcome with a few example requests, and its status row reads
+"New chat" until something is sent; a run that has just started reads "Starting the
+run…" while its first status reads land. When a run finishes, the chat names the
+files its saved steps changed and points to `/diff`. The F8 badge counts alerts from
+other chats; the question on screen is not counted again.
+
+The side panel's Stages section lists the newest four stages the run has launched,
+each with its state (`✓` done, `●` working, `↻` on a later attempt, `✗` failed), its
+time, its accounted cost, which attempt it is on, and on a second row the model and
+reasoning level it ran on and the tokens it used (`+` when some usage is unreported).
+Its title carries the run's accounted total, which the header shows too; with more
+than one chat open the header adds a session total over the open chats, leaving out
+what a run restored from a saved step carried over. A stage on its second attempt or
+later takes the status row, with the reason the previous attempt did not succeed.
+These come from the view's `usage.accounting.attempts` and `cost`.
+
 The side panel's Usage section shows the accounted subtotal, missing prices or usage,
 active/pending attempts and any configured accounting cap. `/details` separates
 provider-reported figures, dated-table estimates and historical comparison estimates;

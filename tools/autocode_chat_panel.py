@@ -16,20 +16,24 @@ import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 try:
     from . import autocode_chat_changeset as changeset
     from . import autocode_chat_cost as cost
+    from . import autocode_chat_meter as meter
     from . import autocode_chat_stage_policy as stage_policy
     from . import autocode_chat_verification as verification
 except ImportError:
     import autocode_chat_changeset as changeset
     import autocode_chat_cost as cost
+    import autocode_chat_meter as meter
     import autocode_chat_stage_policy as stage_policy
     import autocode_chat_verification as verification
 
 LOG_LIMIT = 200
+STAGE_ROWS = 4  # the newest stages the panel lists; /details has every attempt
 NOTHING_NEEDED = "nothing needed from you"  # the progress view's needs_you when no one is waited on
 TASK_MARKS = {"done": "✓", "working": "▸", "waiting": "·", "unknown": "·"}
 REQUIREMENT_MARKS = {
@@ -40,7 +44,19 @@ REQUIREMENT_MARKS = {
     "awaiting_review": "?",
     "unchecked": "·",
 }
-ASCII_MARKS = {"✓": "+", "▸": ">", "·": "-", "✗": "x", "?": "?", "±": "~", "$": "$", "∴": ":", "»": ">"}
+ASCII_MARKS = {
+    "✓": "+",
+    "▸": ">",
+    "·": "-",
+    "✗": "x",
+    "?": "?",
+    "±": "~",
+    "$": "$",
+    "∴": ":",
+    "»": ">",
+    "●": "*",
+    "↻": "~",
+}
 EVENT_MARKS = {"edit": "±", "tool": "·"}  # user-facing activity; internal command text stays hidden
 EVENT_ROWS = 6  # how many of the newest events the panel lists
 LIVE_MARKS = {"thinking": "∴", "message": "»", "edit": "±", "tool": "·"}  # visible live-log entry kinds
@@ -219,6 +235,28 @@ def doing(view: dict | None) -> str | None:
     return verb + event["text"]
 
 
+def _utc_now():
+    return datetime.now(UTC)
+
+
+def stage_section(view: dict | None, now=None) -> Section | None:
+    """Each stage the run has launched: how it went, the model it ran on, its time, tokens and cost.
+    Each takes a row for how it went and one for the model it ran on and the tokens it used."""
+    ran = meter.stages(view, now or _utc_now())
+    if not ran:
+        return None
+    rows: list[Row] = []
+    if len(ran) > STAGE_ROWS:
+        rows.append(Row("·", f"{len(ran) - STAGE_ROWS} earlier stages: /details", "dim"))
+    for row in ran[-STAGE_ROWS:]:
+        head, detail, style = meter.stage_lines(row)
+        mark, _, text = head.partition(" ")
+        rows.append(Row(mark, text, style))
+        if detail.strip():  # the model it ran on and what it used; a stage with no model has none
+            rows.append(Row(" ", detail.strip(), "dim"))
+    return Section("Stages", meter.total_text(meter.run_total(view)), tuple(rows))
+
+
 def sections(view: dict | None, *, launched: bool = False) -> list[Section]:
     """The panel for one view: where the run is, what it is doing, then its requirements, tasks and open problems.
 
@@ -236,7 +274,11 @@ def sections(view: dict | None, *, launched: bool = False) -> list[Section]:
             rows.insert(0, Row("!", needs, "warn"))
     if view.get("status") in ("TASK_COMPLETE", "COMPLETE"):
         now = verification.cue(view)
+    if trouble := meter.struggling(view, _utc_now()):
+        rows.insert(0, Row("!", trouble, "warn"))
     result = [Section("Now", now, tuple(rows))]
+    if ran := stage_section(view):
+        result.append(ran)
     if proof := verification.compact(view):
         summary, entries = proof
         result.append(Section(verification.title(view), summary, tuple(Row("·", line, "dim") for line in entries)))
@@ -345,6 +387,18 @@ def newest(lines: list[str]) -> str | None:
 def steps(view: dict | None) -> list[dict]:
     """The run's saved code steps, in order; ``/diff N`` and ``/undo N`` count from 1."""
     return _rows(_mapping((view or {}).get("code_checkpoints")).get("rows"))
+
+
+def finished_text(view: dict | None) -> str:
+    """A finished run's closing line: the files its saved steps changed, and where to see the change.
+    Empty when no step recorded a file, so nothing is claimed that the view does not name."""
+    files: list[str] = []
+    for row in steps(view):
+        files.extend(str(path) for path in row.get("changed_files") or [] if str(path) not in files)
+    if not files:
+        return ""
+    named = ", ".join(files[:6]) + (f" and {len(files) - 6} more" if len(files) > 6 else "")
+    return f"Changed {len(files)} file{'' if len(files) == 1 else 's'}: {named}. /diff shows what changed."
 
 
 def steps_text(view: dict | None, command: str) -> str:
