@@ -347,8 +347,12 @@ class ChooseTest(unittest.TestCase):
         }
         actions = [policy.failure(state, f"e{n}", "failure") for n in (1, 2, 3)]
         self.assertEqual(["retry", "retry", "pause"], actions)
+        # #2597: the ladder's end is a recorded could-not-finish outcome, naming the model its provider lacks.
         self.assertEqual(
-            "Execution failure: " + policy.NOT_OFFERED.format(model="openai/gpt-6-sol"), state["stop_reason"]
+            "AutoCode could not finish this task: "
+            + policy.NOT_OFFERED.format(model="openai/gpt-6-sol")
+            + " This run launches no further stages.",
+            state["stop_reason"],
         )
 
     def test_a_stronger_model_the_person_named_and_the_list_lacks_stops_the_new_run(self):

@@ -350,7 +350,8 @@ class OutcomeTests(unittest.TestCase):
         }
         current = {"failures": ["e1", "e2"], "action": None}
         _decide(state, current, "pause", "e3", "still failing", {}, "exhausted")
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", state["status"])
+        # #2597: the pause decision ends the run with AutoCode's recorded could-not-finish outcome.
+        self.assertEqual("PAUSED_INTERVENTION", state["status"])
         # The open escalation and the open retry decision record how they ended;
         # the pause decision itself is the ending, so it stays unstamped.
         self.assertEqual("paused", state["reasoning_escalations"][0]["outcome"])
