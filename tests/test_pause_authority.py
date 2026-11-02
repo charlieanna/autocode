@@ -48,6 +48,20 @@ class ChangesHeldBoundTests(unittest.TestCase):
 class HeldPauseTests(unittest.TestCase):
     """The records behind the held pause: its cause, whether feedback is its authority, what an intervention keeps."""
 
+    def test_consuming_an_admission_pause_does_not_save_it_as_an_independent_hold(self):
+        state = {
+            "status": "PAUSED_INTERVENTION_PENDING",
+            "stop_reason": "Queued intervention must be applied before this action; explicitly continue.",
+        }
+        self.assertIsNone(stop.interrupted_pause(state))
+        held = {"status": "PAUSED_COST_LIMIT", "stop_reason": "Budget exhausted"}
+        state["pause_intent"] = {"held_pause": held, "acknowledged_at": None}
+        self.assertEqual(held, stop.interrupted_pause(state), "an older independent bound remains authoritative")
+        state["pause_intent"]["acknowledged_at"] = "already resumed"
+        self.assertIsNone(stop.interrupted_pause(state))
+        state["stop_reason"] = "Intervention inbox is unreadable"
+        self.assertEqual("PAUSED_INTERVENTION_PENDING", stop.interrupted_pause(state)["status"])
+
     def test_held_cause_drops_the_advice_its_request_appended(self):
         def request(discovered, pause="PAUSED_RATE_LIMIT"):
             return {

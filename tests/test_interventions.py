@@ -21,6 +21,21 @@ def submit_in_process(workspace, run_dir, request_id):
     interventions.submit(Path(workspace), Path(run_dir), request_id=request_id, kind="feedback", text=request_id)
 
 
+class AdmissionPauseIdentityTests(unittest.TestCase):
+    def test_only_the_known_inbox_admission_pause_is_transient(self):
+        reason = "Queued intervention must be applied before this action; explicitly continue."
+        self.assertTrue(interventions.pending_admission_pause("PAUSED_INTERVENTION_PENDING", reason))
+        for status, cause in (
+            ("PAUSED_COST_LIMIT", reason),
+            ("PAUSED_INTERVENTION_PENDING", "Intervention inbox is unreadable"),
+            ("PAUSED_INTERVENTION_PENDING", reason + " Another hold remains."),
+            ("PAUSED_INTERVENTION_PENDING", None),
+            (None, reason),
+        ):
+            with self.subTest(status=status, cause=cause):
+                self.assertFalse(interventions.pending_admission_pause(status, cause))
+
+
 class InterventionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=Path.cwd(), prefix=".tmp-")  # git-ignored (#668)
@@ -58,6 +73,13 @@ class InterventionTests(unittest.TestCase):
             text=True,
             check=False,
         )
+
+    def test_admission_emits_the_identifiable_pending_inbox_boundary(self):
+        interventions.submit(self.workspace, self.run, request_id="pause", kind="pause", text="")
+        with self.assertRaises(support.Paused) as stopped:
+            with interventions.admission(self.run):
+                self.fail("an accepted pause must refuse admission")
+        self.assertTrue(interventions.pending_admission_pause(stopped.exception.status, str(stopped.exception)))
 
     def test_busy_workspace_submission_via_cli_preserves_state(self):
         before = self.state_path.read_bytes()

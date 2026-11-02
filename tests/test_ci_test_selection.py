@@ -16,6 +16,9 @@ class DynamicDependenciesTests(unittest.TestCase):
             "tools/autocode_chat_coordination.py",
             "tools/autocode_chat_client.py",
             "tools/autocode_chat_tui.py",
+            "tools/autocode_interventions.py",
+            "tools/autocode_stop.py",
+            "tools/autocode_coordination_conversation.py",
         ):
             with self.subTest(path=path):
                 selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})

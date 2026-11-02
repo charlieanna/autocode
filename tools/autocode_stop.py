@@ -211,6 +211,12 @@ def interrupted_pause(state: RunState) -> dict[str, Any] | None:
     An earlier pause intervention not yet resumed already names the pause it interrupted: a
     second one keeps that pause, never its own (#486 review).
     """
+    if interventions.pending_admission_pause(state.get("status"), state.get("stop_reason")):
+        # The accepted inbox is what stopped admission. Its successful consumption
+        # resolves that boundary; retain an older independent hold, if one exists.
+        intent = state.get("pause_intent") or {}
+        held = intent.get("held_pause")
+        return dict(held) if held and not intent.get("acknowledged_at") else None
     return pause_authority.interrupted(state) or pause_authority.held_pause(state, own_status=STOP_STATUS)
 
 
