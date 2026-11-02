@@ -62,8 +62,14 @@ ASCII_MARKS = {
 }
 EVENT_MARKS = {"edit": "±", "tool": "·"}  # user-facing activity; internal command text stays hidden
 EVENT_ROWS = 6  # how many of the newest events the panel lists
-LIVE_MARKS = {"thinking": "[thinking]", "message": "[message]", "edit": "[edit]", "tool": "[tool]"}
-LIVE_KINDS = {"thinking": ("thinking",), "messages": ("message",), "tools": ("edit", "tool")}
+LIVE_MARKS = {
+    "thinking": "[thinking]",
+    "message": "[message]",
+    "edit": "[edit]",
+    "tool": "[tool]",
+    "command": "[command]",
+}
+LIVE_KINDS = {"thinking": ("thinking",), "messages": ("message",), "tools": ("edit", "tool", "command")}
 LIVE_LIMIT = 500  # entries the live log keeps
 
 
@@ -531,7 +537,7 @@ def text(name: str, view: dict | None, log: StageLog, available: list[Command] |
 
 
 def log_entries(view: dict | None) -> list[dict]:
-    """The running agents' reasoning, messages and non-command tool activity (``chat.log``)."""
+    """Validated display entries from the running agents' public ``chat.log``."""
     rows = _rows(_mapping(_mapping(view).get("chat")).get("log"))
     return [
         row
@@ -545,35 +551,22 @@ def log_entries(view: dict | None) -> list[dict]:
 
 _THOUGHT = re.compile(r"thinking ~(\d+) tokens")
 _WRITING = re.compile(r"writing (\S+) input: (\d+) chars")
-# The tool a stage answers through is its report, not something a person needs named.
-_ANSWER_TOOLS = {"StructuredOutput": "its answer"}
-
-
-def _amount(count: int, unit: str) -> str:
-    return (f"{count / 1000:.1f}k" if count >= 1000 else str(count)) + f" {unit}"
 
 
 def live_text(text: str) -> str:
-    """An entry's text as the live log shows it. A provider's running progress notes ("thinking ~150
-    tokens; thinking ~300 tokens; writing StructuredOutput input: 900 chars; …") say one growing thing
-    over and over: they read as their newest value of each, in the order first seen. Any other text,
-    the model's own words, is kept with terminal-safe apostrophes."""
+    """Keep readable prose; transport counters are activity receipts, not progress messages."""
     text = text.replace("’", "'").replace("‘", "'")
-    parts = [part.strip() for part in text.split(";")]
+    partial = text.endswith(" [partial]")
+    parts = [part.strip() for part in text.removesuffix(" [partial]").split(";")]
     if not any(_THOUGHT.fullmatch(part) or _WRITING.fullmatch(part) for part in parts):
         return text
-    shown: dict[str, str] = {}
+    shown = []
     for number, part in enumerate(parts):
-        if not part:
+        if not part or _THOUGHT.fullmatch(part) or _WRITING.fullmatch(part):
             continue
-        if thought := _THOUGHT.fullmatch(part):
-            shown["thinking"] = "thought ~" + _amount(int(thought.group(1)), "tokens")
-        elif writing := _WRITING.fullmatch(part):
-            tool = _ANSWER_TOOLS.get(writing.group(1), writing.group(1))
-            shown[f"writing {tool}"] = f"writing {tool} · " + _amount(int(writing.group(2)), "chars")
-        elif not (number == 0 and part.startswith(("…", "[earlier text omitted]"))):
-            shown[f"text {number}"] = part
-    return " · ".join(shown.values())
+        if not (number == 0 and part.startswith(("…", "[earlier text omitted]"))):
+            shown.append(part)
+    return "; ".join(shown) + (" [partial]" if partial and shown else "")
 
 
 @dataclass
@@ -600,13 +593,19 @@ class LiveLog:
         return list(dict.fromkeys(entry["agent"] for entry in self.entries.values()))
 
     def shown(self) -> list[dict]:
-        """The entries the filter keeps: a kind (thinking, messages, tools) or part of an agent's name."""
+        """Readable progress and one latest command per agent; tools opts into command history."""
+        entries = [entry for entry in self.entries.values() if live_text(entry["text"])]
         wanted = self.filter.strip().casefold()
-        if not wanted:
-            return list(self.entries.values())
         if wanted in LIVE_KINDS:
-            return [entry for entry in self.entries.values() if entry["kind"] in LIVE_KINDS[wanted]]
-        return [entry for entry in self.entries.values() if wanted in entry["agent"].casefold()]
+            return [entry for entry in entries if entry["kind"] in LIVE_KINDS[wanted]]
+        if wanted:
+            entries = [entry for entry in entries if wanted in entry["agent"].casefold()]
+        latest = {entry["agent"]: entry for entry in entries if entry["kind"] == "command"}
+        return [
+            entry
+            for entry in entries
+            if entry["kind"] != "command" or entry is latest[entry["agent"]] or entry.get("status") == "failed"
+        ]
 
     def title(self) -> str:
         return "LIVE · " + (self.filter.strip() or "all agents")
@@ -617,7 +616,9 @@ class LiveLog:
             f"{entry['agent']} {LIVE_MARKS[entry['kind']]} {live_text(entry['text'])}"
             for entry in self.shown()[-limit:]
         ]
-        return "\n".join(lines) or "No agent is working right now."
+        return "\n".join(lines) or (
+            "No readable updates in this view." if self.entries else "No agent is working right now."
+        )
 
 
 def ascii_mark(mark: str) -> str:

@@ -1134,7 +1134,7 @@ class LivePaneTests(unittest.TestCase):
         self.assertTrue(any("Read greet.py first" in text for text in texts))
         self.assertTrue(any("edited greet.py" in text for text in texts))
         self.assertTrue(any("Check the output." in text for text in texts))
-        self.assertFalse(any("pytest -q" in text for text in texts))
+        self.assertTrue(any("pytest -q" in text for text in texts), "failed commands remain visible")
 
     def test_typing_while_autocode_works_keeps_the_pane(self):
         ui = screen_ui(*"/pl")
@@ -1192,9 +1192,9 @@ class LivePaneTests(unittest.TestCase):
         self.assertIsNone(ui._layout(30, 120).live_start)
         ui._run("/live", False, "M2")
         self.assertIsNotNone(ui._layout(30, 120).live_start)
-        self.assertEqual(["Builder · task M2"], [entry["agent"] for entry in ui._live.shown()])
+        self.assertEqual(["Builder · task M2"] * 2, [entry["agent"] for entry in ui._live.shown()])
         ui._run("/live", False, "all")
-        self.assertEqual(3, len(ui._live.shown()))
+        self.assertEqual(4, len(ui._live.shown()))
         ui._run("/live", False, "off")
         self.assertIsNone(ui._layout(30, 120).live_start)
 
@@ -1206,7 +1206,7 @@ class LivePaneTests(unittest.TestCase):
         [(role, text)] = ui._transcript.blocks[-1:]
         self.assertEqual("info", role)
         self.assertIn("Builder · task M1 [thinking] Read greet.py first", text)
-        self.assertNotIn("pytest -q", text)
+        self.assertIn("pytest -q", text)
 
     def test_long_entries_wrap_under_their_agent_and_never_carry_escapes(self):
         ui = screen_ui()
