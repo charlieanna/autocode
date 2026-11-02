@@ -11,6 +11,17 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Terminal chat keeps conversation and ordinary agent progress in one scrolling timeline, with
+  visible stage names and stable plan-reading positions. It avoids duplicate coordinated plans,
+  raw structured reports, routine repository transitions, premature completion counters and
+  repeated inbox alerts in the conversation. Empty live-message submissions are ignored, and
+  leaving the viewer no longer prints plans that were already displayed.
+- Coordinated task conversations prioritize genuine Requirements questions, keep automatic
+  repository-routing prompts out of the chat, and bound context without dropping requirements
+  or authority. Requirements can answer while participant recovery is held; recovery preserves
+  unpriced usage and retry holds and recognizes settled archived attempts.
+- Saved chat actions use a bounded receipt deadline appropriate for validating linked plans,
+  rather than the short polling deadline; an uncertain action is never automatically retried.
 - Joint regression planning keeps each member's applied task messages. The brief the joint run is
   created with now carries every applied member message exactly once, grouped under its member
   scope ("Applied task message for api, client:") and in the conversation's order, instead of
