@@ -2,12 +2,58 @@
 
 import copy
 import os
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import autocode_chat_client as chat
 import autocode_chat_coordination as coordination
+
+
+class UncappedRecoveryScreenTests(unittest.TestCase):
+    def test_real_terminal_renders_uncapped_recovery_and_accepts_exact_resume(self):
+        from tests import ROOT
+        from tests.terminal_screen import TerminalScreen, require_tmux
+
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+import autocode_chat_coordination as coordination
+from autocode_chat_tui import ChatTUI
+run = Path('/tmp/uncapped-screen/.autocode/runs/task')
+need = {'kind': 'coordination_resume', 'cap_usd': None, 'known_spent_usd': 0.845216,
+        'complete': True, 'minimum_cap_usd': 0.845217, 'current_cap_usd': 0,
+        'allows_no_cap': True, 'token': 'screen-token', 'effect': 'Resume saved work.',
+        'next_command': ['autocode', 'coordinate', 'resume', '--run-dir', str(run),
+                         '--token', 'screen-token', '--max-cost-usd', 'N', '--json']}
+calls = []
+with ChatTUI() as ui:
+    client = SimpleNamespace(run_dir=run, say=ui.say, ask=ui.ask,
+                             advance=lambda *args, **kwargs: calls.append((args, kwargs)))
+    with patch.object(coordination, 'read', return_value={'needs': need}):
+        coordination.budget_reply(client, {}, need)
+assert calls == [((['coordinate', 'resume', '--run-dir', str(run), '--token', '-',
+                    '--max-cost-usd', '0', '--json'],),
+                  {'env': {'AUTOCODE_COORDINATION_TOKEN': 'screen-token'}})], calls
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for(
+            lambda text: "Shared accounting cap: no cap" in text and "New whole-set accounting cap" in text,
+            what="uncapped recovery prompt",
+        )
+        screen.type("0")
+        screen.keys("Enter")
+        screen.wait_for("Remove spending limits and recover this saved coordination?")
+        screen.type("yes")
+        screen.keys("Enter")
+        self.assertEqual(0, screen.exit_status())
 
 
 class CoordinatedDisplayTests(unittest.TestCase):
@@ -293,6 +339,28 @@ class SharedBudgetDisplayTests(unittest.TestCase):
         self.assertIn("remove", prompts)
         self.assertIn("spending", prompts)
         self.assertNotIn("Approve", prompts)
+
+    def test_cancel_recovery_displays_existing_uncapped_run_and_keeps_named_resume(self):
+        self.need.update(kind="coordination_resume", cap_usd=None, allows_no_cap=True, current_cap_usd=0)
+        self.need["next_command"][2] = "resume"
+        self.client.ask.side_effect = ["0", "yes"]
+        with patch.object(coordination, "read", return_value=self.summary):
+            self.assertIsNone(coordination.step(self.client, {}, Mock()))
+        shown = " ".join(call.args[0] for call in self.client.say.call_args_list)
+        self.assertIn("Shared accounting cap: no cap", shown)
+        self.assertIn("known spend: $9.5", shown)
+        self.assertIn("incomplete; unknown costs remain unknown", shown)
+        argv = self.client.advance.call_args.args[0]
+        self.assertEqual("resume", argv[1])
+        self.assertEqual("0", argv[argv.index("--max-cost-usd") + 1])
+
+    def test_uncapped_cancel_recovery_can_remain_paused_without_dispatch(self):
+        self.need.update(kind="coordination_resume", cap_usd=None, allows_no_cap=True, current_cap_usd=0)
+        self.need["next_command"][2] = "resume"
+        self.client.ask.return_value = ""
+        with patch.object(coordination, "read", return_value=self.summary):
+            self.assertEqual(2, coordination.step(self.client, {}, Mock()))
+        self.client.advance.assert_not_called()
 
     def test_cancel_recovery_rechecks_its_exact_kind_after_confirmation(self):
         self.need.update(kind="coordination_resume", allows_no_cap=True, current_cap_usd=10)
