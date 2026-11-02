@@ -83,8 +83,10 @@ takes a row for how it went (✓ done, ● working, ↻ retrying, ✗ failed), i
 cost and attempt number, and a second row for its model, reasoning level and
 tokens (`+` when some are not reported yet). The newest four show; **N earlier**
 lists the rest. A report repair counts as the repaired stage's next attempt. When
-the working stage is on its second attempt or later, the working card shows a
-warning with how long it has run and why the last attempt failed. The toolbar
+the working stage is retrying after a failed attempt, the working card shows a
+warning with which attempt it is, how long it has run and why the last one
+failed. A stage that runs again after succeeding, such as a second plan-review
+round, shows **2 runs** and no warning. The toolbar
 shows the run's cost against its cap and its tokens; with two or more chats open
 it adds a total for all of them, which leaves out what a restored run carried
 over and ends in `+` while any chat has not been read yet. These figures are the
