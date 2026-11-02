@@ -398,11 +398,15 @@
             }},
             "messages": {"type": "array", "items": {
               "type": "object", "required": ["id", "role", "text"],
-              "properties": {"id": {"type": "string"}, "role": {"enum": ["user", "assistant"]}, "text": {"type": "string"}}
+              "properties": {"id": {"type": "string"}, "role": {"enum": ["user", "assistant"]}, "text": {"type": "string"},
+                "conversation": {"type": "object", "required": ["request_id", "intent", "affected_targets", "context_sha256"],
+                  "properties": {"request_id": {"type": "string"}, "intent": {"enum": ["question", "change"]},
+                    "affected_targets": {"type": "array", "items": {"type": "string"}}, "context_sha256": {"type": "string"}}}
+              }
             }},
             "context": {"type": "string"},
             "input": {"type": ["object", "null"], "required": ["kind", "label", "next_command"],
-              "properties": {"kind": {"enum": ["feedback", "follow_up", "resolver_response"]}, "label": {"type": "string"}, "next_command": {"type": "string"}}}
+              "properties": {"kind": {"enum": ["feedback", "follow_up", "resolver_response", "message"]}, "label": {"type": "string"}, "next_command": {"type": "string"}}}
           }
         },
         "displayed_plan": {

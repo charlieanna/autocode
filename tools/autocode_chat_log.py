@@ -43,7 +43,16 @@ def _prose(value) -> str:
     newest words kept."""
     text = " ".join("".join(char if char.isprintable() else " " for char in str(value or "")).split())
     text = util.redact(text)
-    return text if len(text) <= PROSE_LIMIT else "…" + text[-(PROSE_LIMIT - 1) :]
+    if len(text) <= PROSE_LIMIT:
+        return text
+    prefix = "[earlier text omitted] "
+    start = len(text) - (PROSE_LIMIT - len(prefix))
+    if text[start - 1] != " ":
+        boundary = text.find(" ", start)
+        if boundary < 0:
+            return "[long text omitted]"
+        start = boundary + 1
+    return prefix + text[start:].lstrip()
 
 
 def prose_event(row: dict) -> tuple[str, dict] | None:
@@ -59,6 +68,10 @@ def prose_event(row: dict) -> tuple[str, dict] | None:
     if kind is None or not isinstance(identifier, (str, int)) or not isinstance(text, str):
         return None
     shown = _prose(text)
+    if shown and row.get("type") in ("item.started", "item.updated") and len(text.split()) == 1:
+        # A first streamed token can be only the beginning of a word. Keep its stable
+        # item identity so a later snapshot replaces this honest activity notice.
+        shown = "Partial thought received." if kind == "thinking" else "Partial message received."
     return (f"{kind}:{identifier}", {"kind": kind, "text": shown}) if shown else None
 
 

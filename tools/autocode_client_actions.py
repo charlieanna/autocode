@@ -490,7 +490,9 @@ def review_criteria(view: dict) -> list[dict] | None:
     return shown
 
 
-def message(view: dict, text: str, shown_context: str, workspace: Path, run_dir: Path) -> NamedCommand:
+def message(
+    view: dict, text: str, shown_context: str, workspace: Path, run_dir: Path, *, request_id=None
+) -> NamedCommand:
     """A person's message through the view's chat input offer, bound to the conversation they read.
 
     Only the advertised text is filled in. A Resolver reply carries its request's
@@ -505,6 +507,23 @@ def message(view: dict, text: str, shown_context: str, workspace: Path, run_dir:
     if chat.get("context") != shown_context:
         raise ClientGap("This conversation changed; review its current state before sending")
     command = parse(offered["next_command"], *own(view, workspace, run_dir))
+    if offered.get("kind") == "message":
+        expected = [
+            "intervention",
+            "submit",
+            "--request-id",
+            "REQUEST_ID",
+            "--kind",
+            "message",
+            "--text",
+            "MESSAGE",
+            "--json",
+        ]
+        if command.argv != expected or command.env or not isinstance(request_id, str) or not request_id:
+            raise ClientGap("Unsupported live message action or missing request identity")
+        return NamedCommand(
+            ["intervention", "submit", "--request-id", request_id, "--kind", "message", "--text", text, "--json"], {}
+        )
     need = view.get("needs") or {}
     if offered.get("kind") == "resolver_response":
         expected = [

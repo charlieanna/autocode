@@ -66,6 +66,8 @@ def read(client, view):
             "Coordination status refused: "
             + str(summary.get("error", "invalid identity") if isinstance(summary, dict) else "invalid identity")
         )
+    if summary.get("accounting") and getattr(client, "_observe_coordination", None):
+        client._observe_coordination(summary["accounting"])
     return summary
 
 
@@ -98,7 +100,7 @@ def step(client, view, render_plan):
         operation = action[2] if isinstance(action, list) and len(action) > 2 else None
         if operation not in ("advance", "bind"):
             raise actions.ClientGap("The core supplied an unsupported automatic coordination action")
-        client.advance(named(action, client.run_dir, operation))
+        advance_with_progress(client, summary, named(action, client.run_dir, operation))
         return None
     if need["kind"] in ("budget", "planning_budget", "coordination_resume"):
         return budget_reply(client, view, need)
@@ -203,6 +205,45 @@ def step(client, view, render_plan):
     return 2
 
 
+def advance_with_progress(client, summary, argv):
+    """Observe the named participant while the anchor keeps sole control of advancement."""
+    target = summary["needs"].get("target")
+    participant = (
+        summary.get("integration")
+        if target == "Joint regression"
+        else next((row for row in summary["members"] if row["target"] == target), None)
+    )
+    if not participant or not participant.get("workspace") or not participant.get("run_dir") or not client._observe:
+        client.advance(argv)
+        return
+    observe, unavailable, wait = client._observe, client._unavailable, client._wait
+    child = type(client)(
+        Path(participant["workspace"]),
+        Path(participant["run_dir"]),
+        command=client.command,
+        env=client.env,
+        ask=client._ask,
+        say=client._say,
+        observe=observe,
+        unavailable=unavailable,
+        wait=wait,
+        poll_seconds=client.poll_seconds,
+    )
+
+    def wait_with_progress(seconds):
+        # poll schedules bounded public reads and consumes completed ones; it
+        # never waits on a status subprocess or advances the participant.
+        child.poll()
+        return wait(seconds)
+
+    client._observe, client._unavailable, client._wait = None, None, wait_with_progress
+    try:
+        client.advance(argv)
+    finally:
+        client._observe, client._unavailable, client._wait = observe, unavailable, wait
+        child.close()
+
+
 def budget_reply(client, view, need):
     planning = need["kind"] == "planning_budget"
     resuming = need["kind"] == "coordination_resume"
@@ -228,9 +269,8 @@ def budget_reply(client, view, need):
     if type(maximum) not in (int, float) or not math.isfinite(maximum) or maximum < minimum:
         raise actions.ClientGap("The planning-budget decision has no valid maximum")
     accounting = "complete" if need.get("complete") else "incomplete; unknown costs remain unknown"
-    client.say(
-        f"Shared accounting cap: ${need['cap_usd']:g}; known spend: ${need['known_spent_usd']:g} ({accounting})."
-    )
+    cap = "no cap" if need["cap_usd"] in (None, 0) else f"${need['cap_usd']:g}"
+    client.say(f"Shared accounting cap: {cap}; known spend: ${need['known_spent_usd']:g} ({accounting}).")
     client.say(need["effect"])
     if planning:
         client.say(

@@ -59,6 +59,7 @@ try:
     from . import autocode_chat_context as contexts
     from . import autocode_chat_coordination as coordination
     from . import autocode_chat_inventory as inventory
+    from . import autocode_chat_messages as messages
     from . import autocode_chat_meter as meter
     from . import autocode_chat_panel as panel
     from . import autocode_chat_polling as polling
@@ -76,6 +77,7 @@ except ImportError:
     import autocode_chat_context as contexts
     import autocode_chat_coordination as coordination
     import autocode_chat_inventory as inventory
+    import autocode_chat_messages as messages
     import autocode_chat_meter as meter
     import autocode_chat_panel as panel
     import autocode_chat_polling as polling
@@ -356,6 +358,7 @@ class ChatClient:
         say: Callable[[str], None] = print,
         poll_seconds: float = POLL_SECONDS,
         observe: Callable[[dict], None] | None = None,
+        observe_coordination: Callable[[dict], None] | None = None,
         unavailable: Callable[[str], None] | None = None,
         wait: Callable[[float], str | None] | None = None,
         stream: Callable[[str | None], None] | None = None,
@@ -369,6 +372,7 @@ class ChatClient:
         self.poll_seconds = poll_seconds
         # A renderer's view of the run, and its wait between polls; "pause" asks for the view's pause.
         self._observe = observe
+        self._observe_coordination = observe_coordination
         self._unavailable = unavailable
         self._wait = wait or (lambda seconds: time.sleep(seconds))
         self._stream = stream  # the reply AutoCode is writing, as the view streams it; the line chat skips it
@@ -650,7 +654,10 @@ class ChatClient:
             view = self.status()
             if view.get("coordination"):
                 words = coordination.named(view["coordination"].get("cancel_command"), self.run_dir, "cancel")
-                proc = self.cli(words)
+                # Cancellation collects public receipts from every member, like the
+                # coordination status read. A single status poll's deadline can kill
+                # this writer after acceptance but before it returns the receipts.
+                proc = self.cli(words, timeout=120)
                 self.say(
                     "Coordination cancelled at the next boundary; saved work is retained."
                     if proc.returncode == 0
@@ -2078,6 +2085,7 @@ def cli(argv: list[str] | None = None) -> int:
         seen = (
             {
                 "observe": ui.observe,
+                "observe_coordination": ui.observe_coordination,
                 "unavailable": ui.status_unavailable,
                 "wait": ui.wait,
                 "stream": ui.stream,
@@ -2155,6 +2163,7 @@ def cli(argv: list[str] | None = None) -> int:
         if ui is not None:
             ui.set_context(client.workspace, client.run_dir)
             ui.bind(client.slash)
+            ui.send_message = messages.Sender(client).send
             client.switched = ui.switch
             client.tabs_changed = ui.tabs
             client.attention_changed = ui.attention

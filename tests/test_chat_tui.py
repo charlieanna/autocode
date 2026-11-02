@@ -325,6 +325,173 @@ def screen_ui(*keys):
     return ui
 
 
+class CoordinatedMeterTests(unittest.TestCase):
+    def test_reopening_does_not_mislabel_anchor_spend_before_task_inventory_arrives(self):
+        from tests.test_coordination_usage import ledger
+
+        ui = screen_ui()
+        ui.observe({**ledger("/source", 1, 100), "coordination": {"phase": "planning"}})
+        self.assertEqual("task $? · tokens pending", ui._spend())
+
+    def test_task_meter_survives_repository_switches_and_unavailable_reads(self):
+        from tests.test_coordination_usage import ledger
+
+        ui = screen_ui()
+        source, member = ledger("/source", 1, 100), ledger("/member", 2, 200)
+        ui.observe(source)
+        ui.observe_coordination({"version": 1, "anchor": "/source", "runs": [source, member, ledger("/new", 0, 0)]})
+        ui.observe(ledger("/new", 0, 0, complete=False))
+        self.assertEqual("task $3.00+ · 300+ tokens", ui._spend())
+        ui.status_unavailable("read delayed")
+        self.assertEqual("task $3.00+ · 300+ tokens", ui._spend())
+        ui.observe(member)
+        self.assertEqual("task $3.00+ · 300+ tokens", ui._spend())
+        ui.observe(source)
+        self.assertEqual("task $3.00+ · 300+ tokens", ui._spend())
+        ui.observe(ledger("/unrelated", 7, 700))
+        self.assertEqual("$7.00 · 700 tokens", ui._spend())
+
+    def test_side_panel_labels_task_usage_separately_from_current_work(self):
+        from tests.test_coordination_usage import ledger
+
+        ui = screen_ui()
+        ui._panel_on = True
+        ui.observe_coordination(
+            {"version": 1, "anchor": "/source", "runs": [ledger("/source", 1, 100), ledger("/member", 0, 0)]}
+        )
+        ui.observe(ledger("/member", 0, 0, complete=False))
+        shown = []
+        ui._put = lambda row, col, text, attr=0: shown.append(text)
+        ui._side_panel(ui._layout(*ui._size()))
+        self.assertIn("TASK USAGE", " ".join(shown))
+        self.assertIn("$1.00+", " ".join(shown))
+
+
+class MouseScrollTests(unittest.TestCase):
+    def test_key_reads_do_not_block_on_missing_mouse_bytes_and_restore_flags(self):
+        import fcntl
+        import os
+
+        ui = screen_ui()
+        flags = 128
+        observed = []
+
+        def control(fd, command, value=None):
+            nonlocal flags
+            if command == fcntl.F_GETFL:
+                return flags
+            flags = value
+
+        def read():
+            observed.append(flags)
+            raise tui.curses.error("partial input")
+
+        ui._screen.get_wch.side_effect = read
+        with mock.patch.object(tui.sys, "stdin") as stdin, mock.patch.object(fcntl, "fcntl", side_effect=control):
+            stdin.fileno.return_value = 42
+            self.assertIsNone(ui._read_key())
+            self.assertEqual(128, flags)
+            self.assertIsNone(ui._read_next())
+            self.assertEqual(128, flags)
+        self.assertEqual([128 | os.O_NONBLOCK] * 2, observed)
+
+    def test_keyboard_reads_still_work_when_stdin_has_no_descriptor(self):
+        ui = screen_ui("x")
+        with mock.patch.object(tui.sys, "stdin") as stdin:
+            stdin.fileno.side_effect = ValueError("no descriptor")
+            self.assertEqual("x", ui._read_key())
+
+    def test_wheel_scrolls_history_both_ways_without_editing_composer(self):
+        ui = screen_ui()
+        ui._composer.insert("draft")
+        ui._anchored = True
+        with mock.patch.object(tui.curses, "getmouse", return_value=(0, 4, 5, 0, tui.curses.BUTTON4_PRESSED)):
+            ui._handle(tui.curses.KEY_MOUSE, asking=False)
+        self.assertEqual(3, ui._scroll)
+        self.assertFalse(ui._anchored)
+        with mock.patch.object(tui.curses, "BUTTON5_PRESSED", 1 << 21, create=True):
+            with mock.patch.object(tui.curses, "getmouse", return_value=(0, 4, 5, 0, 1 << 21)):
+                ui._handle(tui.curses.KEY_MOUSE, asking=True)
+        self.assertEqual(0, ui._scroll)
+        self.assertEqual("draft", ui._composer.text)
+
+    def test_wheel_position_survives_new_messages(self):
+        ui = screen_ui()
+        for n in range(40):
+            ui.say(f"AutoCode: message {n}")
+        with mock.patch.object(tui.curses, "getmouse", return_value=(0, 4, 5, 0, tui.curses.BUTTON4_PRESSED)):
+            for _ in range(8):
+                ui._handle(tui.curses.KEY_MOUSE, asking=False)
+
+        def visible():
+            layout = ui._layout(*ui._size())
+            lines = ui._transcript.lines(layout.body_width)
+            end = len(lines) - ui._scroll
+            return lines[max(0, end - (layout.body_end - layout.body_start)) : end]
+
+        before = visible()
+        self.assertTrue(before)
+        ui.say("AutoCode: appended while reading")
+        self.assertEqual(before, visible())
+
+    def test_clicks_and_wheels_outside_transcript_do_not_scroll(self):
+        ui = screen_ui()
+        ui._panel_on = True
+        ui._live_on = True
+        layout = ui._layout(*ui._size())
+        for x, y, flags in (
+            (4, 5, tui.curses.BUTTON1_PRESSED),
+            (4, 0, tui.curses.BUTTON4_PRESSED),
+            (4, layout.box_text, tui.curses.BUTTON4_PRESSED),
+            (layout.panel_col, 5, tui.curses.BUTTON4_PRESSED),
+            (4, layout.live_start, tui.curses.BUTTON4_PRESSED),
+        ):
+            with self.subTest(x=x, y=y, flags=flags):
+                with mock.patch.object(tui.curses, "getmouse", return_value=(0, x, y, 0, flags)) as read:
+                    ui._handle(tui.curses.KEY_MOUSE, asking=True)
+                read.assert_called_once()
+                self.assertEqual(0, ui._scroll)
+        with mock.patch.object(tui.curses, "getmouse", side_effect=tui.curses.error):
+            ui._handle(tui.curses.KEY_MOUSE, asking=True)
+
+    def test_reporting_enables_only_wheels_and_restores_previous_mask(self):
+        ui = screen_ui()
+        with mock.patch.object(tui.curses, "mousemask", return_value=(123, 7)) as mask:
+            ui._mouse_reporting(True)
+            ui._mouse_reporting(False)
+        self.assertEqual(
+            [mock.call(tui.curses.BUTTON4_PRESSED | getattr(tui.curses, "BUTTON5_PRESSED", 0)), mock.call(7)],
+            mask.call_args_list,
+        )
+
+    def test_unsupported_reporting_keeps_keyboard_available(self):
+        ui = screen_ui()
+        with mock.patch.object(tui.curses, "mousemask", side_effect=tui.curses.error):
+            ui._mouse_reporting(True)
+            ui._mouse_reporting(False)
+        ui._handle(tui.curses.KEY_PPAGE, asking=True)
+        self.assertGreater(ui._scroll, 0)
+
+    def test_open_close_and_outside_manage_reporting(self):
+        ui = screen_ui()
+        with (
+            mock.patch.object(ui, "_mouse_reporting") as reporting,
+            mock.patch.object(ui, "_bracketed_paste"),
+            mock.patch.object(ui, "_start_colors"),
+            mock.patch.object(ui, "_draw"),
+            mock.patch.object(tui, "curses"),
+            mock.patch.object(tui.threading, "Thread"),
+            mock.patch.object(tui.subprocess, "call", return_value=0),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            ui._open()
+            ui.outside(["example"])
+            ui.close()
+        self.assertEqual(
+            [mock.call(True), mock.call(False), mock.call(True), mock.call(False)], reporting.call_args_list
+        )
+
+
 class SmallTerminalTests(unittest.TestCase):
     def test_a_too_small_terminal_says_how_big_to_make_it_without_cutting_the_words(self):
         for rows, cols in ((10, 80), (24, 20), (6, 14)):
@@ -1038,7 +1205,7 @@ class LivePaneTests(unittest.TestCase):
         ui._run("/live", False, "all")
         [(role, text)] = ui._transcript.blocks[-1:]
         self.assertEqual("info", role)
-        self.assertIn("Builder · task M1 ∴ Read greet.py first", text)
+        self.assertIn("Builder · task M1 [thinking] Read greet.py first", text)
         self.assertNotIn("pytest -q", text)
 
     def test_long_entries_wrap_under_their_agent_and_never_carry_escapes(self):

@@ -15,12 +15,16 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_contract_identity as identity
+    from . import autocode_message_context as message_context
     from . import autocode_prompts as prompts
+    from . import autocode_run_messages as run_messages
     from . import autocode_run_status as run_status
     from . import autocode_util as util
 except ImportError:
     import autocode_contract_identity as identity
+    import autocode_message_context as message_context
     import autocode_prompts as prompts
+    import autocode_run_messages as run_messages
     import autocode_run_status as run_status
     import autocode_util as util
 
@@ -104,6 +108,13 @@ def context(state: RunState):
     message = pending(state)
     if not message:
         raise ValueError("No pending plan message")
+    if message.get("live"):
+        packet = run_messages.context(state)
+        prompt = prompts.get("run-chat.md") + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet, ensure_ascii=False)
+        return prompt, {
+            "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
+            "soft_budget_tokens": (state.get("settings") or {}).get("context_soft_tokens", 10000),
+        }
     _check_plan(state, message["contract_token"], held=bool(message.get("return_pause")))
     prior = [
         {"text": row["text"], "assistant_reply": row["reply_after"]}
@@ -137,8 +148,10 @@ def context(state: RunState):
 
 def accept(state: RunState, value: dict, record: dict):
     """Accept only the pending exchange's answer; preserve the plan and its sources."""
-    util.validate_schema(value, SCHEMA)
     message = pending(state)
+    util.validate_schema(value, message_context.schema(SCHEMA, message))
+    if message and message.get("live"):
+        return run_messages.accept(state, value, record)
     if not message or value["message_id"] != message["id"] or value["contract_token"] != message["contract_token"]:
         raise ValueError("Plan response does not match the pending message")
     checkpoint = message.get("return_pause")

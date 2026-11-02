@@ -2,6 +2,8 @@
 
 import copy
 import os
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -10,7 +12,238 @@ import autocode_chat_client as chat
 import autocode_chat_coordination as coordination
 
 
+class CoordinatedLiveScreenTests(unittest.TestCase):
+    def test_real_terminal_shows_member_log_during_one_gated_coordinator_action(self):
+        from tests import ROOT
+        from tests.terminal_screen import TerminalScreen, require_tmux
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            gate = root / "gate"
+            os.mkfifo(gate)
+            backend = root / "backend.py"
+            backend.write_text("""
+import json, os, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+anchor, member = str(root / 'anchor'), str(root / 'member')
+args = sys.argv[2:]
+command = ['autocode', 'coordinate', 'advance', '--run-dir', anchor, '--json']
+def ledger(run, spend, tokens, complete=True):
+    return {'run_dir': run, 'cost': {'spent_usd': spend, 'complete': complete},
+            'usage': {'accounting': {'tokens': {'input_tokens': tokens, 'output_tokens': 0}}}}
+accounting = {'version': 1, 'anchor': anchor, 'runs': [ledger(anchor, 1, 100),
+              ledger(str(root / 'previous'), 2, 200), ledger(member, 0, 0, False)]}
+if args[:2] == ['coordinate', 'status']:
+    print(json.dumps({'version': 1, 'anchor': anchor, 'done': False, 'accounting': accounting,
+        'members': [{'target': 'api', 'workspace': str(root), 'run_dir': member, 'status': 'RUNNING'}],
+        'needs': {'kind': 'start', 'target': 'api'}, 'next_command': command}))
+elif args[:2] == ['coordinate', 'advance']:
+    with (root / 'advances').open('a') as stream:
+        stream.write('anchor\\n')
+    with (root / 'gate').open() as stream:
+        stream.read()
+elif '--status' in args:
+    run = args[args.index('--run-dir') + 1]
+    view = {**ledger(run, 0 if run == member else 1, 0 if run == member else 100, run != member), 'workspace': str(root), 'run_dir': run, 'status': 'RUNNING' if run == member else 'WAITING_FOR_USER',
+            'needs': {'kind': 'continue'}, 'chat': {'log': []}}
+    if run == member:
+        view['chat']['log'] = [{'id': 'member-message', 'agent': 'Requirements', 'kind': 'message',
+                               'text': 'Inspecting the actual request path'}]
+    else:
+        view['coordination'] = {'status_command': ['autocode', 'coordinate', 'status', '--run-dir', anchor, '--json']}
+    print(json.dumps({'view': view}))
+else:
+    raise SystemExit('Unexpected command: ' + repr(args))
+""")
+            script = f"""
+import sys
+sys.path.insert(0, {str(ROOT / "tools")!r})
+from pathlib import Path
+from autocode_chat_client import ChatClient
+from autocode_chat_tui import ChatTUI
+import autocode_chat_coordination as coordination
+root = Path({str(root)!r})
+with ChatTUI() as ui:
+    meter_options = dict(observe_coordination=ui.observe_coordination) if hasattr(ui, "observe_coordination") else dict()
+    client = ChatClient(root, root / 'anchor', command=(sys.executable, {str(backend)!r}, str(root)),
+                        observe=ui.observe, **meter_options, unavailable=ui.status_unavailable, say=ui.say,
+                        ask=ui.ask, wait=ui.wait, poll_seconds=0.1)
+    ui.bind(client.slash, run=True)
+    ui.idle = client.poll
+    try:
+        coordination.step(client, client.status(), lambda value: str(value))
+        client.show(client.status())
+        ui.say('Coordinator action finished')
+        ui.ask('Close this test viewer?')
+    finally:
+        client.close()
+"""
+            screen = TerminalScreen(
+                [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
+            )
+            self.addCleanup(screen.close)
+            screen.wait_for(
+                lambda text: (
+                    "LIVE · all agents" in text
+                    and "Inspecting the actual request path" in text
+                    and "task $3.00+" in text
+                    and "300 tokens" in text
+                    and "TASK USAGE" in text
+                ),
+                what="active coordinated member live log and stable task total",
+                timeout=10,
+            )
+            screen.type("/help")
+            screen.keys("Enter")
+            screen.wait_for("List these commands", what="responsive help during the coordinated action")
+            self.assertEqual("anchor\n", (root / "advances").read_text())
+            with gate.open("w") as release:
+                release.write("done")
+            screen.wait_for(
+                lambda text: "Coordinator action finished" in text and "task $3.00+" in text and "300 tokens" in text,
+                what="task total after returning to the coordinator",
+            )
+            screen.keys("Enter")
+            self.assertEqual(0, screen.exit_status())
+
+
+class UncappedRecoveryScreenTests(unittest.TestCase):
+    def test_real_terminal_renders_uncapped_recovery_and_accepts_exact_resume(self):
+        from tests import ROOT
+        from tests.terminal_screen import TerminalScreen, require_tmux
+
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+import autocode_chat_coordination as coordination
+from autocode_chat_tui import ChatTUI
+run = Path('/tmp/uncapped-screen/.autocode/runs/task')
+need = {'kind': 'coordination_resume', 'cap_usd': 0, 'known_spent_usd': 0.845216,
+        'complete': True, 'minimum_cap_usd': 0.845217, 'current_cap_usd': 0,
+        'allows_no_cap': True, 'token': 'screen-token', 'effect': 'Resume saved work.',
+        'next_command': ['autocode', 'coordinate', 'resume', '--run-dir', str(run),
+                         '--token', 'screen-token', '--max-cost-usd', 'N', '--json']}
+calls = []
+with ChatTUI() as ui:
+    client = SimpleNamespace(run_dir=run, say=ui.say, ask=ui.ask,
+                             advance=lambda *args, **kwargs: calls.append((args, kwargs)))
+    with patch.object(coordination, 'read', return_value={'needs': need}):
+        coordination.budget_reply(client, {}, need)
+assert calls == [((['coordinate', 'resume', '--run-dir', str(run), '--token', '-',
+                    '--max-cost-usd', '0', '--json'],),
+                  {'env': {'AUTOCODE_COORDINATION_TOKEN': 'screen-token'}})], calls
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for(
+            lambda text: "Shared accounting cap: no cap" in text and "New whole-set accounting cap" in text,
+            what="uncapped recovery prompt",
+        )
+        screen.type("0")
+        screen.keys("Enter")
+        screen.wait_for("Remove spending limits and recover this saved coordination?")
+        screen.type("yes")
+        screen.keys("Enter")
+        self.assertEqual(0, screen.exit_status())
+
+
 class CoordinatedDisplayTests(unittest.TestCase):
+    def test_automatic_member_and_joint_actions_show_live_status_without_transferring_control(self):
+        for target in ("api", "Joint regression"):
+            for fail in (False, True):
+                with self.subTest(target=target, action_fails=fail):
+                    workspace = Path("/tmp/coordinated-live-display").resolve()
+                    anchor = {"workspace": str(workspace), "run_dir": str(workspace / "anchor")}
+                    member = {
+                        "workspace": str(workspace / "member"),
+                        "run_dir": str(workspace / "member/run"),
+                        "status": "RUNNING",
+                        "needs": {"kind": "continue"},
+                        "chat": {"log": [{"text": "Testing the actual request path"}]},
+                    }
+                    seen, watchers, closed = [], [], []
+                    observed = lambda view: seen.append(view)
+                    unavailable = Mock()
+                    wait = Mock(return_value="pause")
+                    parent = chat.ChatClient(
+                        workspace,
+                        Path(anchor["run_dir"]),
+                        say=Mock(),
+                        observe=observed,
+                        unavailable=unavailable,
+                        wait=wait,
+                    )
+                    self.addCleanup(parent.close)
+                    action = ["autocode", "coordinate", "advance", "--run-dir", anchor["run_dir"], "--json"]
+                    summary = {
+                        "members": [{**member, "target": "api"}],
+                        "done": False,
+                        "needs": {"kind": "start", "target": target},
+                        "next_command": action,
+                        "integration": member if target == "Joint regression" else None,
+                    }
+
+                    def poll(child):
+                        watchers.append(child)
+                        self.assertEqual(Path(member["run_dir"]), child.run_dir)
+                        child.accept_status(member)
+
+                    def advance(argv):
+                        self.assertEqual(action[1:], argv)
+                        parent.accept_status(anchor)
+                        self.assertEqual("pause", parent._wait(0.05))
+                        if fail:
+                            raise RuntimeError("coordinator refused")
+
+                    original_close = chat.ChatClient.close
+
+                    def close(child):
+                        closed.append(child)
+                        original_close(child)
+
+                    with (
+                        patch.object(coordination, "read", return_value=summary),
+                        patch.object(parent, "advance", side_effect=advance) as dispatched,
+                        patch.object(chat.ChatClient, "poll", new=poll),
+                        patch.object(chat.ChatClient, "close", new=close),
+                        patch.object(chat.ChatClient, "respond") as respond,
+                    ):
+                        if fail:
+                            with self.assertRaisesRegex(RuntimeError, "coordinator refused"):
+                                coordination.step(parent, anchor, Mock())
+                        else:
+                            coordination.step(parent, anchor, Mock())
+                    self.assertEqual([member], seen)
+                    self.assertEqual(watchers, closed)
+                    self.assertEqual(1, len(watchers))
+                    dispatched.assert_called_once()
+                    respond.assert_not_called()
+                    wait.assert_called_once_with(0.05)
+                    self.assertEqual(Path(anchor["run_dir"]), parent.run_dir)
+                    self.assertIs(parent._observe, observed)
+                    self.assertIs(parent._unavailable, unavailable)
+                    self.assertIs(parent._wait, wait)
+
+    def test_automatic_action_without_published_participant_keeps_anchor_display(self):
+        parent = Mock(run_dir=Path("/tmp/unknown-participant/run").resolve(), said=set())
+        original = parent._observe
+        summary = {
+            "members": [],
+            "done": False,
+            "needs": {"kind": "resolve", "target": "unknown"},
+            "next_command": ["autocode", "coordinate", "advance", "--run-dir", str(parent.run_dir), "--json"],
+        }
+        with patch.object(coordination, "read", return_value=summary):
+            coordination.step(parent, {}, Mock())
+        parent.advance.assert_called_once_with(summary["next_command"][1:])
+        self.assertIs(original, parent._observe)
+
     def test_missing_repository_asks_for_catalog_setup_without_bug_specific_repos_command(self):
         run_dir = Path("/tmp/coordinated-missing/.autocode/runs/chat").resolve()
         client = Mock(run_dir=run_dir, said=set())
@@ -294,6 +527,39 @@ class SharedBudgetDisplayTests(unittest.TestCase):
         self.assertIn("spending", prompts)
         self.assertNotIn("Approve", prompts)
 
+    def test_cancel_recovery_displays_existing_uncapped_run_and_keeps_named_resume(self):
+        self.need.update(kind="coordination_resume", cap_usd=None, allows_no_cap=True, current_cap_usd=0)
+        self.need["next_command"][2] = "resume"
+        self.client.ask.side_effect = ["0", "yes"]
+        with patch.object(coordination, "read", return_value=self.summary):
+            self.assertIsNone(coordination.step(self.client, {}, Mock()))
+        shown = " ".join(call.args[0] for call in self.client.say.call_args_list)
+        self.assertIn("Shared accounting cap: no cap", shown)
+        self.assertIn("known spend: $9.5", shown)
+        self.assertIn("incomplete; unknown costs remain unknown", shown)
+        argv = self.client.advance.call_args.args[0]
+        self.assertEqual("resume", argv[1])
+        self.assertEqual("0", argv[argv.index("--max-cost-usd") + 1])
+
+    def test_uncapped_cancel_recovery_can_remain_paused_without_dispatch(self):
+        self.need.update(kind="coordination_resume", cap_usd=None, allows_no_cap=True, current_cap_usd=0)
+        self.need["next_command"][2] = "resume"
+        self.client.ask.return_value = ""
+        with patch.object(coordination, "read", return_value=self.summary):
+            self.assertEqual(2, coordination.step(self.client, {}, Mock()))
+        self.client.advance.assert_not_called()
+
+    def test_explicit_zero_cap_is_displayed_as_uncapped_after_recovery(self):
+        self.need.update(kind="coordination_resume", cap_usd=0, allows_no_cap=True, current_cap_usd=0)
+        self.need["next_command"][2] = "resume"
+        self.client.ask.return_value = ""
+        with patch.object(coordination, "read", return_value=self.summary):
+            coordination.step(self.client, {}, Mock())
+        shown = " ".join(call.args[0] for call in self.client.say.call_args_list)
+        self.assertIn("Shared accounting cap: no cap", shown)
+        self.assertNotIn("Shared accounting cap: $0", shown)
+        self.client.advance.assert_not_called()
+
     def test_cancel_recovery_rechecks_its_exact_kind_after_confirmation(self):
         self.need.update(kind="coordination_resume", allows_no_cap=True, current_cap_usd=10)
         self.need["next_command"][2] = "resume"
@@ -372,3 +638,23 @@ class SharedBudgetDisplayTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TaskUsageCallbackTests(unittest.TestCase):
+    def test_public_coordination_read_delivers_complete_task_snapshot_to_renderer(self):
+        import json
+
+        from tests.test_coordination_usage import ledger
+
+        run = Path("/source")
+        received = []
+        snapshot = {"version": 1, "anchor": str(run), "runs": [ledger(str(run), 1, 100)]}
+        client = chat.ChatClient(Path("/workspace"), run, observe_coordination=received.append)
+        self.addCleanup(client.close)
+        summary = {"version": 1, "anchor": str(run), "accounting": snapshot}
+        client.cli = Mock(return_value=Mock(returncode=0, stdout=json.dumps(summary)))
+        view = {
+            "coordination": {"status_command": ["autocode", "coordinate", "status", "--run-dir", str(run), "--json"]}
+        }
+        self.assertEqual(summary, coordination.read(client, view))
+        self.assertEqual([snapshot], received)

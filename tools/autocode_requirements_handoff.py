@@ -106,8 +106,13 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
         ref for ref in value["source_refs"] if ref not in input_refs and not ref.startswith(("https://", "http://"))
     ]
     catalog_refs = [ref for ref in local_refs if ref.startswith("catalog/")]
-    if any(not source_catalog.evidence(state, ref) for ref in catalog_refs):
-        raise ValueError("Requirements source_refs contains an unverified catalog source citation")
+    invalid_catalog_refs = [ref for ref in catalog_refs if not source_catalog.evidence(state, ref)]
+    if invalid_catalog_refs:
+        raise ValueError(
+            "Requirements source_refs contains unverified catalog source citations: "
+            + ", ".join(invalid_catalog_refs)
+            + ". Correct these citations against the pinned sources. Retain valid inspected references."
+        )
     local_refs = [ref for ref in local_refs if ref not in catalog_refs]
     # User requirements and constraints can be retained while asking what the
     # outcome means. Until there are behaviors or acceptance tests, that intent
@@ -180,11 +185,11 @@ def accept_chat(state: RunState, value: dict, record: dict, *, queue) -> bool:
     if not plan_chat.pending(state):
         return False
     event = plan_chat.accept(state, value, record)
-    if event["intent"] == "change":
+    if event["intent"] == "change" and not event.get("context"):
         goals.feedback(state, event["text"], interpret=False)
         state["brief_feedback"][-1]["reply_after"] = event["reply_after"]
         event["forwarded"] = True
-    elif not event.get("return_pause"):
+    elif not event.get("return_pause") and not event.get("live"):
         output = record.get("output")
         evidence = {"hashes": {output: util.file_hash(Path(output))} if output and Path(output).is_file() else {}}
         queue(

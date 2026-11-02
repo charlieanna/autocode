@@ -37,12 +37,14 @@ try:
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
     from . import autocode_pause_authority as pause_authority
+    from . import autocode_run_messages as run_messages
     from . import autocode_run_status as run_status
     from . import autocode_util as util
 except ImportError:
     import autocode_goals as goals
     import autocode_interventions as interventions
     import autocode_pause_authority as pause_authority
+    import autocode_run_messages as run_messages
     import autocode_run_status as run_status
     import autocode_util as util
 
@@ -160,7 +162,9 @@ def state_writer(ordinary_write: Callable, persist_stopped: Callable) -> Callabl
 
     def write(path, value, *, before_commit=None, after_commit=None):
         if Path(path).name == "state.json" and isinstance(value, dict):
-            value.setdefault("intervention_capability", {}).update(supports_stop=True)
+            value.setdefault("intervention_capability", {}).update(
+                supports_stop=True, supports_messages=True, supports_message_context=True
+            )
             if applied_stop(value):
                 assert_stopped(value)
                 return (
@@ -229,6 +233,7 @@ def boundary_effects(
     pauses = [item for item in consumed if item["kind"] == "pause"]
     stops = [item for item in consumed if is_stop_receipt(item)]
     feedback = [item for item in consumed if item["kind"] == "feedback"]
+    messages = [item for item in consumed if item["kind"] == "message"]
     held = None
     if (
         interrupted
@@ -256,7 +261,7 @@ def boundary_effects(
         state["stop_intent"] = {"request_ids": [item["id"] for item in stops], "applied_at": now()}
     if stops:
         run_status.pause(state, STOP_STATUS, STOP_REASON)
-    elif not feedback:
+    elif not feedback and (pauses or not messages):
         run_status.pause(state, STOP_STATUS, "Queued pause was applied; explicitly resume when ready.")
     if held:
         # Any pause is returned to; only an operational one then waits for its own authority.
@@ -269,12 +274,16 @@ def boundary_effects(
         state["stop_reason"] = f"{state.get('stop_reason', '')} {returned}".strip()
     # A completion proposal is retained in its report, but cannot commit while
     # an earlier accepted pause is still awaiting explicit continuation.
-    if state.get("next_stage") is None:
+    if state.get("next_stage") is None and (pauses or stops or feedback):
         state["next_stage"] = "astra_review"
     if state.get("status") != "TASK_COMPLETE":
         state.pop("completed_at", None)
         state.pop("completion_actor", None)
         state.pop("final_decision", None)
+    if messages and not pauses and not stops:
+        run_messages.activate(state)
+        if state.get("status") == "RUNNING":
+            state["stop_reason"] = "Message saved; continuing with its conversation at the next safe boundary."
 
 
 def acknowledge_pause(state: RunState, at: str) -> None:
@@ -379,13 +388,19 @@ def consume(
     def apply_boundary_effects(consumed_now):
         boundary_effects(state, consumed_now, now, interrupted)
 
-    return bool(
+    consumed = bool(
         interventions.consume(
             run_dir,
             state,
             write_state=write_state,
             apply_feedback=apply_feedback,
+            apply_message=lambda receipt, applied: run_messages.receive(state, receipt),
             before_commit=apply_boundary_effects,
             lock_held=lock_held,
         )
     )
+    if not consumed and run_messages.activate(state):
+        state["stop_reason"] = "Message saved; continuing with its conversation at the next safe boundary."
+        write_state()
+        return True
+    return consumed

@@ -886,6 +886,25 @@ class ConversationTests(unittest.TestCase):
             self.assertTrue(client.request_pause())
         self.assertIn("Press Ctrl-C again to interrupt", client.text())
 
+    def test_coordination_pause_waits_for_member_receipts_beyond_the_status_read_deadline(self):
+        command = ["autocode", "coordinate", "cancel", "--run-dir", str(RUN), "--json"]
+        client = ScriptedChat({"coordination": {"cancel_command": command}})
+        calls = []
+
+        def member_receipts(argv, **kwargs):
+            calls.append(argv)
+            # Model eight seconds of sequential public member receipts without waiting.
+            if kwargs["timeout"] < 8:
+                raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+            return subprocess.CompletedProcess(argv, 0, '{"cancelled": true}', "")
+
+        with mock.patch.object(chat.subprocess, "run", side_effect=member_receipts):
+            self.assertTrue(client.request_pause())
+        self.assertEqual(1, len(calls), "a receipt deadline must not duplicate the cancellation")
+        self.assertEqual(command[1:], calls[0][-len(command[1:]) :])
+        self.assertIn("Coordination cancelled at the next boundary", client.text())
+        self.assertNotIn("timed out", client.text())
+
     def test_a_model_question_shows_what_stopped_and_the_models_offered(self):
         view = answer_view(
             questions=[{"id": "route-sol", "question": "The Tester's quota ran out. Which model now?"}],

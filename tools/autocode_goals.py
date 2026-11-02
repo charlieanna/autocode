@@ -6,6 +6,7 @@ try:
     from . import autocode_plan_chat as plan_chat
     from . import autocode_prompts as prompts
     from . import autocode_roles as roles
+    from . import autocode_run_messages as run_messages
     from .autocode_role_schema import STRING, STRINGS, obj
     from .autocode_role_schema import USER_REQUEST as USER_REQUEST
     from .autocode_role_schema import role_schema as role_schema
@@ -13,6 +14,7 @@ except ImportError:
     import autocode_plan_chat as plan_chat
     import autocode_prompts as prompts
     import autocode_roles as roles
+    import autocode_run_messages as run_messages
     from autocode_role_schema import STRING, STRINGS, obj
     from autocode_role_schema import USER_REQUEST as USER_REQUEST
     from autocode_role_schema import role_schema as role_schema
@@ -702,12 +704,16 @@ def feedback(state: RunState, text, *, interpret=True, semantic_hold=False):
         )
         if need.get("new_run_required"):
             raise ValueError(need["recovery_hint"])
-    if not (semantic_hold or planning_feedback.admitted(state)) or not text.strip():
+    if (
+        not (semantic_hold or planning_feedback.admitted(state) or run_messages.correction_admitted(state, text))
+        or not text.strip()
+    ):
         raise ValueError("Brief feedback needs nonempty text at a conversation checkpoint")
     if cast(dict, state.get("user_request", {})).get("kind") == "human_review":
         raise ValueError("Record the artifact review with --approve-review or --reject-review, not brief feedback")
     if interpret and plan_chat.begin(state, text):
         return
+    run_messages.archive_completion(state)
     contract = state.get("goal_contract")
     event = {
         "kind": "brief_feedback",

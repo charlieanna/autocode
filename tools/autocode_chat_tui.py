@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import contextlib
 import curses
+import fcntl
 import json
 import locale
+import os
 import re
 import signal
 import subprocess
@@ -34,6 +36,7 @@ try:
     from . import autocode_chat_attention as attention
     from . import autocode_chat_attention_panel as attention_panel
     from . import autocode_chat_context as contexts
+    from . import autocode_chat_messages as messages
     from . import autocode_chat_meter as meter
     from . import autocode_chat_observation as observation
     from . import autocode_chat_panel as panel
@@ -44,6 +47,7 @@ except ImportError:
     import autocode_chat_attention as attention
     import autocode_chat_attention_panel as attention_panel
     import autocode_chat_context as contexts
+    import autocode_chat_messages as messages
     import autocode_chat_meter as meter
     import autocode_chat_observation as observation
     import autocode_chat_panel as panel
@@ -645,6 +649,7 @@ class ChatTUI:
 
     def __init__(self):
         self._screen = None
+        self._previous_mouse_mask: int | None = None
         self._transcript = Transcript()
         self._composer = Composer()
         self._contexts = contexts.Contexts()
@@ -683,10 +688,15 @@ class ChatTUI:
         self._launched_at: float | None = None  # when the first step began, before any status was read
         # The client's own commands (/diff, /undo), and one of them waiting for the person's yes.
         self._act: Callable[[str, str], str | panel.Confirm | attention.Menu] | None = None
+        self.send_message = None
+        self._message_retry = None
+        self._message_sending = False
+        self._message_keys = []
         self._run_open = True  # whether a chat is open: the run-only commands wait for one
         # Whether the bound act is a chat client's (bind run=True): a tab that Ctrl-T opened has no run
         # yet, but that client still serves /tab, so leaving it is allowed (#1997).
         self._client_bound = False
+        self._task_usage = meter.TaskUsage()
         self._tabs: list[dict] = []  # the session's chats from the client, drawn once there are two
         self._pending: panel.Confirm | None = None
         self._queued: list = []  # keys read while telling an escape key from a paste
@@ -712,6 +722,7 @@ class ChatTUI:
                 curses.curs_set(0)
             self._start_colors()
             self._bracketed_paste(True)
+            self._mouse_reporting(True)
         except Exception as error:  # a terminal without curses support keeps line mode
             with contextlib.suppress(Exception):
                 curses.endwin()
@@ -739,6 +750,7 @@ class ChatTUI:
             screen, self._screen = self._screen, None
             if screen is None:
                 return
+            self._mouse_reporting(False)
             self._bracketed_paste(False)
             with contextlib.suppress(curses.error):
                 screen.keypad(False)
@@ -752,6 +764,16 @@ class ChatTUI:
         self._save_history()  # a first request, typed before its run made .autocode
         for text in self._transcript.closing():
             print(text.strip("\n"))
+
+    def _mouse_reporting(self, on: bool) -> None:
+        """Request wheel events while the chat owns the terminal; restore its prior mask."""
+        with contextlib.suppress(curses.error):
+            if on and self._previous_mouse_mask is None:
+                wheels = getattr(curses, "BUTTON4_PRESSED", 0) | getattr(curses, "BUTTON5_PRESSED", 0)
+                _, self._previous_mouse_mask = curses.mousemask(wheels)
+            elif not on and self._previous_mouse_mask is not None:
+                curses.mousemask(self._previous_mouse_mask)
+                self._previous_mouse_mask = None
 
     @staticmethod
     def _bracketed_paste(on: bool) -> None:
@@ -853,6 +875,7 @@ class ChatTUI:
             screen = self._screen
             if self._closed or screen is None:
                 return subprocess.call(argv)
+            self._mouse_reporting(False)
             self._bracketed_paste(False)
             with contextlib.suppress(curses.error):
                 curses.endwin()
@@ -869,6 +892,7 @@ class ChatTUI:
                     screen.clearok(True)
                     screen.refresh()
                 self._bracketed_paste(True)
+                self._mouse_reporting(True)
             self._draw()
             return code
 
@@ -915,6 +939,7 @@ class ChatTUI:
                 "_history_file",
                 "_unsaved",
                 "_observation",
+                "_message_retry",
             )
             if self._context_key is not None:
                 self._contexts.keep(
@@ -936,6 +961,7 @@ class ChatTUI:
                 self._prompt, self._draft_context = "", None
                 self._history_file, self._unsaved = None, []
                 self._observation = observation.Read()
+                self._message_retry = None
             self._restore_context = saved["context"] if saved else None
             self._restored_session = saved is not None
             # Refresh before offering decisions. Confirm closures and queued keys
@@ -967,10 +993,17 @@ class ChatTUI:
             self._keep_history_anchor(anchor)
             self._draw()
 
+    def observe_coordination(self, snapshot: dict) -> None:
+        """The core's complete task ledger inventory, separate from the active repository view."""
+        with self._lock:
+            self._task_usage.accept(snapshot)
+            self._draw()
+
     def observe(self, view: dict) -> None:
         """The status view the client just read: the panel and the log draw from it alone."""
         with self._lock:
             self._observation.accept(view, time.monotonic())
+            self._task_usage.observe(view)
             if self._view == view:
                 self._draw()
                 return
@@ -1138,10 +1171,7 @@ class ChatTUI:
     def _read_key(self):
         if self._queued:
             return self._queued.pop(0)
-        try:
-            key = self._screen.get_wch()
-        except curses.error:
-            return None
+        key = self._read_next()
         if key != "\x1b":
             return key
         self._screen.timeout(50)
@@ -1161,11 +1191,32 @@ class ChatTUI:
         self._queued.extend(consumed)  # an escape key on its own, then whatever followed it
         return ESCAPE
 
-    def _read_next(self):
+    @staticmethod
+    @contextlib.contextmanager
+    def _nonblocking_input():
+        """Keep ncurses' direct reads of partial mouse packets from blocking the poll loop.
+
+        The window timeout bounds waiting for a key, but not ncurses' subsequent
+        reads of X10 mouse bytes. Restore descriptor flags before handling or drawing.
+        """
         try:
-            return self._screen.get_wch()
-        except curses.error:
-            return None
+            fd = sys.stdin.fileno()
+            flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+            fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        except (OSError, ValueError):
+            yield
+            return
+        try:
+            yield
+        finally:
+            fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+
+    def _read_next(self):
+        with self._nonblocking_input():
+            try:
+                return self._screen.get_wch()
+            except curses.error:
+                return None
 
     def _handle(self, key, *, asking: bool) -> str | None:
         """One key: at a question, the answer once Enter sends one; while working, "pause" or None."""
@@ -1174,6 +1225,13 @@ class ChatTUI:
             return None
         if self._stage_menu is not None:
             stages_panel.handle(self, key)
+            return None
+        if key == curses.KEY_MOUSE:
+            self._mouse_scroll()
+            return None
+        if self._message_sending and key not in (curses.KEY_PPAGE, curses.KEY_NPAGE, "\x03"):
+            if key not in (None, curses.KEY_ENTER, 10, 13, "\n", "\r"):
+                self._message_keys.append(key)
             return None
         if key == curses.KEY_F8 and self._act is not None:
             self._run("/attention", asking)
@@ -1259,6 +1317,8 @@ class ChatTUI:
 
     def _enter(self, asking: bool) -> str | None:
         """Enter: run a ``/`` command, or send the reply (at a question only)."""
+        if self._message_sending:
+            return None
         if self._pending is not None:
             self._decide(self._pending)
             return None
@@ -1286,6 +1346,27 @@ class ChatTUI:
             if " " not in text.strip():
                 self._composer.clear()  # a mistyped command; a sentence stays, to fix with //
             return None
+        sent = text[1:] if text.startswith("//") else text
+        retry = self._message_retry and self._message_retry[0] == sent
+        if retry or (not asking and self._can_message()):
+            shown = self._message_retry[1] if retry else self._view
+            self._message_sending = True
+            try:
+                self.send_message(sent, shown)
+            except messages.MessageError as error:
+                self._message_retry = (sent, shown)
+                self._transcript.info("Message not confirmed", str(error))
+                return None
+            finally:
+                self._message_sending = False
+                self._queued.extend(self._message_keys)
+                self._message_keys.clear()
+            self._message_retry = None
+            self._composer.text = sent
+            self._submit()
+            self._asking = asking
+            self._transcript.info("Message saved", "Requirements will reply after the current step is saved.")
+            return None
         if not asking:
             if self._view is None:
                 self._transcript.info("Reading run status", "Your text is kept; wait for the run's current view.")
@@ -1297,6 +1378,12 @@ class ChatTUI:
         if text.startswith("//"):
             self._composer.text, self._composer.cursor = text[1:], max(0, self._composer.cursor - 1)
         return self._submit()
+
+    def _can_message(self) -> bool:
+        """A typed message is available only through a core-named pending action."""
+        return self.send_message is not None and (
+            (((self._view or {}).get("chat") or {}).get("input") or {}).get("kind") == "message"
+        )
 
     def _run(self, name: str, asking: bool, argument: str = "") -> str | None:
         """A ``/`` command: "pause" goes back to the client, /diff and /undo are the client's,
@@ -1412,6 +1499,20 @@ class ChatTUI:
         layout = self._layout(*self._size())
         return max(1, (layout.body_end - layout.body_start) - 1)
 
+    def _mouse_scroll(self) -> None:
+        """Wheel over the transcript uses the same history anchoring as Page Up/Down."""
+        try:
+            _, x, y, _, buttons = curses.getmouse()
+        except curses.error:
+            return
+        layout = self._layout(*self._size())
+        if not (0 <= x < layout.body_width and layout.body_start <= y < layout.body_end):
+            return
+        if buttons & getattr(curses, "BUTTON4_PRESSED", 0):
+            self._scroll_by(3)
+        elif buttons & getattr(curses, "BUTTON5_PRESSED", 0):
+            self._scroll_by(-3)
+
     def _scroll_by(self, delta: int) -> None:
         self._anchored = False  # the person's paging owns the view from here
         self._scroll = max(0, self._scroll + delta)
@@ -1467,7 +1568,7 @@ class ChatTUI:
             return False
         if self._panel_on is not None:
             return self._panel_on
-        return cols >= PANEL_MIN_COLS and len(panel.sections(self._view)) > 1
+        return cols >= PANEL_MIN_COLS and len(panel.sections(self._view, task_total=self._task_total())) > 1
 
     def _live_visible(self, rows: int, cols: int) -> bool:
         if rows < 16 or cols < 40:
@@ -1533,8 +1634,25 @@ class ChatTUI:
             return f" F8: {unchecked} unchecked alert{'s' if unchecked != 1 else ''}"
         return ""
 
+    def _task_total(self) -> dict | None:
+        total = self._task_usage.total((self._view or {}).get("run_dir"))
+        if total is None and (self._view or {}).get("coordination"):
+            # The first source read precedes the coordinator's full ledger inventory.
+            # Never present that source-only amount as the whole task's spend.
+            return {
+                "spent_usd": None,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cost_complete": False,
+                "tokens_complete": False,
+            }
+        return total
+
     def _spend(self) -> str:
         """What this chat's run has used, and with more than one chat open, the session's total."""
+        task = self._task_total()
+        if task is not None:
+            return "task " + meter.total_text(task, show_pending=True)
         here = meter.run_total(self._view)
         if len(self._tabs) < 2:
             return meter.total_text(here)
@@ -1648,7 +1766,7 @@ class ChatTUI:
         for row in range(top, bottom):
             self._put(row, col - 2, self._glyphs.vertical, self._style("border"))
         rows: list[tuple[str, str]] = []
-        for section in panel.sections(self._view, launched=self._launched):
+        for section in panel.sections(self._view, launched=self._launched, task_total=self._task_total()):
             rows.append(
                 (
                     "panel-title",
@@ -1832,6 +1950,8 @@ class ChatTUI:
         width = layout.width
         active = self._asking
         label = composer_label(self._prompt, active)
+        if not active and self._can_message():
+            label = "Message"
         border = self._style("border-active" if active else "border")
         self._put(layout.box_top, 0, self._box_top(width, label), border)
         self._put(layout.box_top, 3, label, self._style("brand" if active else "dim"))
@@ -1846,6 +1966,8 @@ class ChatTUI:
                 if self._view is None and self._launched
                 else "Reading run status… type / for commands"
                 if self._view is None
+                else "Type a message, then Enter; work is saved before the reply"
+                if self._can_message()
                 else WORKING_PLACEHOLDER
             )
             self._put(layout.box_text, 4, truncate(placeholder, inner), self._style("placeholder"))

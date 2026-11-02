@@ -245,6 +245,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("tests.test_failure_routing_cli", "tests.test_classification_recovery"),
     ),
     ("scenarios/harness/clarifying_requirements_provider.py", ("tests.test_requirements_review",)),
+    ("tools/autocode_requirements_handoff.py", ("tests.test_requirements_citation_cli",)),
     ("scripts/homebrew_formula.py", ("tests.test_homebrew_formula",)),
     ("scenarios/catalog/review-clean-pr/broken/blocks-on-a-nit/", ("tests.test_review_attribution_cli",)),
     ("tools/prompts/fragments/report-repair-context/requirements-corrections.md", ("tests.test_report_repair",)),
@@ -295,6 +296,15 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/autocode_capture_bootstrap.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/autocode_native_capture_linux.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/prompts/plan-chat.md", ("tests.test_plan_chat_cli",)),
+    (
+        "tools/prompts/run-chat.md",
+        (
+            "tests.test_run_messages",
+            "tests.test_message_context",
+            "tests.test_run_messages_cli",
+            "tests.test_task_message_context_cli",
+        ),
+    ),
     ("tools/autocode_kilo_image_delivery.mjs", ("tests.test_kilo_image_delivery", "tests.test_native_image")),
     ("tools/fixtures/multicomponent_fake.py", ("tests.test_multicomponent", "tests.test_local_compose_scenario")),
     (
@@ -746,6 +756,37 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_review_attribution_cli",),
     ),
     (("tools/autocode_chat_", "tools/autocode_run_view.py", "tools/autocode_follow_up.py"), ("tests.test_chat_cli",)),
+    (
+        (
+            "tools/autocode_chat_",
+            "tools/autocode_client_actions.py",
+            "tools/autocode_interventions.py",
+            "tools/autocode_run_messages.py",
+            "tools/prompts/run-chat.md",
+        ),
+        ("tests.test_chat_live_messages_cli",),
+    ),
+    (
+        (
+            "tools/autocode_message_context.py",
+            "tools/autocode_stop.py",
+            "tools/units/autoplanner.py",
+            "tools/autocode_run_messages.py",
+            "tools/autocode_interventions.py",
+            "tools/autocode_plan_chat.py",
+            "tools/autocode_requirements_handoff.py",
+            "tools/autocode_chat_history.py",
+        ),
+        ("tests.test_task_message_context_cli",),
+    ),
+    (
+        (
+            "tools/autocode_coordination_budget.py",
+            "tools/autocode_coordination_planning_limits.py",
+            "tools/autocode_coordinate.py",
+        ),
+        ("tests.test_coordination_source_accounting_cli",),
+    ),
     # The bridge drives the CLI as a subprocess (its tests launch the CLI, so imports cannot select them).
     (
         ("tools/autocode_bridge_", "tools/autocode_github.py", "tools/autocode_subcommands.py"),

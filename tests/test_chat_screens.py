@@ -20,6 +20,44 @@ RUN_SECONDS = 300  # a fixture stage is quick, but CI hosts are shared
 
 
 class LiveDefaultScreenTests(unittest.TestCase):
+    def test_live_prose_is_readable_in_the_terminal(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_log import prose_event
+from autocode_chat_tui import ChatTUI
+events = [
+    ('item.updated', 'reasoning', 'Conf'),
+    ('item.completed', 'agent_message', 'I’m checking; I’ll report back.'),
+    ('item.completed', 'agent_message', 'older context ' * 50 + 'Which codes should history show?'),
+]
+rows = []
+for n, (event, kind, text) in enumerate(events):
+    key, entry = prose_event({'type': event, 'item': {'id': str(n), 'type': kind, 'text': text}})
+    rows.append({'id': key, 'agent': 'Plan Reviewer', **entry})
+with ChatTUI() as ui:
+    ui.observe({'status': 'RUNNING', 'chat': {'log': rows}})
+    while True:
+        ui.wait(0.1)
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=140, rows=40, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for(
+            lambda shown: all(
+                text in " ".join(shown.split())
+                for text in (
+                    "[thinking] Partial thought received.",
+                    "[message] I'm checking; I'll report back.",
+                    "[earlier text omitted]",
+                    "Which codes should history show?",
+                )
+            ),
+            timeout=10,
+            what="readable labels, apostrophes, streaming notice and complete newest words",
+        )
+
     def test_running_view_shows_live_without_a_command_and_respects_hiding(self):
         # Real curses rendering of a public view; no provider or task is launched.
         script = """
@@ -58,6 +96,77 @@ with ChatTUI() as ui:
                 "LIVE · all agents" in shown and "AutoCode is working; no agent activity reported yet." in shown
             ),
             what="explicitly restored live pane",
+        )
+
+
+class MouseHistoryScreenTests(unittest.TestCase):
+    def test_incomplete_mouse_packet_cannot_stall_the_status_loop(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI
+with ChatTUI() as ui:
+    ui.say('Ready for input probe')
+    while ui._composer.text != 'probe':
+        ui.wait(0.1)
+    ui.say('Input probe armed')
+    ui.wait(1.0)
+    ui.say('Status polling continued')
+    while True:
+        ui.wait(0.1)
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=100, rows=25, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for("Ready for input probe")
+        screen.type("probe")
+        screen.wait_for("Input probe armed")
+        screen.type("\x1b[M")  # Truncated X10 packet: ncurses must not block waiting for its three bytes.
+        screen.wait_for("Status polling continued", timeout=5)
+        screen.keys("C-u")
+        screen.type("after")
+        screen.wait_for(
+            lambda shown: composer_text(shown) == "after", what="typing works after a truncated mouse packet"
+        )
+
+    def test_wheel_and_page_keys_reach_start_and_keep_position_during_updates(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI
+with ChatTUI() as ui:
+    ui.say('You: ORIGINAL REQUEST')
+    for n in range(45):
+        ui.say(f'AutoCode: history item {n}')
+    while True:
+        ui.wait(0.1)
+        if ui._composer.text == 'update':
+            ui.say('AutoCode: NEW LIVE UPDATE')
+            ui._composer.clear()
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=100, rows=25, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for("history item 44")
+        screen.type("\x1b[M`%&" * 80)
+        screen.wait_for(
+            lambda shown: "ORIGINAL REQUEST" in shown and "History" in shown,
+            timeout=10,
+            what="wheel reaches the first request",
+        )
+        screen.type("update")
+        # PageDown demonstrates the event loop processed the appended message; PageUp returns to the start.
+        screen.keys("NPage")
+        screen.wait_for(lambda shown: "ORIGINAL REQUEST" not in shown and "History" in shown)
+        screen.keys("PPage")
+        screen.wait_for("ORIGINAL REQUEST")
+        screen.type("\x1b[Ma%&" * 80)
+        screen.wait_for(
+            lambda shown: "NEW LIVE UPDATE" in shown and "ORIGINAL REQUEST" not in shown,
+            timeout=10,
+            what="wheel returns to the latest message",
         )
 
 

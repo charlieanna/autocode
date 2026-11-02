@@ -62,7 +62,7 @@ ASCII_MARKS = {
 }
 EVENT_MARKS = {"edit": "±", "tool": "·"}  # user-facing activity; internal command text stays hidden
 EVENT_ROWS = 6  # how many of the newest events the panel lists
-LIVE_MARKS = {"thinking": "∴", "message": "»", "edit": "±", "tool": "·"}  # visible live-log entry kinds
+LIVE_MARKS = {"thinking": "[thinking]", "message": "[message]", "edit": "[edit]", "tool": "[tool]"}
 LIVE_KINDS = {"thinking": ("thinking",), "messages": ("message",), "tools": ("edit", "tool")}
 LIVE_LIMIT = 500  # entries the live log keeps
 
@@ -264,7 +264,7 @@ def stage_section(view: dict | None, now=None) -> Section | None:
     return Section("Stages", meter.total_text(meter.run_total(view), cap), tuple(rows))
 
 
-def sections(view: dict | None, *, launched: bool = False) -> list[Section]:
+def sections(view: dict | None, *, launched: bool = False, task_total: dict | None = None) -> list[Section]:
     """The panel for one view: where the run is, what it is doing, then its requirements, tasks and open problems.
 
     ``launched``: the client has just started the run's next step, so a view that still waits on the
@@ -284,8 +284,10 @@ def sections(view: dict | None, *, launched: bool = False) -> list[Section]:
     if trouble := meter.struggling(view, _utc_now()):
         rows.insert(0, Row("!", trouble, "warn"))
     result = [Section("Now", now, tuple(rows))]
+    if task_total is not None:
+        result.append(Section("Task usage", meter.total_text(task_total, show_pending=True)))
     if ran := stage_section(view):
-        result.append(ran)
+        result.append(Section("Current work", ran.summary, ran.rows) if task_total is not None else ran)
     # What went wrong and what AutoCode did, newest first: a rejected answer, a Builder sent back, the
     # Investigator or the Resolver called (view.recoveries); /why has each one in full. AutoCode handled
     # each of them, so none is marked as needing the person: the newest is plain, the older ones dim.
@@ -301,7 +303,13 @@ def sections(view: dict | None, *, launched: bool = False) -> list[Section]:
     # The Stages section already carries the run's spend, tokens and cap; /details the rest.
     if ran is None and (usage := cost.compact(view)):
         summary, entries = usage
-        result.append(Section("Usage", summary, tuple(Row("·", line, "dim") for line in entries)))
+        result.append(
+            Section(
+                "Current work" if task_total is not None else "Usage",
+                summary,
+                tuple(Row("·", line, "dim") for line in entries),
+            )
+        )
     if path := stage_policy.compact(view):  # which planning path a bug-fix run took and why (#1884 F2)
         summary, entries = path
         result.append(Section("Plan path", summary, tuple(Row("·", line, "dim") for line in entries)))
@@ -549,7 +557,8 @@ def live_text(text: str) -> str:
     """An entry's text as the live log shows it. A provider's running progress notes ("thinking ~150
     tokens; thinking ~300 tokens; writing StructuredOutput input: 900 chars; …") say one growing thing
     over and over: they read as their newest value of each, in the order first seen. Any other text,
-    the model's own words, is shown as it is."""
+    the model's own words, is kept with terminal-safe apostrophes."""
+    text = text.replace("’", "'").replace("‘", "'")
     parts = [part.strip() for part in text.split(";")]
     if not any(_THOUGHT.fullmatch(part) or _WRITING.fullmatch(part) for part in parts):
         return text
@@ -562,7 +571,7 @@ def live_text(text: str) -> str:
         elif writing := _WRITING.fullmatch(part):
             tool = _ANSWER_TOOLS.get(writing.group(1), writing.group(1))
             shown[f"writing {tool}"] = f"writing {tool} · " + _amount(int(writing.group(2)), "chars")
-        elif not (number == 0 and part.startswith("…")):  # the cut-off head of an older note
+        elif not (number == 0 and part.startswith(("…", "[earlier text omitted]"))):
             shown[f"text {number}"] = part
     return " · ".join(shown.values())
 

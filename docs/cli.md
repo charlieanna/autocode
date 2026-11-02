@@ -634,7 +634,7 @@ also accepts `-h` / `--help`.
 | `autocode registry roots list` | `--json` | List configured source roots and standalone repository registrations. |
 | `autocode registry repositories add\|remove` | `--json` | Register or remove one standalone committed checkout. |
 | `autocode registry repositories list` | `--json` | List source roots and standalone repository registrations. |
-| `autocode intervention` | `--workspace`, `--run-dir`, `--request-id`, `--kind`, `--text`, `--json` | Select a run, identify a feedback/pause/stop request and supply text; optionally JSON. |
+| `autocode intervention` | `--workspace`, `--run-dir`, `--request-id`, `--kind`, `--text`, `--context-file`, `--json` | Select a run, identify a feedback/message/pause/stop request and supply text; optionally JSON. A message may include a bounded JSON snapshot of public participant plans via `--context-file`; this is evidence, not authority. |
 | `autocode issue` | `--project`, `--remote`, `--issue-file`, `--note`, `--base`, `--pr-base`, `--open`, `--ready`, `--path`, `--chat`, `--no-chat` | Project and remote; optional offline issue and extra guidance; start/PR bases; explicit push/open and ready-for-review controls; with `plan`, where the plan file goes in the repository (default `plans/issue-N.md`). For `start` and `continue`, `--chat` enters terminal chat when input is needed (default with terminal stdin/stdout); `--no-chat` returns the status and next action instead. See [GitHub issues](issues.md). |
 | `autocode arena` | `--arena` | Arena store (default `.autocode/arena`). |
 | `autocode arena` | `--repository`, `--base`, `--issue`, `--issue-file`, `--note`, `--oracle`, `--reference`, `--check`, `--split` | Ingest a case with its pinned repository, request, oracle/reference, checks and development/regression/holdout split. |
@@ -712,7 +712,7 @@ autocode chat --line                # the line-by-line prompts, even in a termin
 
 In a terminal the chat takes the whole screen: a wordmark splash, the conversation
 in a scrollable transcript with a colored label for each speaker
-(`PgUp`/`PgDn`), the current question or activity above a boxed composer, and a
+(`PgUp`/`PgDn`, or mouse wheel/trackpad over the transcript), the current question or activity above a boxed composer, and a
 hint bar. The composer is labeled **New chat** when typing there starts a run and
 **Reply** when it answers the run (`Up`/`Down` for history, `Ctrl-W`/`Ctrl-U` to
 edit, `Enter` to send, `Ctrl-D` to leave). A paste stays in the composer as one
@@ -733,7 +733,11 @@ attempt finishing, a command run, a file edited, a task done, a requirement
 checked). The status row under the conversation names the newest command or edit,
 in any width. A command that exited 0 is shown as run, not as passing: only the
 requirement checks say what passed. Everything in it comes from the status views
-the chat already reads.
+the chat already reads. For a task spanning repositories, **Task usage** stays
+visible as the cumulative cost and tokens across the conversation, repository
+work and retained joint attempts. **Current work** shows only the active work
+unit. A `+` means the figure is incomplete; `tokens pending` means no token count
+has arrived yet. Switching repositories never resets the task total.
 
 While AutoCode works, a live log under the conversation shows what each running
 agent is thinking and doing as it happens: its reasoning (`∴`), its messages

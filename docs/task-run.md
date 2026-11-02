@@ -59,6 +59,17 @@ receipted feedback actions. Interrupted feedback is reconciled against its
 public chat receipt; an uncertain outcome is never submitted twice. Approved
 or active work cannot use this recovery to replace its request.
 
+The coordination view's `accounting` snapshot contains `version`, `anchor`, and
+`runs`: one bounded public ledger per distinct source, repository or retained
+joint attempt. Each row exposes `run_dir`, the cost's `spent_usd`, `inherited_usd`
+and `complete`, and `usage.accounting.tokens`. A not-yet-started repository has
+zero usage; missing usage from an observed attempt stays unknown. This snapshot
+is display data and changes no spending cap, pricing rule or approval token.
+Clients can update the active run's row from its public status while keeping the
+other rows, subtract inherited spend when adding ledgers, and retain a known
+incomplete total when a price or token count is missing. Reopening reads the
+whole inventory again; repository switching must not reset the task total.
+
 The version-1 coordination view identifies the anchor, record revision, phase,
 member workspaces/runs/PRs, `done`, `needs`, and optional `next_command` and
 `approval`. The joint-test baseline and plan are prepared before any Builder.
@@ -514,13 +525,45 @@ a revised, explicitly approved structured delivery contract; prose cannot author
 a Git write and cannot silently satisfy the completion gate.
 
 `input` is null when free text is not an admitted action. Otherwise it names
-`kind` (`feedback`, `follow_up`, or `resolver_response`), a display `label`, and `next_command` with
+`kind` (`feedback`, `follow_up`, `resolver_response`, or `message`), a display `label`, and `next_command` with
 one literal `MESSAGE` placeholder. A client replaces that argument with the
 person's text, checks that the command names the same workspace/run, and runs it
 as an argument array without a shell. Compare against the view's `workspace` and
 `run_dir` fields: after bootstrap relocation they name the run's effective
 location, which can differ from the handle the client started with. The headless
 conformance client's `message_command()` implements this same parsing boundary.
+
+While a capable spec-first run works, `message` offers the pending-only
+`intervention submit --kind message` action. It also has a `REQUEST_ID` placeholder;
+the client creates one identity for the submission and reuses it when reconciling
+an uncertain receipt. This saves the person's text without approving a plan,
+changing requirements or interrupting the active provider. Requirements answers
+at the next admitted saved boundary. A question preserves the saved plan; an
+explicit change takes ordinary planning and review. The confirmed receipt's
+`message_id` is the public chat message ID, so a local echo is shown only once.
+The terminal keeps an unconfirmed draft, including when a plan prompt arrives
+before its receipt is reconciled. An older worker without message support and
+a coordinated member viewed on its own do not advertise this action.
+
+A coordinating owner may include `--context-file PATH` on a message submission.
+The file is bounded to 128 KiB and contains `kind: coordinated_task` and one to
+12 `participants`, each with an exact `target` label, `status` and public `plan`
+(object or null). It confers no path, repository or execution authority. The
+original text and context together bind the receipt and its idempotent retry.
+A runtime must advertise `interventions.runner_capability.supports_message_context`;
+older writers refuse this context instead of silently ignoring it. Requirements
+returns its assessment and `affected_targets` (empty for a question). A routed
+change does not alter the source run: its owner must reconcile and route the
+original human text through ordinary planning and review. The assistant row in
+`chat.messages` exposes optional `conversation` metadata: `request_id`, `intent`,
+`affected_targets` and `context_sha256`. A question restores the source checkpoint
+and never becomes a new requirement. This transport alone does not implement
+coordinated scheduling or advertise a coordinated TUI message action. New coordinations
+also bind the source run's ledger in their budget: later Requirements replies
+count toward the same task and planning allowance. The current full source ledger
+replaces its frozen initial snapshot in calculations; that original snapshot is
+retained for evidence and legacy records. Unknown prices remain unknown.
+
 
 A client compares the displayed `context` with a fresh status before submitting;
 if it changed, retain the draft and ask the person to review the new checkpoint.
