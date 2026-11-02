@@ -136,6 +136,7 @@ class RunViewTests(unittest.TestCase):
                 "direct_rework_assignments",
                 "efficiency",
                 "recovery",
+                "recoveries",
                 "verification",
                 "review_result",
                 "code_checkpoints",

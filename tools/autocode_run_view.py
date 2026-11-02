@@ -65,6 +65,7 @@ try:
     from . import autocode_planning_review_usage as review_usage
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_quota_route as quota_route
+    from . import autocode_recovery_history as recovery_history
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_recovery_view as recovery_view
@@ -117,6 +118,7 @@ except ImportError:
     import autocode_planning_review_usage as review_usage
     import autocode_progressive_plan as progressive_rules
     import autocode_quota_route as quota_route
+    import autocode_recovery_history as recovery_history
     import autocode_recovery_limits as recovery_limits
     import autocode_recovery_progress as recovery_progress
     import autocode_recovery_view as recovery_view
@@ -264,6 +266,9 @@ def view(
         "done": status in COMPLETE and not simulated and not invalid_replay,
         "needs": need,
         "recovery": recovery_view.project(state, need),
+        # What went wrong and what AutoCode did about it, oldest first (autocode_recovery_history): rejected
+        # answers, rewritten reports, Builder send-backs, Investigator and Resolver calls, as plain sentences.
+        "recoveries": recovery_history.project(state),
         "verification": verification_view.project(state, accepted_human_ids=accepted_reviews(state)),
         "review_result": None,  # status may add a read-time inspection; evidence remains authenticated recorded facts
         "code_checkpoints": code_checkpoints.project(state, run_dir=run_dir, workspace=workspace),
