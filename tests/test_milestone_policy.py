@@ -92,6 +92,29 @@ class MilestonePolicyTests(unittest.TestCase):
                             )
                         self.assertEqual(before, state)
 
+    def test_builder_gets_shared_checkpoint_rules_without_advancement_rules(self):
+        checkpoint = {"current": {"id": "M1", "status": "PENDING"}, "limits": {"max_replans": 1, "stalled_reviews": 2}}
+        prompts = {}
+        for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+            state = self.state()
+            with (
+                patch.object(support, "snapshot", return_value={"revision": "r1", "head": "h1"}),
+                patch.object(milestones, "enabled", return_value=True),
+                patch.object(milestones, "summary", return_value=checkpoint),
+                patch.object(milestones, "scope", return_value={"members": []}),
+                patch.object(milestones, "evidence_ready", return_value=False),
+            ):
+                prompt, _ = stage_context.context_packet(state, stage, Path("/fixture/state.json"))
+            prompts[stage] = prompt.split("CURRENT HANDOFF DATA\n", 1)[0]
+        for stage, instruction in prompts.items():
+            with self.subTest(stage=stage):
+                self.assertEqual(1, instruction.count(milestones.POLICY))
+                self.assertIn("Never weaken the full-task completion gate.", instruction)
+                self.assertIn("File edits and reworded reports alone are not progress.", instruction)
+                self.assertEqual(stage != "terra", milestones.ADVANCEMENT_POLICY in instruction)
+        self.assertNotIn("propose the next eligible milestone", prompts["terra"])
+        self.assertNotIn("PAUSED_MILESTONE_STALLED", prompts["terra"])
+
     def test_joint_planning_includes_same_sizing_and_safety_policy(self):
         state = self.state()
         for stage in planning.STAGES:

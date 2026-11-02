@@ -149,6 +149,66 @@ class ReviewHandoffTests(unittest.TestCase):
                     self.assertEqual(original[key], small[key])
                 self.assertEqual(small, context.compact(small, "/nonexistent/state.json")[0])
 
+    def test_repeated_changed_line_reasons_and_receipts_become_exact_references(self):
+        gap = "changed-code:" + "a" * 64
+        other = "changed-code:" + "b" * 64
+        reason = "Go mutation tooling is unavailable; line 48 is executed by the Build tests " * 3
+        receipt = [{"command": "go test ./...", "supervision": {"receipt": "r" * 120}}]
+        original = packet("astra_review")
+        original["regression_proof"] = {
+            "diff_coverage": {"command_receipts": copy.deepcopy(receipt)},
+            "changed_code_receipts": copy.deepcopy(receipt),
+            "changed_code_evidence": {
+                "obligations": [
+                    {"gap_id": gap, "line": 48, "reason": reason, "exception": {"reason": reason, "evidence": ["e1"]}},
+                    {"gap_id": other, "line": 56, "reason": reason + " other", "exception": {"reason": "own"}},
+                ]
+            },
+        }
+        original["validation"]["changed_code_decisions"] = [
+            {"gap_id": gap, "accepted": True, "reason": reason},
+            {"gap_id": other, "accepted": False, "reason": reason},
+        ]
+        original["validation"]["changed_code_exceptions"] = [{"gap_id": gap, "decision": "accept", "reason": reason}]
+        before = copy.deepcopy(original)
+        small, _ = context.compact(original, "/nonexistent/state.json")
+        self.assertEqual(before, original)
+        self.assertLess(len(json.dumps(small)), len(json.dumps(original)))
+        self.assertIn("reason_ref", small["handoff_reference_policy"])
+        proof = small["regression_proof"]
+        self.assertNotIn("changed_code_receipts", proof)
+        self.assertEqual(receipt, resolve(small, proof["changed_code_receipts_ref"]))
+        first, second = proof["changed_code_evidence"]["obligations"]
+        self.assertEqual(reason, first["reason"])
+        self.assertEqual(reason, resolve(small, first["exception"]["reason_ref"]))
+        # A different gap, or a different reason for the same gap, keeps its own text.
+        self.assertEqual("own", second["exception"]["reason"])
+        decisions = small["validation"]["changed_code_decisions"]
+        self.assertEqual(reason, resolve(small, decisions[0]["reason_ref"]))
+        self.assertEqual(reason, decisions[1]["reason"])
+        self.assertEqual(reason, resolve(small, small["validation"]["changed_code_exceptions"][0]["reason_ref"]))
+        # Resolving every reference restores the original packet exactly.
+        restored = copy.deepcopy(small)
+
+        def expand(node):
+            if isinstance(node, dict):
+                for key in [k for k in node if k in ("reason_ref", "changed_code_receipts_ref")]:
+                    node[key.removesuffix("_ref")] = copy.deepcopy(resolve(small, node.pop(key)))
+                for value in node.values():
+                    expand(value)
+            elif isinstance(node, list):
+                for value in node:
+                    expand(value)
+
+        expand(restored["regression_proof"])
+        expand(restored["validation"])
+        for row in restored["validation"]["check_replay"]["checks"]:
+            if "command_ref" in row:
+                row["command"] = resolve(small, row.pop("command_ref"))
+        self.assertEqual(original["regression_proof"], restored["regression_proof"])
+        self.assertEqual(original["validation"], restored["validation"])
+        self.assertEqual(small, context.compact(small, "/nonexistent/state.json")[0])
+
     def test_different_criteria_or_commands_are_never_conflated(self):
         for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
             with self.subTest(stage=stage):

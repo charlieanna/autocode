@@ -310,6 +310,8 @@ def context_packet(state: RunState, stage, state_path, *, response_schema=None):
         base["milestone_checkpoint"]["current_evidence_ready"] = checkpoints.evidence_ready(state, current)
         base["current_milestone"] = checkpoints.scope(state)
         milestone_policy += checkpoints.POLICY
+        if stage != "terra":
+            milestone_policy += checkpoints.ADVANCEMENT_POLICY
         if cast(dict, state.get("current_task", {})).get("milestone_ids"):
             milestone_policy += prompts.get("fragments/stage-context/context-packet-07.md")
         elif stage == "sol":

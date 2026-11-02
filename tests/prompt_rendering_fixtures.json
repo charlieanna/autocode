@@ -229,35 +229,35 @@
   },
   "milestones/astra_checkpoint/False": {
     "bytes": 14039,
-    "sha256": "85087b5338fc880a9361c41f031852d591f6d7c2dbfed0f3f862103b0330f8ba"
+    "sha256": "eb3caa31a7f2936386dd9d6e8f5ea6808bc28088ab6424407ed34aeeae64fb43"
   },
   "milestones/astra_checkpoint/True": {
     "bytes": 14617,
-    "sha256": "5cf33fcb8711b53b3d0bf366e845b213e3b457971b6b17af04022563d927211e"
+    "sha256": "6de41acd46d7f8b1150476c353786a48aa94c9922ea2bb4e5c0f40ffdf7d7b4f"
   },
   "milestones/astra_review/False": {
     "bytes": 19301,
-    "sha256": "2178bd006fe5f234fdceacf4419d96ed7761a2b9d459908c3b213e8e8d4035be"
+    "sha256": "e290dd1ca20d1766040ea53a11a8c935d437a5f68182d45e98ff74352175e3ca"
   },
   "milestones/astra_review/True": {
     "bytes": 19879,
-    "sha256": "b4ca512e86fb70c039778ee8d6b9530741459a394f5cc57a70087fb2b88596c9"
+    "sha256": "72e657f5c431ea6ceb35fac6569aba31ef9e67d0e75b2f0e8b799b3156d1ddb3"
   },
   "milestones/sol/False": {
     "bytes": 19901,
-    "sha256": "24da80d6015063f4fea2064e510807816c3b317d3fab91736dbaa098e51b57ab"
+    "sha256": "47de8f814053ad28c85b09b5a79e8c786809992a00a89b64f6389590add8a875"
   },
   "milestones/sol/True": {
     "bytes": 20322,
-    "sha256": "c3786d8d589ebd9e558e685037b38bc1414d658b4977897a51ccdb862b5d3eb6"
+    "sha256": "93059d7af3f75f62e6fc0c5aa48182f0cb28ee8f5ad3e047b99afd779fd1b40c"
   },
   "milestones/terra/False": {
-    "bytes": 15943,
-    "sha256": "0d783bf078f9ba9c8b32f8de429bb6ac051dd5f7eb06bc790680766a28d1ea06"
+    "bytes": 13955,
+    "sha256": "3acf90e2aa3f562e6c5de1f019b3f8f71560d2109d8f393bb96eec581aaed73f"
   },
   "milestones/terra/True": {
-    "bytes": 16521,
-    "sha256": "6b35be486cb0c2cd1177b3612e566807c305f15ab01748194c76050360f004f6"
+    "bytes": 14533,
+    "sha256": "61d037404ebbf4a786172395bfa53ced7b7da822bdcbf8cddba0434be4d96b5e"
   },
   "package/investigate_bug": {
     "bytes": 13188,

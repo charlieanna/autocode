@@ -52,6 +52,8 @@ except ImportError:
 
 DEFAULTS = {"enabled": True, "max_seconds": 5400, "stalled_reviews": 3, "max_replans": 1}
 POLICY = prompts.get("fragments/milestones/policy.md")
+# Assignment, advancement and replan rules: only for the stages that decide them, never the Builder (#2136 B2).
+ADVANCEMENT_POLICY = prompts.get("fragments/milestones/advancement.md")
 
 
 def route_review_only_request(state: RunState, request, origin, *, visual_proof=None):
