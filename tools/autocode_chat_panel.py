@@ -399,6 +399,9 @@ def compact_sections(view: dict | None, *, launched: bool = False, task_total: d
         if section.title == "Now":
             rows = tuple(row for row in section.rows if row.style in ("warn", "bad"))
             result.append(Section(section.title, section.summary, rows))
+            stage = _mapping(_mapping(view).get("progress")).get("stage")
+            if isinstance(stage, str) and stage.strip():
+                result.append(Section("Stage", stage.strip()))
         elif section.summary:
             result.append(Section("Usage" if section.title == "Stages" else section.title, section.summary))
     return result

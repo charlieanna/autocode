@@ -49,6 +49,45 @@ with ChatTUI() as ui:
 
 
 class LiveDefaultScreenTests(unittest.TestCase):
+    def test_stage_names_stay_visible_in_the_unified_timeline_and_waiting_status(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI
+with ChatTUI() as ui:
+    ui.say('You: Fix the history.')
+    ui.observe({'status': 'WAITING_FOR_USER',
+                'progress': {'stage': 'Planner', 'headline': 'Waiting for you'},
+                'chat': {'log': [
+                    {'id': 'requirements', 'agent': 'Requirements', 'kind': 'message',
+                     'text': 'The operation and mapped result should be shown.'},
+                    {'id': 'planner', 'agent': 'Planner', 'kind': 'message',
+                     'text': 'Checking the established result mappings.'}]}})
+    while True:
+        ui.wait(0.1)
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for(
+            lambda shown: (
+                all(
+                    text in shown
+                    for text in (
+                        "Planner · Waiting for you",
+                        "STAGE  Planner",
+                        "▌ Requirements",
+                        "▌ Planner",
+                        "The operation and mapped result should be shown.",
+                        "Checking the established result mappings.",
+                    )
+                )
+                and "LIVE ·" not in shown
+            ),
+            what="attributed stage updates and the waiting stage without a separate live pane",
+        )
+
     def test_structured_report_does_not_replace_readable_progress_with_json(self):
         script = """
 import json, sys

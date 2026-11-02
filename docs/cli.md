@@ -725,12 +725,13 @@ prompts, and scripts get them automatically when there is no terminal.
 
 The default screen has one scrolling conversation. Your messages, AutoCode's
 questions and plans, and the agents' plain-English progress updates appear there
-in order. Updates to the same streaming message replace it in place. Reading
+in order, each progress entry labeled with its stage. Updates to the same streaming message replace it in place. Reading
 older messages keeps your scroll position as new progress arrives; the composer
 stays at the bottom.
 
 In a terminal at least 100 columns wide, a fixed side panel shows the current
 stage, any decision needed, cost and token totals, and compact task/check counts.
+The stage name remains visible in the header and panel while waiting for an answer.
 It has no scrolling activity log. `/details`, `/plan`, `/tasks` and `/log` show
 the full details in the conversation. For a task spanning repositories, **Task
 usage** remains the cumulative cost and tokens across the conversation,

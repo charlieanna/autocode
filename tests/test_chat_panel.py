@@ -23,6 +23,14 @@ def view(*, headline="Builder working", needs="nothing needed from you", task="w
 
 
 class SectionTests(unittest.TestCase):
+    def test_compact_sidebar_keeps_the_public_stage_while_waiting(self):
+        current = {"status": "WAITING_FOR_USER", "progress": {"stage": "Planner", "headline": "Waiting for you"}}
+        shown = panel.compact_sections(current)
+        self.assertEqual([panel.Section("Now", "Waiting for you"), panel.Section("Stage", "Planner")], shown)
+        for missing in (None, "", "  ", 123):
+            current["progress"]["stage"] = missing
+            self.assertEqual([panel.Section("Now", "Waiting for you")], panel.compact_sections(current))
+
     def test_compact_sections_keep_decisions_and_totals_without_scrolling_detail(self):
         current = view(needs="plan approval needed")
         current["needs"] = {"kind": "approve_plan"}

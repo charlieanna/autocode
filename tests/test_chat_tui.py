@@ -1199,6 +1199,20 @@ class LivePaneTests(unittest.TestCase):
         ui._draw()
         return puts
 
+    def test_waiting_stage_is_visible_without_a_sidebar_and_working_stage_is_not_repeated(self):
+        ui = screen_ui()
+        ui.observe({"status": "WAITING_FOR_USER", "progress": {"stage": "Planner", "headline": "Waiting for you"}})
+        shown = " ".join(text for row, _, text in self.drawn(ui, cols=80) if row == 2)
+        self.assertIn("Planner · Waiting for you", shown)
+        ui.observe({"status": "RUNNING", "progress": {"stage": "Plan Reviewer", "headline": "Plan Reviewer working"}})
+        shown = " ".join(text for row, _, text in self.drawn(ui, cols=80) if row == 2)
+        self.assertEqual(1, shown.count("Plan Reviewer"))
+
+    def test_public_stage_opens_the_compact_sidebar_before_usage_arrives(self):
+        ui = screen_ui()
+        ui.observe({"status": "WAITING_FOR_USER", "progress": {"stage": "Planner", "headline": "Waiting for you"}})
+        self.assertIsNotNone(ui._layout(30, 120).panel_col)
+
     def test_default_progress_uses_one_conversation_and_keeps_paged_history_still(self):
         ui = screen_ui()
         for number in range(30):

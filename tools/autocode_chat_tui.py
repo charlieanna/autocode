@@ -1605,7 +1605,7 @@ class ChatTUI:
             return False
         if self._panel_on is not None:
             return self._panel_on
-        return cols >= PANEL_MIN_COLS and len(panel.sections(self._view, task_total=self._task_total())) > 1
+        return cols >= PANEL_MIN_COLS and len(panel.compact_sections(self._view, task_total=self._task_total())) > 1
 
     def _live_visible(self, rows: int, cols: int) -> bool:
         if rows < 16 or cols < 40:
@@ -1726,6 +1726,9 @@ class ChatTUI:
             self._put(2, 0, truncate(f"{label}{status}", layout.width), self._style("panel-now"))
         else:
             cue = verification.cue(self._view, unavailable=unavailable)
+            stage = ((self._view or {}).get("progress") or {}).get("stage")
+            if isinstance(stage, str) and stage.strip() and stage.strip() not in cue:
+                cue = f"{stage.strip()} · {cue}"
             style = self._style("panel-warn" if unavailable else "panel-now")
             line = f"{label}{cue} ({self._observation.compact(time.monotonic())})"
             self._put(2, 0, truncate(line, layout.width), style)
