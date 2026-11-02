@@ -545,6 +545,22 @@ The terminal keeps an unconfirmed draft, including when a plan prompt arrives
 before its receipt is reconciled. An older worker without message support and
 a coordinated member viewed on its own do not advertise this action.
 
+A coordinating owner may include `--context-file PATH` on a message submission.
+The file is bounded to 128 KiB and contains `kind: coordinated_task` and one to
+12 `participants`, each with an exact `target` label, `status` and public `plan`
+(object or null). It confers no path, repository or execution authority. The
+original text and context together bind the receipt and its idempotent retry.
+A runtime must advertise `interventions.runner_capability.supports_message_context`;
+older writers refuse this context instead of silently ignoring it. Requirements
+returns its assessment and `affected_targets` (empty for a question). A routed
+change does not alter the source run: its owner must reconcile and route the
+original human text through ordinary planning and review. The assistant row in
+`chat.messages` exposes optional `conversation` metadata: `request_id`, `intent`,
+`affected_targets` and `context_sha256`. A question restores the source checkpoint
+and never becomes a new requirement. This transport alone does not implement
+coordinated scheduling or advertise a coordinated TUI message action.
+
+
 A client compares the displayed `context` with a fresh status before submitting;
 if it changed, retain the draft and ask the person to review the new checkpoint.
 The ordinary CLI independently rechecks admission when saving the action.

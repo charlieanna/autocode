@@ -10,10 +10,12 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_contract_identity as contract_identity
+    from . import autocode_message_context as message_context
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_review as requirements_review
 except ImportError:
     import autocode_contract_identity as contract_identity
+    import autocode_message_context as message_context
     import autocode_requirements_chat as requirements_chat
     import autocode_requirements_review as requirements_review
 
@@ -154,7 +156,14 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
             text = CONFIRMED_REQUIREMENTS
         rows.append({"id": ident, "role": "user", "text": text})
         if event.get("reply_after"):
-            rows.append({"id": f"{ident}-reply-after", "role": "assistant", "text": event["reply_after"]})
+            rows.append(
+                {
+                    "id": f"{ident}-reply-after",
+                    "role": "assistant",
+                    "text": event["reply_after"],
+                    **message_context.receipt(event),
+                }
+            )
     resolver = state.get("resolver") or {}
     for event in resolver.get("human_responses", []):
         if event.get("actor") != "user_cli" or not event.get("text"):

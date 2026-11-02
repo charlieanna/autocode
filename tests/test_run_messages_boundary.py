@@ -14,6 +14,7 @@ import autocode_stop as stop
 import autocode_util as util
 
 from tests import ROOT
+from tests.test_message_context import context
 from tests.test_run_messages import receipt, working
 
 
@@ -46,6 +47,75 @@ class MessageBoundaryTests(unittest.TestCase):
         self.state.pop("intervention_capability", None)
         writer(self.path, self.state)
         self.assertTrue(json.loads(self.path.read_text())["intervention_capability"].get("supports_messages"))
+
+    def test_task_context_requires_a_capable_writer_and_is_part_of_receipt_identity(self):
+        args = dict(request_id="task-message", kind="message", text=receipt()["text"], context=context())
+        with self.assertRaisesRegex(inbox.InterventionError, "context"):
+            inbox.submit(self.workspace, self.run, **args)
+        stop.state_writer(util.atomic_json, util.atomic_json)(self.path, self.state)
+        before = self.path.read_bytes()
+        first = inbox.submit(self.workspace, self.run, **args)
+        self.assertEqual(context(), first["receipt"]["context"])
+        self.assertEqual(before, self.path.read_bytes())
+        for altered in (None, {**context(), "participants": context()["participants"][:1]}):
+            with self.assertRaisesRegex(inbox.InterventionError, "different payload"):
+                inbox.submit(self.workspace, self.run, **{**args, "context": altered})
+        self.consume()
+        retry = inbox.submit(self.workspace, self.run, **args)
+        self.assertTrue(retry["idempotent"])
+        self.assertEqual(context(), retry["receipt"]["context"])
+        with self.assertRaisesRegex(inbox.InterventionError, "different payload"):
+            inbox.submit(self.workspace, self.run, **{**args, "context": None})
+
+    def test_context_cannot_accompany_feedback_pause_or_stop(self):
+        for kind in ("feedback", "pause", "stop"):
+            with self.subTest(kind=kind), self.assertRaisesRegex(inbox.InterventionError, "context"):
+                inbox.submit(
+                    self.workspace,
+                    self.run,
+                    request_id=kind,
+                    kind=kind,
+                    text="" if kind != "feedback" else "change",
+                    context=context(),
+                )
+        self.assertEqual([], inbox.inspect(self.workspace, self.run)["requests"])
+
+    def test_cli_context_submission_and_retry_preserve_original_text_and_readonly_context(self):
+        stop.state_writer(util.atomic_json, util.atomic_json)(self.path, self.state)
+        packet = self.workspace / "public-participants.json"
+        packet.write_text(json.dumps(context()))
+        command = [
+            sys.executable,
+            str(ROOT / "tools/autocode.py"),
+            "intervention",
+            "submit",
+            "--workspace",
+            str(self.workspace),
+            "--run-dir",
+            str(self.run),
+            "--request-id",
+            "with-context",
+            "--kind",
+            "message",
+            "--text",
+            receipt()["text"],
+            "--context-file",
+            str(packet),
+            "--json",
+        ]
+        before = self.path.read_bytes()
+        for expected in (False, True):
+            reply = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(0, reply.returncode, reply.stdout + reply.stderr)
+            value = json.loads(reply.stdout)
+            self.assertEqual(expected, value["idempotent"])
+            self.assertEqual(receipt()["text"], value["receipt"]["text"])
+            self.assertEqual(context(), value["receipt"]["context"])
+        self.assertEqual(before, self.path.read_bytes())
+        packet.write_text("{ invalid")
+        refused = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(2, refused.returncode, refused.stdout + refused.stderr)
+        self.assertEqual("invalid_context", json.loads(refused.stdout)["error"]["code"])
 
     def submit(self, identifier="m1", kind="message"):
         return inbox.submit(

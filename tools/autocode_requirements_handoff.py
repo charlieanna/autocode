@@ -185,7 +185,7 @@ def accept_chat(state: RunState, value: dict, record: dict, *, queue) -> bool:
     if not plan_chat.pending(state):
         return False
     event = plan_chat.accept(state, value, record)
-    if event["intent"] == "change":
+    if event["intent"] == "change" and not event.get("context"):
         goals.feedback(state, event["text"], interpret=False)
         state["brief_feedback"][-1]["reply_after"] = event["reply_after"]
         event["forwarded"] = True

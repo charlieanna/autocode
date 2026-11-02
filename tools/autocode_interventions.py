@@ -16,9 +16,11 @@ from typing import Any
 
 try:
     from . import autocode_goals as goals
+    from . import autocode_message_context as message_context
     from . import autocode_util as util
 except ImportError:
     import autocode_goals as goals
+    import autocode_message_context as message_context
     import autocode_util as util
 
 
@@ -137,7 +139,7 @@ def _locked_inbox(lock: Path) -> Any:
         handle.close()
 
 
-def _payload(request_id: str, kind: str, text: str) -> dict[str, str]:
+def _payload(request_id: str, kind: str, text: str) -> dict[str, Any]:
     if not isinstance(request_id, str) or not request_id:
         raise InterventionError("invalid_request_id", "Request ID must be a nonempty string")
     if kind not in {"feedback", "message", "pause", "stop"}:
@@ -156,16 +158,24 @@ def _original_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in receipt.items() if key not in {"applied_at", "resumed_at"}}
 
 
-def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: str) -> dict[str, Any]:
+def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: str, context=None) -> dict[str, Any]:
     """Persist one request, or return the original receipt for an identical retry."""
     workspace, run_dir, state = _target(workspace, run_dir)
     payload = _payload(request_id, kind, text)
+    try:
+        context = message_context.checked(context)
+    except ValueError as error:
+        raise InterventionError("invalid_context", str(error)) from error
+    if context is not None:
+        if kind != "message":
+            raise InterventionError("invalid_context", "Only a conversation message accepts task context")
+        payload["context"] = context
     inbox, lock = _paths(run_dir)
     with _locked_inbox(lock):
         document = _read_inbox(inbox)
         existing = next((item for item in document["requests"] if item.get("id") == request_id), None)
         if existing is not None:
-            if {key: existing.get(key) for key in payload} != payload:
+            if {key: existing.get(key) for key in payload} != payload or existing.get("context") != context:
                 raise InterventionError("request_conflict", "Request ID is already used by a different payload")
             return {
                 "version": INBOX_VERSION,
@@ -187,7 +197,7 @@ def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: 
             None,
         )
         if applied is not None:
-            if {key: applied.get(key) for key in payload} != payload:
+            if {key: applied.get(key) for key in payload} != payload or applied.get("context") != context:
                 raise InterventionError("request_conflict", "Request ID is already used by a different payload")
             return {
                 "version": INBOX_VERSION,
@@ -197,6 +207,11 @@ def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: 
                 "consumer": "already_applied",
                 "receipt": _original_receipt(applied),
             }
+        if (
+            context is not None
+            and (current_state.get("intervention_capability") or {}).get("supports_message_context") is not True
+        ):
+            raise InterventionError("context_unavailable", "This run cannot accept task conversation context")
         if kind == "message" and (
             not (current_state.get("settings") or {}).get("spec_first")
             or (current_state.get("intervention_capability") or {}).get("supports_messages") is not True
@@ -355,6 +370,9 @@ def cli(argv: list[str]) -> int:
         "--kind", required=True, choices=("feedback", "message", "pause", "stop"), help="What is requested"
     )
     submit_parser.add_argument("--text", default="", help="The feedback text")
+    submit_parser.add_argument(
+        "--context-file", type=Path, help="Bounded public participant evidence for a task conversation"
+    )
     submit_parser.add_argument("--json", action="store_true", help="Print the receipt as JSON")
     inspect_parser = commands.add_parser("inspect", help="List the pending interventions of a run")
     inspect_parser.add_argument("--workspace", required=True, type=Path, help="Project directory")
@@ -363,7 +381,26 @@ def cli(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     try:
         if args.operation == "submit":
-            result = submit(args.workspace, args.run_dir, request_id=args.request_id, kind=args.kind, text=args.text)
+            context = None
+            if args.context_file:
+                try:
+                    with args.context_file.open("rb") as source:
+                        data = source.read(message_context.MAX_BYTES + 1)
+                    if len(data) > message_context.MAX_BYTES:
+                        raise ValueError("Context file exceeds the public evidence size")
+                    context = json.loads(data)
+                    if context is None:
+                        raise ValueError("Context file must contain a task context")
+                except (OSError, ValueError) as error:
+                    raise InterventionError("invalid_context", str(error)) from error
+            result = submit(
+                args.workspace,
+                args.run_dir,
+                request_id=args.request_id,
+                kind=args.kind,
+                text=args.text,
+                context=context,
+            )
         else:
             result = inspect(args.workspace, args.run_dir)
     except InterventionError as error:

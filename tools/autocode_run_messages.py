@@ -10,16 +10,19 @@ from copy import deepcopy
 
 try:
     from . import autocode_contract_identity as identity
+    from . import autocode_message_context as message_context
     from . import autocode_run_status as run_status
 except ImportError:
     import autocode_contract_identity as identity
+    import autocode_message_context as message_context
     import autocode_run_status as run_status
 
 # Completed runs reject new submissions. A previously accepted message may still
 # reach this boundary after the last in-flight result has been committed.
 CHECKPOINTS = {"RUNNING", "AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER", "TASK_COMPLETE"}
 COMPLETION_KEYS = ("completed_at", "completion_actor", "final_decision")
-CHECKPOINT_KEYS = ("status", "phase", "next_stage", "stop_reason", *COMPLETION_KEYS)
+QUESTION_KEYS = ("pending_questions", "user_request", "resolver_human_proposal", "resolver_human_request")
+CHECKPOINT_KEYS = ("status", "phase", "next_stage", "stop_reason", *COMPLETION_KEYS, *QUESTION_KEYS)
 
 
 def _token(state):
@@ -36,10 +39,11 @@ def receive(state, receipt):
     identifier, text = receipt.get("id"), receipt.get("text")
     if not isinstance(identifier, str) or not identifier or not isinstance(text, str) or not text.strip():
         raise ValueError("Conversation needs a request identity and nonempty text")
+    context = message_context.checked(receipt.get("context"))
     events = state.setdefault("user_events", [])
     for event in events:
         if event.get("live") and event.get("request_id") == identifier:
-            if event["text"] != text:
+            if event["text"] != text or event.get("context") != context:
                 raise ValueError("Conversation request identity already names different text")
             return event
     event = {
@@ -50,6 +54,7 @@ def receive(state, receipt):
         "text": text,
         "at": receipt.get("submitted_at"),
         "live": True,
+        **({"context": context} if context is not None else {}),
     }
     events.append(event)
     return event
@@ -73,6 +78,10 @@ def activate(state):
         state.get("status") not in CHECKPOINTS
         or not (state.get("settings") or {}).get("spec_first")
         or any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair"))
+        or any(
+            (state.get(key) or {}).get("scope") == "operational_exhaustion"
+            for key in ("resolver_human_proposal", "resolver_human_request")
+        )
         or any(row.get("kind") == "plan_message" and "reply_after" not in row for row in state.get("user_events", []))
     ):
         return False
@@ -86,7 +95,7 @@ def activate(state):
         return_checkpoint={key: deepcopy(state[key]) for key in CHECKPOINT_KEYS if key in state},
         return_stage=state.get("next_stage"),
     )
-    for key in COMPLETION_KEYS:
+    for key in (*COMPLETION_KEYS, *QUESTION_KEYS):
         state.pop(key, None)
     run_status.running(state, "PLANNING", next_stage="requirements_gather")
     return True
@@ -131,6 +140,7 @@ def accept(state, value, record):
         or value.get("message_id") != event["id"]
         or value.get("contract_token") != event["contract_token"]
         or event["contract_token"] != _token(state)
+        or any(state.get(key) for key in QUESTION_KEYS)
     ):
         raise ValueError("Conversation response does not match the saved task and message")
     checkpoint = event["return_checkpoint"]
@@ -144,7 +154,8 @@ def accept(state, value, record):
         or len(reply) > 12000
     ):
         raise ValueError("Conversation response needs an intent and a bounded nonempty answer")
-    event.update(intent=value["intent"], reply_after=reply, output=record.get("output"))
+    routing = message_context.routing(event, value)
+    event.update(intent=value["intent"], reply_after=reply, output=record.get("output"), **routing)
     for key in CHECKPOINT_KEYS:
         state.pop(key, None)
     state.update(deepcopy(checkpoint))
@@ -159,6 +170,7 @@ def correction_admitted(state, text):
     )
     if not event or not (
         event.get("kind") == "plan_message"
+        and not event.get("context")
         and event.get("intent") == "change"
         and event.get("reply_after")
         and not event.get("forwarded")

@@ -15,12 +15,14 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_contract_identity as identity
+    from . import autocode_message_context as message_context
     from . import autocode_prompts as prompts
     from . import autocode_run_messages as run_messages
     from . import autocode_run_status as run_status
     from . import autocode_util as util
 except ImportError:
     import autocode_contract_identity as identity
+    import autocode_message_context as message_context
     import autocode_prompts as prompts
     import autocode_run_messages as run_messages
     import autocode_run_status as run_status
@@ -146,8 +148,8 @@ def context(state: RunState):
 
 def accept(state: RunState, value: dict, record: dict):
     """Accept only the pending exchange's answer; preserve the plan and its sources."""
-    util.validate_schema(value, SCHEMA)
     message = pending(state)
+    util.validate_schema(value, message_context.schema(SCHEMA, message))
     if message and message.get("live"):
         return run_messages.accept(state, value, record)
     if not message or value["message_id"] != message["id"] or value["contract_token"] != message["contract_token"]:

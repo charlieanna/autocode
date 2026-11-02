@@ -162,7 +162,9 @@ def state_writer(ordinary_write: Callable, persist_stopped: Callable) -> Callabl
 
     def write(path, value, *, before_commit=None, after_commit=None):
         if Path(path).name == "state.json" and isinstance(value, dict):
-            value.setdefault("intervention_capability", {}).update(supports_stop=True, supports_messages=True)
+            value.setdefault("intervention_capability", {}).update(
+                supports_stop=True, supports_messages=True, supports_message_context=True
+            )
             if applied_stop(value):
                 assert_stopped(value)
                 return (

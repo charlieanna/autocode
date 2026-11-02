@@ -1758,7 +1758,7 @@ def prepare(state: RunState, stage, state_path, schema_dir):
 def schema_for(state: RunState, stage):
     """The report schema for a planning stage in this run (adaptive runs extend two of them)."""
     if stage == "requirements_gather" and plan_chat.pending(state):
-        return plan_chat.SCHEMA
+        return plan_chat.message_context.schema(plan_chat.SCHEMA, plan_chat.pending(state))
     if stage == RECOGNIZE:
         return adaptive.recognizer_schema(state, SCHEMAS[stage])
     return design_plan.report_schema(
