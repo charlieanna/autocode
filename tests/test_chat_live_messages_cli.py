@@ -17,6 +17,55 @@ from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 @unittest.skipUnless(sys.platform == "linux", "supervised provider requires supported Linux")
 class LiveComposerScreenTests(unittest.TestCase):
+    def test_requirements_question_appears_once_before_and_after_reply_and_reopen(self):
+        workspace, env = fixture_workspace(self)
+        env["PATH"] = os.pathsep.join([str(Path(sys.executable).parent), env["PATH"]])
+        run = taskrun.TaskRun.start(
+            workspace, "Hi", options=(*FIXTURE_OPTIONS, "--spec-first", "--no-adaptive-planning"), env=env, timeout=300
+        )
+        gathered = run.advance_until_input()
+        question = gathered["needs"]["questions"][0]["question"]
+        argv = [
+            sys.executable,
+            str(ROOT / "tools/autocode.py"),
+            "chat",
+            "--workspace",
+            str(workspace),
+            "--run-dir",
+            str(run.run_dir),
+        ]
+        with TerminalScreen(
+            argv, cwd=workspace, env={**os.environ, **env}, cols=180, rows=100, tmux=require_tmux(self)
+        ) as screen:
+            shown = screen.wait_for(lambda shown: question in shown and "Type your reply" in shown)
+            self.assertEqual(1, shown.count(question), shown)
+            screen.paste(BRIEF)
+            screen.keys("Enter")
+            shown = screen.wait_for(
+                lambda shown: "Approve understanding and prepare plan" in shown and question in shown,
+                90,
+                what="the understanding gate with the answered question retained once",
+            )
+            self.assertEqual(1, shown.count(question), shown)
+            screen.keys("C-d")
+            self.assertEqual(2, screen.exit_status(15))
+        before = run.status()
+        self.assertIsNotNone(before["chat"]["review"])
+        stages = before["cost"]["breakdown"]["by_stage"]
+        self.assertEqual([("requirements_gather", 2)], [(row["stage"], row["stages"]) for row in stages])
+        with TerminalScreen(
+            argv, cwd=workspace, env={**os.environ, **env}, cols=180, rows=100, tmux=require_tmux(self)
+        ) as screen:
+            shown = screen.wait_for(
+                lambda shown: "Approve understanding and prepare plan" in shown and question in shown
+            )
+            self.assertEqual(1, shown.count(question), shown)
+            screen.keys("C-d")
+            self.assertEqual(2, screen.exit_status(15))
+        after = run.status()
+        self.assertEqual(before["chat"], after["chat"])
+        self.assertEqual(before["cost"], after["cost"])
+
     def test_typing_while_planner_runs_saves_one_message_and_shows_the_requirements_reply(self):
         workspace, env = fixture_workspace(self)
         provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"

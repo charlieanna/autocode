@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Requirements questions appear once when the assistant includes them in a greeting, and
+  answering no longer repeats the same question as its saved conversation receipt arrives.
+  Reopened chats retain the exchange and later independent replies remain visible.
 - Terminal chat keeps conversation and ordinary agent progress in one scrolling timeline, with
   visible stage names, incomplete-accounting warnings and stable plan-reading positions. It avoids duplicate coordinated plans,
   raw structured reports, routine repository transitions, premature completion counters and

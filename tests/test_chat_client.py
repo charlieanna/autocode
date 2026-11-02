@@ -1721,6 +1721,31 @@ class StreamAndNoticeTests(unittest.TestCase):
         client.show({"chat": {"messages": [*recorded, {"id": "response-1", "role": "assistant", "text": question}]}})
         self.assertEqual(2, client.text().count(f"AutoCode: {question}"))
 
+    def test_recorded_requirements_feedback_does_not_echo_the_spoken_question(self):
+        for prefix in ("requirements-question", "requirements-say"):
+            with self.subTest(prefix=prefix):
+                client = ScriptedChat({})
+                self.addCleanup(client.close)
+                spoken = "Hi! Should I investigate the history entry or fix the display?"
+                client.show({"chat": {"messages": [{"id": f"{prefix}-ab12", "role": "assistant", "text": spoken}]}})
+                client.show({"chat": {"messages": [{"id": "unrelated-reply", "role": "assistant", "text": spoken}]}})
+                self.assertEqual(2, client.text().count(f"AutoCode: {spoken}"), "an unpaired reply is not a receipt")
+                recorded = [
+                    {"id": "feedback-123-reply", "role": "assistant", "text": spoken},
+                    {"id": "feedback-123", "role": "user", "text": "Please fix it."},
+                ]
+                client.show({"chat": {"messages": recorded}})
+                self.assertEqual(2, client.text().count(f"AutoCode: {spoken}"))
+                # Reopening retains the exchange; a genuinely new reply with the same words remains visible.
+                reopened = ScriptedChat({})
+                self.addCleanup(reopened.close)
+                reopened.show({"chat": {"messages": recorded}})
+                self.assertEqual(1, reopened.text().count(f"AutoCode: {spoken}"))
+                client.show(
+                    {"chat": {"messages": [*recorded, {"id": "later-reply", "role": "assistant", "text": spoken}]}}
+                )
+                self.assertEqual(3, client.text().count(f"AutoCode: {spoken}"))
+
     def test_an_approved_plans_record_is_its_heading_after_the_plan_was_shown(self):
         plan = {
             "token": "r2:h",

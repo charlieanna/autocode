@@ -952,6 +952,7 @@ class ChatClient:
         """New conversation messages, recoveries, the notice and the progress line, each once."""
         chat = view.get("chat") or {}
         streaming_text = None
+        user_ids = {str(row.get("id")) for row in chat.get("messages") or [] if row.get("role") == "user"}
         for row in chat.get("messages") or []:
             text = (row.get("text") or "").strip()
             ident = row.get("id")
@@ -969,7 +970,10 @@ class ChatClient:
             if echo in self._local_echoes:
                 self._local_echoes.remove(echo)
                 continue  # the direct prompt was just shown; distinct public messages still own their IDs
-            if row.get("role") != "user" and str(ident or "").endswith("-question") and text in self._asked:
+            recorded_question = str(ident or "").endswith("-question") or (
+                str(ident or "").endswith("-reply") and str(ident)[: -len("-reply")] in user_ids
+            )
+            if row.get("role") != "user" and recorded_question and text in self._asked:
                 self._asked.discard(text)
                 continue  # the question the person just answered, recorded now that they answered it
             if row.get("role") != "user" and str(ident or "").removeprefix("plan-") in self._shown_plans:
@@ -978,7 +982,7 @@ class ChatClient:
                 continue  # the plan was shown in full when it was approved; its record is its heading
             who = "You" if row.get("role") == "user" else "AutoCode"
             self.say(f"\n{who}: {text}")
-            if str(ident or "").startswith("requirements-question"):
+            if str(ident or "").startswith(("requirements-question", "requirements-say")):
                 self._asked.add(text)
         self._say_recoveries(view)
         # A prompt without an immediate public counterpart must not hide a later turn's message.

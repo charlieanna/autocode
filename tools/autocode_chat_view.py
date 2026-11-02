@@ -159,7 +159,8 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         # public needs, without asking the person to narrow the coordinated task.
         question = "\n\n".join(q.get("question", "") for q in displayed).strip()
         spoken = requirements_chat.reply(state)
-        if spoken and spoken != question:
+        contains_question = bool(question and question in spoken and len(displayed) == len(questions))
+        if spoken and spoken != question and not contains_question:
             messages.append(
                 {
                     "id": f"{REQUIREMENTS_SAY}-{hashlib.sha256(spoken.encode()).hexdigest()[:12]}",
@@ -167,7 +168,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
                     "text": spoken,
                 }
             )
-        text = question or (spoken if len(displayed) == len(questions) else "")
+        text = spoken if contains_question else question or (spoken if len(displayed) == len(questions) else "")
         if text:
             # Each question is its own message: a client shows a message id once, so a shared id
             # hid every Requirements question after the first (#1792).
