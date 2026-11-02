@@ -11,6 +11,23 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Coordination message inbox: a queued conversation answer survives clarification
+  settings changes — re-answering a question keeps the saved conversation instead of
+  dropping the queued message and forcing replanning.
+- New `autocode coordinate message --run-dir RUN --request-id ID --text MESSAGE` sends a
+  task message to the coordination owner through its saved worker boundary: the original
+  task text is saved with an exact retry receipt, exact retries return the same receipt,
+  different text under the same identity is refused, and no work launches and no hold
+  releases while the message is pending.
+- Terminal chat: coordinated task conversations stay available while the run is executing
+  live, so a person can message the active run from the TUI instead of only from the
+  coordination CLI.
+- Task messages use the coordinated status deadlines when sending, so a send that races a
+  boundary change reads the same deadline the coordination view showed instead of a stale
+  local one.
+- An admitted conversation no longer gets redundant background participant polling: the
+  message watcher skips participants the coordination run already saves and re-observes
+  per step.
 - Terminal chat: a plan approval left on screen no longer disappears without a word when
   the run resumes working elsewhere — the person's answer reaches the fresh-status guard
   and is refused with "The plan changed while you were reading it" instead of being

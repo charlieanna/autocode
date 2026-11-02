@@ -106,7 +106,9 @@ def apply_queued_input(runner, state: RunState, run_dir, workspace):
     pause = state["status"]
     try:
         if runner.consume_interventions(state, run_dir, workspace):
-            print(f"{state['status']}: {state['stop_reason']}")
+            print(
+                f"{state['status']}: {state.get('stop_reason') or 'Queued input saved; current checkpoint retained.'}"
+            )
             return 2
     except interventions.InterventionError as error:
         print(f"{pause}: queued input could not be applied ({error}); the pause stays in force.")

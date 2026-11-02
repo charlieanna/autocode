@@ -655,6 +655,7 @@ class ChatTUI:
         self._contexts = contexts.Contexts()
         self._context_key: tuple | None = None
         self._draft_context: tuple | None = None
+        self._task_conversation: dict | None = None
         self._restore_context: tuple | None = None
         self._restored_session = False
         self._observation = observation.Read()
@@ -967,6 +968,7 @@ class ChatTUI:
             # Refresh before offering decisions. Confirm closures and queued keys
             # from another run must never transfer with a display snapshot.
             self._view, self._pending, self._queued, self._menu_index = None, None, [], 0
+            self._task_conversation = None
             self._launch_execution = None
             self._attention_menu = None
             self._stage_menu = None
@@ -997,6 +999,12 @@ class ChatTUI:
         """The core's complete task ledger inventory, separate from the active repository view."""
         with self._lock:
             self._task_usage.accept(snapshot)
+            self._draw()
+
+    def observe_conversation(self, summary: dict) -> None:
+        """Keep the task's named composer offer while member progress is displayed."""
+        with self._lock:
+            self._task_conversation = summary
             self._draw()
 
     def observe(self, view: dict) -> None:
@@ -1349,7 +1357,7 @@ class ChatTUI:
         sent = text[1:] if text.startswith("//") else text
         retry = self._message_retry and self._message_retry[0] == sent
         if retry or (not asking and self._can_message()):
-            shown = self._message_retry[1] if retry else self._view
+            shown = self._message_retry[1] if retry else self._task_conversation or self._view
             self._message_sending = True
             try:
                 self.send_message(sent, shown)
@@ -1381,8 +1389,10 @@ class ChatTUI:
 
     def _can_message(self) -> bool:
         """A typed message is available only through a core-named pending action."""
+        task_input = ((self._task_conversation or {}).get("conversation") or {}).get("input") or {}
         return self.send_message is not None and (
-            (((self._view or {}).get("chat") or {}).get("input") or {}).get("kind") == "message"
+            task_input.get("kind") == "coordination_message"
+            or (((self._view or {}).get("chat") or {}).get("input") or {}).get("kind") == "message"
         )
 
     def _run(self, name: str, asking: bool, argument: str = "") -> str | None:

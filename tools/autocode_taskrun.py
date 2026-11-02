@@ -386,6 +386,23 @@ class TaskRun:
         except (ValueError, KeyError) as error:
             raise TaskRunError(f"--status did not return a status view: {error}", proc) from None
 
+    def intervention_status(self) -> dict:
+        """Read the public view and its sibling intervention evidence atomically.
+
+        The public status document exposes receipts beside ``view``. Coordinators
+        need both to distinguish their pauses from a person's independent hold;
+        a missing observation must never be interpreted as an empty receipt list.
+        """
+        proc = self._invoke("status", "--status")
+        try:
+            document = json.loads(proc.stdout)
+            result = {key: document[key] for key in ("view", "interventions")}
+            if any(not isinstance(value, dict) for value in result.values()):
+                raise ValueError("invalid intervention observation")
+            return result
+        except (ValueError, KeyError, TypeError) as error:
+            raise TaskRunError(f"--status did not return intervention evidence: {error}", proc) from None
+
     def _saved_stage_deadline(self):
         """The run's saved stage deadline, from the status document's settings."""
         proc = self._invoke("status", "--status")

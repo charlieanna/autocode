@@ -9,8 +9,10 @@ import re
 from pathlib import Path
 
 try:
+    from . import autocode_chat_task_messages as task_messages
     from . import autocode_client_actions as actions
 except ImportError:
+    import autocode_chat_task_messages as task_messages
     import autocode_client_actions as actions
 
 
@@ -68,6 +70,9 @@ def read(client, view):
         )
     if summary.get("accounting") and getattr(client, "_observe_coordination", None):
         client._observe_coordination(summary["accounting"])
+    if getattr(client, "_observe_conversation", None):
+        client._observe_conversation(summary)
+    task_messages.show(client, summary)
     return summary
 
 
@@ -141,7 +146,21 @@ def step(client, view, render_plan):
         else:
             client.say("\nJoint regression\n" + render_plan(need["plan"]))
         client.say(summary["approval"]["publication"])
-        if client.ask("Approve these coordinated plans? [y/N]: ").strip().casefold() not in ("y", "yes"):
+        can_message = ((summary.get("conversation") or {}).get("input") or {}).get("kind") == "coordination_message"
+        hint = ", or type a question or change" if can_message else ""
+        answer = client.ask(f"Approve these coordinated plans? [y/N]{hint}: ").strip()
+        if can_message and answer and answer.casefold() not in ("y", "yes", "n", "no"):
+            sender = getattr(client, "_task_message_sender", None)
+            if sender is None:
+                sender = client._task_message_sender = task_messages.Sender(client)
+            try:
+                sender.send(answer, summary)
+            except (actions.ClientGap, OSError, ValueError, TypeError, AttributeError):
+                client.say(
+                    "Task message receipt is unconfirmed. Retry the same text to reconcile it; plans remain unapproved."
+                )
+            return None
+        if answer.casefold() not in ("y", "yes"):
             client.say("Plans remain unapproved. Reopen this chat to continue.")
             return 2
         fresh = read(client, view)

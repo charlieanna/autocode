@@ -269,11 +269,11 @@ class CoordinatedDisplayTests(unittest.TestCase):
         self.assertNotIn("/repos PATH", shown)
 
     def test_environment_uses_stable_user_catalog_and_preserves_explicit_autocode_home(self):
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {"HOME": "/tmp/fixture-user-home"}, clear=True):
             first = coordination.environment(Path("/tmp/project-one"))
             second = coordination.environment(Path("/tmp/project-two"))
         self.assertEqual(first["AUTOCODE_SOURCE_CATALOG_HOME"], second["AUTOCODE_SOURCE_CATALOG_HOME"])
-        self.assertEqual(str(Path.home() / ".autocode"), first["AUTOCODE_SOURCE_CATALOG_HOME"])
+        self.assertEqual("/tmp/fixture-user-home/.autocode", first["AUTOCODE_SOURCE_CATALOG_HOME"])
         self.assertEqual(str(Path("/tmp/project-one/.autocode/registry").resolve()), first["AUTOCODE_HOME"])
         with patch.dict(os.environ, {"AUTOCODE_HOME": "/shared/autocode"}, clear=True):
             explicit = coordination.environment(Path("/tmp/project-one"))

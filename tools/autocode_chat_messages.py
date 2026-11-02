@@ -4,8 +4,10 @@ import json
 import secrets
 
 try:
+    from . import autocode_chat_task_messages as task_messages
     from . import autocode_client_actions as actions
 except ImportError:
+    import autocode_chat_task_messages as task_messages
     import autocode_client_actions as actions
 
 
@@ -17,9 +19,17 @@ class Sender:
     def __init__(self, client):
         self.client = client
         self.pending = {}
+        self.task_sender = task_messages.Sender(client)
 
     def send(self, text, shown):
         """Submit once, or reconcile the same request after an uncertain response."""
+        if "anchor" in shown and "conversation" in shown:
+            try:
+                return self.task_sender.send(text, shown)
+            except (actions.ClientGap, OSError, ValueError, TypeError, AttributeError) as error:
+                raise MessageError(
+                    "Task message receipt is unconfirmed; your draft is kept. Retry reconciles the same request."
+                ) from error
         client = self.client
         workspace, run = actions.own(shown, client.workspace, client.run_dir)
         if (workspace, run) != (client.workspace, client.run_dir):

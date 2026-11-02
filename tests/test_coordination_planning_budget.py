@@ -69,6 +69,17 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
         }
         store.save(self.document)
         self.enterContext(patch.object(coordinate, "observe", side_effect=lambda *_a, **_k: copy.deepcopy(self.views)))
+        self.enterContext(
+            patch.object(
+                coordinate,
+                "anchor_view",
+                return_value={
+                    "run_dir": str(self.anchor),
+                    "workspace": str(self.root / "anchor"),
+                    "cost": {"spent_usd": 1, "complete": True},
+                },
+            )
+        )
         self.enterContext(patch.object(coordinate.repos, "source_snapshot", return_value={"snapshot": "pinned"}))
         self.enterContext(patch.object(coordinate.repos, "fingerprint", return_value="source-one"))
         self.enterContext(patch.object(coordinate, "resolve_request", return_value=None))
