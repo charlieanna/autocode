@@ -168,6 +168,22 @@ class MessageReceiptTests(unittest.TestCase):
 
 
 class LiveSendTests(unittest.TestCase):
+    def test_empty_enter_after_a_saved_message_never_creates_a_second_submission(self):
+        ui = screen_ui()
+        ui.observe(working_view())
+        ui.send_message = mock.Mock(return_value={"id": "saved"})
+        ui._composer.insert("Fix only the command name and result code")
+        ui._enter(False)
+        before = list(ui._transcript.blocks)
+        for empty in ("", "   ", "\t"):
+            with self.subTest(empty=repr(empty)):
+                ui._composer.clear()
+                ui._composer.insert(empty)
+                ui._enter(False)
+                self.assertEqual(1, ui.send_message.call_count)
+                self.assertEqual(before, ui._transcript.blocks)
+                self.assertIsNone(ui._message_retry)
+
     def test_status_polling_cannot_resubmit_enter_or_lose_the_next_typed_draft(self):
         ui = screen_ui()
         ui.observe(working_view())

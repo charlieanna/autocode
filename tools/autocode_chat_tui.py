@@ -1384,6 +1384,8 @@ class ChatTUI:
         sent = text[1:] if text.startswith("//") else text
         retry = self._message_retry and self._message_retry[0] == sent
         if retry or (not asking and self._can_message()):
+            if not sent.strip():
+                return None
             shown = self._message_retry[1] if retry else self._task_conversation or self._view
             self._message_sending = True
             try:
