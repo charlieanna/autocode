@@ -312,7 +312,9 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
         "write_diagnosis": restoration,
         "unrestored": restoration["unrestored"],
     }
-    if kind in _ROUTE_STOPS:
+    if record.get("timed_out") and record.get("timeout_kind"):
+        failure["timeout_kind"] = record["timeout_kind"]
+    if kind in _ROUTE_STOPS and not quota_route.deadline_stop(failure):
         failure["pause_status"] = _ROUTE_STOPS[kind]
     state.pop("job_retry_authorization", None)
     recovery = {
@@ -328,6 +330,8 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
         recovery["timeout_kind"] = record["timeout_kind"]
     state["recovery_context"] = recovery
     extension = job_deadline.plan(state, failure, recovery, abandoned=abandoned)
+    if not extension and kind == "timeout" and (spent := job_deadline.used(state, stage)):
+        reason = failure["reason"] = reason + ". " + job_deadline.exhausted(roles.screen_name(stage), spent)
     if extension:
         # A hard stage deadline is machinery, not a question about models (#2605): retry with a longer one.
         _extend_deadline(state, run_dir, failure, extension)

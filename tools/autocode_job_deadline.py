@@ -72,3 +72,11 @@ def reason(job: str, extension: dict) -> str:
         f"same model with a {extension['to']}-second deadline (extension {extension['extension']} of "
         f"{extension['of']}), within the run's time and cost caps."
     )
+
+
+def exhausted(job: str, spent: int) -> str:
+    """Why a timed-out job paused after AutoCode's own extensions: the retry is all that is left."""
+    return (
+        f"AutoCode already retried the {job} on {spent} longer deadline{'s' if spent != 1 else ''} on the same "
+        "model, so it now waits for its exact retry; no other model is needed"
+    )

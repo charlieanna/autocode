@@ -3,6 +3,7 @@
 import unittest
 
 import autocode_job_deadline as job_deadline
+import autocode_quota_route as quota_route
 
 
 def state(stage_seconds=900, max_seconds=5000, active=100, events=()):
@@ -60,6 +61,27 @@ class PlanTests(unittest.TestCase):
         self.assertIn("1800-second", text)
         self.assertIn("extension 1 of 2", text)
         self.assertIn("same model", text)
+
+    def test_an_exhausted_job_is_told_its_retry_is_all_that_is_left(self):
+        self.assertIn("on 2 longer deadlines on the same model", job_deadline.exhausted("Investigator", 2))
+        self.assertIn("on 1 longer deadline on", job_deadline.exhausted("Investigator", 1))
+
+
+class DeadlineStopTests(unittest.TestCase):
+    def test_a_stage_deadline_is_never_a_model_stop(self):
+        stop = {"kind": "timeout", "timeout_kind": "stage"}
+        self.assertTrue(quota_route.deadline_stop(stop))
+        self.assertIsNone(quota_route.job_stop_status(stop))
+        # A failure saved with its model question before #2605 keeps it.
+        saved = dict(stop, pause_status=quota_route.TIMEOUT_STATUS)
+        self.assertEqual(quota_route.TIMEOUT_STATUS, quota_route.job_stop_status(saved))
+
+    def test_other_limits_and_older_timeouts_keep_their_model_question(self):
+        for stop in ({"kind": "timeout", "timeout_kind": "progress"}, {"kind": "timeout"}):
+            with self.subTest(stop=stop):
+                self.assertFalse(quota_route.deadline_stop(stop))
+                self.assertEqual(quota_route.TIMEOUT_STATUS, quota_route.job_stop_status(stop))
+        self.assertFalse(quota_route.deadline_stop({"kind": "exit", "timeout_kind": "stage"}))
 
 
 if __name__ == "__main__":
