@@ -46,6 +46,16 @@ fixture in `tests.test_chat_verification.VerificationTerminalTests` covers statu
 changes while reading history, resize, read failure/recovery and snapshot details.
 It does not launch providers or infer work progress from polling.
 
+Terminal status reads start with a five-second deadline. If one times out, only
+that workspace/run's later read attempts receive ten seconds, then at most twenty
+seconds, until the identity leaves the polling set. Explicit refresh still
+cancels its old read and starts a fresh one; no previous snapshot authorizes an
+action. The two-reader limit, fair admission and hung-child cleanup remain in
+force. `tests.test_chat_polling` covers the bounds with a fake clock, and
+`SlowStatusCLI` in `tests.test_chat_polling_cli` holds real public-status children
+behind a FIFO to verify a six-second retry and exact child cleanup without
+waiting six seconds or launching a model. Action-receipt deadlines are unchanged.
+
 AutoReview generation pins contract/task identity and reviewer-owned finding IDs
 in each attempt's schema. Report-only repairs receive the original executed
 commands and exit codes; normal evidence validation still applies. Repairs cannot

@@ -1,6 +1,7 @@
 """The real TUI attached to a separately launched, gated offline task controller."""
 
 import fcntl
+import json
 import os
 import pty
 import struct
@@ -12,6 +13,7 @@ import time
 import unittest
 from pathlib import Path
 
+import autocode_chat_polling as polling
 import autocode_taskrun as taskrun
 
 from tests.test_agent_step import fixture_workspace
@@ -307,3 +309,54 @@ raise SystemExit(result)
             calls = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()]
             self.assertTrue(calls)
             self.assertTrue(all("--status" in call for call in calls), calls)
+
+
+class SlowStatusCLI(unittest.TestCase):
+    def test_retry_can_finish_after_five_seconds_without_replaying_a_task_action(self):
+        with tempfile.TemporaryDirectory(prefix="slow-public-status-") as folder:
+            root = Path(folder)
+            backend = root / "status.py"
+            gate = root / "release"
+            os.mkfifo(gate)
+            backend.write_text("""import json, os, pathlib, sys
+root = pathlib.Path(__file__).parent
+args = sys.argv[1:]
+if args != ['--status', '--workspace', str(root), '--run-dir', str(root / 'run')]:
+    sys.exit('Only the public status read is supported')
+count = root / 'count'
+number = int(count.read_text()) + 1 if count.exists() else 1
+count.write_text(str(number))
+(root / ('ready-' + str(number))).write_text(str(os.getpid()))
+with (root / 'release').open() as release:
+    release.read()
+print(json.dumps({'view': {'status': 'RUNNING', 'needs': {'kind': 'continue'}, 'sample': number}}))
+""")
+            now = 0.0
+            poller = polling.StatusPoller((sys.executable, str(backend)), clock=lambda: now)
+            self.addCleanup(poller.close)
+            key = (str(root), str(root / "run"))
+            poller.tick({key: 0})
+            first = poller.active[key].child
+            self.wait_ready(root / "ready-1", first)
+            now = 5.0
+            self.assertIn("after 5s", poller.tick({key: 0})[0][2])
+            self.assertIsNotNone(first.poll(), "the timed-out status child is reaped")
+            retry = poller.active[key].child
+            self.wait_ready(root / "ready-2", retry)
+            now = 11.0
+            self.assertEqual([], poller.tick({key: 0}), "the six-second retry still has time to finish")
+            self.assertIsNone(retry.poll())
+            with gate.open("w") as release:
+                release.write("ready")
+            self.assertEqual(0, retry.wait(timeout=10))
+            results = poller.tick({key: 100})
+            self.assertEqual("", results[0][2])
+            self.assertEqual(2, json.loads(results[0][1])["view"]["sample"])
+            self.assertEqual("2", (root / "count").read_text())
+
+    def wait_ready(self, path, child):
+        deadline = time.monotonic() + 10
+        while not path.exists():
+            if child.poll() is not None or time.monotonic() >= deadline:
+                self.fail(f"status fixture did not reach its gate: {path.name}")
+            time.sleep(0.01)
