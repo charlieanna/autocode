@@ -930,6 +930,46 @@ class StopPersistenceTests(unittest.TestCase):
         self.assertIsNone(stop_policy.outcome(person))
         self.assertEqual(stop_policy.STOP_REASON, stop_policy.stop_reason(person))
 
+    def test_boundary_commit_carries_the_runner_outcome_a_person_stop_refuses(self):
+        # #2597: the Builder classification apply that decides the pause applies the runner's
+        # own end inside the saved-step candidate. That boundary commit is how the ended
+        # state becomes durable, so consume must not refuse the receipt the candidate
+        # itself applies. A person's stop still refuses every later boundary (ac26).
+        import shutil
+        import tempfile
+
+        import autocode_stop as stop_policy
+        from autocode_util import Paused
+
+        base = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, base, True)
+        (base / "ws").mkdir()
+        (base / "run").mkdir()
+        writes = []
+
+        def record(path, value):
+            writes.append(path)
+
+        ended = {"status": "RUNNING"}
+        stop_policy.end(
+            ended,
+            "Implementation remains blocked after the configured retries.",
+            {"attempt": 6},
+            at="2026-10-30T10:00:00Z",
+        )
+        self.assertFalse(
+            stop_policy.consume(ended, base / "run", base / "ws", write_json=record, now=lambda: "2026-10-30T10:01:00Z")
+        )
+        self.assertEqual("PAUSED_INTERVENTION", ended["status"])
+        self.assertIn("Implementation remains blocked", ended["stop_reason"])
+        person = {"status": "RUNNING", "applied_interventions": [{"kind": "stop", "id": "s", "text": ""}]}
+        with self.assertRaises(Paused):
+            stop_policy.consume(
+                person, base / "run", base / "ws", write_json=record, now=lambda: "2026-10-30T10:01:00Z"
+            )
+        self.assertEqual("PAUSED_INTERVENTION", person["status"])
+        self.assertEqual(stop_policy.STOP_REASON, person["stop_reason"])
+
     def test_old_runner_stop_is_refused_before_submission(self):
         from unittest.mock import Mock
 

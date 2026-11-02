@@ -115,9 +115,9 @@ Two scripted scenarios check these rows end to end, through `autocode --status -
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, `passed`, and the run completes; `escalation_outcomes`
 stamps that attempt and the ordinary retry before it `passed` too. In `escalation-ladder-end`
-that attempt fails too: the row reads `paused`, as both stamps do, and the run pauses at
-`PAUSED_BUILDER_RETRY_LIMIT` with the stuck-stage Investigator's diagnosis in its stop reason.
-`scenarios/test_escalation.py` also checks that a `--builder-strong-model` the tool does not
+that attempt fails too: the row reads `paused`, as both stamps do, and the run ends with
+AutoCode's recorded could-not-finish outcome, its reason carrying the stuck-stage Investigator's
+diagnosis. `scenarios/test_escalation.py` also checks that a `--builder-strong-model` the tool does not
 list refuses the new run before any model call.
 
 The Resolver runs on a route of its own, `resolver`. It starts as a copy of the `astra`
@@ -431,8 +431,8 @@ no `provider/` prefix (the built-in claude provider), a Tester or Completion Rev
 when the cross-model guard would refuse it (it runs the strong model in the tool's spelling, or
 another model of its GLM or MiMo family) and the checker model is one the run already routes a
 role to; one that may only spell the strong model another way (`openai/X` for `X`) cannot move.
-When one cannot move, the run pauses (`PAUSED_BUILDER_RETRY_LIMIT`) before any route
-changes, and the stop reason says why. `provider/model` names, as KiloCode uses, keep the rule above.
+When one cannot move, the run ends with AutoCode's recorded could-not-finish outcome before any
+route changes, and the outcome's reason says why. `provider/model` names, as KiloCode uses, keep the rule above.
 
 A parallel Builder cannot move the checkers that will check its batch. When its stronger
 attempt would run on the checkers' model, it stops with `SERIAL_ESCALATION` instead

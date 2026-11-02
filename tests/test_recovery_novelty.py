@@ -20,6 +20,7 @@ import autocode_recovery_inputs as inputs
 import autocode_recovery_novelty as novelty
 import autocode_resolver_recovery as recovery
 import autocode_rework_policy as rework
+import autocode_run_status as run_status
 import autocode_util as util
 import autocode_visual_evidence as visual
 
@@ -604,6 +605,13 @@ class RecoveryPacketTests(unittest.TestCase):
         decision["next_task"]["kind"] = "implement"
         self.capture_resolution(state, decision)
         self.assertEqual("pause", recovery.builder_policy.failure(state, str(self.output), "Independent failure"))
+        # A run saved before #2597 holds this exhaustion as a builder-retry-limit pause, not an ended
+        # outcome; the grant accounting below reads exactly such a saved run, so restore that shape.
+        state["applied_interventions"] = [
+            row for row in state.get("applied_interventions", []) if row.get("kind") != "stop"
+        ]
+        state.pop("stop_intent", None)
+        run_status.pause(state, "PAUSED_BUILDER_RETRY_LIMIT", "Execution failure: " + str(self.output))
         state["next_stage"] = "terra"
         builder_recovery.request_serial_retry(state, ["M1"])
         return state
@@ -1387,7 +1395,7 @@ class RecoveryPacketTests(unittest.TestCase):
             attempt = {"stage": "astra_resolve", "output": str(self.run / "must-not-launch.json")}
             with self.assertRaises(util.Paused) as caught:
                 recovery.admit_dispatch(state, attempt, self.root, self.run)
-            self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", caught.exception.status)
+            self.assertEqual("PAUSED_INTERVENTION", caught.exception.status)
             self.assertEqual(settings, state["settings"])
             self.assertNotIn("recovery_novelty", attempt)
         self.assertEqual(["pause"], [row["action"] for row in state["builder_retry_decisions"]])

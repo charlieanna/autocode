@@ -4674,13 +4674,13 @@ class StockRefusalsRunTests(unittest.TestCase):
 
     def test_tests_that_never_discriminate_stop_honestly_and_the_repair_is_scored_incorrect(self):
         # The Builder keeps the vacuous tests. Since #2485 the no-causal-progress hold is AutoCode's to settle,
-        # so each new incident takes its own automatic scoped retry: the run walks three Resolver cycles and ends
-        # at the configured Builder retry limit — the shape plan B4 recorded on e2eadf0 — instead of holding a
-        # person at RESOLVER_PENDING. That last pause still asks for a human decision, which #2485 did not claim
-        # to settle; what this case proves is that the route is reached and the scoring comes out INCORRECT.
+        # so each new incident takes its own automatic scoped retry: the run walks three Resolver cycles and,
+        # since #2597, ends at the Builder ladder's end with AutoCode's recorded could-not-finish outcome —
+        # the shape plan B4 recorded on e2eadf0, minus the person pause #2485 left standing. What this case
+        # proves is that the route is reached and the scoring comes out INCORRECT.
         result, state, proofs = self.run_fake("broken/vacuous-refusal-tests")
         self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", result["runner_status"])
+        self.assertEqual("PAUSED_INTERVENTION", result["runner_status"])
         self.assertEqual(3, result["metrics"]["model_stage_names"].count("astra_resolve"))
         self.assertEqual(4, result["metrics"]["model_stage_names"].count("investigate_stuck"))
         # Classifying each unknown failure precedes its bounded execution retry, and AutoCode grants them itself.

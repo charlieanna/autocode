@@ -67,11 +67,20 @@ class EscalationScenarioTests(unittest.TestCase):
 
     def test_an_escalation_that_reaches_the_ladders_end_pauses_with_the_diagnosis(self):
         result, view, said = self.scenario("escalation-ladder-end")
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", result["runner_status"])
+        # #2597: the ladder's end is AutoCode's recorded could-not-finish outcome, not a person pause.
+        self.assertEqual("PAUSED_INTERVENTION", result["runner_status"])
         [row] = view["escalations"]
         self.assertEqual(("paused", "recorded"), (row["outcome"], row["outcome_basis"]))
         self.assertEqual({"passed": 0, "paused": 2, "open": 0}, view["escalation_outcomes"])
-        self.assertIn("Investigator (paused): greet.py still guards only the argument count", view["stop_reason"])
+        self.assertIn(
+            "AutoCode could not finish this task: Implementation remains blocked after the configured "
+            "retries and the stronger Builder attempt",
+            view["stop_reason"],
+        )
+        outcome = view["recovery"]["outcome"]
+        self.assertEqual("could_not_finish", outcome["result"])
+        self.assertEqual("terra", outcome["evidence"]["stage"])
+        self.assertEqual(3, outcome["evidence"]["attempt"])
         self.assertEqual("resume", view["needs"]["kind"], view["needs"])
         self.assertIn("Escalations: 1 (1 paused).", said)
         self.assertRegex(said, "  " + CLIMB.replace("$", r"\$") + r"[0-9.]+; the run paused\.")
