@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Joint regression planning keeps each member's applied task messages. The brief the joint run is
+  created with now carries every applied member message exactly once, grouped under its member
+  scope ("Applied task message for api, client:") and in the conversation's order, instead of
+  dropping them when the joint regression run starts; unapplied conversation text is still left out.
 - Terminal chat: starting a joint multi-repository run now shows the joint run's live progress and
   usage. The cheap anchor status publishes the current joint participant's public identity
   (`coordination.integration`: `workspace` and `run_dir`, or null), so the live-progress observer
