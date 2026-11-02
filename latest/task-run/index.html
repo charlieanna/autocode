@@ -1711,6 +1711,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Exact stopped-run recovery">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-went-wrong-recoveries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What went wrong (recoveries)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2293,6 +2310,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Exact stopped-run recovery">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-went-wrong-recoveries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What went wrong (recoveries)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2338,7 +2372,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/1d3a4d7bd49f8c3d1cd0ed1c80676326166eaa19/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/6dc63dd6f6516d37642e86a5d992eea54e3f9447/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -3353,7 +3387,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/1d3a4d7bd49f8c3d1cd0ed1c80676326166eaa19/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/6dc63dd6f6516d37642e86a5d992eea54e3f9447/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3697,6 +3731,61 @@ usage and spent allowances remain intact; changing another role, engine, source,
 contract or scope is refused. A model change alone cannot authorize a call, and a
 rejected combined change saves no settings. Clients continue to use only named
 view actions; this operator control does not add a client-side route override.</p>
+<h3 id="what-went-wrong-recoveries">What went wrong (<code>recoveries</code>)<a class="headerlink" href="#what-went-wrong-recoveries" title="Permanent link">&para;</a></h3>
+<p><code>view.recovery</code> describes a stop. <code>view.recoveries</code> is the history of what went wrong while the
+run carried on by itself: a list, oldest first and at most the newest 20, built by
+<code>autocode_recovery_history.project</code> from the run's own records. Each entry has the same keys:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td>Stable for the entry, so a client says each one once</td>
+</tr>
+<tr>
+<td><code>kind</code></td>
+<td><code>rejected</code> (a stage's answer was not accepted), <code>report_repaired</code> (the work stood and only its report was rewritten), <code>sent_back</code> (the changed-code gate returned the Builder for lines with no test that fails when they break and no checked reason), <code>investigated</code> (a stage stopped making progress and went to the Investigator), <code>resolved</code> (the Resolver chose the next step by its rules)</td>
+</tr>
+<tr>
+<td><code>at</code></td>
+<td>When it was recorded (UTC), or null</td>
+</tr>
+<tr>
+<td><code>job</code></td>
+<td>The stage's screen name (<code>autocode_roles</code>)</td>
+</tr>
+<tr>
+<td><code>headline</code></td>
+<td>One line, such as <code>Builder stuck</code> or <code>Tester rewrote its report</code></td>
+</tr>
+<tr>
+<td><code>problem</code></td>
+<td>What went wrong, or null</td>
+</tr>
+<tr>
+<td><code>action</code></td>
+<td>What AutoCode did about it</td>
+</tr>
+<tr>
+<td><code>by</code></td>
+<td>The job that handled it: the stage itself, <code>Investigator</code> or <code>Resolver</code></td>
+</tr>
+<tr>
+<td><code>detail</code></td>
+<td>The Investigator's diagnosis and advice, or null</td>
+</tr>
+</tbody>
+</table>
+<p>The text is redacted and bounded, and a sentence that names a command is left out, since a client
+never shows a person a command to type. A rejection the Investigator was called for appears once,
+as its <code>investigated</code> entry. The field is display only: it names no action and grants nothing.
+The terminal chat shows each new entry as a <code>Recovery ·</code> notice, the newest three in its side
+panel, and all of them under <code>/why</code>.</p>
 <h2 id="inspecting-current-verification">Inspecting current verification<a class="headerlink" href="#inspecting-current-verification" title="Permanent link">&para;</a></h2>
 <p><code>autocode --run-dir RUN --status --inspect-evidence</code> performs a read-only source
 and evidence inspection. The additive <code>view.verification</code> field lists every
@@ -3986,7 +4075,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/1d3a4d7bd49f8c3d1cd0ed1c80676326166eaa19/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/6dc63dd6f6516d37642e86a5d992eea54e3f9447/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
