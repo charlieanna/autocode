@@ -129,6 +129,56 @@ class CoordinationResumeTests(unittest.TestCase):
         with self.assertRaisesRegex(store.CoordinationError, "planning allowance"):
             budget.envelope(saved["budget"], [self.view], self.member["run_dir"])
 
+    def test_uncapped_recovery_preserves_unknown_cost_and_a_reconciled_retry_hold(self):
+        saved = store.read(self.anchor)
+        saved["budget"]["cap_usd"] = 0
+        store.save(saved)
+        self.view.update(
+            status="PAUSED_STAGE_ABANDONED",
+            needs={"kind": "retry_job", "attempt_id": "001/tester-01", "job_retry_token": "exact-retry"},
+            recovery={"cause": "PAUSED_STAGE_ABANDONED"},
+            cost={"spent_usd": 4, "complete": False},
+            liveness={role: {"alive": False} for role in ("owner", "keeper", "provider")},
+        )
+        before = copy.deepcopy(self.view)
+        offer = self.offered()
+        self.assertEqual("coordination_resume", offer["kind"])
+        self.assertFalse(offer["complete"])
+        self.assertEqual(5, offer["known_spent_usd"])
+        self.assertEqual(2, self.cli(offer["token"], 12)[0], "Unknown spend cannot authorize a new finite cap")
+        self.assertTrue(store.cancelled(self.anchor))
+        code, result = self.cli(offer["token"], 0)
+        self.assertEqual(0, code, result)
+        self.assertFalse(store.cancelled(self.anchor))
+        self.assertEqual(before, self.view, "Coordinator recovery must leave the child retry and pause untouched")
+        revision = store.read(self.anchor)["budget"]["revisions"][-1]
+        self.assertFalse(revision["accounting_complete"])
+        self.assertEqual(5, revision["known_spent_usd"])
+        self.worker.advance.assert_not_called()
+        self.worker.resume_paused.assert_not_called()
+
+    def test_reconciled_retry_recovery_requires_positive_process_cleanup_evidence(self):
+        self.view.update(
+            status="PAUSED_STAGE_ABANDONED",
+            needs={"kind": "retry_job", "attempt_id": "001/tester-01", "job_retry_token": "exact-retry"},
+            recovery={"cause": "PAUSED_STAGE_ABANDONED"},
+            liveness={role: {"alive": False} for role in ("owner", "keeper", "provider")},
+        )
+        self.assertEqual("coordination_resume", self.offered()["kind"])
+        for role in ("owner", "keeper", "provider"):
+            for alive in (True, None):
+                with self.subTest(role=role, alive=alive):
+                    self.view["liveness"][role]["alive"] = alive
+                    self.assertEqual("cancelled", self.offered()["kind"])
+                    self.view["liveness"][role]["alive"] = False
+        for field in ("attempt_id", "job_retry_token"):
+            with self.subTest(missing=field):
+                value = self.view["needs"].pop(field)
+                self.assertEqual("cancelled", self.offered()["kind"])
+                self.view["needs"][field] = value
+        self.view["recovery"]["cause"] = "PAUSED_PROCESS_CLEANUP"
+        self.assertEqual("cancelled", self.offered()["kind"])
+
     def test_stale_source_routes_usage_and_new_cancellation_refuse(self):
         baseline = copy.deepcopy(self.view)
         for changed in ("source", "routes", "usage", "cancel"):

@@ -22,6 +22,21 @@ except ImportError:
     import autocode_util as util
 
 
+def reconciled_retry(view):
+    """A verified archived attempt keeps its child retry gate after coordinator recovery."""
+    need = view.get("needs") or {}
+    return bool(
+        view.get("status") == "PAUSED_STAGE_ABANDONED"
+        and (view.get("recovery") or {}).get("cause") == "PAUSED_STAGE_ABANDONED"
+        and need.get("kind") == "retry_job"
+        and need.get("attempt_id")
+        and need.get("job_retry_token")
+        and all(
+            (view.get("liveness") or {}).get(role, {}).get("alive") is False for role in ("owner", "keeper", "provider")
+        )
+    )
+
+
 def offer(document, rows, history):
     """A cancellation may be acknowledged only after all owned work settles."""
     if not store.cancelled(document["anchor"]) or document.get("pending") or document.get("rework"):
@@ -44,10 +59,10 @@ def offer(document, rows, history):
         )
         if actions.working(view) or any(a.get("active") for a in attempts):
             return None
-        if not intervention and not planning.settled(view):
+        if not intervention and not reconciled_retry(view) and not planning.settled(view):
             return None
     summary = budget.accounting(document.get("budget") or {}, history)
-    if not summary["complete"]:
+    if not summary["complete"] and (document.get("budget") or {}).get("cap_usd") != 0:
         return None
     if document.get("source_catalog") and repositories.source_snapshot() != document["source_catalog"]:
         return None
@@ -101,6 +116,8 @@ def apply(document, offered, token, value):
     """Acknowledge exactly one cancellation; a newer concurrent cancellation wins."""
     if not offered or offered.get("kind") != "coordination_resume" or offered.get("token") != token:
         raise store.CoordinationError("The cancelled-coordination checkpoint changed; read status again")
+    if not offered["complete"] and value != 0:
+        raise store.CoordinationError("Unknown spend is retained; only the existing uncapped budget can be preserved")
     selected = 0 if type(value) in (int, float) and value == 0 else limits.amount(value, offered["minimum_cap_usd"])
     request = json.loads((store.root(document["anchor"]) / "cancel-request.json").read_text())
     if request != offered["cancel_request"]:

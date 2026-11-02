@@ -159,7 +159,11 @@ cap and disables its planning allocation limit. The retained allocation and
 prior cap stay in history. Subsequent participant advances receive an explicit
 zero cap so they cannot silently inherit an old spending limit. Other limits,
 routes, approvals and verification gates remain unchanged. A child pause still
-requires its own public recovery. Active or uncertain work, incomplete pricing,
+requires its own public recovery. An archived attempt with a current retry token
+and positively dead owner, keeper and provider may recover coordination while
+retaining that child retry gate. Incomplete pricing refuses a finite cap; an
+already uncapped coordination may preserve its explicit zero cap and unknown
+costs, without inventing prices or authorizing a retry. Active or uncertain work,
 changed source/catalog/checkpoint and duplicate requests refuse. Cancellation
 receipts are retained; a newer cancellation always takes precedence.
 
