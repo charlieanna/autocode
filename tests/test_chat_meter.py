@@ -107,6 +107,8 @@ class PanelTests(unittest.TestCase):
         self.assertEqual("3 earlier stages: /details", texts[0])
         self.assertEqual(["Job 6 · 30s", "gpt-x high · 1.2k tokens"], texts[-2:])
         self.assertEqual(1 + 2 * panel.STAGE_ROWS, len(texts))
+        one_more = panel.stage_section(view(*attempts[: panel.STAGE_ROWS + 1]), NOW)
+        self.assertEqual("1 earlier stage: /details", one_more.rows[0].text)
 
     def test_the_working_stage_names_its_model_on_its_own_row(self):
         shown = view(attempt("terra", "Builder", active=True, duration_seconds=12))

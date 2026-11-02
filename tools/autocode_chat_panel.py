@@ -247,7 +247,8 @@ def stage_section(view: dict | None, now=None) -> Section | None:
         return None
     rows: list[Row] = []
     if len(ran) > STAGE_ROWS:
-        rows.append(Row("·", f"{len(ran) - STAGE_ROWS} earlier stages: /details", "dim"))
+        earlier = len(ran) - STAGE_ROWS
+        rows.append(Row("·", f"{earlier} earlier stage{'' if earlier == 1 else 's'}: /details", "dim"))
     for row in ran[-STAGE_ROWS:]:
         head, detail, style = meter.stage_lines(row)
         mark, _, text = head.partition(" ")
