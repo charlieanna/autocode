@@ -273,15 +273,22 @@ class LaunchContainment(unittest.TestCase):
         data = {"workspace": str(self.root), "old_receipt": ".autocode/evidence/accepted.json"}
         text = "Example --output .autocode/evidence/<unique-name>.json\nCURRENT HANDOFF DATA\n" + json.dumps(data)
         updated = launch.containment_prompt(text, {"tool_containment": self.policy})
-        parsed = json.loads(updated.split("\nCURRENT HANDOFF DATA\n")[1])
+        instructions, marker, handoff = updated.partition("\nCURRENT HANDOFF DATA\n")
+        self.assertEqual("\nCURRENT HANDOFF DATA\n", marker)
+        parsed = json.loads(handoff)
         self.assertEqual(data["old_receipt"], parsed["old_receipt"])
         self.assertEqual(self.policy, parsed["tool_containment"])
-        self.assertIn(self.policy["scratch"], updated)
-        self.assertNotIn("--output .autocode/evidence/<unique-name>.json", updated)
+        # A4 (#2113): the exact per-launch scratch path stays in the handoff only; the
+        # capture example names the handoff field as a token so instructions stay stable.
+        self.assertNotIn(self.policy["scratch"], instructions)
+        self.assertIn("--output <tool_containment.scratch>/evidence-<unique-name>.json", instructions)
+        self.assertNotIn("--output .autocode/evidence/<unique-name>.json", instructions)
 
     def test_every_capture_example_names_the_one_location_a_contained_stage_can_write(self):
         # Live self-build 2026-10-06: a contained Validator's prompt named the run directory (COMMON) and the
         # scratch (provider contract) for the same receipts; the sandbox lets it write only the scratch.
+        # A4 (#2113): both examples now name the handoff field as a token — the one location is still
+        # the only one named, and the exact per-launch path is never in the instruction bytes.
         import autocode_check_replay as check_replay
         import autocode_support as support
         from providers import opencode
@@ -296,10 +303,35 @@ class LaunchContainment(unittest.TestCase):
         )
         updated = launch.containment_prompt(prompt, {"tool_containment": self.policy})
         instructions = updated.split("\nCURRENT HANDOFF DATA\n")[0]
-        scratch_example = "--output " + self.policy["scratch"] + "/evidence-<unique-name>.json"
-        self.assertEqual(2, instructions.count(scratch_example))
+        token = "--output <tool_containment.scratch>/evidence-<unique-name>.json"
+        self.assertEqual(2, instructions.count(token))
         self.assertEqual(2, instructions.count("<unique-name>.json"))
+        self.assertNotIn(self.policy["scratch"], instructions)
         self.assertIn("replaces any other evidence or scratch directory named above", instructions)
+
+    def test_two_launch_scratch_paths_render_identical_instruction_text(self):
+        import autocode_check_replay as check_replay
+        import autocode_support as support
+        from providers import opencode
+
+        prompt = opencode.prompt_for_schema(
+            support.COMMON
+            + check_replay.VALIDATOR_NOTE
+            + "\nCURRENT HANDOFF DATA\n"
+            + json.dumps({"workspace": str(self.root)}),
+            {},
+            self.root / "events.jsonl",
+        )
+        rendered = []
+        for hexa in ("a" * 32, "b" * 32):
+            scratch = str(self.root / ".autocode" / ("tool-containment-" + hexa) / "scratch")
+            policy = {"version": 1, "workspace": str(self.root), "scratch": scratch}
+            updated = launch.containment_prompt(prompt, {"tool_containment": policy})
+            instructions, _, handoff = updated.partition("\nCURRENT HANDOFF DATA\n")
+            rendered.append(instructions)
+            self.assertEqual(scratch, json.loads(handoff)["tool_containment"]["scratch"])
+        self.assertEqual(rendered[0], rendered[1])
+        self.assertNotIn("tool-containment-", rendered[0])
 
     def test_changed_policy_is_a_prelaunch_hold_not_report_repair(self):
         with mock.patch.object(containment, "verify", side_effect=RuntimeError("changed policy")):
