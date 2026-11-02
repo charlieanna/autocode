@@ -51,6 +51,52 @@ def checked(value):
     return deepcopy(value)
 
 
+def projected(value):
+    """Fit conversational evidence without truncating any requirement or check.
+
+    Complete plans still own approval. Oversized conversations omit only the
+    criteria's baseline descriptions and citations, with an explicit notice and
+    a digest binding every omitted value. Required text that does not fit refuses.
+    """
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, allow_nan=False).encode()
+    except (TypeError, ValueError) as error:
+        raise ValueError("Message context must be finite JSON evidence") from error
+    if len(encoded) <= MAX_BYTES:
+        return checked(value)
+    result = deepcopy(value)
+    rows = result.get("participants") if isinstance(result, dict) else None
+    for row in rows if isinstance(rows, list) else []:
+        plan = row.get("plan") if isinstance(row, dict) else None
+        criteria = plan.get("acceptance_criteria") if isinstance(plan, dict) else None
+        if not isinstance(criteria, list):
+            continue
+        omitted = sorted(
+            {
+                field
+                for criterion in criteria
+                if isinstance(criterion, dict)
+                for field in ("current_behavior", "sources")
+                if field in criterion
+            }
+        )
+        if not omitted:
+            continue
+        if "conversation_projection" in plan:
+            raise ValueError("Message context plan already contains a conversation projection")
+        original_digest = util.digest(plan)
+        for criterion in criteria:
+            if isinstance(criterion, dict):
+                for field in omitted:
+                    criterion.pop(field, None)
+        plan["conversation_projection"] = {
+            "kind": "requirements_and_checks",
+            "full_plan_sha256": original_digest,
+            "omitted_criterion_fields": omitted,
+        }
+    return checked(result)
+
+
 def schema(base, event):
     """A routed conversation must explicitly name its affected target labels."""
     if not event or not event.get("context"):

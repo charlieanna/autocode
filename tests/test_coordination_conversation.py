@@ -116,6 +116,23 @@ class ConversationPolicyTests(unittest.TestCase):
         result = policy().context(record, {})
         self.assertEqual({"STARTING"}, {row["status"] for row in result["participants"]})
 
+    def test_large_public_plans_are_projected_without_dropping_participants_or_requirements(self):
+        from tests.test_message_context import large_context
+
+        supplied = large_context()
+        record = {"members": [{"target": row["target"], "started": True} for row in supplied["participants"]]}
+        views = {
+            row["target"]: {"status": row["status"], "displayed_plan": row["plan"]} for row in supplied["participants"]
+        }
+        before = copy.deepcopy(views)
+        result = policy().context(record, views)
+        self.assertEqual(["gateway", "reader"], [row["target"] for row in result["participants"]])
+        plan = result["participants"][0]["plan"]
+        self.assertEqual(supplied["participants"][0]["plan"]["constraints"], plan["constraints"])
+        self.assertEqual("r3:exact-plan", plan["token"])
+        self.assertEqual("requirements_and_checks", plan["conversation_projection"]["kind"])
+        self.assertEqual(before, views)
+
     def test_affected_targets_include_transitive_dependents_not_unrelated_prerequisites(self):
         record = document()
         self.assertEqual(["gateway", "history"], policy().affected(record, ["gateway"]))

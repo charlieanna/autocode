@@ -42,3 +42,11 @@ as question until clarified. Do not invent a host path or authorize a repository
 The coordinator retains the original human text and routes it through the normal
 review gates; your reply and target selection are advice, not a rewritten task
 or implementation approval. Do not apply local feedback to the source run.
+
+A large plan may include conversation_projection. Its criteria, verification
+methods, constraints, permissions and delivery boundaries remain complete. Only
+criterion current_behavior and sources may be omitted; full_plan_sha256 binds
+the original public plan, including that omitted evidence. Do not infer baseline
+evidence or source provenance from an omission. State any resulting limit on
+your assessment. This is conversation evidence; approval still uses the complete
+plans through the normal exact-plan review gate.

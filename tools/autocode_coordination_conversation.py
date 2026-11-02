@@ -48,7 +48,7 @@ def resumable(view, owned):
 
 
 def context(document, views):
-    """Copy the bounded public member plans; never substitute an unread status."""
+    """Project bounded public member plans; never substitute an unread status."""
     rows = []
     for member in document["members"]:
         view = views.get(member["target"])
@@ -62,7 +62,7 @@ def context(document, views):
             }
         )
     try:
-        return message_context.checked({"kind": "coordinated_task", "participants": rows})
+        return message_context.projected({"kind": "coordinated_task", "participants": rows})
     except ValueError as error:
         raise store.CoordinationError(str(error)) from error
 
