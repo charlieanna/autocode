@@ -29,8 +29,13 @@ root = Path(sys.argv[1])
 anchor, member = str(root / 'anchor'), str(root / 'member')
 args = sys.argv[2:]
 command = ['autocode', 'coordinate', 'advance', '--run-dir', anchor, '--json']
+def ledger(run, spend, tokens, complete=True):
+    return {'run_dir': run, 'cost': {'spent_usd': spend, 'complete': complete},
+            'usage': {'accounting': {'tokens': {'input_tokens': tokens, 'output_tokens': 0}}}}
+accounting = {'version': 1, 'anchor': anchor, 'runs': [ledger(anchor, 1, 100),
+              ledger(str(root / 'previous'), 2, 200), ledger(member, 0, 0, False)]}
 if args[:2] == ['coordinate', 'status']:
-    print(json.dumps({'version': 1, 'anchor': anchor, 'done': False,
+    print(json.dumps({'version': 1, 'anchor': anchor, 'done': False, 'accounting': accounting,
         'members': [{'target': 'api', 'workspace': str(root), 'run_dir': member, 'status': 'RUNNING'}],
         'needs': {'kind': 'start', 'target': 'api'}, 'next_command': command}))
 elif args[:2] == ['coordinate', 'advance']:
@@ -40,7 +45,7 @@ elif args[:2] == ['coordinate', 'advance']:
         stream.read()
 elif '--status' in args:
     run = args[args.index('--run-dir') + 1]
-    view = {'workspace': str(root), 'run_dir': run, 'status': 'RUNNING' if run == member else 'WAITING_FOR_USER',
+    view = {**ledger(run, 0 if run == member else 1, 0 if run == member else 100, run != member), 'workspace': str(root), 'run_dir': run, 'status': 'RUNNING' if run == member else 'WAITING_FOR_USER',
             'needs': {'kind': 'continue'}, 'chat': {'log': []}}
     if run == member:
         view['chat']['log'] = [{'id': 'member-message', 'agent': 'Requirements', 'kind': 'message',
@@ -60,13 +65,17 @@ from autocode_chat_tui import ChatTUI
 import autocode_chat_coordination as coordination
 root = Path({str(root)!r})
 with ChatTUI() as ui:
+    meter_options = dict(observe_coordination=ui.observe_coordination) if hasattr(ui, "observe_coordination") else dict()
     client = ChatClient(root, root / 'anchor', command=(sys.executable, {str(backend)!r}, str(root)),
-                        observe=ui.observe, unavailable=ui.status_unavailable, say=ui.say,
+                        observe=ui.observe, **meter_options, unavailable=ui.status_unavailable, say=ui.say,
                         ask=ui.ask, wait=ui.wait, poll_seconds=0.1)
     ui.bind(client.slash, run=True)
     ui.idle = client.poll
     try:
         coordination.step(client, client.status(), lambda value: str(value))
+        client.show(client.status())
+        ui.say('Coordinator action finished')
+        ui.ask('Close this test viewer?')
     finally:
         client.close()
 """
@@ -75,8 +84,15 @@ with ChatTUI() as ui:
             )
             self.addCleanup(screen.close)
             screen.wait_for(
-                lambda text: "LIVE · all agents" in text and "Inspecting the actual request path" in text,
-                what="active coordinated member live log",
+                lambda text: (
+                    "LIVE · all agents" in text
+                    and "Inspecting the actual request path" in text
+                    and "task $3.00+" in text
+                    and "300 tokens" in text
+                    and "TASK USAGE" in text
+                ),
+                what="active coordinated member live log and stable task total",
+                timeout=10,
             )
             screen.type("/help")
             screen.keys("Enter")
@@ -84,6 +100,11 @@ with ChatTUI() as ui:
             self.assertEqual("anchor\n", (root / "advances").read_text())
             with gate.open("w") as release:
                 release.write("done")
+            screen.wait_for(
+                lambda text: "Coordinator action finished" in text and "task $3.00+" in text and "300 tokens" in text,
+                what="task total after returning to the coordinator",
+            )
+            screen.keys("Enter")
             self.assertEqual(0, screen.exit_status())
 
 
@@ -617,3 +638,23 @@ class SharedBudgetDisplayTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TaskUsageCallbackTests(unittest.TestCase):
+    def test_public_coordination_read_delivers_complete_task_snapshot_to_renderer(self):
+        import json
+
+        from tests.test_coordination_usage import ledger
+
+        run = Path("/source")
+        received = []
+        snapshot = {"version": 1, "anchor": str(run), "runs": [ledger(str(run), 1, 100)]}
+        client = chat.ChatClient(Path("/workspace"), run, observe_coordination=received.append)
+        self.addCleanup(client.close)
+        summary = {"version": 1, "anchor": str(run), "accounting": snapshot}
+        client.cli = Mock(return_value=Mock(returncode=0, stdout=json.dumps(summary)))
+        view = {
+            "coordination": {"status_command": ["autocode", "coordinate", "status", "--run-dir", str(run), "--json"]}
+        }
+        self.assertEqual(summary, coordination.read(client, view))
+        self.assertEqual([snapshot], received)

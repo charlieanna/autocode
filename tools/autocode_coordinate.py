@@ -28,6 +28,7 @@ try:
     from . import autocode_coordination_request as request
     from . import autocode_coordination_resume as cancellation
     from . import autocode_coordination_store as store
+    from . import autocode_coordination_usage as usage
     from . import autocode_github as github
     from . import autocode_taskrun as tasks
     from . import autocode_util as util
@@ -46,6 +47,7 @@ except ImportError:
     import autocode_coordination_request as request
     import autocode_coordination_resume as cancellation
     import autocode_coordination_store as store
+    import autocode_coordination_usage as usage
     import autocode_github as github
     import autocode_taskrun as tasks
     import autocode_util as util
@@ -651,15 +653,25 @@ def status(run_dir, *, command=tasks.AUTOCODE):
             "phase": "cancelled" if stopped else "discovering",
             "done": False,
             "members": [],
+            "accounting": usage.snapshot(
+                str(Path(run_dir).resolve()), [{**view, "run_dir": str(Path(run_dir).resolve())}]
+            ),
             "needs": {"kind": "cancelled" if stopped else "continue"},
             "next_command": None if stopped else store.command(run_dir, "advance", "--json"),
         }
     views = observe(document, command=command)
     step = next_step(document, views, command=command)
+    _, usage_history = budget_observations(document, views, command=command)
+    source = anchor_view(run_dir, command=command)
     output = {
         "version": 1,
         "anchor": document["anchor"],
         "revision": document["revision"],
+        "accounting": usage.snapshot(
+            document["anchor"],
+            [{**source, "run_dir": document["anchor"]}, *usage_history],
+            [row["run_dir"] for row in document["members"]],
+        ),
         "source_catalog": document.get("source_catalog"),
         "phase": document["phase"],
         "done": step["kind"] == "complete",

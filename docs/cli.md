@@ -733,7 +733,11 @@ attempt finishing, a command run, a file edited, a task done, a requirement
 checked). The status row under the conversation names the newest command or edit,
 in any width. A command that exited 0 is shown as run, not as passing: only the
 requirement checks say what passed. Everything in it comes from the status views
-the chat already reads.
+the chat already reads. For a task spanning repositories, **Task usage** stays
+visible as the cumulative cost and tokens across the conversation, repository
+work and retained joint attempts. **Current work** shows only the active work
+unit. A `+` means the figure is incomplete; `tokens pending` means no token count
+has arrived yet. Switching repositories never resets the task total.
 
 While AutoCode works, a live log under the conversation shows what each running
 agent is thinking and doing as it happens: its reasoning (`∴`), its messages

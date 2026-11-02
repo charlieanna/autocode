@@ -59,6 +59,17 @@ receipted feedback actions. Interrupted feedback is reconciled against its
 public chat receipt; an uncertain outcome is never submitted twice. Approved
 or active work cannot use this recovery to replace its request.
 
+The coordination view's `accounting` snapshot contains `version`, `anchor`, and
+`runs`: one bounded public ledger per distinct source, repository or retained
+joint attempt. Each row exposes `run_dir`, the cost's `spent_usd`, `inherited_usd`
+and `complete`, and `usage.accounting.tokens`. A not-yet-started repository has
+zero usage; missing usage from an observed attempt stays unknown. This snapshot
+is display data and changes no spending cap, pricing rule or approval token.
+Clients can update the active run's row from its public status while keeping the
+other rows, subtract inherited spend when adding ledgers, and retain a known
+incomplete total when a price or token count is missing. Reopening reads the
+whole inventory again; repository switching must not reset the task total.
+
 The version-1 coordination view identifies the anchor, record revision, phase,
 member workspaces/runs/PRs, `done`, `needs`, and optional `next_command` and
 `approval`. The joint-test baseline and plan are prepared before any Builder.

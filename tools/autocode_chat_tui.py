@@ -690,6 +690,7 @@ class ChatTUI:
         # Whether the bound act is a chat client's (bind run=True): a tab that Ctrl-T opened has no run
         # yet, but that client still serves /tab, so leaving it is allowed (#1997).
         self._client_bound = False
+        self._task_usage = meter.TaskUsage()
         self._tabs: list[dict] = []  # the session's chats from the client, drawn once there are two
         self._pending: panel.Confirm | None = None
         self._queued: list = []  # keys read while telling an escape key from a paste
@@ -984,10 +985,17 @@ class ChatTUI:
             self._keep_history_anchor(anchor)
             self._draw()
 
+    def observe_coordination(self, snapshot: dict) -> None:
+        """The core's complete task ledger inventory, separate from the active repository view."""
+        with self._lock:
+            self._task_usage.accept(snapshot)
+            self._draw()
+
     def observe(self, view: dict) -> None:
         """The status view the client just read: the panel and the log draw from it alone."""
         with self._lock:
             self._observation.accept(view, time.monotonic())
+            self._task_usage.observe(view)
             if self._view == view:
                 self._draw()
                 return
@@ -1519,7 +1527,7 @@ class ChatTUI:
             return False
         if self._panel_on is not None:
             return self._panel_on
-        return cols >= PANEL_MIN_COLS and len(panel.sections(self._view)) > 1
+        return cols >= PANEL_MIN_COLS and len(panel.sections(self._view, task_total=self._task_total())) > 1
 
     def _live_visible(self, rows: int, cols: int) -> bool:
         if rows < 16 or cols < 40:
@@ -1585,8 +1593,25 @@ class ChatTUI:
             return f" F8: {unchecked} unchecked alert{'s' if unchecked != 1 else ''}"
         return ""
 
+    def _task_total(self) -> dict | None:
+        total = self._task_usage.total((self._view or {}).get("run_dir"))
+        if total is None and (self._view or {}).get("coordination"):
+            # The first source read precedes the coordinator's full ledger inventory.
+            # Never present that source-only amount as the whole task's spend.
+            return {
+                "spent_usd": None,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cost_complete": False,
+                "tokens_complete": False,
+            }
+        return total
+
     def _spend(self) -> str:
         """What this chat's run has used, and with more than one chat open, the session's total."""
+        task = self._task_total()
+        if task is not None:
+            return "task " + meter.total_text(task, show_pending=True)
         here = meter.run_total(self._view)
         if len(self._tabs) < 2:
             return meter.total_text(here)
@@ -1700,7 +1725,7 @@ class ChatTUI:
         for row in range(top, bottom):
             self._put(row, col - 2, self._glyphs.vertical, self._style("border"))
         rows: list[tuple[str, str]] = []
-        for section in panel.sections(self._view, launched=self._launched):
+        for section in panel.sections(self._view, launched=self._launched, task_total=self._task_total()):
             rows.append(
                 (
                     "panel-title",

@@ -252,3 +252,78 @@ class TotalTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CoordinatedTaskUsageTests(unittest.TestCase):
+    def snapshot(self):
+        from tests.test_coordination_usage import ledger
+
+        return {
+            "version": 1,
+            "anchor": "/source",
+            "runs": [
+                ledger("/source", 1, 100),
+                ledger("/api", 2, 200),
+                ledger("/history", 0, 0),
+                ledger("/failed-joint", 3, 300, complete=False),
+            ],
+        }
+
+    def test_switching_to_new_repository_or_back_keeps_task_usage(self):
+        from tests.test_coordination_usage import ledger
+
+        task = meter.TaskUsage()
+        task.accept(self.snapshot())
+        task.observe(ledger("/history", 0, 0, complete=False))
+        for run in ("/source", "/api", "/history"):
+            total = task.total(run)
+            self.assertEqual(6, total["spent_usd"])
+            self.assertEqual(600, total["input_tokens"])
+            self.assertFalse(total["cost_complete"])
+        task.observe(ledger("/history", 0.5, 50))
+        task.observe(ledger("/history", 0.5, 50))
+        self.assertEqual(6.5, task.total("/source")["spent_usd"])
+        self.assertEqual(650, task.total("/source")["input_tokens"])
+        self.assertIsNone(task.total("/unrelated"))
+
+    def test_reopen_uses_all_saved_ledgers_and_does_not_add_inherited_cost_twice(self):
+        from tests.test_coordination_usage import ledger
+
+        task = meter.TaskUsage()
+        snapshot = self.snapshot()
+        snapshot["runs"].append(ledger("/restored", 7, 20, inherited=6))
+        task.accept(snapshot)
+        task.accept(snapshot)
+        self.assertEqual(7, task.total("/source")["spent_usd"])
+        self.assertEqual(620, task.total("/source")["input_tokens"])
+
+    def test_unpriced_member_keeps_known_task_cost_as_incomplete(self):
+        from tests.test_coordination_usage import ledger
+
+        task = meter.TaskUsage()
+        task.accept(self.snapshot())
+        task.observe(ledger("/history", None, 10, complete=False))
+        total = task.total("/history")
+        self.assertEqual(6, total["spent_usd"])
+        self.assertFalse(total["cost_complete"])
+        self.assertFalse(total["tokens_complete"])
+        self.assertIn("$6.00+", meter.total_text(total, show_pending=True))
+        task.accept({"version": 1, "anchor": "/unknown", "runs": [ledger("/unknown", None, 0, complete=False)]})
+        self.assertEqual("$? · tokens pending", meter.total_text(task.total("/unknown"), show_pending=True))
+        self.assertIsNone(task.total("/source"))
+
+    def test_active_stage_without_usage_says_tokens_pending(self):
+        row = {
+            "state": meter.WORKING,
+            "job": "Planner",
+            "seconds": 1,
+            "attempts": 1,
+            "route": "model high",
+            "spent_usd": None,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "tokens_complete": False,
+            "why": "",
+        }
+        _, detail, _ = meter.stage_lines(row)
+        self.assertIn("tokens pending", detail)

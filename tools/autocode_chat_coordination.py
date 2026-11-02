@@ -66,6 +66,8 @@ def read(client, view):
             "Coordination status refused: "
             + str(summary.get("error", "invalid identity") if isinstance(summary, dict) else "invalid identity")
         )
+    if summary.get("accounting") and getattr(client, "_observe_coordination", None):
+        client._observe_coordination(summary["accounting"])
     return summary
 
 

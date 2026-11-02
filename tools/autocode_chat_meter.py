@@ -200,6 +200,8 @@ def stage_lines(row: dict, *, unicode: bool = True) -> tuple[str, str, str]:
     used = row["input_tokens"] + row["output_tokens"]
     if used:
         detail.append(f"{tokens(used)}{'' if row['tokens_complete'] else '+'} tokens")
+    elif row["route"] and not row["tokens_complete"]:
+        detail.append("tokens pending")
     if row["why"] and row["state"] != DONE:
         detail.append(row["why"])
     style = {DONE: "good", WORKING: "accent", FAILED: "bad", RETRYING: "warn"}[row["state"]]
@@ -243,7 +245,7 @@ def run_total(view: dict | None) -> dict | None:
     }
 
 
-def total_text(total: dict | None, cap=None) -> str:
+def total_text(total: dict | None, cap=None, *, show_pending: bool = False) -> str:
     """A total as "$0.42 · 184k tokens", "$1.73 of $5.00 · 843k tokens" with the run's spending cap.
     A "+" marks the figure that is a floor: "$0.42+" when some cost is unaccounted, "184k+ tokens"
     when some usage is unreported."""
@@ -256,6 +258,8 @@ def total_text(total: dict | None, cap=None) -> str:
         parts[0] += f" of {money(cap)}"
     if used:
         parts.append(f"{tokens(used)}{'' if total['tokens_complete'] else '+'} tokens")
+    elif show_pending and not total["tokens_complete"]:
+        parts.append("tokens pending")
     return " · ".join(parts)
 
 
@@ -277,3 +281,44 @@ def session_total(totals: list[dict | None]) -> dict | None:
         "cost_complete": all(total["cost_complete"] for total in shown) and len(shown) == len(totals),
         "tokens_complete": all(total["tokens_complete"] for total in shown) and len(shown) == len(totals),
     }
+
+
+class TaskUsage:
+    """One task's public accounting snapshot, updated by its currently observed run.
+
+    Repository switches change which row is updated, never which ledgers are
+    included. An unrelated chat uses its own meter. Reopening reloads the core's
+    complete run inventory, including earlier joint attempts.
+    """
+
+    def __init__(self):
+        self.rows = {}
+
+    def accept(self, snapshot):
+        self.rows = {row["run_dir"]: run_total(row) for row in snapshot["runs"]}
+
+    def observe(self, view):
+        run = view.get("run_dir")
+        if run in self.rows:
+            self.rows[run] = run_total(view)
+
+    def total(self, run):
+        if run not in self.rows:
+            return None
+        totals = list(self.rows.values())
+        result = session_total(totals)
+        if result is None:
+            result = {
+                "spent_usd": None,
+                "inherited_usd": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cost_complete": False,
+                "tokens_complete": False,
+            }
+        # A missing price leaves a known lower bound, not a zero-cost run and
+        # not a reason to hide other runs' already recorded spend.
+        known = [row for row in totals if row is not None and row["spent_usd"] is not None]
+        result["spent_usd"] = sum(row["spent_usd"] - row["inherited_usd"] for row in known) if known else None
+        result["cost_complete"] = result["cost_complete"] and len(known) == len(totals)
+        return result

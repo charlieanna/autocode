@@ -427,3 +427,19 @@ class RunListTests(unittest.TestCase):
         self.assertNotIn("/new", working)
         self.assertIn("/open", asking)
         self.assertIn("/new", asking)
+
+
+class TaskUsageSectionTests(unittest.TestCase):
+    def test_task_total_is_visible_even_when_current_repository_has_no_usage(self):
+        total = {
+            "spent_usd": 3,
+            "inherited_usd": 0,
+            "input_tokens": 300,
+            "output_tokens": 0,
+            "cost_complete": False,
+            "tokens_complete": False,
+        }
+        current = {"status": "RUNNING", "cost": {"spent_usd": 0, "complete": False}}
+        sections = panel.sections(current, task_total=total)
+        task = next(row for row in sections if row.title == "Task usage")
+        self.assertEqual("$3.00+ · 300+ tokens", task.summary)

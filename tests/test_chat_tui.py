@@ -325,6 +325,48 @@ def screen_ui(*keys):
     return ui
 
 
+class CoordinatedMeterTests(unittest.TestCase):
+    def test_reopening_does_not_mislabel_anchor_spend_before_task_inventory_arrives(self):
+        from tests.test_coordination_usage import ledger
+
+        ui = screen_ui()
+        ui.observe({**ledger("/source", 1, 100), "coordination": {"phase": "planning"}})
+        self.assertEqual("task $? · tokens pending", ui._spend())
+
+    def test_task_meter_survives_repository_switches_and_unavailable_reads(self):
+        from tests.test_coordination_usage import ledger
+
+        ui = screen_ui()
+        source, member = ledger("/source", 1, 100), ledger("/member", 2, 200)
+        ui.observe(source)
+        ui.observe_coordination({"version": 1, "anchor": "/source", "runs": [source, member, ledger("/new", 0, 0)]})
+        ui.observe(ledger("/new", 0, 0, complete=False))
+        self.assertEqual("task $3.00+ · 300+ tokens", ui._spend())
+        ui.status_unavailable("read delayed")
+        self.assertEqual("task $3.00+ · 300+ tokens", ui._spend())
+        ui.observe(member)
+        self.assertEqual("task $3.00+ · 300+ tokens", ui._spend())
+        ui.observe(source)
+        self.assertEqual("task $3.00+ · 300+ tokens", ui._spend())
+        ui.observe(ledger("/unrelated", 7, 700))
+        self.assertEqual("$7.00 · 700 tokens", ui._spend())
+
+    def test_side_panel_labels_task_usage_separately_from_current_work(self):
+        from tests.test_coordination_usage import ledger
+
+        ui = screen_ui()
+        ui._panel_on = True
+        ui.observe_coordination(
+            {"version": 1, "anchor": "/source", "runs": [ledger("/source", 1, 100), ledger("/member", 0, 0)]}
+        )
+        ui.observe(ledger("/member", 0, 0, complete=False))
+        shown = []
+        ui._put = lambda row, col, text, attr=0: shown.append(text)
+        ui._side_panel(ui._layout(*ui._size()))
+        self.assertIn("TASK USAGE", " ".join(shown))
+        self.assertIn("$1.00+", " ".join(shown))
+
+
 class MouseScrollTests(unittest.TestCase):
     def test_key_reads_do_not_block_on_missing_mouse_bytes_and_restore_flags(self):
         import fcntl

@@ -399,6 +399,7 @@ class CoordinationTests(unittest.TestCase):
             patch.object(store, "read", return_value=self.document),
             patch.object(coordinate, "observe", return_value={}),
             patch.object(coordinate, "next_step", return_value={"kind": "blocked", "reason": "test"}),
+            patch.object(coordinate, "anchor_view", return_value={}),
         ):
             shown = coordinate.status(self.document["anchor"])
         member = shown["members"][0]
@@ -435,6 +436,7 @@ class CoordinationTests(unittest.TestCase):
             patch.object(store, "read", return_value=document),
             patch.object(coordinate, "observe", return_value={}),
             patch.object(coordinate, "next_step", return_value=offer),
+            patch.object(coordinate, "anchor_view", return_value={}),
         ):
             first = coordinate.status(document["anchor"])["approval"]["token"]
             document["task"] = "Fix a different API result"
@@ -1480,7 +1482,10 @@ class CoordinationTests(unittest.TestCase):
     def test_cancellation_precedes_any_start_or_publication(self):
         store.save(self.document)
         coordinate.cancel(self.document["anchor"])
-        with patch.object(coordinate.tasks.TaskRun, "start") as start:
+        with (
+            patch.object(coordinate.tasks.TaskRun, "start") as start,
+            patch.object(coordinate, "anchor_view", return_value={}),
+        ):
             result = coordinate.advance(self.document["anchor"])
         self.assertEqual("cancelled", result["needs"]["kind"])
         start.assert_not_called()
