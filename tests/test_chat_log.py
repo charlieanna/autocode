@@ -61,7 +61,7 @@ class ReadTests(unittest.TestCase):
         )
         self.assertEqual(
             [
-                ("thinking", "I should look at greet.py first"),
+                ("thinking", "I should look at greet.py first [partial]"),
                 ("command", "pytest -q"),
                 ("message", "Editing greet.py now."),
                 ("edit", "edited greet.py"),
@@ -226,7 +226,36 @@ class ReadTests(unittest.TestCase):
                 codex("item.updated", "r1", type="reasoning", text="Confirm the behavior first"),
             ],
         )
-        self.assertEqual([("thinking", "Confirm the behavior first")], self.entries())
+        self.assertEqual([("thinking", "Confirm the behavior first [partial]")], self.entries())
+
+    def test_unfinished_multiword_prose_is_marked_until_its_completed_snapshot(self):
+        for kind in ("reasoning", "agent_message"):
+            for event in ("item.started", "item.updated"):
+                with self.subTest(kind=kind, event=event):
+                    rows = [codex(event, "part", type=kind, text="Found an")]
+                    write(self.events, rows)
+                    before = log.read(self.events)
+                    self.assertEqual("Found an [partial]", before[0][1]["text"])
+                    rows.append(codex("item.completed", "part", type=kind, text="Found an issue."))
+                    write(self.events, rows)
+                    after = log.read(self.events)
+                    self.assertEqual(before[0][0], after[0][0])
+                    self.assertEqual(1, len(after))
+                    self.assertEqual("Found an issue.", after[0][1]["text"])
+
+    def test_partial_notice_is_bounded_redacted_and_survives_a_turn_without_final_text(self):
+        write(
+            self.events,
+            [
+                codex("item.updated", "part", type="reasoning", text="old " * 200 + "api_key=abcdefghijkl newest"),
+                {"type": "turn.completed"},
+            ],
+        )
+        shown = self.entries()[0][1]
+        self.assertTrue(shown.startswith("[earlier text omitted] "))
+        self.assertTrue(shown.endswith("newest [partial]"))
+        self.assertLessEqual(len(shown), log.PROSE_LIMIT)
+        self.assertNotIn("abcdefghijkl", shown)
 
     def test_blank_prose_and_tool_output_are_not_entries(self):
         write(

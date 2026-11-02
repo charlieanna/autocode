@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Live chat log: an unfinished multiword streamed thought or message is now labelled
+  `[partial]` — bounded and redacted like final prose — instead of being shown as if it
+  were the agent's final text; the completion snapshot still replaces it, and a fragment
+  retained past its turn keeps the label.
 - Terminal chat: during coordinated progress the anchor run's short status outages show in
   the persistent header/tab indicators only — coordination's temporary callback handover no
   longer makes the client think the full-screen view has no read indicator, so the transcript
