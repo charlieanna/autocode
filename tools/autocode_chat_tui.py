@@ -1595,7 +1595,7 @@ class ChatTUI:
         if not self._asking and live_start is None and room >= 7:
             latest = panel.recent_notes(self._view, limit=2 if room >= 12 else 1)
             if latest:
-                stage = (self._view.get("progress") or {}).get("stage")
+                stage = ((self._view or {}).get("progress") or {}).get("stage")
                 notes = [f"{stage} · latest updates"]
                 for note in latest:
                     notes.extend(wrapped_rows(note, max(1, body_width - 2), 2))

@@ -604,7 +604,7 @@ def recent_notes(view: dict | None, limit: int = 2) -> list[str]:
     stage = _mapping(view.get("progress")).get("stage")
     if view.get("status") != "RUNNING" or not isinstance(stage, str) or not stage.strip() or limit < 1:
         return []
-    notes = []
+    notes: list[str] = []
     for row in log_entries(view):
         if row["kind"] != "message" or row["agent"] != stage:
             continue
