@@ -326,6 +326,39 @@ def screen_ui(*keys):
 
 
 class MouseScrollTests(unittest.TestCase):
+    def test_key_reads_do_not_block_on_missing_mouse_bytes_and_restore_flags(self):
+        import fcntl
+        import os
+
+        ui = screen_ui()
+        flags = 128
+        observed = []
+
+        def control(fd, command, value=None):
+            nonlocal flags
+            if command == fcntl.F_GETFL:
+                return flags
+            flags = value
+
+        def read():
+            observed.append(flags)
+            raise tui.curses.error("partial input")
+
+        ui._screen.get_wch.side_effect = read
+        with mock.patch.object(tui.sys, "stdin") as stdin, mock.patch.object(fcntl, "fcntl", side_effect=control):
+            stdin.fileno.return_value = 42
+            self.assertIsNone(ui._read_key())
+            self.assertEqual(128, flags)
+            self.assertIsNone(ui._read_next())
+            self.assertEqual(128, flags)
+        self.assertEqual([128 | os.O_NONBLOCK] * 2, observed)
+
+    def test_keyboard_reads_still_work_when_stdin_has_no_descriptor(self):
+        ui = screen_ui("x")
+        with mock.patch.object(tui.sys, "stdin") as stdin:
+            stdin.fileno.side_effect = ValueError("no descriptor")
+            self.assertEqual("x", ui._read_key())
+
     def test_wheel_scrolls_history_both_ways_without_editing_composer(self):
         ui = screen_ui()
         ui._composer.insert("draft")

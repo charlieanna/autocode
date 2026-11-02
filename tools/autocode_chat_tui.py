@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import contextlib
 import curses
+import fcntl
 import json
 import locale
+import os
 import re
 import signal
 import subprocess
@@ -1153,10 +1155,7 @@ class ChatTUI:
     def _read_key(self):
         if self._queued:
             return self._queued.pop(0)
-        try:
-            key = self._screen.get_wch()
-        except curses.error:
-            return None
+        key = self._read_next()
         if key != "\x1b":
             return key
         self._screen.timeout(50)
@@ -1176,11 +1175,32 @@ class ChatTUI:
         self._queued.extend(consumed)  # an escape key on its own, then whatever followed it
         return ESCAPE
 
-    def _read_next(self):
+    @staticmethod
+    @contextlib.contextmanager
+    def _nonblocking_input():
+        """Keep ncurses' direct reads of partial mouse packets from blocking the poll loop.
+
+        The window timeout bounds waiting for a key, but not ncurses' subsequent
+        reads of X10 mouse bytes. Restore descriptor flags before handling or drawing.
+        """
         try:
-            return self._screen.get_wch()
-        except curses.error:
-            return None
+            fd = sys.stdin.fileno()
+            flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+            fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        except (OSError, ValueError):
+            yield
+            return
+        try:
+            yield
+        finally:
+            fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+
+    def _read_next(self):
+        with self._nonblocking_input():
+            try:
+                return self._screen.get_wch()
+            except curses.error:
+                return None
 
     def _handle(self, key, *, asking: bool) -> str | None:
         """One key: at a question, the answer once Enter sends one; while working, "pause" or None."""

@@ -62,6 +62,36 @@ with ChatTUI() as ui:
 
 
 class MouseHistoryScreenTests(unittest.TestCase):
+    def test_incomplete_mouse_packet_cannot_stall_the_status_loop(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI
+with ChatTUI() as ui:
+    ui.say('Ready for input probe')
+    while ui._composer.text != 'probe':
+        ui.wait(0.1)
+    ui.say('Input probe armed')
+    ui.wait(1.0)
+    ui.say('Status polling continued')
+    while True:
+        ui.wait(0.1)
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=100, rows=25, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for("Ready for input probe")
+        screen.type("probe")
+        screen.wait_for("Input probe armed")
+        screen.type("\x1b[M")  # Truncated X10 packet: ncurses must not block waiting for its three bytes.
+        screen.wait_for("Status polling continued", timeout=5)
+        screen.keys("C-u")
+        screen.type("after")
+        screen.wait_for(
+            lambda shown: composer_text(shown) == "after", what="typing works after a truncated mouse packet"
+        )
+
     def test_wheel_and_page_keys_reach_start_and_keep_position_during_updates(self):
         script = """
 import sys
