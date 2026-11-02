@@ -55,6 +55,26 @@ def _prose(value) -> str:
     return prefix + text[start:].lstrip()
 
 
+def _structured_response(text: str) -> bool:
+    """Recognize a leading JSON object, including a streaming prefix, only for display."""
+    text = text.strip()
+    if text.startswith("```"):
+        opening, _, text = text.partition("\n")
+        if opening not in ("```", "```json"):
+            return False
+        text = text.strip()
+    if not text.startswith("{"):
+        return False
+    rest = text[1:].lstrip()
+    if rest and rest[0] not in ('"', "}"):
+        return False
+    try:
+        _, end = json.JSONDecoder().raw_decode(text)
+    except ValueError:
+        return True  # a partial report must not leak fragments before it finishes
+    return text[end:].strip() in ("", "```")  # retain prose or a question after an example
+
+
 def prose_event(row: dict) -> tuple[str, dict] | None:
     """A reasoning or message row (a Codex-style item, or an OpenCode or Kilo ``text`` or ``reasoning``
     part) as an event; a later snapshot of the same item has the same key."""
@@ -67,6 +87,10 @@ def prose_event(row: dict) -> tuple[str, dict] | None:
         return None
     if kind is None or not isinstance(identifier, (str, int)) or not isinstance(text, str):
         return None
+    if kind == "message" and _structured_response(text):
+        partial = row.get("type") in ("item.started", "item.updated")
+        shown = "Receiving a structured response. [partial]" if partial else "Structured response received."
+        return f"{kind}:{identifier}", {"kind": kind, "text": shown}
     shown = _prose(text)
     if shown and row.get("type") in ("item.started", "item.updated"):
         # Only the item's completion establishes a whole message. A turn may end

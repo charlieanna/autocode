@@ -45,6 +45,83 @@ class ReadTests(unittest.TestCase):
     def entries(self):
         return [(entry["kind"], entry["text"]) for _, entry in log.read(self.events, "/work")]
 
+    def test_structured_response_prefixes_are_distinct_from_readable_prose(self):
+        for text in (
+            "{",
+            '{"summary":',
+            ' { "summary": "checked" }',
+            '```json\n{"summary": "checked"}\n```',
+            '```\n{"summary": "checked"}\n```',
+        ):
+            with self.subTest(text=text):
+                self.assertTrue(log._structured_response(text))
+        for text in (
+            "",
+            "Which codes should history show?",
+            "[checking] the registry mappings",
+            'The response contains {"code": 0}.',
+            "{operation} identifies the request",
+            "```go\nfunc check() {}\n```",
+            '{"code": 0} Which result should this show?',
+        ):
+            with self.subTest(text=text):
+                self.assertFalse(log._structured_response(text))
+
+    def test_reasoning_and_questions_are_not_reclassified_as_reports(self):
+        text = '{"code": 0} Which result should this show?'
+        write(
+            self.events,
+            [
+                codex("item.completed", "question", type="agent_message", text=text),
+                codex("item.completed", "thought", type="reasoning", text='{"code": 0}'),
+            ],
+        )
+        self.assertEqual([("message", text), ("thinking", '{"code": 0}')], self.entries())
+
+    def test_json_report_is_a_neutral_update_without_displacing_readable_messages(self):
+        report = json.dumps({"summary": "saved " * 200, "workspace_scope": {"spans_repositories": True}})
+        for row in (
+            codex("item.completed", "report", type="agent_message", text=report),
+            {"type": "text", "part": {"id": "report", "text": report}},
+        ):
+            with self.subTest(row_type=row["type"]):
+                write(
+                    self.events,
+                    [
+                        codex(
+                            "item.completed",
+                            "update",
+                            type="agent_message",
+                            text="Checking the existing result mappings.",
+                        ),
+                        row,
+                        progress("text", "report"),
+                    ],
+                )
+                original = self.events.read_bytes()
+                self.assertEqual(
+                    [
+                        ("message", "Checking the existing result mappings."),
+                        ("message", "Structured response received."),
+                    ],
+                    self.entries(),
+                )
+                self.assertEqual(original, self.events.read_bytes(), "raw report evidence stays intact")
+
+    def test_streaming_json_replaces_one_entry_and_keeps_its_partial_notice(self):
+        rows = [
+            codex("item.updated", "report", type="agent_message", text="{"),
+            codex("item.updated", "report", type="agent_message", text='{"summary": "checking'),
+        ]
+        write(self.events, rows)
+        before = log.read(self.events)
+        self.assertEqual([("message", "Receiving a structured response. [partial]")], self.entries())
+        rows.append(codex("item.completed", "report", type="agent_message", text='{"summary": "checked"}'))
+        write(self.events, rows)
+        after = log.read(self.events)
+        self.assertEqual(before[0][0], after[0][0])
+        self.assertEqual([("message", "Structured response received.")], self.entries())
+
     def test_reasoning_messages_and_tool_calls_in_the_order_they_began(self):
         write(
             self.events,
@@ -445,6 +522,22 @@ class StatusViewTests(unittest.TestCase):
     def test_an_attempt_without_supervision_shows_none(self):
         chat = self.render({"keeper": False}, [codex("item.completed", "r1", type="reasoning", text="hidden")])
         self.assertNotIn("log", chat)
+
+    def test_public_live_log_shows_readable_update_instead_of_raw_report(self):
+        chat = self.render(
+            {},
+            [
+                codex("item.completed", "update", type="agent_message", text="Checking the existing result mappings."),
+                {
+                    "type": "text",
+                    "part": {"id": "report", "text": json.dumps({"workspace_scope": {"spans_repositories": True}})},
+                },
+            ],
+        )
+        self.assertEqual(
+            ["Checking the existing result mappings.", "Structured response received."],
+            [row["text"] for row in chat["log"]],
+        )
 
 
 if __name__ == "__main__":

@@ -49,6 +49,38 @@ with ChatTUI() as ui:
 
 
 class LiveDefaultScreenTests(unittest.TestCase):
+    def test_structured_report_does_not_replace_readable_progress_with_json(self):
+        script = """
+import json, sys
+sys.path.insert(0, 'tools')
+from autocode_chat_log import prose_event
+from autocode_chat_tui import ChatTUI
+rows = []
+for identifier, text in [('update', 'Checking the existing registry mappings.'),
+                         ('report', json.dumps({'summary': 'saved ' * 200,
+                                                'workspace_scope': {'spans_repositories': True}}))]:
+    key, entry = prose_event({'type': 'text', 'part': {'id': identifier, 'text': text}})
+    rows.append({'id': key, 'agent': 'Requirements', **entry})
+with ChatTUI() as ui:
+    ui.observe({'status': 'RUNNING', 'chat': {'log': rows}})
+    while True:
+        ui.wait(0.1)
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for(
+            lambda shown: (
+                "Checking the existing registry mappings." in shown
+                and "Structured response received." in shown
+                and "workspace_scope" not in shown
+                and "spans_repositories" not in shown
+            ),
+            timeout=10,
+            what="readable progress and a neutral report receipt without JSON fragments",
+        )
+
     def test_tool_input_fragments_do_not_crowd_out_readable_progress(self):
         script = """
 import sys
