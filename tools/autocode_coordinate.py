@@ -960,9 +960,15 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
         if not document and store.cancelled(run_dir):
             return status(run_dir, command=command)
         document = document or initialize(run_dir, command=command)
-        views = observe(document, command=command)
-        step = next_step(document, views, command=command)
-        kind = step["kind"]
+        # Reuse one coherent public observation while choosing this step. End
+        # the scope before saving intent or executing: action checks and the
+        # returned status must see any newly arrived pause or changed evidence.
+        with reads.snapshot():
+            views = observe(document, command=command)
+            step = next_step(document, views, command=command)
+            kind = step["kind"]
+            if kind == "conversation":
+                requests, participants, source = conversation_inputs(document, views, command=command)
         if kind not in AUTOMATIC:
             return status(run_dir, command=command)
         document["member_statuses"] = {target: view["status"] for target, view in views.items()}
@@ -974,7 +980,6 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
             document.get("joint") if step.get("target") == "Joint regression" else None,
         )
         if kind == "conversation":
-            requests, participants, source = conversation_inputs(document, views, command=command)
 
             def run_for(target):
                 row = (
