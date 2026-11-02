@@ -24,12 +24,14 @@ try:
     from . import autocode_chat_changeset as changeset
     from . import autocode_chat_cost as cost
     from . import autocode_chat_meter as meter
+    from . import autocode_chat_recoveries as recoveries
     from . import autocode_chat_stage_policy as stage_policy
     from . import autocode_chat_verification as verification
 except ImportError:
     import autocode_chat_changeset as changeset
     import autocode_chat_cost as cost
     import autocode_chat_meter as meter
+    import autocode_chat_recoveries as recoveries
     import autocode_chat_stage_policy as stage_policy
     import autocode_chat_verification as verification
 
@@ -101,6 +103,7 @@ COMMANDS = (
     Command("/tasks", "Show the task list"),
     Command("/log", "Show how the run has moved so far"),
     Command("/details", "Why the run is where it is"),
+    Command("/why", "What went wrong at each stage and what AutoCode did about it"),
     Command("/live", "Show or hide the live agent log; /live NAME, thinking or tools filters it"),
     Command("/diff", "The saved code steps; /diff N shows what changed since step N"),
     Command("/undo", "Go back to a saved step on a new branch: /undo N"),
@@ -161,6 +164,7 @@ RUN_COMMANDS = (
     "/tasks",
     "/log",
     "/details",
+    "/why",
     "/live",
     "/diff",
     "/undo",
@@ -282,6 +286,13 @@ def sections(view: dict | None, *, launched: bool = False) -> list[Section]:
     result = [Section("Now", now, tuple(rows))]
     if ran := stage_section(view):
         result.append(ran)
+    # What went wrong and what AutoCode did, newest first: a rejected answer, a Builder sent back, the
+    # Investigator or the Resolver called (view.recoveries); /why has each one in full. AutoCode handled
+    # each of them, so none is marked as needing the person: the newest is plain, the older ones dim.
+    if went_wrong := recoveries.compact(view):
+        summary, entries = went_wrong
+        handled = tuple(Row(meter.RETRYING, line, "dim" if index else "plain") for index, line in enumerate(entries))
+        result.append(Section("What went wrong", summary, handled))
     # Whether the delivery is verified means something once the run has finished; before then it
     # is always "not verified", and /details keeps the evidence either way.
     if verification.settled(view) and (proof := verification.compact(view)):
@@ -396,18 +407,32 @@ def steps(view: dict | None) -> list[dict]:
 
 
 def finished_text(view: dict | None) -> str:
-    """A finished run's closing line: the files its saved steps and its acceptance tests changed, and
-    where to see the change. Empty when the view names no file, so nothing is claimed it does not name."""
+    """A finished run's closing line: the files its saved steps changed, the files its acceptance tests
+    are in, and where to see the change. Empty when the view names no file, so nothing is claimed it
+    does not name."""
     files: list[str] = []
-    named_files = [path for row in steps(view) for path in row.get("changed_files") or []]
-    named_files += _mapping(_mapping(view).get("acceptance_tests")).get("files") or []
-    for path in named_files:
+    for path in (path for row in steps(view) for path in row.get("changed_files") or []):
         if str(path) not in files:
             files.append(str(path))
-    if not files:
+    # The acceptance tests' files are where those tests live: the Tester may have written them or
+    # bound a test that was already there, so they are named apart and never counted as changed.
+    tests = [
+        str(path)
+        for path in _mapping(_mapping(view).get("acceptance_tests")).get("files") or []
+        if str(path) not in files
+    ]
+    said = []
+    if files:
+        said.append(f"Changed {len(files)} file{'' if len(files) == 1 else 's'}: {_named(files)}.")
+    if tests:
+        said.append(f"Acceptance tests in {_named(tests)}.")
+    if not said:
         return ""
-    named = ", ".join(files[:6]) + (f" and {len(files) - 6} more" if len(files) > 6 else "")
-    return f"Changed {len(files)} file{'' if len(files) == 1 else 's'}: {named}. /diff shows what changed."
+    return " ".join([*said, "/diff shows what changed."])
+
+
+def _named(files: list[str]) -> str:
+    return ", ".join(files[:6]) + (f" and {len(files) - 6} more" if len(files) > 6 else "")
 
 
 def steps_text(view: dict | None, command: str) -> str:
@@ -471,17 +496,24 @@ def comparison_text(
 
 
 def text(name: str, view: dict | None, log: StageLog, available: list[Command] | None = None) -> str:
-    """What ``/plan``, ``/tasks``, ``/log``, ``/details`` and ``/help`` print into the conversation."""
+    """What ``/plan``, ``/tasks``, ``/log``, ``/details``, ``/why`` and ``/help`` print into the conversation."""
     view = view or {}
     if name == "/help":
         commands = available if available is not None else COMMANDS
         return "\n".join(f"{command.name:<9} {command.description}" for command in commands)
     if name == "/log":
         return "\n".join(log.lines) or "Nothing has happened yet."
+    if name == "/why":
+        return recoveries.why(view)
     if name == "/details":
         explanation = _mapping(view.get("explanation")).get("explanation")
         said = str(explanation or (view.get("progress") or {}).get("line") or "AutoCode has said nothing more yet.")
-        more = "\n\n".join(filter(None, (verification.details(view), cost.details(view), stage_policy.details(view))))
+        more = "\n\n".join(
+            filter(
+                None,
+                (recoveries.details(view), verification.details(view), cost.details(view), stage_policy.details(view)),
+            )
+        )
         return said + ("\n\n" + more if more else "")
     wanted = {"/plan": "Requirements", "/tasks": "Tasks"}[name]
     for section in sections(view):

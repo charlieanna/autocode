@@ -757,6 +757,7 @@ highlighted one:
 | --- | --- |
 | `/plan`, `/tasks`, `/log` | Show the requirements, the task list or the run's log in the conversation |
 | `/details` | Why the run is where it is, verification and recovery evidence, recorded timings, cost coverage, token usage, actual attempt routes and saved routes for future attempts |
+| `/why` | What went wrong in this run, oldest first: each rejected answer, rewritten report, Builder sent back for untested lines, stage handed to the Investigator and Resolver decision, with the stage, the problem, what AutoCode did next and what the Investigator found. When the Investigator or the Resolver ran, it also says when and why AutoCode calls each one |
 | `/diff` | List the saved code steps with the files each changed; `/diff N` shows the files and the diff changed since step N |
 | `/undo N` | At a question: go back to saved step N. It shows what differs and asks first; yes makes a new run on a new branch, your branch and its later work stay as they are, and the chat carries on with the new run, which checks every requirement again |
 | `/changeset` | For a run linked with runs in other repositories (`autocode changeset link`): every run of the change set and its state. Once every run waits on a complete plan it shows each plan and asks before approving them together; once every run is complete and an integration check is due it asks before running it. Nothing else is offered: linking, the check command, waivers, reopening and the merge order stay `autocode changeset` commands |
@@ -779,8 +780,17 @@ highlighted one:
 A new chat opens on a welcome with a few example requests, and its status row reads
 "New chat" until something is sent; a run that has just started reads "Starting the
 run…" while its first status reads land. When a run finishes, the chat names the
-files its saved steps and its acceptance tests changed and points to `/diff`. The F8 badge counts alerts from
+files its saved steps changed, then the files its acceptance tests are in (named apart, since the
+Tester may have bound a test that was already there), and points to `/diff`. The F8 badge counts alerts from
 other chats; the question on screen is not counted again.
+
+A run recovers from most failures on its own, and the chat says so as it happens, once each:
+a `Recovery ·` notice names the stage, what went wrong and what AutoCode did about it, such as
+"Builder stuck", the rejection that caused it, and "AutoCode called the Investigator, which found
+the cause, and the Builder tried again with its advice." A chat opened on a run that already
+recovered says how many times in one line instead of replaying them. The side panel's "What went
+wrong" section lists the newest three with their times, and `/why` lists them all. These come
+from the view's `recoveries` ([task-run interface](task-run.md#what-went-wrong-recoveries)).
 
 What the chat put to you is said once: a question or the understanding you
 approved is not repeated when the run records your answer, and once you approve

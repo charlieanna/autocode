@@ -62,6 +62,7 @@ try:
     from . import autocode_chat_meter as meter
     from . import autocode_chat_panel as panel
     from . import autocode_chat_polling as polling
+    from . import autocode_chat_recoveries as recoveries
     from . import autocode_chat_setup as setup
     from . import autocode_chat_stages as stages
     from . import autocode_chat_worker as worker
@@ -78,6 +79,7 @@ except ImportError:
     import autocode_chat_meter as meter
     import autocode_chat_panel as panel
     import autocode_chat_polling as polling
+    import autocode_chat_recoveries as recoveries
     import autocode_chat_setup as setup
     import autocode_chat_stages as stages
     import autocode_chat_worker as worker
@@ -389,6 +391,7 @@ class ChatClient:
         # records arrive once the person has answered: a question is not said again, a plan only by its heading.
         self._asked: set[str] = set()
         self._shown_plans: set[str] = set()
+        self._recoveries_seen: set[str] = set()  # view.recoveries ids already said or summed up
         self._replied_context: str | None = None  # the chat context the last sent reply answered
         self.started = False  # the first view prints the whole conversation, later ones only what is new
         self.last_line: tuple = ()
@@ -850,7 +853,7 @@ class ChatClient:
         sent to the model as the reply and spent a planning call; ``/open`` and ``/new`` leave the prompt."""
         if name == "/quit":
             raise Left
-        if name in ("/help", "/plan", "/tasks", "/details"):
+        if name in ("/help", "/plan", "/tasks", "/details", "/why"):
             return panel.text(name, self._status_view, panel.StageLog())  # the line chat keeps no stage log
         if name in panel.CLIENT_COMMANDS:
             result = self.slash(name, argument)
@@ -898,8 +901,27 @@ class ChatClient:
                 finally:
                     self._attached = attached
 
+    def _say_recoveries(self, view: dict) -> None:
+        """Each new recovery once: what went wrong at which stage and what AutoCode did (view.recoveries).
+
+        A chat opened on a run that already recovered sums those up in one line instead of replaying them;
+        /why lists them."""
+        fresh = [row for row in recoveries.entries(view) if row["id"] not in self._recoveries_seen]
+        self._recoveries_seen.update(row["id"] for row in fresh)
+        if not fresh:
+            return
+        if not self.started:
+            count = len(fresh)
+            self.say(
+                f"\n{recoveries.PREFIX} {count} thing{'' if count == 1 else 's'} went wrong earlier in this run "
+                "and AutoCode handled them. /why shows each one."
+            )
+            return
+        for row in fresh:
+            self.say("\n" + recoveries.notice(row))
+
     def show(self, view: dict) -> None:
-        """New conversation messages, the notice and the progress line, each once."""
+        """New conversation messages, recoveries, the notice and the progress line, each once."""
         chat = view.get("chat") or {}
         streaming_text = None
         for row in chat.get("messages") or []:
@@ -930,6 +952,7 @@ class ChatClient:
             self.say(f"\n{who}: {text}")
             if str(ident or "").startswith("requirements-question"):
                 self._asked.add(text)
+        self._say_recoveries(view)
         # A prompt without an immediate public counterpart must not hide a later turn's message.
         # While its counterpart is still being written, the echo waits for the finished message.
         if streaming_text is None:
@@ -979,6 +1002,7 @@ class ChatClient:
                 "last_notice": self.last_notice,
                 "last_progress": self.last_progress,
                 "replied_context": self._replied_context,
+                "recoveries_seen": set(self._recoveries_seen),
             },
         )
         self.others[str(self.run_dir)] = (self.workspace, self.identity)
@@ -989,6 +1013,7 @@ class ChatClient:
         self.last_progress = None
         self._status_view, self._status_error = None, ""
         self._replied_context = None
+        self._recoveries_seen = set()  # another run's recoveries are its own
         self._pause_pending = False  # an unsubmitted keyboard request cannot transfer to another run
         self._live_text, self._live_quiet = None, 0
         # A tab keeps the state last read for it until status() reads it again, so the tabs drawn below never
@@ -1008,6 +1033,7 @@ class ChatClient:
                     saved["last_progress"],
                 )
                 self._replied_context = saved["replied_context"]
+                self._recoveries_seen = saved["recoveries_seen"]
         else:
             self.say(f"\n--- {self.run_dir.name} ---")
         self.show_tabs()

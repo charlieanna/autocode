@@ -1279,6 +1279,30 @@ contract or scope is refused. A model change alone cannot authorize a call, and 
 rejected combined change saves no settings. Clients continue to use only named
 view actions; this operator control does not add a client-side route override.
 
+### What went wrong (`recoveries`)
+
+`view.recovery` describes a stop. `view.recoveries` is the history of what went wrong while the
+run carried on by itself: a list, oldest first and at most the newest 20, built by
+`autocode_recovery_history.project` from the run's own records. Each entry has the same keys:
+
+| Key | Meaning |
+| --- | --- |
+| `id` | Stable for the entry, so a client says each one once |
+| `kind` | `rejected` (a stage's answer was not accepted), `report_repaired` (the work stood and only its report was rewritten), `sent_back` (the changed-code gate returned the Builder for lines with no test that fails when they break and no checked reason), `investigated` (a stage stopped making progress and went to the Investigator), `resolved` (the Resolver chose the next step by its rules) |
+| `at` | When it was recorded (UTC), or null |
+| `job` | The stage's screen name (`autocode_roles`) |
+| `headline` | One line, such as `Builder stuck` or `Tester rewrote its report` |
+| `problem` | What went wrong, or null |
+| `action` | What AutoCode did about it |
+| `by` | The job that handled it: the stage itself, `Investigator` or `Resolver` |
+| `detail` | The Investigator's diagnosis and advice, or null |
+
+The text is redacted and bounded, and a sentence that names a command is left out, since a client
+never shows a person a command to type. A rejection the Investigator was called for appears once,
+as its `investigated` entry. The field is display only: it names no action and grants nothing.
+The terminal chat shows each new entry as a `Recovery ·` notice, the newest three in its side
+panel, and all of them under `/why`.
+
 ## Inspecting current verification
 
 `autocode --run-dir RUN --status --inspect-evidence` performs a read-only source
