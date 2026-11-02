@@ -151,8 +151,7 @@ class PanelTests(unittest.TestCase):
 
 
 class ScreenTests(unittest.TestCase):
-    """The real layout at 120 columns shows the section in the side panel; at 80 columns, where the panel is
-    hidden, /details carries the same record."""
+    """Both compact layouts keep planning-policy detail reachable through /details."""
 
     def drawn(self, ui, rows=30, cols=120):
         ui._screen.getmaxyx.return_value = (rows, cols)
@@ -161,12 +160,14 @@ class ScreenTests(unittest.TestCase):
         ui._draw()
         return [text for _, _, text in puts]
 
-    def test_the_wide_panel_shows_the_plan_path_and_the_narrow_screen_keeps_it_in_details(self):
+    def test_compact_wide_and_narrow_screens_keep_the_plan_path_in_details(self):
         ui = screen_ui()
         ui.observe(with_policy(COMPACT))
-        texts = self.drawn(ui, 30, 120)
-        self.assertTrue(any("PLAN PATH" in text.upper() for text in texts), texts)
-        self.assertIn("PLAN PATH  compact · no Planner draft", texts)
-        narrow = self.drawn(ui, 24, 80)
-        self.assertFalse(any("no Planner draft" in text for text in narrow), "no panel at 80 columns")
-        self.assertIn("Planning path\nPath: compact", panel.text("/details", with_policy(COMPACT), panel.StageLog()))
+        for rows, cols in ((30, 120), (24, 80)):
+            with self.subTest(cols=cols):
+                texts = self.drawn(ui, rows, cols)
+                self.assertTrue(any("Builder working" in text for text in texts), texts)
+                self.assertFalse(any("PLAN PATH" in text.upper() or "no Planner draft" in text for text in texts))
+                details = panel.text("/details", with_policy(COMPACT), panel.StageLog())
+                self.assertIn("Planning path\nPath: compact", details)
+                self.assertIn("Planner draft: omitted", details)
