@@ -19,6 +19,48 @@ AUTOCODE = ROOT / "tools" / "autocode.py"
 RUN_SECONDS = 300  # a fixture stage is quick, but CI hosts are shared
 
 
+class LiveDefaultScreenTests(unittest.TestCase):
+    def test_running_view_shows_live_without_a_command_and_respects_hiding(self):
+        # Real curses rendering of a public view; no provider or task is launched.
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI
+with ChatTUI() as ui:
+    ui.observe({'status': 'RUNNING', 'chat': {'log': []}})
+    while True:
+        ui.wait(0.1)
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=20, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for(
+            lambda shown: (
+                "LIVE · all agents" in shown and "AutoCode is working; no agent activity reported yet." in shown
+            ),
+            what="live activity visible before the first agent message",
+        )
+        screen.type("/live off")
+        screen.keys("Enter")
+        screen.wait_for(lambda shown: "LIVE · all agents" not in shown, what="explicitly hidden live pane")
+        screen.resize(120, 30)
+        screen.wait_for(
+            lambda shown: (
+                len(shown.splitlines()) == 30 and "AutoCode chat" in shown and "LIVE · all agents" not in shown
+            ),
+            what="hidden live pane after resize",
+        )
+        screen.type("/live all")
+        screen.keys("Enter")
+        screen.wait_for(
+            lambda shown: (
+                "LIVE · all agents" in shown and "AutoCode is working; no agent activity reported yet." in shown
+            ),
+            what="explicitly restored live pane",
+        )
+
+
 class ChatScreenTests(unittest.TestCase):
     def setUp(self):
         self.tmux = require_tmux(self)
