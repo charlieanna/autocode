@@ -1455,6 +1455,61 @@ def row_text(puts, number):
     return " ".join(text for row, text in puts if row == number)
 
 
+class RecentProgressScreenTests(unittest.TestCase):
+    def test_recent_progress_stays_above_the_composer_while_reading_earlier_messages(self):
+        ui = screen_ui()
+        ui._panel_on = False
+        for n in range(80):
+            ui.say(f"You: Earlier request {n}")
+        ui.observe(
+            {
+                "status": "RUNNING",
+                "progress": {"stage": "Planner", "headline": "Planner working"},
+                "chat": {
+                    "log": [
+                        {"id": "one", "agent": "Planner", "kind": "message", "text": "Checking the history interface."},
+                        {"id": "two", "agent": "Planner", "kind": "message", "text": "Checking the result mapping."},
+                        {"id": "tool", "agent": "Planner", "kind": "command", "text": "bash -lc hidden-command"},
+                    ]
+                },
+            }
+        )
+        for rows, cols in ((40, 121), (22, 70), (16, 60)):
+            with self.subTest(rows=rows, cols=cols):
+                ui._scroll = 10000
+                puts = drawn(ui, rows, cols)
+                layout = ui._layout(rows, cols)
+                self.assertIn("Earlier request 0", repr(puts))
+                self.assertTrue(layout.notes)
+                self.assertEqual(layout.body_end, layout.notes_start)
+                notes = " ".join(text for row, text in puts if layout.notes_start <= row < layout.status_start)
+                self.assertIn("Planner · latest updates", notes)
+                self.assertIn("Checking the result mapping.", notes)
+                self.assertNotIn("hidden-command", repr(puts))
+                self.assertTrue(all(row < rows for row, _ in puts))
+                self.assertIn("❯", row_text(puts, rows - 3))
+
+    def test_recent_notes_yield_room_to_a_question_or_explicit_live_pane(self):
+        ui = screen_ui()
+        ui.observe(
+            {
+                "status": "RUNNING",
+                "progress": {"stage": "Planner"},
+                "chat": {
+                    "log": [
+                        {"id": "one", "agent": "Planner", "kind": "message", "text": "Checking the history interface."}
+                    ]
+                },
+            }
+        )
+        ui._asking, ui._prompt = True, "Approve this plan?"
+        self.assertEqual([], ui._layout(30, 100).notes)
+        ui._asking, ui._live_on = False, True
+        self.assertEqual([], ui._layout(30, 100).notes)
+        ui._live_on = False
+        self.assertEqual([], ui._layout(10, 40).notes)
+
+
 class NewChatScreenTests(unittest.TestCase):
     """A new chat before anything is sent: a welcome, and no loading noise that reads as a fault."""
 

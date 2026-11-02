@@ -598,6 +598,23 @@ def live_text(text: str) -> str:
     return "; ".join(shown) + (" [partial]" if partial and shown else "")
 
 
+def recent_notes(view: dict | None, limit: int = 2) -> list[str]:
+    """The working stage's latest progress messages, without tool or reasoning details."""
+    view = view or {}
+    stage = _mapping(view.get("progress")).get("stage")
+    if view.get("status") != "RUNNING" or not isinstance(stage, str) or not stage.strip() or limit < 1:
+        return []
+    notes: list[str] = []
+    for row in log_entries(view):
+        if row["kind"] != "message" or row["agent"] != stage:
+            continue
+        text = live_text(row["text"]).strip()
+        if not text or text == "Structured response received." or (notes and notes[-1] == text):
+            continue
+        notes.append(text)
+    return notes[-limit:]
+
+
 @dataclass
 class LiveLog:
     """What each agent has thought, said and done, kept across views: the view holds only the newest

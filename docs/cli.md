@@ -729,6 +729,12 @@ in order, each progress entry labeled with its stage. Updates to the same stream
 older messages keeps your scroll position as new progress arrives; the composer
 stays at the bottom.
 
+While an agent works, its latest two plain-English progress notes also stay above
+the composer in a short rolling view, including while you read earlier messages.
+Short terminals show only the newest note or give all the space to the conversation
+and input. Questions and the optional agent-details pane replace this rolling view.
+It uses existing public progress messages and makes no extra model calls.
+
 In a terminal at least 100 columns wide, a fixed side panel shows the current
 stage, any decision needed, cost and token totals, and compact task/check counts.
 The stage name remains visible in the header and panel while waiting for an answer.

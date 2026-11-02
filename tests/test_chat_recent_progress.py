@@ -1,0 +1,118 @@
+"""Recent prose stays visible beside a real terminal's scrolled conversation and draft."""
+
+import json
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+from tests import ROOT
+from tests.terminal_screen import TerminalScreen, require_tmux
+
+
+class RecentProgressTerminalTests(unittest.TestCase):
+    def test_updates_roll_without_raw_tools_or_moving_the_draft_off_screen(self):
+        with tempfile.TemporaryDirectory() as directory:
+            updates = Path(directory) / "updates.json"
+            updates.write_text(json.dumps(["Checking the history interface.", "Checking the result mapping."]))
+            script = f"""
+import json, sys
+from pathlib import Path
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI
+updates = Path({str(updates)!r})
+with ChatTUI() as ui:
+    for n in range(60):
+        ui.say(f'You: Earlier request {{n}}')
+    previous = None
+    while True:
+        texts = updates.read_text()
+        if texts != previous:
+            previous = texts
+            ui.observe({{'status': 'RUNNING', 'phase': 'PLANNING',
+                'progress': {{'stage': 'Planner', 'headline': 'Planner working'}},
+                'chat': {{'log': [{{'id': str(n), 'agent': 'Planner', 'kind': 'message', 'text': text}}
+                                 for n, text in enumerate(json.loads(texts))]
+                    + [{{'id': 'tool', 'agent': 'Planner', 'kind': 'command', 'text': 'bash -lc hidden-command'}},
+                       {{'id': 'thought', 'agent': 'Planner', 'kind': 'thinking', 'text': 'hidden-reasoning'}}]}}}})
+        ui.wait(0.1)
+"""
+            with TerminalScreen(
+                [sys.executable, "-c", script],
+                cwd=ROOT,
+                env=os.environ,
+                cols=100,
+                rows=30,
+                tmux=require_tmux(self),
+            ) as screen:
+                screen.wait_for(
+                    lambda shown: all(
+                        text in shown for text in ("Planner · latest updates", "Checking the result mapping.", "╰─")
+                    ),
+                    timeout=10,
+                    what="recent progress above the complete composer",
+                )
+                screen.type("my unsent draft")
+                for _ in range(30):
+                    screen.keys("PPage")
+                screen.wait_for(
+                    lambda shown: all(
+                        text in shown
+                        for text in (
+                            "Earlier request 0",
+                            "Planner · latest updates",
+                            "Checking the result mapping.",
+                            "my unsent draft",
+                            "╰─",
+                        )
+                    ),
+                    what="old conversation with current progress and draft still visible",
+                )
+                replacement = updates.with_suffix(".next")
+                replacement.write_text(
+                    json.dumps(
+                        [
+                            "Checking the history interface.",
+                            "Checking the result mapping.",
+                            "Comparing the failure cases.",
+                        ]
+                    )
+                )
+                replacement.replace(updates)
+                shown = screen.wait_for(
+                    lambda shown: (
+                        all(
+                            text in shown
+                            for text in (
+                                "Earlier request 0",
+                                "Planner · latest updates",
+                                "Checking the result mapping.",
+                                "Comparing the failure cases.",
+                                "my unsent draft",
+                                "╰─",
+                            )
+                        )
+                        and "Checking the history interface." not in shown
+                    ),
+                    what="new notes roll in without scrolling the person's history",
+                )
+                self.assertNotIn("hidden-command", shown)
+                self.assertNotIn("hidden-reasoning", shown)
+                screen.resize(70, 22)
+                shown = screen.wait_for(
+                    lambda shown: (
+                        len(shown.splitlines()) == 22
+                        and all(
+                            text in shown
+                            for text in (
+                                "Planner · latest updates",
+                                "Comparing the failure cases.",
+                                "my unsent draft",
+                                "╰─",
+                            )
+                        )
+                    ),
+                    what="progress and complete composer after shrinking the terminal",
+                )
+                self.assertIn("my unsent draft", shown.splitlines()[-3])
