@@ -19,6 +19,35 @@ AUTOCODE = ROOT / "tools" / "autocode.py"
 RUN_SECONDS = 300  # a fixture stage is quick, but CI hosts are shared
 
 
+class ClosingScreenTests(unittest.TestCase):
+    def test_leaving_approval_keeps_exit_notice_without_reprinting_the_plan(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI
+with ChatTUI() as ui:
+    ui.say('You: Fix the history')
+    ui.say('AutoCode: Here are the coordinated plans.')
+    ui.say('Plan to approve:\\n' + '\\n'.join(f'PLAN-DETAIL-{n}' for n in range(100)))
+    try:
+        ui.ask('Approve these coordinated plans?')
+    except EOFError:
+        ui.say('Left the chat; the run is unchanged.')
+"""
+        with TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=100, rows=25, tmux=require_tmux(self)
+        ) as screen:
+            screen.wait_for(
+                lambda shown: "Plan to approve:" in shown and "Approve these coordinated plans?" in shown,
+                what="the plan and its approval prompt",
+            )
+            screen.keys("C-d")
+            self.assertEqual(0, screen.exit_status())
+            shown = screen.wait_for("Left the chat; the run is unchanged.")
+            self.assertNotIn("PLAN-DETAIL-", shown)
+            self.assertNotIn("Plan to approve:", shown)
+
+
 class LiveDefaultScreenTests(unittest.TestCase):
     def test_tool_input_fragments_do_not_crowd_out_readable_progress(self):
         script = """

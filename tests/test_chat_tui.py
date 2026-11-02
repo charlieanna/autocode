@@ -158,6 +158,29 @@ class TranscriptTests(unittest.TestCase):
         transcript.add("Nothing started.")
         self.assertEqual(["Nothing started."], transcript.closing())
 
+    def test_leaving_plan_approval_does_not_dump_already_displayed_plans(self):
+        transcript = tui.Transcript()
+        transcript.add("You: fix the history")
+        transcript.add("AutoCode: Here are the coordinated plans.")
+        transcript.add("Plan to approve:\n" + "\n".join(f"Criterion {n}" for n in range(100)))
+        transcript.asked = len(transcript.blocks)
+        self.assertEqual([], transcript.closing())
+        transcript.add("Left the chat; the run is unchanged.")
+        transcript.add("Run autocode chat here to pick it up again.")
+        self.assertEqual(
+            ["Left the chat; the run is unchanged.", "Run autocode chat here to pick it up again."],
+            transcript.closing(),
+        )
+
+    def test_a_new_completion_message_after_the_question_is_retained(self):
+        transcript = tui.Transcript()
+        transcript.add("AutoCode: The plan to approve.")
+        transcript.asked = len(transcript.blocks)
+        self.assertEqual([], transcript.closing())
+        transcript.add("You: y")
+        transcript.add("AutoCode: The requested task is complete.")
+        self.assertEqual(["AutoCode: The requested task is complete."], transcript.closing())
+
     def test_before_any_question_everything_the_client_said_stays(self):
         transcript = tui.Transcript()
         transcript.add("AutoCode stopped: no run mode 'bogus'")

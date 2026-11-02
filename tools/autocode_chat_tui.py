@@ -404,10 +404,14 @@ class Transcript:
 
         Those are the blocks after the last conversation message (a hand-off's reason and
         the command to run, where to pick the run up, Done.); the last block when there are none.
-        Before any conversation, what the client listed for its last question (the runs to pick
-        from) is not among them, only what it said after (#1755).
+        Content already shown for the last question (a run list or plans to approve) is
+        never printed again, even when conversation messages precede it.
         """
-        said = [(index, role, text) for index, (role, text) in enumerate(self.blocks) if role != "info"]
+        said = [
+            (index, role, text)
+            for index, (role, text) in enumerate(self.blocks)
+            if index >= self.asked and role != "info"
+        ]
         tail: list[tuple[int, str]] = []
         for index, role, text in reversed(said):
             if role in ("user", "assistant"):
