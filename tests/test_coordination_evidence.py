@@ -127,7 +127,7 @@ class CoordinationEvidenceTests(unittest.TestCase):
     def test_joint_native_cost_is_counted_once_and_legacy_external_review_is_retained(self):
         self.run.status.return_value = {"run_dir": "/joint/run", "cost": {"spent_usd": 3}}
         joint = {"started": True, "run_dir": "/joint/run", "verification": {"kind": "task_run"}}
-        document = {"members": [], "joint": joint, "joint_attempts": [joint]}
+        document = {"anchor": "/source/run", "members": [], "joint": joint, "joint_attempts": [joint]}
         with patch.object(coordinator, "handle", return_value=self.run):
             _, history = coordinator.budget_observations(document, {})
             self.assertEqual([self.run.status.return_value], history)
