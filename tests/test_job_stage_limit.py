@@ -155,6 +155,29 @@ class StageLimitCLI(unittest.TestCase):
     start = writer_fixture.AcceptanceWriterRouteCLI.start
     snapshot = writer_fixture.AcceptanceWriterRouteCLI.snapshot
 
+    def test_same_handle_saves_a_deadline_then_retries_only_the_fresh_token(self):
+        run, held = self.start()
+        before = self.snapshot(run)
+        old_seconds = before["settings"]["limits"]["stage_timeout_seconds"]
+        run.options = ("--max-stage-seconds", str(old_seconds))
+        old_token = held["needs"]["job_retry_token"]
+        calls = self.calls.read_bytes()
+        saved = run.save_stage_deadline(old_token, old_seconds + 900)
+        self.assertNotEqual(old_token, saved["token"])
+        self.assertEqual("PAUSED_JOB_FAILURE", saved["view"]["status"])
+        self.assertEqual(calls, self.calls.read_bytes())
+        for key in ("usage", "cost", "approved_contract"):
+            self.assertEqual(held[key], saved["view"][key], key)
+        with self.assertRaises(TaskRunError):
+            run.retry_job(old_token)
+        self.assertEqual(calls, self.calls.read_bytes())
+        run.env.pop("WRITER_TIMEOUT")
+        completed = run.retry_job(saved["token"])
+        self.assertTrue(completed["done"], completed.get("needs"))
+        self.assertEqual(old_seconds + 900, self.snapshot(run)["settings"]["limits"]["stage_timeout_seconds"])
+        self.assertEqual(before["settings"]["roles"], self.snapshot(run)["settings"]["roles"])
+        self.assertEqual(4, len(self.calls.read_text().splitlines()))
+
     def test_timed_out_tester_keeps_model_plan_usage_and_reopens_before_one_retry(self):
         run, held = self.start()
         self.assertEqual("PAUSED_JOB_FAILURE", held["status"])
