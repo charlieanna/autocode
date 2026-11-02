@@ -11,10 +11,10 @@ const context=vm.createContext({human:text=>String(text)});
 vm.runInContext(helpers,context);
 const joint={model_settings:{joint_planning:true}};
 for(const stage of ['astra_discovery','astra_discovery_report_repair']) {
- assert.equal(context.stageName({...joint,stage}),'Requirements · Planning');
- assert.equal(context.stageName({stage}),'Requirements · Planning');
+ assert.equal(context.stageName({...joint,stage}),'Planner · Planning');
+ assert.equal(context.stageName({stage}),'Planner · Planning');
 }
-assert.equal(context.stageName({...joint,stage:'glm_revise_report_repair'}),'Requirements · Revising the plan');
+assert.equal(context.stageName({...joint,stage:'glm_revise_report_repair'}),'Planner · Revising the plan');
 assert.equal(context.stageName({...joint,stage:'astra_challenge'}),'Plan Reviewer · Challenging the plan');
 assert.equal(context.stageName({...joint,stage:'astra_finalize'}),'Plan Reviewer · Finalizing the plan');
 assert.equal(context.stageName({...joint,stage:'astra_review'}),'Completion Reviewer · Deciding complete or rework');
