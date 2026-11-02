@@ -14,6 +14,7 @@ import type { RunController, RunRef } from "./controller";
 import { markdown, type TextNode } from "./chat-markdown";
 import { chatStyles, installChatBehavior } from "./upstream/kilo-chat";
 import { telemetry, type Telemetry } from "./core/telemetry";
+import { finishSummary, runTotal, stageLines, stages, struggling, totalText, type FinishSummary, type StageRow } from "./core/meter";
 
 export interface Decision {
   questionId: string;
@@ -101,6 +102,26 @@ export interface PanelState {
   changeset?: ChangesetState | null;
   /** The raise the view names apart from next_command for the bound holding the run (#2044), or null. */
   boundRaise: IntegerCommandInput | null;
+  /** Each stage's outcome, time, cost, attempts, model and tokens, from the view's own records. */
+  meter?: MeterState;
+  /** A finished run's closing card, or null while it runs. */
+  finish?: FinishSummary | null;
+}
+
+/** The stage rows, the struggling warning and the run's cost line the chat shows. */
+export interface MeterState {
+  stages: (StageRow & { head: string; detail: string })[];
+  struggling: string;
+  total: string;
+}
+
+/** The meter for one status view: display only, every figure the core's own. */
+export function meterOf(view: StatusView, now = Date.now()): MeterState {
+  return {
+    stages: stages(view, now).map((row) => ({ ...row, ...stageLines(row) })),
+    struggling: view.done ? "" : struggling(view, now),
+    total: totalText(runTotal(view)),
+  };
 }
 
 /** A change set as the panel shows it: every run, and the one action `changeset status` names now. */
@@ -511,6 +532,8 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     token: approvalToken(view),
     canApprove: need?.kind !== "approve_plan" || plan !== null,
     boundRaise,
+    meter: meterOf(view),
+    finish: finishSummary(view),
   };
 }
 
@@ -699,6 +722,59 @@ function trim(text: string, max: number): string {
  * (24×24, stroke currentColor). The webview CSP loads no fonts or images, so
  * inline markup is the only icon path; codicon names exist only in host UI.
  */
+/** The chat's stage rows, cost line, welcome and closing card. Colors come from the VS Code theme. */
+const METER_STYLES = `
+  #run-cost { margin-right: auto; align-self: center; font-size: .75rem; opacity: .85; white-space: nowrap;
+              overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #run-cost .session { opacity: .75; }
+  #stages { flex-shrink: 0; margin: 0 6px 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
+            padding: 4px 8px; font-size: .75rem; }
+  #stages[hidden] { display: none; }
+  #stages-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .stages-title { font-weight: 600; text-transform: uppercase; letter-spacing: .05em; opacity: .75; font-size: .7rem; }
+  button.link { background: none; border: none; padding: 0; color: var(--vscode-textLink-foreground); font-size: .72rem; }
+  button.link[hidden] { display: none; }
+  .stage { display: grid; grid-template-columns: 1.4ch 1fr; column-gap: 4px; padding: 2px 0; }
+  .stage .mark { grid-row: span 2; }
+  .stage .detail { opacity: .7; overflow-wrap: anywhere; }
+  .stage.done .mark { color: var(--vscode-charts-green, #3a7d3a); }
+  .stage.working .mark { color: var(--vscode-charts-blue, #1a6fb0); }
+  .stage.retrying .mark, .stage.retrying .head { color: var(--vscode-editorWarning-foreground, #cc8800); }
+  .stage.failed .mark, .stage.failed .head { color: var(--vscode-errorForeground, #a1260d); }
+  .struggling { border-left: 3px solid var(--vscode-editorWarning-foreground, #cc8800); padding: 3px 8px; margin: 4px 0;
+                color: var(--vscode-editorWarning-foreground, #cc8800); font-size: .85rem; }
+  .chat-tab .dot.needs { color: var(--vscode-editorWarning-foreground, #cc8800); }
+  .chat-tab .dot.finished { color: var(--vscode-charts-green, #3a7d3a); }
+  .welcome { padding: 4px 2px; font-size: .88rem; }
+  .welcome p { margin: 4px 0 10px; opacity: .85; }
+  .welcome .kinds { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; margin: 6px 0 12px; font-size: .82rem; }
+  .welcome .kinds b { font-weight: 600; }
+  .welcome .try { opacity: .75; font-size: .8rem; margin-bottom: 4px; }
+  .welcome button.example { display: block; width: 100%; text-align: left; margin: 4px 0; background: var(--vscode-input-background);
+                            color: var(--vscode-foreground); border: 1px solid var(--vscode-panel-border); border-radius: 4px; }
+  .welcome button.example:hover { border-color: var(--vscode-focusBorder); }
+  .finish .result { font-weight: 600; margin-bottom: 6px; }
+  .finish .facts { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; font-size: .84rem; margin-bottom: 8px; }
+  .finish .facts span:nth-child(odd) { opacity: .7; }
+  .finish .files { overflow-wrap: anywhere; }
+`;
+
+/** What a new chat can ask for: AutoCode's five workflows, in a person's words. */
+export const WELCOME_KINDS: [string, string][] = [
+  ["Build", "a feature or change, planned and checked before it is called done"],
+  ["Fix", "a bug: find the cause, prove it with a test, then fix it"],
+  ["Review", "a change or a branch for problems"],
+  ["Design", "something before building it"],
+  ["Discuss", "a question about this code, without changing it"],
+];
+
+/** Example requests the welcome offers; clicking one only fills the message box. */
+export const WELCOME_EXAMPLES = [
+  "Fix the failing test in tests/test_api.py",
+  "Add a --json option to the export command",
+  "Why does sign-in time out on slow networks?",
+];
+
 const ICONS = {
   plus: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>`,
   clock: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.25" /><path d="M12 7.5V12l3 2" /></svg>`,
@@ -759,12 +835,14 @@ export function panelHtml(chat = false): string {
   .muted { opacity: .65; }
   ${chat ? chatStyles : ""}
   ${chat ? "#composer .chip[hidden] { display: none; }" : ""}
+  ${chat ? METER_STYLES : ""}
 </style>
 </head>
 <body>
-${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools">${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
+${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools"><span id="run-cost" role="status" aria-label="Run cost"></span>${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
+<section id="stages" aria-label="Stages" hidden><div id="stages-head"><span class="stages-title">Stages</span><button type="button" id="stages-more" class="link" hidden></button></div><div id="stage-rows"></div></section>
 <section id="telemetry" aria-label="Models and usage">
 <details id="usage-details"><summary id="telemetry-summary"><span class="telemetry-heading">Models &amp; usage</span>
 <span id="model-summary">Model not reported</span><span id="usage-summary">Tokens not reported · Cost not reported</span></summary>
@@ -781,6 +859,11 @@ const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
 const chatMode = ${chat};
 const RAISE_LABEL = ${JSON.stringify(RAISE_LABEL)};
+const WELCOME_KINDS = ${JSON.stringify(WELCOME_KINDS)};
+const WELCOME_EXAMPLES = ${JSON.stringify(WELCOME_EXAMPLES)};
+const STAGE_ROWS = 4;
+const STAGE_MARKS = { done: '✓', working: '●', retrying: '↻', failed: '✗' };
+let stagesExpanded = false;
 const initialWebviewState = vscode.getState?.() || {};
 let chatEnvelope = null;
 const chatBehavior = chatMode ? (${installChatBehavior.toString()})() : null;
@@ -817,6 +900,12 @@ function stateRow(item) {
 }
 
 function renderChatProgress(container, state) {
+  if (state.meter && state.meter.struggling) {
+    const warn = el('div', 'struggling', '⚠ ' + state.meter.struggling);
+    warn.id = 'struggling';
+    warn.setAttribute('role', 'status');
+    container.appendChild(warn);
+  }
   const lines = state.chat && Array.isArray(state.chat.progress)
     ? state.chat.progress.filter((line) => typeof line === 'string' && line) : [];
   (lines.length ? lines : ['Thinking…']).forEach((line) => container.appendChild(el('div', 'line', line)));
@@ -882,6 +971,109 @@ function renderChatProgress(container, state) {
   }
 }
 
+/** A finished run's closing card: the result, what it checked and changed, and what it took. */
+function renderFinish(state) {
+  const finish = state.finish;
+  const card = el('div', 'decision-card finish');
+  card.id = 'finish-summary';
+  card.appendChild(el('div', 'speaker', 'AutoCode · finished'));
+  const body = el('div', 'message-content');
+  body.appendChild(el('div', 'result', '✓ ' + finish.headline));
+  const facts = el('div', 'facts');
+  const fact = (label, value, cls) => { facts.appendChild(el('span', null, label)); facts.appendChild(el('span', cls || null, value)); };
+  if (finish.requirements) fact('Requirements', finish.requirements.checked + ' of ' + finish.requirements.total + ' checked');
+  if (finish.files.length) {
+    const shown = finish.files.slice(0, 6).join(', ') + (finish.files.length > 6 ? ' and ' + (finish.files.length - 6) + ' more' : '');
+    fact('Changed', finish.files.length + (finish.files.length === 1 ? ' file: ' : ' files: ') + shown, 'files');
+  }
+  if (finish.seconds !== null) fact('Stage time', formatDuration(finish.seconds));
+  if (state.meter && state.meter.total) fact('Cost', state.meter.total);
+  if (facts.childNodes.length) body.appendChild(facts);
+  const actions = el('div', 'actions');
+  if (state.checkpoints && state.checkpoints.length) {
+    const show = el('button', null, 'Show changes');
+    show.id = 'finish-show-changes';
+    show.addEventListener('click', () => {
+      const target = document.getElementById('saved-changes');
+      if (target && target.scrollIntoView) target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
+    actions.appendChild(show);
+  }
+  const details = el('button', 'secondary', 'Run details');
+  details.id = 'finish-details';
+  details.addEventListener('click', () => vscode.postMessage({ type: 'details' }));
+  actions.appendChild(details);
+  body.appendChild(actions);
+  card.appendChild(body);
+  app.appendChild(card);
+}
+
+function formatDuration(seconds) {
+  const whole = Math.floor(seconds);
+  if (whole < 60) return whole + 's';
+  if (whole < 3600) return Math.floor(whole / 60) + 'm' + String(whole % 60).padStart(2, '0') + 's';
+  return Math.floor(whole / 3600) + 'h' + String(Math.floor((whole % 3600) / 60)).padStart(2, '0') + 'm';
+}
+
+/** A new chat's welcome: what AutoCode can do, and example requests that only fill the message box. */
+function renderWelcome() {
+  const box = el('div', 'welcome');
+  box.id = 'welcome';
+  box.appendChild(el('p', null, 'AutoCode plans the work with you, builds it, and checks it independently before it calls it done.'));
+  const kinds = el('div', 'kinds');
+  WELCOME_KINDS.forEach(([name, what]) => { kinds.appendChild(el('b', null, name)); kinds.appendChild(el('span', null, what)); });
+  box.appendChild(kinds);
+  box.appendChild(el('div', 'try', 'Try asking:'));
+  WELCOME_EXAMPLES.forEach((example) => {
+    const button = el('button', 'example', example);
+    button.type = 'button';
+    button.addEventListener('click', () => {
+      const field = document.getElementById('message');
+      field.value = example;
+      field.focus();
+      saveDraft(); updateComposer(); chatBehavior.resize();
+    });
+    box.appendChild(button);
+  });
+  app.appendChild(box);
+}
+
+/** The cost line in the toolbar and the stage rows above the usage section. */
+function renderMeter(data) {
+  const meter = data.state && data.state.meter;
+  const cost = document.getElementById('run-cost');
+  const costKey = JSON.stringify([meter && meter.total, data.session]);
+  if (cost && cost.dataset.content !== costKey) {
+    cost.dataset.content = costKey;
+    cost.textContent = '';
+    if (meter && meter.total) cost.appendChild(el('span', null, meter.total));
+    if (data.session) cost.appendChild(el('span', 'session', (meter && meter.total ? ' · ' : '') + 'all chats ' + data.session));
+    cost.title = [meter && meter.total ? 'This run: ' + meter.total : '', data.session ? 'All open chats: ' + data.session : '']
+      .filter(Boolean).join(' · ');
+  }
+  const section = document.getElementById('stages');
+  if (!section) return;
+  const rows = meter ? meter.stages : [];
+  section.hidden = !rows.length;
+  const key = JSON.stringify([rows, stagesExpanded]);
+  if (section.dataset.content === key) return;
+  section.dataset.content = key;
+  const host = document.getElementById('stage-rows');
+  host.textContent = '';
+  const shown = stagesExpanded ? rows : rows.slice(-STAGE_ROWS);
+  const more = document.getElementById('stages-more');
+  more.hidden = rows.length <= STAGE_ROWS;
+  more.textContent = stagesExpanded ? 'Show fewer' : (rows.length - STAGE_ROWS) + ' earlier';
+  shown.forEach((row) => {
+    const item = el('div', 'stage ' + row.state);
+    item.dataset.stage = row.stage;
+    item.appendChild(el('span', 'mark', STAGE_MARKS[row.state] || '·'));
+    item.appendChild(el('span', 'head', row.head));
+    if (row.detail) item.appendChild(el('span', 'detail', row.detail));
+    host.appendChild(item);
+  });
+}
+
 function renderStopped(stopped) {
   app.appendChild(el('h2', null, stopped.title));
   app.appendChild(el('div', 'line', stopped.explanation));
@@ -900,7 +1092,8 @@ function render(state) {
     state.taking, state.working, state.plan, state.criteria, state.decisions, state.decisionContext,
     state.actionLabel, state.actionEffect, state.stopped, state.unreadable,
     state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.log, state.chat.review, state.chat.input && state.chat.input.kind],
-    state.workingDiff, state.boundRaise,
+    state.workingDiff, state.boundRaise, state.done, state.finish,
+    state.meter && state.meter.struggling, state.checkpoints,
   ] : state;
   const serialized = JSON.stringify(chatSlice);
   if (serialized === renderedState) return;
@@ -1078,8 +1271,11 @@ function render(state) {
 
     if (cardContent.childNodes.length > 0) app.appendChild(card);
     if (strip.childNodes.length > 0) app.appendChild(strip);
+    if (state.done && state.finish) renderFinish(state);
     if (chatMode && state.checkpoints && state.checkpoints.length) {
-      app.appendChild(el('h2', null, 'Saved code changes'));
+      const savedHeading = el('h2', null, 'Saved code changes');
+      savedHeading.id = 'saved-changes';
+      app.appendChild(savedHeading);
       if (state.checkpointsBlocked) app.appendChild(el('div', 'why', state.checkpointsBlocked));
       if (state.taking && state.checkpoints.some((cp) => cp.available && cp.actions.length)) {
         app.appendChild(el('div', 'why', 'Saved-code actions are available after the current AutoCode action finishes.'));
@@ -1503,7 +1699,9 @@ function updateComposer() {
     : unreadable ? 'Waiting for the status to read again. You can keep a draft here.'
     : pausing ? 'AutoCode pauses once this step is saved. You can keep a draft here.'
     : input ? label
-    : (chatEnvelope.busy || (chatEnvelope.state && chatEnvelope.state.working)) ? 'AutoCode is working. You can keep a draft here.' : 'Use the action above, or start a new chat.';
+    : (chatEnvelope.busy || (chatEnvelope.state && chatEnvelope.state.working)) ? 'AutoCode is working. You can keep a draft here.'
+    : (chatEnvelope.state && chatEnvelope.state.done) ? 'This run is finished. Start a new chat with +.'
+    : 'Use the action above, or start a new chat.';
   document.getElementById('chat-error').textContent = chatEnvelope.error || '';
 }
 
@@ -1522,7 +1720,18 @@ function renderTabs(data) {
     item.setAttribute('aria-selected', tab.key === data.activeKey ? 'true' : 'false');
     const name = el('span', 'name', tab.name);
     item.appendChild(name);
-    if (tab.busy) item.appendChild(el('span', 'dot', '•'));
+    if (tab.needs) {
+      const dot = el('span', 'dot needs', '●');
+      dot.title = 'Waiting for you';
+      dot.setAttribute('aria-label', 'Waiting for you');
+      item.appendChild(dot);
+    } else if (tab.busy) item.appendChild(el('span', 'dot', '•'));
+    else if (tab.finished) {
+      const dot = el('span', 'dot finished', '✓');
+      dot.title = 'Finished';
+      dot.setAttribute('aria-label', 'Finished');
+      item.appendChild(dot);
+    }
     if (rows.length > 1) {
       const close = el('span', 'close', '×');
       close.title = 'Close chat';
@@ -1610,8 +1819,11 @@ function renderChat(data) {
     }
   }
   updateLatestCue(data.state);
+  const welcoming = !data.state && !data.busy && !data.selectedRun && !data.pendingBrief && !data.error;
   if (data.state) render(data.state);
-  else {
+  else if (welcoming && document.getElementById('welcome')) {
+    // Already showing: rebuilding on every read would drop a click on an example mid-press.
+  } else {
     app.textContent = '';
     renderedState = '';
     if (data.busy) {
@@ -1620,10 +1832,14 @@ function renderChat(data) {
       card.appendChild(el('div', 'speaker', 'AutoCode'));
       card.appendChild(el('div', 'message-content', data.waitingForStart ? 'Waiting to start. Complete setup to continue.' : 'Thinking…'));
       app.appendChild(card);
+    } else if (welcoming) {
+      app.classList.remove('muted');
+      renderWelcome();
     } else {
       app.classList.add('muted');
     }
   }
+  renderMeter(data);
   renderTelemetry(data.state && data.state.telemetry);
   updateComposer();
   chatBehavior.resize();
@@ -1736,6 +1952,10 @@ if (chatMode) {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); document.getElementById('composer').requestSubmit(); }
   });
   document.getElementById('new-chat').addEventListener('click', () => vscode.postMessage({ type: 'new' }));
+  document.getElementById('stages-more').addEventListener('click', () => {
+    stagesExpanded = !stagesExpanded;
+    if (chatEnvelope) renderMeter(chatEnvelope);
+  });
   document.getElementById('pause-run').addEventListener('click', () => {
     if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'pause', runKey: chatEnvelope.runKey });
   });

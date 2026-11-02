@@ -10,7 +10,8 @@ import { RunController, type CheckpointComparison, type RunRef } from "./control
 import { requiresConfirmation } from "./core/next-command";
 import { chosenMode, type RunModes } from "./core/modes";
 import type { StatusView } from "./core/view";
-import { transitionNotice } from "./notify";
+import { transitionNotice, waitsForPerson } from "./notify";
+import { runTotal, sessionTotal, totalText } from "./core/meter";
 import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
 import { confirmRaise, numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, planningSpendConfirmation, stateFor } from "./panel";
 
@@ -262,7 +263,13 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       type: "chat", runKey: tab.key, busy, waitingForStart: tab.starting && !tab.launching, pausing: this.pausing.has(tab.key),
       error: tab.error || tab.readError, pendingBrief: tab.pendingBrief,
       selectedRun: tab.run ?? null, persistSelection,
-      tabs: this.tabs.map((row) => ({ key: row.key, name: tabName(row), busy: row.starting || this.busy.has(row.key), run: row.run ?? null })),
+      tabs: this.tabs.map((row) => ({
+        key: row.key, name: tabName(row), busy: row.starting || this.busy.has(row.key), run: row.run ?? null,
+        // Never offered while this client is acting on the tab: its own action is not a wait.
+        needs: !this.busy.has(row.key) && !row.starting && waitsForPerson(row.status),
+        finished: row.status?.done === true,
+      })),
+      session: this.sessionCost(),
       activeKey: this.activeKey,
       engine: engineOf(readSettings()),
       // Only a chat that has not started chooses a mode; a run keeps the flow it started with.
@@ -270,6 +277,13 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       state: tab.run && tab.status
         ? { ...stateFor(tab.status, tab.run, this.controller, busy), unreadable: Boolean(tab.readError) } : null,
     });
+  }
+
+  /** Every open run's accounted total added up, shown only when two or more chats hold runs. */
+  private sessionCost(): string {
+    const runs = this.tabs.filter((tab) => tab.run);
+    if (runs.length < 2) return "";
+    return totalText(sessionTotal(runs.map((tab) => (tab.status ? runTotal(tab.status) : null))), false);
   }
 
   async refresh(): Promise<void> {

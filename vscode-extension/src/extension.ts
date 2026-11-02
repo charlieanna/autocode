@@ -8,6 +8,7 @@
  */
 
 import * as vscode from "vscode";
+import { statusLine } from "./statusBar";
 import { RunController, type RunRef } from "./controller";
 import { RunPanel } from "./panel";
 import { RunsProvider, type RunItem } from "./runsView";
@@ -60,8 +61,9 @@ export function activate(context: vscode.ExtensionContext): void {
       if (sequence !== statusSequence || !watched || !sameRun(watched, currentWatched)) {
         return;
       }
-      status.text = `$(autorenew) AutoCode: ${view.progress?.headline ?? view.status}`;
-      status.tooltip = view.progress?.line ?? view.status;
+      const line = statusLine(view);
+      status.text = line.text;
+      status.tooltip = line.tooltip;
       status.command = { command: "autocode.openRun", title: "Open Run", arguments: [currentWatched] };
       status.show();
     } catch {
