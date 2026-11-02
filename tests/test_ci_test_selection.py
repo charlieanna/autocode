@@ -8,6 +8,20 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_coordinated_composer_keeps_real_terminal_message_regression(self):
+        consumer = "tests.test_chat_task_messages_cli"
+        for path in (
+            "tools/autocode_chat_task_messages.py",
+            "tools/autocode_chat_messages.py",
+            "tools/autocode_chat_coordination.py",
+            "tools/autocode_chat_client.py",
+            "tools/autocode_chat_tui.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_coordinated_messages_keep_public_pause_answer_resume_regression(self):
         consumer = "tests.test_coordination_conversation_cli"
         for path in (

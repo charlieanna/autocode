@@ -359,6 +359,7 @@ class ChatClient:
         poll_seconds: float = POLL_SECONDS,
         observe: Callable[[dict], None] | None = None,
         observe_coordination: Callable[[dict], None] | None = None,
+        observe_conversation: Callable[[dict], None] | None = None,
         unavailable: Callable[[str], None] | None = None,
         wait: Callable[[float], str | None] | None = None,
         stream: Callable[[str | None], None] | None = None,
@@ -373,6 +374,7 @@ class ChatClient:
         # A renderer's view of the run, and its wait between polls; "pause" asks for the view's pause.
         self._observe = observe
         self._observe_coordination = observe_coordination
+        self._observe_conversation = observe_conversation
         self._unavailable = unavailable
         self._wait = wait or (lambda seconds: time.sleep(seconds))
         self._stream = stream  # the reply AutoCode is writing, as the view streams it; the line chat skips it
@@ -2098,6 +2100,7 @@ def cli(argv: list[str] | None = None) -> int:
             {
                 "observe": ui.observe,
                 "observe_coordination": ui.observe_coordination,
+                "observe_conversation": ui.observe_conversation,
                 "unavailable": ui.status_unavailable,
                 "wait": ui.wait,
                 "stream": ui.stream,

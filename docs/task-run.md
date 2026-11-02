@@ -570,7 +570,11 @@ Coordinated status includes the stable coordination `id` and an optional `conver
 The client fills only those placeholders and binds the command to the displayed
 anchor. Exact retries return the same receipt; different text under the same
 identity refuses. Publication closes new submissions. Accepting a message does
-not approve, resume or dispatch work.
+not approve, resume or dispatch work. The terminal retains the anchor offer while
+a member owns the live display. Questions and changes can also be typed at the
+coordinated plan prompt; free text never approves. Unconfirmed submissions keep
+their request identity for exact retry, and saved Requirements replies are shown
+once across polling. Switching to another chat clears the old task offer.
 
 The existing coordinator asks active participants for their named boundary pause,
 waits for saved work, and invokes source Requirements with current public plans.
