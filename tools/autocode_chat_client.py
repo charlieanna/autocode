@@ -485,14 +485,17 @@ class ChatClient:
             # controller is still writing the run this client just created (#1998). The tab state
             # and the observation still record the failed read.
             stale = key[1] in self.viewed
+            # Full-screen availability lives in its persistent header/tab indicator.
+            # Line clients need messages because they have no updating read indicator.
+            announce = stale and not (self._observe is not None and self._unavailable is not None)
             if error:
                 self._attention.unavailable(key)
-                if stale and self._read_errors.get(key[1]) != error:
+                if announce and self._read_errors.get(key[1]) != error:
                     self.say(f"Status unavailable ({Path(key[1]).name}): {error}. Last view is stale.")
                 self._read_errors[key[1]] = error
             else:
                 recovered = self._read_errors.pop(key[1], None)
-                if stale and recovered:
+                if announce and recovered:
                     self.say(f"Status available again ({Path(key[1]).name}).")
             if key == current:
                 self._status_serial += 1

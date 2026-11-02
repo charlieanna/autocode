@@ -118,6 +118,67 @@ class ReadMetadata(unittest.TestCase):
             self.assertIsNone(ui._observation.error)
             take.assert_not_called()
 
+    def test_full_screen_poll_flapping_updates_indicator_without_transcript_messages(self):
+        ui = screen_ui()
+        ui.set_context(WORKSPACE, A)
+        said = Mock()
+        client = chat.ChatClient(WORKSPACE, A, observe=ui.observe, unavailable=ui.status_unavailable, say=said)
+        self.addCleanup(client.close)
+        key = (str(WORKSPACE), str(A))
+        with patch.object(client._poller, "tick") as tick, patch.object(client, "take") as take:
+            tick.return_value = [(key, json.dumps({"view": sampled()}), "")]
+            client.poll()
+            for _ in range(3):
+                tick.return_value = [(key, "", "status read timed out after 5s")]
+                client.poll()
+                self.assertEqual("unavailable", client.tabs()[0]["state"])
+                self.assertEqual("status read timed out after 5s", ui._observation.error)
+                with self.assertRaises(chat.actions.ClientGap):
+                    client.status()  # the retained snapshot still cannot authorize an action
+                tick.return_value = [(key, json.dumps({"view": sampled()}), "")]
+                client.poll()
+                self.assertIsNone(ui._observation.error)
+                self.assertNotEqual("unavailable", client.tabs()[0]["state"])
+            take.assert_not_called()
+        outages = [call.args[0] for call in said.call_args_list if "Status" in call.args[0]]
+        self.assertEqual([], outages, "the existing live indicator owns read availability in the TUI")
+
+    def test_background_tab_outage_is_visible_without_full_screen_transcript_spam(self):
+        said = Mock()
+        client = chat.ChatClient(WORKSPACE, A, observe=Mock(), unavailable=Mock(), say=said)
+        self.addCleanup(client.close)
+        client.others[str(B)] = (WORKSPACE, None)
+        client.tab_order.append(str(B))
+        key = (str(WORKSPACE), str(B))
+        with patch.object(client._poller, "tick") as tick:
+            tick.return_value = [(key, json.dumps({"view": sampled(B)}), "")]
+            client.poll()
+            tick.return_value = [(key, "", "status read timed out after 5s")]
+            client.poll()
+            self.assertEqual("unavailable", client.tabs()[1]["state"])
+            tick.return_value = [(key, json.dumps({"view": sampled(B)}), "")]
+            client.poll()
+            self.assertNotEqual("unavailable", client.tabs()[1]["state"])
+        self.assertFalse(any("Status" in call.args[0] for call in said.call_args_list))
+
+    def test_line_client_keeps_outage_and_recovery_messages_without_a_live_indicator(self):
+        for hooks in ({}, {"observe": Mock()}, {"unavailable": Mock()}):
+            with self.subTest(hooks=hooks):
+                said = Mock()
+                client = chat.ChatClient(WORKSPACE, A, say=said, **hooks)
+                self.addCleanup(client.close)
+                key = (str(WORKSPACE), str(A))
+                with patch.object(client._poller, "tick") as tick:
+                    tick.return_value = [(key, json.dumps({"view": sampled()}), "")]
+                    client.poll()
+                    tick.return_value = [(key, "", "status read timed out after 5s")]
+                    client.poll()
+                    tick.return_value = [(key, json.dumps({"view": sampled()}), "")]
+                    client.poll()
+                texts = [call.args[0] for call in said.call_args_list]
+                self.assertTrue(any("Status unavailable" in text for text in texts))
+                self.assertTrue(any("Status available again" in text for text in texts))
+
     def test_a_run_that_has_never_answered_is_not_announced_as_an_outage(self):
         """#1998: the first read of a run this client is still creating has no last view to lose."""
 
@@ -145,7 +206,7 @@ class ReadMetadata(unittest.TestCase):
             self.assertEqual([], [text for text in said if "Status" in text])
             self.assertNotEqual("unavailable", client.tabs()[0]["state"])
             client.poll()
-        self.assertTrue(any("Status unavailable" in text for text in said))
+        self.assertEqual([], [text for text in said if "Status" in text])
 
     def test_unavailable_header_and_working_line_are_honest_at_80_columns(self):
         ui = screen_ui()

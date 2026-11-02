@@ -23,6 +23,18 @@ PR template asks for an entry here; a change without one is incomplete.
 - Storage counting resolves Git metadata from its declared directories (`commondir`, and
   worktree gitdir pointers relative to their metadata files), so linked, separate and
   relative worktree layouts no longer miscount nested registered copies.
+- Terminal chat: slow public-status startups no longer fail after one five-second timeout —
+  a timed-out read's later attempts for the same run get ten, then at most twenty, seconds
+  until the identity leaves the polling set; action-receipt deadlines are unchanged.
+- Terminal chat: when the renderer shows header and tab indicators, status outages and
+  recovery appear there once instead of repeating as chat messages; line clients keep the
+  messages.
+- Terminal chat: a stage row separates the stage total from the newest attempt's elapsed
+  time, the working line times the current attempt rather than the whole stage, and an
+  execution timeout is named before a generic "answer rejected" when a stage fails.
+- Terminal chat: the live agent log stays visible by default while a run is working (the
+  minimum terminal height is gone), with a clearer empty state before the first agent
+  reports.
 
 ### Added
 

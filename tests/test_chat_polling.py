@@ -96,6 +96,55 @@ class Reads(unittest.TestCase):
         self.assertIn("NEW", result[0][1])
         self.assertNotIn("OLD", result[0][1])
 
+    def test_timed_out_read_gets_bounded_startup_grace_on_its_next_attempt(self):
+        key = next(iter(self.keys))
+        self.poller.tick({key: 0})
+        first = self.children[-1]
+        self.now += 5
+        self.assertIn("after 5s", self.poller.tick({key: 0})[0][2])
+        self.assertTrue(first.reaped)
+        retry = self.children[-1]
+        self.now += 6
+        self.assertEqual([], self.poller.tick({key: 0}), "do not kill a healthy six-second retry")
+        self.assertFalse(retry.reaped)
+        retry.finish({"status": "RUNNING", "checkpoint": "fresh"})
+        result = self.poller.tick({key: 100})
+        self.assertEqual("", result[0][2])
+        self.assertEqual("fresh", json.loads(result[0][1])["view"]["checkpoint"])
+
+    def test_repeated_timeouts_remain_bounded_at_twenty_seconds(self):
+        key = next(iter(self.keys))
+        self.poller.tick({key: 0})
+        for budget in (5, 10, 20, 20):
+            child = self.children[-1]
+            self.now += budget - 0.1
+            self.assertEqual([], self.poller.tick({key: 0}))
+            self.assertFalse(child.reaped)
+            self.now += 0.1
+            result = self.poller.tick({key: 0})
+            self.assertIn(f"after {budget}s", result[0][2])
+            self.assertTrue(child.reaped)
+            self.assertTrue(child.output.closed)
+
+    def test_startup_grace_is_per_identity_and_does_not_survive_removal(self):
+        first, other = list(self.keys)[:2]
+        self.poller.tick({first: 0})
+        self.now += 5
+        self.poller.tick({first: 0})
+        retry = self.children[-1]
+        self.poller.tick({first: 0, other: 0})
+        independent = self.children[-1]
+        self.now += 5
+        result = self.poller.tick({first: 0, other: 100})
+        self.assertEqual(other, result[0][0])
+        self.assertTrue(independent.reaped)
+        self.assertFalse(retry.reaped)
+        self.poller.tick({})
+        self.poller.tick({first: 100})
+        self.now += 5
+        result = self.poller.tick({first: 100})
+        self.assertIn("after 5s", result[0][2], "removed identities start with the normal budget")
+
     def test_valid_large_status_keeps_the_entire_paused_conversation(self):
         key = next(iter(self.keys))
         self.poller.tick({key: 100})
