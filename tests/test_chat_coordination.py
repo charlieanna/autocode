@@ -101,7 +101,7 @@ from unittest.mock import patch
 import autocode_chat_coordination as coordination
 from autocode_chat_tui import ChatTUI
 run = Path('/tmp/uncapped-screen/.autocode/runs/task')
-need = {'kind': 'coordination_resume', 'cap_usd': None, 'known_spent_usd': 0.845216,
+need = {'kind': 'coordination_resume', 'cap_usd': 0, 'known_spent_usd': 0.845216,
         'complete': True, 'minimum_cap_usd': 0.845217, 'current_cap_usd': 0,
         'allows_no_cap': True, 'token': 'screen-token', 'effect': 'Resume saved work.',
         'next_command': ['autocode', 'coordinate', 'resume', '--run-dir', str(run),
@@ -526,6 +526,17 @@ class SharedBudgetDisplayTests(unittest.TestCase):
         self.client.ask.return_value = ""
         with patch.object(coordination, "read", return_value=self.summary):
             self.assertEqual(2, coordination.step(self.client, {}, Mock()))
+        self.client.advance.assert_not_called()
+
+    def test_explicit_zero_cap_is_displayed_as_uncapped_after_recovery(self):
+        self.need.update(kind="coordination_resume", cap_usd=0, allows_no_cap=True, current_cap_usd=0)
+        self.need["next_command"][2] = "resume"
+        self.client.ask.return_value = ""
+        with patch.object(coordination, "read", return_value=self.summary):
+            coordination.step(self.client, {}, Mock())
+        shown = " ".join(call.args[0] for call in self.client.say.call_args_list)
+        self.assertIn("Shared accounting cap: no cap", shown)
+        self.assertNotIn("Shared accounting cap: $0", shown)
         self.client.advance.assert_not_called()
 
     def test_cancel_recovery_rechecks_its_exact_kind_after_confirmation(self):

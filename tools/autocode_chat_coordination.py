@@ -267,7 +267,7 @@ def budget_reply(client, view, need):
     if type(maximum) not in (int, float) or not math.isfinite(maximum) or maximum < minimum:
         raise actions.ClientGap("The planning-budget decision has no valid maximum")
     accounting = "complete" if need.get("complete") else "incomplete; unknown costs remain unknown"
-    cap = "no cap" if need["cap_usd"] is None else f"${need['cap_usd']:g}"
+    cap = "no cap" if need["cap_usd"] in (None, 0) else f"${need['cap_usd']:g}"
     client.say(f"Shared accounting cap: {cap}; known spend: ${need['known_spent_usd']:g} ({accounting}).")
     client.say(need["effect"])
     if planning:
