@@ -376,6 +376,43 @@ def rendered_cases():
 
 
 class RenderedPromptTests(unittest.TestCase):
+    def test_reviewers_receive_plain_english_progress_guidance(self):
+        reviewers = {"astra_challenge", "astra_finalize", "plan_review", "plan_finalize"}
+        cases = {name: text for name, text in rendered_cases().items() if name.startswith("planning/")}
+        self.assertTrue(reviewers.issubset({name.split("/")[1] for name in cases}))
+        for name, prompt in cases.items():
+            with self.subTest(case=name):
+                if name.split("/")[1] not in reviewers:
+                    self.assertNotIn("PLAIN-ENGLISH REVIEW PROGRESS", prompt)
+                    continue
+                self.assertIn("PLAIN-ENGLISH REVIEW PROGRESS", prompt)
+                self.assertIn("brief public progress message", prompt)
+                self.assertIn("what you are checking and why it matters", prompt)
+                self.assertIn("Do not narrate every tool call", prompt)
+                self.assertIn("Do not expose private reasoning", prompt)
+                self.assertIn("Never invent progress", prompt)
+                self.assertIn("final report must still follow its exact schema", prompt)
+
+    def test_compact_final_review_keeps_progress_guidance_and_saved_contract(self):
+        state = fixed_state()
+        state["goal_contract"] = {
+            "revision": 1,
+            "hash": "saved-hash",
+            "body": {"acceptance_criteria": [{"id": "AC1", "criterion": "Preserve bytes."}]},
+        }
+        before = copy.deepcopy(state)
+        with (
+            patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}),
+            patch.object(planner.artifacts, "verify_predecessor", return_value=None),
+        ):
+            prompt, _ = planner.context(state, "astra_finalize", STATE_PATH)
+        self.assertTrue(prompt.startswith(planner.retention.FINAL_PROMPT))
+        self.assertIn("PLAIN-ENGLISH REVIEW PROGRESS", prompt)
+        self.assertIn("brief public progress message", prompt)
+        self.assertIn("final report must still follow its exact schema", prompt)
+        self.assertIn("Retention is not user approval.", prompt)
+        self.assertEqual(before, state)
+
     def test_planning_prompts_trace_the_exact_human_source(self):
         cases = {
             name: text

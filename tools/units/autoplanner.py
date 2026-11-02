@@ -1598,8 +1598,14 @@ def context(state: RunState, stage, state_path):
             if stage == "glm_revise":
                 retain_rule += retention.revision_reference.RULE
                 packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
+    progress_rule = (
+        prompts.get("fragments/autoplanner/review-progress.md")
+        if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize")
+        else ""
+    )
     prompt = (
         (retention.FINAL_PROMPT if compact_final else PROMPTS[stage])
+        + progress_rule
         + audit_instruction
         + memory_rule
         + JOB_TYPE_POLICY
