@@ -42,6 +42,11 @@ def _delivery(view):
     return "verified by core gate" if gate is True else "not verified" if gate is False else "unknown"
 
 
+def settled(view):
+    """Whether the run has a delivery to judge: a recorded review, or a finished run."""
+    return bool(review_result(view)) or view.get("done") is True or view.get("status") in ("TASK_COMPLETE", "COMPLETE")
+
+
 def available(view):
     return bool(review_result(view)) or any(
         isinstance(view.get(key), dict) and view[key]

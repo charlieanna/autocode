@@ -1195,7 +1195,14 @@ class MeterScreenTests(unittest.TestCase):
     def test_with_two_chats_the_header_adds_the_session_total(self):
         ui = screen_ui()
         ui.observe(SPENDING_VIEW)
-        other = {"spent_usd": 1.0, "inherited_usd": 0, "input_tokens": 1000, "output_tokens": 0, "complete": True}
+        other = {
+            "spent_usd": 1.0,
+            "inherited_usd": 0,
+            "input_tokens": 1000,
+            "output_tokens": 0,
+            "cost_complete": True,
+            "tokens_complete": True,
+        }
         ui.tabs(
             [
                 {"number": 1, "run": "/p/r1", "title": "Other", "state": "done", "current": False, "total": other},
@@ -1230,3 +1237,123 @@ class ClosingSummaryTests(unittest.TestCase):
             "Changed 3 files: greet.py, README.md, test_greet.py. /diff shows what changed.",
             tui.panel.finished_text(with_tests),
         )
+
+
+class DistinctStyles(dict):
+    """A stand-in style table that gives every style its own attribute, so a test can tell them apart."""
+
+    def get(self, key, default=None):
+        return self.setdefault(key, len(self) + 1)
+
+
+def styled(ui, rows=30, cols=120):
+    """Every string drawn, with its row, column and attribute; each style draws as its own attribute."""
+    ui._styles = DistinctStyles()
+    ui._screen.getmaxyx.return_value = (rows, cols)
+    puts = []
+    ui._put = lambda row, col, text, attr=0: puts.append((row, col, text, attr))
+    ui._draw()
+    return puts
+
+
+class MessageFormattingTests(unittest.TestCase):
+    """A message's code blocks, `code` and **bold**, and a /diff's lines, are drawn as what they are."""
+
+    def test_a_fenced_block_is_drawn_as_code_under_a_rule_naming_its_language(self):
+        rows = tui.body_rows(
+            "assistant-body", "Run it:\n```sh\npython3 greet.py Ada\n```\nThat prints the greeting.", 60
+        )
+        self.assertEqual(
+            [
+                ("assistant-body", "  Run it:"),
+                ("code-fence", "  sh " + "─" * 37),
+                ("code", "  python3 greet.py Ada"),
+                ("code-fence", "  " + "─" * 40),
+                ("assistant-body", "  That prints the greeting."),
+            ],
+            rows,
+        )
+
+    def test_without_a_fence_a_message_keeps_its_style_and_lines(self):
+        self.assertEqual(
+            [("assistant-body", "  one"), ("assistant-body", "    two")],
+            tui.body_rows("assistant-body", "one\n  two", 60),
+        )
+
+    def test_a_diffs_patch_is_colored_by_line_but_not_the_words_before_it(self):
+        text = (
+            "1 file changed since step 1:\n  greet.py\n\n"
+            "diff --git a/greet.py b/greet.py\n--- a/greet.py\n+++ b/greet.py\n@@ -1 +1 @@\n-old\n+new\n same"
+        )
+        styles = [style for style, _ in tui.body_rows("info-body", text, 60, diff=True)]
+        self.assertEqual(
+            ["info-body"] * 3 + ["diff-file"] * 3 + ["diff-hunk", "diff-del", "diff-add", "info-body"], styles
+        )
+        listing = "1. Builder step\n- not a patch line"
+        self.assertEqual(["info-body"] * 2, [style for style, _ in tui.body_rows("info-body", listing, 60, diff=True)])
+
+    def test_inline_code_and_bold_lose_their_marks(self):
+        self.assertEqual(
+            [("text", "Run "), ("code", "/diff 2"), ("text", " for "), ("bold", "the change"), ("text", ".")],
+            tui.inline_pieces("Run `/diff 2` for **the change**."),
+        )
+        self.assertEqual([("text", "a * b and `unclosed")], tui.inline_pieces("a * b and `unclosed"))
+
+    def test_the_screen_draws_inline_code_in_the_code_style(self):
+        ui = screen_ui()
+        ui.say("AutoCode: Type `/diff 1` to see **what changed**.")
+        puts = styled(ui)
+        code = next(put for put in puts if put[2] == "/diff 1")
+        bold = next(put for put in puts if put[2] == "what changed")
+        self.assertEqual(ui._style("code-inline"), code[3])
+        self.assertEqual(ui._style("assistant-body") | tui.curses.A_BOLD, bold[3])
+        self.assertFalse(any("`" in put[2] or "**" in put[2] for put in puts if put[0] == code[0]))
+        line = sorted(put for put in puts if put[0] == code[0])
+        self.assertEqual("  Type /diff 1 to see what changed.", "".join(put[2] for put in line))
+
+    def test_the_screen_draws_a_diffs_added_and_removed_lines_in_their_colors(self):
+        ui = screen_ui()
+        ui._transcript.info("/diff", "1 file changed since step 1:\n  greet.py\n\n@@ -1 +1 @@\n-old line\n+new line")
+        puts = {text.strip(): attr for _, _, text, attr in styled(ui)}
+        self.assertEqual(ui._style("diff-add"), puts["+new line"])
+        self.assertEqual(ui._style("diff-del"), puts["-old line"])
+        self.assertEqual(ui._style("diff-hunk"), puts["@@ -1 +1 @@"])
+        self.assertEqual(ui._style("info-body"), puts["greet.py"])
+
+    def test_what_the_person_typed_is_shown_as_typed(self):
+        ui = screen_ui()
+        ui.say("You: keep `these` **marks**")
+        self.assertIn("  keep `these` **marks**", [text.rstrip() for _, _, text, _ in styled(ui)])
+
+
+class SidePanelWrapTests(unittest.TestCase):
+    """The side panel's requirements and tasks wrap to a second row instead of being cut at its edge."""
+
+    VIEW = {
+        "status": "RUNNING",
+        "progress": {
+            "headline": "Builder working",
+            "requirements": {
+                "label": "0 of 1 requirement checked",
+                "items": [
+                    {
+                        "id": "AC1",
+                        "label": "Given the command python3 greet.py Alice, when it runs, then stdout is exactly "
+                        "Hello, Alice followed by one newline, stderr is empty, and the exit code is 0.",
+                        "state": "unchecked",
+                    }
+                ],
+            },
+        },
+    }
+
+    def test_a_long_requirement_takes_two_rows_and_says_where_it_was_cut(self):
+        self.assertEqual(["one two", "three"], tui.wrapped_rows("one two three", 8, 2))
+        self.assertEqual(["one two", "three f…"], tui.wrapped_rows("one two three four", 8, 2))
+        ui = screen_ui()
+        ui.observe(self.VIEW)
+        layout = ui._layout(30, 120)
+        panel_rows = [text for row, col, text in [(r, c, t) for r, c, t, _ in styled(ui)] if col == layout.panel_col]
+        first = next(index for index, text in enumerate(panel_rows) if "AC1 Given the command" in text)
+        self.assertTrue(panel_rows[first + 1].startswith("  "), panel_rows[first : first + 2])
+        self.assertTrue(panel_rows[first + 1].endswith("…"), panel_rows[first + 1])

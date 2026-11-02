@@ -191,7 +191,9 @@ def stage_lines(row: dict, *, unicode: bool = True) -> tuple[str, str, str]:
     if row["spent_usd"] is not None and (row["spent_usd"] or row["route"]):  # a stage with no model costs nothing
         head.append(money(row["spent_usd"]))
     if row["attempts"] > 1:
-        head.append(f"attempt {row['attempts']}")
+        # A stage that failed and is tried again is on an attempt; one that ran again after succeeding
+        # (a second review round) simply ran more than once.
+        head.append(f"attempt {row['attempts']}" if row["failed_attempts"] else f"{row['attempts']} runs")
     detail = [row["route"]] if row["route"] else []
     used = row["input_tokens"] + row["output_tokens"]
     if used:
@@ -203,10 +205,11 @@ def stage_lines(row: dict, *, unicode: bool = True) -> tuple[str, str, str]:
 
 
 def struggling(view: dict | None, now: datetime | None = None) -> str:
-    """For the working stage, when it is on its second attempt or later: which attempt, how
-    long it has run and why the previous one did not succeed. Empty when nothing is wrong."""
+    """For the working stage, when it is trying again after an attempt that did not succeed: which
+    attempt, how long it has run and why the previous one failed. Empty when nothing is wrong, as
+    for a stage that runs again after succeeding (a second review round)."""
     working = [row for row in stages(view, now) if row["state"] in (WORKING, RETRYING)]
-    if not working or working[-1]["attempts"] < 2:
+    if not working or working[-1]["state"] != RETRYING:
         return ""
     row = working[-1]
     parts = [row["job"], f"attempt {row['attempts']}"]
@@ -233,18 +236,25 @@ def run_total(view: dict | None) -> dict | None:
         "inherited_usd": inherited,
         "input_tokens": counted["input"][0] or 0,
         "output_tokens": counted["output"][0] or 0,
-        "complete": cost.get("complete") is True and all(whole for _, whole in counted.values()),
+        "cost_complete": cost.get("complete") is True,
+        "tokens_complete": all(whole for _, whole in counted.values()),
     }
 
 
-def total_text(total: dict | None) -> str:
+def total_text(total: dict | None, cap=None) -> str:
+    """A total as "$0.42 · 184k tokens", "$1.73 of $5.00 · 843k tokens" with the run's spending cap.
+    A "+" marks the figure that is a floor: "$0.42+" when some cost is unaccounted, "184k+ tokens"
+    when some usage is unreported."""
     if not total:
         return ""
     used = total["input_tokens"] + total["output_tokens"]
-    parts = [money(total["spent_usd"]) if total["spent_usd"] is not None else "$?"]
+    spent = money(total["spent_usd"]) if total["spent_usd"] is not None else "$?"
+    parts = [spent + ("" if total["cost_complete"] or spent == "$?" else "+")]
+    if _number(cap) and cap:
+        parts[0] += f" of {money(cap)}"
     if used:
-        parts.append(f"{tokens(used)} tokens")
-    return " · ".join(parts) + ("" if total["complete"] else "+")
+        parts.append(f"{tokens(used)}{'' if total['tokens_complete'] else '+'} tokens")
+    return " · ".join(parts)
 
 
 def session_total(totals: list[dict | None]) -> dict | None:
@@ -261,5 +271,7 @@ def session_total(totals: list[dict | None]) -> dict | None:
         "inherited_usd": 0,
         "input_tokens": sum(total["input_tokens"] for total in shown),
         "output_tokens": sum(total["output_tokens"] for total in shown),
-        "complete": all(total["complete"] for total in shown) and len(shown) == len(totals),
+        # A chat not read yet leaves both figures a floor.
+        "cost_complete": all(total["cost_complete"] for total in shown) and len(shown) == len(totals),
+        "tokens_complete": all(total["tokens_complete"] for total in shown) and len(shown) == len(totals),
     }

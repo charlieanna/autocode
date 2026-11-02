@@ -103,7 +103,8 @@ class AttachedTerminal(unittest.TestCase):
         # /pause is typed only after the details response is on screen.
         read_terminal(leader, until=b"does not measure meaningful work progress", seconds=10)
         os.write(leader, b"/pause\r")
-        read_terminal(leader, until=b"external worker", seconds=15)
+        # The acknowledgement wraps under the AutoCode label at this 120-column screen; wait for one row of it.
+        read_terminal(leader, until=b"does not interrupt the external", seconds=15)
         self.assertIsNone(worker.poll(), "pause requests do not interrupt the external worker")
         with open(gate, "w") as release:
             release.write("continue")

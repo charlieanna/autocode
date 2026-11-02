@@ -79,6 +79,7 @@ def too_small(rows: int, cols: int) -> str:
 
 LIVE_MIN_ROWS = 24  # below this the live log stays hidden unless /live asks for it
 LIVE_SHARE = 0.45  # of the conversation's rows the live log takes
+PANEL_WRAP = {"Now": 3, "Requirements": 2, "Tasks": 2}  # side panel rows a section's line may take
 AGENT_STYLES = 4  # agents in the live log cycle through this many colors
 MENU_ROWS = 10  # at most; fewer where the screen is short, scrolled to keep the choice in view
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -286,6 +287,73 @@ def _same(block: tuple[str, str], other: tuple[str, str]) -> bool:
     return block[0] == other[0] and " ".join(block[1].split()) == " ".join(other[1].split())
 
 
+FENCE = "```"
+INLINE = re.compile(r"`([^`\n]+)`|\*\*([^*\n]+)\*\*")  # `code` and **bold** in a message line
+INLINE_STYLES = ("assistant-body", "plain", "notice-body")
+
+
+def inline_pieces(text: str) -> list[tuple[str, str]]:
+    """A message line as ``(kind, text)`` pieces: ``code`` for a backticked span, ``bold`` for a
+    starred one (their marks dropped), ``text`` for the rest."""
+    pieces: list[tuple[str, str]] = []
+    at = 0
+    for match in INLINE.finditer(text):
+        if match.start() > at:
+            pieces.append(("text", text[at : match.start()]))
+        pieces.append(("code", match.group(1)) if match.group(1) is not None else ("bold", match.group(2)))
+        at = match.end()
+    if at < len(text):
+        pieces.append(("text", text[at:]))
+    return pieces
+
+
+def wrapped_rows(text: str, width: int, most: int) -> list[str]:
+    """``text`` in at most ``most`` rows of ``width``; the last one ends in an ellipsis when cut."""
+    if most <= 1:
+        return [text]
+    lines = wrap(text, width)
+    if len(lines) <= most:
+        return lines
+    return [*lines[: most - 1], truncate(" ".join(lines[most - 1 :]), width)]
+
+
+def _diff_style(line: str) -> str | None:
+    """A unified diff line's kind, for its color: a file header, a hunk, an addition or a removal."""
+    if line.startswith(("diff --git", "+++", "---", "index ")):
+        return "diff-file"
+    if line.startswith("@@"):
+        return "diff-hunk"
+    if line.startswith("+"):
+        return "diff-add"
+    if line.startswith("-"):
+        return "diff-del"
+    return None
+
+
+def body_rows(style: str, body: str, width: int, *, diff: bool = False) -> list[tuple[str, str]]:
+    """A block's body as indented ``(style, text)`` rows. A fenced code block is drawn as code under a
+    thin rule naming its language, and a diff's lines in their kind's color; the rest keeps ``style``.
+    Each source line wraps on its own, so a wrapped line keeps its line's style."""
+    rows: list[tuple[str, str]] = []
+    fenced = patch = False
+    for line in body.split("\n"):
+        kind = style
+        if diff:
+            # Only the patch is colored, not the file list and words before it.
+            patch = patch or line.startswith(("diff --git", "--- ", "@@"))
+            kind = (_diff_style(line) if patch else None) or style
+        elif line.strip().startswith(FENCE):
+            language = line.strip()[len(FENCE) :].strip()
+            fenced = not fenced
+            rule = "─" * max(1, min(width - 2, 40) - len(language) - (1 if language else 0))
+            rows.append(("code-fence", "  " + (f"{language} {rule}" if fenced and language else rule)))
+            continue
+        elif fenced:
+            kind = "code"
+        rows.extend((kind, "  " + part) for part in wrap(line, max(1, width - 2)))
+    return rows
+
+
 @dataclass
 class Transcript:
     """What the client has said, and the latest progress line it reported."""
@@ -362,7 +430,7 @@ class Transcript:
                 # AutoCode speaking: under its label, or continuing the AutoCode turn before them.
                 if previous not in ("assistant", "plain"):
                     rendered.append(("assistant-label", _LABELS["assistant"]))
-                rendered.extend(("plain", "  " + line) for line in wrap(text.strip("\n"), max(1, width - 2)))
+                rendered.extend(body_rows("plain", text.strip("\n"), width))
             elif label is None:
                 rendered.extend(("plain", line) for line in wrap(text, width))
             else:
@@ -373,13 +441,18 @@ class Transcript:
                 if role == "info":
                     label, _, body = text.partition("\n")
                 rendered.append((f"{role}-label", label))
-                rendered.extend((f"{role}-body", "  " + line) for line in wrap(body, max(1, width - 2)))
+                if role == "user":
+                    rendered.extend((f"{role}-body", "  " + line) for line in wrap(body, max(1, width - 2)))
+                else:
+                    rendered.extend(
+                        body_rows(f"{role}-body", body, width, diff=role == "info" and label.startswith("/diff"))
+                    )
             rendered.append(("plain", ""))
             previous = role
         if self.live.strip():
             rendered.append(("assistant-label", "AutoCode · writing…"))
             text = safe_text(self.live).strip("\n")
-            rendered.extend(("assistant-body", "  " + line) for line in wrap(text, max(1, width - 2)))
+            rendered.extend(body_rows("assistant-body", text, width))
             rendered.append(("plain", ""))
         self.block_starts = starts
         self._lines_width = width
@@ -1544,8 +1617,28 @@ class ChatTUI:
             elif role == "user-body":
                 padded = text + " " * max(0, width - display_width(text))
                 self._put(row, 0, truncate(padded, width), self._style(role))
+            elif role in INLINE_STYLES and INLINE.search(text):
+                self._put_inline(row, text, width, role)
             else:
                 self._put(row, 0, truncate(text, width), self._style(role))
+
+    def _put_inline(self, row: int, text: str, width: int, role: str) -> None:
+        """A message line with its `code` and **bold** spans drawn as such, clipped at ``width``."""
+        col = 0
+        for kind, piece in inline_pieces(text):
+            room = width - col
+            if room <= 0:
+                return
+            shown = truncate(piece, room)
+            style = (
+                self._style("code-inline")
+                if kind == "code"
+                else self._style(role) | curses.A_BOLD
+                if kind == "bold"
+                else self._style(role)
+            )
+            self._put(row, col, shown, style)
+            col += display_width(shown)
 
     def _side_panel(self, layout: Layout) -> None:
         """The run beside the conversation: where it is, its requirements, tasks and problems, then the log."""
@@ -1569,13 +1662,12 @@ class ChatTUI:
             )
             if section.title == "Now":
                 rows.append(("panel-now", section.summary))
+            # What the run is doing now, and each requirement and task, wraps so it is read rather than
+            # cut at the panel's edge; the rest keep one row each.
+            lines_each = PANEL_WRAP.get(section.title, 1)
             for item in section.rows:
                 mark = item.mark if self._glyphs.unicode else panel.ascii_mark(item.mark)
-                if section.title != "Now":
-                    rows.append((f"panel-{item.style}", f"{mark} {item.text}"))
-                    continue
-                # What the run is doing now wraps, so its recent attempts are read in full.
-                for number, line in enumerate(wrap(item.text, max(1, width - 2))[:3]):
+                for number, line in enumerate(wrapped_rows(item.text, max(1, width - 2), lines_each)):
                     rows.append((f"panel-{item.style}", f"{mark if number == 0 else ' '} {line}"))
             rows.append(("plain", ""))
         room = bottom - top
@@ -1601,7 +1693,7 @@ class ChatTUI:
                 if entry["kind"] == "thinking"
                 else "live-plain"
             )
-            agent, text = safe_text(entry["agent"]), safe_text(entry["text"])
+            agent, text = safe_text(entry["agent"]), safe_text(panel.live_text(entry["text"]))
             lines = wrap(f"{agent} {mark} {text}", width)
             first = lines[0]
             if first.startswith(agent):
@@ -1854,6 +1946,13 @@ class ChatTUI:
             "live-thinking": curses.A_DIM,
             "live-plain": 0,
             **{f"agent-{number}": curses.A_BOLD for number in range(AGENT_STYLES)},
+            "code": 0,
+            "code-inline": curses.A_BOLD,
+            "code-fence": curses.A_DIM,
+            "diff-add": 0,
+            "diff-del": curses.A_DIM,
+            "diff-hunk": curses.A_BOLD,
+            "diff-file": curses.A_BOLD,
             "menu": curses.A_REVERSE | curses.A_DIM,
             "menu-selected": curses.A_REVERSE,
         }
@@ -1901,5 +2000,13 @@ class ChatTUI:
         pair("panel-accent", accent, -1, curses.A_BOLD)
         pair("panel-warn", warn, -1, curses.A_BOLD)
         pair("live-thinking", quiet, -1, curses.A_DIM if quiet == -1 else 0)
+        code = 180 if curses.COLORS >= 256 else curses.COLOR_MAGENTA
+        pair("code", code, -1)
+        pair("code-inline", code, -1)
+        pair("code-fence", quiet if quiet != -1 else code, -1, curses.A_DIM if quiet == -1 else 0)
+        pair("diff-add", good, -1)
+        pair("diff-del", curses.COLOR_RED, -1)
+        pair("diff-hunk", accent, -1)
+        pair("diff-file", -1, -1, curses.A_BOLD)
         for number, color in enumerate((accent, good, warn, curses.COLOR_MAGENTA)[:AGENT_STYLES]):
             pair(f"agent-{number}", color, -1, curses.A_BOLD)

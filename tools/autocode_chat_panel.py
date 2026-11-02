@@ -12,6 +12,7 @@ the view names: ``/pause`` is the view's pause offer, ``/diff`` a saved step's
 
 from __future__ import annotations
 
+import re
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -255,7 +256,8 @@ def stage_section(view: dict | None, now=None) -> Section | None:
         rows.append(Row(mark, text, style))
         if detail.strip():  # the model it ran on and what it used; a stage with no model has none
             rows.append(Row(" ", detail.strip(), "dim"))
-    return Section("Stages", meter.total_text(meter.run_total(view)), tuple(rows))
+    cap = _mapping(_mapping(view).get("cost")).get("cap_usd")
+    return Section("Stages", meter.total_text(meter.run_total(view), cap), tuple(rows))
 
 
 def sections(view: dict | None, *, launched: bool = False) -> list[Section]:
@@ -280,10 +282,13 @@ def sections(view: dict | None, *, launched: bool = False) -> list[Section]:
     result = [Section("Now", now, tuple(rows))]
     if ran := stage_section(view):
         result.append(ran)
-    if proof := verification.compact(view):
+    # Whether the delivery is verified means something once the run has finished; before then it
+    # is always "not verified", and /details keeps the evidence either way.
+    if verification.settled(view) and (proof := verification.compact(view)):
         summary, entries = proof
         result.append(Section(verification.title(view), summary, tuple(Row("·", line, "dim") for line in entries)))
-    if usage := cost.compact(view):
+    # The Stages section already carries the run's spend, tokens and cap; /details the rest.
+    if ran is None and (usage := cost.compact(view)):
         summary, entries = usage
         result.append(Section("Usage", summary, tuple(Row("·", line, "dim") for line in entries)))
     if path := stage_policy.compact(view):  # which planning path a bug-fix run took and why (#1884 F2)
@@ -498,6 +503,38 @@ def log_entries(view: dict | None) -> list[dict]:
     ]
 
 
+_THOUGHT = re.compile(r"thinking ~(\d+) tokens")
+_WRITING = re.compile(r"writing (\S+) input: (\d+) chars")
+# The tool a stage answers through is its report, not something a person needs named.
+_ANSWER_TOOLS = {"StructuredOutput": "its answer"}
+
+
+def _amount(count: int, unit: str) -> str:
+    return (f"{count / 1000:.1f}k" if count >= 1000 else str(count)) + f" {unit}"
+
+
+def live_text(text: str) -> str:
+    """An entry's text as the live log shows it. A provider's running progress notes ("thinking ~150
+    tokens; thinking ~300 tokens; writing StructuredOutput input: 900 chars; …") say one growing thing
+    over and over: they read as their newest value of each, in the order first seen. Any other text,
+    the model's own words, is shown as it is."""
+    parts = [part.strip() for part in text.split(";")]
+    if not any(_THOUGHT.fullmatch(part) or _WRITING.fullmatch(part) for part in parts):
+        return text
+    shown: dict[str, str] = {}
+    for number, part in enumerate(parts):
+        if not part:
+            continue
+        if thought := _THOUGHT.fullmatch(part):
+            shown["thinking"] = "thought ~" + _amount(int(thought.group(1)), "tokens")
+        elif writing := _WRITING.fullmatch(part):
+            tool = _ANSWER_TOOLS.get(writing.group(1), writing.group(1))
+            shown[f"writing {tool}"] = f"writing {tool} · " + _amount(int(writing.group(2)), "chars")
+        elif not (number == 0 and part.startswith("…")):  # the cut-off head of an older note
+            shown[f"text {number}"] = part
+    return " · ".join(shown.values())
+
+
 @dataclass
 class LiveLog:
     """What each agent has thought, said and done, kept across views: the view holds only the newest
@@ -535,7 +572,10 @@ class LiveLog:
 
     def text(self, limit: int = 60) -> str:
         """The newest entries as plain lines, for where the pane does not fit."""
-        lines = [f"{entry['agent']} {LIVE_MARKS[entry['kind']]} {entry['text']}" for entry in self.shown()[-limit:]]
+        lines = [
+            f"{entry['agent']} {LIVE_MARKS[entry['kind']]} {live_text(entry['text'])}"
+            for entry in self.shown()[-limit:]
+        ]
         return "\n".join(lines) or "No agent is working right now."
 
 

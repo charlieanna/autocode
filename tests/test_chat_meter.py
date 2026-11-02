@@ -76,7 +76,7 @@ class StageTests(unittest.TestCase):
         self.assertEqual("Builder · attempt 2 · 4m30s · last one answer rejected", meter.struggling(shown, NOW))
 
     def test_a_report_repair_is_the_repaired_stages_next_attempt(self):
-        # Live, Sonnet as Tester: sol was rejected, the Resolver ran, then sol_report_repair passed.
+        # As in the live run of 2026-11-02: sol was rejected, the Resolver ran, then sol_report_repair passed.
         rejected = attempt("sol", "Tester", rejected=True)
         repairing = attempt(
             "sol_report_repair",
@@ -93,6 +93,23 @@ class StageTests(unittest.TestCase):
         costs = [{"stage": "sol", "spent_usd": 0.25}, {"stage": "sol_report_repair", "spent_usd": 0.1}]
         tester = meter.stages(view(rejected, attempt("resolver", "Resolver"), repaired, by_stage=costs), NOW)[0]
         self.assertEqual((meter.DONE, 2, 0.35), (tester["state"], tester["attempts"], tester["spent_usd"]))
+
+    def test_a_second_round_after_a_success_is_not_struggling(self):
+        # Live: the Plan Reviewer's challenge ran twice, and both rounds succeeded.
+        shown = view(
+            attempt("astra_challenge", "Plan Reviewer"),
+            attempt(
+                "astra_challenge",
+                "Plan Reviewer",
+                active=True,
+                duration_seconds=None,
+                started_at="2026-11-02T01:09:00Z",
+            ),
+        )
+        (row,) = meter.stages(shown, NOW)
+        self.assertEqual((meter.WORKING, 2), (row["state"], row["attempts"]))
+        self.assertEqual("", meter.struggling(shown, NOW))
+        self.assertEqual("● Plan Reviewer · 1m30s · 2 runs", meter.stage_lines(row)[0])
 
     def test_a_first_attempt_at_work_is_not_struggling(self):
         shown = view(attempt("terra", "Builder", active=True, duration_seconds=None, started_at="2026-11-02T01:09:00Z"))
@@ -146,10 +163,34 @@ class PanelTests(unittest.TestCase):
         self.assertIn("last one exit 1", now.rows[0].text)
 
 
+class CalmPanelTests(unittest.TestCase):
+    """The panel says each thing once: the spend in Stages, and delivery only once there is one to judge."""
+
+    def test_the_stages_section_carries_the_spend_and_cap_so_usage_is_not_repeated(self):
+        shown = view(attempt("terra", "Builder"), spent=1.73)
+        shown["cost"]["cap_usd"] = 5
+        titles = {section.title: section for section in panel.sections(shown)}
+        self.assertEqual("$1.73 of $5.00 · 184k tokens", titles["Stages"].summary)
+        self.assertNotIn("Usage", titles)
+        # Without stage records the Usage section still says what the run spent.
+        self.assertIn("Usage", {section.title for section in panel.sections(view(spent=1.73))})
+
+    def test_verification_waits_until_the_run_has_a_delivery_to_judge(self):
+        working = {**view(attempt("terra", "Builder")), "status": "RUNNING", "delivery": {"verified_complete": False}}
+        self.assertNotIn("Verification", {section.title for section in panel.sections(working)})
+        finished = {**working, "status": "TASK_COMPLETE", "done": True, "delivery": {"verified_complete": True}}
+        section = next(section for section in panel.sections(finished) if section.title == "Verification")
+        self.assertEqual("verified by core gate", section.summary)
+
+
 class TotalTests(unittest.TestCase):
     def test_the_run_total_is_the_cores_own(self):
         self.assertEqual("$0.42 · 184k tokens", meter.total_text(meter.run_total(view())))
-        self.assertEqual("$0.42 · 184k tokens+", meter.total_text(meter.run_total(view(complete=False))))
+        self.assertEqual("$0.42+ · 184k+ tokens", meter.total_text(meter.run_total(view(complete=False))))
+        # Live: the cost was fully accounted while some output tokens went unreported.
+        partial = view()
+        partial["usage"]["accounting"]["tokens"]["output_tokens"] = {"value": None, "known": 34_000, "complete": False}
+        self.assertEqual("$0.42 · 184k+ tokens", meter.total_text(meter.run_total(partial)))
         self.assertIsNone(meter.run_total({}))
 
     def test_the_session_adds_chats_without_counting_a_restored_steps_spend_twice(self):
@@ -159,7 +200,7 @@ class TotalTests(unittest.TestCase):
 
     def test_a_chat_not_read_yet_makes_the_session_total_a_floor(self):
         total = meter.session_total([meter.run_total(view(spent=1.0)), None])
-        self.assertEqual("$1.00 · 184k tokens+", meter.total_text(total))
+        self.assertEqual("$1.00+ · 184k+ tokens", meter.total_text(total))
         self.assertIsNone(meter.session_total([None, None]))
 
     def test_small_amounts_and_counts_read_briefly(self):

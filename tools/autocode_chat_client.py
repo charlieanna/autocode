@@ -384,6 +384,11 @@ class ChatClient:
         self.viewed: set[str] = set()  # runs that have answered --status, so a refusal before one is told apart
         self.said: set[str] = set()  # message texts already shown, so a question is not printed twice
         self._local_echoes: set[tuple[str, str]] = set()  # direct prompts awaiting their next public-message echo
+        # What this chat put to the person before the conversation recorded it: each question (a Requirements
+        # question, the understanding to approve) and each plan (by its token) it asked them to approve. Their
+        # records arrive once the person has answered: a question is not said again, a plan only by its heading.
+        self._asked: set[str] = set()
+        self._shown_plans: set[str] = set()
         self._replied_context: str | None = None  # the chat context the last sent reply answered
         self.started = False  # the first view prints the whole conversation, later ones only what is new
         self.last_line: tuple = ()
@@ -914,8 +919,17 @@ class ChatClient:
             if echo in self._local_echoes:
                 self._local_echoes.remove(echo)
                 continue  # the direct prompt was just shown; distinct public messages still own their IDs
+            if row.get("role") != "user" and str(ident or "").endswith("-question") and text in self._asked:
+                self._asked.discard(text)
+                continue  # the question the person just answered, recorded now that they answered it
+            if row.get("role") != "user" and str(ident or "").removeprefix("plan-") in self._shown_plans:
+                self._shown_plans.discard(str(ident).removeprefix("plan-"))
+                self.say(f"\nAutoCode: {text.splitlines()[0]}. /plan shows it.")
+                continue  # the plan was shown in full when it was approved; its record is its heading
             who = "You" if row.get("role") == "user" else "AutoCode"
             self.say(f"\n{who}: {text}")
+            if str(ident or "").startswith("requirements-question"):
+                self._asked.add(text)
         # A prompt without an immediate public counterpart must not hide a later turn's message.
         # While its counterpart is still being written, the echo waits for the finished message.
         if streaming_text is None:
@@ -1312,6 +1326,7 @@ class ChatClient:
         if not token or plan is None:
             raise actions.ClientGap("The complete plan is unavailable, so it cannot be approved here.")
         self.say("\n" + render_plan(plan))
+        self._shown_plans.add(token)
         if hint := changeset.approval_hint(view):
             self.say(hint)
         context = (view.get("chat") or {}).get("context") or ""
@@ -1356,11 +1371,13 @@ class ChatClient:
             # Ask the question this prompt waits on, even if the transcript has not shown it yet.
             self.said.add(question)
             self._local_echoes.add(("assistant", question))
+            self._asked.add(question)
             self.say(f"\nAutoCode: {question}")
         summary = ((review or {}).get("summary") or "").strip()
         if summary and summary not in self.said:
             self.said.add(summary)
             self._local_echoes.add(("assistant", summary))
+            self._asked.add(summary)
             self.say(f"\nAutoCode: {summary}")
         prompt = "\nYou: " if not review else f"\n{review['label']}? [y/N], or type what to change: "
         reply = self.ask(prompt)
