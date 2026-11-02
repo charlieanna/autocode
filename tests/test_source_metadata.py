@@ -5,6 +5,39 @@ import unittest
 import autocode_source_metadata as metadata
 
 
+class TicketReferenceTests(unittest.TestCase):
+    def test_documentary_references_keep_the_outcome_and_real_values(self):
+        for reference in ("original DTI-12398 outcome", "reported APP2-47 bug report", "ticket APP2-47"):
+            text = f"The {reference} requires exactly 7 rows."
+            key = "DTI-12398" if "DTI" in text else "APP2-47"
+            with self.subTest(reference=reference):
+                keys = metadata.ticket_reference_keys(text)
+                self.assertEqual({key}, keys)
+                result = metadata.value_text(text, [], ticket_reference_keys=keys)
+                self.assertNotIn(key, result)
+                self.assertIn("requires exactly 7 rows", result)
+
+    def test_literal_output_and_ambiguous_product_values_remain_numbers(self):
+        for text in (
+            "Handle ERR-12398 when requests fail.",
+            "The original ERR-12398 error code must survive.",
+            "Print original DTI-12398 outcome exactly.",
+            "Print exactly:\noriginal DTI-12398 outcome",
+            "The `original DTI-12398 outcome` is the literal output.",
+            'Use "original DTI-12398 outcome" in the label.',
+            "```\noriginal DTI-12398 outcome\n```",
+            "The original DTI-12398 outcome is required. Return DTI-12398.",
+            "Use ticket DTI-12398 as the identifier.",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(set(), metadata.ticket_reference_keys(text))
+
+    def test_value_scan_requires_the_whole_source_reference_admission(self):
+        text = "The original DTI-12398 outcome requires exactly 7 rows."
+        self.assertEqual(text, metadata.value_text(text, []))
+        self.assertEqual(text, metadata.value_text(text, [], ticket_reference_keys={"OTHER-12398"}))
+
+
 class TicketTitleTests(unittest.TestCase):
     def test_joint_report_wrapper_keeps_the_original_ticket_title_documentary(self):
         prefix = "Implement a joint regression for this original bug report:\n"

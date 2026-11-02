@@ -246,13 +246,18 @@ def _survival_errors(body, records, waivers):
     for record in records:
         protected_locations = source_metadata.output_locations(record["text"])
         ticket_title_key = source_metadata.ticket_title_key(record["text"])
+        ticket_reference_keys = source_metadata.ticket_reference_keys(record["text"])
         for sentence in cues.sentences(record["text"]):
             citing = _citing(criteria, sentence, record["id"])
             if not citing:
                 continue
             corpus = _corpus(body, citing)
             value_text = source_metadata.value_text(
-                sentence, source_ids, protected_locations=protected_locations, ticket_title_key=ticket_title_key
+                sentence,
+                source_ids,
+                protected_locations=protected_locations,
+                ticket_title_key=ticket_title_key,
+                ticket_reference_keys=ticket_reference_keys,
             )
             numbers = _NUMBER.findall(_REFERENCE.sub(" ", _STANDARD.sub(" ", value_text)))
             lost = [number for number in dict.fromkeys(numbers) if not _number_in(number, corpus)]

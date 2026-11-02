@@ -223,6 +223,22 @@ class ReadyGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "neither cited nor out of scope"):
             self.ready(body([criterion("C1", kept, [values])]), records=records)
 
+    def test_feedback_ticket_reference_keeps_behavior_values_and_citation_coverage(self):
+        reference = "The original DTI-12398 outcome covers INames .kr and .co.kr."
+        values = "Preserve domain 232027272 and result codes 1000 and 2304."
+        source_id = "feedback:scope"
+        records = [{"id": source_id, "kind": "feedback", "text": reference + " " + values}]
+        kept = "Restore INames .kr and .co.kr history for domain 232027272 with result codes 1000 and 2304."
+        self.ready(body([criterion("C1", kept, [reference, values], source_id=source_id)]), records=records)
+        for number in ("232027272", "1000", "2304"):
+            with self.subTest(number=number), self.assertRaisesRegex(ValueError, "changed a number.*" + number):
+                self.ready(
+                    body([criterion("C1", kept.replace(number, "other"), [reference, values], source_id=source_id)]),
+                    records=records,
+                )
+        with self.assertRaisesRegex(ValueError, "neither cited nor out of scope"):
+            self.ready(body([criterion("C1", kept, [values], source_id=source_id)]), records=records)
+
     def test_ticket_title_metadata_cannot_hide_product_codes_or_literals(self):
         for text in (
             "Handle ERR-12398 when requests fail.",
