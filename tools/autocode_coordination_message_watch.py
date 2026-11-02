@@ -32,7 +32,10 @@ def pause_pending(run_dir, *, command=tasks.AUTOCODE, stopped=None):
     if not document or store.cancelled(run_dir) or (stopped is not None and stopped.is_set()):
         return []
     conversation = document.get("conversation") or {}
-    if (conversation.get("active") or {}).get("reply"):
+    # The owner admits a conversation only after all participants settle and
+    # re-observes them for each step. This watcher only handles new arrivals
+    # while ordinary work is running, not an already admitted assessment.
+    if conversation.get("active"):
         return []
     finished = {row["request_id"] for row in conversation.get("results", [])}
     message = next((row for row in inbox.read(run_dir) if row["id"] not in finished), None)

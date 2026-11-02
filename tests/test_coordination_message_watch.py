@@ -92,6 +92,21 @@ class MessageWatchTests(unittest.TestCase):
             module.policy.request_id(self.record, self.messages[1], "api", "pause"), submission.call_args.args[2]["id"]
         )
 
+    def test_admitted_conversation_needs_no_background_participant_reads(self):
+        module = watch_module()
+        _, factory, submission = self.setup_reads(module, self.active_view())
+        self.record["conversation"] = {"active": {"id": "m1"}}
+        # Admission already saved every participant at a boundary. The owner
+        # observes them before each step; its pause watcher has no work here,
+        # including when another message arrives before this reply finishes.
+        for queued in (False, True):
+            with self.subTest(second_message_queued=queued):
+                if queued:
+                    self.messages.append({"id": "m2", "text": "Another question"})
+                self.assertEqual([], module.pause_pending(self.record["anchor"]))
+                factory.assert_not_called()
+                submission.assert_not_called()
+
     def test_newly_starting_member_is_observed_even_before_start_receipt(self):
         module = watch_module()
         task, _, submission = self.setup_reads(module, self.active_view())
