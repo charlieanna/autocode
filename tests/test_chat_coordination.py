@@ -3,12 +3,88 @@
 import copy
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import autocode_chat_client as chat
 import autocode_chat_coordination as coordination
+
+
+class CoordinatedLiveScreenTests(unittest.TestCase):
+    def test_real_terminal_shows_member_log_during_one_gated_coordinator_action(self):
+        from tests import ROOT
+        from tests.terminal_screen import TerminalScreen, require_tmux
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            gate = root / "gate"
+            os.mkfifo(gate)
+            backend = root / "backend.py"
+            backend.write_text("""
+import json, os, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+anchor, member = str(root / 'anchor'), str(root / 'member')
+args = sys.argv[2:]
+command = ['autocode', 'coordinate', 'advance', '--run-dir', anchor, '--json']
+if args[:2] == ['coordinate', 'status']:
+    print(json.dumps({'version': 1, 'anchor': anchor, 'done': False,
+        'members': [{'target': 'api', 'workspace': str(root), 'run_dir': member, 'status': 'RUNNING'}],
+        'needs': {'kind': 'start', 'target': 'api'}, 'next_command': command}))
+elif args[:2] == ['coordinate', 'advance']:
+    with (root / 'advances').open('a') as stream:
+        stream.write('anchor\\n')
+    with (root / 'gate').open() as stream:
+        stream.read()
+elif '--status' in args:
+    run = args[args.index('--run-dir') + 1]
+    view = {'workspace': str(root), 'run_dir': run, 'status': 'RUNNING' if run == member else 'WAITING_FOR_USER',
+            'needs': {'kind': 'continue'}, 'chat': {'log': []}}
+    if run == member:
+        view['chat']['log'] = [{'id': 'member-message', 'agent': 'Requirements', 'kind': 'message',
+                               'text': 'Inspecting the actual request path'}]
+    else:
+        view['coordination'] = {'status_command': ['autocode', 'coordinate', 'status', '--run-dir', anchor, '--json']}
+    print(json.dumps({'view': view}))
+else:
+    raise SystemExit('Unexpected command: ' + repr(args))
+""")
+            script = f"""
+import sys
+sys.path.insert(0, {str(ROOT / "tools")!r})
+from pathlib import Path
+from autocode_chat_client import ChatClient
+from autocode_chat_tui import ChatTUI
+import autocode_chat_coordination as coordination
+root = Path({str(root)!r})
+with ChatTUI() as ui:
+    client = ChatClient(root, root / 'anchor', command=(sys.executable, {str(backend)!r}, str(root)),
+                        observe=ui.observe, unavailable=ui.status_unavailable, say=ui.say,
+                        ask=ui.ask, wait=ui.wait, poll_seconds=0.1)
+    ui.bind(client.slash, run=True)
+    ui.idle = client.poll
+    try:
+        coordination.step(client, client.status(), lambda value: str(value))
+    finally:
+        client.close()
+"""
+            screen = TerminalScreen(
+                [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
+            )
+            self.addCleanup(screen.close)
+            screen.wait_for(
+                lambda text: "LIVE · all agents" in text and "Inspecting the actual request path" in text,
+                what="active coordinated member live log",
+            )
+            screen.type("/help")
+            screen.keys("Enter")
+            screen.wait_for("List these commands", what="responsive help during the coordinated action")
+            self.assertEqual("anchor\n", (root / "advances").read_text())
+            with gate.open("w") as release:
+                release.write("done")
+            self.assertEqual(0, screen.exit_status())
 
 
 class UncappedRecoveryScreenTests(unittest.TestCase):
@@ -57,6 +133,96 @@ assert calls == [((['coordinate', 'resume', '--run-dir', str(run), '--token', '-
 
 
 class CoordinatedDisplayTests(unittest.TestCase):
+    def test_automatic_member_and_joint_actions_show_live_status_without_transferring_control(self):
+        for target in ("api", "Joint regression"):
+            for fail in (False, True):
+                with self.subTest(target=target, action_fails=fail):
+                    workspace = Path("/tmp/coordinated-live-display").resolve()
+                    anchor = {"workspace": str(workspace), "run_dir": str(workspace / "anchor")}
+                    member = {
+                        "workspace": str(workspace / "member"),
+                        "run_dir": str(workspace / "member/run"),
+                        "status": "RUNNING",
+                        "needs": {"kind": "continue"},
+                        "chat": {"log": [{"text": "Testing the actual request path"}]},
+                    }
+                    seen, watchers, closed = [], [], []
+                    observed = lambda view: seen.append(view)
+                    unavailable = Mock()
+                    wait = Mock(return_value="pause")
+                    parent = chat.ChatClient(
+                        workspace,
+                        Path(anchor["run_dir"]),
+                        say=Mock(),
+                        observe=observed,
+                        unavailable=unavailable,
+                        wait=wait,
+                    )
+                    self.addCleanup(parent.close)
+                    action = ["autocode", "coordinate", "advance", "--run-dir", anchor["run_dir"], "--json"]
+                    summary = {
+                        "members": [{**member, "target": "api"}],
+                        "done": False,
+                        "needs": {"kind": "start", "target": target},
+                        "next_command": action,
+                        "integration": member if target == "Joint regression" else None,
+                    }
+
+                    def poll(child):
+                        watchers.append(child)
+                        self.assertEqual(Path(member["run_dir"]), child.run_dir)
+                        child.accept_status(member)
+
+                    def advance(argv):
+                        self.assertEqual(action[1:], argv)
+                        parent.accept_status(anchor)
+                        self.assertEqual("pause", parent._wait(0.05))
+                        if fail:
+                            raise RuntimeError("coordinator refused")
+
+                    original_close = chat.ChatClient.close
+
+                    def close(child):
+                        closed.append(child)
+                        original_close(child)
+
+                    with (
+                        patch.object(coordination, "read", return_value=summary),
+                        patch.object(parent, "advance", side_effect=advance) as dispatched,
+                        patch.object(chat.ChatClient, "poll", new=poll),
+                        patch.object(chat.ChatClient, "close", new=close),
+                        patch.object(chat.ChatClient, "respond") as respond,
+                    ):
+                        if fail:
+                            with self.assertRaisesRegex(RuntimeError, "coordinator refused"):
+                                coordination.step(parent, anchor, Mock())
+                        else:
+                            coordination.step(parent, anchor, Mock())
+                    self.assertEqual([member], seen)
+                    self.assertEqual(watchers, closed)
+                    self.assertEqual(1, len(watchers))
+                    dispatched.assert_called_once()
+                    respond.assert_not_called()
+                    wait.assert_called_once_with(0.05)
+                    self.assertEqual(Path(anchor["run_dir"]), parent.run_dir)
+                    self.assertIs(parent._observe, observed)
+                    self.assertIs(parent._unavailable, unavailable)
+                    self.assertIs(parent._wait, wait)
+
+    def test_automatic_action_without_published_participant_keeps_anchor_display(self):
+        parent = Mock(run_dir=Path("/tmp/unknown-participant/run").resolve(), said=set())
+        original = parent._observe
+        summary = {
+            "members": [],
+            "done": False,
+            "needs": {"kind": "resolve", "target": "unknown"},
+            "next_command": ["autocode", "coordinate", "advance", "--run-dir", str(parent.run_dir), "--json"],
+        }
+        with patch.object(coordination, "read", return_value=summary):
+            coordination.step(parent, {}, Mock())
+        parent.advance.assert_called_once_with(summary["next_command"][1:])
+        self.assertIs(original, parent._observe)
+
     def test_missing_repository_asks_for_catalog_setup_without_bug_specific_repos_command(self):
         run_dir = Path("/tmp/coordinated-missing/.autocode/runs/chat").resolve()
         client = Mock(run_dir=run_dir, said=set())
