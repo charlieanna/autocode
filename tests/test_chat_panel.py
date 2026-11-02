@@ -23,6 +23,20 @@ def view(*, headline="Builder working", needs="nothing needed from you", task="w
 
 
 class SectionTests(unittest.TestCase):
+    def test_compact_usage_keeps_incomplete_accounting_visible(self):
+        current = view()
+        current["cost"] = {"spent_usd": 1.25, "complete": False, "unpriced_stages": 2}
+        current["usage"] = {
+            "accounting": {"complete": False, "active_attempts": 1, "parallel_workers_pending": ["worker-2"]}
+        }
+        shown = panel.compact_sections(current)
+        usage = next(section for section in shown if section.title == "Usage")
+        self.assertIn("$1.25", usage.summary)
+        for warning in ("incomplete", "2 unpriced", "1 active", "1 worker pending", "attempt coverage incomplete"):
+            with self.subTest(warning=warning):
+                self.assertIn(warning, " ".join(row.text for row in usage.rows))
+        self.assertNotIn("Estimates and routes", repr(shown))
+
     def test_planning_summaries_hide_completion_counts_but_keep_details_and_findings(self):
         for phase, status in (("DISCOVERING", "RUNNING"), ("PLANNING", "RUNNING"), (None, "AWAITING_GOAL_APPROVAL")):
             with self.subTest(phase=phase, status=status):

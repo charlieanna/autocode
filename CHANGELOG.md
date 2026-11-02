@@ -12,7 +12,7 @@ PR template asks for an entry here; a change without one is incomplete.
 ### Fixed
 
 - Terminal chat keeps conversation and ordinary agent progress in one scrolling timeline, with
-  visible stage names and stable plan-reading positions. It avoids duplicate coordinated plans,
+  visible stage names, incomplete-accounting warnings and stable plan-reading positions. It avoids duplicate coordinated plans,
   raw structured reports, routine repository transitions, premature completion counters and
   repeated inbox alerts in the conversation. Empty live-message submissions are ignored, and
   leaving the viewer no longer prints plans that were already displayed.

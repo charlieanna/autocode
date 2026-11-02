@@ -417,7 +417,8 @@ def compact_sections(view: dict | None, *, launched: bool = False, task_total: d
             if isinstance(stage, str) and stage.strip():
                 result.append(Section("Stage", stage.strip()))
         elif section.summary:
-            result.append(Section("Usage" if section.title == "Stages" else section.title, section.summary))
+            rows = section.rows[:1] if section.title == "Usage" else ()
+            result.append(Section("Usage" if section.title == "Stages" else section.title, section.summary, rows))
     return result
 
 
