@@ -342,7 +342,7 @@ def sections(view: dict | None, *, launched: bool = False, task_total: dict | No
     if _rows(requirements.get("items")):
         result.append(
             Section(
-                "Requirements",
+                "Acceptance checks",
                 str(requirements.get("label") or ""),
                 tuple(
                     Row(
@@ -529,7 +529,7 @@ def text(name: str, view: dict | None, log: StageLog, available: list[Command] |
             )
         )
         return said + ("\n\n" + more if more else "")
-    wanted = {"/plan": "Requirements", "/tasks": "Tasks"}[name]
+    wanted = {"/plan": "Acceptance checks", "/tasks": "Tasks"}[name]
     for section in sections(view):
         if section.title == wanted:
             return "\n".join([section.summary, *(f"{row.mark} {row.text}" for row in section.rows)])
@@ -593,19 +593,14 @@ class LiveLog:
         return list(dict.fromkeys(entry["agent"] for entry in self.entries.values()))
 
     def shown(self) -> list[dict]:
-        """Readable progress and one latest command per agent; tools opts into command history."""
+        """Messages by default; thinking and tool details require their explicit filters."""
         entries = [entry for entry in self.entries.values() if live_text(entry["text"])]
         wanted = self.filter.strip().casefold()
         if wanted in LIVE_KINDS:
             return [entry for entry in entries if entry["kind"] in LIVE_KINDS[wanted]]
         if wanted:
             entries = [entry for entry in entries if wanted in entry["agent"].casefold()]
-        latest = {entry["agent"]: entry for entry in entries if entry["kind"] == "command"}
-        return [
-            entry
-            for entry in entries
-            if entry["kind"] != "command" or entry is latest[entry["agent"]] or entry.get("status") == "failed"
-        ]
+        return [entry for entry in entries if entry["kind"] == "message"]
 
     def title(self) -> str:
         return "LIVE · " + (self.filter.strip() or "all agents")

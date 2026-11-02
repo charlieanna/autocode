@@ -35,7 +35,10 @@ for number in range(25):
          'text': f'rg route source-{number}.go', 'status': 'done'},
     ])
 with ChatTUI() as ui:
-    ui.observe({'status': 'RUNNING', 'chat': {'log': rows}})
+    ui.observe({'status': 'RUNNING', 'chat': {'log': rows}, 'progress': {
+        'headline': 'Plan Reviewer working',
+        'requirements': {'label': '0 of 1 requirement checked',
+                         'items': [{'id': 'AC1', 'label': 'History is readable', 'state': 'unchecked'}]}}})
     while True:
         ui.wait(0.1)
 """
@@ -46,14 +49,17 @@ with ChatTUI() as ui:
         screen.wait_for(
             lambda shown: (
                 "LIVE · all agents" in shown
-                and "Checking the caller route against the saved requirement." in shown
-                and "rg route source-24.go" in shown
+                and "Plan Reviewer working" in shown
+                and "ACCEPTANCE CHECKS" in shown
+                and "Checking the caller route against the saved" in shown
+                and "requirement." in shown
+                and "rg route source-24.go" not in shown
                 and "source-23.go" not in shown
                 and "writing Bash" not in shown
                 and "chars" not in shown
             ),
             timeout=10,
-            what="readable progress and latest command without 25 transport fragments",
+            what="plain-English progress without commands or 25 transport fragments",
         )
         screen.type("/live tools")
         screen.keys("Enter")
@@ -97,8 +103,6 @@ with ChatTUI() as ui:
             lambda shown: all(
                 text in " ".join(shown.split())
                 for text in (
-                    "[thinking] Partial thought received.",
-                    "[thinking] Found an [partial]",
                     "[message] Checking that [partial]",
                     "[message] I'm checking; I'll report back.",
                     "[earlier text omitted]",
@@ -107,6 +111,12 @@ with ChatTUI() as ui:
             ),
             timeout=10,
             what="readable labels, apostrophes, streaming notice and complete newest words",
+        )
+        screen.type("/live thinking")
+        screen.keys("Enter")
+        screen.wait_for(
+            lambda shown: "[thinking] Partial thought received." in shown and "Found an [partial]" in shown,
+            what="thinking remains available only on request",
         )
 
     def test_running_view_shows_live_without_a_command_and_respects_hiding(self):
@@ -126,7 +136,7 @@ with ChatTUI() as ui:
         self.addCleanup(screen.close)
         screen.wait_for(
             lambda shown: (
-                "LIVE · all agents" in shown and "AutoCode is working; no agent activity reported yet." in shown
+                "LIVE · all agents" in shown and "Working; waiting for a plain-English progress update." in shown
             ),
             what="live activity visible before the first agent message",
         )
@@ -144,7 +154,7 @@ with ChatTUI() as ui:
         screen.keys("Enter")
         screen.wait_for(
             lambda shown: (
-                "LIVE · all agents" in shown and "AutoCode is working; no agent activity reported yet." in shown
+                "LIVE · all agents" in shown and "Working; waiting for a plain-English progress update." in shown
             ),
             what="explicitly restored live pane",
         )

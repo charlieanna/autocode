@@ -82,7 +82,7 @@ def too_small(rows: int, cols: int) -> str:
 
 
 LIVE_SHARE = 0.45  # of the conversation's rows the live log takes
-PANEL_WRAP = {"Now": 3, "Requirements": 2, "Tasks": 2}  # side panel rows a section's line may take
+PANEL_WRAP = {"Now": 3, "Acceptance checks": 2, "Tasks": 2}  # side panel rows a section's line may take
 AGENT_STYLES = 4  # agents in the live log cycle through this many colors
 MENU_ROWS = 10  # at most; fewer where the screen is short, scrolled to keep the choice in view
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -1848,11 +1848,9 @@ class ChatTUI:
             waiting = (
                 "Nothing matches the filter yet; /live all shows every agent."
                 if self._live.filter
-                else "AutoCode is working; no agent activity reported yet."
+                else "Working; waiting for a plain-English progress update."
                 if (self._view or {}).get("status") == "RUNNING"
-                else (
-                    "No agent is working right now. Their thinking, messages and tool calls show here as they happen."
-                )
+                else ("No agent is working right now. Progress updates appear here when work starts.")
             )
             self._put(layout.live_start + 1, 0, truncate(waiting, width), self._style("dim"))
             return
