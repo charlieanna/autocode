@@ -20,9 +20,20 @@ PR template asks for an entry here; a change without one is incomplete.
   repeated progress notes as one line of their newest values; the side panel folds
   the spend and cap into Stages, shows Verification once the run has finished, and
   wraps a long requirement or task to a second row.
+- Terminal chat: when a run recovers by itself, the chat says so as it happens: a
+  `Recovery ·` notice names the stage, what went wrong (an answer rejected, a report
+  rewritten, the Builder sent back for untested lines, a stage stuck) and what AutoCode
+  did, including what the Investigator found and the Resolver's reason. The side panel's
+  "What went wrong" section lists the newest, and `/why` lists them all and says when and
+  why AutoCode calls the Investigator and the Resolver. The status view carries them as
+  `recoveries`.
 
 ### Fixed
 
+- Terminal chat: a finished run's closing line no longer counts its acceptance-test files
+  as files it changed. A test the Tester bound that was already in the project was listed
+  as changed; the line now names the changed files, then the files the acceptance tests
+  are in.
 - A run no longer stops with `PAUSED_WORKSPACE_BUSY` ("Existing run process N is active")
   because of a process that runs no stage: an `autocode chat` open on the same run, a
   Python program that launched AutoCode further up (a terminal holder, a test harness,
@@ -124,6 +135,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Smaller stage prompts on every backend: the Builder no longer gets the Plan Reviewer's milestone
+  assignment, advancement and replan rules, and the Validator and Completion Reviewer handoffs
+  reference a changed line's repeated reason text and the duplicated changed-code receipts by
+  JSON pointer instead of copying them. Gap ids, hashes, decisions and evidence are unchanged.
 - Compact Investigator handoff (#2136): the Investigator prompt's "CURRENT HANDOFF
   DATA" JSON now renders with compact separators instead of `indent=2`, a
   formatting-only reduction (5,336 bytes on the audit's recorded handoff) that

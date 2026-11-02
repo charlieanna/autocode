@@ -21,7 +21,7 @@
         "schema", "status", "done", "needs", "pause_category", "pause_category_label", "next_command",
         "phase", "next_stage", "iteration", "stop_reason", "explanation", "current_task", "task", "task_sha256",
         "workflow", "workflow_source", "workflow_reason", "turn", "evidence", "approvals", "evidence_report",
-        "acceptance_tests", "usage", "cost", "progress", "summary", "delivery", "liveness", "controller", "recovery",
+        "acceptance_tests", "usage", "cost", "progress", "summary", "delivery", "liveness", "controller", "recovery", "recoveries",
         "verification", "review_result", "verification_obligation", "code_checkpoints", "runner", "runner_check", "dependency",
         "prompts_hash", "interaction_timing", "replay_source", "replay_progress", "replay_result",
         "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
@@ -280,6 +280,25 @@
         "liveness": {"type": "object"},
         "controller": {"type": ["object", "null"]},
         "recovery": {"type": ["object", "null"]},
+        "recoveries": {
+          "type": "array",
+          "description": "What went wrong and what AutoCode did about it, oldest first, at most 20 (tools/autocode_recovery_history.py): rejected answers, rewritten reports, Builder send-backs for untested lines, Investigator and Resolver calls. Display text only; it grants nothing.",
+          "items": {
+            "type": "object",
+            "required": ["id", "kind", "at", "job", "headline", "problem", "action", "by", "detail"],
+            "properties": {
+              "id": {"type": "string"},
+              "kind": {"type": "string", "enum": ["rejected", "report_repaired", "sent_back", "investigated", "resolved"]},
+              "at": {"type": ["string", "null"]},
+              "job": {"type": ["string", "null"]},
+              "headline": {"type": "string"},
+              "problem": {"type": ["string", "null"]},
+              "action": {"type": "string"},
+              "by": {"type": ["string", "null"]},
+              "detail": {"type": ["string", "null"]}
+            }
+          }
+        },
         "verification": {"type": ["object", "null"]},
         "review_result": {"type": ["object", "null"], "description": "Read-time review inspection, separate from authenticated evidence.workflow_result; null until inspected. Includes recorded outcome/artifact/source binding, freshness and reasons."},
         "verification_obligation": {"type": ["object", "null"]},

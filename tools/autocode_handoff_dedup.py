@@ -15,6 +15,11 @@ REFERENCE_POLICY = (
     "command_ref supplies only the command text; each replay keeps its own outcome "
     "and evidence. References do not narrow scope or turn reported PASS into verified PASS."
 )
+CHANGED_CODE_POLICY = (
+    " A changed-line record's reason_ref supplies its reason text from the obligation with the same gap_id; "
+    "each record keeps its own gap_id, decision, status and evidence. changed_code_receipts_ref names the "
+    "identical receipt list at its path."
+)
 
 
 def _claim_references(packet, criteria):
@@ -52,6 +57,66 @@ def _claim_references(packet, criteria):
         del check["claim"]
         check["claim_ref"] = reference
         changed = True
+    return changed
+
+
+def _changed_code_references(packet):
+    """Reference changed-line reason text and receipts repeated byte for byte in this packet.
+
+    The obligation that first states a gap's reason keeps it; a later record of the same gap_id
+    whose reason is identical points at it. Gap ids, hashes, decisions and evidence stay in place.
+    """
+    changed = False
+    proof = packet.get("regression_proof")
+    proof = proof if isinstance(proof, dict) else {}
+    coverage = proof.get("diff_coverage")
+    receipts = proof.get("changed_code_receipts")
+    if (
+        isinstance(coverage, dict)
+        and isinstance(receipts, list)
+        and receipts
+        and "changed_code_receipts_ref" not in proof
+        and coverage.get("command_receipts") == receipts
+    ):
+        del proof["changed_code_receipts"]
+        proof["changed_code_receipts_ref"] = "#/regression_proof/diff_coverage/command_receipts"
+        changed = True
+    reasons = {}
+
+    def refer(record, gap, pointer):
+        nonlocal changed
+        reason = record.get("reason")
+        if (
+            "reason_ref" in record
+            or not isinstance(reason, str)
+            or reason != reasons.get(gap, (None,))[0]
+            or len(json.dumps(reason)) <= len(json.dumps(pointer)) + 4
+        ):
+            return
+        del record["reason"]
+        record["reason_ref"] = pointer
+        changed = True
+
+    for prefix, evidence in (
+        ("#/regression_proof/changed_code_evidence", proof.get("changed_code_evidence")),
+        ("#/changed_code_evidence", packet.get("changed_code_evidence")),
+    ):
+        rows = evidence.get("obligations") if isinstance(evidence, dict) else None
+        for index, row in enumerate(rows if isinstance(rows, list) else []):
+            if not isinstance(row, dict) or not isinstance(row.get("gap_id"), str):
+                continue
+            gap = row["gap_id"]
+            if isinstance(row.get("reason"), str) and gap not in reasons:
+                reasons[gap] = (row["reason"], f"{prefix}/obligations/{index}/reason")
+            exception = row.get("exception")
+            if isinstance(exception, dict) and gap in reasons:
+                refer(exception, gap, reasons[gap][1])
+    validation = packet.get("validation")
+    for key in ("changed_code_decisions", "changed_code_exceptions"):
+        rows = validation.get(key) if isinstance(validation, dict) else None
+        for row in rows if isinstance(rows, list) else []:
+            if isinstance(row, dict) and isinstance(row.get("gap_id"), str) and row["gap_id"] in reasons:
+                refer(row, row["gap_id"], reasons[row["gap_id"]][1])
     return changed
 
 
@@ -120,8 +185,12 @@ def deduplicate(base):
                     del row["command"]
                     row["command_ref"] = ref
                     changed = True
+    changed_code = _changed_code_references(result)
+    changed = changed or changed_code
     if changed:
         result["handoff_reference_policy"] = REFERENCE_POLICY
+        if changed_code:
+            result["handoff_reference_policy"] += CHANGED_CODE_POLICY
         if case_references:
             result["handoff_reference_policy"] += (
                 " Each cases[].criterion_ref supplies the case text: concatenate its prefix with the string "

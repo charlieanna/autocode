@@ -174,7 +174,7 @@ def role_of(text: str) -> str:
     if first.startswith("AutoCode:"):
         return "assistant"
     if first.startswith(
-        ("AutoCode stopped", "AutoCode needs you", "Left the chat", "Nothing sent", "Plan not approved")
+        ("AutoCode stopped", "AutoCode needs you", "Left the chat", "Nothing sent", "Plan not approved", "Recovery ·")
     ):
         return "notice"
     return "plain"

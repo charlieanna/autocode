@@ -585,6 +585,13 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("/help", client.text())
         self.assertEqual([], client.taken)
 
+    def test_why_at_a_line_chat_prompt_is_answered_not_sent(self):
+        client = ScriptedChat(answer_view(), DONE, replies=["/why", "/quit"])
+        client.line_commands = True
+        client.converse()
+        self.assertIn("Nothing has gone wrong in this run so far", client.text())
+        self.assertEqual([], client.taken)
+
     def test_the_full_screen_chat_keeps_slash_text_as_typed(self):
         client = ScriptedChat(answer_view(), DONE, replies=["/runs"])
         self.assertEqual(0, client.converse())
@@ -1514,6 +1521,68 @@ class TabTests(unittest.TestCase):
     def test_a_long_task_makes_a_short_title(self):
         self.assertEqual("Hierarchical planning", chat.title_of({"task": "# Hierarchical planning\nbody"}))
         self.assertEqual(40, len(chat.title_of({"task": "x" * 99})))
+
+
+def recovery(headline, at):
+    return {
+        "id": headline,
+        "kind": "rejected",
+        "at": at,
+        "job": "Builder",
+        "headline": headline,
+        "problem": "Changed files outside the assigned paths.",
+        "action": "AutoCode did not accept it.",
+        "by": "Builder",
+        "detail": None,
+    }
+
+
+class RecoveryNoticeTests(unittest.TestCase):
+    EARLIER = recovery("Investigator answer rejected (2 times)", "2026-11-02T05:33:44+00:00")
+    LATER = recovery("Builder answer rejected", "2026-11-02T05:41:01+00:00")
+
+    def test_a_recovery_is_said_once_as_it_happens_saying_what_went_wrong_and_what_autocode_did(self):
+        client = ScriptedChat({})
+        self.addCleanup(client.close)
+        client.show({"status": "RUNNING", "recoveries": []})
+        client.show({"status": "RUNNING", "recoveries": [self.LATER]})
+        client.show({"status": "RUNNING", "recoveries": [self.LATER]})
+        self.assertEqual(
+            [
+                "\nRecovery · Builder answer rejected\n"
+                "Changed files outside the assigned paths.\n"
+                "AutoCode did not accept it."
+            ],
+            [line for line in client.out if "Recovery" in line],
+        )
+
+    def test_opening_a_run_that_already_recovered_sums_it_up_in_one_line(self):
+        client = ScriptedChat({})
+        self.addCleanup(client.close)
+        client.show({"status": "RUNNING", "recoveries": [self.EARLIER, self.LATER]})
+        newer = recovery("Tester rewrote its report", "2026-11-02T05:50:00+00:00")
+        client.show({"status": "RUNNING", "recoveries": [self.EARLIER, self.LATER, newer]})
+        said = [line for line in client.out if "Recovery" in line]
+        self.assertEqual(
+            "\nRecovery · 2 things went wrong earlier in this run and AutoCode handled them. /why shows each one.",
+            said[0],
+        )
+        self.assertEqual(2, len(said))
+        self.assertTrue(said[1].startswith("\nRecovery · Tester rewrote its report\n"))
+
+    def test_switching_runs_neither_repeats_nor_hides_a_runs_recoveries(self):
+        other = RUN.with_name("other-run")
+        client = ScriptedChat({})
+        self.addCleanup(client.close)
+        client.switched = lambda workspace, run_dir: True
+        client.started = True
+        client.show({"status": "RUNNING", "recoveries": [self.LATER]})
+        client.talk_to(WORKSPACE, other)
+        client.started = True
+        client.show({"status": "RUNNING", "recoveries": [self.LATER]})  # another run, its own record
+        client.talk_to(WORKSPACE, RUN)
+        client.show({"status": "RUNNING", "recoveries": [self.LATER]})
+        self.assertEqual(2, client.text().count("Recovery · Builder answer rejected"))
 
 
 class StreamAndNoticeTests(unittest.TestCase):
