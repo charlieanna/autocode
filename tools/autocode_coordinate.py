@@ -764,6 +764,17 @@ def budget_observations(document, views, *, command=tasks.AUTOCODE):
         if row.get("verification") and row["verification"].get("kind") != "task_run":
             # Native joint attempts are already included above; no extra reviewer ran.
             history.append(budget.verification_view(row["verification"]))
+    if (document.get("budget") or {}).get("source_run_dir") == document["anchor"]:
+        source = anchor_view(document["anchor"], command=command)
+        history.append(source)
+        rows.append(
+            {
+                "target": "Task conversation",
+                "workspace": source["workspace"],
+                "run_dir": document["anchor"],
+                "view": source,
+            }
+        )
     return rows, history
 
 

@@ -779,6 +779,14 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ),
         ("tests.test_task_message_context_cli",),
     ),
+    (
+        (
+            "tools/autocode_coordination_budget.py",
+            "tools/autocode_coordination_planning_limits.py",
+            "tools/autocode_coordinate.py",
+        ),
+        ("tests.test_coordination_source_accounting_cli",),
+    ),
     # The bridge drives the CLI as a subprocess (its tests launch the CLI, so imports cannot select them).
     (
         ("tools/autocode_bridge_", "tools/autocode_github.py", "tools/autocode_subcommands.py"),

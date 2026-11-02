@@ -14,6 +14,7 @@ def initial(view):
         "cap_usd": cost.get("cap_usd"),
         "initial_spent_usd": cost.get("spent_usd") or 0.0,
         "initial_complete": cost.get("complete") is True,
+        **({"source_run_dir": view["run_dir"]} if view.get("run_dir") else {}),
     }
     if cost.get("cap_usd"):
         result["planning_allowance"] = {
@@ -21,6 +22,18 @@ def initial(view):
             "initial": planning_spend(view),
         }
     return result
+
+
+def live_source(budget, views):
+    """Whether the current source ledger replaces its retained initial snapshot."""
+    source = budget.get("source_run_dir")
+    return bool(source and any(row.get("run_dir") == source for row in views))
+
+
+def planning_costs(budget, views):
+    """Use the current source once; legacy records retain their frozen baseline."""
+    initial = (budget.get("planning_allowance") or {}).get("initial") or {}
+    return ([] if live_source(budget, views) else [initial]) + [planning_spend(row) for row in views]
 
 
 def planning_spend(view):
@@ -54,7 +67,7 @@ def planning_ceiling(budget, views, current_run):
     stage = (current.get("next_stage") or "").removesuffix("_report_repair")
     if current.get("approved_contract") and stage not in roles.ALL_PLANNING_STAGES:
         return None
-    costs = [allowance["initial"], *(planning_spend(row) for row in views)]
+    costs = planning_costs(budget, views)
     if not all(row["complete"] for row in costs):
         raise CoordinationError(
             "Coordinated planning cost is unpriced or incomplete; reconcile accounting before more planning"
@@ -89,11 +102,14 @@ def verification_view(verification):
 
 def accounting(budget, views):
     """Report retained known spend even when the envelope is exhausted."""
+    views = list(views)
+    source = live_source(budget, views)
     costs = [row.get("cost") or {} for row in views]
     return {
         "cap_usd": budget.get("cap_usd"),
-        "known_spent_usd": budget.get("initial_spent_usd", 0.0) + sum(cost.get("spent_usd") or 0 for cost in costs),
-        "complete": budget.get("initial_complete") is True and all(cost.get("complete") for cost in costs),
+        "known_spent_usd": (0 if source else budget.get("initial_spent_usd", 0.0))
+        + sum(cost.get("spent_usd") or 0 for cost in costs),
+        "complete": (source or budget.get("initial_complete") is True) and all(cost.get("complete") for cost in costs),
     }
 
 
@@ -106,7 +122,7 @@ def envelope(budget, views, current_run=None):
     views = list(views)
     cap = budget.get("cap_usd")
     costs = [(row.get("run_dir"), row.get("cost") or {}) for row in views]
-    other = budget.get("initial_spent_usd", 0.0) + sum(
+    other = (0 if live_source(budget, views) else budget.get("initial_spent_usd", 0.0)) + sum(
         cost.get("spent_usd") or 0 for run, cost in costs if run != current_run
     )
     result = {**accounting(budget, views), "options": []}

@@ -558,7 +558,11 @@ original human text through ordinary planning and review. The assistant row in
 `chat.messages` exposes optional `conversation` metadata: `request_id`, `intent`,
 `affected_targets` and `context_sha256`. A question restores the source checkpoint
 and never becomes a new requirement. This transport alone does not implement
-coordinated scheduling or advertise a coordinated TUI message action.
+coordinated scheduling or advertise a coordinated TUI message action. New coordinations
+also bind the source run's ledger in their budget: later Requirements replies
+count toward the same task and planning allowance. The current full source ledger
+replaces its frozen initial snapshot in calculations; that original snapshot is
+retained for evidence and legacy records. Unknown prices remain unknown.
 
 
 A client compares the displayed `context` with a fresh status before submitting;

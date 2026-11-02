@@ -56,7 +56,7 @@ def offer(document, rows, history):
         )
     ):
         return None
-    costs = [allowance.get("initial") or {}, *(budget.planning_spend(view) for view in history)]
+    costs = budget.planning_costs(saved, history)
     summary = budget.accounting(saved, history)
     if not summary["complete"] or not all(cost.get("complete") is True for cost in costs):
         return None
