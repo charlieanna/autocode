@@ -16,6 +16,10 @@ PR template asks for an entry here; a change without one is incomplete.
   intervention read it performs) spawns one CLI read instead of repeating the same
   read for view, intervention and evidence layers; results are deep-copy isolated
   so no caller sees another's mutations.
+- Queued plan feedback: follow-up feedback bound to the exact reviewed plan token reuses the
+  run's saved requirements and continues to Planner revision instead of re-running
+  Requirements discovery; the revised plan still passes independent review and needs a fresh
+  approval bound to the new plan token.
 - Live chat log: an unfinished multiword streamed thought or message is now labelled
   `[partial]` — bounded and redacted like final prose — instead of being shown as if it
   were the agent's final text; the completion snapshot still replaces it, and a fragment
