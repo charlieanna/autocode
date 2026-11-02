@@ -28,6 +28,11 @@ function waitNotice(view: StatusView | null | undefined): WaitNotice | null {
   return { identity: needIdentity(need), tail: needsSummary(view) };
 }
 
+/** True while the run waits on the person: an open need that is not live work. A finished run is not waiting. */
+export function waitsForPerson(view: StatusView | null | undefined): boolean {
+  return Boolean(view && typeof view === "object" && !view.done && waitNotice(view));
+}
+
 /** The notice the tab's new status earns over its previous one, or null when the run is only working. */
 export function transitionNotice(
   previous: StatusView | null | undefined,

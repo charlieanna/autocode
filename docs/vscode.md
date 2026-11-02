@@ -78,6 +78,29 @@ unpriced stages; unknown amounts stay unknown. The expanded breakdown keeps the
 historical comparison estimate separately. These figures describe recorded usage,
 not an invoice or a guarantee that the next step fits within the cap.
 
+**Stages** sits above Models & usage once a run has launched one. Each stage
+takes a row for how it went (✓ done, ● working, ↻ retrying, ✗ failed), its time,
+cost and attempt number, and a second row for its model, reasoning level and
+tokens (`+` when some are not reported yet). The newest four show; **N earlier**
+lists the rest. A report repair counts as the repaired stage's next attempt. When
+the working stage is retrying after a failed attempt, the working card shows a
+warning with which attempt it is, how long it has run and why the last one
+failed. A stage that runs again after succeeding, such as a second plan-review
+round, shows **2 runs** and no warning. The toolbar
+shows the run's cost against its cap and its tokens; with two or more chats open
+it adds a total for all of them, which leaves out what a restored run carried
+over and ends in `+` while any chat has not been read yet. These figures are the
+same ones the terminal chat's stage panel reads: `usage.accounting.attempts`,
+`cost.breakdown.by_stage`, `cost.spent_usd` and `usage.accounting.tokens`.
+
+A finished run closes with a card: its result, how many requirements were
+checked, the files its saved steps and acceptance tests changed, the time its
+stages ran and its cost, with **Show changes** (the saved code changes below)
+and **Run details**. A new chat opens with what AutoCode does and three example
+requests; choosing one only fills the message box. A tab shows ● while its run
+waits for you and ✓ once it has finished, and the status bar names the working
+stage and the run's cost.
+
 Provider-reported cost and the core's historical comparison estimates are shown
 separately. These estimates are not current API prices or your token-plan bill.
 The extension reads the public accounting view and does not calculate its own
