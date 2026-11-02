@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import BinaryIO
 
 READ_TIMEOUT = 5.0
+MAX_READ_TIMEOUT = 20.0
 MAX_READS = 2
 INVENTORY_SECONDS = 10.0
 
@@ -43,6 +44,7 @@ class StatusPoller:
         self.clock, self.launch = clock, launch
         self.active: dict[Key, Read] = {}
         self.due: dict[Key, float] = {}
+        self.timeouts: dict[Key, float] = {}  # slow startup may need grace; never extends an action receipt
         self.completed: dict[Key, float] = {}  # request start, for cross-read-family stale rejection
         self.last: Key | None = None
         self.closed = False
@@ -78,16 +80,19 @@ class StatusPoller:
                     self.stop(read)
                 self.due.pop(key, None)
                 self.completed.pop(key, None)
+                self.timeouts.pop(key, None)
         for key, read in list(self.active.items()):
             code = read.child.poll()
-            if code is None and now - read.started < READ_TIMEOUT:
+            timeout = self.timeouts.get(key, READ_TIMEOUT)
+            if code is None and now - read.started < timeout:
                 continue
             self.active.pop(key)
             self.completed[key] = read.started
             self.due[key] = now + targets[key]
             if code is None:
                 self.stop(read)
-                results.append((key, "", f"status read timed out after {READ_TIMEOUT:g}s"))
+                self.timeouts[key] = min(MAX_READ_TIMEOUT, timeout * 2)
+                results.append((key, "", f"status read timed out after {timeout:g}s"))
                 continue
             read.child.wait()
             read.output.seek(0)
@@ -139,3 +144,4 @@ class StatusPoller:
         self.active.clear()
         self.due.clear()
         self.completed.clear()
+        self.timeouts.clear()
