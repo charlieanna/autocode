@@ -213,6 +213,41 @@ class CatalogContextTests(unittest.TestCase):
         self.assertEqual([part], state["requirements_handoff"]["report"]["workspace_scope"]["external_parts"])
         self.assertEqual([], checked)
 
+    def test_requirements_rejection_names_all_invalid_citations_and_keeps_valid_evidence(self):
+        import autocode_requirements_handoff as handoff
+
+        from tests.test_bug_job import state_for
+        from tests.test_requirements_handoff import report
+
+        catalog.add_root(self.repo.parent)
+        row = context.context(self.state)["repositories"][0]
+        prefix = "catalog/" + row["id"] + "/"
+        valid = prefix + "go.mod:1"
+        invalid = [prefix + "missing.go:1", prefix + "go.mod:999"]
+        state = {**state_for(self.state["workspace"]), "run_dir": self.state["run_dir"]}
+        value = report(
+            intended_outcome="Readable history",
+            required_behaviors=["Preserve result metadata"],
+            acceptance_tests=["Result code is 1000"],
+            open_questions=[],
+            source_refs=[valid, *invalid],
+        )
+        with self.assertRaises(ValueError) as rejected:
+            handoff.accept(
+                state,
+                value,
+                {"output": None},
+                check_code_refs=lambda *_: self.fail("Invalid citations must still refuse acceptance"),
+                queue=lambda *a, **k: self.fail("Rejected requirements must not advance"),
+            )
+        message = str(rejected.exception)
+        for citation in invalid:
+            self.assertIn(citation, message)
+        self.assertNotIn(valid, message)
+        self.assertIn("Retain valid inspected references", message)
+        self.assertEqual([valid, *invalid], value["source_refs"])
+        self.assertNotIn("requirements_handoff", state)
+
     def test_clear_catalog_bug_requirements_continue_to_one_plan_approval_but_keep_real_questions(self):
         import autocode_requirements_review as review
 
