@@ -369,9 +369,15 @@ def consume(
     ``released``: this invocation already released the held pause with that
     pause's own authority, so the batch interrupts nothing (#486 review).
     """
-    if applied_stop(state) is not None:
+    applied = applied_stop(state)
+    if applied is not None:
         assert_stopped(state)
-        raise util.Paused(STOP_STATUS, stop_reason(state))
+        if applied.get("actor") != RUNNER_ACTOR:
+            # A person's stop keeps every later boundary refused (ac26). The runner's own
+            # outcome (#2485, #2597) rides its deciding boundary commit: the classification
+            # apply that ends the run is the step whose save makes the outcome durable, and
+            # every admission gate (refuse_admission, the status checks) still refuses after.
+            raise util.Paused(STOP_STATUS, stop_reason(state))
     interrupted = None if released else interrupted_pause(state)  # before feedback replaces the status
 
     def write_state():

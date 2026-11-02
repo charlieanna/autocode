@@ -11,6 +11,24 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A contained stage's prompt no longer rewrites its capture examples to the launch's
+  private scratch path — both examples now render as the stable token
+  `--output <tool_containment.scratch>/evidence-<unique-name>.json`, whose exact
+  path is carried by the handoff's `tool_containment.scratch` field as before
+  (#2113, audit item A4). Repeated contained launches (Tester/Builder under
+  reviewer routing) keep shared prompt bytes across scratch paths, restoring the
+  provider prefix reuse the audit measured as lost (8,322 of 24,412 shared bytes
+  for the contained Tester). The scratch-replaces sentence and the refusal of
+  receipts written outside the scratch are unchanged.
+- An exhausted Builder ladder no longer pauses to ask the person for a decision or a config change
+  (#2597). The ordinary retries and the stronger attempt stay automatic; when the ladder is spent — the
+  stronger attempt failed, the provider offers no stronger Builder model, or that model would be checked
+  by its own model — the run ends with a recorded "could not finish" outcome (its reason and the
+  incident's evidence), shown by `--status`, the terminal chat and the VS Code panel as a finished,
+  failed run, the way a stop you asked for is shown. The outcome names no CLI flag and no
+  provider-config key. A saved run paused at `PAUSED_BUILDER_RETRY_LIMIT` keeps its diagnosis and its
+  `--retry-builder` operator flag; on a run that ended, `--resume-paused --retry-builder` is refused
+  with the saved reason.
 - Coordination: a status response reuses identical public reads within that one
   response — a coordinator `coordinate status` (and each TaskRun status or
   intervention read it performs) spawns one CLI read instead of repeating the same

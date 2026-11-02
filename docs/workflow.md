@@ -201,7 +201,12 @@ read-only `investigate_stuck` stage (`tools/autocode_stuck_job.py`) instead of s
 | `PAUSED_PLANNING_BUDGET` | retry grants one more review round (two calls from the challenge, one from the final review) |
 | `PAUSED_NO_PROGRESS` | retry allows one more implementation batch |
 | `PAUSED_COMPLETION_REVIEW` | retry asks the Completion Reviewer once more |
-| `PAUSED_REPORT_REPAIR_LIMIT`, `PAUSED_BUILDER_RETRY_LIMIT`, `PAUSED_MILESTONE_STALLED`, `PAUSED_MILESTONE_REPLAN` | diagnosis only; these keep their operator resume flags |
+| `PAUSED_REPORT_REPAIR_LIMIT`, `PAUSED_MILESTONE_STALLED`, `PAUSED_MILESTONE_REPLAN` | diagnosis only; these keep their operator resume flags |
+
+An exhausted Builder ladder no longer pauses: the retry policy ends the run with a recorded
+could-not-finish outcome ([Recovery](execution.md#budget-ownership-and-human-escalation)).
+`PAUSED_BUILDER_RETRY_LIMIT` occurs only in saved runs from before that change; they keep their
+diagnosis and the `--retry-builder` operator flag, as the row above reads for the other limits.
 
 A rejected report pauses as `PAUSED_REPEATED_FAILURE` only after three consecutive attempts of
 the stage, at the same source, failed with the same error and left the same kind of output

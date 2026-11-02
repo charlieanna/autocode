@@ -741,8 +741,8 @@ starts, a Tester or Completion Reviewer that runs the strong model moves to `che
 until the next milestone, as does one on another model of the strong model's GLM or MiMo family.
 When the Builder's model has no `provider/` prefix it moves only when it runs the strong model
 in the tool's spelling (or such a family member), is neither pinned nor on another provider, and
-`checker_model` is a model the run already routes a role to; otherwise the run pauses with
-`PAUSED_BUILDER_RETRY_LIMIT` before changing any route. A config without the table keeps the
+`checker_model` is a model the run already routes a role to; otherwise the run ends with
+AutoCode's recorded could-not-finish outcome before changing any route. A config without the table keeps the
 default models, and `provider/model` names such as KiloCode's keep the earlier rule (a checker
 that cannot move is left for the cross-model guard). Adding or changing the table
 changes the config file, so saved runs on that tool stop with `PAUSED_TRANSPORT_CHANGED` at

@@ -485,12 +485,14 @@ def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=F
     if not policy:
         return prompt
     # The kernel boundary lets the stage write only its scratch, so every capture example names it:
-    # the provider contract's and COMMON's alike, never a location the stage could not write.
+    # the provider contract's and COMMON's alike, never a location the stage could not write. The
+    # examples name the handoff field as a token (#2113): the exact per-launch path is carried by
+    # tool_containment.scratch in the handoff below, so instruction bytes stay stable across attempts.
     for example in (
         "--output .autocode/evidence/<unique-name>.json",
         "--output <run-directory>/evidence/<unique-name>.json",
     ):
-        prompt = prompt.replace(example, "--output " + str(Path(policy["scratch"]) / "evidence-<unique-name>.json"))
+        prompt = prompt.replace(example, "--output <tool_containment.scratch>/evidence-<unique-name>.json")
     marker = "\nCURRENT HANDOFF DATA\n"
     before, separator, after = prompt.rpartition(marker)
     if not separator:

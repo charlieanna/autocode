@@ -8,6 +8,7 @@ import autocode_builder_policy as policy
 import autocode_cost as cost
 import autocode_dispatch as dispatch
 import autocode_route_ladder as route_ladder
+import autocode_stop as stop
 from providers import claude, command, opencode
 
 from . import test_build_blackbox as bb
@@ -69,8 +70,12 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual("escalate", policy.failure(state, "e2", "failure"))
         self.assertEqual("gpt-6-sol", state["settings"]["roles"]["terra"]["model"])
         self.assertEqual("pause", policy.failure(state, "e3", "failure"))
-        self.assertIn("Execution failure:", state["stop_reason"])
-        self.assertIn("human decision or replanning required", state["stop_reason"])
+        self.assertEqual("PAUSED_INTERVENTION", state["status"])
+        self.assertEqual(
+            "AutoCode could not finish this task: Implementation remains blocked after the configured retries "
+            "and the stronger Builder attempt This run launches no further stages.",
+            state["stop_reason"],
+        )
         with self.assertRaises(policy.s.Paused):
             policy.guard(state)
         self.assertEqual(3, len(state["builder_retry_decisions"]))
@@ -168,8 +173,8 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual("escalate", policy.failure(state, "e2", "code failure"))
         self.assertEqual("gpt-6-sol", state["settings"]["roles"]["terra"]["model"])
         self.assertEqual("pause", policy.failure(state, "e3", "code failure"))
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", state["status"])
-        self.assertIn("remains blocked after configured retry/escalation", state["stop_reason"])
+        self.assertEqual("PAUSED_INTERVENTION", state["status"])
+        self.assertIn("remains blocked after the configured retries", state["stop_reason"])
         self.assertIn("repeats an earlier one of this milestone with no new evidence", state["stop_reason"])
         decisions = state["builder_retry_decisions"]
         self.assertEqual(["new", "repeat", "repeat"], [row["novelty"] for row in decisions])
@@ -224,7 +229,7 @@ class PolicyTests(unittest.TestCase):
         for attempt in range(3):
             self.saw(state, failing=["pytest -q"], changed=[f"app{attempt}.py"])
             policy.failure(state, f"e{attempt}", "code failure")
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", state["status"])
+        self.assertEqual("PAUSED_INTERVENTION", state["status"])
         self.saw(state, open=["F-b"], passing=["pytest -q"])
         self.assertEqual("pause", policy.failure(state, "e3", "code failure"))
         with self.assertRaises(policy.s.Paused):
@@ -496,7 +501,10 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual("pause", policy.failure(state, "e3", "failure"))
         self.assertEqual("gpt-6-luna", state["settings"]["roles"]["terra"]["model"])
         self.assertEqual(
-            "Execution failure: " + policy.NOT_OFFERED.format(model="zai-coding-plan/glm-5.3"), state["stop_reason"]
+            "AutoCode could not finish this task: "
+            + policy.NOT_OFFERED.format(model="zai-coding-plan/glm-5.3")
+            + " This run launches no further stages.",
+            state["stop_reason"],
         )
         self.assertIn("does not offer zai-coding-plan/glm-5.3", state["stop_reason"])
 
@@ -511,7 +519,10 @@ class PolicyTests(unittest.TestCase):
         }
         route_ladder.serve(state["settings"], {"openai/gpt-6-luna", "zai-coding-plan/glm-5.3"})
         self.assertEqual(["retry", "pause"], [policy.failure(state, f"e{n}", "failure") for n in (1, 2)])
-        self.assertEqual("Execution failure: " + policy.EXHAUSTED, state["stop_reason"])
+        self.assertEqual(
+            "AutoCode could not finish this task: " + policy.EXHAUSTED + " This run launches no further stages.",
+            state["stop_reason"],
+        )
 
     def test_providers_that_do_not_list_models_keep_the_default_strong_model(self):
         self.assertEqual(policy.DEFAULTS, policy.configured(None, opencode))
@@ -776,6 +787,135 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual("xhigh", state["settings"]["roles"]["terra"]["reasoning_effort"])
 
 
+class RetryLimitOutcomeTests(unittest.TestCase):
+    """#2597: the Builder retry-limit decision settles itself; the run ends with a recorded outcome."""
+
+    def state(self):
+        return {
+            "settings": {
+                "engine": "codex",
+                "builder_retry": dict(policy.DEFAULTS),
+                "roles": {
+                    "terra": {"model": "gpt-6-luna", "reasoning_effort": "medium"},
+                    "sol": {"model": "gpt-6-sol", "reasoning_effort": "high"},
+                },
+            },
+            "goal_contract": {"hash": "approved"},
+            "current_task": {"id": "task1", "milestone_id": "M1"},
+            "status": "RUNNING",
+        }
+
+    def saw(self, state, *, failing=("pytest -q",), changed=("app.py",)):
+        state["validation"] = {"checks": [{"command": command, "exit_code": 1} for command in failing]}
+        state["changed_files"] = list(changed)
+        return state
+
+    def stop_receipts(self, state):
+        return [
+            row
+            for row in state.get("applied_interventions", [])
+            if row.get("kind") == "stop" and row.get("actor") == "autocode"
+        ]
+
+    def assert_ended(self, state, reason_starts):
+        """The run ended as a finished, failed outcome of AutoCode's own, asking no person about machinery."""
+        self.assertEqual("PAUSED_INTERVENTION", state["status"])
+        [receipt] = self.stop_receipts(state)
+        outcome = receipt["outcome"]
+        self.assertEqual("could_not_finish", outcome["result"])
+        self.assertTrue(outcome["reason"].startswith(reason_starts), outcome["reason"])
+        self.assertEqual(stop.stop_reason(state), state["stop_reason"])
+        for machinery in ("human decision or replanning required", "--builder-strong-model", "[builder_retry]"):
+            self.assertNotIn(machinery, outcome["reason"])
+        return outcome
+
+    def test_exhausted_ladder_ends_the_run_with_a_recorded_outcome(self):
+        state = self.state()
+        self.saw(state)
+        self.assertEqual(["retry", "escalate", "pause"], [policy.failure(state, f"e{n}", "failure") for n in (1, 2, 3)])
+        outcome = self.assert_ended(
+            state, "Implementation remains blocked after the configured retries and the stronger Builder attempt"
+        )
+        self.assertIn("repeats an earlier one of this milestone", outcome["reason"])
+        self.assertEqual(
+            {
+                "milestone_key": policy.key(state),
+                "stage": "terra",
+                "failure": "e3",
+                "attempt": 3,
+                "novelty": "repeat",
+                "failing_checks": ["check:pytest -q"],
+                "changed_files": ["app.py"],
+            },
+            outcome["evidence"],
+        )
+        self.assertEqual(["retry", "escalate", "pause"], [row["action"] for row in state["builder_retry_decisions"]])
+        self.assertEqual("paused", state["builder_retry_decisions"][1]["outcome"])
+
+    def test_a_checker_clash_ends_the_run_naming_the_clash_without_asking_a_person(self):
+        state = ToolProviderPolicyTests.state(self)
+        state["settings"]["roles"]["sol"].update(model_pinned=True)
+        self.saw(state)
+        self.assertEqual("retry", policy.failure(state, "e1", "failure"))
+        self.assertEqual("pause", policy.failure(state, "e2", "failure"))
+        outcome = self.assert_ended(
+            state,
+            "Implementation remains blocked after the ordinary retries; the stronger Builder model "
+            "claude-sonnet-5-5 would be checked by its own model: a Tester or Completion Reviewer on it is pinned "
+            "or uses another provider",
+        )
+        self.assertEqual(
+            {
+                "milestone_key": policy.key(state),
+                "stage": "terra",
+                "failure": "e2",
+                "attempt": 2,
+                "novelty": "repeat",
+                "failing_checks": ["check:pytest -q"],
+                "changed_files": ["app.py"],
+            },
+            outcome["evidence"],
+        )
+
+    def test_a_provider_with_no_stronger_model_ends_the_run_without_naming_config_keys(self):
+        state = self.state()
+        state["settings"]["builder_retry"]["strong_model"] = None
+        self.assertEqual(["retry", "retry", "pause"], [policy.failure(state, f"e{n}", "failure") for n in (1, 2, 3)])
+        outcome = self.assert_ended(
+            state,
+            "Implementation remains blocked after the ordinary retries; this run's provider offers no stronger "
+            "Builder model",
+        )
+        self.assertIn("the ordinary retries were all this run had", outcome["reason"])
+
+    def test_an_unoffered_strong_model_ends_the_run_naming_the_model_without_a_flag(self):
+        state = self.state()
+        state["settings"]["builder_retry"].update(strong_model=None, not_offered="zai-coding-plan/glm-5.3")
+        self.assertEqual(["retry", "retry", "pause"], [policy.failure(state, f"e{n}", "failure") for n in (1, 2, 3)])
+        self.assert_ended(
+            state,
+            "Implementation remains blocked after the ordinary retries; this run has no stronger Builder attempt "
+            "because its provider does not offer zai-coding-plan/glm-5.3",
+        )
+
+    def test_a_replay_and_a_further_failure_stop_once_and_the_saved_lane_still_guards(self):
+        state = self.state()
+        for n in (1, 2, 3):
+            policy.failure(state, f"e{n}", "failure")
+        [receipt] = self.stop_receipts(state)
+        reason = receipt["outcome"]["reason"]
+        self.assertEqual("pause", policy.failure(state, "e1", "failure"))
+        self.assertEqual(3, len(state["builder_retry_decisions"]))
+        self.assertEqual(1, len(self.stop_receipts(state)))
+        self.saw(state, changed=["other.py"])
+        self.assertEqual("pause", policy.failure(state, "e5", "failure"))
+        self.assertEqual(1, len(self.stop_receipts(state)))
+        self.assertEqual(reason, self.stop_receipts(state)[0]["outcome"]["reason"])
+        with self.assertRaises(policy.s.Paused) as raised:
+            policy.guard(state)
+        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", raised.exception.status)
+
+
 class ToolProviderPolicyTests(unittest.TestCase):
     """A configured command tool (here the Claude example) names its models itself, verbatim."""
 
@@ -817,7 +957,10 @@ class ToolProviderPolicyTests(unittest.TestCase):
         dispatch.enforce_cross_model_verification(state)
         CLAUDE_PROVIDER.check_models(roles)  # every route is a model the tool serves, spelled as it spells it
         self.assertEqual("pause", policy.failure(state, "e3", "f"))
-        self.assertEqual("Execution failure: " + policy.EXHAUSTED, state["stop_reason"])
+        self.assertEqual(
+            "AutoCode could not finish this task: " + policy.EXHAUSTED + " This run launches no further stages.",
+            state["stop_reason"],
+        )
         state = json.loads(json.dumps(state))
         state["current_task"] = {"id": "task2", "milestone_id": "M2"}
         policy.guard(state)
@@ -918,10 +1061,15 @@ class ToolProviderPolicyTests(unittest.TestCase):
         self.assertEqual({**policy.DEFAULTS, "strong_model": None}, policy.configured(None, older))
         state = self.state(older)
         self.assertEqual(["retry", "retry", "pause"], [policy.failure(state, f"e{n}", "f") for n in (1, 2, 3)])
-        self.assertEqual("Execution failure: " + policy.NO_STRONG_MODEL, state["stop_reason"])
-        # The pause names the fix that works on such a tool: the flag alone would move a checker to GLM.
-        self.assertIn("[builder_retry] in the provider config", state["stop_reason"])
+        self.assertEqual(
+            "AutoCode could not finish this task: " + policy.NO_STRONG_MODEL + " This run launches no further stages.",
+            state["stop_reason"],
+        )
+        # The outcome reports what the run had; a client-rendered route for a stronger model is not
+        # this sentence's job (#2597): no config section and no flag is named to the person.
+        self.assertNotIn("[builder_retry]", state["stop_reason"])
         self.assertNotIn("--builder-strong-model", state["stop_reason"])
+        self.assertIn("ordinary retries were all this run had", state["stop_reason"])
 
     def test_a_tool_without_a_builder_retry_table_creates_runs_as_before(self):
         # A listed tool that serves GPT-6 Sol but not GLM, with no checker on GPT-6 Sol, still starts runs.
@@ -1135,7 +1283,12 @@ class PolicyBlackbox(unittest.TestCase):
         before = self.events()
         worker = next(w for w in self.state()["orchestration_batch"]["workers"] if w["milestone_id"] == "M1")
         child = json.loads((Path(worker["run_dir"]) / "state.json").read_text())
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", child["status"])
+        self.assertEqual("PAUSED_INTERVENTION", child["status"])
+        self.assertIn(
+            "AutoCode could not finish this task: Implementation remains blocked after the configured retries "
+            "and the stronger Builder attempt",
+            child["stop_reason"],
+        )
         self.assertEqual(
             ["investigate", "retry", "investigate", "escalate", "investigate", "pause"],
             [r["action"] for r in child["builder_retry_decisions"]],
@@ -1172,7 +1325,7 @@ class PolicyBlackbox(unittest.TestCase):
                 args += ["--resume-paused"]
             self.invoke("autoresolver", args, 2 if attempt == 2 else 0)
         self.assertEqual(["gpt-6-luna", "gpt-6-luna", "gpt-6-sol"], [r["model"] for r in self.events()])
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", self.state()["status"])
+        self.assertEqual("PAUSED_INTERVENTION", self.state()["status"])
         self.assertEqual(["retry", "escalate", "pause"], [r["action"] for r in self.state()["builder_retry_decisions"]])
         # The fake Tester fails the same check every round: the ledger sees the second and third as repeats.
         self.assertEqual(["new", "repeat", "repeat"], [r["novelty"] for r in self.state()["builder_retry_decisions"]])
@@ -1342,7 +1495,7 @@ class PolicyBlackbox(unittest.TestCase):
             self.assertEqual("investigate_stuck", self.state()["next_stage"])
             self.assertNotIn("implementation", self.state())
             self.invoke("autoresolver", ["--run-dir", str(self.run), "--no-chat"], 2 if attempt == 2 else 0)
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", self.state()["status"])
+        self.assertEqual("PAUSED_INTERVENTION", self.state()["status"])
         self.assertEqual(["gpt-6-luna", "gpt-6-luna", "gpt-6-sol"], [r["model"] for r in self.events()])
         self.assertNotIn("implementation", self.state())
         self.assertNotIn("autocode", self.state().get("unit_handoffs", {}))

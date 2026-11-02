@@ -36,8 +36,8 @@ tool's connected accounts, checkers kept independent, per-role flags winning.
   progress on a non-implement task, and a failing validation. Each climb records its
   trigger, previous and selected route, and outcome (`escalation_outcomes`).
 - **Builder retry policy** (`autocode_builder_policy`): one ordinary retry, then one
-  stronger attempt, then `PAUSED_BUILDER_RETRY_LIMIT`. The evidence ledger skips plain
-  retries on a repeated failure.
+  stronger attempt, then a recorded could-not-finish outcome that ends the run (#2597). The
+  evidence ledger skips plain retries on a repeated failure.
 - **The only low-first rule** is the low-effort first Builder attempt on small tasks
   (`autocode_light_builder`). Every ladder starts at the configured rung.
 - **Route qualification** (`tools/autocode_route_qualification.json`, 2026-10-20) has 16
@@ -58,7 +58,7 @@ tool's connected accounts, checkers kept independent, per-role flags winning.
 | Truncated checker report | Report repair | As report repair | As report repair |
 | Authentication | None | — | `PAUSED_AUTH`; fix the login, resume |
 | Fallback would break independence | Refused | — | `PAUSED_CROSS_MODEL` |
-| Lack of causal progress on the Builder | Retry, then the stronger attempt | Builder retry policy | `PAUSED_BUILDER_RETRY_LIMIT` |
+| Lack of causal progress on the Builder | Retry, then the stronger attempt | Builder retry policy | Ends the run with a recorded could-not-finish outcome (#2597) |
 
 **Resets.** A resume restarts the per-cycle report-repair and Resolver attempt counts;
 it grants no new recovery allowance or budget (`docs/cli.md`). Network chains, the

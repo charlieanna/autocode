@@ -1531,14 +1531,17 @@ def _exhausted_builder(state: RunState, request, packet):
 
 
 def known_builder_pause(state: RunState):
-    """Keep the existing raw pause when the same saved Builder policy owns it."""
+    """Keep the existing outcome when the same saved Builder policy owns it."""
     source = (state.get("resolution_request") or {}).get("source_output")
     key = builder_policy.key(state)
     lane = state.get("builder_retries", {}).get(key) or {}
     decision = (state.get("builder_retry_decisions") or [{}])[-1]
+    receipt = stop.applied_stop(state)
     return bool(
         source
-        and state.get("status") == "PAUSED_BUILDER_RETRY_LIMIT"
+        and state.get("status") == stop.STOP_STATUS
+        and receipt is not None
+        and (receipt.get("outcome") or {}).get("result") == "could_not_finish"
         and state.get("next_stage") == "terra"
         and lane.get("action") == "pause"
         and lane.get("failures", [])[-1:] == [source]
