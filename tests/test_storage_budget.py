@@ -109,6 +109,59 @@ class WorkspaceBytesTests(unittest.TestCase):
                 (self.root / ".git").write_text(dot)
                 self.assertEqual(storage_budget.workspace_bytes(self.root), len(b"source"))
 
+    def test_relative_worktree_admin_pointer_is_anchored_at_its_file(self):
+        def git(*args):
+            return subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True)
+
+        git("init", "-q")
+        git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "seed")
+        child = self.root / "copies" / "child"
+        git("worktree", "add", "--detach", str(child), "HEAD")
+        admin = Path((child / ".git").read_text().removeprefix("gitdir:").strip())
+        # Git's --relative-paths representation, also testable with older Git versions.
+        (admin / "gitdir").write_text(os.path.relpath(child / ".git", admin) + "\n")
+        (child / ".git").write_text("gitdir: " + os.path.relpath(admin, child) + "\n")
+        (self.root / "source.py").write_bytes(b"source")
+        (child / "duplicate.py").write_bytes(b"x" * 10000)
+        self.assertEqual(6, storage_budget.workspace_bytes(self.root))
+
+    def test_separate_git_directory_and_commondir_metadata_exclude_registered_copies(self):
+        for linked_root in (False, True):
+            with self.subTest(linked_root=linked_root), tempfile.TemporaryDirectory() as tmp:
+                parent = Path(tmp).resolve()
+                repo = parent / "repo"
+                repo.mkdir()
+
+                def git(*args):
+                    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+                git("init", "-q", "--separate-git-dir", str(parent / "metadata"))
+                git(
+                    "-c",
+                    "user.name=Test",
+                    "-c",
+                    "user.email=test@example.com",
+                    "commit",
+                    "--allow-empty",
+                    "-qm",
+                    "seed",
+                )
+                workspace = repo
+                if linked_root:
+                    workspace = parent / "linked"
+                    git("worktree", "add", "--detach", str(workspace), "HEAD")
+                    admin = Path((workspace / ".git").read_text().removeprefix("gitdir:").strip())
+                    # The common directory comes from commondir, not the admin directory's name.
+                    relocated = parent / "relocated-admin"
+                    admin.rename(relocated)
+                    (relocated / "commondir").write_text(os.path.relpath(parent / "metadata", relocated) + "\n")
+                    (workspace / ".git").write_text("gitdir: " + os.path.relpath(relocated, workspace) + "\n")
+                child = workspace / "copies" / "child"
+                git("worktree", "add", "--detach", str(child), "HEAD")
+                (workspace / "source.py").write_bytes(b"source")
+                (child / "duplicate.py").write_bytes(b"x" * 10000)
+                self.assertEqual(6, storage_budget.workspace_bytes(workspace))
+
 
 class VerdictTests(unittest.TestCase):
     def test_dispatch_without_source_copy_does_not_scan_source_and_refuses_full_storage(self):

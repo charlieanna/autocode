@@ -30,21 +30,26 @@ def conversation_only(state: RunState):
 
 
 def _git_common_dir(root):
-    """``root``'s git directory, or None when it is not a readable worktree."""
+    """Resolve Git's gitdir and commondir files relative to their owning directories."""
     dot = root / ".git"
     try:
-        if dot.is_dir():
-            return dot
-        text = dot.read_text(encoding="utf-8")  # a linked worktree's .git is a file naming its gitdir
+        gitdir = dot
+        if not dot.is_dir():
+            text = dot.read_text(encoding="utf-8")
+            target = next(
+                (line[len("gitdir:") :].strip() for line in text.splitlines() if line.startswith("gitdir:")), ""
+            )
+            if not target:
+                return None
+            gitdir = root / target  # an absolute target also works with Path's join
+        gitdir = gitdir.resolve()
+        try:
+            common = (gitdir / "commondir").read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            return gitdir  # ordinary or --separate-git-dir repository
+        return (gitdir / common).resolve() if common else None
     except (OSError, UnicodeError):
         return None
-    for line in text.splitlines():
-        if line.startswith("gitdir:"):
-            gitdir = Path(line[len("gitdir:") :].strip())
-            if not gitdir.is_absolute():
-                gitdir = root / gitdir
-            return gitdir.resolve().parent.parent  # <common>/worktrees/<name> -> <common>
-    return None
 
 
 def _other_worktrees(root):
@@ -60,7 +65,7 @@ def _other_worktrees(root):
     found = set()
     for pointer in sorted((common / "worktrees").glob("*/gitdir")):
         try:
-            gitdir = Path(pointer.read_text(encoding="utf-8").strip()).resolve()
+            gitdir = (pointer.parent / pointer.read_text(encoding="utf-8").strip()).resolve()
         except (OSError, UnicodeError):
             continue
         path = gitdir.parent if gitdir.name == ".git" else gitdir

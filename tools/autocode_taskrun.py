@@ -542,6 +542,9 @@ class TaskRun:
         fresh = (self.status().get("needs") or {}).get("job_retry_token")
         if not fresh:
             raise TaskRunError("save stage deadline: the run issued no fresh job retry token")
+        # The successful standalone save supersedes this handle's launch deadline.
+        # Retry must use the saved value and fresh token, not reassert the old option.
+        self.options, _ = _split_flag(self.options, "--max-stage-seconds")
         return {"token": fresh, "view": self.status()}
 
     def retry_job(self, token: str) -> dict:

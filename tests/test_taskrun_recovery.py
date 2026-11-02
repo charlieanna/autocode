@@ -9,6 +9,63 @@ from unittest.mock import patch
 from autocode_taskrun import TaskRun, TaskRunError
 
 
+class StageDeadlineRecoveryTests(unittest.TestCase):
+    def test_saved_deadline_replaces_the_same_handles_launch_option(self):
+        for deadline in (("--max-stage-seconds", "900"), ("--max-stage-seconds=900",)):
+            with self.subTest(deadline=deadline):
+                run = TaskRun(Path("/repo"), Path("/run"), options=(*deadline, "--engine", "codex"))
+                saved = {"seconds": 900, "token": "old"}
+                calls = []
+
+                def invoke(name, *args, **kwargs):
+                    calls.append((name, args, kwargs))
+                    if name == "save stage deadline":
+                        saved.update(seconds=int(args[args.index("--max-stage-seconds") + 1]), token="fresh")
+                    return subprocess.CompletedProcess(
+                        [],
+                        0,
+                        json.dumps(
+                            {
+                                "settings": {"limits": {"stage_timeout_seconds": saved["seconds"]}},
+                                "view": {"needs": {"job_retry_token": saved["token"]}},
+                            }
+                        ),
+                        "",
+                    )
+
+                with patch.object(run, "_invoke", side_effect=invoke):
+                    fresh = run.save_stage_deadline("old", 1800)
+                    run.retry_job(fresh["token"])
+                self.assertEqual(1800, saved["seconds"])
+                retry = next(call for call in calls if call[0] == "retry job")
+                self.assertEqual(
+                    (
+                        "--resume-paused",
+                        "--retry-failed-stage",
+                        "--job-retry-token",
+                        "-",
+                        "--no-chat",
+                        "--engine",
+                        "codex",
+                    ),
+                    retry[1],
+                )
+                self.assertEqual({"AUTOCODE_JOB_RETRY_TOKEN": "fresh"}, retry[2]["secret_env"])
+
+    def test_failed_or_unconfirmed_save_retains_launch_options(self):
+        for rejected in (True, False):
+            with self.subTest(rejected=rejected):
+                options = ("--max-stage-seconds", "900", "--engine", "codex")
+                run = TaskRun(Path("/repo"), Path("/run"), options=options)
+                with (
+                    patch.object(run, "_invoke", side_effect=TaskRunError("rejected") if rejected else None),
+                    patch.object(run, "status", return_value={"needs": {}}),
+                    self.assertRaises(TaskRunError),
+                ):
+                    run.save_stage_deadline("old", 1800)
+                self.assertEqual(options, run.options)
+
+
 class RecoveryGrantTests(unittest.TestCase):
     def test_advance_until_input_takes_the_exact_named_deterministic_recovery(self):
         run = TaskRun(Path("/repo"), Path("/repo/.autocode/runs/task"))

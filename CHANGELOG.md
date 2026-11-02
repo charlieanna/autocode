@@ -17,6 +17,12 @@ PR template asks for an entry here; a change without one is incomplete.
   from a project subfolder writes to the project's evidence directory; and `capture` prints a
   short receipt hash on stderr, so a Tester that shortens its output with `| tail` or
   `| grep` no longer has its report rejected. Findings: `docs/bugs/2026-11-02-retry-loops.md`.
+- Job retries stay usable after a stage deadline is saved on its own: the retry uses the
+  saved deadline and its fresh token instead of reasserting the refused
+  `--max-stage-seconds` option.
+- Storage counting resolves Git metadata from its declared directories (`commondir`, and
+  worktree gitdir pointers relative to their metadata files), so linked, separate and
+  relative worktree layouts no longer miscount nested registered copies.
 - Terminal chat: slow public-status startups no longer fail after one five-second timeout —
   a timed-out read's later attempts for the same run get ten, then at most twenty, seconds
   until the identity leaves the polling set; action-receipt deadlines are unchanged.
