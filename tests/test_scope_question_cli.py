@@ -4,7 +4,10 @@ Drives the real, offline CLI through the task-run interface only.
 """
 
 import json
+import os
+import textwrap
 import unittest
+from pathlib import Path
 
 import autocode_taskrun as taskrun
 
@@ -16,6 +19,43 @@ PART = f"greet-history|Record each greeting|{ELSEWHERE}"
 
 
 class ScopeQuestionCliTests(unittest.TestCase):
+    def test_requirements_question_is_answered_before_repository_scope_is_decided(self):
+        workspace, env = fixture_workspace(self)
+        env["AUTOCODE_FIXTURE_EXTERNAL_PART"] = PART
+        provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"
+        asked = provider.parent / "asked-example"
+        marker = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
+        amendment = textwrap.dedent(f"""
+            if stage == 'requirements_gather' and not Path({str(asked)!r}).exists():
+                Path({str(asked)!r}).write_text('asked')
+                report.update(required_behaviors=[], acceptance_tests=[], open_questions=[{{
+                    'id': 'example', 'question': 'Which greeting should be recorded?',
+                    'why': 'An example is needed.', 'options': [], 'proposed_default': '',
+                    'kind': 'decision', 'category': 'requested_outcome', 'delegable': False}}])
+        """)
+        self.assertIn(marker, provider.read_text())
+        provider.write_text(provider.read_text().replace(marker, textwrap.indent(amendment, "    ") + "\n" + marker))
+        run = taskrun.TaskRun.start(
+            workspace,
+            f"{BRIEF} {ELSEWHERE}",
+            options=(*FIXTURE_OPTIONS, "--joint-planning", "--no-adaptive-planning"),
+            env=env,
+            timeout=180,
+        )
+        view = run.advance_until_input()
+        self.assertEqual(["example"], [row["id"] for row in view["needs"]["questions"]])
+        self.assertTrue(view["scope"]["spans_repositories"])
+        self.assertIsNone(view["scope"]["decision"])
+        self.assertEqual(view["needs"], run.status()["needs"])
+        run.answer("example", "The greeting for Ada.", resolver_token=view["needs"]["resolver_token"])
+        after = run.advance_until_input()
+        self.assertTrue(after["needs"]["questions"][0]["id"].startswith("workspace-scope-"))
+        self.assertIsNone(after["scope"]["decision"])
+        stages = [row["stage"] for row in after["usage"]["accounting"]["attempts"]]
+        self.assertEqual(2, stages.count("requirements_gather"))
+        self.assertNotIn("astra_discovery", stages)
+        self.assertFalse((workspace / "greet.py").exists())
+
     def start(self):
         workspace, env = fixture_workspace(self)
         env["AUTOCODE_FIXTURE_EXTERNAL_PART"] = PART

@@ -168,14 +168,18 @@ def review_question(state: RunState) -> dict:
 
 def questions(state: RunState) -> list[dict]:
     """The handoff's unanswered open questions, then (spec-first) the review question; [] when nothing waits."""
+    answered = state.get("answers") or {}
+    unresolved = [row for row in _report(state).get("open_questions") or [] if row.get("id") not in answered]
+    if not state.get("goal_contract") and unresolved and (enabled(state) or questions_only(_report(state))):
+        # Clarify the requested outcome before choosing where its work belongs.
+        # This answers no scope question and leaves all discovered parts intact.
+        return unresolved
     # Work that belongs to another repository is settled with the person before any plan, on every flow (#2066).
     scope = scope_question.question(state)
     if scope:
         return [scope]
     if not state.get("requirements_handoff") or state.get("goal_contract"):
         return []
-    answered = state.get("answers") or {}
-    unresolved = [row for row in _report(state).get("open_questions") or [] if row.get("id") not in answered]
     try:
         from . import autocode_catalog_context as source_catalog
         from . import autocode_coordination_context as coordination
