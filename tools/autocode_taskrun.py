@@ -2,9 +2,10 @@
 
 Code that coordinates several task runs (the planned architecture and
 multi-component layer) uses this instead of importing runner internals. Each
-call is one CLI invocation and the run's state lives on disk, so a caller that
+action is one CLI invocation and the run's state lives on disk, so a caller that
 crashes can reattach with ``TaskRun(workspace, run_dir)``. Reads return the
-status view from autocode_run_view. See docs/task-run.md.
+status view from autocode_run_view. An explicit read-only response may reuse
+identical status reads within its own scope. See docs/task-run.md.
 
     run = TaskRun.start(workspace, brief, options=("--engine", "codex"))
     view = run.advance_until_input()
@@ -26,6 +27,7 @@ try:
     from . import autocode_conversation_session as conversation_session
     from . import autocode_operational_change as operational_change
     from . import autocode_route_fit as route_fit
+    from . import autocode_taskrun_reads as reads
     from . import autocode_taskrun_worker as worker_driver
     from .autocode_captured_process import ProcessError
     from .autocode_captured_process import run as run_captured
@@ -34,6 +36,7 @@ except ImportError:
     import autocode_conversation_session as conversation_session
     import autocode_operational_change as operational_change
     import autocode_route_fit as route_fit
+    import autocode_taskrun_reads as reads
     import autocode_taskrun_worker as worker_driver
     from autocode_captured_process import ProcessError
     from autocode_captured_process import run as run_captured
@@ -379,8 +382,24 @@ class TaskRun:
         """The runs already saved in ``workspace``; see ``attach``'s ``exclude``."""
         return sorted(_runs(Path(workspace).resolve()))
 
+    def _status_process(self, inspect_evidence=False):
+        """Share an identical public read only inside an explicit read-only response."""
+        key = (
+            tuple(self.command),
+            str(self.workspace),
+            str(self.run_dir),
+            str(self.cwd) if self.cwd is not None else None,
+            self.timeout,
+            inspect_evidence,
+            tuple(sorted({**os.environ, **(self.env or {})}.items())),
+        )
+        return reads.read(
+            key,
+            lambda: self._invoke("status", "--status", *(("--inspect-evidence",) if inspect_evidence else ())),
+        )
+
     def status(self, *, inspect_evidence=False) -> dict:
-        proc = self._invoke("status", "--status", *(("--inspect-evidence",) if inspect_evidence else ()))
+        proc = self._status_process(inspect_evidence)
         try:
             return json.loads(proc.stdout)["view"]
         except (ValueError, KeyError) as error:
@@ -393,7 +412,7 @@ class TaskRun:
         need both to distinguish their pauses from a person's independent hold;
         a missing observation must never be interpreted as an empty receipt list.
         """
-        proc = self._invoke("status", "--status")
+        proc = self._status_process()
         try:
             document = json.loads(proc.stdout)
             result = {key: document[key] for key in ("view", "interventions")}
