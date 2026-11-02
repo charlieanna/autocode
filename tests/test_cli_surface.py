@@ -163,23 +163,12 @@ class CliSurfaceTests(unittest.TestCase):
             commands.INTERNAL_FLAGS,
         )
 
-    def test_packaging_marks_only_autocode_public_and_preserves_compatibility_scripts(self):
+    def test_packaging_installs_only_the_autocode_command(self):
         package = tomllib.loads((ROOT / "pyproject.toml").read_text())
         policy = package["tool"]["autocode"]["cli"]
         self.assertEqual(["autocode"], policy["public-entry-points"])
-        internal = policy["internal-entry-points"]
-        self.assertEqual(len(internal), len(set(internal)))
-        self.assertEqual(set(package["project"]["scripts"]) - {"autocode"}, set(internal))
-        self.assertTrue(
-            {
-                "autoplanner",
-                "autocode-build",
-                "autoreview",
-                "autoresolver",
-                "autocode-orchestrator",
-                "autocode-unattended",
-            }.issubset(internal)
-        )
+        self.assertEqual([], policy["internal-entry-points"])
+        self.assertEqual({"autocode": "autocode_cli.autocode:cli"}, package["project"]["scripts"])
         for unit in ("autoplanner", "autocode", "autoreview", "autoresolver"):
             with self.subTest(unit=unit):
                 self.assertEqual(

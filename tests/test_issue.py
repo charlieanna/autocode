@@ -512,7 +512,7 @@ class IssueCliTests(unittest.TestCase):
         started = self.cli("start", "#7", "--issue-file", str(self.issue_file), "--", *self.options)
         self.assertEqual(0, started.returncode, started.stderr)
         self.assertIn(
-            "Or have it reviewed in a pull request: autocode-issue plan acme/widgets#7 --open", started.stdout
+            "Or have it reviewed in a pull request: autocode issue plan acme/widgets#7 --open", started.stdout
         )
         record = self.saved_record()
         worktree = Path(record["worktree"])
@@ -630,7 +630,7 @@ class IssueCliTests(unittest.TestCase):
         self.assertEqual("approve_plan", needs["kind"])
         self.assertFalse(needs["token"].startswith(f"r{plan.revision}:"))
         self.assertIn(
-            "Or have it reviewed in a new pull request: autocode-issue plan acme/widgets#7 --open", reviewed.stdout
+            "Or have it reviewed in a new pull request: autocode issue plan acme/widgets#7 --open", reviewed.stdout
         )
         self.assertNotIn("--goal-file", reviewed.stdout)
         renewed = self.cli("plan", "#7", "--open")

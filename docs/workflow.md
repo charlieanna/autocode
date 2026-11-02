@@ -121,8 +121,8 @@ Autopilot checks them against the approved plan and current evidence before adva
 Planning revisions, implementation handoffs, review outcomes and repair routing are
 applied by Autopilot. The shared runtime supplies provider calls, locking and persistence.
 
-The public `autocode` command and the internal `autocode-orchestrator` compatibility
-alias delegate to the same controller, including dashboard launches. `tools/autocode_orchestrator.py` is a
+The public `autocode` command and the `autocode_orchestrator` compatibility
+module delegate to the same controller, including dashboard launches. `tools/autocode_orchestrator.py` is a
 compatibility import. The saved stage named `orchestrator` remains the milestone
 scheduler inside Autocode so existing runs can resume. Autopilot owns the overall loop.
 
@@ -1100,7 +1100,7 @@ token locks the revision on the screen, as always. `--goal-file` revises a saved
 start a new one.
 
 When the run completes, its evidence report (`evidence.md`, and so the pull request body
-`autocode-issue pr` writes around it) gives the approved plan's goal hash, the one `--check` prints
+`autocode issue pr` writes around it) gives the approved plan's goal hash, the one `--check` prints
 for a file holding exactly that plan. When the approved plan came from a plan file, the report also
 names the file, its goal hash and the plan revision it was loaded as, and says how the two differ:
 the approved plan is the file's plan unchanged (the two goal hashes are equal), differs from it only
@@ -1118,8 +1118,8 @@ Plan file: `/repo/plans/refunds.md` (goal hash 9a07…), loaded as plan revision
 Put together, a team reviews a plan like this:
 
 1. **AutoCode drafts the plan.** A run stops with its plan waiting for approval. For a GitHub issue,
-   `autocode-issue start` gets it there.
-2. **A person opens a pull request with the file.** `autocode-issue plan ISSUE --open` exports the
+   `autocode issue start` gets it there.
+2. **A person opens a pull request with the file.** `autocode issue plan ISSUE --open` exports the
    plan, commits it as `plans/issue-N.md` on a branch of its own and opens a draft pull request
    ([GitHub issues](issues.md#reviewing-the-plan-in-a-pull-request)). Without an issue, run
    `autocode plan --export FILE`, then commit, push and open the pull request yourself.
