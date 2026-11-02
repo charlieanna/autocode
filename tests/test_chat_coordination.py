@@ -13,7 +13,117 @@ import autocode_chat_client as chat
 import autocode_chat_coordination as coordination
 
 
+class ApprovalPacketTests(unittest.TestCase):
+    def test_packet_preserves_all_plans_provenance_and_publication_in_order(self):
+        summary = {
+            "source_catalog": {"catalog": "local", "catalog_identity": "catalog-id", "source_snapshot": "snapshot"},
+            "members": [
+                {
+                    "target": "api",
+                    "workspace": "/api",
+                    "base": "base-api",
+                    "supporting_evidence": {
+                        "source_quote": "original symptom",
+                        "evidence": "entry.go:12",
+                        "evidence_repository": "/caller",
+                        "evidence_revision": "caller-base",
+                    },
+                },
+                {"target": "history", "location": "/history", "role": "reader", "base": "base-history"},
+            ],
+            "needs": {
+                "kind": "approval",
+                "summary": {
+                    "runs": [
+                        {"target": "api", "plan": "API COMPLETE PLAN"},
+                        {"target": "history", "plan": "HISTORY COMPLETE PLAN"},
+                    ]
+                },
+                "joint_plan": "JOINT COMPLETE PLAN",
+            },
+            "approval": {"publication": "Publish only after independent proof. No automatic merge."},
+        }
+        text = coordination.approval_text(summary, lambda plan: plan)
+        for expected in (
+            "local",
+            "catalog-id",
+            "snapshot",
+            "Repository: api · role member",
+            "/api",
+            "base-api",
+            "original symptom",
+            "/caller@caller-base:entry.go:12",
+            "Repository: history · role reader",
+            "/history",
+            "base-history",
+            "API COMPLETE PLAN",
+            "HISTORY COMPLETE PLAN",
+            "JOINT COMPLETE PLAN",
+            "Publish only after independent proof. No automatic merge.",
+        ):
+            self.assertIn(expected, text)
+        self.assertLess(text.index("API COMPLETE PLAN"), text.index("HISTORY COMPLETE PLAN"))
+        self.assertLess(text.index("HISTORY COMPLETE PLAN"), text.index("JOINT COMPLETE PLAN"))
+        self.assertTrue(text.endswith(summary["approval"]["publication"]))
+
+    def test_joint_only_approval_displays_its_plan_and_publication(self):
+        summary = {
+            "needs": {"kind": "joint_approval", "plan": "Complete revised joint plan"},
+            "approval": {"publication": "No automatic merge."},
+        }
+        self.assertEqual(
+            "\nJoint regression\nComplete revised joint plan\nNo automatic merge.",
+            coordination.approval_text(summary, lambda plan: plan),
+        )
+
+
 class CoordinatedLiveScreenTests(unittest.TestCase):
+    def test_approval_opens_at_the_complete_packets_start_not_the_last_repository(self):
+        from tests import ROOT
+        from tests.terminal_screen import TerminalScreen, require_tmux
+
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from types import SimpleNamespace
+from unittest.mock import patch
+import autocode_chat_coordination as coordination
+from autocode_chat_tui import ChatTUI
+summary = {
+    'done': False,
+    'members': [{'target': name, 'workspace': '/' + name, 'status': 'AWAITING_GOAL_APPROVAL'}
+                for name in ('api', 'history')],
+    'needs': {'kind': 'approval', 'summary': {'runs': [
+        {'target': name, 'plan': '\\n'.join(name + ' plan row ' + str(n) for n in range(30))}
+        for name in ('api', 'history')]},
+        'joint_plan': '\\n'.join('joint plan row ' + str(n) for n in range(30))},
+    'approval': {'publication': 'Only publish after independent proof.'},
+}
+with ChatTUI() as ui:
+    client = SimpleNamespace(say=ui.say, ask=ui.ask, said=set())
+    with patch.object(coordination, 'read', return_value=summary):
+        try:
+            coordination.step(client, {}, lambda plan: plan)
+        except EOFError:
+            ui.say('No approval given.')
+"""
+        with TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=110, rows=25, tmux=require_tmux(self)
+        ) as screen:
+            screen.wait_for(
+                lambda shown: "Approve these coordinated plans?" in shown and "Repository: api" in shown,
+                timeout=5,
+                what="the first repository at the top of the complete approval packet",
+            )
+            for _ in range(12):
+                screen.keys("NPage")
+            screen.wait_for(
+                lambda shown: "joint plan row 29" in shown and "Only publish after independent proof." in shown,
+                what="the final plan and publication restriction remain reachable",
+            )
+            screen.keys("C-d")
+            self.assertEqual(0, screen.exit_status())
+
     def test_real_terminal_shows_member_log_during_one_gated_coordinator_action(self):
         self.assert_live_terminal()
 
@@ -501,6 +611,11 @@ class CoordinatedDisplayTests(unittest.TestCase):
         }
         with patch.object(coordination, "read", return_value=summary):
             coordination.step(client, {}, lambda plan: plan["body"])
+        packets = [call.args[0] for call in client.say.call_args_list if "Plan body" in call.args[0]]
+        self.assertEqual(1, len(packets))
+        self.assertIn("Repository: history", packets[0], "one display update contains the complete packet")
+        self.assertIn("Combined regression plan body", packets[0])
+        self.assertIn("No automatic merge.", packets[0])
         shown = "\n".join(call.args[0] for call in client.say.call_args_list)
         for value in (
             str(root),
