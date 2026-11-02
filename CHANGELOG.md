@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Terminal chat: during coordinated progress the anchor run's short status outages show in
+  the persistent header/tab indicators only — coordination's temporary callback handover no
+  longer makes the client think the full-screen view has no read indicator, so the transcript
+  no longer accumulates "Status unavailable…" and "Status available again…" lines. Line
+  clients without an updating indicator still get both messages.
 - Coordination message inbox: a queued conversation answer survives clarification
   settings changes — re-answering a question keeps the saved conversation instead of
   dropping the queued message and forcing replanning.
