@@ -11,6 +11,18 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Terminal chat: the default live agent log shows plain-English progress messages from every agent
+  instead of raw reasoning and command lines — commands (including failures) and edits stay in the
+  explicit `tools` view, `thinking` shows reasoning text, and an agent-name filter narrows progress
+  by agent; the side panel's requirement section reads "Acceptance checks".
+- Live chat log: readable prose survives tool calls — provider transport counters ("thinking ~N
+  tokens", "writing … input: N chars") no longer displace the agent's own words, and commands keep a
+  `[command]` mark in the retained detail.
+- Plan Reviewer stages are asked for concise public progress updates, so the live feed shows what the
+  reviewer is checking in the reviewer's own words.
+- Requirement tracing: a documentary ticket reference (such as "the original DTI-12398 outcome") no
+  longer turns the ticket number into a numeric obligation — the requirement's real values stay
+  enforced and the ticket stays cited as the source.
 - An exhausted Builder ladder no longer pauses to ask the person for a decision or a config change
   (#2597). The ordinary retries and the stronger attempt stay automatic; when the ladder is spent — the
   stronger attempt failed, the provider offers no stronger Builder model, or that model would be checked
