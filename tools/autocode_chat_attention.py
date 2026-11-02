@@ -40,15 +40,19 @@ def item(row):
     return candidate if key(candidate) == key(row) else None
 
 
+LOADING = "Reading saved attention"
+
+
 class Inbox:
     def __init__(self):
         self.rows = {}
         self.status_at = {}
-        self.error = "Reading saved attention"
+        self.error = LOADING
         self.overflow = 0
         self.seen = {}
         self.pending = {}
         self.initialized = False
+        self.shown = None  # the (workspace, run_dir) of the chat on screen, set by its client
 
     def listing(self, raw, error, *, started):
         try:
@@ -141,13 +145,18 @@ class Inbox:
 
     def summary(self):
         entries = self.entries()
+        here = [row for row in entries if self.shown is not None and key(row) == self.shown]
         return {
             "unread": sum(self.read_state(row) == "unread" for row in entries),
             "unknown": sum(
                 self.read_state(row) == "unknown" or row.get("availability") != "available" for row in entries
             ),
+            # The chat on screen already shows its own question or result, so its alert is no news
+            # to the badge; the inbox (F8) still lists it with the others.
+            "shown_unread": sum(self.read_state(row) == "unread" for row in here),
             "count": len(entries),
             "error": self.error,
+            "loading": self.error == LOADING,  # the first read has not finished; nothing is wrong yet
             "overflow": self.overflow,
         }
 

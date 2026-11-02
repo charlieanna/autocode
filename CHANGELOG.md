@@ -9,8 +9,27 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- Terminal chat: a Stages section in the side panel lists each stage's state, time,
+  cost, attempt, model, reasoning level and tokens; a stage on a later attempt takes
+  the status row with the reason the previous attempt failed; the header shows the
+  run's cost and tokens, and a session total over the open chats.
+- Terminal chat: messages draw fenced code blocks as code, `code` and **bold** without
+  their marks, and `/diff N` colors its patch; the live agent log reads a provider's
+  repeated progress notes as one line of their newest values; the side panel folds
+  the spend and cap into Stages, shows Verification once the run has finished, and
+  wraps a long requirement or task to a second row.
+
 ### Fixed
 
+- Terminal chat: plan approval opens on the plan when it fits the screen instead of
+  an older requirements summary; a new or just-started chat no longer shows loading
+  states as errors; a new chat opens on its welcome; a finished run names the files
+  it changed; the client's own words sit under the AutoCode label; the F8 badge no
+  longer counts the alert of the chat on screen; a question, the approved
+  understanding and the approved plan are no longer repeated when the run records
+  the answer.
 - Label planning stages by the work they do: `astra_discovery` and `glm_revise`
   (and their report repairs) group under the Planner job instead of
   Requirements in cost and role displays, without changing usage or cost

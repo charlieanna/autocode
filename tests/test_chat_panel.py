@@ -264,6 +264,27 @@ class StageLogTests(unittest.TestCase):
 class LiveLogTests(unittest.TestCase):
     """The live log keeps what each agent did across views; the view holds only the newest entries."""
 
+    # A Claude stage's progress notes as the live run of 2026-11-02 showed them: one growing note.
+    NOTES = "…king ~300 tokens; thinking ~450 tokens; thinking ~600 tokens; writing StructuredOutput input: 6774 chars;"
+
+    def test_progress_notes_read_as_their_newest_value_once(self):
+        self.assertEqual("thought ~600 tokens · writing its answer · 6.8k chars", panel.live_text(self.NOTES))
+        self.assertEqual("thought ~950 tokens", panel.live_text("thinking ~950 tokens"))
+        self.assertEqual(
+            "thought ~1.2k tokens · writing Edit · 40 chars · ran ls",
+            panel.live_text("thinking ~1200 tokens; writing Edit input: 40 chars; ran ls"),
+        )
+
+    def test_the_models_own_words_are_shown_as_they_are(self):
+        for words in ("Read greet.py first; then run the tests.", "thinking about ~3 options", ""):
+            self.assertEqual(words, panel.live_text(words))
+
+    def test_the_log_text_the_conversation_prints_is_condensed_too(self):
+        live = panel.LiveLog()
+        live.observe(self.view(("a:r1", "Tester", "thinking", self.NOTES)))
+        self.assertIn("Tester ∴ thought ~600 tokens · writing its answer · 6.8k chars", live.text())
+        self.assertNotIn("thinking ~450", live.text())
+
     @staticmethod
     def view(*entries):
         return {"chat": {"log": [dict(zip(("id", "agent", "kind", "text"), entry, strict=True)) for entry in entries]}}

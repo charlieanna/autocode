@@ -923,6 +923,20 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual([["--follow-up", "Add a --shout flag"]], client.taken)
         self.assertIn("Any text starts a new task in this chat; press Enter to finish:", client.text())
 
+    def test_a_finished_run_says_what_it_changed_once_before_the_follow_up(self):
+        done = {
+            **DONE,
+            "code_checkpoints": {"rows": [{"changed_files": ["greet.py", "README.md"]}]},
+            "chat": {
+                "context": "c9",
+                "input": {"kind": "follow_up", "next_command": f"autocode {PLACE} --follow-up MESSAGE"},
+            },
+        }
+        client = ScriptedChat(done, done, replies=["", ""])
+        client.follow_up(done)
+        client.follow_up(done)
+        self.assertEqual(1, client.text().count("Changed 2 files: greet.py, README.md. /diff shows what changed."))
+
     REVIEW = {
         "status": "WAITING_FOR_USER",
         "needs": {"kind": "answer", "questions": [{"id": "RQ", "question": "Is this right?"}]},
@@ -1444,8 +1458,15 @@ class TabTests(unittest.TestCase):
         client, other = self.client()
         self.assertEqual(
             [
-                {"number": 1, "run": other, "title": "Add a flag", "state": "done", "current": False},
-                {"number": 2, "run": str(RUN), "title": "Fix the typo", "state": "needs you", "current": True},
+                {"number": 1, "run": other, "title": "Add a flag", "state": "done", "current": False, "total": None},
+                {
+                    "number": 2,
+                    "run": str(RUN),
+                    "title": "Fix the typo",
+                    "state": "needs you",
+                    "current": True,
+                    "total": None,
+                },
             ],
             client.tabs(),
         )
@@ -1563,6 +1584,46 @@ class StreamAndNoticeTests(unittest.TestCase):
         client.show({"chat": {"messages": [live]}})
         client.show({"chat": {"messages": [{"id": "recorded-question", "role": "assistant", "text": text}]}})
         self.assertEqual(1, client.text().count(f"AutoCode: {text}"), "the question is printed once")
+
+    def test_a_requirements_question_is_not_said_again_when_its_answer_is_recorded(self):
+        client = ScriptedChat({})
+        self.addCleanup(client.close)
+        question = "Who is it for?"
+        client.show(
+            {"chat": {"messages": [{"id": "requirements-question-ab12", "role": "assistant", "text": question}]}}
+        )
+        recorded = [
+            {"id": "event-0-question", "role": "assistant", "text": question},
+            {"id": "event-0", "role": "user", "text": "Me"},
+        ]
+        client.show({"chat": {"messages": recorded}})
+        self.assertEqual(1, client.text().count(f"AutoCode: {question}"))
+        # The same words in a later reply are that reply's own, and are said.
+        client.show({"chat": {"messages": [*recorded, {"id": "response-1", "role": "assistant", "text": question}]}})
+        self.assertEqual(2, client.text().count(f"AutoCode: {question}"))
+
+    def test_an_approved_plans_record_is_its_heading_after_the_plan_was_shown(self):
+        plan = {
+            "token": "r2:h",
+            "acceptance_criteria": [
+                {"id": "C1", "criterion": "Greets", "verification_method": "m", "human_review": False}
+            ],
+            "constraints": [],
+            "permission_boundaries": [],
+        }
+        view = {"status": "AWAITING_GOAL_APPROVAL", "needs": {"kind": "approve_plan", "token": "r2:h"}}
+        client = ScriptedChat({**view, "displayed_plan": plan}, replies=[""])
+        self.addCleanup(client.close)
+        client.approve({**view, "displayed_plan": plan})
+        record = {"id": "plan-r2:h", "role": "assistant", "text": "Approved plan · revision 2\n[C1] Greets"}
+        client.show({"chat": {"messages": [record]}})
+        self.assertIn("\nAutoCode: Approved plan · revision 2. /plan shows it.", client.out)
+        self.assertEqual(1, client.text().count("[C1] Greets"))
+        # A plan this chat did not show, as when the chat is opened later, is shown whole.
+        other = ScriptedChat({})
+        self.addCleanup(other.close)
+        other.show({"chat": {"messages": [record]}})
+        self.assertEqual(["\nAutoCode: Approved plan · revision 2\n[C1] Greets"], other.out)
 
     def test_a_local_user_echo_does_not_hide_an_assistant_message_with_the_same_text(self):
         client = ScriptedChat({})
@@ -1874,6 +1935,11 @@ class TerminalChatTests(unittest.TestCase):
         self.assertNotIn(chat.LAUNCH_WARNING, out, "Full mode confirms at planning, not at launch")
         self.assertIn("Plan to approve:\n  [C1] Greeting contract holds", out)
         self.assertLess(out.index("Plan to approve:"), out.index("The requested task is complete."))
+        # What the person approved is said once: the understanding is not repeated when the run records
+        # it, and the approved plan's record is its heading, not the whole plan again.
+        self.assertEqual(1, out.count("what I understand"), out)
+        self.assertEqual(1, out.count("[C1] Greeting contract holds"), out)
+        self.assertRegex(out, r"AutoCode: Approved plan · revision \d+\. /plan shows it\.")
         self.assertTrue(out.rstrip().endswith("Done."), out[-500:])
         self.assertTrue((self.workspace / "greet.py").is_file())
 

@@ -12,24 +12,29 @@ the view names: ``/pause`` is the view's pause offer, ``/diff`` a saved step's
 
 from __future__ import annotations
 
+import re
 import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 try:
     from . import autocode_chat_changeset as changeset
     from . import autocode_chat_cost as cost
+    from . import autocode_chat_meter as meter
     from . import autocode_chat_stage_policy as stage_policy
     from . import autocode_chat_verification as verification
 except ImportError:
     import autocode_chat_changeset as changeset
     import autocode_chat_cost as cost
+    import autocode_chat_meter as meter
     import autocode_chat_stage_policy as stage_policy
     import autocode_chat_verification as verification
 
 LOG_LIMIT = 200
+STAGE_ROWS = 4  # the newest stages the panel lists; /details has every attempt
 NOTHING_NEEDED = "nothing needed from you"  # the progress view's needs_you when no one is waited on
 TASK_MARKS = {"done": "✓", "working": "▸", "waiting": "·", "unknown": "·"}
 REQUIREMENT_MARKS = {
@@ -40,7 +45,19 @@ REQUIREMENT_MARKS = {
     "awaiting_review": "?",
     "unchecked": "·",
 }
-ASCII_MARKS = {"✓": "+", "▸": ">", "·": "-", "✗": "x", "?": "?", "±": "~", "$": "$", "∴": ":", "»": ">"}
+ASCII_MARKS = {
+    "✓": "+",
+    "▸": ">",
+    "·": "-",
+    "✗": "x",
+    "?": "?",
+    "±": "~",
+    "$": "$",
+    "∴": ":",
+    "»": ">",
+    "●": "*",
+    "↻": "~",
+}
 EVENT_MARKS = {"edit": "±", "tool": "·"}  # user-facing activity; internal command text stays hidden
 EVENT_ROWS = 6  # how many of the newest events the panel lists
 LIVE_MARKS = {"thinking": "∴", "message": "»", "edit": "±", "tool": "·"}  # visible live-log entry kinds
@@ -219,6 +236,30 @@ def doing(view: dict | None) -> str | None:
     return verb + event["text"]
 
 
+def _utc_now():
+    return datetime.now(UTC)
+
+
+def stage_section(view: dict | None, now=None) -> Section | None:
+    """Each stage the run has launched: how it went, the model it ran on, its time, tokens and cost.
+    Each takes a row for how it went and one for the model it ran on and the tokens it used."""
+    ran = meter.stages(view, now or _utc_now())
+    if not ran:
+        return None
+    rows: list[Row] = []
+    if len(ran) > STAGE_ROWS:
+        earlier = len(ran) - STAGE_ROWS
+        rows.append(Row("·", f"{earlier} earlier stage{'' if earlier == 1 else 's'}: /details", "dim"))
+    for row in ran[-STAGE_ROWS:]:
+        head, detail, style = meter.stage_lines(row)
+        mark, _, text = head.partition(" ")
+        rows.append(Row(mark, text, style))
+        if detail.strip():  # the model it ran on and what it used; a stage with no model has none
+            rows.append(Row(" ", detail.strip(), "dim"))
+    cap = _mapping(_mapping(view).get("cost")).get("cap_usd")
+    return Section("Stages", meter.total_text(meter.run_total(view), cap), tuple(rows))
+
+
 def sections(view: dict | None, *, launched: bool = False) -> list[Section]:
     """The panel for one view: where the run is, what it is doing, then its requirements, tasks and open problems.
 
@@ -236,11 +277,18 @@ def sections(view: dict | None, *, launched: bool = False) -> list[Section]:
             rows.insert(0, Row("!", needs, "warn"))
     if view.get("status") in ("TASK_COMPLETE", "COMPLETE"):
         now = verification.cue(view)
+    if trouble := meter.struggling(view, _utc_now()):
+        rows.insert(0, Row("!", trouble, "warn"))
     result = [Section("Now", now, tuple(rows))]
-    if proof := verification.compact(view):
+    if ran := stage_section(view):
+        result.append(ran)
+    # Whether the delivery is verified means something once the run has finished; before then it
+    # is always "not verified", and /details keeps the evidence either way.
+    if verification.settled(view) and (proof := verification.compact(view)):
         summary, entries = proof
         result.append(Section(verification.title(view), summary, tuple(Row("·", line, "dim") for line in entries)))
-    if usage := cost.compact(view):
+    # The Stages section already carries the run's spend, tokens and cap; /details the rest.
+    if ran is None and (usage := cost.compact(view)):
         summary, entries = usage
         result.append(Section("Usage", summary, tuple(Row("·", line, "dim") for line in entries)))
     if path := stage_policy.compact(view):  # which planning path a bug-fix run took and why (#1884 F2)
@@ -347,6 +395,21 @@ def steps(view: dict | None) -> list[dict]:
     return _rows(_mapping((view or {}).get("code_checkpoints")).get("rows"))
 
 
+def finished_text(view: dict | None) -> str:
+    """A finished run's closing line: the files its saved steps and its acceptance tests changed, and
+    where to see the change. Empty when the view names no file, so nothing is claimed it does not name."""
+    files: list[str] = []
+    named_files = [path for row in steps(view) for path in row.get("changed_files") or []]
+    named_files += _mapping(_mapping(view).get("acceptance_tests")).get("files") or []
+    for path in named_files:
+        if str(path) not in files:
+            files.append(str(path))
+    if not files:
+        return ""
+    named = ", ".join(files[:6]) + (f" and {len(files) - 6} more" if len(files) > 6 else "")
+    return f"Changed {len(files)} file{'' if len(files) == 1 else 's'}: {named}. /diff shows what changed."
+
+
 def steps_text(view: dict | None, command: str) -> str:
     """The saved steps a bare ``/diff`` or ``/undo`` lists."""
     rows = steps(view)
@@ -440,6 +503,38 @@ def log_entries(view: dict | None) -> list[dict]:
     ]
 
 
+_THOUGHT = re.compile(r"thinking ~(\d+) tokens")
+_WRITING = re.compile(r"writing (\S+) input: (\d+) chars")
+# The tool a stage answers through is its report, not something a person needs named.
+_ANSWER_TOOLS = {"StructuredOutput": "its answer"}
+
+
+def _amount(count: int, unit: str) -> str:
+    return (f"{count / 1000:.1f}k" if count >= 1000 else str(count)) + f" {unit}"
+
+
+def live_text(text: str) -> str:
+    """An entry's text as the live log shows it. A provider's running progress notes ("thinking ~150
+    tokens; thinking ~300 tokens; writing StructuredOutput input: 900 chars; …") say one growing thing
+    over and over: they read as their newest value of each, in the order first seen. Any other text,
+    the model's own words, is shown as it is."""
+    parts = [part.strip() for part in text.split(";")]
+    if not any(_THOUGHT.fullmatch(part) or _WRITING.fullmatch(part) for part in parts):
+        return text
+    shown: dict[str, str] = {}
+    for number, part in enumerate(parts):
+        if not part:
+            continue
+        if thought := _THOUGHT.fullmatch(part):
+            shown["thinking"] = "thought ~" + _amount(int(thought.group(1)), "tokens")
+        elif writing := _WRITING.fullmatch(part):
+            tool = _ANSWER_TOOLS.get(writing.group(1), writing.group(1))
+            shown[f"writing {tool}"] = f"writing {tool} · " + _amount(int(writing.group(2)), "chars")
+        elif not (number == 0 and part.startswith("…")):  # the cut-off head of an older note
+            shown[f"text {number}"] = part
+    return " · ".join(shown.values())
+
+
 @dataclass
 class LiveLog:
     """What each agent has thought, said and done, kept across views: the view holds only the newest
@@ -477,7 +572,10 @@ class LiveLog:
 
     def text(self, limit: int = 60) -> str:
         """The newest entries as plain lines, for where the pane does not fit."""
-        lines = [f"{entry['agent']} {LIVE_MARKS[entry['kind']]} {entry['text']}" for entry in self.shown()[-limit:]]
+        lines = [
+            f"{entry['agent']} {LIVE_MARKS[entry['kind']]} {live_text(entry['text'])}"
+            for entry in self.shown()[-limit:]
+        ]
         return "\n".join(lines) or "No agent is working right now."
 
 

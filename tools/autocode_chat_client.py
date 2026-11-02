@@ -59,6 +59,7 @@ try:
     from . import autocode_chat_context as contexts
     from . import autocode_chat_coordination as coordination
     from . import autocode_chat_inventory as inventory
+    from . import autocode_chat_meter as meter
     from . import autocode_chat_panel as panel
     from . import autocode_chat_polling as polling
     from . import autocode_chat_setup as setup
@@ -74,6 +75,7 @@ except ImportError:
     import autocode_chat_context as contexts
     import autocode_chat_coordination as coordination
     import autocode_chat_inventory as inventory
+    import autocode_chat_meter as meter
     import autocode_chat_panel as panel
     import autocode_chat_polling as polling
     import autocode_chat_setup as setup
@@ -382,6 +384,11 @@ class ChatClient:
         self.viewed: set[str] = set()  # runs that have answered --status, so a refusal before one is told apart
         self.said: set[str] = set()  # message texts already shown, so a question is not printed twice
         self._local_echoes: set[tuple[str, str]] = set()  # direct prompts awaiting their next public-message echo
+        # What this chat put to the person before the conversation recorded it: each question (a Requirements
+        # question, the understanding to approve) and each plan (by its token) it asked them to approve. Their
+        # records arrive once the person has answered: a question is not said again, a plan only by its heading.
+        self._asked: set[str] = set()
+        self._shown_plans: set[str] = set()
         self._replied_context: str | None = None  # the chat context the last sent reply answered
         self.started = False  # the first view prints the whole conversation, later ones only what is new
         self.last_line: tuple = ()
@@ -407,6 +414,8 @@ class ChatClient:
         self._status_error = ""
         self._prompt_waiting_key: tuple[str, str] | None = None
         self._read_errors: dict[str, str] = {}
+        self._summarized: set[str] = set()  # runs whose closing summary this chat already said
+        self._totals: dict[str, dict | None] = {}  # each tab's run total from its newest view, for the session line
         self._pause_pending = False
         self._attached = False
         self._execution_offer = execution or {}
@@ -498,6 +507,7 @@ class ChatClient:
                     self._attention.observe(view, received=time.monotonic())
                     self.other_status(key[1], Path(key[0]), view)
             self.show_tabs()
+        self._attention.shown = None if self._composing_new else current
         if self.attention_changed is not None:
             self.attention_changed(self._attention.summary())
         for row in self._attention.notifications():
@@ -525,6 +535,7 @@ class ChatClient:
         self.own(view)
         self.identity = wait_identity(view)
         self.titles[str(self.run_dir)] = title_of(view) or self.titles.get(str(self.run_dir), "")
+        self._totals[str(self.run_dir)] = meter.run_total(view)
         self.show_tabs()
         if self._observe is not None:
             self._observe(view)
@@ -908,8 +919,17 @@ class ChatClient:
             if echo in self._local_echoes:
                 self._local_echoes.remove(echo)
                 continue  # the direct prompt was just shown; distinct public messages still own their IDs
+            if row.get("role") != "user" and str(ident or "").endswith("-question") and text in self._asked:
+                self._asked.discard(text)
+                continue  # the question the person just answered, recorded now that they answered it
+            if row.get("role") != "user" and str(ident or "").removeprefix("plan-") in self._shown_plans:
+                self._shown_plans.discard(str(ident).removeprefix("plan-"))
+                self.say(f"\nAutoCode: {text.splitlines()[0]}. /plan shows it.")
+                continue  # the plan was shown in full when it was approved; its record is its heading
             who = "You" if row.get("role") == "user" else "AutoCode"
             self.say(f"\n{who}: {text}")
+            if str(ident or "").startswith("requirements-question"):
+                self._asked.add(text)
         # A prompt without an immediate public counterpart must not hide a later turn's message.
         # While its counterpart is still being written, the echo waits for the finished message.
         if streaming_text is None:
@@ -1023,7 +1043,16 @@ class ChatClient:
             if run in self._read_errors:
                 state = "unavailable"
             title = self.titles.get(run) or Path(run).name
-            rows.append({"number": len(rows) + 1, "run": run, "title": title, "state": state, "current": current})
+            rows.append(
+                {
+                    "number": len(rows) + 1,
+                    "run": run,
+                    "title": title,
+                    "state": state,
+                    "current": current,
+                    "total": self._totals.get(run),
+                }
+            )
         return rows
 
     def show_tabs(self) -> None:
@@ -1108,6 +1137,7 @@ class ChatClient:
         now = wait_identity(view)
         self.others[run] = (workspace, now)
         self.titles[run] = title_of(view) or self.titles.get(run, "")
+        self._totals[run] = meter.run_total(view)
         if now is None or now == before:
             return
         if ((view.get("attention") or {}).get("item") or {}).get("id"):
@@ -1296,6 +1326,7 @@ class ChatClient:
         if not token or plan is None:
             raise actions.ClientGap("The complete plan is unavailable, so it cannot be approved here.")
         self.say("\n" + render_plan(plan))
+        self._shown_plans.add(token)
         if hint := changeset.approval_hint(view):
             self.say(hint)
         context = (view.get("chat") or {}).get("context") or ""
@@ -1340,11 +1371,13 @@ class ChatClient:
             # Ask the question this prompt waits on, even if the transcript has not shown it yet.
             self.said.add(question)
             self._local_echoes.add(("assistant", question))
+            self._asked.add(question)
             self.say(f"\nAutoCode: {question}")
         summary = ((review or {}).get("summary") or "").strip()
         if summary and summary not in self.said:
             self.said.add(summary)
             self._local_echoes.add(("assistant", summary))
+            self._asked.add(summary)
             self.say(f"\nAutoCode: {summary}")
         prompt = "\nYou: " if not review else f"\n{review['label']}? [y/N], or type what to change: "
         reply = self.ask(prompt)
@@ -1572,6 +1605,10 @@ class ChatClient:
         if offer.get("kind") != "follow_up":
             return False
         context = (view.get("chat") or {}).get("context") or ""
+        if view.get("done") and str(self.run_dir) not in self._summarized:
+            self._summarized.add(str(self.run_dir))
+            if closing := panel.finished_text(view):
+                self.say(closing)
         try:
             reply = self.ask("\nAnything else? Any text starts a new task in this chat; press Enter to finish: ")
         except Left:

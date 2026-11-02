@@ -744,7 +744,9 @@ Parallel Builders each appear under their own name. It comes from the view's
 last 500 entries; the composer stays below it, so you can keep typing commands.
 It shows on its own in a terminal at least 24 rows tall once an agent is working.
 Reasoning is shown on one line with its newest words, and tool output is never
-shown. Like the activity rows it is display only: a thought is not a report and
+shown. A provider's running progress notes (`thinking ~450 tokens; thinking ~600
+tokens; writing StructuredOutput input: 6774 chars`) read as their newest value
+of each: `thought ~600 tokens · writing its answer · 6.8k chars`. Like the activity rows it is display only: a thought is not a report and
 a command shown is not a passed check.
 
 Type `/` in the composer for commands, at a question or while AutoCode works. The
@@ -773,6 +775,38 @@ highlighted one:
 | `/pause` | While AutoCode works: ask it to pause after the current step, as the first `Ctrl-C` does |
 | `/help` | List the commands |
 | `/quit` | At a question: leave the chat; the run stays as it is |
+
+A new chat opens on a welcome with a few example requests, and its status row reads
+"New chat" until something is sent; a run that has just started reads "Starting the
+run…" while its first status reads land. When a run finishes, the chat names the
+files its saved steps and its acceptance tests changed and points to `/diff`. The F8 badge counts alerts from
+other chats; the question on screen is not counted again.
+
+What the chat put to you is said once: a question or the understanding you
+approved is not repeated when the run records your answer, and once you approve
+a plan its record reads only as its heading (`Approved plan · revision 2. /plan
+shows it.`). A message's fenced code blocks are drawn as code under a rule naming
+their language, `code` and **bold** spans are drawn without their marks (what you
+typed is shown as typed), and `/diff N` colors its patch: file headers, hunks,
+added and removed lines.
+
+The side panel's Stages section lists the newest four stages the run has launched,
+each with its state (`✓` done, `●` working, `↻` on a later attempt, `✗` failed), its
+time, its accounted cost, which attempt it is on (a report repair counts as the repaired stage's next attempt;
+a stage that ran again after succeeding, such as a second review round, says how many times it ran), and on a second row the model and
+reasoning level it ran on and the tokens it used (`+` when some usage is unreported).
+Its title carries the run's accounted total, which the header shows too; with more
+than one chat open the header adds a session total over the open chats, leaving out
+what a run restored from a saved step carried over. A stage on its second attempt or
+later after one that did not succeed takes the status row, with that attempt's reason. In a
+total, `+` marks the figure that is a floor: `$0.42+` when some cost is unaccounted,
+`184k+ tokens` when some usage is unreported.
+These come from the view's `usage.accounting.attempts` and `cost`. The Stages title
+also names the run's spending cap (`$1.73 of $5.00 · 843k tokens`), so the Usage
+section is shown only for a run with no stage records yet. The Verification section
+appears once the run has finished or recorded a review, since before then the
+delivery is always unverified; `/details` keeps the evidence either way. A
+requirement or task too long for the panel wraps to a second row.
 
 The side panel's Usage section shows the accounted subtotal, missing prices or usage,
 active/pending attempts and any configured accounting cap. `/details` separates

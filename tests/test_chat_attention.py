@@ -51,6 +51,15 @@ class InboxTests(unittest.TestCase):
         client.poll()
         self.assertIn("New attention:", said.call_args.args[0])
 
+    def test_the_summary_counts_the_shown_chats_own_alert_apart(self):
+        inbox = attention.Inbox()
+        self.assertTrue(inbox.summary()["loading"], "before the first listing nothing is wrong yet")
+        listing(inbox, row(), row(run_dir=str(RUN.with_name("another"))))
+        self.assertFalse(inbox.summary()["loading"])
+        self.assertEqual((2, 0), (inbox.summary()["unread"], inbox.summary()["shown_unread"]))
+        inbox.shown = (str(WORKSPACE), str(RUN))
+        self.assertEqual((2, 1), (inbox.summary()["unread"], inbox.summary()["shown_unread"]))
+
     def test_restart_restores_unread_silently_then_a_new_decision_notifies_once(self):
         inbox = attention.Inbox()
         listing(inbox, row())
