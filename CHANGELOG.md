@@ -346,6 +346,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Claude Code stages use the 5-minute prompt cache (`FORCE_PROMPT_CACHING_5M=1`) instead of the
+  1-hour default, whose cache writes cost 2x the input price against 1.25x. Each stage is a fresh
+  session that finishes in minutes; on two measured runs this cuts 26% and 29% of model cost. The
+  launch policy changes, so a saved Claude run pauses once with `PAUSED_TRANSPORT_CHANGED`.
 - Smaller stage prompts on every backend: the Builder no longer gets the Plan Reviewer's milestone
   assignment, advancement and replan rules, and the Validator and Completion Reviewer handoffs
   reference a changed line's repeated reason text and the duplicated changed-code receipts by

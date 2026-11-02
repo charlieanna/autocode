@@ -121,7 +121,10 @@ REMOVED_ENV = (
     "CLAUDE_AUTO_BACKGROUND_TASKS",
     "CLAUDE_CODE_ENTRYPOINT",
 )
-SET_ENV = {"DISABLE_AUTOUPDATER": "1"}
+# FORCE_PROMPT_CACHING_5M: every stage is a fresh session that finishes within minutes, so Claude Code's
+# default 1-hour cache writes (2x input price) were almost never read again after five minutes; a 5-minute
+# write costs 1.25x. Measured on two saved runs: cache writes were 69% of cost, and this saves 26-29%.
+SET_ENV = {"DISABLE_AUTOUPDATER": "1", "FORCE_PROMPT_CACHING_5M": "1"}
 BILLING_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 # The CLAUDE_CODE_USE_* names that route requests to another provider or account (Claude Code 2.1.299);
 # the rest of that prefix (CCR_V2, NATIVE_FILE_SEARCH, POWERSHELL_TOOL, COWORK_PLUGINS) are features.
