@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Live chat log: an unfinished multiword streamed thought or message is now labelled
+  `[partial]` — bounded and redacted like final prose — instead of being shown as if it
+  were the agent's final text; the completion snapshot still replaces it, and a fragment
+  retained past its turn keeps the label.
 - Coordination message inbox: a queued conversation answer survives clarification
   settings changes — re-answering a question keeps the saved conversation instead of
   dropping the queued message and forcing replanning.
