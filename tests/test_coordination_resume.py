@@ -72,6 +72,13 @@ class CoordinationResumeTests(unittest.TestCase):
         self.enterContext(patch.object(coordinate.repos, "source_snapshot", return_value={"snapshot": "same"}))
         self.fingerprint = self.enterContext(patch.object(coordinate.repos, "fingerprint", return_value="source-one"))
         self.enterContext(patch.object(coordinate, "resolve_request", return_value=None))
+        self.enterContext(
+            patch.object(
+                coordinate,
+                "anchor_view",
+                return_value={"workspace": str(self.anchor.parents[2]), "run_dir": str(self.anchor)},
+            )
+        )
         self.worker = Mock()
         self.enterContext(patch.object(coordinate, "handle", return_value=self.worker))
 
