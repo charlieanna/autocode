@@ -68,10 +68,13 @@ def prose_event(row: dict) -> tuple[str, dict] | None:
     if kind is None or not isinstance(identifier, (str, int)) or not isinstance(text, str):
         return None
     shown = _prose(text)
-    if shown and row.get("type") in ("item.started", "item.updated") and len(text.split()) == 1:
-        # A first streamed token can be only the beginning of a word. Keep its stable
-        # item identity so a later snapshot replaces this honest activity notice.
-        shown = "Partial thought received." if kind == "thinking" else "Partial message received."
+    if shown and row.get("type") in ("item.started", "item.updated"):
+        # Only the item's completion establishes a whole message. A turn may end
+        # without a final snapshot; its retained fragment must still say partial.
+        if len(text.split()) == 1:
+            shown = "Partial thought received." if kind == "thinking" else "Partial message received."
+        else:
+            shown = _prose(text + " [partial]")
     return (f"{kind}:{identifier}", {"kind": kind, "text": shown}) if shown else None
 
 

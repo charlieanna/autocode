@@ -20,6 +20,20 @@ PR template asks for an entry here; a change without one is incomplete.
   provider-config key. A saved run paused at `PAUSED_BUILDER_RETRY_LIMIT` keeps its diagnosis and its
   `--retry-builder` operator flag; on a run that ended, `--resume-paused --retry-builder` is refused
   with the saved reason.
+- Coordination: a status response reuses identical public reads within that one
+  response — a coordinator `coordinate status` (and each TaskRun status or
+  intervention read it performs) spawns one CLI read instead of repeating the same
+  read for view, intervention and evidence layers; results are deep-copy isolated
+  so no caller sees another's mutations.
+- Live chat log: an unfinished multiword streamed thought or message is now labelled
+  `[partial]` — bounded and redacted like final prose — instead of being shown as if it
+  were the agent's final text; the completion snapshot still replaces it, and a fragment
+  retained past its turn keeps the label.
+- Terminal chat: during coordinated progress the anchor run's short status outages show in
+  the persistent header/tab indicators only — coordination's temporary callback handover no
+  longer makes the client think the full-screen view has no read indicator, so the transcript
+  no longer accumulates "Status unavailable…" and "Status available again…" lines. Line
+  clients without an updating indicator still get both messages.
 - Coordination message inbox: a queued conversation answer survives clarification
   settings changes — re-answering a question keeps the saved conversation instead of
   dropping the queued message and forcing replanning.

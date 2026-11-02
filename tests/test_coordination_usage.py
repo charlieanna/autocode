@@ -74,6 +74,7 @@ class StatusAccountingTests(unittest.TestCase):
         member = ledger("/member", 2, 200)
         old_joint = ledger("/old-joint", 3, 300)
         document = {
+            "id": "accounting-fixture",
             "anchor": "/source",
             "revision": 1,
             "phase": "planning",

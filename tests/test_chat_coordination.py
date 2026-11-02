@@ -1,6 +1,7 @@
 """A coordinated member owns the foreground while anchor polling continues."""
 
 import copy
+import json
 import os
 import sys
 import tempfile
@@ -45,6 +46,8 @@ elif args[:2] == ['coordinate', 'advance']:
         stream.read()
 elif '--status' in args:
     run = args[args.index('--run-dir') + 1]
+    if run == anchor and (root / 'fail-anchor-status').exists():
+        raise SystemExit(1)
     view = {**ledger(run, 0 if run == member else 1, 0 if run == member else 100, run != member), 'workspace': str(root), 'run_dir': run, 'status': 'RUNNING' if run == member else 'WAITING_FOR_USER',
             'needs': {'kind': 'continue'}, 'chat': {'log': []}}
     if run == member:
@@ -64,13 +67,18 @@ from autocode_chat_client import ChatClient
 from autocode_chat_tui import ChatTUI
 import autocode_chat_coordination as coordination
 root = Path({str(root)!r})
+said = []
 with ChatTUI() as ui:
+    def say(text):
+        said.append(text)
+        ui.say(text)
     meter_options = dict(observe_coordination=ui.observe_coordination) if hasattr(ui, "observe_coordination") else dict()
     client = ChatClient(root, root / 'anchor', command=(sys.executable, {str(backend)!r}, str(root)),
-                        observe=ui.observe, **meter_options, unavailable=ui.status_unavailable, say=ui.say,
+                        observe=ui.observe, **meter_options, unavailable=ui.status_unavailable, say=say,
                         ask=ui.ask, wait=ui.wait, poll_seconds=0.1)
     ui.bind(client.slash, run=True)
     ui.idle = client.poll
+    client.tabs_changed = ui.tabs
     try:
         coordination.step(client, client.status(), lambda value: str(value))
         client.show(client.status())
@@ -78,6 +86,7 @@ with ChatTUI() as ui:
         ui.ask('Close this test viewer?')
     finally:
         client.close()
+        (root / 'transcript').write_text('\\n'.join(said))
 """
             screen = TerminalScreen(
                 [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
@@ -98,6 +107,18 @@ with ChatTUI() as ui:
             screen.keys("Enter")
             screen.wait_for("List these commands", what="responsive help during the coordinated action")
             self.assertEqual("anchor\n", (root / "advances").read_text())
+            outage = root / "fail-anchor-status"
+            outage.touch()
+            screen.wait_for(
+                lambda text: "unavailable" in text and "Inspecting the actual request path" in text,
+                what="anchor outage remains visible without hiding the active member",
+            )
+            outage.unlink()
+            screen.wait_for(
+                lambda text: "unavailable" not in text and "Inspecting the actual request path" in text,
+                timeout=10,
+                what="recovered anchor indicator without a stale outage in the transcript",
+            )
             with gate.open("w") as release:
                 release.write("done")
             screen.wait_for(
@@ -106,6 +127,8 @@ with ChatTUI() as ui:
             )
             screen.keys("Enter")
             self.assertEqual(0, screen.exit_status())
+            self.assertNotIn("Status unavailable (anchor):", (root / "transcript").read_text())
+            self.assertNotIn("Status available again (anchor).", (root / "transcript").read_text())
 
 
 class UncappedRecoveryScreenTests(unittest.TestCase):
@@ -154,6 +177,57 @@ assert calls == [((['coordinate', 'resume', '--run-dir', str(run), '--token', '-
 
 
 class CoordinatedDisplayTests(unittest.TestCase):
+    def test_anchor_outage_uses_the_existing_status_indicator_during_member_display(self):
+        for fullscreen in (True, False):
+            with self.subTest(fullscreen=fullscreen):
+                workspace = Path("/tmp/coordinated-status-indicator").resolve()
+                anchor = {
+                    "workspace": str(workspace),
+                    "run_dir": str(workspace / "anchor"),
+                    "status": "RUNNING",
+                    "needs": {"kind": "continue"},
+                }
+                observed, said, tabs = [], [], []
+                parent = chat.ChatClient(
+                    workspace,
+                    Path(anchor["run_dir"]),
+                    say=said.append,
+                    observe=observed.append if fullscreen else None,
+                    unavailable=Mock() if fullscreen else None,
+                )
+                self.addCleanup(parent.close)
+                parent.tabs_changed = tabs.append
+                parent.accept_status(anchor)
+                observed.clear()
+                key = (str(workspace), anchor["run_dir"])
+                summary = {
+                    "needs": {"target": "api"},
+                    "members": [{"target": "api", "workspace": str(workspace), "run_dir": str(workspace / "member")}],
+                }
+
+                def advance(argv):
+                    with patch.object(parent._poller, "tick") as tick:
+                        tick.return_value = [(key, "", "status read timed out after 5s")]
+                        parent.poll()
+                        self.assertEqual("unavailable", tabs[-1][0]["state"])
+                        tick.return_value = [(key, json.dumps({"view": anchor}), "")]
+                        parent.poll()
+                        self.assertNotEqual("unavailable", tabs[-1][0]["state"])
+
+                with patch.object(parent, "advance", side_effect=advance):
+                    coordination.advance_with_progress(parent, summary, ["named-action"])
+                if fullscreen:
+                    self.assertEqual(
+                        [], said, "temporary callback detachment must not create a permanent outage transcript"
+                    )
+                    self.assertEqual([], observed, "anchor reads must not replace the foreground member")
+                    parent.accept_status(anchor)
+                    self.assertEqual([anchor], observed, "the foreground observer is restored after the action")
+                else:
+                    self.assertEqual(2, len(said), "the line client still needs outage and recovery messages")
+                    self.assertIn("Status unavailable", said[0])
+                    self.assertIn("Status available again", said[1])
+
     def test_automatic_member_and_joint_actions_show_live_status_without_transferring_control(self):
         for target in ("api", "Joint regression"):
             for fail in (False, True):

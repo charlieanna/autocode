@@ -28,6 +28,8 @@ from autocode_chat_log import prose_event
 from autocode_chat_tui import ChatTUI
 events = [
     ('item.updated', 'reasoning', 'Conf'),
+    ('item.updated', 'reasoning', 'Found an'),
+    ('item.updated', 'agent_message', 'Checking that'),
     ('item.completed', 'agent_message', 'I’m checking; I’ll report back.'),
     ('item.completed', 'agent_message', 'older context ' * 50 + 'Which codes should history show?'),
 ]
@@ -49,6 +51,8 @@ with ChatTUI() as ui:
                 text in " ".join(shown.split())
                 for text in (
                     "[thinking] Partial thought received.",
+                    "[thinking] Found an [partial]",
+                    "[message] Checking that [partial]",
                     "[message] I'm checking; I'll report back.",
                     "[earlier text omitted]",
                     "Which codes should history show?",
