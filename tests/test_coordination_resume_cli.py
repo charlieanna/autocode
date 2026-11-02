@@ -41,11 +41,38 @@ class CancelledRetryCliTests(unittest.TestCase):
             "workspace": str(peer),
             "run_dir": str(child),
             "status": "PAUSED_STAGE_ABANDONED",
-            "needs": {"kind": "retry_job", "attempt_id": "001/tester-01", "job_retry_token": "exact-retry"},
+            "needs": {
+                "kind": "retry_job",
+                "attempt_id": "001/tester-01",
+                "job_retry_token": "exact-retry",
+                "stage": "write_acceptance_tests",
+                "archive": str(child / "iterations/001/archived-tester"),
+                "write_diagnosis": {"original_identity_verified": True},
+            },
             "recovery": {"cause": "PAUSED_STAGE_ABANDONED"},
-            "liveness": {role: {"alive": False} for role in ("owner", "keeper", "provider")},
+            "liveness": {
+                "kind": "unknown",
+                "reason": "metadata_missing",
+                **{role: {"checked": False, "alive": None} for role in ("owner", "keeper", "provider")},
+            },
             "cost": {"spent_usd": 4, "complete": False, "unpriced_stages": 1},
-            "usage": {"accounting": {"attempts": [{"identity": "archived", "active": False, "interrupted": True}]}},
+            "usage": {
+                "accounting": {
+                    "attempts": [
+                        {
+                            "identity": "archived",
+                            "active": False,
+                            "interrupted": True,
+                            "attempt_id": "001/tester-01",
+                            "stage": "write_acceptance_tests",
+                            "run_id": str(child),
+                            "events": str(child / "iterations/001/archived-tester/tester.jsonl"),
+                            "finished_at": "2026-11-02T19:16:16Z",
+                            "rejected": True,
+                        }
+                    ]
+                }
+            },
         }
         observations = root / "observations.json"
         observations.write_text(json.dumps({str(anchor): source, str(child): held}))

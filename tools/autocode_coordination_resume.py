@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 try:
     from . import autocode_client_actions as actions
@@ -25,15 +26,44 @@ except ImportError:
 def reconciled_retry(view):
     """A verified archived attempt keeps its child retry gate after coordinator recovery."""
     need = view.get("needs") or {}
-    return bool(
+    if not (
         view.get("status") == "PAUSED_STAGE_ABANDONED"
         and (view.get("recovery") or {}).get("cause") == "PAUSED_STAGE_ABANDONED"
         and need.get("kind") == "retry_job"
         and need.get("attempt_id")
         and need.get("job_retry_token")
+    ):
+        return False
+    live = view.get("liveness") or {}
+    roles = ("owner", "keeper", "provider")
+    if all(live.get(role, {}).get("alive") is False for role in roles):
+        return True
+    # Abandonment verifies stopped supervision before archiving. The active
+    # metadata is then removed; bind that terminal evidence to the exact retry
+    # gate instead of mistaking its absence for an unreconciled live attempt.
+    if not (
+        live.get("kind") == "unknown"
+        and live.get("reason") == "metadata_missing"
         and all(
-            (view.get("liveness") or {}).get(role, {}).get("alive") is False for role in ("owner", "keeper", "provider")
+            live.get(role, {}).get("alive") is None and live.get(role, {}).get("checked") is False for role in roles
         )
+        and need.get("archive")
+        and (need.get("write_diagnosis") or {}).get("original_identity_verified") is True
+    ):
+        return False
+    matches = [
+        row
+        for row in (view.get("usage") or {}).get("accounting", {}).get("attempts", [])
+        if row.get("attempt_id") == need["attempt_id"]
+    ]
+    return bool(
+        len(matches) == 1
+        and matches[0].get("run_id") == view.get("run_dir")
+        and matches[0].get("stage") == need.get("stage")
+        and matches[0].get("active") is False
+        and matches[0].get("rejected") is True
+        and matches[0].get("finished_at")
+        and Path(matches[0].get("events") or "").parent == Path(need["archive"])
     )
 
 

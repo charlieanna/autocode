@@ -161,7 +161,11 @@ zero cap so they cannot silently inherit an old spending limit. Other limits,
 routes, approvals and verification gates remain unchanged. A child pause still
 requires its own public recovery. An archived attempt with a current retry token
 and positively dead owner, keeper and provider may recover coordination while
-retaining that child retry gate. Incomplete pricing refuses a finite cap; an
+retaining that child retry gate. If successful abandonment removed the active
+metadata, the exact finished, rejected attempt in the public accounting ledger
+must instead match the gate's run, stage, attempt and archive, with verified
+original-source restoration. Missing or mismatched archival evidence, malformed
+metadata and failed process inspection still refuse. Incomplete pricing refuses a finite cap; an
 already uncapped coordination may preserve its explicit zero cap and unknown
 costs, without inventing prices or authorizing a retry. Active or uncertain work,
 changed source/catalog/checkpoint and duplicate requests refuse. Cancellation
