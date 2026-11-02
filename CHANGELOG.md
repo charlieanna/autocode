@@ -203,6 +203,20 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The VS Code chat shows each stage the run has launched (newest four, with the rest a click away): how it
+  went, its time, cost and attempt number, then its model, reasoning level and tokens. A stage on its second
+  attempt or later puts a warning in the working card with why the last attempt failed. The toolbar shows the
+  run's cost against its cap and tokens, plus a total across open chats. A finished run closes with its
+  result, requirements checked, changed files, stage time and cost, and a button to its saved changes. A new
+  chat welcomes you with what AutoCode does and three example requests that fill the message box. Tabs mark a
+  run waiting for you or finished, and the status bar names the working stage and the run's cost. Every figure
+  comes from the status view, read the same way as the terminal chat's stage panel.
+
+### Fixed
+
+- The VS Code composer no longer tells you to "use the action above" under a finished run that offers no
+  action; it says the run is finished.
+
 - The VS Code extension's **AutoCode: Stage Models** panel (also under **Stage models…** in the chat's engine
   picker) shows each stage with what it does and advice on the model and level that suit it, and one model
   dropdown and one level dropdown per stage; a model the stage may not run beside the others is greyed out

@@ -3380,7 +3380,8 @@ test('a busy tab shows its mark in the strip (#1558)', async (t) => {
   assert.ok(ui.document.querySelector('.chat-tab.active .dot'), 'the working tab carries a busy mark');
   release();
   await flush();
-  assert.equal(ui.document.querySelector('.chat-tab .dot'), null, 'the mark clears when the action settles');
+  // The busy mark only: a run left waiting on Continue earns the separate waiting mark.
+  assert.equal(ui.document.querySelector('.chat-tab .dot:not(.needs):not(.finished)'), null, 'the mark clears when the action settles');
 });
 
 test('a second run starts beside an open run and both tabs remain (#1558)', async (t) => {
@@ -3800,4 +3801,129 @@ test('Run details shows the change set and approves only the set token it showed
   action().click(); await flush();
   assert.equal(launch.mock.callCount(), 1);
   assert.deepEqual(launch.mock.calls[0].arguments[1], ['changeset', 'approve', '--run-dir', run.runDir, '--set-token', 'set-2']);
+});
+
+// Stage meter, cost header, closing card, welcome and tab marks: the terminal chat's #2610 features.
+function meteredView(extra = {}) {
+  const tried = (stage, job, more = {}) => ({
+    stage, job, launch_route: { model: 'claude-sonnet-5-5', reasoning_effort: 'medium' }, duration_seconds: 30, exit_code: 0,
+    attributed_tokens: { input_tokens: { value: 1000, complete: true }, output_tokens: { value: 200, complete: true } }, ...more,
+  });
+  return {
+    ...workingView(),
+    chat: { context: 'meter', messages: [{ id: 'initial', role: 'user', text: 'Add a greeting CLI' }], input: null, progress: ['Tester is checking the change'] },
+    usage: { accounting: {
+      attempts: [
+        tried('requirements_gather', 'Requirements'), tried('astra_discovery', 'Planner'), tried('astra_challenge', 'Plan Reviewer'),
+        tried('terra', 'Builder', { launch_route: { model: 'claude-haiku-4-5', reasoning_effort: 'medium' } }),
+        tried('sol', 'Tester', { rejected: true }), tried('sol', 'Tester', { active: true, duration_seconds: 12 }),
+      ],
+      tokens: { input_tokens: { value: 610000, complete: true }, output_tokens: { value: 41000, complete: true } },
+    } },
+    cost: { spent_usd: 1.21, cap_usd: 5, complete: true, breakdown: { by_stage: [{ stage: 'terra', spent_usd: 0.31 }, { stage: 'sol', spent_usd: 0.2 }] } },
+    ...extra,
+  };
+}
+
+test('the chat lists the newest stages with time, cost, model and tokens, and expands to all (#2610 parity)', async (t) => {
+  const ui = await openChat(t, meteredView());
+  const section = ui.document.getElementById('stages');
+  assert.equal(section.hidden, false);
+  const rows = [...ui.document.querySelectorAll('#stage-rows .stage')];
+  assert.deepEqual(rows.map((row) => row.dataset.stage), ['astra_discovery', 'astra_challenge', 'terra', 'sol'], 'the newest four');
+  const builder = rows[2];
+  assert.equal(builder.querySelector('.mark').textContent, '✓');
+  assert.equal(builder.querySelector('.head').textContent, 'Builder · 30s · $0.31');
+  assert.equal(builder.querySelector('.detail').textContent, 'claude-haiku-4-5 medium · 1.2k tokens');
+  const tester = rows[3];
+  assert.ok(tester.classList.contains('retrying'));
+  assert.equal(tester.querySelector('.mark').textContent, '↻');
+  assert.equal(tester.querySelector('.head').textContent, 'Tester · 42s · $0.20 · attempt 2');
+  assert.match(tester.querySelector('.detail').textContent, /answer rejected/);
+  const more = ui.document.getElementById('stages-more');
+  assert.equal(more.textContent, '1 earlier');
+  more.click();
+  assert.equal(ui.document.querySelectorAll('#stage-rows .stage').length, 5);
+  assert.equal(more.textContent, 'Show fewer');
+});
+
+test('a stage on a later attempt shows a struggling warning in the working card', async (t) => {
+  const ui = await openChat(t, meteredView());
+  const warn = ui.document.getElementById('struggling');
+  assert.ok(warn, 'the working card carries the warning');
+  assert.equal(warn.textContent, '⚠ Tester · attempt 2 · 42s · last one answer rejected');
+  const calm = meteredView();
+  calm.usage.accounting.attempts = calm.usage.accounting.attempts.filter((row) => !row.rejected);
+  await ui.poll(calm);
+  assert.equal(ui.document.getElementById('struggling'), null, 'a first attempt is not struggling');
+});
+
+test('the toolbar shows the run cost against its cap, and a total once two chats hold runs', async (t) => {
+  const views = new Map([[alpha.runDir, meteredView()], [beta.runDir, meteredView({ cost: { spent_usd: 0.5, complete: true } })]]);
+  const ui = await openChat(t, meteredView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  const cost = ui.document.getElementById('run-cost');
+  assert.equal(cost.textContent, '$1.21 of $5.00 · 651k tokens');
+  ui.chat.show(beta);
+  await flush();
+  await ui.poll();
+  assert.equal(cost.textContent, '$0.50 · 651k tokens · all chats $1.71 · 1.3M tokens');
+});
+
+test('a finished run closes with its result, requirements, changed files, cost and a way to the changes', async (t) => {
+  const done = meteredView({
+    status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' }, liveness: null,
+    progress: { headline: 'Complete; current delivery verified', requirements: { checked: 8, failed: 0, unchecked: 0, awaiting_review: 0 } },
+    code_checkpoints: { rows: [{ id: 'c1', label: 'Builder step 1', changed_files: ['greet.py', 'README.md'], available: true, actions: [] }] },
+    acceptance_tests: { files: ['test_greet.py'] },
+  });
+  done.usage.accounting.attempts = done.usage.accounting.attempts.map((row) => ({ ...row, active: false }));
+  const ui = await openChat(t, done);
+  const card = ui.document.getElementById('finish-summary');
+  assert.ok(card, 'the closing card is drawn');
+  assert.match(card.textContent, /✓ Complete; current delivery verified/);
+  assert.match(card.textContent, /8 of 8 checked/);
+  assert.match(card.textContent, /3 files: greet\.py, README\.md, test_greet\.py/);
+  assert.match(card.textContent, /\$1\.21 of \$5\.00/);
+  assert.ok(ui.document.getElementById('finish-show-changes'), 'saved changes exist, so it offers them');
+  assert.ok(ui.document.getElementById('saved-changes'));
+  ui.document.getElementById('finish-details').click();
+  assert.ok(ui.sent.some((message) => message.type === 'details'));
+  assert.equal(ui.document.getElementById('struggling'), null);
+});
+
+test('a finished run with no follow-up offer says so instead of pointing at an action that is not there', async (t) => {
+  const ui = await openChat(t, { status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' }, chat: { context: 'x', messages: [], input: null } });
+  assert.equal(ui.document.getElementById('send-hint').textContent, 'This run is finished. Start a new chat with +.');
+});
+
+test('a new chat welcomes with what AutoCode does, and an example only fills the message box', async (t) => {
+  const ui = await openChat(t, null, false);
+  const welcome = ui.document.getElementById('welcome');
+  assert.ok(welcome, 'a new chat shows the welcome');
+  assert.match(welcome.textContent, /Fix.*a bug/);
+  const examples = [...welcome.querySelectorAll('button.example')];
+  assert.equal(examples.length, 3);
+  const launched = t.mock.method(cli, 'stream', async () => ok);
+  examples[1].click();
+  assert.equal(ui.document.getElementById('message').value, 'Add a --json option to the export command');
+  assert.equal(ui.document.getElementById('send-message').disabled, false);
+  await flush();
+  assert.equal(launched.mock.callCount(), 0, 'choosing an example starts nothing');
+  assert.equal(ui.document.getElementById('stages').hidden, true);
+  assert.equal(ui.document.getElementById('run-cost').textContent, '');
+});
+
+test('a tab whose run waits for you, or has finished, carries its own mark', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  assert.equal(ui.document.querySelector('.chat-tab .dot.needs'), null, 'working runs wait for nobody');
+  views.set(alpha.runDir, approveView());
+  views.set(beta.runDir, { status: 'TASK_COMPLETE', done: true, needs: { kind: 'done' } });
+  await ui.poll();
+  const tabs = [...ui.document.querySelectorAll('.chat-tab')];
+  assert.equal(tabs[0].querySelector('.dot').className, 'dot needs');
+  assert.equal(tabs[0].querySelector('.dot').title, 'Waiting for you');
+  assert.equal(tabs[1].querySelector('.dot').className, 'dot finished');
 });
