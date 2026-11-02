@@ -124,6 +124,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Smaller stage prompts on every backend: the Builder no longer gets the Plan Reviewer's milestone
+  assignment, advancement and replan rules, and the Validator and Completion Reviewer handoffs
+  reference a changed line's repeated reason text and the duplicated changed-code receipts by
+  JSON pointer instead of copying them. Gap ids, hashes, decisions and evidence are unchanged.
 - Compact Investigator handoff (#2136): the Investigator prompt's "CURRENT HANDOFF
   DATA" JSON now renders with compact separators instead of `indent=2`, a
   formatting-only reduction (5,336 bytes on the audit's recorded handoff) that
