@@ -982,7 +982,15 @@ model/limits still invalidate the retry. An older attempt with no saved original
 identity exposes `recover_source` and an explanation instead of a retry action.
 Inspect its archive and current changes before starting a new run.
 
-For an authenticated hard stage timeout, an operator can preserve the selected
+A workflow job stopped by its hard stage deadline first settles that itself
+(#2605): AutoCode retries it on the same model with the stage deadline doubled,
+never past the run's remaining total time, at most twice for that job in a run, and
+under the run's money cap. Each extension is saved in the run's limits and recorded
+with its reason as a runner `automatic_job_stage_deadline_extended` event and a
+configuration change. No question is asked. Only when no extension is left, or the
+total time cap leaves no room, does the job pause as below.
+
+For an authenticated hard stage timeout that still paused, an operator can preserve the selected
 model and save a larger finite deadline with `--job-retry-token TOKEN
 --max-stage-seconds N`, without resume or retry flags. This changes only that
 deadline, leaves the job paused and issues a fresh retry token. It preserves total
