@@ -9,6 +9,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fewer avoidable retry loops: a changed line no added test can mark tested (no mutation
+  outcome) now goes to the Tester for a reason instead of sending the Builder back three
+  times; Go coverage maps nested modules to their own files; `capture --output .autocode/...`
+  from a project subfolder writes to the project's evidence directory; and `capture` prints a
+  short receipt hash on stderr, so a Tester that shortens its output with `| tail` or
+  `| grep` no longer has its report rejected. Findings: `docs/bugs/2026-11-02-retry-loops.md`.
+
 ### Added
 
 - Terminal chat: a Stages section in the side panel lists each stage's state, time,
