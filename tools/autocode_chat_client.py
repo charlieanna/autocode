@@ -652,7 +652,10 @@ class ChatClient:
             view = self.status()
             if view.get("coordination"):
                 words = coordination.named(view["coordination"].get("cancel_command"), self.run_dir, "cancel")
-                proc = self.cli(words)
+                # Cancellation collects public receipts from every member, like the
+                # coordination status read. A single status poll's deadline can kill
+                # this writer after acceptance but before it returns the receipts.
+                proc = self.cli(words, timeout=120)
                 self.say(
                     "Coordination cancelled at the next boundary; saved work is retained."
                     if proc.returncode == 0
