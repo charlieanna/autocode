@@ -572,7 +572,10 @@ class ChatClient:
         ):
             self.advance(argv, command.env)
             return
-        proc = self.cli(argv, env=command.env)
+        # A saved action can validate linked plans and repository evidence before
+        # returning its receipt. The five-second polling deadline is only for
+        # disposable reads; killing this writer there leaves acceptance uncertain.
+        proc = self.cli(argv, env=command.env, timeout=120)
         if proc.returncode != 0:
             raise Refused(f"AutoCode refused that: {tail(proc)}")
 
