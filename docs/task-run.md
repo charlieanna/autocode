@@ -592,6 +592,13 @@ and routes the original human text to affected authorized members and their
 dependents through ordinary feedback/review. It resumes only its own exclusively
 held pauses. Separate user stops, operational holds and uncertain receipts remain
 held. All Requirements usage counts against the same task and planning limits.
+Once every participant has settled, an independent queued participant hold does
+not prevent Requirements from assessing a task message. The hold is neither
+consumed nor resumed. A captured answer appears in `conversation.results` while
+its routing is still held; that display is not permission to apply a change.
+Questions can finish without changing participant authority. Changes wait for
+the independent hold to be reconciled before invalidation or feedback delivery.
+Unreadable intervention evidence and source conversation holds still refuse.
 
 `TaskRun.intervention_status()` reads the existing public status document's
 `view` and sibling `interventions` together, so coordinators can verify pause

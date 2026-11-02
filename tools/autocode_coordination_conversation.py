@@ -4,6 +4,8 @@ Questions preserve task authority. Explicit changes retain the original human
 text and use ordinary feedback/review; model-selected targets are advisory.
 """
 
+from copy import deepcopy
+
 try:
     from . import autocode_client_actions as actions
     from . import autocode_coordination_store as store
@@ -115,6 +117,29 @@ def reply(active, source):
     return answer
 
 
+def results(document, requests):
+    """Expose captured answers without claiming their held routing has finished."""
+    conversation = document.get("conversation") or {}
+    output = deepcopy(conversation.get("results", []))
+    active = conversation.get("active") or {}
+    message = next((row for row in requests if row["id"] == active.get("id")), None)
+    answer = active.get("reply")
+    if message and answer and not any(row["request_id"] == message["id"] for row in output):
+        output.append(
+            {
+                "request_id": message["id"],
+                "text": message["text"],
+                "reply": deepcopy(answer),
+                "context": deepcopy(active["context"]),
+                "affected_targets": affected(document, answer["conversation"]["affected_targets"])
+                if answer["conversation"]["intent"] == "change"
+                else [],
+                "answered_at": active.get("answered_at") or active.get("started_at"),
+            }
+        )
+    return output
+
+
 def step(document, requests, views, source):
     """Choose one saved conversation action; this function mutates no authority."""
     if not requests:
@@ -140,17 +165,25 @@ def step(document, requests, views, source):
             if current and not (active or {}).get("reply") and pause.get("next_command") and not pause.get("requested"):
                 return {"kind": "conversation", "operation": "pause", "target": target, "request_id": current["id"]}
             return {"kind": "watch", "target": target}
+    independent = None
+    consume = None
+    for target, view in views.items():
         intervention = view.get("interventions") or {}
         queued = intervention.get("pending_ids") or []
         if intervention.get("inbox_error") or (intervention.get("pending_count") and not queued):
             return {"kind": "blocked", "reason": "A participant intervention receipt is unavailable"}
         if queued:
             if not set(queued) <= owned[target]:
-                return {"kind": "blocked", "reason": "A separate participant message must be reconciled first"}
-            return {"kind": "conversation", "operation": "consume", "target": target}
+                independent = {"kind": "blocked", "reason": "A separate participant message must be reconciled first"}
+            elif consume is None:
+                consume = {"kind": "conversation", "operation": "consume", "target": target}
+    if consume and not independent:
+        return consume
     if not active:
         if pending:
             return {"kind": "conversation", "operation": "begin", "request_id": pending[0]["id"]}
+        if independent:
+            return independent
         for target, view in views.items():
             if resumable(view, owned[target]):
                 return {"kind": "conversation", "operation": "resume", "target": target}
@@ -161,6 +194,8 @@ def step(document, requests, views, source):
     if answer:
         if answer["conversation"]["intent"] == "question":
             return {"kind": "conversation", "operation": "finish"}
+        if independent:
+            return independent
         if not active.get("invalidated"):
             return {"kind": "conversation", "operation": "invalidate"}
         for target in active["targets"]:

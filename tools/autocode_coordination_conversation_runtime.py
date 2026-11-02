@@ -129,6 +129,7 @@ def execute(document, selected, requests, views, source, *, run_for, limits_for)
         if answer is None or policy.context(document, views) != active["context"]:
             raise store.CoordinationError("No current Requirements reply can be captured")
         active["reply"] = deepcopy(answer)
+        active["answered_at"] = util.now()
     elif operation == "invalidate":
         active["targets"] = policy.affected(document, active["reply"]["conversation"]["affected_targets"])
         if document.get("joint"):
@@ -167,7 +168,7 @@ def execute(document, selected, requests, views, source, *, run_for, limits_for)
                 "reply": active["reply"],
                 "context": active["context"],
                 "affected_targets": active.get("targets", []),
-                "answered_at": util.now(),
+                "answered_at": active.get("answered_at") or util.now(),
             }
         )
         conversation["active"] = None

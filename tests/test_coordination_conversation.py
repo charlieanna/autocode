@@ -223,7 +223,85 @@ class ConversationStepTests(unittest.TestCase):
         self.views["api"]["interventions"] = {"pending_ids": [owned], "pending_count": 1}
         self.assertEqual("consume", self.step()["operation"])
         self.views["api"]["interventions"]["pending_ids"].append("external-feedback")
+        self.assertEqual("begin", self.step()["operation"])
+
+    def test_independent_pending_hold_allows_assessment_but_never_child_dispatch(self):
+        self.views["api"]["interventions"] = {"pending_ids": ["external-pause"], "pending_count": 1}
+        original = copy.deepcopy(self.views)
+        self.assertEqual("begin", self.step()["operation"])
+        active = self.activate()
+        self.assertEqual("submit", self.step()["operation"])
+        self.source["interventions"]["pending_ids"] = [active["source_request_id"]]
+        self.assertEqual("source_advance", self.step()["operation"])
+        answer = {
+            "role": "assistant",
+            "text": "The gateway plan needs revision.",
+            "conversation": {
+                "request_id": active["source_request_id"],
+                "context_sha256": util.digest(active["context"]),
+                "intent": "change",
+                "affected_targets": ["gateway"],
+            },
+        }
+        self.source["chat"] = {"messages": [answer]}
+        self.assertEqual("capture", self.step()["operation"])
+        active["reply"] = answer
         self.assertEqual("blocked", self.step()["kind"])
+        active.update(invalidated=True, targets=["gateway", "history"], delivered=[])
+        self.assertEqual("blocked", self.step()["kind"])
+        self.assertEqual(original, self.views)
+
+    def test_question_can_finish_with_independent_pending_hold_but_hold_still_blocks_work(self):
+        self.views["api"]["interventions"] = {"pending_ids": ["external-pause"], "pending_count": 1}
+        active = self.activate()
+        active["reply"] = {"conversation": {"intent": "question", "affected_targets": []}}
+        self.assertEqual("finish", self.step()["operation"])
+        self.record["conversation"] = {"results": [{"request_id": self.messages[0]["id"]}]}
+        self.assertEqual("blocked", self.step()["kind"])
+
+    def test_independent_hold_never_hides_an_active_later_participant(self):
+        self.views["api"]["interventions"] = {"pending_ids": ["external-pause"], "pending_count": 1}
+        self.views["history"]["liveness"] = {"kind": "supervised"}
+        self.assertEqual({"kind": "watch", "target": "history"}, self.step())
+
+    def test_unreadable_intervention_receipt_still_blocks_assessment(self):
+        for intervention in ({"pending_count": 1}, {"inbox_error": "unreadable"}):
+            with self.subTest(intervention=intervention):
+                self.views["api"]["interventions"] = intervention
+                self.assertEqual("blocked", self.step()["kind"])
+
+    def test_captured_answer_is_projected_once_without_finishing_routing(self):
+        active = self.activate()
+        self.assertEqual([], policy().results(self.record, self.messages))
+        active.update(
+            reply={
+                "id": "answer",
+                "text": "Revise the gateway plan.",
+                "conversation": {"intent": "change", "affected_targets": ["gateway"]},
+            },
+            answered_at="captured-time",
+        )
+        before = copy.deepcopy(self.record)
+        result = policy().results(self.record, self.messages)
+        self.assertEqual(
+            [
+                {
+                    "request_id": "question-1",
+                    "text": self.messages[0]["text"],
+                    "reply": active["reply"],
+                    "context": active["context"],
+                    "affected_targets": ["gateway", "history"],
+                    "answered_at": "captured-time",
+                }
+            ],
+            result,
+        )
+        self.assertEqual(before, self.record)
+        self.assertEqual([], policy().results(self.record, []))
+        self.record["conversation"]["results"] = copy.deepcopy(result)
+        self.assertEqual(result, policy().results(self.record, self.messages))
+        result[0]["reply"]["text"] = "edited display"
+        self.assertEqual("Revise the gateway plan.", active["reply"]["text"])
 
     def test_submission_then_source_advancement_reconcile_from_public_receipts(self):
         self.activate()
