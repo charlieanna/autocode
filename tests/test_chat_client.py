@@ -457,6 +457,37 @@ class ScriptedChat(chat.ChatClient):
 class ConversationTests(unittest.TestCase):
     """What the chat shows and takes at each kind of stop, without a run."""
 
+    def test_plan_feedback_waits_for_its_write_receipt_beyond_the_status_deadline(self):
+        client = chat.ChatClient(WORKSPACE, RUN)
+        self.addCleanup(client.close)
+        command = actions.NamedCommand(["--feedback", "Keep both supported routes"], {})
+
+        def receipt(argv, **kwargs):
+            # Model a slower repository/linked-plan write without waiting in real time.
+            if kwargs["timeout"] < 8:
+                raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+            return subprocess.CompletedProcess(argv, 0, "Feedback saved", "")
+
+        with mock.patch.object(chat.subprocess, "run", side_effect=receipt) as called:
+            client.take(command)
+        self.assertEqual(1, called.call_count, "slow receipt handling never resubmits the feedback")
+        self.assertLessEqual(called.call_args.kwargs["timeout"], 120, "a write still has a finite deadline")
+        self.assertEqual(
+            [*client.command, *command.argv, "--workspace", str(WORKSPACE), "--run-dir", str(RUN)],
+            called.call_args.args[0],
+        )
+
+    def test_write_receipt_deadline_does_not_retry_or_claim_acceptance(self):
+        client = chat.ChatClient(WORKSPACE, RUN)
+        self.addCleanup(client.close)
+        command = actions.NamedCommand(["--feedback", "Keep both supported routes"], {})
+        with mock.patch.object(
+            chat.subprocess, "run", side_effect=subprocess.TimeoutExpired(command.argv, 120)
+        ) as called:
+            with self.assertRaisesRegex(actions.ClientGap, "check status before trying it again"):
+                client.take(command)
+        self.assertEqual(1, called.call_count)
+
     def test_core_classified_abandonment_runs_without_a_human_confirmation(self):
         state = {
             "status": "PAUSED_CONTROLLER_EXIT",

@@ -298,9 +298,35 @@ class RuntimeTests(unittest.TestCase):
             },
         }
         self.source["chat"] = {"messages": [response]}
-        self.execute("capture")
+        with patch.object(runtime().util, "now", return_value="capture-time"):
+            self.execute("capture")
         self.assertEqual(response, store.read(self.document["anchor"])["conversation"]["active"]["reply"])
+        self.assertEqual("capture-time", active.get("answered_at"))
+        with patch.object(runtime().util, "now", return_value="finish-time"):
+            self.execute("finish")
+        self.assertEqual("capture-time", self.document["conversation"]["results"][0]["answered_at"])
         self.assertTrue(all(not run.method_calls for run in self.handles.values()))
+
+    def test_public_status_shows_captured_answer_before_delivery_is_allowed(self):
+        import autocode_coordinate as coordinator
+
+        active = self.answer("change", ["gateway"])
+        active["answered_at"] = "captured"
+        for member in self.document["members"]:
+            member["base"] = "baseline"
+        store.save(self.document)
+        with (
+            patch.object(coordinator, "observe", return_value=self.views),
+            patch.object(coordinator, "next_step", return_value={"kind": "blocked", "reason": "held"}),
+            patch.object(coordinator, "budget_observations", return_value=([], [])),
+            patch.object(coordinator, "anchor_view", return_value=self.source),
+            patch.object(coordinator.message_inbox, "read", return_value=self.messages),
+        ):
+            public = coordinator.status(self.document["anchor"])
+        self.assertEqual(1, len(public["conversation"]["results"]))
+        self.assertEqual(active["reply"], public["conversation"]["results"][0]["reply"])
+        self.assertEqual("blocked", public["needs"]["kind"])
+        self.assertEqual([], store.read(self.document["anchor"])["conversation"]["results"])
 
     def test_pause_uses_only_the_current_named_action_and_stable_request_id(self):
         self.begin()

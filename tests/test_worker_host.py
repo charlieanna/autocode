@@ -443,9 +443,22 @@ class PersistentHost(unittest.TestCase):
         self.evidence.append({"terminal_active_switch": shown})
         self.release("terra")
         self.wait(lambda value: value.get("done"))
-        shown = screen.wait_for(lambda shown: "New attention:" in shown and "inspect evidence" in shown)
-        self.assertIn("F8:", shown, "the completed outcome is also discoverable through the inbox")
+        shown = screen.wait_for(
+            lambda shown: "F8: 1 new alert" in shown and composer_text(shown) == "B draft 你X好",
+            what="background completion badge without taking over the other run's draft",
+        )
+        self.assertNotIn("New attention:", shown, "the inbox alert must not be copied into the conversation")
         self.assertEqual("B draft 你X好", composer_text(shown), "completion must not steal the other run's draft")
+        screen.keys("F8")
+        screen.wait_for(
+            lambda shown: "ATTENTION" in shown and "[unread] Run finished; inspect evidence" in shown,
+            what="the completed outcome remains unread and discoverable in the inbox",
+        )
+        screen.keys("Escape")
+        screen.wait_for(
+            lambda shown: "ATTENTION" not in shown and composer_text(shown) == "B draft 你X好",
+            what="leaving the inbox restores the exact draft",
+        )
         current = waiting.status()
         self.assertEqual(self.attempts(current), waiting_attempts)
         self.assertEqual(plan["chat"]["context"], current["chat"]["context"])

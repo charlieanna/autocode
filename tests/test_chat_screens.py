@@ -19,7 +19,142 @@ AUTOCODE = ROOT / "tools" / "autocode.py"
 RUN_SECONDS = 300  # a fixture stage is quick, but CI hosts are shared
 
 
+class ClosingScreenTests(unittest.TestCase):
+    def test_leaving_approval_keeps_exit_notice_without_reprinting_the_plan(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI
+with ChatTUI() as ui:
+    ui.say('You: Fix the history')
+    ui.say('AutoCode: Here are the coordinated plans.')
+    ui.say('Plan to approve:\\n' + '\\n'.join(f'PLAN-DETAIL-{n}' for n in range(100)))
+    try:
+        ui.ask('Approve these coordinated plans?')
+    except EOFError:
+        ui.say('Left the chat; the run is unchanged.')
+"""
+        with TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=100, rows=25, tmux=require_tmux(self)
+        ) as screen:
+            screen.wait_for(
+                lambda shown: "Plan to approve:" in shown and "Approve these coordinated plans?" in shown,
+                what="the plan and its approval prompt",
+            )
+            screen.keys("C-d")
+            self.assertEqual(0, screen.exit_status())
+            shown = screen.wait_for("Left the chat; the run is unchanged.")
+            self.assertNotIn("PLAN-DETAIL-", shown)
+            self.assertNotIn("Plan to approve:", shown)
+
+
 class LiveDefaultScreenTests(unittest.TestCase):
+    def test_planning_shows_its_stage_without_premature_completion_counters(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI, PROGRESS_PREFIX
+with ChatTUI() as ui:
+    ui.say('You: Fix the history.')
+    ui.observe({'status': 'RUNNING', 'phase': 'PLANNING',
+                'progress': {'stage': 'Plan Reviewer', 'headline': 'Plan Reviewer working',
+                    'requirements': {'label': '0 of 6 requirements checked',
+                                     'items': [{'id': 'AC1', 'label': 'Mapped codes'}]},
+                    'tasks': {'label': '0 of 1 task done',
+                              'items': [{'number': 1, 'label': 'Fix history'}]}}})
+    ui.say(PROGRESS_PREFIX + 'Plan Reviewer working · 0 of 1 task done · 0 of 6 requirements checked · 0 open problems')
+    while True:
+        ui.wait(0.1)
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for(
+            lambda shown: (
+                all(
+                    text in shown
+                    for text in ("STAGE  Plan Reviewer", "Plan Reviewer working", "Fix the history.", "╰─")
+                )
+                and "0 of" not in shown
+                and "0 open problems" not in shown
+                and "ACCEPTANCE CHECKS" not in shown
+                and "TASKS" not in shown
+            ),
+            what="planning stage and complete composer without implementation completion counters",
+        )
+
+    def test_stage_names_stay_visible_in_the_unified_timeline_and_waiting_status(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI
+with ChatTUI() as ui:
+    ui.say('You: Fix the history.')
+    ui.observe({'status': 'WAITING_FOR_USER',
+                'progress': {'stage': 'Planner', 'headline': 'Waiting for you'},
+                'chat': {'log': [
+                    {'id': 'requirements', 'agent': 'Requirements', 'kind': 'message',
+                     'text': 'The operation and mapped result should be shown.'},
+                    {'id': 'planner', 'agent': 'Planner', 'kind': 'message',
+                     'text': 'Checking the established result mappings.'}]}})
+    while True:
+        ui.wait(0.1)
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for(
+            lambda shown: (
+                all(
+                    text in shown
+                    for text in (
+                        "Planner · Waiting for you",
+                        "STAGE  Planner",
+                        "▌ Requirements",
+                        "▌ Planner",
+                        "The operation and mapped result should be shown.",
+                        "Checking the established result mappings.",
+                    )
+                )
+                and "LIVE ·" not in shown
+            ),
+            what="attributed stage updates and the waiting stage without a separate live pane",
+        )
+
+    def test_structured_report_does_not_replace_readable_progress_with_json(self):
+        script = """
+import json, sys
+sys.path.insert(0, 'tools')
+from autocode_chat_log import prose_event
+from autocode_chat_tui import ChatTUI
+rows = []
+for identifier, text in [('update', 'Checking the existing registry mappings.'),
+                         ('report', json.dumps({'summary': 'saved ' * 200,
+                                                'workspace_scope': {'spans_repositories': True}}))]:
+    key, entry = prose_event({'type': 'text', 'part': {'id': identifier, 'text': text}})
+    rows.append({'id': key, 'agent': 'Requirements', **entry})
+with ChatTUI() as ui:
+    ui.observe({'status': 'RUNNING', 'chat': {'log': rows}})
+    while True:
+        ui.wait(0.1)
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for(
+            lambda shown: (
+                "Checking the existing registry mappings." in shown
+                and "Structured response received." in shown
+                and "workspace_scope" not in shown
+                and "spans_repositories" not in shown
+            ),
+            timeout=10,
+            what="readable progress and a neutral report receipt without JSON fragments",
+        )
+
     def test_tool_input_fragments_do_not_crowd_out_readable_progress(self):
         script = """
 import sys
@@ -48,7 +183,7 @@ with ChatTUI() as ui:
         self.addCleanup(screen.close)
         screen.wait_for(
             lambda shown: (
-                "LIVE · all agents" in shown
+                "LIVE · all agents" not in shown
                 and "Plan Reviewer working" in shown
                 and "ACCEPTANCE CHECKS" in shown
                 and "Checking the caller route against the saved" in shown
@@ -103,8 +238,8 @@ with ChatTUI() as ui:
             lambda shown: all(
                 text in " ".join(shown.split())
                 for text in (
-                    "[message] Checking that [partial]",
-                    "[message] I'm checking; I'll report back.",
+                    "Checking that [partial]",
+                    "I'm checking; I'll report back.",
                     "[earlier text omitted]",
                     "Which codes should history show?",
                 )
@@ -119,7 +254,7 @@ with ChatTUI() as ui:
             what="thinking remains available only on request",
         )
 
-    def test_running_view_shows_live_without_a_command_and_respects_hiding(self):
+    def test_running_view_has_one_default_conversation_and_optional_live_details(self):
         # Real curses rendering of a public view; no provider or task is launched.
         script = """
 import sys
@@ -135,10 +270,8 @@ with ChatTUI() as ui:
         )
         self.addCleanup(screen.close)
         screen.wait_for(
-            lambda shown: (
-                "LIVE · all agents" in shown and "Working; waiting for a plain-English progress update." in shown
-            ),
-            what="live activity visible before the first agent message",
+            lambda shown: "LIVE · all agents" not in shown and "AutoCode is working" in shown,
+            what="one conversation before the first progress message",
         )
         screen.type("/live off")
         screen.keys("Enter")
@@ -161,6 +294,35 @@ with ChatTUI() as ui:
 
 
 class MouseHistoryScreenTests(unittest.TestCase):
+    def test_approval_prompt_does_not_move_the_plan_under_the_reader(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI
+with ChatTUI() as ui:
+    ui.say('Plan to approve:\\n' + '\\n'.join(f'READING-LINE-{n:03d}' for n in range(100)))
+    while ui._composer.text != 'ready':
+        ui.wait(0.1)
+    try:
+        ui.ask('Approve this plan?')
+    except EOFError:
+        ui.say('No approval given.')
+"""
+        with TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=100, rows=25, tmux=require_tmux(self)
+        ) as screen:
+            screen.wait_for("Plan to approve:")
+            screen.keys("NPage")
+            before = screen.wait_for(
+                lambda shown: "History" in shown and "READING-LINE-" in shown and "Plan to approve:" not in shown
+            )
+            first = next(line for line in before.splitlines() if "READING-LINE-" in line)
+            screen.type("ready")
+            after = screen.wait_for("Approve this plan?")
+            self.assertEqual(first, next(line for line in after.splitlines() if "READING-LINE-" in line))
+            screen.keys("C-d")
+            self.assertEqual(0, screen.exit_status())
+
     def test_incomplete_mouse_packet_cannot_stall_the_status_loop(self):
         script = """
 import sys

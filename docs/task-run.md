@@ -159,7 +159,15 @@ cap and disables its planning allocation limit. The retained allocation and
 prior cap stay in history. Subsequent participant advances receive an explicit
 zero cap so they cannot silently inherit an old spending limit. Other limits,
 routes, approvals and verification gates remain unchanged. A child pause still
-requires its own public recovery. Active or uncertain work, incomplete pricing,
+requires its own public recovery. An archived attempt with a current retry token
+and positively dead owner, keeper and provider may recover coordination while
+retaining that child retry gate. If successful abandonment removed the active
+metadata, the exact finished, rejected attempt in the public accounting ledger
+must instead match the gate's run, stage, attempt and archive, with verified
+original-source restoration. Missing or mismatched archival evidence, malformed
+metadata and failed process inspection still refuse. Incomplete pricing refuses a finite cap; an
+already uncapped coordination may preserve its explicit zero cap and unknown
+costs, without inventing prices or authorizing a retry. Active or uncertain work,
 changed source/catalog/checkpoint and duplicate requests refuse. Cancellation
 receipts are retained; a newer cancellation always takes precedence.
 
@@ -588,6 +596,13 @@ and routes the original human text to affected authorized members and their
 dependents through ordinary feedback/review. It resumes only its own exclusively
 held pauses. Separate user stops, operational holds and uncertain receipts remain
 held. All Requirements usage counts against the same task and planning limits.
+Once every participant has settled, an independent queued participant hold does
+not prevent Requirements from assessing a task message. The hold is neither
+consumed nor resumed. A captured answer appears in `conversation.results` while
+its routing is still held; that display is not permission to apply a change.
+Questions can finish without changing participant authority. Changes wait for
+the independent hold to be reconciled before invalidation or feedback delivery.
+Unreadable intervention evidence and source conversation holds still refuse.
 
 `TaskRun.intervention_status()` reads the existing public status document's
 `view` and sibling `interventions` together, so coordinators can verify pause

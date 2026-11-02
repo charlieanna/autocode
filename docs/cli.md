@@ -723,35 +723,30 @@ stay on the terminal: an error, where to pick the run up, or the command a stop
 leaves for you to run. `--line` keeps the plain
 prompts, and scripts get them automatically when there is no terminal.
 
-In a terminal at least 100 columns wide, a side panel shows the run beside the
-conversation once it has a plan: where it is and what it needs from you, the
-current step and its last few attempts (the view's `chat.progress`), what the
-running step is doing (the commands it runs, the files it edits and the tools it
-calls, from the view's `chat.activity`), each requirement and task with its state,
-open problems, and a log of how the run moved (a stage starting or finishing, an
-attempt finishing, a command run, a file edited, a task done, a requirement
-checked). The status row under the conversation names the newest command or edit,
-in any width. A command that exited 0 is shown as run, not as passing: only the
-requirement checks say what passed. Everything in it comes from the status views
-the chat already reads. For a task spanning repositories, **Task usage** stays
-visible as the cumulative cost and tokens across the conversation, repository
-work and retained joint attempts. **Current work** shows only the active work
-unit. A `+` means the figure is incomplete; `tokens pending` means no token count
-has arrived yet. Switching repositories never resets the task total.
+The default screen has one scrolling conversation. Your messages, AutoCode's
+questions and plans, and the agents' plain-English progress updates appear there
+in order, each progress entry labeled with its stage. Updates to the same streaming message replace it in place. Reading
+older messages keeps your scroll position as new progress arrives; the composer
+stays at the bottom.
 
-While AutoCode works, a live log under the conversation shows what each running
-agent is thinking and doing as it happens: its reasoning (`∴`), its messages
-(`»`), the commands it runs (`$`), the files it edits (`±`) and the other tools it
-calls, each line led by the agent's name (`Builder · task M2`, `Plan Reviewer`).
-Parallel Builders each appear under their own name. It comes from the view's
-`chat.log`, is refreshed with each status read (every two seconds) and keeps the
-last 500 entries; the composer stays below it, so you can keep typing commands.
-It shows on its own in a terminal at least 24 rows tall once an agent is working.
-Reasoning is shown on one line with its newest words, and tool output is never
-shown. A provider's running progress notes (`thinking ~450 tokens; thinking ~600
-tokens; writing StructuredOutput input: 6774 chars`) read as their newest value
-of each: `thought ~600 tokens · writing its answer · 6.8k chars`. Like the activity rows it is display only: a thought is not a report and
-a command shown is not a passed check.
+In a terminal at least 100 columns wide, a fixed side panel shows the current
+stage, any decision needed, cost and token totals, and compact task/check counts.
+The stage name remains visible in the header and panel while waiting for an answer.
+It has no scrolling activity log. `/details`, `/plan`, `/tasks` and `/log` show
+the full details in the conversation. For a task spanning repositories, **Task
+usage** remains the cumulative cost and tokens across the conversation,
+repository work and retained joint attempts. A `+` means the figure is incomplete;
+`tokens pending` means no token count has arrived yet. Switching repositories
+never resets the task total.
+
+Progress comes from the public view's `chat.log`. Commands, reasoning and
+transport counters do not appear in the default conversation. A raw structured
+report appears only as a neutral receipt; it is not a validated plan or proof.
+Use `/live` to open an optional agent-details pane, `/live tools` for commands,
+edits and tool history, or `/live thinking` for reasoning. `/live off` closes
+that extra pane without stopping ordinary progress updates in the conversation.
+Detailed logs retain the last 500 entries. Everything shown is display only:
+a progress message is not verification, and a command shown is not a passed check.
 
 Type `/` in the composer for commands, at a question or while AutoCode works. The
 menu narrows as you type; `Up`/`Down` choose, `Tab` completes and `Enter` runs the
@@ -775,7 +770,7 @@ highlighted one:
 | `/connect [NAME check\|login\|setup\|use]` | The backends `autocode connections list` reports, with their state. `check` runs the connection's own check; `login` and `setup` hand the terminal to the backend's sign-in or AutoCode's setup and bring the chat back afterwards; `use` makes new chats use it. Only an action the connection offers is run |
 | `/stages [STAGE N LEVEL]` | Each stage's model and reasoning level for new chats, from `autocode stages list --json` ([Choosing each stage's model](models.md#choosing-each-stages-model)). In the full-screen chat it opens a drawer with one list per stage: Up and Down move, Enter opens the stage's models (one the stage may not run is shown with the reason and cannot be picked), then that model's reasoning levels, and saves the choice; Esc goes back. The line-by-line chat lists the stages with numbered models and takes `/stages builder 2 medium`. It lists the backend new chats run on (`/engine`, `/connect … use`). Chats already started keep their own |
 | `/panel` | Show or hide the side panel |
-| `/live [NAME\|thinking\|messages\|tools\|all\|off]` | Show or hide the live agent log. The default and `all` show plain-English progress messages from every agent. `tools` shows retained commands (including failures), edits and tool history; `thinking` shows reasoning text explicitly. Transport token/character counters are omitted. A name (such as `M2` or `reviewer`) filters progress messages by agent; `off` hides the pane. Where the terminal is too short, the newest entries are printed in the conversation |
+| `/live [NAME\|thinking\|messages\|tools\|all\|off]` | Open or hide the optional agent-details pane. Ordinary progress is always in the conversation; `all` shows progress messages from every agent in the extra pane. `tools` shows retained commands (including failures), edits and tool history; `thinking` shows reasoning text explicitly. Transport token/character counters are omitted. A name (such as `M2` or `reviewer`) filters progress messages by agent; `off` hides the pane. Where the terminal is too short, the newest entries are printed in the conversation |
 | `/attention` or F8 | Inspect current saved questions, decisions and completed turns across registered projects, even before selecting a chat. `a` acknowledges the selected alert, Enter opens its chat, `r` requests a refreshed snapshot and Esc returns to the original draft and cursor. Acknowledgement leaves the task's answer or plan approval pending. Unavailable inventory and unknown read state remain visible. |
 | `/pause` | While AutoCode works: ask it to pause after the current step, as the first `Ctrl-C` does |
 | `/help` | List the commands |
@@ -792,8 +787,7 @@ A run recovers from most failures on its own, and the chat says so as it happens
 a `Recovery ·` notice names the stage, what went wrong and what AutoCode did about it, such as
 "Builder stuck", the rejection that caused it, and "AutoCode called the Investigator, which found
 the cause, and the Builder tried again with its advice." A chat opened on a run that already
-recovered says how many times in one line instead of replaying them. The side panel's "What went
-wrong" section lists the newest three with their times, and `/why` lists them all. These come
+recovered says how many times in one line instead of replaying them. `/why` lists the complete recovery history with times. These come
 from the view's `recoveries` ([task-run interface](task-run.md#what-went-wrong-recoveries)).
 
 What the chat put to you is said once: a question or the understanding you
@@ -804,26 +798,25 @@ their language, `code` and **bold** spans are drawn without their marks (what yo
 typed is shown as typed), and `/diff N` colors its patch: file headers, hunks,
 added and removed lines.
 
-The side panel's Stages section lists the newest four stages the run has launched,
+`/details` lists the stages the run has launched,
 each with its state (`✓` done, `●` working, `↻` on a later attempt, `✗` failed), its
 time, its accounted cost, which attempt it is on (a report repair counts as the repaired stage's next attempt;
 a stage that ran again after succeeding, such as a second review round, says how many times it ran), and on a second row the model and
 reasoning level it ran on and the tokens it used (`+` when some usage is unreported).
-Its title carries the run's accounted total, which the header shows too; with more
+The side panel and header carry the run's accounted total; with more
 than one chat open the header adds a session total over the open chats, leaving out
 what a run restored from a saved step carried over. A stage on its second attempt or
 later after one that did not succeed takes the status row, with that attempt's reason. In a
 total, `+` marks the figure that is a floor: `$0.42+` when some cost is unaccounted,
 `184k+ tokens` when some usage is unreported.
-These come from the view's `usage.accounting.attempts` and `cost`. The Stages title
-also names the run's spending cap (`$1.73 of $5.00 · 843k tokens`), so the Usage
-section is shown only for a run with no stage records yet. The Verification section
+These come from the view's `usage.accounting.attempts` and `cost`. The Usage summary
+also names the run's spending cap (`$1.73 of $5.00 · 843k tokens`). The Verification section
 appears once the run has finished or recorded a review, since before then the
-delivery is always unverified; `/details` keeps the evidence either way. A
-requirement or task too long for the panel wraps to a second row.
+delivery is always unverified; `/details` keeps the evidence either way. Full requirements and tasks remain available through `/plan` and `/tasks`.
 
-The side panel's Usage section shows the accounted subtotal, missing prices or usage,
-active/pending attempts and any configured accounting cap. `/details` separates
+The side panel's Usage summary shows the accounted subtotal and any configured
+cap, marking incomplete figures with `+`. `/details` shows missing prices or usage
+and active/pending attempts, and separates
 provider-reported figures, dated-table estimates and historical comparison estimates;
 subscription/API-equivalent estimates are not the subscription invoice. Cache and
 reasoning counts are shown as subsets of input and output, never added twice.

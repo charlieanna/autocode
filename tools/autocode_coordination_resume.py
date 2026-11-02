@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 try:
     from . import autocode_client_actions as actions
@@ -20,6 +21,50 @@ except ImportError:
     import autocode_coordination_repositories as repositories
     import autocode_coordination_store as store
     import autocode_util as util
+
+
+def reconciled_retry(view):
+    """A verified archived attempt keeps its child retry gate after coordinator recovery."""
+    need = view.get("needs") or {}
+    if not (
+        view.get("status") == "PAUSED_STAGE_ABANDONED"
+        and (view.get("recovery") or {}).get("cause") == "PAUSED_STAGE_ABANDONED"
+        and need.get("kind") == "retry_job"
+        and need.get("attempt_id")
+        and need.get("job_retry_token")
+    ):
+        return False
+    live = view.get("liveness") or {}
+    roles = ("owner", "keeper", "provider")
+    if all(live.get(role, {}).get("alive") is False for role in roles):
+        return True
+    # Abandonment verifies stopped supervision before archiving. The active
+    # metadata is then removed; bind that terminal evidence to the exact retry
+    # gate instead of mistaking its absence for an unreconciled live attempt.
+    if not (
+        live.get("kind") == "unknown"
+        and live.get("reason") == "metadata_missing"
+        and all(
+            live.get(role, {}).get("alive") is None and live.get(role, {}).get("checked") is False for role in roles
+        )
+        and need.get("archive")
+        and (need.get("write_diagnosis") or {}).get("original_identity_verified") is True
+    ):
+        return False
+    matches = [
+        row
+        for row in (view.get("usage") or {}).get("accounting", {}).get("attempts", [])
+        if row.get("attempt_id") == need["attempt_id"]
+    ]
+    return bool(
+        len(matches) == 1
+        and matches[0].get("run_id") == view.get("run_dir")
+        and matches[0].get("stage") == need.get("stage")
+        and matches[0].get("active") is False
+        and matches[0].get("rejected") is True
+        and matches[0].get("finished_at")
+        and Path(matches[0].get("events") or "").parent == Path(need["archive"])
+    )
 
 
 def offer(document, rows, history):
@@ -44,10 +89,10 @@ def offer(document, rows, history):
         )
         if actions.working(view) or any(a.get("active") for a in attempts):
             return None
-        if not intervention and not planning.settled(view):
+        if not intervention and not reconciled_retry(view) and not planning.settled(view):
             return None
     summary = budget.accounting(document.get("budget") or {}, history)
-    if not summary["complete"]:
+    if not summary["complete"] and (document.get("budget") or {}).get("cap_usd") != 0:
         return None
     if document.get("source_catalog") and repositories.source_snapshot() != document["source_catalog"]:
         return None
@@ -101,6 +146,8 @@ def apply(document, offered, token, value):
     """Acknowledge exactly one cancellation; a newer concurrent cancellation wins."""
     if not offered or offered.get("kind") != "coordination_resume" or offered.get("token") != token:
         raise store.CoordinationError("The cancelled-coordination checkpoint changed; read status again")
+    if not offered["complete"] and value != 0:
+        raise store.CoordinationError("Unknown spend is retained; only the existing uncapped budget can be preserved")
     selected = 0 if type(value) in (int, float) and value == 0 else limits.amount(value, offered["minimum_cap_usd"])
     request = json.loads((store.root(document["anchor"]) / "cancel-request.json").read_text())
     if request != offered["cancel_request"]:

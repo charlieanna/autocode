@@ -534,7 +534,9 @@ class ChatClient:
         if self.attention_changed is not None:
             self.attention_changed(self._attention.summary())
         for row in self._attention.notifications():
-            if attention.key(row) != current or self._composing_new:
+            if not (self._status_in_view and self.attention_changed is not None) and (
+                attention.key(row) != current or self._composing_new
+            ):
                 self.say("New attention: " + attention.label(row) + ". F8 or /attention opens the inbox.")
         if resumed_while_asking:
             raise PromptWithdrawn
@@ -572,7 +574,10 @@ class ChatClient:
         ):
             self.advance(argv, command.env)
             return
-        proc = self.cli(argv, env=command.env)
+        # A saved action can validate linked plans and repository evidence before
+        # returning its receipt. The five-second polling deadline is only for
+        # disposable reads; killing this writer there leaves acceptance uncertain.
+        proc = self.cli(argv, env=command.env, timeout=120)
         if proc.returncode != 0:
             raise Refused(f"AutoCode refused that: {tail(proc)}")
 

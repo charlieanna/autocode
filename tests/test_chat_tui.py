@@ -57,6 +57,46 @@ class WrapTests(unittest.TestCase):
 
 
 class TranscriptTests(unittest.TestCase):
+    def test_progress_messages_share_the_conversation_and_update_by_identity(self):
+        transcript = tui.Transcript()
+        transcript.add("You: Fix the history.")
+        row = {"id": "attempt:message", "agent": "Planner", "kind": "message", "text": "Checking the registry."}
+        transcript.progress({"chat": {"log": [row]}})
+        transcript.add("You: Preserve the existing result mappings.")
+        transcript.progress({"chat": {"log": [{**row, "text": "Checked the registry mappings."}]}})
+        transcript.progress({"chat": {"log": [{**row, "text": "Checked the registry mappings."}]}})
+        self.assertEqual(3, len(transcript.blocks))
+        shown = "\n".join(text for _, text in transcript.lines(100))
+        self.assertEqual(1, shown.count("Checked the registry mappings."))
+        self.assertLess(shown.index("Checked the registry mappings."), shown.index("Preserve the existing"))
+
+    def test_progress_excludes_tool_reasoning_and_transport_counters(self):
+        transcript = tui.Transcript()
+        transcript.progress(
+            {
+                "chat": {
+                    "log": [
+                        {"id": "tool", "agent": "Planner", "kind": "command", "text": "bash hidden"},
+                        {"id": "thought", "agent": "Planner", "kind": "thinking", "text": "hidden thought"},
+                        {
+                            "id": "counter",
+                            "agent": "Planner",
+                            "kind": "message",
+                            "text": "writing Bash input: 25 chars",
+                        },
+                        {
+                            "id": "stream",
+                            "agent": "Planner",
+                            "kind": "message",
+                            "text": "Response stream activity received; text unavailable.",
+                            "status": "streaming",
+                        },
+                    ]
+                }
+            }
+        )
+        self.assertEqual([], transcript.blocks)
+
     def test_messages_and_roles(self):
         transcript = tui.Transcript()
         self.assertTrue(transcript.add("\nAutoCode: hello"))
@@ -157,6 +197,29 @@ class TranscriptTests(unittest.TestCase):
         self.assertEqual([], transcript.closing())
         transcript.add("Nothing started.")
         self.assertEqual(["Nothing started."], transcript.closing())
+
+    def test_leaving_plan_approval_does_not_dump_already_displayed_plans(self):
+        transcript = tui.Transcript()
+        transcript.add("You: fix the history")
+        transcript.add("AutoCode: Here are the coordinated plans.")
+        transcript.add("Plan to approve:\n" + "\n".join(f"Criterion {n}" for n in range(100)))
+        transcript.asked = len(transcript.blocks)
+        self.assertEqual([], transcript.closing())
+        transcript.add("Left the chat; the run is unchanged.")
+        transcript.add("Run autocode chat here to pick it up again.")
+        self.assertEqual(
+            ["Left the chat; the run is unchanged.", "Run autocode chat here to pick it up again."],
+            transcript.closing(),
+        )
+
+    def test_a_new_completion_message_after_the_question_is_retained(self):
+        transcript = tui.Transcript()
+        transcript.add("AutoCode: The plan to approve.")
+        transcript.asked = len(transcript.blocks)
+        self.assertEqual([], transcript.closing())
+        transcript.add("You: y")
+        transcript.add("AutoCode: The requested task is complete.")
+        self.assertEqual(["AutoCode: The requested task is complete."], transcript.closing())
 
     def test_before_any_question_everything_the_client_said_stays(self):
         transcript = tui.Transcript()
@@ -513,6 +576,35 @@ class SmallTerminalTests(unittest.TestCase):
 
 
 class StatusLineTests(unittest.TestCase):
+    def test_planning_screen_hides_stale_completion_counts_until_execution(self):
+        ui = screen_ui()
+        current = {
+            "status": "RUNNING",
+            "phase": "PLANNING",
+            "progress": {
+                "stage": "Plan Reviewer",
+                "headline": "Plan Reviewer working",
+                "tasks": {"label": "0 of 1 task done", "items": [{"number": 1, "label": "Fix metadata"}]},
+                "requirements": {"label": "0 of 6 requirements checked", "items": [{"id": "AC1", "label": "Code"}]},
+                "problems": {"open": 0},
+            },
+        }
+        ui.observe(current)
+        ui._transcript.activity = (
+            "Plan Reviewer working · 0 of 1 task done · 0 of 6 requirements checked · 0 open problems"
+        )
+        shown = " ".join(text for _, text in drawn(ui))
+        self.assertIn("Plan Reviewer working", shown)
+        self.assertIn("STAGE  Plan Reviewer", shown)
+        self.assertNotIn("0 of", shown)
+        self.assertNotIn("0 open problems", shown)
+        current["phase"] = "READY_TO_EXECUTE"
+        current["progress"].update(stage="Builder", headline="Builder working")
+        ui.observe(current)
+        shown = " ".join(text for _, text in drawn(ui))
+        self.assertIn("TASKS  0 of 1 task done", shown)
+        self.assertIn("ACCEPTANCE CHECKS  0 of 6", shown)
+
     def test_the_status_row_reads_in_plain_words_before_any_status_read(self):
         ui = screen_ui()
         shown = []
@@ -1021,6 +1113,18 @@ class TallReplyAnchorTests(unittest.TestCase):
         self.assertIn("row 10", shown, "their window holds")
         self.assertNotIn("a new short block", shown, "a new block does not pull the person's view away")
 
+    def test_a_new_approval_prompt_keeps_the_plan_position_the_person_is_reading(self):
+        ui = self.ui("\x03")
+        ui.say("Plan to approve:\n" + "\n".join(f"reading row {number}" for number in range(40)))
+        ui._scroll_by(-ui._page())
+        before = self.shown(ui)
+        self.assertNotIn("Plan to approve:", before)
+        with self.assertRaises(KeyboardInterrupt):
+            ui.ask("Approve the complete plan? [y/N], or type what to change: ")
+        after = self.shown(ui)
+        self.assertTrue(before.startswith(after), (before, after))
+        self.assertFalse(ui._anchored, "the person's paging remains in control")
+
     def test_an_old_tall_block_the_person_answered_is_not_reached_back_for(self):
         ui = self.ui("y", "\x03")
         ui.say("AutoCode: " + "\n".join(["first line of the understanding", *["understanding"] * 20]))
@@ -1124,8 +1228,63 @@ class LivePaneTests(unittest.TestCase):
         ui._draw()
         return puts
 
+    def test_waiting_stage_is_visible_without_a_sidebar_and_working_stage_is_not_repeated(self):
+        ui = screen_ui()
+        ui.observe({"status": "WAITING_FOR_USER", "progress": {"stage": "Planner", "headline": "Waiting for you"}})
+        shown = " ".join(text for row, _, text in self.drawn(ui, cols=80) if row == 2)
+        self.assertIn("Planner · Waiting for you", shown)
+        ui.observe({"status": "RUNNING", "progress": {"stage": "Plan Reviewer", "headline": "Plan Reviewer working"}})
+        shown = " ".join(text for row, _, text in self.drawn(ui, cols=80) if row == 2)
+        self.assertEqual(1, shown.count("Plan Reviewer"))
+
+    def test_public_stage_opens_the_compact_sidebar_before_usage_arrives(self):
+        ui = screen_ui()
+        ui.observe({"status": "WAITING_FOR_USER", "progress": {"stage": "Planner", "headline": "Waiting for you"}})
+        self.assertIsNotNone(ui._layout(30, 120).panel_col)
+
+    def test_default_progress_uses_one_conversation_and_keeps_paged_history_still(self):
+        ui = screen_ui()
+        for number in range(30):
+            ui.say(f"You: Earlier question {number}")
+        ui.observe(self.VIEW)
+        layout = ui._layout(30, 120)
+        self.assertIsNone(layout.live_start)
+        self.assertEqual(layout.body_end, layout.panel_end)
+        self.assertIn("Checking the greeting behavior.", repr(ui._transcript.blocks))
+        self.assertNotIn("pytest -q", repr(ui._transcript.blocks))
+        ui._scroll_by(12)
+        before = [
+            (row, text) for row, col, text in self.drawn(ui) if col == 0 and layout.body_start <= row < layout.body_end
+        ]
+        ui.observe(
+            {"chat": {"log": [{"id": "new", "agent": "Planner", "kind": "message", "text": "Checking another path."}]}}
+        )
+        after = [
+            (row, text) for row, col, text in self.drawn(ui) if col == 0 and layout.body_start <= row < layout.body_end
+        ]
+        self.assertEqual(before, after)
+
+    def test_sidebar_keeps_status_and_totals_without_activity_history(self):
+        ui = screen_ui()
+        ui._panel_on = True
+        ui.observe(
+            {
+                "status": "RUNNING",
+                "progress": {"headline": "Planner working"},
+                "chat": {"progress": ["Planner working", "Recent steps: Requirements finished"]},
+            }
+        )
+        layout = ui._layout(30, 120)
+        shown = "\n".join(text for _, col, text in self.drawn(ui) if col == layout.panel_col)
+        self.assertIn("Planner working", shown)
+        self.assertNotIn("Recent steps", shown)
+        self.assertNotIn("LOG", shown)
+        ui._run("/log", False)
+        self.assertIn("Planner working", repr(ui._transcript.blocks))
+
     def test_the_pane_shows_each_agent_above_the_composer(self):
         ui = screen_ui()
+        ui._run("/live", False, "all")
         ui.observe(self.VIEW)
         puts = self.drawn(ui)
         layout = ui._layout(30, 120)
@@ -1143,6 +1302,7 @@ class LivePaneTests(unittest.TestCase):
 
     def test_typing_while_autocode_works_keeps_the_pane(self):
         ui = screen_ui(*"/pl")
+        ui._run("/live", False, "all")
         ui.observe(self.VIEW)
         self.assertIsNone(ui.wait(0.3))
         self.assertEqual("/pl", ui._composer.text)
@@ -1154,26 +1314,27 @@ class LivePaneTests(unittest.TestCase):
         ui.observe(self.VIEW)
         self.assertIsNone(ui._layout(17, 120).live_start)
 
-    def test_running_chat_shows_live_before_the_first_agent_message(self):
+    def test_running_chat_uses_status_without_an_empty_extra_pane(self):
         ui = screen_ui()
         ui.observe({"status": "RUNNING", "chat": {"log": []}})
         puts = self.drawn(ui)
-        self.assertIsNotNone(ui._layout(30, 120).live_start)
+        self.assertIsNone(ui._layout(30, 120).live_start)
         text = "\n".join(text for _, _, text in puts)
-        self.assertIn("LIVE · all agents", text)
-        self.assertIn("Working; waiting for a plain-English progress update.", text)
+        self.assertNotIn("LIVE · all agents", text)
+        self.assertIn("AutoCode is working", text)
         self.assertNotIn("No agent is working", text)
 
-    def test_default_live_uses_available_room_on_short_terminal(self):
+    def test_default_progress_keeps_full_conversation_on_short_terminal(self):
         ui = screen_ui()
         ui.observe(self.VIEW)
-        self.assertIsNotNone(ui._layout(20, 120).live_start)
+        self.assertIsNone(ui._layout(20, 120).live_start)
+        self.assertIn("Checking the greeting behavior.", repr(ui._transcript.blocks))
 
     def test_empty_status_log_does_not_hide_retained_live_activity(self):
         ui = screen_ui()
         ui.observe(self.VIEW)
         ui.observe({"chat": {"log": []}})
-        self.assertIsNotNone(ui._layout(30, 120).live_start)
+        self.assertIsNone(ui._layout(30, 120).live_start)
         self.assertTrue(any("Checking the greeting behavior." in text for _, _, text in self.drawn(ui)))
 
     def test_explicitly_hiding_live_survives_new_running_status(self):
@@ -1194,7 +1355,7 @@ class LivePaneTests(unittest.TestCase):
         ui = screen_ui()
         ui.observe(self.VIEW)
         ui._run("/live", False)
-        self.assertIsNone(ui._layout(30, 120).live_start)
+        self.assertIsNotNone(ui._layout(30, 120).live_start)
         ui._run("/live", False, "M2")
         self.assertIsNotNone(ui._layout(30, 120).live_start)
         self.assertEqual([], ui._live.shown())
@@ -1427,7 +1588,7 @@ class MeterScreenTests(unittest.TestCase):
         puts = drawn(ui)
         status = next(text for _, text in puts if "attempt 2" in text and "Builder" in text and "exit 1" in text)
         self.assertIn("last one exit 1", status)
-        self.assertIn("STAGES  $0.42 · 184k tokens", " ".join(text for _, text in puts))
+        self.assertIn("USAGE  $0.42 · 184k tokens", " ".join(text for _, text in puts))
 
 
 class ClosingSummaryTests(unittest.TestCase):
@@ -1562,13 +1723,12 @@ class SidePanelWrapTests(unittest.TestCase):
         },
     }
 
-    def test_a_long_requirement_takes_two_rows_and_says_where_it_was_cut(self):
-        self.assertEqual(["one two", "three"], tui.wrapped_rows("one two three", 8, 2))
-        self.assertEqual(["one two", "three f…"], tui.wrapped_rows("one two three four", 8, 2))
+    def test_requirements_have_a_fixed_count_and_full_text_on_request(self):
         ui = screen_ui()
         ui.observe(self.VIEW)
         layout = ui._layout(30, 120)
         panel_rows = [text for row, col, text in [(r, c, t) for r, c, t, _ in styled(ui)] if col == layout.panel_col]
-        first = next(index for index, text in enumerate(panel_rows) if "AC1 Given the command" in text)
-        self.assertTrue(panel_rows[first + 1].startswith("  "), panel_rows[first : first + 2])
-        self.assertTrue(panel_rows[first + 1].endswith("…"), panel_rows[first + 1])
+        self.assertIn("ACCEPTANCE CHECKS  0 of 1", " ".join(panel_rows))
+        self.assertNotIn("Given the command", " ".join(panel_rows))
+        ui._run("/plan", False)
+        self.assertIn(self.VIEW["progress"]["requirements"]["items"][0]["label"], ui._transcript.blocks[-1][1])

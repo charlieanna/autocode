@@ -23,6 +23,7 @@ try:
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_review as requirements_review
     from . import autocode_run_status as run_status
+    from . import autocode_scope_question as scope_question
 except ImportError:
     import autocode_acceptance_tests_job as acceptance_tests_job
     import autocode_chat_history as history
@@ -31,6 +32,7 @@ except ImportError:
     import autocode_requirements_chat as requirements_chat
     import autocode_requirements_review as requirements_review
     import autocode_run_status as run_status
+    import autocode_scope_question as scope_question
 
 
 # The id prefix of the Requirements question the chat is waiting on; the rest names the question.
@@ -141,12 +143,21 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
     if text:
         messages.append({"id": "requirements-live", "role": "assistant", "text": text, "streaming": True})
     elif need.get("kind") == "answer" and not resolver_reply and requirements_chat.enabled(state):
-        asked = [q.get("id") for q in need.get("questions", [])]
+        questions = need.get("questions", [])
+        routing = (
+            scope_question.question(state)
+            if public.get("coordination") or (state.get("settings") or {}).get("coordination_member")
+            else None
+        )
+        displayed = [q for q in questions if not routing or q.get("id") != routing["id"]]
+        asked = [q.get("id") for q in displayed]
         # A client puts the requirements-question message in front of the person as the
         # question to answer, so it carries the questions' own text. The stage's prose only
         # frames them, and after a report repair that prose describes the repair, so it may
         # not stand in for the question.
-        question = "\n\n".join(q.get("question", "") for q in need.get("questions", [])).strip()
+        # The coordinator settles its own routing gate. Keep the exact gate in
+        # public needs, without asking the person to narrow the coordinated task.
+        question = "\n\n".join(q.get("question", "") for q in displayed).strip()
         spoken = requirements_chat.reply(state)
         if spoken and spoken != question:
             messages.append(
@@ -156,7 +167,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
                     "text": spoken,
                 }
             )
-        text = question or spoken
+        text = question or (spoken if len(displayed) == len(questions) else "")
         if text:
             # Each question is its own message: a client shows a message id once, so a shared id
             # hid every Requirements question after the first (#1792).

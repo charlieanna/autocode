@@ -33,6 +33,41 @@ def listing(inbox, *rows, started=0):
 
 
 class InboxTests(unittest.TestCase):
+    def test_fullscreen_background_alerts_update_the_inbox_without_chat_messages(self):
+        for composing_new in (False, True):
+            with self.subTest(composing_new=composing_new):
+                said, changed = Mock(), Mock()
+                client = chat.ChatClient(
+                    WORKSPACE, RUN.with_name("current"), say=said, observe=Mock(), unavailable=Mock()
+                )
+                self.addCleanup(client.close)
+                client.attention_changed = changed
+                client._composing_new = composing_new
+                client._poller.tick = Mock(return_value=[])
+                listing(client._attention, row())
+                listing(client._attention, row("plan-7"))
+                client.poll()
+                self.assertEqual(1, changed.call_args.args[0]["unread"])
+                self.assertEqual([row("plan-7")], client._attention.entries())
+                self.assertEqual([], client._attention.notifications())
+                said.assert_not_called()
+
+    def test_fullscreen_discovery_keeps_new_alerts_in_the_inbox(self):
+        said, changed, opened = Mock(), Mock(), Mock()
+        discovered = discovery.Discovery(
+            WORKSPACE, command=("autocode",), env=None, say=said, changed=changed, open_run=opened
+        )
+        self.addCleanup(discovered.close)
+        discovered._poller.tick = Mock(return_value=[])
+        listing(discovered._attention, row())
+        listing(discovered._attention, row("plan-7"))
+        discovered.poll()
+        self.assertEqual(1, changed.call_args.args[0]["unread"])
+        self.assertEqual([row("plan-7")], discovered._attention.entries())
+        self.assertEqual([], discovered._attention.notifications())
+        said.assert_not_called()
+        opened.assert_not_called()
+
     def test_current_prompt_is_not_duplicated_but_background_and_new_draft_notices_remain(self):
         said = Mock()
         client = chat.ChatClient(WORKSPACE, RUN, say=said)

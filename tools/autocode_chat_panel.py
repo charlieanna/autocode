@@ -233,8 +233,20 @@ def event_row(event: dict) -> Row:
     return Row("✗" if failed else EVENT_MARKS[event["kind"]], event["text"], style)
 
 
+def _planning(view: dict | None) -> bool:
+    """The public phase still describes a proposed plan, not execution progress."""
+    view = view or {}
+    return view.get("status") not in ("COMPLETE", "TASK_COMPLETE") and (
+        view.get("phase") in ("DISCOVERING", "PLANNING")
+        or view.get("status") == "AWAITING_GOAL_APPROVAL"
+        or _mapping(view.get("needs")).get("kind") == "approve_plan"
+    )
+
+
 def doing(view: dict | None) -> str | None:
     """The newest event as a short phrase for the status row, or None when the view has none."""
+    if _planning(view) and (headline := _mapping(_mapping(view).get("progress")).get("headline")):
+        return str(headline)
     activity_rows = _rows(_mapping(_mapping(view).get("chat")).get("activity"))
     if activity_rows and activity_rows[-1].get("kind") == "command":
         return None
@@ -319,23 +331,20 @@ def sections(view: dict | None, *, launched: bool = False, task_total: dict | No
     if path := stage_policy.compact(view):  # which planning path a bug-fix run took and why (#1884 F2)
         summary, entries = path
         result.append(Section("Plan path", summary, tuple(Row("·", line, "dim") for line in entries)))
-    if linked := changeset.compact(view):  # the other runs of this run's change set (#2066)
-        summary, entries = linked
-        result.append(Section("Change set", summary, tuple(Row("·", line, "dim") for line in entries)))
-    if coordinated := _mapping(view.get("coordination")):
-        summary = str(coordinated.get("phase", "discovering")).replace("_", " ")
-        if coordinated.get("active"):
-            summary += " · " + str(coordinated["active"])
+    coordinated = _mapping(view.get("coordination"))
+    linked_rows = changeset.linked(view)
+    if coordinated or (task_total is not None and linked_rows):
+        count = len(_rows(coordinated.get("members"))) if coordinated else len(linked_rows) + 1
         result.append(
             Section(
-                "Coordinated bug fix",
-                summary,
-                tuple(
-                    Row("·", f"{row['target']}: {row.get('pr_url') or row['status']}", "plain")
-                    for row in _rows(coordinated.get("members"))
-                ),
+                "Task",
+                f"One task across {count} repositories" if count > 1 else "Finding the affected code",
+                (Row("·", "/changeset shows repository details", "dim"),),
             )
         )
+    elif linked := changeset.compact(view):  # manually linked runs retain their set display
+        summary, entries = linked
+        result.append(Section("Change set", summary, tuple(Row("·", line, "dim") for line in entries)))
     if recent := events(view):
         result.append(Section("Activity", "", tuple(event_row(event) for event in recent[-EVENT_ROWS:])))
     requirements = _mapping(progress.get("requirements"))
@@ -390,6 +399,26 @@ def sections(view: dict | None, *, launched: bool = False, task_total: dict | No
                 ),
             )
         )
+    return result
+
+
+def compact_sections(view: dict | None, *, launched: bool = False, task_total: dict | None = None) -> list[Section]:
+    """Fixed sidebar summaries, with decisions visible and detailed history available through commands."""
+    result = []
+    for section in sections(view, launched=launched, task_total=task_total):
+        if section.title in ("Activity", "Plan path", "Current work", "What went wrong", "Change set"):
+            continue
+        if _planning(view) and section.title in ("Acceptance checks", "Tasks"):
+            continue
+        if section.title == "Now":
+            rows = tuple(row for row in section.rows if row.style in ("warn", "bad"))
+            result.append(Section(section.title, section.summary, rows))
+            stage = _mapping(_mapping(view).get("progress")).get("stage")
+            if isinstance(stage, str) and stage.strip():
+                result.append(Section("Stage", stage.strip()))
+        elif section.summary:
+            rows = section.rows[:1] if section.title == "Usage" else ()
+            result.append(Section("Usage" if section.title == "Stages" else section.title, section.summary, rows))
     return result
 
 

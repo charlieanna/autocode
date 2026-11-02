@@ -6,6 +6,7 @@ import unittest
 from unittest import mock
 
 import autocode_chat_history as history
+import autocode_message_context as message_context
 import autocode_plan_chat as chat
 import autocode_requirements_handoff as handoff
 import autocode_run_messages as messages
@@ -25,6 +26,86 @@ def context():
     }
 
 
+def large_context():
+    supplied = context()
+    supplied["participants"][0]["plan"] = {
+        "token": "r3:exact-plan",
+        "revision": 3,
+        "hash": "exact-plan",
+        "acceptance_criteria": [
+            {
+                "id": "AC1",
+                "criterion": "Keep the operation and mapped result; payload may remain empty.",
+                "verification_method": "Run the real producer-to-reader test.",
+                "human_review": False,
+                "sources": [{"source_id": "task:0", "quote": "Original source citation. " * 6000}],
+                "current_behavior": "The operation is lost before storage.",
+            }
+        ],
+        "constraints": ["No conversion of XML-RPC to EPP."],
+        "permission_boundaries": ["Local tests only."],
+        "scope_exclusions": ["No deployment."],
+        "milestones": [{"id": "M1", "description": "Prove the history behavior."}],
+        "end_to_end_flow": {"steps": ["producer", "reader"]},
+    }
+    return supplied
+
+
+class ContextProjectionTests(unittest.TestCase):
+    def test_small_context_is_unchanged_and_copied(self):
+        supplied = context()
+        result = message_context.projected(supplied)
+        self.assertEqual(supplied, result)
+        result["participants"][0]["plan"]["intended_outcome"] = "changed"
+        self.assertEqual(context(), supplied)
+        self.assertIsNone(message_context.projected(None))
+
+    def test_large_projection_preserves_requirements_checks_boundaries_and_exact_identity(self):
+        supplied = large_context()
+        before = copy.deepcopy(supplied)
+        result = message_context.projected(supplied)
+        self.assertLessEqual(len(json.dumps(result, ensure_ascii=False).encode()), message_context.MAX_BYTES)
+        plan = result["participants"][0]["plan"]
+        original = supplied["participants"][0]["plan"]
+        expected = copy.deepcopy(original)
+        for criterion in expected["acceptance_criteria"]:
+            criterion.pop("sources")
+            criterion.pop("current_behavior")
+        expected["conversation_projection"] = {
+            "kind": "requirements_and_checks",
+            "full_plan_sha256": util.digest(original),
+            "omitted_criterion_fields": ["current_behavior", "sources"],
+        }
+        self.assertEqual(expected, plan)
+        self.assertEqual(before, supplied)
+        self.assertEqual(result, message_context.projected(copy.deepcopy(supplied)))
+        original["acceptance_criteria"][0]["sources"][0]["quote"] += "changed evidence"
+        self.assertNotEqual(result, message_context.projected(supplied), "omitted evidence still binds the receipt")
+        self.assertEqual(context()["participants"][1], result["participants"][1])
+
+    def test_required_text_is_never_truncated_and_original_size_gate_remains(self):
+        supplied = large_context()
+        with self.assertRaisesRegex(ValueError, "bounded"):
+            message_context.checked(supplied)
+        supplied["participants"][0]["plan"]["acceptance_criteria"][0]["criterion"] = "界" * 50000
+        with self.assertRaisesRegex(ValueError, "bounded"):
+            message_context.projected(supplied)
+
+    def test_projection_does_not_erase_invalid_authority_or_nonfinite_evidence(self):
+        supplied = large_context()
+        supplied["approve"] = True
+        with self.assertRaisesRegex(ValueError, "context"):
+            message_context.projected(supplied)
+        supplied = large_context()
+        supplied["participants"][0]["plan"]["acceptance_criteria"][0]["current_behavior"] = float("nan")
+        with self.assertRaisesRegex(ValueError, "finite"):
+            message_context.projected(supplied)
+        supplied = large_context()
+        supplied["participants"][0]["plan"]["conversation_projection"] = {"existing": True}
+        with self.assertRaisesRegex(ValueError, "projection"):
+            message_context.projected(supplied)
+
+
 def routed(state=None):
     state = state or working()
     event = messages.receive(state, {**receipt(), "context": context()})
@@ -33,6 +114,13 @@ def routed(state=None):
 
 
 class TaskConversationContextTests(unittest.TestCase):
+    def test_prompt_explains_projection_without_treating_it_as_plan_approval(self):
+        state, _ = routed()
+        prompt, _ = chat.context(state)
+        self.assertIn("conversation_projection", prompt)
+        self.assertIn("current_behavior and sources", prompt)
+        self.assertIn("complete plans", " ".join(prompt.split()))
+
     def test_a_source_question_is_suspended_only_during_the_answer_and_restored_exactly(self):
         state = working()
         state.update(

@@ -23,6 +23,112 @@ def view(*, headline="Builder working", needs="nothing needed from you", task="w
 
 
 class SectionTests(unittest.TestCase):
+    def test_compact_usage_keeps_incomplete_accounting_visible(self):
+        current = view()
+        current["cost"] = {"spent_usd": 1.25, "complete": False, "unpriced_stages": 2}
+        current["usage"] = {
+            "accounting": {"complete": False, "active_attempts": 1, "parallel_workers_pending": ["worker-2"]}
+        }
+        shown = panel.compact_sections(current)
+        usage = next(section for section in shown if section.title == "Usage")
+        self.assertIn("$1.25", usage.summary)
+        for warning in ("incomplete", "2 unpriced", "1 active", "1 worker pending", "attempt coverage incomplete"):
+            with self.subTest(warning=warning):
+                self.assertIn(warning, " ".join(row.text for row in usage.rows))
+        self.assertNotIn("Estimates and routes", repr(shown))
+
+    def test_planning_summaries_hide_completion_counts_but_keep_details_and_findings(self):
+        for phase, status in (("DISCOVERING", "RUNNING"), ("PLANNING", "RUNNING"), (None, "AWAITING_GOAL_APPROVAL")):
+            with self.subTest(phase=phase, status=status):
+                current = view(headline="Plan Reviewer working")
+                current.update(phase=phase, status=status)
+                current["progress"]["stage"] = "Plan Reviewer"
+                current["progress"]["problems"] = {"open": 1, "items": [{"finding": "Missing failure case"}]}
+                shown = panel.compact_sections(current)
+                self.assertNotIn("Tasks", [section.title for section in shown])
+                self.assertNotIn("Acceptance checks", [section.title for section in shown])
+                self.assertIn(panel.Section("Stage", "Plan Reviewer"), shown)
+                self.assertIn(panel.Section("Problems", "1 open"), shown)
+                self.assertIn("Greets by name", panel.text("/plan", current, panel.StageLog()))
+                self.assertIn("Write greet.py", panel.text("/tasks", current, panel.StageLog()))
+
+    def test_execution_and_completed_summaries_keep_delivery_counts(self):
+        for phase, status in (("READY_TO_EXECUTE", "RUNNING"), ("PLANNING", "TASK_COMPLETE"), (None, "RUNNING")):
+            with self.subTest(phase=phase, status=status):
+                current = view()
+                current.update(phase=phase, status=status)
+                titles = [section.title for section in panel.compact_sections(current)]
+                self.assertIn("Tasks", titles)
+                self.assertIn("Acceptance checks", titles)
+
+    def test_compact_sidebar_keeps_the_public_stage_while_waiting(self):
+        current = {"status": "WAITING_FOR_USER", "progress": {"stage": "Planner", "headline": "Waiting for you"}}
+        shown = panel.compact_sections(current)
+        self.assertEqual([panel.Section("Now", "Waiting for you"), panel.Section("Stage", "Planner")], shown)
+        for missing in (None, "", "  ", 123):
+            current["progress"]["stage"] = missing
+            self.assertEqual([panel.Section("Now", "Waiting for you")], panel.compact_sections(current))
+
+    def test_compact_sections_keep_decisions_and_totals_without_scrolling_detail(self):
+        current = view(needs="plan approval needed")
+        current["needs"] = {"kind": "approve_plan"}
+        current["chat"] = {
+            "progress": ["Review the plan", "Recent steps: Requirements finished"],
+            "activity": [{"kind": "edit", "text": "edited example.go"}],
+        }
+        total = {
+            "spent_usd": 9.5,
+            "inherited_usd": 0,
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "cost_complete": True,
+            "tokens_complete": True,
+        }
+        shown = panel.compact_sections(current, task_total=total)
+        self.assertEqual(["Now", "Task usage"], [s.title for s in shown])
+        self.assertEqual((panel.Row("!", "plan approval needed", "warn"),), shown[0].rows)
+        self.assertIn("$9.50", shown[1].summary)
+        self.assertTrue(all(not s.rows for s in shown[1:]))
+        self.assertNotIn("Recent steps", repr(shown))
+        self.assertNotIn("edited example.go", repr(shown))
+        self.assertIn("Greets by name", panel.text("/plan", current, panel.StageLog()))
+
+    def test_coordinated_task_is_one_compact_section_without_internal_member_states(self):
+        current = view()
+        current["scope"] = {"linked": [{"target": "history", "role": "member"}]}
+        current["coordination"] = {
+            "phase": "discovering",
+            "active": "api",
+            "members": [
+                {"target": "api", "status": "WAITING_FOR_USER"},
+                {"target": "history", "status": "STARTING"},
+            ],
+        }
+        shown = panel.sections(current)
+        task = next(section for section in shown if section.title == "Task")
+        self.assertEqual("One task across 2 repositories", task.summary)
+        self.assertEqual((panel.Row("·", "/changeset shows repository details", "dim"),), task.rows)
+        self.assertNotIn("Change set", [section.title for section in shown])
+        self.assertNotIn("WAITING_FOR_USER", repr(shown))
+        self.assertEqual("Builder working", shown[0].summary)
+
+    def test_coordinated_child_keeps_task_summary_when_it_owns_foreground(self):
+        current = view()
+        current["scope"] = {"linked": [{"target": "api", "role": "source"}]}
+        total = {
+            "spent_usd": 2.5,
+            "inherited_usd": 0,
+            "input_tokens": 300,
+            "output_tokens": 0,
+            "cost_complete": True,
+            "tokens_complete": True,
+        }
+        shown = panel.sections(current, task_total=total)
+        task = next(section for section in shown if section.title == "Task")
+        self.assertEqual("One task across 2 repositories", task.summary)
+        self.assertNotIn("source run", repr(shown))
+        self.assertNotIn("Change set", [section.title for section in shown])
+
     def test_a_working_run_shows_where_it_is_its_requirements_and_tasks(self):
         shown = panel.sections(view())
         self.assertEqual(["Now", "Acceptance checks", "Tasks"], [section.title for section in shown])
@@ -156,6 +262,21 @@ class StepTests(unittest.TestCase):
 
 
 class LiveEventTests(unittest.TestCase):
+    def test_planning_status_uses_the_public_headline_instead_of_tool_activity(self):
+        current = self.live(self.EDIT)
+        current["phase"] = "PLANNING"
+        current["progress"]["headline"] = "Plan Reviewer working"
+        self.assertEqual("Plan Reviewer working", panel.doing(current))
+        current["phase"] = "DISCOVERING"
+        current["progress"]["headline"] = "Requirements working"
+        self.assertEqual("Requirements working", panel.doing(current))
+        current["phase"] = "READY_TO_EXECUTE"
+        current["needs"] = {"kind": "approve_plan"}
+        current["progress"]["headline"] = "Waiting for you"
+        self.assertEqual("Waiting for you", panel.doing(current))
+        current["needs"] = {"kind": "continue"}
+        self.assertEqual("Editing: edited app/greet.py", panel.doing(current))
+
     def live(self, *events, needs="nothing needed from you", kind="continue"):
         shown = view(headline="Builder working", needs=needs)
         shown["needs"] = {"kind": kind}

@@ -134,6 +134,38 @@ class SettingTests(unittest.TestCase):
         review.after_answers(pending)
         self.assertEqual(review.NEXT, pending["next_stage"])
 
+    def test_requirements_clarification_precedes_scope_routing_without_deciding_scope(self):
+        question = {"id": "example", "question": "Which action has the incorrect result?"}
+        for spec_first, complete in ((False, False), (True, False), (True, True)):
+            with self.subTest(spec_first=spec_first, complete=complete):
+                report = {
+                    "open_questions": [question],
+                    "required_behaviors": ["Correct the result"] if complete else [],
+                    "acceptance_tests": ["Result is mapped"] if complete else [],
+                    "workspace_scope": {
+                        "spans_repositories": True,
+                        "external_parts": [
+                            {"target": "history", "work": "Correct history", "source_quote": "Correct history"}
+                        ],
+                    },
+                }
+                state = {
+                    "settings": {"spec_first": spec_first},
+                    "requirements_handoff": {"report": report},
+                    "next_stage": review.NEXT,
+                }
+                scope_before = review.scope_question.view(state)
+                self.assertEqual([question], review.questions(state))
+                self.assertTrue(review.accepts(state, {"scope": "clarification", "questions": [question]}))
+                state["answers"] = {"example": {"text": "Domain info"}}
+                self.assertTrue(review.questions(state)[0]["id"].startswith("workspace-scope-"))
+                review.after_answers(state)
+                self.assertEqual(review.STAGE, state["next_stage"])
+                self.assertEqual(scope_before, review.scope_question.view(state))
+                state["goal_contract"] = {"revision": 1}
+                state["answers"] = {}
+                self.assertTrue(review.questions(state)[0]["id"].startswith("workspace-scope-"))
+
 
 class RequirementsReviewCliTests(unittest.TestCase):
     def setUp(self):

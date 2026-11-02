@@ -796,7 +796,7 @@ def status(run_dir, *, command=tasks.AUTOCODE):
     if requests or document.get("members"):
         output["conversation"] = {
             "requests": requests,
-            "results": (document.get("conversation") or {}).get("results", []),
+            "results": conversation.results(document, requests),
             "input": {
                 "kind": "coordination_message",
                 "next_command": store.command(

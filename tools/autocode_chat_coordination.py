@@ -76,13 +76,61 @@ def read(client, view):
     return summary
 
 
+def approval_text(summary, render_plan):
+    """The exact complete approval packet, rendered as one stable display update."""
+    need = summary["needs"]
+    lines = []
+    if need["kind"] == "approval":
+        source_catalog = summary.get("source_catalog") or {}
+        if source_catalog:
+            lines.append(
+                "Repository discovery: "
+                + str(source_catalog.get("catalog"))
+                + " · catalog "
+                + str(source_catalog.get("catalog_identity"))
+                + " · source snapshot "
+                + str(source_catalog.get("source_snapshot"))
+            )
+        for member in summary["members"]:
+            evidence = member.get("supporting_evidence") or {}
+            lines.append(
+                f"\nRepository: {member['target']} · role {member.get('role', 'member')}"
+                + f"\n  Location: {member.get('location', member.get('workspace'))}"
+                + f"\n  Baseline: {member.get('base', 'unknown')}"
+            )
+            if evidence.get("source_quote"):
+                lines.append("  Ticket grounding: " + evidence["source_quote"])
+            if evidence.get("evidence"):
+                lines.append(
+                    "  Source evidence: "
+                    + str(evidence.get("evidence_repository", "unknown repository"))
+                    + "@"
+                    + str(evidence.get("evidence_revision", "unknown revision"))
+                    + ":"
+                    + evidence["evidence"]
+                )
+        for row in need["summary"]["runs"]:
+            lines.append("\n" + row["target"] + "\n" + render_plan(row["plan"]))
+        if need.get("joint_plan") and not any(
+            row.get("role") == "joint" and row.get("plan") == need["joint_plan"] for row in need["summary"]["runs"]
+        ):
+            lines.append("\nJoint regression\n" + render_plan(need["joint_plan"]))
+    else:
+        lines.append("\nJoint regression\n" + render_plan(need["plan"]))
+    lines.append(summary["approval"]["publication"])
+    return "\n".join(lines)
+
+
 def step(client, view, render_plan):
     summary = read(client, view)
-    for row in summary["members"]:
-        line = f"{row['target']}: {row['status']}" + (f" · {row['pr_url']}" if row.get("pr_url") else "")
-        if line not in client.said:
-            client.say(line)
-            client.said.add(line)
+    # The full-screen panel carries progress. Keep its conversation for replies,
+    # decisions and results; the line client still needs progress messages.
+    if not getattr(client, "_observe", None):
+        for row in summary["members"]:
+            line = f"{row['target']}: {row['status']}" + (f" · {row['pr_url']}" if row.get("pr_url") else "")
+            if line not in client.said:
+                client.say(line)
+                client.said.add(line)
     if summary["done"]:
         client.say("Joint regression passed. Linked pull requests are ready:")
         for row in summary["members"]:
@@ -110,42 +158,7 @@ def step(client, view, render_plan):
     if need["kind"] in ("budget", "planning_budget", "coordination_resume"):
         return budget_reply(client, view, need)
     if summary.get("approval"):
-        if need["kind"] == "approval":
-            source_catalog = summary.get("source_catalog") or {}
-            if source_catalog:
-                client.say(
-                    "Repository discovery: "
-                    + str(source_catalog.get("catalog"))
-                    + " · catalog "
-                    + str(source_catalog.get("catalog_identity"))
-                    + " · source snapshot "
-                    + str(source_catalog.get("source_snapshot"))
-                )
-            for member in summary["members"]:
-                evidence = member.get("supporting_evidence") or {}
-                client.say(
-                    f"\nRepository: {member['target']} · role {member.get('role', 'member')}"
-                    + f"\n  Location: {member.get('location', member.get('workspace'))}"
-                    + f"\n  Baseline: {member.get('base', 'unknown')}"
-                )
-                if evidence.get("source_quote"):
-                    client.say("  Ticket grounding: " + evidence["source_quote"])
-                if evidence.get("evidence"):
-                    client.say(
-                        "  Source evidence: "
-                        + str(evidence.get("evidence_repository", "unknown repository"))
-                        + "@"
-                        + str(evidence.get("evidence_revision", "unknown revision"))
-                        + ":"
-                        + evidence["evidence"]
-                    )
-            for row in need["summary"]["runs"]:
-                client.say("\n" + row["target"] + "\n" + render_plan(row["plan"]))
-            if need.get("joint_plan"):
-                client.say("\nJoint regression\n" + render_plan(need["joint_plan"]))
-        else:
-            client.say("\nJoint regression\n" + render_plan(need["plan"]))
-        client.say(summary["approval"]["publication"])
+        client.say(approval_text(summary, render_plan))
         can_message = ((summary.get("conversation") or {}).get("input") or {}).get("kind") == "coordination_message"
         hint = ", or type a question or change" if can_message else ""
         answer = client.ask(f"Approve these coordinated plans? [y/N]{hint}: ").strip()

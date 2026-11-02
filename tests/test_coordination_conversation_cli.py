@@ -22,6 +22,132 @@ from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 @unittest.skipUnless(sys.platform == "linux", "supervised provider requires supported Linux")
 class CoordinatedConversationCliTests(unittest.TestCase):
+    def test_held_peer_allows_requirements_reply_without_consuming_pause_or_replanning(self):
+        workspace, env = fixture_workspace(self)
+        peer_workspace, _ = fixture_workspace(self)
+        self.enterContext(patch.dict(os.environ, env))
+        provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"
+        calls = provider.parent / "held-conversation-calls"
+        marker = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
+        amendment = textwrap.dedent(f"""
+            with Path({str(calls)!r}).open('a') as log:
+                log.write(json.dumps({{'stage': stage, 'message': data.get('message')}}) + '\\n')
+            if stage == 'requirements_gather' and data.get('message'):
+                message = data['message']
+                changing = message['text'].startswith('Please change')
+                report = {{'message_id': message['id'], 'contract_token': message['contract_token'],
+                          'intent': 'change' if changing else 'question',
+                          'assistant_reply': 'Peer plan needs review.' if changing else 'The request may stay empty.',
+                          'affected_targets': ['peer'] if changing else []}}
+        """)
+        self.assertIn(marker, provider.read_text())
+        provider.write_text(provider.read_text().replace(marker, textwrap.indent(amendment, "    ") + "\n" + marker))
+        source = taskrun.TaskRun.start(
+            workspace, BRIEF, options=(*FIXTURE_OPTIONS, "--spec-first", "--no-adaptive-planning"), env=env, timeout=240
+        )
+        source_before = source.advance_until_input()
+        peer = taskrun.TaskRun.start(
+            peer_workspace, BRIEF, options=(*FIXTURE_OPTIONS, "--no-adaptive-planning"), env=env, timeout=240
+        )
+        peer.advance_until_input()
+        response = subprocess.run(
+            [
+                *taskrun.AUTOCODE,
+                "intervention",
+                "submit",
+                "--workspace",
+                str(peer.workspace),
+                "--run-dir",
+                str(peer.run_dir),
+                "--request-id",
+                "independent-pause",
+                "--kind",
+                "pause",
+                "--json",
+            ],
+            env={**os.environ, **env},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(0, response.returncode, response.stdout + response.stderr)
+        self.assertTrue(json.loads(response.stdout)["accepted"])
+        peer_before = peer.intervention_status()
+        self.assertIn("independent-pause", peer_before["interventions"]["pending_ids"])
+        before_calls = calls.read_text().splitlines()
+        store.save(
+            {
+                "version": 1,
+                "id": "held-conversation-fixture",
+                "anchor": str(source.run_dir),
+                "phase": "fixing",
+                "task": BRIEF,
+                "request_sources": [],
+                "choices": {},
+                "initial_scope": [],
+                "joint_attempts": [],
+                "approved_contracts": {"token": "retained"},
+                "members": [
+                    {
+                        "target": "peer",
+                        "workspace": str(peer.workspace),
+                        "run_dir": str(peer.run_dir),
+                        "base": "fixture",
+                        "started": True,
+                        "brief": BRIEF,
+                    }
+                ],
+                "budget": {**budget.initial(source_before), "cap_usd": 0},
+            }
+        )
+
+        def invoke(operation, *args):
+            response = subprocess.run(
+                [*taskrun.AUTOCODE, "coordinate", operation, "--run-dir", str(source.run_dir), *args, "--json"],
+                env={**os.environ, **env},
+                capture_output=True,
+                text=True,
+                timeout=240,
+            )
+            self.assertEqual(0, response.returncode, response.stdout + response.stderr)
+            return json.loads(response.stdout)
+
+        for index, text in enumerate(("Can the request stay empty?", "Please change the result code only.")):
+            identifier = "held-message-" + str(index)
+            receipt = invoke("message", "--request-id", identifier, "--text", text)
+            self.assertTrue(receipt["accepted"])
+            for _ in range(12):
+                result = invoke("advance")
+                answers = result["conversation"]["results"]
+                if any(row["request_id"] == identifier for row in answers):
+                    break
+                self.assertIn(result["needs"]["kind"], ("conversation", "watch"), result["needs"])
+            else:
+                self.fail("Requirements did not answer the held task message")
+            answer = next(row for row in answers if row["request_id"] == identifier)
+            self.assertEqual("change" if index else "question", answer["reply"]["conversation"]["intent"])
+            self.assertTrue(answer["answered_at"])
+            after_capture = calls.read_text().splitlines()
+            settled = invoke("advance")
+            self.assertEqual("blocked", settled["needs"]["kind"])
+            self.assertEqual(answers, settled["conversation"]["results"])
+            self.assertEqual(answers, invoke("status")["conversation"]["results"])
+            retry = invoke("message", "--request-id", identifier, "--text", text)
+            self.assertTrue(retry["idempotent"])
+            self.assertEqual(receipt["receipt"], retry["receipt"])
+            self.assertEqual("blocked", invoke("advance")["needs"]["kind"])
+            self.assertEqual(after_capture, calls.read_text().splitlines())
+            peer_now = peer.intervention_status()
+            self.assertEqual(peer_before["interventions"], peer_now["interventions"])
+            for field in ("needs", "displayed_plan", "approved_contract", "usage", "request_sources"):
+                self.assertEqual(peer_before["view"].get(field), peer_now["view"].get(field), field)
+            self.assertEqual({"token": "retained"}, store.read(source.run_dir)["approved_contracts"])
+        new_calls = [json.loads(row) for row in calls.read_text().splitlines()[len(before_calls) :]]
+        self.assertEqual(2, len(new_calls), new_calls)
+        self.assertTrue(all(row["stage"] == "requirements_gather" and row["message"] for row in new_calls))
+        self.assertEqual(source_before["request_sources"], source.status()["request_sources"])
+        self.assertFalse((peer_workspace / "greet.py").exists())
+
     def test_message_during_owned_planner_pauses_answers_and_resumes_without_a_second_draft(self):
         workspace, env = fixture_workspace(self)
         peer_workspace, _ = fixture_workspace(self)
@@ -247,7 +373,10 @@ class CoordinatedConversationCliTests(unittest.TestCase):
             for _ in range(18):
                 result = invoke("advance")
                 answers = result["conversation"]["results"]
-                if any(row["request_id"] == identifier for row in answers):
+                routing = result["needs"]
+                if any(row["request_id"] == identifier for row in answers) and (
+                    routing["kind"] not in ("conversation", "watch") or routing.get("operation") == "resume"
+                ):
                     break
                 self.assertIn(result["needs"]["kind"], ("conversation", "watch"), result["needs"])
             else:

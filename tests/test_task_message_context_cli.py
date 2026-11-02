@@ -8,18 +8,32 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import autocode_coordination_conversation as conversation
 import autocode_taskrun as taskrun
 import autocode_util as util
 
 from tests import ROOT
 from tests.test_agent_step import fixture_workspace
-from tests.test_message_context import context
+from tests.test_message_context import context, large_context
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 
 @unittest.skipUnless(sys.platform == "linux", "supervised provider requires supported Linux")
 class TaskMessageContextCliTests(unittest.TestCase):
     def test_source_answers_questions_and_routes_changes_once_without_local_replanning(self):
+        self.exercise_context(context())
+
+    def test_projected_large_plans_reconcile_replies_and_reopen_without_duplicate_calls(self):
+        supplied = large_context()
+        record = {"members": [{"target": row["target"], "started": True} for row in supplied["participants"]]}
+        views = {
+            row["target"]: {"status": row["status"], "displayed_plan": row["plan"]} for row in supplied["participants"]
+        }
+        packet = conversation.context(record, views)
+        self.assertIn("conversation_projection", packet["participants"][0]["plan"])
+        self.exercise_context(packet)
+
+    def exercise_context(self, supplied):
         workspace, env = fixture_workspace(self)
         provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"
         calls = provider.parent / "context-calls.jsonl"
@@ -47,7 +61,7 @@ class TaskMessageContextCliTests(unittest.TestCase):
         # queued input is consumed; it must not strand an accepted message.
         run.options = ("--max-cost-usd", "0")
         packet = workspace / ".autocode/public-participants.json"
-        packet.write_text(json.dumps(context()))
+        packet.write_text(json.dumps(supplied))
         before_calls = [json.loads(line) for line in calls.read_text().splitlines()]
         for index, text in enumerate(
             ("Could we reuse the conversion?", "Please change the gateway to preserve the result.")
@@ -86,7 +100,7 @@ class TaskMessageContextCliTests(unittest.TestCase):
                     "request_id": f"task-message-{index}",
                     "intent": "question" if not index else "change",
                     "affected_targets": [] if not index else ["gateway"],
-                    "context_sha256": util.digest(context()),
+                    "context_sha256": util.digest(supplied),
                 },
                 response["conversation"],
             )
@@ -99,6 +113,7 @@ class TaskMessageContextCliTests(unittest.TestCase):
             reopened = taskrun.TaskRun(run.workspace, run.run_dir, env=env).status()
             self.assertEqual(view["chat"]["messages"], reopened["chat"]["messages"])
         records = [json.loads(line) for line in calls.read_text().splitlines()]
+        self.assertTrue(all(row["message"]["context"] == supplied for row in records if row.get("message")))
         self.assertEqual(before_calls, [row for row in records if not row.get("message")])
         self.assertEqual(2, len([row for row in records if row.get("message")]))
         self.assertFalse((workspace / "greet.py").exists(), "An assessment must not start a Builder")
