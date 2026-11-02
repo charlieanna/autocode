@@ -21,6 +21,44 @@ _TICKET_TITLE = re.compile(
     r"(?:#{1,6}[ \t]+)?(?P<key>[A-Z][A-Z0-9]+-[1-9]\d*):[ \t]+(?=\S)"
 )
 _TITLE_VALUE = re.compile(r"\b(?:code|identifier|key|version|sku)\b", re.I)
+_TICKET_KEY = r"[A-Z][A-Z0-9]+-[1-9]\d*"
+_TICKET_REFERENCE = re.compile(
+    r"\b(?:(?i:ticket|issue|bug report)\s+|(?i:original|reported)\s+(?="
+    + _TICKET_KEY
+    + r"\s+(?i:report|task|outcome|issue|ticket|bug(?: report)?)\b))(?P<key>"
+    + _TICKET_KEY
+    + r")(?![\w-])"
+)
+_QUOTED_REFERENCE = re.compile(r"`[^`\n]*`|\"[^\"\n]*\"|'[^'\n]*'")
+_REFERENCE_OUTPUT = re.compile(r"\b(?:print|emit|output|return|literal|display|show|write|quote|say)\b", re.I)
+
+
+def ticket_reference_keys(text: str) -> set[str]:
+    """Admit explicit documentary ticket references, never output or product values.
+
+    Every use of a key in the whole source must be an unquoted reference. An
+    ambiguous second use therefore keeps the key's numbers in every sentence.
+    """
+    counts: dict[str, int] = {}
+    output_context = False
+    fenced = False
+    for line in text.splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+            continue
+        matches = list(_TICKET_REFERENCE.finditer(line))
+        if not matches:
+            if line.strip():
+                output_context = bool(_REFERENCE_OUTPUT.search(line))
+            continue
+        if fenced or output_context or _REFERENCE_OUTPUT.search(line) or _TITLE_VALUE.search(line):
+            continue
+        quoted = [match.span() for match in _QUOTED_REFERENCE.finditer(line)]
+        for match in matches:
+            if not any(start <= match.start("key") < end for start, end in quoted):
+                key = match["key"]
+                counts[key] = counts.get(key, 0) + 1
+    return {key for key, count in counts.items() if text.count(key) == count}
 
 
 def ticket_title_key(text: str) -> str:
@@ -65,12 +103,18 @@ def without_location_labels(text: str, *, protected_locations=()) -> str:
     return _LOCATION_LABEL.sub(lambda match: match.group() if match["location"] in protected else " ", text)
 
 
-def value_text(text: str, source_ids, *, protected_locations=(), ticket_title_key="") -> str:
+def value_text(text: str, source_ids, *, protected_locations=(), ticket_title_key="", ticket_reference_keys=()) -> str:
     """Text whose numbers denote values, with known source-reference metadata removed."""
     text = without_location_labels(text, protected_locations=protected_locations)
     title = _TICKET_TITLE.match(text)
     if title and title["key"] == ticket_title_key:
         text = text[: title.start("key")] + text[title.end("key") :]
+    text = _TICKET_REFERENCE.sub(
+        lambda match: (
+            match.group().replace(match["key"], "") if match["key"] in ticket_reference_keys else match.group()
+        ),
+        text,
+    )
     ids = "|".join(re.escape(value) for value in sorted(set(source_ids), key=len, reverse=True))
     if not ids:
         return text

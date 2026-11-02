@@ -25,7 +25,10 @@ class TicketTitleCliTests(unittest.TestCase):
             "Implement a joint regression for this original bug report:\n", scenario_name="bugfix-trivial"
         )
 
-    def _assert_reviewed_plan(self, prefix, *, scenario_name="greenfield-greeting-cli"):
+    def test_original_ticket_outcome_reaches_review_without_numeric_report_repair_and_reopens(self):
+        self._assert_reviewed_plan("", title="The original APP-12398 outcome is a working greeting CLI.")
+
+    def _assert_reviewed_plan(self, prefix, *, scenario_name="greenfield-greeting-cli", title=None):
         with tempfile.TemporaryDirectory(prefix="ticket-title-cli-") as temporary:
             root = Path(temporary)
             scenario = catalog.load(scenario_name)
@@ -34,7 +37,7 @@ class TicketTitleCliTests(unittest.TestCase):
             env.update(AUTOCODE_HOME=str(root / "registry"), PYTHONDONTWRITEBYTECODE="1")
             paths = env["PATH"].split(os.pathsep)
             env["PATH"] = os.pathsep.join([paths[0], str(Path(sys.executable).parent), *paths[1:]])
-            title = "APP-12398: Missing greeting CLI" if not prefix else "APP-12398: Missing partial page"
+            title = title or ("APP-12398: Missing greeting CLI" if not prefix else "APP-12398: Missing partial page")
             run = taskrun.TaskRun.start(
                 project,
                 prefix + title + "\n\n" + scenario.brief,

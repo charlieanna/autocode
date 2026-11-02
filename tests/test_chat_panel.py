@@ -25,7 +25,7 @@ def view(*, headline="Builder working", needs="nothing needed from you", task="w
 class SectionTests(unittest.TestCase):
     def test_a_working_run_shows_where_it_is_its_requirements_and_tasks(self):
         shown = panel.sections(view())
-        self.assertEqual(["Now", "Requirements", "Tasks"], [section.title for section in shown])
+        self.assertEqual(["Now", "Acceptance checks", "Tasks"], [section.title for section in shown])
         self.assertEqual("Builder working", shown[0].summary)
         self.assertEqual((), shown[0].rows, "nothing needed from you is not shown as a need")
         self.assertEqual(panel.Row("·", "C1 Greets by name", "plain"), shown[1].rows[0])
@@ -36,7 +36,7 @@ class SectionTests(unittest.TestCase):
         current["progress"]["problems"] = {"open": 1, "items": [{"id": "F1", "finding": "usage goes to stdout"}]}
         shown = {section.title: section for section in panel.sections(current)}
         self.assertEqual(panel.Row("!", "plan approval needed", "warn"), shown["Now"].rows[0])
-        self.assertEqual("bad", shown["Requirements"].rows[0].style)
+        self.assertEqual("bad", shown["Acceptance checks"].rows[0].style)
         self.assertEqual(
             ("1 open", "usage goes to stdout"), (shown["Problems"].summary, shown["Problems"].rows[0].text)
         )
@@ -179,7 +179,7 @@ class LiveEventTests(unittest.TestCase):
         self.assertNotIn("false", repr(sections))
         many = self.live(*[{"kind": "tool", "text": f"read {n}", "status": "done"} for n in range(12)])
         self.assertEqual(panel.EVENT_ROWS, len(panel.sections(many)[1].rows))
-        self.assertEqual(["Now", "Requirements", "Tasks"], [s.title for s in panel.sections(view())])
+        self.assertEqual(["Now", "Acceptance checks", "Tasks"], [s.title for s in panel.sections(view())])
 
     def test_the_status_row_names_the_newest_event(self):
         self.assertIsNone(panel.doing(self.live(self.EDIT, self.COMMAND)))
@@ -267,19 +267,24 @@ class LiveLogTests(unittest.TestCase):
     # A Claude stage's progress notes as the live run of 2026-11-02 showed them: one growing note.
     NOTES = "…king ~300 tokens; thinking ~450 tokens; thinking ~600 tokens; writing StructuredOutput input: 6774 chars;"
 
-    def test_progress_notes_read_as_their_newest_value_once(self):
-        self.assertEqual("thought ~600 tokens · writing its answer · 6.8k chars", panel.live_text(self.NOTES))
-        self.assertEqual("thought ~950 tokens", panel.live_text("thinking ~950 tokens"))
+    def test_transport_counters_do_not_replace_readable_progress(self):
+        self.assertEqual("", panel.live_text(self.NOTES))
+        self.assertEqual("", panel.live_text("thinking ~950 tokens"))
         self.assertEqual(
-            "thought ~1.2k tokens · writing Edit · 40 chars · ran ls",
+            "ran ls",
             panel.live_text("thinking ~1200 tokens; writing Edit input: 40 chars; ran ls"),
+        )
+        self.assertEqual("", panel.live_text("writing Bash input: 25 chars; [partial]"))
+        self.assertEqual(
+            "Checking request routing [partial]",
+            panel.live_text("writing Bash input: 25 chars; Checking request routing [partial]"),
         )
 
     def test_live_prose_uses_terminal_safe_apostrophes_and_plain_kind_labels(self):
         self.assertEqual("I'm checking; I'll report back.", panel.live_text("I’m checking; I’ll report back."))
         self.assertEqual("[thinking]", panel.LIVE_MARKS["thinking"])
         self.assertEqual("[message]", panel.LIVE_MARKS["message"])
-        self.assertEqual("thought ~600 tokens", panel.live_text("[earlier text omitted] tokens; thinking ~600 tokens"))
+        self.assertEqual("", panel.live_text("[earlier text omitted] tokens; thinking ~600 tokens"))
 
     def test_the_models_own_words_are_shown_as_they_are(self):
         for words in ("Read greet.py first; then run the tests.", "thinking about ~3 options", ""):
@@ -288,7 +293,7 @@ class LiveLogTests(unittest.TestCase):
     def test_the_log_text_the_conversation_prints_is_condensed_too(self):
         live = panel.LiveLog()
         live.observe(self.view(("a:r1", "Tester", "thinking", self.NOTES)))
-        self.assertIn("Tester [thinking] thought ~600 tokens · writing its answer · 6.8k chars", live.text())
+        self.assertEqual("No readable updates in this view.", live.text())
         self.assertNotIn("thinking ~450", live.text())
 
     @staticmethod
@@ -303,8 +308,42 @@ class LiveLogTests(unittest.TestCase):
                 self.view(("a:r1", "Builder", "thinking", "Look at greet.py"), ("a:c1", "Builder", "command", "ls"))
             )
         )
-        self.assertFalse(live.observe(self.view(("a:c1", "Builder", "command", "ls"))), "command is not exposed")
+        self.assertFalse(live.observe(self.view(("a:c1", "Builder", "command", "ls"))), "unchanged command")
+        self.assertEqual([], live.shown(), "raw thinking and commands require an explicit detail filter")
+        live.filter = "thinking"
         self.assertEqual(["Look at greet.py"], [entry["text"] for entry in live.shown()])
+
+    def test_default_keeps_messages_without_commands_or_transport_fragments(self):
+        live = panel.LiveLog()
+        live.observe(self.view(("reply", "Plan Reviewer", "message", "Checking the caller's route.")))
+        for number in range(25):
+            live.observe(
+                self.view(
+                    (f"pulse-{number}", "Plan Reviewer", "thinking", f"writing Bash input: {number + 1} chars;"),
+                    (f"command-{number}", "Plan Reviewer", "command", f"rg route source-{number}.go"),
+                )
+            )
+        live.observe(self.view(("other", "Tester", "command", "go test ./...")))
+        self.assertEqual(
+            ["Checking the caller's route."],
+            [entry["text"] for entry in live.shown()],
+        )
+        self.assertEqual(52, len(live.entries), "display condensation must not discard retained detail")
+        live.filter = "tools"
+        self.assertEqual(26, len(live.shown()), "explicit tools view keeps command history")
+        self.assertNotIn("chars", live.text())
+        live.filter = "Plan Reviewer"
+        self.assertEqual(["Checking the caller's route."], [entry["text"] for entry in live.shown()])
+
+    def test_failed_commands_are_retained_in_tools_without_leaking_into_the_default(self):
+        live = panel.LiveLog()
+        current = self.view(("failed", "Tester", "command", "go test ./..."))
+        current["chat"]["log"][0]["status"] = "failed"
+        live.observe(current)
+        live.observe(self.view(("later", "Tester", "command", "rg failure tests")))
+        self.assertEqual([], live.shown())
+        live.filter = "tools"
+        self.assertEqual(["go test ./...", "rg failure tests"], [entry["text"] for entry in live.shown()])
 
     def test_malformed_rows_are_ignored(self):
         live = panel.LiveLog()
@@ -320,13 +359,13 @@ class LiveLogTests(unittest.TestCase):
                 ("c:m1", "Plan Reviewer", "message", "three"),
             )
         )
-        self.assertEqual(["Builder · task M1", "Plan Reviewer"], live.agents())
+        self.assertEqual(["Builder · task M1", "Builder · task M2", "Plan Reviewer"], live.agents())
         live.filter = "m2"
         self.assertEqual([], live.shown())
         live.filter = "thinking"
         self.assertEqual(["one"], [entry["text"] for entry in live.shown()])
         live.filter = "tools"
-        self.assertEqual([], live.shown())
+        self.assertEqual(["two"], [entry["text"] for entry in live.shown()])
         self.assertEqual("LIVE · tools", live.title())
 
     def test_only_the_newest_entries_are_kept(self):

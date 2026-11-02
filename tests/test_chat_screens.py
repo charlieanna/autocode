@@ -20,6 +20,59 @@ RUN_SECONDS = 300  # a fixture stage is quick, but CI hosts are shared
 
 
 class LiveDefaultScreenTests(unittest.TestCase):
+    def test_tool_input_fragments_do_not_crowd_out_readable_progress(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI
+rows = [{'id': 'reply', 'agent': 'Plan Reviewer', 'kind': 'message',
+         'text': 'Checking the caller route against the saved requirement.'}]
+for number in range(25):
+    rows.extend([
+        {'id': f'pulse-{number}', 'agent': 'Plan Reviewer', 'kind': 'thinking',
+         'text': f'writing Bash input: {number + 1} chars;'},
+        {'id': f'command-{number}', 'agent': 'Plan Reviewer', 'kind': 'command',
+         'text': f'rg route source-{number}.go', 'status': 'done'},
+    ])
+with ChatTUI() as ui:
+    ui.observe({'status': 'RUNNING', 'chat': {'log': rows}, 'progress': {
+        'headline': 'Plan Reviewer working',
+        'requirements': {'label': '0 of 1 requirement checked',
+                         'items': [{'id': 'AC1', 'label': 'History is readable', 'state': 'unchecked'}]}}})
+    while True:
+        ui.wait(0.1)
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for(
+            lambda shown: (
+                "LIVE · all agents" in shown
+                and "Plan Reviewer working" in shown
+                and "ACCEPTANCE CHECKS" in shown
+                and "Checking the caller route against the saved" in shown
+                and "requirement." in shown
+                and "rg route source-24.go" not in shown
+                and "source-23.go" not in shown
+                and "writing Bash" not in shown
+                and "chars" not in shown
+            ),
+            timeout=10,
+            what="plain-English progress without commands or 25 transport fragments",
+        )
+        screen.type("/live tools")
+        screen.keys("Enter")
+        screen.wait_for(
+            lambda shown: (
+                "LIVE · tools" in shown
+                and "rg route source-23.go" in shown
+                and "rg route source-24.go" in shown
+                and "writing Bash" not in shown
+            ),
+            what="detailed command history remains available on request",
+        )
+
     def test_live_prose_is_readable_in_the_terminal(self):
         script = """
 import sys
@@ -50,8 +103,6 @@ with ChatTUI() as ui:
             lambda shown: all(
                 text in " ".join(shown.split())
                 for text in (
-                    "[thinking] Partial thought received.",
-                    "[thinking] Found an [partial]",
                     "[message] Checking that [partial]",
                     "[message] I'm checking; I'll report back.",
                     "[earlier text omitted]",
@@ -60,6 +111,12 @@ with ChatTUI() as ui:
             ),
             timeout=10,
             what="readable labels, apostrophes, streaming notice and complete newest words",
+        )
+        screen.type("/live thinking")
+        screen.keys("Enter")
+        screen.wait_for(
+            lambda shown: "[thinking] Partial thought received." in shown and "Found an [partial]" in shown,
+            what="thinking remains available only on request",
         )
 
     def test_running_view_shows_live_without_a_command_and_respects_hiding(self):
@@ -79,7 +136,7 @@ with ChatTUI() as ui:
         self.addCleanup(screen.close)
         screen.wait_for(
             lambda shown: (
-                "LIVE · all agents" in shown and "AutoCode is working; no agent activity reported yet." in shown
+                "LIVE · all agents" in shown and "Working; waiting for a plain-English progress update." in shown
             ),
             what="live activity visible before the first agent message",
         )
@@ -97,7 +154,7 @@ with ChatTUI() as ui:
         screen.keys("Enter")
         screen.wait_for(
             lambda shown: (
-                "LIVE · all agents" in shown and "AutoCode is working; no agent activity reported yet." in shown
+                "LIVE · all agents" in shown and "Working; waiting for a plain-English progress update." in shown
             ),
             what="explicitly restored live pane",
         )

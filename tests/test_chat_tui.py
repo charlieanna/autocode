@@ -1098,7 +1098,12 @@ class LivePaneTests(unittest.TestCase):
     VIEW = {
         "chat": {
             "log": [
-                {"id": "a:r1", "agent": "Builder · task M1", "kind": "thinking", "text": "Read greet.py first"},
+                {
+                    "id": "a:r1",
+                    "agent": "Builder · task M1",
+                    "kind": "message",
+                    "text": "Checking the greeting behavior.",
+                },
                 {"id": "a:e1", "agent": "Builder · task M2", "kind": "edit", "text": "edited greet.py"},
                 {
                     "id": "b:c1",
@@ -1130,11 +1135,11 @@ class LivePaneTests(unittest.TestCase):
         texts = [text for row, _, text in puts if layout.live_start <= row < layout.panel_end]
         self.assertTrue(any("LIVE · all agents" in text for text in texts))
         self.assertIn("Builder · task M1", texts)
-        self.assertIn("Builder · task M2", texts)
-        self.assertTrue(any("Read greet.py first" in text for text in texts))
-        self.assertTrue(any("edited greet.py" in text for text in texts))
+        self.assertNotIn("Builder · task M2", texts)
+        self.assertTrue(any("Checking the greeting behavior." in text for text in texts))
+        self.assertFalse(any("edited greet.py" in text for text in texts))
         self.assertTrue(any("Check the output." in text for text in texts))
-        self.assertFalse(any("pytest -q" in text for text in texts))
+        self.assertFalse(any("pytest -q" in text for text in texts), "commands require the tools filter")
 
     def test_typing_while_autocode_works_keeps_the_pane(self):
         ui = screen_ui(*"/pl")
@@ -1156,7 +1161,7 @@ class LivePaneTests(unittest.TestCase):
         self.assertIsNotNone(ui._layout(30, 120).live_start)
         text = "\n".join(text for _, _, text in puts)
         self.assertIn("LIVE · all agents", text)
-        self.assertIn("AutoCode is working; no agent activity reported yet.", text)
+        self.assertIn("Working; waiting for a plain-English progress update.", text)
         self.assertNotIn("No agent is working", text)
 
     def test_default_live_uses_available_room_on_short_terminal(self):
@@ -1169,7 +1174,7 @@ class LivePaneTests(unittest.TestCase):
         ui.observe(self.VIEW)
         ui.observe({"chat": {"log": []}})
         self.assertIsNotNone(ui._layout(30, 120).live_start)
-        self.assertTrue(any("Read greet.py first" in text for _, _, text in self.drawn(ui)))
+        self.assertTrue(any("Checking the greeting behavior." in text for _, _, text in self.drawn(ui)))
 
     def test_explicitly_hiding_live_survives_new_running_status(self):
         ui = screen_ui()
@@ -1182,7 +1187,7 @@ class LivePaneTests(unittest.TestCase):
         ui.observe({"status": "RUNNING", "chat": {"log": []}})
         ui._run("/live", False, "all")
         text = "\n".join(text for _, _, text in self.drawn(ui))
-        self.assertIn("AutoCode is working; no agent activity reported yet.", text)
+        self.assertIn("Working; waiting for a plain-English progress update.", text)
         self.assertNotIn("No agent is working", text)
 
     def test_live_hides_shows_and_filters_the_pane(self):
@@ -1192,9 +1197,9 @@ class LivePaneTests(unittest.TestCase):
         self.assertIsNone(ui._layout(30, 120).live_start)
         ui._run("/live", False, "M2")
         self.assertIsNotNone(ui._layout(30, 120).live_start)
-        self.assertEqual(["Builder · task M2"], [entry["agent"] for entry in ui._live.shown()])
+        self.assertEqual([], ui._live.shown())
         ui._run("/live", False, "all")
-        self.assertEqual(3, len(ui._live.shown()))
+        self.assertEqual(2, len(ui._live.shown()))
         ui._run("/live", False, "off")
         self.assertIsNone(ui._layout(30, 120).live_start)
 
@@ -1205,8 +1210,10 @@ class LivePaneTests(unittest.TestCase):
         ui._run("/live", False, "all")
         [(role, text)] = ui._transcript.blocks[-1:]
         self.assertEqual("info", role)
-        self.assertIn("Builder · task M1 [thinking] Read greet.py first", text)
+        self.assertIn("Builder · task M1 [message] Checking the greeting behavior.", text)
         self.assertNotIn("pytest -q", text)
+        ui._run("/live", False, "tools")
+        self.assertIn("pytest -q", ui._transcript.blocks[-1][1])
 
     def test_long_entries_wrap_under_their_agent_and_never_carry_escapes(self):
         ui = screen_ui()
