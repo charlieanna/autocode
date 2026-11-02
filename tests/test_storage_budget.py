@@ -103,10 +103,11 @@ class WorkspaceBytesTests(unittest.TestCase):
 
     def test_workspace_without_git_still_counts_files(self):
         (self.root / "main.py").write_bytes(b"source")
-        for failure in (FileNotFoundError(), subprocess.TimeoutExpired("git", 5)):
-            with self.subTest(failure=type(failure).__name__):
-                with mock.patch.object(storage_budget.subprocess, "run", side_effect=failure):
-                    self.assertEqual(storage_budget.workspace_bytes(self.root), len(b"source"))
+        self.assertEqual(storage_budget.workspace_bytes(self.root), len(b"source"))
+        for dot in ("not a git directory", "gitdir: /missing/checkout/.git\n"):
+            with self.subTest(dot=dot.splitlines()[0]):
+                (self.root / ".git").write_text(dot)
+                self.assertEqual(storage_budget.workspace_bytes(self.root), len(b"source"))
 
 
 class VerdictTests(unittest.TestCase):

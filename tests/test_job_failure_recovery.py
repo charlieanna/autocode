@@ -14,7 +14,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 
 import autocode_run_records as records
 from autocode_taskrun import TaskRun, TaskRunError
@@ -425,11 +424,9 @@ class JobFailureTaskRunTests(JobHarness):
         run.resume_paused()
         self.paused(run)
 
-    def test_ac15_retry_rejects_model_and_effort_changes(self):
+    def test_ac15_retry_rejects_model_effort_and_limit_changes(self):
         # Make "high" a real change rather than depending on an earlier rejected
-        # model flag having silently mutated the checkpoint. A stage deadline
-        # cannot reach a retry invocation at all (#2591's parser refuses the
-        # combination); its retention is pinned in test_ac16.
+        # model flag having silently mutated the checkpoint.
         self.options = (*self.options, "--sol-reasoning-effort", "medium")
         run = self.start()
         token = self.paused(run)["job_retry_token"]
@@ -437,6 +434,7 @@ class JobFailureTaskRunTests(JobHarness):
         for flags in (
             ("--sol-model", "gpt-6-astra"),
             ("--sol-reasoning-effort", "high"),
+            ("--max-stage-seconds", "901"),
         ):
             with self.subTest(flags=flags):
                 changed = TaskRun(
@@ -448,30 +446,6 @@ class JobFailureTaskRunTests(JobHarness):
                 after = run.status()
                 for field in ("needs", "routes", "usage"):
                     self.assertEqual(held[field], after[field], field)
-
-    def test_ac16_retry_drops_the_stage_deadline_and_retains_the_saved_limit(self):
-        # A retry invocation carries no stage deadline at all: the stopped job's
-        # deadline is saved separately and the retry retains it, so a deadline
-        # option in the caller's launch options must never be applied. The
-        # successful retry under the token-bound 900-second configuration is the
-        # proof; applying 901 would trip the stale-retry rejection instead.
-        run = self.start()
-        token = self.paused(run)["job_retry_token"]
-        run.env["JOB_MODE"] = "success"
-        changed = TaskRun(
-            self.workspace,
-            run.run_dir,
-            command=run.command,
-            options=("--max-stage-seconds", "901"),
-            env=run.env,
-            timeout=60,
-        )
-        after = changed.retry_job(token)
-        self.assertTrue(after["done"], after)
-        self.assertEqual(2, self.count())
-        self.assertEqual(ORIGINAL, (self.workspace / "calc.py").read_text())
-        settings = json.loads((run.run_dir / "state.json").read_text())["settings"]
-        self.assertEqual(900, settings["limits"]["stage_timeout_seconds"])
 
     def test_saved_joint_transport_change_invalidates_retry(self):
         self.env["JOB_TRANSPORT"] = "original"
@@ -636,14 +610,11 @@ class JobFailureTaskRunTests(JobHarness):
         (self.workspace / "calc.py").chmod(original_mode)
         with self.assertRaisesRegex(TaskRunError, "token"):
             run.retry_job("jr:wrong")
-        # A stage deadline cannot ride a retry invocation at all (#2591's parser refuses
-        # it; its retention is pinned in test_ac16), so a model change triggers the
-        # config check the lost manifest must not waive.
         changed = TaskRun(
             self.workspace,
             run.run_dir,
             command=run.command,
-            options=("--sol-model", "gpt-6-astra"),
+            options=("--max-stage-seconds", "901"),
             env=run.env,
             timeout=60,
         )
@@ -692,34 +663,6 @@ class JobFailureTaskRunTests(JobHarness):
         with self.assertRaisesRegex(TaskRunError, "token"):
             run.retry_failed_stage()
         self.assertEqual(1, self.count())
-
-
-class RetryJobInvocationTests(unittest.TestCase):
-    """retry_job's argv through a stubbed call: the stage deadline never rides along."""
-
-    def test_retry_invocation_drops_the_stage_deadline_option(self):
-        for options in (
-            ("--engine", "codex", "--max-stage-seconds", "900", "--max-seconds", "1200"),
-            ("--engine", "codex", "--max-stage-seconds=900", "--max-seconds", "1200"),
-        ):
-            with self.subTest(options=options):
-                run = TaskRun(Path("/tmp/unused-project"), Path("/tmp/unused-run"), options=options, timeout=5)
-                calls = []
-
-                def fake_invoke(name, *args, **kwargs):
-                    calls.append((name, args, kwargs))
-                    return SimpleNamespace(stdout='{"view": {"done": true}}', stderr="", returncode=0)
-
-                run._invoke = fake_invoke
-                after = run.retry_job("fresh-token")
-                self.assertTrue(after["done"], after)
-                retry = next(args for name, args, _kwargs in calls if name == "retry job")
-                for expected in ("--resume-paused", "--retry-failed-stage", "--job-retry-token", "--max-seconds"):
-                    self.assertIn(expected, retry)
-                for deadline in ("--max-stage-seconds", "--max-stage-seconds=900", "900"):
-                    self.assertNotIn(deadline, retry)
-                name, _args, kwargs = calls[0]
-                self.assertEqual({"AUTOCODE_JOB_RETRY_TOKEN": "fresh-token"}, kwargs.get("secret_env"))
 
 
 class JobRecoveryRouteTests(unittest.TestCase):

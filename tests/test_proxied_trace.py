@@ -125,6 +125,14 @@ class ProxiedTraceTests(unittest.TestCase):
         self.assertIn("disposition proxied is for a user-visible requirement", prompt)
         self.assertIn("open_blocking_questions entry of kind decision", prompt)
 
+    def test_the_planner_prompt_refuses_the_requirement_own_text_as_coverage_evidence(self):
+        # Issue #2592 (report-repair residual): a trace row's evidence was the
+        # requirement's own text copied exactly. "A required_behaviors entry
+        # copied exactly" never said the copy comes from the contract, not from
+        # the requirement, so the rule must refuse the requirement's own words.
+        prompt, _ = planner.context(state(), "glm_revise", Path("/run/state.json"))
+        self.assertIn("requirement's own text is not evidence, even copied exactly", prompt)
+
     def test_the_planner_schema_offers_proxied_and_a_nullable_reason(self):
         schema = planner.TRACE
         self.assertIn("proxied", schema["properties"]["disposition"]["enum"])

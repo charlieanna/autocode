@@ -38,7 +38,19 @@ def coverage_errors(requirements, by_id, contract, *, covered, cites_user_event)
             and evidence not in (behaviors | criteria)
             and not cites_defined_criterion(evidence)
         ):
-            errors.append(f"Requirement {row['id']} is not covered by a behavior or criterion")
+            # The repair turn sees only this text, so name what would be accepted:
+            # the requirement's own text, copied exactly or paraphrased, named no
+            # behavior or criterion (Issue #2592, R11/R12).
+            listed = ", ".join(sorted(criteria))
+            errors.append(
+                f"Requirement {row['id']} is not covered by a behavior or criterion. "
+                "Evidence is a required_behaviors entry copied exactly, an exact acceptance "
+                "criterion ID of this contract"
+                + (f" ({listed})" if listed else "")
+                + ", or a short explanation citing defined criterion IDs as whole tokens "
+                '(for example "AC3 checks this"). The requirement\'s own text is not '
+                "evidence, even copied exactly."
+            )
         if disposition == "excluded":
             if evidence not in exclusions:
                 errors.append(f"Requirement {row['id']} is not present in scope_exclusions")

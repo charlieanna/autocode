@@ -10,7 +10,8 @@ to requirement_trace only; the independent reviewer still supplies source_trace 
 Otherwise, requirement_trace must contain exactly one row for each of those requirement_id values, no more
 and no fewer; an empty requirement_trace is refused. disposition is covered,
 excluded or superseded. For covered, evidence is an acceptance criterion ID of this contract (for example "AC3",
-or "AC3 checks this"), or a required_behaviors entry copied exactly; a paraphrase is refused. For excluded,
+or "AC3 checks this"), or a required_behaviors entry copied exactly; a paraphrase is refused. The
+requirement's own text is not evidence, even copied exactly. For excluded,
 evidence is a scope_exclusions entry copied exactly and backed by a saved user answer; for superseded, it cites
 the saved answer or feedback event ID. While the draft has open_blocking_questions and no criteria yet, a covered
 row may say what it waits on (for example "pending Q1"); the next draft, after the answer, must cite criteria.

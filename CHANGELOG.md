@@ -11,12 +11,17 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
-- Retrying a stopped job no longer fails immediately when the run was launched
-  with a stage deadline: the retry invocation no longer resends the deadline
-  flag, which #2591's parser rejects, and keeps the saved deadline instead.
-- A stopped-job model answer mixed with the retry it cannot make is refused
-  with the model-owning message again: #2591's stage-deadline rule no longer
-  preempts it (#463 guarantees).
+- Label planning stages by the work they do: `astra_discovery` and `glm_revise`
+  (and their report repairs) group under the Planner job instead of
+  Requirements in cost and role displays, without changing usage or cost
+  totals (#2592 Issue 1).
+- Price a partial attempt from the provider's own cost state: an unpriced
+  interrupted attempt is priced from the bound session's cost-state delta with
+  basis "reported", the amount replaces the completed-message estimate instead
+  of adding to it, and an unknowable delta stays unknown (#2592 Issue 6).
+- Report repair keeps whole-sentence id citations through repair, and a
+  refused trace row's error names the accepted evidence forms and the
+  contract's criterion IDs (#2592 Issue 4).
 - Reliability fixes for coordinated runs, planning budgets and recovery
   (DTI-12398 stack, 20 commits):
   - Go: explicit empty test selectors are recognized as compile checks without
