@@ -175,9 +175,13 @@ from pathlib import Path
 from autocode_chat_client import ChatClient
 from autocode_chat_tui import ChatTUI
 ui = ChatTUI()
+said = []
+def say(message):
+ said.append(message)
+ ui.say(message)
 client = ChatClient(Path({str(workspace)!r}), Path({str(current)!r}),
  command=(sys.executable, {str(backend)!r}, {str(workspace)!r}),
- say=ui.say, observe=ui.observe, wait=ui.wait, poll_seconds=0.1)
+ say=say, observe=ui.observe, unavailable=ui.status_unavailable, wait=ui.wait, poll_seconds=0.1)
 # Neither scheduling nor host load decides when this fault expires. Advance only
 # after help and the healthy notification have been observed, then for recovery.
 started = time.monotonic()
@@ -193,6 +197,7 @@ try:
 finally:
  client.close()
  ui.close()
+Path({str(workspace / "transcript")!r}).write_text('\\n'.join(said))
 print('VIEWER-CLOSED')
 """)
         leader, follower = pty.openpty()
@@ -226,12 +231,15 @@ print('VIEWER-CLOSED')
         self.assertIn(b"Another chat finished", shown, "healthy read was observed while the current read hung")
         os.kill(hung_pid, 0)
         expire.touch()
-        read_terminal(leader, until=b"status read timed out", seconds=10)
+        read_terminal(leader, until=b"Status unavailable", seconds=10)
         with self.assertRaises(ProcessLookupError):
             os.kill(hung_pid, 0)
         complete.touch()
         read_terminal(leader, until=b"VIEWER-CLOSED", seconds=15)
         self.assertEqual(0, viewer.wait(timeout=5))
+        transcript = (workspace / "transcript").read_text()
+        self.assertNotIn("Status unavailable (current):", transcript)
+        self.assertNotIn("Status available again (current).", transcript)
         print(
             f"Hung status real TUI: /help rendered in {help_seconds:.3f}s; healthy chat updated; timed-out child reaped"
         )

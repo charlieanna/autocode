@@ -56,6 +56,14 @@ force. `tests.test_chat_polling` covers the bounds with a fake clock, and
 behind a FIFO to verify a six-second retry and exact child cleanup without
 waiting six seconds or launching a model. Action-receipt deadlines are unchanged.
 
+When a terminal renderer supplies both successful-read and failed-read callbacks,
+its header and tab indicators show outages and recovery without adding them to
+the conversation. Line clients retain their outage/recovery messages. Both forms
+reject decisions when a fresh status read fails; display snapshots confer no
+authority. Observation tests exercise repeated flapping and background tabs;
+the real hung-status terminal fixture checks the indicator, responsive keyboard,
+healthy second chat, transcript and reaped child together.
+
 AutoReview generation pins contract/task identity and reviewer-owned finding IDs
 in each attempt's schema. Report-only repairs receive the original executed
 commands and exit codes; normal evidence validation still applies. Repairs cannot
