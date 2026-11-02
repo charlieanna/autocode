@@ -712,7 +712,7 @@ autocode chat --line                # the line-by-line prompts, even in a termin
 
 In a terminal the chat takes the whole screen: a wordmark splash, the conversation
 in a scrollable transcript with a colored label for each speaker
-(`PgUp`/`PgDn`), the current question or activity above a boxed composer, and a
+(`PgUp`/`PgDn`, or mouse wheel/trackpad over the transcript), the current question or activity above a boxed composer, and a
 hint bar. The composer is labeled **New chat** when typing there starts a run and
 **Reply** when it answers the run (`Up`/`Down` for history, `Ctrl-W`/`Ctrl-U` to
 edit, `Enter` to send, `Ctrl-D` to leave). A paste stays in the composer as one

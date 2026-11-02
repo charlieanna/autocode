@@ -61,6 +61,47 @@ with ChatTUI() as ui:
         )
 
 
+class MouseHistoryScreenTests(unittest.TestCase):
+    def test_wheel_and_page_keys_reach_start_and_keep_position_during_updates(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI
+with ChatTUI() as ui:
+    ui.say('You: ORIGINAL REQUEST')
+    for n in range(45):
+        ui.say(f'AutoCode: history item {n}')
+    while True:
+        ui.wait(0.1)
+        if ui._composer.text == 'update':
+            ui.say('AutoCode: NEW LIVE UPDATE')
+            ui._composer.clear()
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=100, rows=25, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for("history item 44")
+        screen.type("\x1b[M`%&" * 80)
+        screen.wait_for(
+            lambda shown: "ORIGINAL REQUEST" in shown and "History" in shown,
+            timeout=10,
+            what="wheel reaches the first request",
+        )
+        screen.type("update")
+        # PageDown demonstrates the event loop processed the appended message; PageUp returns to the start.
+        screen.keys("NPage")
+        screen.wait_for(lambda shown: "ORIGINAL REQUEST" not in shown and "History" in shown)
+        screen.keys("PPage")
+        screen.wait_for("ORIGINAL REQUEST")
+        screen.type("\x1b[Ma%&" * 80)
+        screen.wait_for(
+            lambda shown: "NEW LIVE UPDATE" in shown and "ORIGINAL REQUEST" not in shown,
+            timeout=10,
+            what="wheel returns to the latest message",
+        )
+
+
 class ChatScreenTests(unittest.TestCase):
     def setUp(self):
         self.tmux = require_tmux(self)

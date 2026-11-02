@@ -325,6 +325,98 @@ def screen_ui(*keys):
     return ui
 
 
+class MouseScrollTests(unittest.TestCase):
+    def test_wheel_scrolls_history_both_ways_without_editing_composer(self):
+        ui = screen_ui()
+        ui._composer.insert("draft")
+        ui._anchored = True
+        with mock.patch.object(tui.curses, "getmouse", return_value=(0, 4, 5, 0, tui.curses.BUTTON4_PRESSED)):
+            ui._handle(tui.curses.KEY_MOUSE, asking=False)
+        self.assertEqual(3, ui._scroll)
+        self.assertFalse(ui._anchored)
+        with mock.patch.object(tui.curses, "BUTTON5_PRESSED", 1 << 21, create=True):
+            with mock.patch.object(tui.curses, "getmouse", return_value=(0, 4, 5, 0, 1 << 21)):
+                ui._handle(tui.curses.KEY_MOUSE, asking=True)
+        self.assertEqual(0, ui._scroll)
+        self.assertEqual("draft", ui._composer.text)
+
+    def test_wheel_position_survives_new_messages(self):
+        ui = screen_ui()
+        for n in range(40):
+            ui.say(f"AutoCode: message {n}")
+        with mock.patch.object(tui.curses, "getmouse", return_value=(0, 4, 5, 0, tui.curses.BUTTON4_PRESSED)):
+            for _ in range(8):
+                ui._handle(tui.curses.KEY_MOUSE, asking=False)
+
+        def visible():
+            layout = ui._layout(*ui._size())
+            lines = ui._transcript.lines(layout.body_width)
+            end = len(lines) - ui._scroll
+            return lines[max(0, end - (layout.body_end - layout.body_start)) : end]
+
+        before = visible()
+        self.assertTrue(before)
+        ui.say("AutoCode: appended while reading")
+        self.assertEqual(before, visible())
+
+    def test_clicks_and_wheels_outside_transcript_do_not_scroll(self):
+        ui = screen_ui()
+        ui._panel_on = True
+        ui._live_on = True
+        layout = ui._layout(*ui._size())
+        for x, y, flags in (
+            (4, 5, tui.curses.BUTTON1_PRESSED),
+            (4, 0, tui.curses.BUTTON4_PRESSED),
+            (4, layout.box_text, tui.curses.BUTTON4_PRESSED),
+            (layout.panel_col, 5, tui.curses.BUTTON4_PRESSED),
+            (4, layout.live_start, tui.curses.BUTTON4_PRESSED),
+        ):
+            with self.subTest(x=x, y=y, flags=flags):
+                with mock.patch.object(tui.curses, "getmouse", return_value=(0, x, y, 0, flags)) as read:
+                    ui._handle(tui.curses.KEY_MOUSE, asking=True)
+                read.assert_called_once()
+                self.assertEqual(0, ui._scroll)
+        with mock.patch.object(tui.curses, "getmouse", side_effect=tui.curses.error):
+            ui._handle(tui.curses.KEY_MOUSE, asking=True)
+
+    def test_reporting_enables_only_wheels_and_restores_previous_mask(self):
+        ui = screen_ui()
+        with mock.patch.object(tui.curses, "mousemask", return_value=(123, 7)) as mask:
+            ui._mouse_reporting(True)
+            ui._mouse_reporting(False)
+        self.assertEqual(
+            [mock.call(tui.curses.BUTTON4_PRESSED | getattr(tui.curses, "BUTTON5_PRESSED", 0)), mock.call(7)],
+            mask.call_args_list,
+        )
+
+    def test_unsupported_reporting_keeps_keyboard_available(self):
+        ui = screen_ui()
+        with mock.patch.object(tui.curses, "mousemask", side_effect=tui.curses.error):
+            ui._mouse_reporting(True)
+            ui._mouse_reporting(False)
+        ui._handle(tui.curses.KEY_PPAGE, asking=True)
+        self.assertGreater(ui._scroll, 0)
+
+    def test_open_close_and_outside_manage_reporting(self):
+        ui = screen_ui()
+        with (
+            mock.patch.object(ui, "_mouse_reporting") as reporting,
+            mock.patch.object(ui, "_bracketed_paste"),
+            mock.patch.object(ui, "_start_colors"),
+            mock.patch.object(ui, "_draw"),
+            mock.patch.object(tui, "curses"),
+            mock.patch.object(tui.threading, "Thread"),
+            mock.patch.object(tui.subprocess, "call", return_value=0),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            ui._open()
+            ui.outside(["example"])
+            ui.close()
+        self.assertEqual(
+            [mock.call(True), mock.call(False), mock.call(True), mock.call(False)], reporting.call_args_list
+        )
+
+
 class SmallTerminalTests(unittest.TestCase):
     def test_a_too_small_terminal_says_how_big_to_make_it_without_cutting_the_words(self):
         for rows, cols in ((10, 80), (24, 20), (6, 14)):

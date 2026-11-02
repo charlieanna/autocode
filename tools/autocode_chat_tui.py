@@ -645,6 +645,7 @@ class ChatTUI:
 
     def __init__(self):
         self._screen = None
+        self._previous_mouse_mask: int | None = None
         self._transcript = Transcript()
         self._composer = Composer()
         self._contexts = contexts.Contexts()
@@ -712,6 +713,7 @@ class ChatTUI:
                 curses.curs_set(0)
             self._start_colors()
             self._bracketed_paste(True)
+            self._mouse_reporting(True)
         except Exception as error:  # a terminal without curses support keeps line mode
             with contextlib.suppress(Exception):
                 curses.endwin()
@@ -739,6 +741,7 @@ class ChatTUI:
             screen, self._screen = self._screen, None
             if screen is None:
                 return
+            self._mouse_reporting(False)
             self._bracketed_paste(False)
             with contextlib.suppress(curses.error):
                 screen.keypad(False)
@@ -752,6 +755,16 @@ class ChatTUI:
         self._save_history()  # a first request, typed before its run made .autocode
         for text in self._transcript.closing():
             print(text.strip("\n"))
+
+    def _mouse_reporting(self, on: bool) -> None:
+        """Request wheel events while the chat owns the terminal; restore its prior mask."""
+        with contextlib.suppress(curses.error):
+            if on and self._previous_mouse_mask is None:
+                wheels = getattr(curses, "BUTTON4_PRESSED", 0) | getattr(curses, "BUTTON5_PRESSED", 0)
+                _, self._previous_mouse_mask = curses.mousemask(wheels)
+            elif not on and self._previous_mouse_mask is not None:
+                curses.mousemask(self._previous_mouse_mask)
+                self._previous_mouse_mask = None
 
     @staticmethod
     def _bracketed_paste(on: bool) -> None:
@@ -853,6 +866,7 @@ class ChatTUI:
             screen = self._screen
             if self._closed or screen is None:
                 return subprocess.call(argv)
+            self._mouse_reporting(False)
             self._bracketed_paste(False)
             with contextlib.suppress(curses.error):
                 curses.endwin()
@@ -869,6 +883,7 @@ class ChatTUI:
                     screen.clearok(True)
                     screen.refresh()
                 self._bracketed_paste(True)
+                self._mouse_reporting(True)
             self._draw()
             return code
 
@@ -1175,6 +1190,9 @@ class ChatTUI:
         if self._stage_menu is not None:
             stages_panel.handle(self, key)
             return None
+        if key == curses.KEY_MOUSE:
+            self._mouse_scroll()
+            return None
         if key == curses.KEY_F8 and self._act is not None:
             self._run("/attention", asking)
             return None
@@ -1411,6 +1429,20 @@ class ChatTUI:
     def _page(self) -> int:
         layout = self._layout(*self._size())
         return max(1, (layout.body_end - layout.body_start) - 1)
+
+    def _mouse_scroll(self) -> None:
+        """Wheel over the transcript uses the same history anchoring as Page Up/Down."""
+        try:
+            _, x, y, _, buttons = curses.getmouse()
+        except curses.error:
+            return
+        layout = self._layout(*self._size())
+        if not (0 <= x < layout.body_width and layout.body_start <= y < layout.body_end):
+            return
+        if buttons & getattr(curses, "BUTTON4_PRESSED", 0):
+            self._scroll_by(3)
+        elif buttons & getattr(curses, "BUTTON5_PRESSED", 0):
+            self._scroll_by(-3)
 
     def _scroll_by(self, delta: int) -> None:
         self._anchored = False  # the person's paging owns the view from here
