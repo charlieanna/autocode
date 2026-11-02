@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_context_window as context_window
+    from . import autocode_job_deadline as job_deadline
     from . import autocode_job_source as source
     from . import autocode_jobs as jobs
     from . import autocode_provider_auth as provider_auth
@@ -39,6 +40,7 @@ try:
     from . import autocode_util as util
 except ImportError:
     import autocode_context_window as context_window
+    import autocode_job_deadline as job_deadline
     import autocode_job_source as source
     import autocode_jobs as jobs
     import autocode_provider_auth as provider_auth
@@ -325,6 +327,14 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
         # Which limit stopped it (the deadline, or the exploration budget's ``progress``): the retry handoff says so.
         recovery["timeout_kind"] = record["timeout_kind"]
     state["recovery_context"] = recovery
+    extension = job_deadline.plan(state, failure, recovery, abandoned=abandoned)
+    if extension:
+        # A hard stage deadline is machinery, not a question about models (#2605): retry with a longer one.
+        _extend_deadline(state, run_dir, failure, extension)
+        runtime.write_json(Path(run_dir) / "state.json", state)
+        for artifact in originals:
+            artifact.unlink(missing_ok=True)
+        return True
     run_status.pause(
         state,
         "PAUSED_STAGE_ABANDONED" if abandoned else "PAUSED_JOB_FAILURE",
@@ -350,6 +360,52 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
     for artifact in originals:
         artifact.unlink(missing_ok=True)
     return True
+
+
+def _extend_deadline(state: RunState, run_dir, failure, extension):
+    """Save the longer stage deadline, rebind the exact retry to it and authorize that one retry."""
+    previous_settings = copy.deepcopy(state["settings"])
+    state["settings"]["limits"]["stage_timeout_seconds"] = extension["to"]
+    previous_token = failure["job_retry_token"]
+    failure["configuration"] = configuration(state)
+    failure["job_retry_token"] = "jr:" + util.digest(
+        {
+            "run": str(run_dir),
+            "attempt": failure["attempt_id"],
+            "previous": previous_token,
+            "source": failure["source_identity"],
+            "configuration": failure["configuration"],
+        }
+    )
+    decided = job_deadline.reason(roles.screen_name(failure["stage"]), extension)
+    failure.update(automatic_deadline_extension=copy.deepcopy(extension), reason=failure["reason"] + ". " + decided)
+    state.setdefault("configuration_changes", []).append(
+        {
+            "at": util.now(),
+            "previous": previous_settings,
+            "selected": copy.deepcopy(state["settings"]),
+            "reason": decided,
+        }
+    )
+    state.setdefault("user_events", []).append(
+        {
+            "kind": job_deadline.EVENT,
+            "actor": "runner",
+            "at": util.now(),
+            "stage": failure["stage"],
+            "attempt_id": failure["attempt_id"],
+            "previous_token": previous_token,
+            "token": failure["job_retry_token"],
+            "changes": {"stage_timeout_seconds": {"from": extension["from"], "to": extension["to"]}},
+            "reason": decided,
+        }
+    )
+    state["job_retry_authorization"] = {
+        "token": failure["job_retry_token"],
+        "stage": failure["stage"],
+        "consumed": False,
+    }
+    run_status.running(state, "EXECUTING", next_stage=failure["stage"])
 
 
 def retry_configuration_matches(current, saved):

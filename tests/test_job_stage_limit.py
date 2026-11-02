@@ -158,6 +158,7 @@ class StageLimitCLI(unittest.TestCase):
     def test_timed_out_tester_keeps_model_plan_usage_and_reopens_before_one_retry(self):
         run, held = self.start()
         self.assertEqual("PAUSED_JOB_FAILURE", held["status"])
+        writer_fixture.AcceptanceWriterRouteCLI.assert_deadline_extended_before_pause(self, run)
         before = self.snapshot(run)
         token = held["needs"]["job_retry_token"]
         original = self.calls.read_bytes()
@@ -200,6 +201,6 @@ class StageLimitCLI(unittest.TestCase):
         completed = reopened.retry_job(fresh)
         self.assertTrue(completed["done"], completed.get("needs"))
         rows = [json.loads(line) for line in self.calls.read_text().splitlines()]
-        self.assertEqual(2, len(rows))
-        self.assertEqual(rows[0]["model"], rows[1]["model"])
+        self.assertEqual(4, len(rows))
+        self.assertEqual(1, len({row["model"] for row in rows}))
         self.assertTrue(list(run.run_dir.rglob("archived-acceptance-tests-*")))
