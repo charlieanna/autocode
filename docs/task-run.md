@@ -594,7 +594,12 @@ Its observer never starts a second worker. Questions preserve plans, approvals
 and joint evidence. For a change, the coordinator archives superseded authority
 and routes the original human text to affected authorized members and their
 dependents through ordinary feedback/review. It resumes only its own exclusively
-held pauses. Separate user stops, operational holds and uncertain receipts remain
+held pauses. If its boundary pause hid an authenticated repository-scope
+question, the participant first names `--resume-paused` to restore that exact
+question. This step acknowledges the pause without answering scope, approving a
+plan or launching a provider. Source, contract, settings and accounting changes
+still refuse restoration; only the existing runtime-only receipt refresh is
+permitted. Separate user stops, operational holds and uncertain receipts remain
 held. All Requirements usage counts against the same task and planning limits.
 Once every participant has settled, an independent queued participant hold does
 not prevent Requirements from assessing a task message. The hold is neither

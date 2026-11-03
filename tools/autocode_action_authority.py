@@ -42,6 +42,8 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_result_application as result_application
+    from . import autocode_scope_pause as scope_pause
+    from . import autocode_stop as stop
     from . import autocode_support as support
     from . import autocode_verify as verify
 except ImportError:
@@ -62,6 +64,8 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
     import autocode_result_application as result_application
+    import autocode_scope_pause as scope_pause
+    import autocode_stop as stop
     import autocode_support as support
     import autocode_verify as verify
 
@@ -176,6 +180,15 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
             bool(args.close_finding),
         )
     )
+    if (
+        args.resume_paused
+        and not decision_action
+        and not explicit_recovery_requested(args, state)
+        and scope_pause.resume(state, at=runner.now(), acknowledge=stop.acknowledge_pause)
+    ):
+        runner.write_json(state_path, state)
+        print(lifecycle.render(state))
+        return 2
     if (
         args.feedback is None
         and not args.edit_goal

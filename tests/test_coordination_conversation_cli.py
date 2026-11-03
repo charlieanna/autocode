@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode_coordination_budget as budget
+import autocode_coordination_conversation as conversation
 import autocode_coordination_store as store
 import autocode_taskrun as taskrun
 
@@ -265,6 +266,128 @@ class CoordinatedConversationCliTests(unittest.TestCase):
         self.assertEqual(1, len(invoke("status")["conversation"]["results"]))
         self.assertEqual(approved, peer.status()["needs"]["token"])
         self.assertEqual(events, calls.read_text().splitlines())
+
+    def test_owned_pause_restores_published_scope_without_repeating_planner_or_answering(self):
+        workspace, env = fixture_workspace(self)
+        peer_workspace, _ = fixture_workspace(self)
+        self.enterContext(patch.dict(os.environ, env))
+        provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"
+        calls = provider.parent / "scope-conversation-calls"
+        marker = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
+        amendment = textwrap.dedent(f"""
+            with Path({str(calls)!r}).open('a') as log:
+                log.write(stage + (' conversation' if data.get('message') else '') + '\\n')
+            if stage == 'astra_discovery':
+                report['workspace_scope'] = {{'spans_repositories': True, 'external_parts': [{{
+                    'target': 'history', 'work': 'Preserve the history result',
+                    'source_quote': 'history', 'evidence': ''}}]}}
+            if stage == 'requirements_gather' and data.get('message'):
+                message = data['message']
+                report = {{'message_id': message['id'], 'contract_token': message['contract_token'],
+                           'intent': 'question', 'assistant_reply': 'Evidence is needed.', 'affected_targets': []}}
+        """)
+        self.assertIn(marker, provider.read_text())
+        provider.write_text(provider.read_text().replace(marker, textwrap.indent(amendment, "    ") + "\n" + marker))
+        source = taskrun.TaskRun.start(
+            workspace,
+            BRIEF,
+            options=(*FIXTURE_OPTIONS, "--max-cost-usd", "0", "--spec-first", "--no-adaptive-planning"),
+            env=env,
+            timeout=240,
+        )
+        source_before = source.advance_until_input()
+        peer = taskrun.TaskRun.start(
+            peer_workspace,
+            BRIEF + " Coordinate with history.",
+            options=(*FIXTURE_OPTIONS, "--max-cost-usd", "0", "--spec-first", "--no-adaptive-planning"),
+            env=env,
+            timeout=240,
+        )
+        gathered = peer.advance_until_input()
+        question = gathered["needs"]["questions"][-1]
+        peer.answer(question["id"], "plan", resolver_token=gathered["needs"]["resolver_token"])
+        scoped = peer.advance_until_input()
+        self.assertEqual("WAITING_FOR_USER", scoped["status"])
+        self.assertTrue(scoped["needs"]["questions"][0]["id"].startswith("workspace-scope-"))
+        document = {
+            "version": 1,
+            "id": "scope-conversation-fixture",
+            "anchor": str(source.run_dir),
+            "phase": "fixing",
+            "task": BRIEF,
+            "request_sources": [],
+            "choices": {},
+            "initial_scope": [],
+            "joint_attempts": [],
+            "members": [
+                {
+                    "target": "peer",
+                    "workspace": str(peer.workspace),
+                    "run_dir": str(peer.run_dir),
+                    "base": "fixture",
+                    "started": True,
+                    "brief": BRIEF,
+                }
+            ],
+            "budget": {**budget.initial(source_before), "cap_usd": 0},
+        }
+        store.save(document)
+
+        def invoke(operation, *args):
+            response = subprocess.run(
+                [*taskrun.AUTOCODE, "coordinate", operation, "--run-dir", str(source.run_dir), *args, "--json"],
+                env={**os.environ, **env},
+                capture_output=True,
+                text=True,
+                timeout=240,
+            )
+            self.assertEqual(0, response.returncode, response.stdout + response.stderr)
+            return json.loads(response.stdout)
+
+        identifier, text = "scope-question", "What evidence is still needed?"
+        receipt = invoke("message", "--request-id", identifier, "--text", text)
+        pause_id = conversation.request_id(document, {"id": identifier}, "peer", "pause")
+        paused = subprocess.run(
+            [
+                *taskrun.AUTOCODE,
+                "intervention",
+                "submit",
+                "--workspace",
+                str(peer.workspace),
+                "--run-dir",
+                str(peer.run_dir),
+                "--request-id",
+                pause_id,
+                "--kind",
+                "pause",
+                "--json",
+            ],
+            env={**os.environ, **env},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(0, paused.returncode, paused.stdout + paused.stderr)
+        self.assertTrue(json.loads(paused.stdout)["accepted"])
+        for _ in range(18):
+            result = invoke("advance")
+            current = peer.status()
+            if result["conversation"]["results"] and current["status"] == "WAITING_FOR_USER":
+                break
+            self.assertIn(result["needs"]["kind"], ("conversation", "watch"), result["needs"])
+        else:
+            self.fail(str(result["needs"]))
+        self.assertEqual(scoped["needs"], current["needs"])
+        self.assertEqual(scoped["usage"], current["usage"])
+        self.assertIsNone(current.get("approved_contract"))
+        retry = invoke("message", "--request-id", identifier, "--text", text)
+        self.assertEqual(receipt["receipt"], retry["receipt"])
+        self.assertTrue(retry["idempotent"])
+        self.assertEqual(result["conversation"]["results"], invoke("status")["conversation"]["results"])
+        events = calls.read_text().splitlines()
+        self.assertEqual(1, events.count("astra_discovery"), events)
+        self.assertEqual(1, events.count("requirements_gather conversation"), events)
+        self.assertNotIn("terra", events)
 
     def test_question_preserves_plans_and_change_delivers_only_original_text_with_fresh_review(self):
         workspace, env = fixture_workspace(self)

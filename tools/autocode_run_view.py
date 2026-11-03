@@ -24,10 +24,12 @@ try:
     from . import autocode_acceptance_recovery as acceptance_recovery
     from . import autocode_brief_obligations as brief_obligations
     from . import autocode_interaction_timing as interaction_timing
+    from . import autocode_scope_pause as scope_pause
 except ImportError:
     import autocode_acceptance_recovery as acceptance_recovery
     import autocode_brief_obligations as brief_obligations
     import autocode_interaction_timing as interaction_timing
+    import autocode_scope_pause as scope_pause
 
 try:
     from . import autocode_acceptance_tests as acceptance_tests
@@ -1047,6 +1049,13 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
     status = state.get("status", "")
     if status in COMPLETE:
         return None
+    if scope_pause.can_resume(state):
+        return {
+            "kind": "resume",
+            "action": "--resume-paused",
+            "confirmation_required": False,
+            "reason": "Resume the boundary pause to restore its retained repository-scope question.",
+        }
     if status == "PAUSED_COMPONENT_PLAN":
         return {
             "kind": "resume",
