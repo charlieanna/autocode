@@ -15,6 +15,21 @@ import goal_fixtures
 
 
 class ChatViewTests(unittest.TestCase):
+    def test_idle_unapproved_planning_handoff_offers_feedback_only_when_ready(self):
+        state = {
+            "status": "RUNNING",
+            "phase": "PLANNING",
+            "next_stage": "astra_challenge",
+            "goal_contract": {"approval_status": "draft"},
+        }
+        public = {"status": "RUNNING", "needs": {"kind": "continue"}, "controller": {"kind": "ready"}}
+        result = chat.project(state, public, workspace="/ws", run_dir="/run")
+        self.assertEqual("feedback", result["input"]["kind"])
+        self.assertEqual(["--feedback", "MESSAGE"], shlex.split(result["input"]["next_command"])[-2:])
+        for change in ({"controller": {"kind": "running"}}, {"controller": {}}, {"needs": {"kind": "resume"}}):
+            with self.subTest(change=change):
+                self.assertIsNone(chat.project(state, {**public, **change}, workspace="/ws", run_dir="/run")["input"])
+
     def test_semantic_stops_offer_only_the_permitted_named_feedback_action(self):
         for status in ("RESOLVER_PENDING", "PAUSED_COMPLETION_GATE"):
             with self.subTest(status=status):

@@ -141,3 +141,11 @@ class AssignedPlannerReportCliTests(unittest.TestCase):
             self.assertNotIn("approved_contract", view)
             self.assertFalse(any(a["stage"] == "terra" for a in view["usage"]["accounting"]["attempts"]))
             self.assertEqual([], self.github.posts)
+            self.assertEqual("feedback", view["chat"]["input"]["kind"])
+            message = "Preserve the existing checkout reply while correcting its displayed total."
+            corrected = run.feedback(message)
+            self.assertIn(message, [row["text"] for row in corrected["request_sources"]])
+            self.assertEqual(view["usage"], corrected["usage"])
+            self.assertEqual(view["cost"], corrected["cost"])
+            self.assertIsNone(corrected.get("approved_contract"))
+            self.assertEqual([], self.github.posts)

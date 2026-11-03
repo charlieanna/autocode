@@ -199,6 +199,14 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         # The Tester's pause says --feedback revises the plan; offer it so a client can take it (#1869).
         action = ("feedback", "Send plan feedback", "--feedback")
     elif (
+        status == "RUNNING"
+        and need.get("kind") == "continue"
+        and (public.get("controller") or {}).get("kind") == "ready"
+        and planning_feedback.between_stages(state)
+        and not pause_authority.feedback_refusal(state)
+    ):
+        action = ("feedback", "Send plan feedback", "--feedback")
+    elif (
         (
             planning_feedback.semantic_stop(state, status)
             # An answered semantic blocker holds for its contract decision: the person's explicit
