@@ -278,7 +278,13 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
     checkpoint = runner.milestones.summary(state)
     stage = (active or {}).get("stage") or state.get("next_stage")
     need = public_view.get("needs") or {}
-    if not active and not check and need.get("kind") == "answer" and need.get("resolver_scope") == "clarification":
+    if (
+        state.get("status") == "WAITING_FOR_USER"
+        and not active
+        and not check
+        and need.get("kind") == "answer"
+        and need.get("resolver_scope") == "clarification"
+    ):
         entry = ((state.get("resolver") or {}).get("human_escalations") or {}).get(
             need.get("resolver_request_id")
         ) or {}

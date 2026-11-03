@@ -86,17 +86,18 @@ class ConsistentSampleTests(unittest.TestCase):
 
     def test_a_requirements_question_names_its_origin_instead_of_the_queued_planner(self):
         question = {"id": "Q1", "question": "Which history entries are affected?"}
-        for origin, pending, expected in (
-            ("requirements_gather", "pending", "Requirements"),
-            ("astra_discovery", "pending", "Planner"),
-            ("requirements_gather", "consumed", "Planner"),
+        for origin, pending, status, expected in (
+            ("requirements_gather", "pending", "WAITING_FOR_USER", "Requirements"),
+            ("astra_discovery", "pending", "WAITING_FOR_USER", "Planner"),
+            ("requirements_gather", "consumed", "WAITING_FOR_USER", "Planner"),
+            ("requirements_gather", "pending", "PAUSED_INVALID_OUTPUT", "Planner"),
         ):
-            with self.subTest(origin=origin, pending=pending), tempfile.TemporaryDirectory() as tmp:
+            with self.subTest(origin=origin, pending=pending, status=status), tempfile.TemporaryDirectory() as tmp:
                 run = Path(tmp).resolve() / "run"
                 run.mkdir()
                 saved = {
                     **state_at("astra_discovery"),
-                    "status": "WAITING_FOR_USER",
+                    "status": status,
                     "settings": {"spec_first": True},
                     "pending_questions": [question],
                     "resolver_human_request": {
