@@ -36,6 +36,60 @@ class AssignmentActionTests(unittest.TestCase):
         supersede.assert_called_once_with(state, published, [], {"identity": "current"})
         runner.write_json.assert_called_once()
 
+    def test_exact_assignment_resumes_a_completed_planner_handoff_without_requirements_wait(self):
+        state = {"pending_questions": [{"id": "workspace-scope-current"}], "requirements_handoff": {"saved": True}}
+        runner = Mock()
+        published = {"scope": "clarification"}
+        with (
+            patch.object(action.assignment, "current", return_value={"identity": "current"}),
+            patch.object(action.human, "current", return_value=published),
+            patch.object(action.human, "supersede_assigned_scope"),
+            patch("autocode_planning_scope.resume", return_value=True) as resume,
+            patch.object(action.requirements_review, "wait") as wait,
+        ):
+            action.apply(
+                runner,
+                SimpleNamespace(assign_linked_scope="current"),
+                None,
+                state,
+                Path("state.json"),
+                Path("run"),
+                Path("workspace"),
+                None,
+            )
+        resume.assert_called_once()
+        wait.assert_not_called()
+
+    def test_rejected_handoff_does_not_partially_retire_the_question(self):
+        import copy
+
+        state = {"pending_questions": [{"id": "workspace-scope-current"}]}
+        before = copy.deepcopy(state)
+        runner = Mock()
+        with (
+            patch.object(action.assignment, "current", return_value={"identity": "current"}),
+            patch.object(action.human, "current", return_value={"scope": "clarification"}),
+            patch.object(
+                action.human,
+                "supersede_assigned_scope",
+                side_effect=lambda current, *_: current.update(pending_questions=[]),
+            ),
+            patch("autocode_planning_scope.resume", side_effect=ValueError("saved handoff changed")),
+        ):
+            with self.assertRaisesRegex(ValueError, "changed"):
+                action.apply(
+                    runner,
+                    SimpleNamespace(assign_linked_scope="current"),
+                    None,
+                    state,
+                    Path("state.json"),
+                    Path("run"),
+                    Path("workspace"),
+                    None,
+                )
+        self.assertEqual(before, state)
+        runner.write_json.assert_not_called()
+
     def test_unrefreshable_or_other_human_gate_is_not_released(self):
         for published in (None, {"scope": "goal_approval"}, {"scope": "permission"}):
             with self.subTest(published=published):

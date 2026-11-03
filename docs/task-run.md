@@ -2206,6 +2206,15 @@ The check activity never substitutes for a passing proof or independent review.
 names each part, and the runner keeps it only when its quote is verbatim in the request or
 a saved answer, or when it cites a file in this workspace that shows it.
 
+A late Planner discovery uses the same scope gate. For an artifact-backed completed
+Planner report, the core retains the report at that gate and applies it once after
+the exact linked assignment succeeds. It does not ask the Planner to regenerate
+that same report. Source, input, contract, settings, prompt and runtime changes
+refuse reuse; ordinary draft validation, independent review and exact-plan approval
+still apply. Legacy records without a retained handoff use ordinary planning.
+The internal reuse binding is recomputed from current runner-owned inputs during
+saved-run replay; no model answer supplies or rebinds it.
+
 - `spans_repositories` and `external_parts` (`target`, `work`) list the kept parts.
 - `dropped` names the targets of the parts the runner refused.
 - `decision` is `this_repository` once the person chose it, else `null`.
