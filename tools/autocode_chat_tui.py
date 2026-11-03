@@ -492,7 +492,8 @@ class Transcript:
         starts: list[int] = []
         talked = False  # once the person has spoken, the client's own words are AutoCode's turn
         previous = ""
-        for role, text in self.blocks:
+        progress_indices = set(self.progress_blocks.values())
+        for index, (role, text) in enumerate(self.blocks):
             starts.append(len(rendered))
             label = _LABELS.get(role)
             talked = talked or role == "user"
@@ -515,8 +516,9 @@ class Transcript:
                 if role == "user":
                     rendered.extend((f"{role}-body", "  " + line) for line in wrap(body, max(1, width - 2)))
                 else:
+                    body_style = "assistant-body" if index in progress_indices else f"{role}-body"
                     rendered.extend(
-                        body_rows(f"{role}-body", body, width, diff=role == "info" and label.startswith("/diff"))
+                        body_rows(body_style, body, width, diff=role == "info" and label.startswith("/diff"))
                     )
             rendered.append(("plain", ""))
             previous = role
