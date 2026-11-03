@@ -350,6 +350,9 @@ class RequirementsChatTests(unittest.TestCase):
             self.assertIn("reports/export.py", json.dumps(packet.get("workspace_inventory")))
             # #1822: the prompt's source_refs rule must match the runner's complete-handoff check.
             instruction = prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0]
+            self.assertIn("clear, correctly spelled English", instruction)
+            self.assertIn("instead of quoting their typos or shorthand", instruction)
+            self.assertIn("source_quote evidence verbatim", instruction)
             self.assertIn("at least one existing workspace file", instruction)
             self.assertIn("Never cite .autocode/", instruction)
             self.assertIn("source_refs may be empty only when the inventory lists no file", instruction)
