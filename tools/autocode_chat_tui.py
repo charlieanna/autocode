@@ -414,7 +414,7 @@ class Transcript:
 
     def progress(self, view: dict) -> None:
         """Keep readable agent updates in the same history, replacing streamed snapshots in place."""
-        self.relabel_command_errors(view)
+        self.relabel_stops(view)
         for row in panel.log_entries(view):
             text = panel.live_text(row["text"])
             if row["kind"] != "message" or row.get("status") == "streaming" or not text.strip():
@@ -429,16 +429,20 @@ class Transcript:
                 self.blocks[index] = block
                 self._revision += 1
 
-    def relabel_command_errors(self, view: dict) -> None:
+    def relabel_stops(self, view: dict) -> None:
         """A fresh running observation makes older stop diagnostics history, preserving their detail."""
         if view.get("status") != "RUNNING" or not actions.working(view):
             return
-        prefix = "Coordination stopped:"
         for index, (role, text) in enumerate(self.blocks):
-            if role == "plain" and text.lstrip().startswith(prefix):
-                reason = text.lstrip()[len(prefix) :].lstrip()
-                self.blocks[index] = ("info", "Earlier coordination error\n" + reason)
-                self._revision += 1
+            for expected_role, prefix, label in (
+                ("plain", "Coordination stopped:", "Earlier coordination error"),
+                ("notice", "AutoCode stopped:", "Earlier stop"),
+            ):
+                if role == expected_role and text.lstrip().startswith(prefix):
+                    reason = text.lstrip()[len(prefix) :].lstrip()
+                    self.blocks[index] = ("info", label + "\n" + reason)
+                    self._revision += 1
+                    break
 
     def visible_progress(self, width: int, height: int, scroll: int) -> set[tuple[str, str]]:
         """Agent updates whose body intersects the current transcript viewport."""

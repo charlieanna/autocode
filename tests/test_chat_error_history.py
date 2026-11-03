@@ -67,6 +67,22 @@ class ErrorHistoryTests(unittest.TestCase):
         transcript.progress(WORKING)
         self.assertEqual(before, self.rendered(transcript))
 
+    def test_a_saved_task_stop_is_history_after_verified_work_resumes(self):
+        transcript = tui.Transcript()
+        transcript.add("AutoCode stopped: Your decision. Queued pause was applied.")
+        transcript.progress(WORKING)
+        shown = self.rendered(transcript)
+        self.assertIn("Earlier stop", shown)
+        self.assertIn("Your decision. Queued pause was applied.", shown)
+        self.assertNotIn("AutoCode stopped:", shown)
+
+    def test_a_current_task_stop_remains_visible_without_verified_running_work(self):
+        transcript = tui.Transcript()
+        transcript.add("AutoCode stopped: Your decision. Queued pause was applied.")
+        transcript.progress({"status": "RUNNING", "needs": {"kind": "continue"}})
+        self.assertIn("AutoCode stopped:", self.rendered(transcript))
+        self.assertNotIn("Earlier stop", self.rendered(transcript))
+
     def test_tui_status_observation_updates_the_visible_history_without_a_task_action(self):
         with patch.object(tui.ChatTUI, "_open"):
             ui = tui.ChatTUI()
@@ -81,6 +97,12 @@ class ErrorHistoryTests(unittest.TestCase):
 
 class ErrorHistoryTerminalTests(unittest.TestCase):
     def test_a_running_public_view_makes_the_old_error_clearly_historical(self):
+        self.render_case("Coordination stopped: Local remote missing.", "Earlier coordination error")
+
+    def test_a_running_public_view_makes_the_saved_task_stop_historical(self):
+        self.render_case("AutoCode stopped: Queued pause was applied.", "Earlier stop")
+
+    def render_case(self, stop, label):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             backend = root / "backend.py"
@@ -97,7 +119,7 @@ sys.path.insert(0, 'tools')
 from autocode_chat_tui import ChatTUI
 with ChatTUI() as ui:
     ui.say('You: Fix the history.')
-    ui.say('Coordination stopped: Local remote missing.')
+    ui.say({stop!r})
     view = json.loads(subprocess.check_output([sys.executable, {str(backend)!r}, '--status'], text=True))['view']
     ui.observe(view)
     ui.ask('Your reply: ')
@@ -105,13 +127,9 @@ with ChatTUI() as ui:
             with TerminalScreen(
                 [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
             ) as screen:
-                text = screen.wait_for(
-                    lambda text: all(
-                        item in text for item in ("Earlier coordination error", "Local remote missing.", "╰─")
-                    ),
-                    timeout=10,
-                )
-                self.assertNotIn("Coordination stopped:", text)
+                reason = stop.partition(":")[2].strip()
+                text = screen.wait_for(lambda text: all(item in text for item in (label, reason, "╰─")), timeout=10)
+                self.assertNotIn(stop, text)
                 screen.keys("Enter")
                 self.assertEqual(0, screen.exit_status())
             self.assertEqual(["--status"], json.loads((root / "calls.json").read_text()))
