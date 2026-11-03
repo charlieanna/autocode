@@ -84,6 +84,53 @@ class ConsistentSampleTests(unittest.TestCase):
         self.assertEqual(["terra"], calls)
         self.assertEqual(util.digest(state_at("terra")), view["observation"]["checkpoint_token"])
 
+    def test_a_requirements_question_names_its_origin_instead_of_the_queued_planner(self):
+        question = {"id": "Q1", "question": "Which history entries are affected?"}
+        for origin, pending, status, expected in (
+            ("requirements_gather", "pending", "WAITING_FOR_USER", "Requirements"),
+            ("astra_discovery", "pending", "WAITING_FOR_USER", "Planner"),
+            ("requirements_gather", "consumed", "WAITING_FOR_USER", "Planner"),
+            ("requirements_gather", "pending", "PAUSED_INVALID_OUTPUT", "Planner"),
+        ):
+            with self.subTest(origin=origin, pending=pending, status=status), tempfile.TemporaryDirectory() as tmp:
+                run = Path(tmp).resolve() / "run"
+                run.mkdir()
+                saved = {
+                    **state_at("astra_discovery"),
+                    "status": status,
+                    "settings": {"spec_first": True},
+                    "pending_questions": [question],
+                    "resolver_human_request": {
+                        "request_id": "request-1",
+                        "request_token": "token-1",
+                        "scope": "clarification",
+                    },
+                    "resolver": {
+                        "human_escalations": {
+                            "request-1": {
+                                "status": pending,
+                                "identity": {"proposal": {"origin": {"stage": origin}}},
+                            }
+                        }
+                    },
+                }
+                (run / "state.json").write_text(json.dumps(saved))
+                shown = self.render(
+                    saved,
+                    run,
+                    lambda *_args, **_kwargs: {
+                        "kind": "boundary",
+                        "reason": "fixture",
+                        "receipt": None,
+                        "checked": True,
+                        "alive": False,
+                    },
+                )
+                self.assertEqual(expected, shown["progress"]["stage"])
+                self.assertEqual("Waiting for you", shown["progress"]["headline"])
+                self.assertEqual("astra_discovery", shown["next_stage"])
+                self.assertEqual("Q1", shown["needs"]["questions"][0]["id"])
+
     def test_a_checkpoint_that_keeps_changing_is_bounded(self):
         import autocode_status_command as command
 

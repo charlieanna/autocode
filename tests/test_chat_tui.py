@@ -57,6 +57,17 @@ class WrapTests(unittest.TestCase):
 
 
 class TranscriptTests(unittest.TestCase):
+    def test_only_requested_adjacent_info_repeats_are_coalesced(self):
+        transcript = tui.Transcript()
+        transcript.info("Working", "Your draft is kept.", coalesce=True)
+        transcript.info("Working", "Your draft is kept.", coalesce=True)
+        self.assertEqual(1, len(transcript.blocks))
+        transcript.add("AutoCode: New progress.")
+        transcript.info("Working", "Your draft is kept.", coalesce=True)
+        self.assertEqual(3, len(transcript.blocks))
+        transcript.info("Working", "Your draft is kept.")
+        self.assertEqual(4, len(transcript.blocks), "ordinary command results still repeat when requested")
+
     def test_progress_messages_share_the_conversation_and_update_by_identity(self):
         transcript = tui.Transcript()
         transcript.add("You: Fix the history.")
@@ -915,6 +926,16 @@ class AskTests(unittest.TestCase):
         ui = screen_ui(*"hello\n")
         ui.observe({"liveness": {"kind": "supervised"}})
         self.assertIsNone(ui.wait(0.3))
+        self.assertEqual("hello", ui._composer.text)
+        self.assertEqual(
+            ["AutoCode is working\nType / for commands. AutoCode asks here when it needs you."], self.info(ui)
+        )
+
+    def test_repeated_enter_while_working_keeps_one_notice_and_the_unsent_draft(self):
+        ui = screen_ui()
+        ui.observe({"liveness": {"kind": "supervised"}})
+        for key in "hello\n\n\n":
+            self.assertIsNone(ui._handle(key, asking=False))
         self.assertEqual("hello", ui._composer.text)
         self.assertEqual(
             ["AutoCode is working\nType / for commands. AutoCode asks here when it needs you."], self.info(ui)

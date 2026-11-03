@@ -277,6 +277,22 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
     stale_check = stale_check or bool(check and state.get("status") == "RUNNING" and lost_check_supervisor)
     checkpoint = runner.milestones.summary(state)
     stage = (active or {}).get("stage") or state.get("next_stage")
+    need = public_view.get("needs") or {}
+    if (
+        state.get("status") == "WAITING_FOR_USER"
+        and not active
+        and not check
+        and need.get("kind") == "answer"
+        and need.get("resolver_scope") == "clarification"
+    ):
+        entry = ((state.get("resolver") or {}).get("human_escalations") or {}).get(
+            need.get("resolver_request_id")
+        ) or {}
+        origin = ((entry.get("identity") or {}).get("proposal") or {}).get("origin") or {}
+        if origin.get("stage") == "requirements_gather":
+            # The queued Planner has not asked this question. Keep the Requirements
+            # conversation labeled by the stage that issued its pending request.
+            stage = "requirements_gather"
     # A finished attempt still sits in active_stage until its record is saved. The
     # job after it is what a person should see next to that "finished" line (#1711).
     following_id = state.get("next_stage") if active_finished else None

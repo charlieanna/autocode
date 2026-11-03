@@ -402,9 +402,12 @@ class Transcript:
         self._revision += 1
         return True
 
-    def info(self, title: str, body: str) -> None:
+    def info(self, title: str, body: str, *, coalesce: bool = False) -> None:
         """What a ``/`` command shows: the chat's own words, not the run's conversation."""
-        self.blocks.append(("info", f"{title}\n{safe_text(body)}"))
+        block = ("info", f"{title}\n{safe_text(body)}")
+        if coalesce and self.blocks and self.blocks[-1] == block:
+            return
+        self.blocks.append(block)
         self._revision += 1
 
     def progress(self, view: dict) -> None:
@@ -1434,7 +1437,7 @@ class ChatTUI:
                 self._transcript.info("Reading run status", "Your text is kept; wait for the run's current view.")
             else:
                 self._transcript.info(
-                    "AutoCode is working", "Type / for commands. AutoCode asks here when it needs you."
+                    "AutoCode is working", "Type / for commands. AutoCode asks here when it needs you.", coalesce=True
                 )
             return None
         if text.startswith("//"):
