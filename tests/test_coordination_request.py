@@ -6,6 +6,94 @@ import autocode_run_view as run_view
 
 
 class CoordinationRequestTests(unittest.TestCase):
+    def late_document(self):
+        narrow = {"request_id": "narrow", "text": "Only the example registry. Payloads may stay empty."}
+        broad = {"request_id": "broad", "text": "Correction: any non-EPP registry. Do not convert payloads."}
+        return {
+            "task": "Fix history",
+            "request_sources": [],
+            "members": [
+                {"target": "api", "message_sources": [narrow, broad]},
+                {"target": "untouched"},
+                {"target": "late", "started": True, "brief": "Fix history"},
+            ],
+            "conversation": {
+                "results": [
+                    {
+                        **row,
+                        "context": {
+                            "kind": "coordinated_task",
+                            "participants": [{"target": "api"}, {"target": "untouched"}],
+                        },
+                        "affected_targets": ["api"],
+                        "reply": {
+                            "text": "Model paraphrase must not become a requirement",
+                            "conversation": {"intent": "change"},
+                        },
+                    }
+                    for row in (narrow, broad)
+                ]
+            },
+        }
+
+    def test_late_member_receives_exact_prior_clarifications_with_their_original_scope(self):
+        from autocode_coordination_request import brief
+
+        doc = self.late_document()
+        text = brief(doc, target="late")
+        for source in doc["members"][0]["message_sources"]:
+            self.assertEqual(1, text.count(source["text"]))
+        self.assertLess(text.index("Only the example"), text.index("Correction:"))
+        self.assertIn("applied to api", text)
+        self.assertIn("not permission to change another repository or approve a plan", text)
+        self.assertNotIn("Model paraphrase", text)
+        self.assertNotIn("message_sources", doc["members"][2], "context is not a delivered change receipt")
+        self.assertEqual("Fix history", brief(doc, target="untouched"))
+        self.assertEqual("Fix history", brief(doc), "global and joint request scope must not be broadened")
+        self.assertEqual(
+            "Fix history\n\nOnly the example registry. Payloads may stay empty.\n\n"
+            "Correction: any non-EPP registry. Do not convert payloads.",
+            brief(doc, target="api"),
+        )
+
+    def test_late_context_requires_a_completed_change_and_matching_applied_human_text(self):
+        from autocode_coordination_request import brief
+
+        for invalid in ("question", "mismatched_text", "missing_receipt", "no_context", "pending"):
+            with self.subTest(invalid=invalid):
+                doc = self.late_document()
+                result = doc["conversation"]["results"][1]
+                doc["conversation"]["results"] = [result]
+                if invalid == "question":
+                    result["reply"]["conversation"]["intent"] = "question"
+                elif invalid == "mismatched_text":
+                    result["text"] = "Unconfirmed source text"
+                elif invalid == "missing_receipt":
+                    doc["members"][0]["message_sources"] = []
+                elif invalid == "no_context":
+                    result.pop("context")
+                else:
+                    doc["conversation"] = {"active": result, "results": []}
+                self.assertEqual("Fix history", brief(doc, target="late"))
+
+    def test_late_context_precedes_member_changes_and_saved_recovery_happens_once(self):
+        from autocode_coordination_request import brief, recovery
+
+        doc = self.late_document()
+        for member in doc["members"][:2]:
+            member["brief"] = brief(doc, target=member["target"])
+            member["started"] = True
+        late = doc["members"][2]
+        late["message_sources"] = [{"request_id": "later", "text": "Keep this member read-only."}]
+        expected = brief(doc, target="late")
+        self.assertIn("any non-EPP registry", expected)
+        self.assertTrue(expected.endswith("Keep this member read-only."))
+        self.assertEqual({"kind": "request_feedback", "target": "late", "message": expected}, recovery(doc, {}, []))
+        late["brief"] = expected
+        self.assertIsNone(recovery(doc, {}, []))
+        late["brief"] = "Fix history"
+        self.assertEqual("blocked", recovery(doc, {"late": {"approved_contract": {"token": "approved"}}}, [])["kind"])
+
     def test_joint_request_keeps_applied_messages_once_with_their_member_scope_and_order(self):
         from autocode_coordination_request import joint_brief
 
@@ -100,6 +188,26 @@ class CoordinationRequestTests(unittest.TestCase):
         ):
             with self.subTest(extra=extra, views=views):
                 self.assertEqual("blocked", recovery({**doc, **extra}, views, [])["kind"])
+
+    def test_resume_receipts_do_not_approve_a_plan_or_block_missing_request_context(self):
+        from autocode_coordination_request import recovery
+
+        sources = [{"id": "answer:Q1", "kind": "user_answer", "text": "Keep payloads blank."}]
+        doc = {
+            "task": "Fix history",
+            "request_sources": sources,
+            "members": [{"target": "api", "started": True, "brief": "Fix history"}],
+        }
+        receipt = {"kind": "resume", "contract_token": None, "actor": "user_cli"}
+        view = {"approvals": [receipt]}
+        self.assertEqual(
+            {"kind": "request_feedback", "target": "api", "message": "Fix history\n\nKeep payloads blank."},
+            recovery(doc, {"api": view}, sources),
+        )
+        self.assertEqual([receipt], view["approvals"], "the historical resume receipt must be preserved")
+        for approval in ({"kind": "plan"}, {"kind": "resume", "contract_token": "r1:approved"}, {}):
+            with self.subTest(approval=approval):
+                self.assertEqual("blocked", recovery(doc, {"api": {"approvals": [receipt, approval]}}, sources)["kind"])
 
     def test_public_request_sources_keep_live_human_clarifications_only(self):
         answer = {"kind": "answer", "actor": "user_cli", "question_id": "Q1", "text": "Result must be 2304."}

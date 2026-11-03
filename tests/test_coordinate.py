@@ -271,6 +271,26 @@ class CoordinationTests(unittest.TestCase):
         self.document["request_sources"] = [{"id": "answer:Q1", "kind": "user_answer", "text": "Preserve 2304."}]
         self.assertIn("Preserve 2304.", joint.brief(self.document))
 
+    def test_newly_resolved_member_receives_earlier_scoped_conversation_context(self):
+        from tests.test_coordination_request import CoordinationRequestTests
+
+        history = CoordinationRequestTests().late_document()
+        self.document.update({k: history[k] for k in ("request_sources", "members", "conversation")})
+        self.document["members"] = self.document["members"][:2]
+        step = {"kind": "resolve", "target": "late", "entry": {}, "work": "Investigate history"}
+        with (
+            patch.object(store, "read", return_value=self.document),
+            patch.object(coordinate, "observe", return_value={}),
+            patch.object(coordinate, "next_step", return_value=step),
+            patch.object(coordinate, "observe_dependencies"),
+            patch.object(coordinate, "sync_set"),
+            patch.object(coordinate, "status", return_value={}),
+            patch.object(coordinate, "add_member") as add,
+        ):
+            coordinate.advance(self.document["anchor"])
+        self.assertIn("Correction: any non-EPP registry", add.call_args.args[3])
+        self.assertIn("applied to api", add.call_args.args[3])
+
     def test_joint_brief_carries_applied_member_messages_into_integration_planning(self):
         self.document["members"] = [
             {"target": "api", "message_sources": [{"request_id": "routes", "text": "Cover both routes."}]}
