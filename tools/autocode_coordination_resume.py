@@ -67,6 +67,24 @@ def reconciled_retry(view):
     )
 
 
+def settled_clarification(view):
+    """Recovery leaves a saved question untouched after its controller has exited."""
+    need, controller = view.get("needs") or {}, view.get("controller") or {}
+    questions = need.get("questions") or []
+    return bool(
+        view.get("status") == "WAITING_FOR_USER"
+        and need.get("kind") == "answer"
+        and need.get("resolver_scope") == "clarification"
+        and need.get("resolver_request_id")
+        and need.get("resolver_token")
+        and questions
+        and all(question.get("id") and question.get("question") for question in questions)
+        and controller.get("kind") == "boundary"
+        and controller.get("checked") is True
+        and controller.get("alive") is False
+    )
+
+
 def offer(document, rows, history):
     """A cancellation may be acknowledged only after all owned work settles."""
     if not store.cancelled(document["anchor"]) or document.get("pending") or document.get("rework"):
@@ -89,7 +107,7 @@ def offer(document, rows, history):
         )
         if actions.working(view) or any(a.get("active") for a in attempts):
             return None
-        if not intervention and not reconciled_retry(view) and not planning.settled(view):
+        if not (intervention or reconciled_retry(view) or planning.settled(view) or settled_clarification(view)):
             return None
     summary = budget.accounting(document.get("budget") or {}, history)
     if not summary["complete"] and (document.get("budget") or {}).get("cap_usd") != 0:
