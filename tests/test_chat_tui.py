@@ -386,9 +386,11 @@ def screen_ui(*keys):
     screen = mock.MagicMock()
     screen.getmaxyx.return_value = (30, 120)
     pending = list(keys)
+    delay = [-1]
+    screen.timeout.side_effect = lambda value: delay.__setitem__(0, value)
 
     def get_wch():
-        if not pending:
+        if delay[0] == 0 or not pending:
             raise tui.curses.error("no input")
         return pending.pop(0)
 
@@ -397,6 +399,67 @@ def screen_ui(*keys):
         ui = tui.ChatTUI()
     ui._screen = screen
     return ui
+
+
+class PromptTypeaheadTests(unittest.TestCase):
+    def ui(self, queued, *, draft=""):
+        ui = screen_ui()
+        pending = list(queued)
+        ui._composer.insert(draft)
+        delay = [-1]
+        ui._screen.timeout.side_effect = lambda value: delay.__setitem__(0, value)
+
+        def read():
+            if delay[0] == 0:
+                if pending:
+                    return pending.pop(0)
+                raise tui.curses.error("no queued input")
+            return "\n"
+
+        ui._screen.get_wch.side_effect = read
+        self.enterContext(mock.patch.object(tui.curses, "flushinp", side_effect=pending.clear))
+        self.enterContext(mock.patch.object(tui.curses, "curs_set"))
+        return ui, pending
+
+    def test_ctrl_d_already_queued_before_a_prompt_still_exits(self):
+        ui, pending = self.ui(["\x04"])
+        with self.assertRaises(EOFError):
+            ui.ask("Continue? [y/N]: ")
+        self.assertEqual([], pending)
+
+    def test_discard_keeps_only_an_empty_draft_exit_and_restores_input_timeout(self):
+        ui, pending = self.ui(["y", "\n", "\x04"])
+        self.assertTrue(ui._discard_typeahead())
+        self.assertEqual([], pending)
+        ui._screen.timeout.assert_has_calls([mock.call(0), mock.call(-1)])
+
+    def test_discarded_yes_cannot_answer_the_new_approval(self):
+        ui, pending = self.ui(["y", "\n"])
+        self.assertEqual("", ui.ask("Approve this plan? [y/N]: "))
+        self.assertEqual([], pending)
+
+    def test_ctrl_d_with_an_existing_draft_is_not_an_exit(self):
+        ui, pending = self.ui(["\x04"], draft="unsent reply")
+        self.assertFalse(ui._discard_typeahead())
+        self.assertEqual("unsent reply", ui._composer.text)
+        self.assertEqual([], pending)
+
+    def test_literal_ctrl_d_inside_a_bracketed_paste_is_not_an_exit(self):
+        ui, pending = self.ui(list("\x1b[200~quoted \x04 text\x1b[201~"))
+        self.assertFalse(ui._discard_typeahead())
+        self.assertEqual([], pending)
+
+    def test_already_buffered_answer_keys_cannot_approve_the_new_plan(self):
+        ui, _ = self.ui([])
+        ui._queued.extend(["y", "\n"])
+        self.assertEqual("", ui.ask("Approve this plan? [y/N]: "))
+
+    def test_discard_bounds_a_continuous_stream_before_flushing(self):
+        ui, _ = self.ui([])
+        ui._screen.get_wch.side_effect = lambda: "y"
+        self.assertFalse(ui._discard_typeahead())
+        self.assertLessEqual(ui._screen.get_wch.call_count, 4096)
+        tui.curses.flushinp.assert_called_once()
 
 
 class CoordinatedMeterTests(unittest.TestCase):
@@ -1025,13 +1088,22 @@ class AskTests(unittest.TestCase):
         screen = mock.MagicMock()
         screen.getmaxyx.return_value = (30, 100)
         calls = []
-        screen.get_wch.side_effect = lambda: calls.append("read") or "\n"
+        delay = [-1]
+        screen.timeout.side_effect = lambda value: delay.__setitem__(0, value)
+
+        def read():
+            calls.append("discard" if delay[0] == 0 else "read")
+            if delay[0] == 0:
+                raise tui.curses.error("no queued input")
+            return "\n"
+
+        screen.get_wch.side_effect = read
         with mock.patch.object(tui.ChatTUI, "_open"), mock.patch.object(tui.curses, "curs_set"):
             ui = tui.ChatTUI()
             ui._screen = screen
             with mock.patch.object(tui.curses, "flushinp", side_effect=lambda: calls.append("flush")):
                 self.assertEqual("", ui.ask("Approve this plan? [y/N]"))
-        self.assertEqual(["flush", "read"], calls)
+        self.assertEqual(["discard", "flush", "read"], calls)
 
 
 class TallReplyAnchorTests(unittest.TestCase):
