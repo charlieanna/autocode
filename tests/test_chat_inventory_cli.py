@@ -100,12 +100,23 @@ raise SystemExit(code)
                 screen.wait_for("Anything else?", 15)
                 screen.type("/runs")
                 screen.keys("Enter")
-                initial = screen.wait_for("Run list read finished", 10)
+                initial = screen.wait_for(
+                    lambda frame: "Run list read finished" in frame and "Public entry 24" in frame, 10
+                )
                 self.assertIn("Public entry 24", initial, "the first requested list appears without a second command")
                 screen.type("/runs")
                 screen.keys("Enter")
+                # The previous list can still be visible while /runs is being
+                # typed. Its slash menu hides the final row until Enter is
+                # handled and the conversation has finished redrawing.
                 shown = screen.wait_for(
-                    lambda frame: "Public entry 24" in frame and "Listed chats are not opened tabs" in frame, 10
+                    lambda frame: (
+                        "Public entry 24" in frame
+                        and "Public entry 00" in frame
+                        and "Listed chats are not opened tabs" in frame
+                        and composer_text(frame) == ""
+                    ),
+                    10,
                 )
                 self.assertIn("Public entry 00", shown)
                 self.assertIn("Listed chats are not opened tabs", shown)
