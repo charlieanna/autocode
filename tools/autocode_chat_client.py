@@ -58,6 +58,7 @@ try:
     from . import autocode_chat_changeset as changeset
     from . import autocode_chat_context as contexts
     from . import autocode_chat_coordination as coordination
+    from . import autocode_chat_failed_input as failed_input
     from . import autocode_chat_inventory as inventory
     from . import autocode_chat_messages as messages
     from . import autocode_chat_meter as meter
@@ -76,6 +77,7 @@ except ImportError:
     import autocode_chat_changeset as changeset
     import autocode_chat_context as contexts
     import autocode_chat_coordination as coordination
+    import autocode_chat_failed_input as failed_input
     import autocode_chat_inventory as inventory
     import autocode_chat_messages as messages
     import autocode_chat_meter as meter
@@ -1212,10 +1214,8 @@ class ChatClient:
                 try:
                     if failed_action is not None:
                         self.say(f"\n{failed_action}")
-                        if self.ask("Enter checks current status; /runs, /open or /quit: "):
-                            self.say("Nothing sent. Press Enter to check the run, or use a / command.")
-                            continue
-                        failed_action = None
+                        if failed_input.reply(self):
+                            failed_action = None
                         continue
                     if (stop := self.step()) is not None:
                         return stop
