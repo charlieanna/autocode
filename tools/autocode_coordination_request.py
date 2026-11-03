@@ -88,7 +88,7 @@ def recovery(document, views, sources):
         or "joint" in document
         or any(
             view.get("approved_contract")
-            or view.get("approvals")
+            or any(row.get("kind") != "resume" or row.get("contract_token") for row in view.get("approvals", []))
             or (view.get("usage", {}).get("accounting", {}).get("active_attempts", 0))
             for view in views.values()
         )

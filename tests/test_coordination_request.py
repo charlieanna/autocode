@@ -189,6 +189,26 @@ class CoordinationRequestTests(unittest.TestCase):
             with self.subTest(extra=extra, views=views):
                 self.assertEqual("blocked", recovery({**doc, **extra}, views, [])["kind"])
 
+    def test_resume_receipts_do_not_approve_a_plan_or_block_missing_request_context(self):
+        from autocode_coordination_request import recovery
+
+        sources = [{"id": "answer:Q1", "kind": "user_answer", "text": "Keep payloads blank."}]
+        doc = {
+            "task": "Fix history",
+            "request_sources": sources,
+            "members": [{"target": "api", "started": True, "brief": "Fix history"}],
+        }
+        receipt = {"kind": "resume", "contract_token": None, "actor": "user_cli"}
+        view = {"approvals": [receipt]}
+        self.assertEqual(
+            {"kind": "request_feedback", "target": "api", "message": "Fix history\n\nKeep payloads blank."},
+            recovery(doc, {"api": view}, sources),
+        )
+        self.assertEqual([receipt], view["approvals"], "the historical resume receipt must be preserved")
+        for approval in ({"kind": "plan"}, {"kind": "resume", "contract_token": "r1:approved"}, {}):
+            with self.subTest(approval=approval):
+                self.assertEqual("blocked", recovery(doc, {"api": {"approvals": [receipt, approval]}}, sources)["kind"])
+
     def test_public_request_sources_keep_live_human_clarifications_only(self):
         answer = {"kind": "answer", "actor": "user_cli", "question_id": "Q1", "text": "Result must be 2304."}
         state = {
