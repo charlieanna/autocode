@@ -578,6 +578,7 @@ class SmallTerminalTests(unittest.TestCase):
 class StatusLineTests(unittest.TestCase):
     def test_planning_screen_hides_stale_completion_counts_until_execution(self):
         ui = screen_ui()
+        ui._panel_on = True
         current = {
             "status": "RUNNING",
             "phase": "PLANNING",
@@ -1237,10 +1238,14 @@ class LivePaneTests(unittest.TestCase):
         shown = " ".join(text for row, _, text in self.drawn(ui, cols=80) if row == 2)
         self.assertEqual(1, shown.count("Plan Reviewer"))
 
-    def test_public_stage_opens_the_compact_sidebar_before_usage_arrives(self):
+    def test_public_stage_keeps_full_width_until_the_panel_is_requested(self):
         ui = screen_ui()
         ui.observe({"status": "WAITING_FOR_USER", "progress": {"stage": "Planner", "headline": "Waiting for you"}})
+        self.assertIsNone(ui._layout(30, 120).panel_col)
+        ui._run("/panel", True)
         self.assertIsNotNone(ui._layout(30, 120).panel_col)
+        ui._run("/panel", True)
+        self.assertIsNone(ui._layout(30, 120).panel_col)
 
     def test_default_progress_uses_one_conversation_and_keeps_paged_history_still(self):
         ui = screen_ui()
@@ -1613,12 +1618,13 @@ SPENDING_VIEW = {
 
 
 class MeterScreenTests(unittest.TestCase):
-    def test_the_header_shows_the_runs_cost_and_tokens(self):
+    def test_the_footer_shows_the_runs_cost_and_tokens(self):
         ui = screen_ui()
         ui.observe(SPENDING_VIEW)
-        self.assertIn("$0.42 · 184k tokens", row_text(drawn(ui), 0))
+        self.assertIn("$0.42 · 184k tokens", row_text(drawn(ui), 29))
+        self.assertNotIn("$0.42", row_text(drawn(ui), 0))
 
-    def test_with_two_chats_the_header_adds_the_session_total(self):
+    def test_with_two_chats_the_footer_adds_the_session_total(self):
         ui = screen_ui()
         ui.observe(SPENDING_VIEW)
         other = {
@@ -1635,7 +1641,7 @@ class MeterScreenTests(unittest.TestCase):
                 {"number": 2, "run": "/p/r2", "title": "This", "state": "working", "current": True, "total": None},
             ]
         )
-        self.assertIn("chat $0.42 · 184k tokens · session $1.42 · 185k tokens", row_text(drawn(ui, cols=140), 0))
+        self.assertIn("chat $0.42 · 184k tokens · session $1.42 · 185k tokens", row_text(drawn(ui, cols=140), 29))
 
     def test_a_struggling_stage_takes_the_status_row(self):
         ui = screen_ui()
@@ -1643,7 +1649,19 @@ class MeterScreenTests(unittest.TestCase):
         puts = drawn(ui)
         status = next(text for _, text in puts if "attempt 2" in text and "Builder" in text and "exit 1" in text)
         self.assertIn("last one exit 1", status)
-        self.assertIn("USAGE  $0.42 · 184k tokens", " ".join(text for _, text in puts))
+        self.assertIn("$0.42 · 184k tokens", row_text(puts, 29))
+
+    def test_stage_meter_and_input_stay_at_bottom_across_terminal_sizes(self):
+        ui = screen_ui()
+        ui.observe({**SPENDING_VIEW, "progress": {"stage": "Planner", "headline": "Planner working"}})
+        ui._composer.insert("my unsent draft")
+        for rows, cols in ((12, 80), (22, 80), (40, 121), (63, 121)):
+            with self.subTest(rows=rows, cols=cols):
+                puts = drawn(ui, rows=rows, cols=cols)
+                self.assertIn("my unsent draft", row_text(puts, rows - 3))
+                self.assertIn("Planner · $0.42 · 184k tokens", row_text(puts, rows - 1))
+                self.assertIsNone(ui._layout(rows, cols).panel_col)
+                self.assertEqual(cols - 1, ui._layout(rows, cols).body_width)
 
 
 class ClosingSummaryTests(unittest.TestCase):
@@ -1780,6 +1798,7 @@ class SidePanelWrapTests(unittest.TestCase):
 
     def test_requirements_have_a_fixed_count_and_full_text_on_request(self):
         ui = screen_ui()
+        ui._panel_on = True
         ui.observe(self.VIEW)
         layout = ui._layout(30, 120)
         panel_rows = [text for row, col, text in [(r, c, t) for r, c, t, _ in styled(ui)] if col == layout.panel_col]

@@ -241,7 +241,7 @@ with ChatTUI() as ui:
                     and "Inspecting the actual request path" in text
                     and "task $3.00+" in text
                     and "300 tokens" in text
-                    and "TASK USAGE" in text
+                    and "task $3.00+" in text.splitlines()[-1]
                 ),
                 what="active coordinated member live log and stable task total",
                 timeout=10,
