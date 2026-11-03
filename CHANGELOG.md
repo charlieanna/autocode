@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Terminal chat uses the full conversation width by default, with the input anchored
+  above a compact stage, cost and token footer. `/panel` opens extra details on demand.
+- Footer redraws keep the visible reply cursor inside the input, including after resizing.
 - Cancelling coordinated work at a saved boundary keeps the full-screen chat open for
   inspection, navigation and offered task messages. It does not resume work automatically;
   the line client retains its existing exit status.

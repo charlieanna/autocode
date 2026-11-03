@@ -31,6 +31,7 @@ with ChatTUI() as ui:
         if texts != previous:
             previous = texts
             ui.observe({{'status': 'RUNNING', 'phase': 'PLANNING',
+                'cost': {{'spent_usd': 1.25, 'complete': False}},
                 'progress': {{'stage': 'Planner', 'headline': 'Planner working'}},
                 'chat': {{'log': [{{'id': str(n), 'agent': 'Planner', 'kind': 'message', 'text': text}}
                                  for n, text in enumerate(json.loads(texts))]
@@ -46,13 +47,17 @@ with ChatTUI() as ui:
                 rows=30,
                 tmux=require_tmux(self),
             ) as screen:
-                screen.wait_for(
-                    lambda shown: all(
-                        text in shown for text in ("Planner · latest updates", "Checking the result mapping.", "╰─")
+                shown = screen.wait_for(
+                    lambda shown: (
+                        all(
+                            text in shown for text in ("Planner · latest updates", "Checking the result mapping.", "╰─")
+                        )
+                        and "Planner · $1.25+" in shown.splitlines()[-1]
                     ),
                     timeout=10,
                     what="recent progress above the complete composer",
                 )
+                self.assertNotIn("│ NOW", shown)
                 screen.type("my unsent draft")
                 for _ in range(30):
                     screen.keys("PPage")

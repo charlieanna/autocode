@@ -735,9 +735,11 @@ Short terminals show only the newest note or give all the space to the conversat
 and input. Questions and the optional agent-details pane replace this rolling view.
 It uses existing public progress messages and makes no extra model calls.
 
-In a terminal at least 100 columns wide, a fixed side panel shows the current
-stage, any decision needed, cost and token totals, and compact task/check counts.
-The stage name remains visible in the header and panel while waiting for an answer.
+The conversation uses the full terminal width by default. The input stays above
+a compact footer showing the current stage, cost and token totals; usage takes
+priority over keyboard hints when space is limited. `/panel` opens a side panel
+with the current stage, any decision needed and compact task/check counts.
+The stage name remains visible while waiting for an answer.
 It has no scrolling activity log. `/details`, `/plan`, `/tasks` and `/log` show
 the full details in the conversation. For a task spanning repositories, **Task
 usage** remains the cumulative cost and tokens across the conversation,
@@ -814,7 +816,7 @@ each with its state (`✓` done, `●` working, `↻` on a later attempt, `✗` 
 time, its accounted cost, which attempt it is on (a report repair counts as the repaired stage's next attempt;
 a stage that ran again after succeeding, such as a second review round, says how many times it ran), and on a second row the model and
 reasoning level it ran on and the tokens it used (`+` when some usage is unreported).
-The side panel and header carry the run's accounted total; with more
+The footer and optional side panel carry the run's accounted total; with more
 than one chat open the header adds a session total over the open chats, leaving out
 what a run restored from a saved step carried over. A stage on its second attempt or
 later after one that did not succeed takes the status row, with that attempt's reason. In a

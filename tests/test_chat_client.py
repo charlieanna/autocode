@@ -2193,26 +2193,41 @@ class TerminalChatTests(unittest.TestCase):
         return leader, child
 
     def test_the_full_screen_chat_runs_a_task_to_completion(self):
-        leader, child = self.spawn_terminal("chat", "--workspace", str(self.workspace), BRIEF, "--", *FIXTURE_OPTIONS)
-        seen = b""
-        try:
-            for until, reply in (
-                (b"Approve understanding and prepare plan?", b"y\n"),
-                (b"Prepare plan?", b"y\n"),
-                (b"Approve this plan?", b"y\n"),
-                (b"Anything else?", b"\n"),
-            ):
-                seen += read_terminal(leader, until=until)
-                os.write(leader, reply)
-            seen += read_terminal(leader)
-        finally:
-            os.close(leader)
-            if child.poll() is None:
-                child.kill()
-        self.assertEqual(0, child.wait(timeout=60), seen.decode(errors="replace")[-2000:])
-        self.assertIn(b"AutoCode chat", seen)
-        self.assertIn(b"Plan to approve:", seen)
-        self.assertIn(b"Done.", seen)
+        argv = [
+            sys.executable,
+            str(AUTOCODE),
+            "chat",
+            "--workspace",
+            str(self.workspace),
+            BRIEF,
+            "--",
+            *FIXTURE_OPTIONS,
+        ]
+        with TerminalScreen(
+            argv,
+            cwd=self.workspace,
+            env={**self.env, "TERM": "xterm-256color"},
+            cols=100,
+            rows=24,
+            tmux=require_tmux(self),
+        ) as screen:
+            for prompt in ("Approve understanding and prepare plan?", "Prepare plan?"):
+                screen.wait_for(prompt)
+                screen.type("y")
+                screen.keys("Enter")
+            screen.wait_for("Approve this plan?")
+            screen.wait_for(
+                lambda shown: (
+                    "AutoCode chat" in shown and "Plan to approve:" in shown and "Approve this plan?" in shown
+                ),
+                what="the actual rendered plan before approval, independent of curses output fragments",
+            )
+            screen.type("y")
+            screen.keys("Enter")
+            screen.wait_for("Anything else?")
+            screen.keys("Enter")
+            self.assertEqual(0, screen.exit_status())
+            screen.wait_for("Done.")
         self.assertTrue((self.workspace / "greet.py").is_file())
 
     def test_a_plan_taller_than_the_screen_opens_at_its_top_and_pages_to_its_end(self):

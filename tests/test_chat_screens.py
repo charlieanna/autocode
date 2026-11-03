@@ -72,10 +72,8 @@ with ChatTUI() as ui:
         self.addCleanup(screen.close)
         screen.wait_for(
             lambda shown: (
-                all(
-                    text in shown
-                    for text in ("STAGE  Plan Reviewer", "Plan Reviewer working", "Fix the history.", "╰─")
-                )
+                all(text in shown for text in ("Plan Reviewer working", "Fix the history.", "╰─"))
+                and "Plan Reviewer ·" in shown.splitlines()[-1]
                 and "0 of" not in shown
                 and "0 open problems" not in shown
                 and "ACCEPTANCE CHECKS" not in shown
@@ -111,13 +109,13 @@ with ChatTUI() as ui:
                     text in shown
                     for text in (
                         "Planner · Waiting for you",
-                        "STAGE  Planner",
                         "▌ Requirements",
                         "▌ Planner",
                         "The operation and mapped result should be shown.",
                         "Checking the established result mappings.",
                     )
                 )
+                and "Planner ·" in shown.splitlines()[-1]
                 and "LIVE ·" not in shown
             ),
             what="attributed stage updates and the waiting stage without a separate live pane",
@@ -185,7 +183,7 @@ with ChatTUI() as ui:
             lambda shown: (
                 "LIVE · all agents" not in shown
                 and "Plan Reviewer working" in shown
-                and "ACCEPTANCE CHECKS" in shown
+                and "ACCEPTANCE CHECKS" not in shown
                 and "Checking the caller route against the saved" in shown
                 and "requirement." in shown
                 and "rg route source-24.go" not in shown
@@ -491,8 +489,13 @@ class ChatScreenTests(unittest.TestCase):
         screen.type("y")
         screen.keys("Enter")
 
-        done = screen.wait_for("Anything else?", RUN_SECONDS)
-        self.assertIn("1 of 1 task done", done, "the side panel at 120 columns")
+        screen.wait_for("Anything else?", RUN_SECONDS)
+        screen.type("/panel")
+        screen.keys("Enter")
+        screen.wait_for(
+            lambda shown: "Anything else?" in shown and "1 of 1 task done" in shown,
+            what="completed task details in the explicitly opened side panel",
+        )
         screen.type("/diff")
         screen.keys("Enter")
         screen.wait_for("Type /diff N")  # the listing, not the closing summary naming the same files

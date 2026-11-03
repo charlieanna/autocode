@@ -70,7 +70,6 @@ REPLY_PLACEHOLDER = "Type your reply, then Enter"
 WORKING_PLACEHOLDER = "AutoCode is working… type / for commands"
 STARTING = "Starting the run…"
 STARTUP_GRACE_SECONDS = 30.0  # a launched run's first failed reads are its start, not an outage
-PANEL_MIN_COLS = 100  # below this the panel stays hidden unless /panel asks for it
 MIN_ROWS, MIN_COLS = 12, 32  # below either the chat cannot be drawn
 
 
@@ -705,7 +704,7 @@ class ChatTUI:
         self._log = panel.StageLog()
         self._live = panel.LiveLog()  # what each agent thinks and does, from the view's chat.log
         self._live_on: bool | None = None  # detailed agent pane appears only on request
-        self._panel_on: bool | None = None  # None: shown when the terminal is wide enough
+        self._panel_on = False  # the conversation owns the width until /panel asks for details
         self._menu_index = 0
         self._waiting = False
         self._launched = False  # a step is running since the last question; its first views may predate it
@@ -1619,11 +1618,7 @@ class ChatTUI:
         )
 
     def _panel_visible(self, rows: int, cols: int) -> bool:
-        if cols < 60 or rows < 16:
-            return False
-        if self._panel_on is not None:
-            return self._panel_on
-        return cols >= PANEL_MIN_COLS and len(panel.compact_sections(self._view, task_total=self._task_total())) > 1
+        return bool(self._panel_on and cols >= 60 and rows >= 16)
 
     def _live_visible(self, rows: int, cols: int) -> bool:
         if rows < 16 or cols < 40:
@@ -1654,8 +1649,8 @@ class ChatTUI:
                 self._command_menu(layout)
                 attention_panel.draw(self, layout, truncate)
                 stages_panel.draw(self, layout, truncate)
-                self._composer_box(layout)
                 self._hints(layout)
+                self._composer_box(layout)  # leave the terminal cursor at the reply after footer writes
                 screen.refresh()
             except curses.error:
                 pass
@@ -1722,10 +1717,6 @@ class ChatTUI:
         used = display_width(brand)
         context = f"  {self._context}" if self._context else ""
         badge = self._attention_badge()
-        spend = self._spend()
-        # The run's spend sits before the badge where it fits whole beside the chat's name, never over it.
-        if spend and used + display_width(context) + display_width(badge) + display_width(spend) + 4 <= layout.width:
-            badge = f" {spend} " + (f"·{badge}" if badge else "")
         remaining = max(0, layout.width - used - display_width(badge))
         if context and remaining:
             self._put(0, used, truncate(context, remaining), self._style("dim"))
@@ -2066,6 +2057,11 @@ class ChatTUI:
             hints = "/ commands · reading run status"
         else:
             hints = "/ commands · ctrl-c asks AutoCode to pause after this step"
+        stage = ((self._view or {}).get("progress") or {}).get("stage")
+        stage = stage.strip() if isinstance(stage, str) else ""
+        status = " · ".join(value for value in (stage, self._spend()) if value)
+        if status:
+            hints = status + " · " + hints
         self._put(layout.hints_row, 2, truncate(hints, layout.width - 2), self._style("dim"))
         right = "AutoCode"
         planted = 2 + display_width(hints)

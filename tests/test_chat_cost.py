@@ -257,6 +257,12 @@ class CostTerminalTests(unittest.TestCase):
             ):
                 shown = screen.wait_for("Fixture ready")
                 if cols == 120:
+                    screen.type("/panel")
+                    screen.keys("Enter")
+                    shown = screen.wait_for(
+                        lambda shown: "$1.25 accounted" in shown and "2 unpriced" in shown,
+                        what="explicit accounting panel with coverage warnings",
+                    )
                     self.assertIn("$1.25 accounted", shown)
                     self.assertIn("2 unpriced", shown)
                 screen.type("/details ")
