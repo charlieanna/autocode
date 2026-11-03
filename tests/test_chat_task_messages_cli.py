@@ -100,8 +100,12 @@ with ChatTUI() as ui:
         for _ in range(30):
             current = client.status()
             summary = coordination.read(client, current)
+            # Saved approval status can precede the CLI sealing its displayed
+            # plan token. Stop only when the coordinator says member plans are
+            # ready, before starting any separate joint-planning work.
             if ((summary.get('conversation') or {{}}).get('results')
-                    and summary['members'][0]['status'] == 'AWAITING_GOAL_APPROVAL'):
+                    and summary['members'][0]['status'] == 'AWAITING_GOAL_APPROVAL'
+                    and summary['needs']['kind'] == 'joint_plan_start'):
                 ui.ask('Question answered; plan still awaits approval. Close this test viewer?')
                 break
             coordination.step(client, current, str)
