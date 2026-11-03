@@ -294,12 +294,15 @@ def _same(block: tuple[str, str], other: tuple[str, str]) -> bool:
 FENCE = "```"
 INLINE = re.compile(r"`([^`\n]+)`|\*\*([^*\n]+)\*\*")  # `code` and **bold** in a message line
 INLINE_STYLES = ("assistant-body", "plain", "notice-body")
-PROSE_EMPHASIS = re.compile(r"`[^`\n]*`|(?<![\w\\])_([^\s_](?:[^\n]*?[^\s_])?)_(?![\w_])")
+PROSE_EMPHASIS = re.compile(
+    r"`[^`\n]*`|(?<![\w\\])_([^\s_](?:[^\n]*?[^\s_])?)_(?![\w_])"
+    r"|(?<![\w\\*])\*([^\s*](?:[^\n]*?[^\s*])?)\*(?![\w*]|\.\w)"
+)
 
 
 def prose_text(text: str) -> str:
-    """Remove paired underscore emphasis, preserving inline code and identifier underscores."""
-    return PROSE_EMPHASIS.sub(lambda match: match.group(1) if match.group(1) is not None else match.group(), text)
+    """Remove paired prose italics, preserving inline code, identifiers and operators."""
+    return PROSE_EMPHASIS.sub(lambda match: match.group(1) or match.group(2) or match.group(), text)
 
 
 def inline_pieces(text: str) -> list[tuple[str, str]]:

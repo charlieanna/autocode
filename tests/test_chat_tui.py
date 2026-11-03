@@ -1827,6 +1827,34 @@ class MessageFormattingTests(unittest.TestCase):
         )
         self.assertEqual("Use this whole phrase.", tui.prose_text("Use _this whole phrase_."))
 
+    def test_asterisk_italics_are_readable_without_changing_bold_code_or_operators(self):
+        self.assertEqual("Apply only new entries.", tui.prose_text("Apply *only* *new* entries."))
+        self.assertEqual("Use this whole phrase.", tui.prose_text("Use *this whole phrase*."))
+        for literal in (
+            "**bold**",
+            "`*literal*`",
+            "2 * 3 * 4",
+            "value*factor*other",
+            "* item",
+            "*.go",
+            "*test*.go",
+            "unfinished *text",
+            r"\*literal\*",
+        ):
+            with self.subTest(literal=literal):
+                self.assertEqual(literal, tui.prose_text(literal))
+
+    def test_asterisk_italics_wrap_as_prose_and_leave_fences_diffs_and_user_text_exact(self):
+        rows = tui.body_rows("assistant-body", "Apply *only* *new* entries.", 16)
+        self.assertEqual("Apply only new entries.", " ".join(text.strip() for _, text in rows))
+        self.assertIn(("code", "  *literal*"), tui.body_rows("assistant-body", "```txt\n*literal*\n```", 30))
+        self.assertIn(
+            ("diff-add", "  +*literal*"), tui.body_rows("info-body", "@@ -1 +1 @@\n+*literal*", 30, diff=True)
+        )
+        ui = screen_ui()
+        ui.say("You: *only* *new*")
+        self.assertIn("*only* *new*", str(drawn(ui)))
+
     def test_emphasis_is_removed_before_prose_wraps_but_fenced_code_and_diffs_stay_exact(self):
         for style in ("assistant-body", "info-body", "notice-body", "plain"):
             with self.subTest(style=style):
