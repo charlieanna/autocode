@@ -278,6 +278,9 @@ class LiveConversationRoutingTests(unittest.TestCase):
         self.assertIn(receipt()["text"], prompt)
         self.assertIn('"next_stage": "astra_finalize"', prompt)
         self.assertIn("read-only", prompt)
+        self.assertIn("clear, correctly spelled English", prompt)
+        self.assertIn("instead of quoting their typos or shorthand", prompt)
+        self.assertIn("source_quote evidence verbatim", prompt)
         self.assertGreater(metrics["estimated_prompt_tokens"], 0)
 
     def test_explicit_change_keeps_the_reply_and_original_text_but_revokes_old_approval(self):

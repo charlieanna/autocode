@@ -69,3 +69,75 @@ class PlanningScopeCliTests(unittest.TestCase):
         self.assertEqual(["greet-history"], view["scope"]["dropped"])
         self.assertFalse(any(row["report_only"] for row in view["usage"]["accounting"]["attempts"]))
         self.assertFalse((run.workspace / "greet.py").exists())
+
+
+@unittest.skipUnless(sys.platform == "linux", "fake providers require supported Linux")
+class AssignedPlannerReportCliTests(unittest.TestCase):
+    def test_assignment_reuses_completed_planner_report_instead_of_regenerating_scope(self):
+        from unittest.mock import patch
+
+        import autocode_chat_client as chat
+        import autocode_chat_coordination as coordination
+
+        from . import test_coordination_tui_e2e as fixture
+
+        fixture.CoordinationTuiEndToEnd.setUp(self)
+        source = (fixture.ROOT / "tests/coordination_provider.py").read_text()
+        source = source.replace("ROOT = Path(__file__).resolve().parents[1]", f"ROOT = Path({str(fixture.ROOT)!r})")
+        marker = "    output.write_text(json.dumps(shaped(report, schema)))"
+        at = source.rindex(marker)
+        source = (
+            source[:at]
+            + textwrap.dedent("""
+            if stage == 'astra_discovery' and name == 'checkout':
+                counter = root / '.autocode/scope-draft-count'
+                number = int(counter.read_text()) + 1 if counter.exists() else 1
+                counter.write_text(str(number))
+                report['workspace_scope'] = {'spans_repositories': True, 'external_parts': [{
+                    'target': 'history', 'work': f'Preserve the downstream total; wording {number}',
+                    'source_quote': '', 'evidence': 'client.py:3'}]}
+        """)
+            .replace("\n", "\n    ")
+            .lstrip("\n")
+            + "\n"
+            + source[at:]
+        )
+        provider = self.root / "bin/late-scope-provider.py"
+        provider.write_text(source)
+        launcher = self.root / "bin/codex"
+        launcher.write_text(f'#!/bin/sh\nexec {sys.executable} {provider} "$@"\n')
+        with patch.dict(os.environ, self.env, clear=True):
+            client = chat.start(
+                self.intake,
+                "Fix checkout showing the wrong final total.",
+                ["--workflow", "bugfix"],
+                [*FIXTURE_OPTIONS, "--no-adaptive-planning", "--spec-first", "--joint-planning"],
+                env=self.env,
+                ask=lambda prompt: self.fail("No person decision is needed for assignment: " + prompt),
+                say=self.lines.append,
+            )
+            self.addCleanup(client.close)
+            client.history = chat.History(self.intake, env=self.env)
+            for _ in range(45):
+                current = client.status()
+                if current.get("coordination"):
+                    summary = coordination.read(client, current)
+                    child = next((m for m in summary["members"] if m["target"] == "checkout"), None)
+                    if child and child["status"] != "STARTING":
+                        run = taskrun.TaskRun(Path(child["workspace"]), Path(child["run_dir"]), env=self.env)
+                        view = run.status()
+                        calls = [a for a in view["usage"]["accounting"]["attempts"] if a["stage"] == "astra_discovery"]
+                        if calls and view["scope"]["decision"] == "linked_repositories":
+                            break
+                client.step()
+            else:
+                self.fail("The coordinator did not assign the late Planner scope")
+            self.assertEqual("astra_challenge", view["next_stage"], view["needs"])
+            self.assertEqual(1, len(calls))
+            self.assertEqual("1", (run.workspace / ".autocode/scope-draft-count").read_text())
+            reopened = run.status()
+            self.assertEqual(view["usage"], reopened["usage"])
+            self.assertEqual(view["scope"], reopened["scope"])
+            self.assertNotIn("approved_contract", view)
+            self.assertFalse(any(a["stage"] == "terra" for a in view["usage"]["accounting"]["attempts"]))
+            self.assertEqual([], self.github.posts)

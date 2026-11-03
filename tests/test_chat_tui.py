@@ -1461,6 +1461,84 @@ def row_text(puts, number):
 
 
 class RecentProgressScreenTests(unittest.TestCase):
+    def test_visible_progress_tracks_only_agent_messages_in_the_current_history_window(self):
+        transcript = tui.Transcript()
+        transcript.add("You: Earlier request")
+        transcript.progress(
+            {
+                "chat": {
+                    "log": [
+                        {"id": "one", "agent": "Planner", "kind": "message", "text": "First update."},
+                        {"id": "two", "agent": "Planner", "kind": "message", "text": "Second update."},
+                    ]
+                }
+            }
+        )
+        self.assertEqual({("Planner", "Second update.")}, transcript.visible_progress(80, 3, 0))
+        self.assertEqual({("Planner", "First update.")}, transcript.visible_progress(80, 3, 3))
+        self.assertEqual(set(), transcript.visible_progress(80, 3, 100))
+        self.assertEqual(set(), transcript.visible_progress(80, 0, 0))
+
+    def test_live_tail_shows_each_planner_update_once_after_revising_the_plan(self):
+        ui = screen_ui()
+        ui._panel_on = False
+        ui.say("You: Leave the request and response fields blank.")
+        ui.say("AutoCode: I will add that constraint to the saved plan.")
+        note = "I will revise the saved plan and check the logging path."
+        view = {
+            "status": "RUNNING",
+            "progress": {"stage": "Planner", "headline": "Planner working"},
+            "chat": {"log": [{"id": "revision", "agent": "Planner", "kind": "message", "text": note}]},
+        }
+        ui.observe(view)
+        ui.observe(view)
+        for rows, cols in ((40, 121), (22, 70), (16, 60)):
+            with self.subTest(rows=rows, cols=cols):
+                shown = " ".join(text.strip() for _, text in drawn(ui, rows, cols))
+                self.assertEqual(1, shown.count(note), shown)
+                self.assertNotIn("latest updates", shown)
+                self.assertIn("Planner", shown)
+                self.assertIn("❯", row_text(drawn(ui, rows, cols), rows - 3))
+
+    def test_streaming_update_remains_visible_until_it_enters_the_transcript(self):
+        ui = screen_ui()
+        view = {
+            "status": "RUNNING",
+            "progress": {"stage": "Planner"},
+            "chat": {
+                "log": [
+                    {
+                        "id": "one",
+                        "agent": "Planner",
+                        "kind": "message",
+                        "text": "Checking the request.",
+                        "status": "streaming",
+                    }
+                ]
+            },
+        }
+        ui.observe(view)
+        self.assertEqual(1, str(drawn(ui)).count("Checking the request."))
+        view["chat"]["log"][0].pop("status")
+        ui.observe(view)
+        self.assertEqual(1, str(drawn(ui)).count("Checking the request."))
+
+    def test_progress_already_visible_while_scrolled_is_not_repeated_in_the_strip(self):
+        ui = screen_ui()
+        for n in range(40):
+            ui.say(f"You: Earlier request {n}")
+        ui.observe(
+            {
+                "status": "RUNNING",
+                "progress": {"stage": "Planner"},
+                "chat": {
+                    "log": [{"id": "one", "agent": "Planner", "kind": "message", "text": "Checking the request."}]
+                },
+            }
+        )
+        ui._scroll = 1
+        self.assertEqual(1, str(drawn(ui)).count("Checking the request."))
+
     def test_recent_progress_stays_above_the_composer_while_reading_earlier_messages(self):
         ui = screen_ui()
         ui._panel_on = False
@@ -1720,6 +1798,49 @@ def styled(ui, rows=30, cols=120):
 
 class MessageFormattingTests(unittest.TestCase):
     """A message's code blocks, `code` and **bold**, and a /diff's lines, are drawn as what they are."""
+
+    def test_underscore_emphasis_is_readable_without_changing_code_or_identifiers(self):
+        self.assertEqual(
+            "Fix only result_code; keep `_literal_`, __init__, _private and unfinished _text.",
+            tui.prose_text("Fix _only_ result_code; keep `_literal_`, __init__, _private and unfinished _text."),
+        )
+        self.assertEqual("Use this whole phrase.", tui.prose_text("Use _this whole phrase_."))
+
+    def test_emphasis_is_removed_before_prose_wraps_but_fenced_code_and_diffs_stay_exact(self):
+        for style in ("assistant-body", "info-body", "notice-body", "plain"):
+            with self.subTest(style=style):
+                rows = tui.body_rows(style, "Fix _only the displayed result code_.", 20)
+                self.assertEqual("Fix only the displayed result code.", " ".join(text.strip() for _, text in rows))
+        self.assertIn(("code", "  _literal_"), tui.body_rows("assistant-body", "```py\n_literal_\n```", 30))
+        self.assertIn(
+            ("diff-add", "  +_literal_"), tui.body_rows("info-body", "@@ -1 +1 @@\n+_literal_", 30, diff=True)
+        )
+
+    def test_scrolled_and_explicit_live_updates_hide_prose_emphasis(self):
+        ui = screen_ui()
+        for n in range(40):
+            ui.say(f"You: Earlier request {n}")
+        ui.observe(
+            {
+                "status": "RUNNING",
+                "progress": {"stage": "Planner"},
+                "chat": {
+                    "log": [
+                        {"id": "one", "agent": "Planner", "kind": "message", "text": "Checking _only_ the result code."}
+                    ]
+                },
+            }
+        )
+        ui._scroll = 1000
+        shown = str(drawn(ui))
+        self.assertIn("Checking only the result code.", shown)
+        self.assertNotIn("_only_", shown)
+        self.assertIn("Checking only the result code.", str(ui.live_rows(100)))
+
+    def test_user_underscore_emphasis_is_preserved_as_typed(self):
+        ui = screen_ui()
+        ui.say("You: _only_ these fields")
+        self.assertIn("_only_ these fields", str(drawn(ui)))
 
     def test_a_fenced_block_is_drawn_as_code_under_a_rule_naming_its_language(self):
         rows = tui.body_rows(

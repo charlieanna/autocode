@@ -292,6 +292,12 @@ def _same(block: tuple[str, str], other: tuple[str, str]) -> bool:
 FENCE = "```"
 INLINE = re.compile(r"`([^`\n]+)`|\*\*([^*\n]+)\*\*")  # `code` and **bold** in a message line
 INLINE_STYLES = ("assistant-body", "plain", "notice-body")
+PROSE_EMPHASIS = re.compile(r"`[^`\n]*`|(?<![\w\\])_([^\s_](?:[^\n]*?[^\s_])?)_(?![\w_])")
+
+
+def prose_text(text: str) -> str:
+    """Remove paired underscore emphasis, preserving inline code and identifier underscores."""
+    return PROSE_EMPHASIS.sub(lambda match: match.group(1) if match.group(1) is not None else match.group(), text)
 
 
 def inline_pieces(text: str) -> list[tuple[str, str]]:
@@ -352,6 +358,8 @@ def body_rows(style: str, body: str, width: int, *, diff: bool = False) -> list[
             continue
         elif fenced:
             kind = "code"
+        if not diff and not fenced and kind != "code":
+            line = prose_text(line)
         rows.extend((kind, "  " + part) for part in wrap(line, max(1, width - 2)))
     return rows
 
@@ -414,6 +422,22 @@ class Transcript:
             elif self.blocks[index] != block:
                 self.blocks[index] = block
                 self._revision += 1
+
+    def visible_progress(self, width: int, height: int, scroll: int) -> set[tuple[str, str]]:
+        """Agent updates whose body intersects the current transcript viewport."""
+        if height <= 0:
+            return set()
+        lines = self.lines(width)
+        end = len(lines) - min(scroll, max(0, len(lines) - height))
+        start = max(0, end - height)
+        visible = set()
+        for index in self.progress_blocks.values():
+            agent, _, text = self.blocks[index][1].partition("\n")
+            first = self.block_starts[index] + 1
+            last = first + len(body_rows("info-body", text, width))
+            if first < end and last > start:
+                visible.add((agent, text.strip()))
+        return visible
 
     def closing(self) -> list[str]:
         """What to leave on the terminal after the screen closes: the client's last words, whole.
@@ -1593,12 +1617,18 @@ class ChatTUI:
         room = panel_end - header_rows
         if not self._asking and live_start is None and room >= 7:
             latest = panel.recent_notes(self._view, limit=2 if room >= 12 else 1)
-            if latest:
+            while latest:
                 stage = ((self._view or {}).get("progress") or {}).get("stage")
                 notes = [f"{stage} · latest updates"]
                 for note in latest:
-                    notes.extend(wrapped_rows(note, max(1, body_width - 2), 2))
+                    notes.extend(wrapped_rows(prose_text(note), max(1, body_width - 2), 2))
+                visible = self._transcript.visible_progress(body_width, room - len(notes), self._scroll)
+                remaining = [note for note in latest if (stage, safe_text(note).strip()) not in visible]
+                if remaining != latest:
+                    latest, notes = remaining, []
+                    continue  # Removing a duplicate gives the transcript more room; recheck it.
                 notes_start = panel_end - len(notes)
+                break
         return Layout(
             body_width=body_width,
             panel_col=width - panel_width if panel_width else None,
@@ -1867,6 +1897,8 @@ class ChatTUI:
                 else "live-plain"
             )
             agent, text = safe_text(entry["agent"]), safe_text(panel.live_text(entry["text"]))
+            if entry["kind"] in ("message", "thinking"):
+                text = prose_text(text)
             lines = wrap(f"{agent} {mark} {text}", width)
             first = lines[0]
             if first.startswith(agent):

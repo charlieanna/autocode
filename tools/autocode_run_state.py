@@ -301,7 +301,10 @@ class RunState(TypedDict, total=False):
     task_sha256: str  # written by task_input.assign; run_view derives it from saved text, including legacy runs
     task_id: str  # current task id; written by goals
     workspace: str  # the project (or task worktree) root
-    workspace_scope: dict  # workspace_scope_state.record owns validated current-turn external work; Requirements/Investigator/Planner and scope gate read it
+    # workspace_scope_state.record owns external work. planning_scope owns its
+    # optional pending_handoff/resumed_handoff; action_scope consumes the exact
+    # completed report after authenticated assignment, without another model call.
+    workspace_scope: dict
     changeset_approval: dict  # changeset_barrier.approve writes exact set/standalone grant; checkpoint publication and execution guard read it
     project_workspace: str  # the project a task worktree belongs to
     # The folder a launch selected that held no Git repository, and the project AutoCode created to
