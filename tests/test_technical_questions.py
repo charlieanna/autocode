@@ -127,6 +127,26 @@ class TechnicalQuestionPolicyTests(unittest.TestCase):
         current["user_events"].append({"kind": "brief_feedback", "actor": "user_cli", "text": "Use a different input."})
         self.assertEqual([], technical.settle(current, [question()], "r3:draft"))
 
+    def test_reworded_internal_question_cannot_repeat_the_same_settled_decision(self):
+        current = state()
+        technical.settle(current, [question("OWNER")], "r1:draft")
+        repeated = question(
+            "OWNER",
+            question="Which owner will carry the already selected work?",
+            why="The assignment has not changed since the previous draft.",
+            proposed_default="Use the saved owner decision and refresh its assignment.",
+        )
+        before = copy.deepcopy(current)
+        with self.assertRaisesRegex(ValueError, "OWNER.*already settled"):
+            technical.settle(current, [question("NEW"), repeated], "r2:draft")
+        self.assertEqual(before, current, "Refusal must not record other defaults from the rejected report")
+
+    def test_distinct_internal_question_can_be_settled_after_another_decision(self):
+        current = state()
+        technical.settle(current, [question("FIRST")], "r1:draft")
+        self.assertEqual([], technical.settle(current, [question("SECOND")], "r2:draft"))
+        self.assertEqual(["FIRST", "SECOND"], [event["question_id"] for event in current["user_events"]])
+
 
 class TechnicalDraftTests(unittest.TestCase):
     def test_nonjoint_runs_keep_their_existing_human_question_path(self):
