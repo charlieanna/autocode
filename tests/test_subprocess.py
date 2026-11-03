@@ -165,27 +165,27 @@ class SubprocessFlow(unittest.TestCase):
         self.env["AUTOCODE_FIXTURE_MODE"] = "stalled"
         # Keep this a pure execution-budget fixture; default replan holds have public CLI coverage.
         self.launch(["Build greeting", "--max-milestone-stalled-reviews", "0", "--chat"], 2, answers="CLI\nyes\n")
-        run, state = self.saved()
+        run = next((self.project / ".autocode/runs").iterdir())
         status = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
         self.assertIsNone(status["milestone_checkpoint"]["limits"]["stalled_reviews"])
         self.assertFalse(status["milestone_checkpoint"]["current"]["needs_replan"])
-        # Identical defects need real operator grants before consuming the
-        # remaining configured escalation, rather than fresh-session retries.
-        for _ in range(2):
-            if state["status"] == "PAUSED_BUILDER_RETRY_LIMIT":
-                break
-            self.assertIn(
-                "Implementation remains blocked after the configured retries and the stronger Builder attempt",
-                state["stop_reason"],
-            )
-            before = [row for row in state["stages"] if not row.get("runner_owned")]
-            self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
-            self.assertEqual(before, [row for row in self.saved()[1]["stages"] if not row.get("runner_owned")])
-            self.launch(["--run-dir", str(run), "--resume-paused", "--retry-failed-stage", "--no-chat"], 2)
-            _, state = self.saved()
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", state["status"])
-        self.assertEqual(["retry", "escalate", "pause"], [r["action"] for r in state["builder_retry_decisions"]])
-        self.assertEqual(3, sum(r["stage"] == "terra" for r in state["stages"]))
+        view = status["view"]
+        self.assertEqual("PAUSED_INTERVENTION", view["status"])
+        self.assertEqual("could_not_finish", view["recovery"]["outcome"]["result"])
+        self.assertEqual(3, view["recovery"]["outcome"]["evidence"]["attempt"])
+        attempts = view["usage"]["accounting"]["attempts"]
+        builders = [row for row in attempts if row["stage"] == "terra"]
+        self.assertEqual(["gpt-5.6-terra", "gpt-5.6-terra", "gpt-6-sol"], [row["model"] for row in builders])
+        self.assertIsNone(view["next_command"], "an exhausted run must not offer another attempt")
+        self.assertTrue(all(not action.get("next_command") for action in view["recovery"]["actions"]))
+        # Reopening and obsolete retry flags cannot spend another model call.
+        for flags in ([], ["--resume-paused"], ["--resume-paused", "--retry-failed-stage"]):
+            self.launch(["--run-dir", str(run), "--no-chat", *flags], 2)
+            reopened = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
+            self.assertEqual("PAUSED_INTERVENTION", reopened["status"])
+            self.assertEqual(view["recovery"]["outcome"], reopened["recovery"]["outcome"])
+            self.assertEqual(attempts, reopened["usage"]["accounting"]["attempts"])
+            self.assertEqual(view["cost"], reopened["cost"])
 
     def test_queued_checkpoint_migration_preserves_work_and_never_launches_on_activation(self):
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
