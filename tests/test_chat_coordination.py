@@ -315,12 +315,16 @@ assert calls == [((['coordinate', 'resume', '--run-dir', str(run), '--token', '-
         )
         self.addCleanup(screen.close)
         screen.wait_for(
-            lambda text: "Shared accounting cap: no cap" in text and "New whole-set accounting cap" in text,
-            what="uncapped recovery prompt",
+            lambda text: (
+                "Shared accounting cap: no cap" in text
+                and "Resume this saved coordination with the existing spending settings?" in text
+                and "New whole-set accounting cap" not in text
+                and "Remove spending limits" not in text
+            ),
+            what="uncapped recovery preserving the saved budget",
         )
-        screen.type("0")
-        screen.keys("Enter")
-        screen.wait_for("Remove spending limits and recover this saved coordination?")
+        self.assertNotIn("New whole-set accounting cap", screen.text())
+        self.assertNotIn("Remove spending limits", screen.text())
         screen.type("yes")
         screen.keys("Enter")
         self.assertEqual(0, screen.exit_status())
@@ -792,6 +796,52 @@ class CoordinatedDisplayTests(unittest.TestCase):
                 self.assertIs(parent._unavailable, unavailable)
 
 
+class UnchangedResumeAmountTests(unittest.TestCase):
+    def test_only_an_admitted_unchanged_resume_has_a_reusable_amount(self):
+        for cap, complete, expected in ((0, False, "0"), (15.25, True, "15.25"), (0.000001, True, "0.000001")):
+            with self.subTest(cap=cap):
+                need = {
+                    "kind": "coordination_resume",
+                    "cap_usd": cap,
+                    "current_cap_usd": cap,
+                    "complete": complete,
+                    "allows_no_cap": True,
+                }
+                self.assertEqual(expected, coordination.unchanged_resume_amount(need, 0.000001, 100))
+
+    def test_missing_or_changed_authority_never_silently_changes_the_budget(self):
+        baseline = {
+            "kind": "coordination_resume",
+            "cap_usd": 15.25,
+            "current_cap_usd": 15.25,
+            "complete": True,
+            "allows_no_cap": True,
+        }
+        for change in (
+            {"kind": "budget"},
+            {"kind": "planning_budget"},
+            {"current_cap_usd": None},
+            {"current_cap_usd": True},
+            {"current_cap_usd": float("inf")},
+            {"current_cap_usd": -1},
+            {"cap_usd": 30},
+            {"complete": False},
+            {"cap_usd": 15.2500001, "current_cap_usd": 15.2500001},
+        ):
+            with self.subTest(change=change):
+                self.assertIsNone(coordination.unchanged_resume_amount({**baseline, **change}, 10, 100))
+        self.assertIsNone(
+            coordination.unchanged_resume_amount({**baseline, "cap_usd": True, "current_cap_usd": 1}, 0.1, 100)
+        )
+        self.assertIsNone(coordination.unchanged_resume_amount(baseline, 16, 100))
+        self.assertIsNone(coordination.unchanged_resume_amount(baseline, 10, 15))
+        self.assertIsNone(
+            coordination.unchanged_resume_amount(
+                {**baseline, "cap_usd": 0, "current_cap_usd": 0, "allows_no_cap": False}, 10, 100
+            )
+        )
+
+
 class SharedBudgetDisplayTests(unittest.TestCase):
     def setUp(self):
         self.root = Path("/tmp/coordinated-budget-display").resolve()
@@ -858,7 +908,7 @@ class SharedBudgetDisplayTests(unittest.TestCase):
     def test_cancel_recovery_displays_existing_uncapped_run_and_keeps_named_resume(self):
         self.need.update(kind="coordination_resume", cap_usd=None, allows_no_cap=True, current_cap_usd=0)
         self.need["next_command"][2] = "resume"
-        self.client.ask.side_effect = ["0", "yes"]
+        self.client.ask.side_effect = ["yes"]
         with patch.object(coordination, "read", return_value=self.summary):
             self.assertIsNone(coordination.step(self.client, {}, Mock()))
         shown = " ".join(call.args[0] for call in self.client.say.call_args_list)
@@ -868,6 +918,34 @@ class SharedBudgetDisplayTests(unittest.TestCase):
         argv = self.client.advance.call_args.args[0]
         self.assertEqual("resume", argv[1])
         self.assertEqual("0", argv[argv.index("--max-cost-usd") + 1])
+        self.client.ask.assert_called_once_with(
+            "Resume this saved coordination with the existing spending settings? [y/N]: "
+        )
+
+    def test_funded_cancel_recovery_keeps_its_finite_cap_without_a_new_amount(self):
+        self.need.update(kind="coordination_resume", cap_usd=15.25, current_cap_usd=15.25, complete=True)
+        self.need["next_command"][2] = "resume"
+        self.client.ask.side_effect = ["yes"]
+        with patch.object(coordination, "read", return_value=self.summary):
+            coordination.step(self.client, {}, Mock())
+        argv = self.client.advance.call_args.args[0]
+        self.assertEqual("15.25", argv[argv.index("--max-cost-usd") + 1])
+        self.client.ask.assert_called_once_with(
+            "Resume this saved coordination with the existing spending settings? [y/N]: "
+        )
+
+    def test_unchanged_resume_still_rechecks_fresh_kind_and_token(self):
+        self.need.update(kind="coordination_resume", cap_usd=0, current_cap_usd=0, allows_no_cap=True)
+        self.need["next_command"][2] = "resume"
+        for field, value in (("kind", "budget"), ("token", "changed")):
+            with self.subTest(field=field):
+                self.client.reset_mock()
+                self.client.ask.side_effect = ["yes"]
+                changed = copy.deepcopy(self.summary)
+                changed["needs"][field] = value
+                with patch.object(coordination, "read", side_effect=[self.summary, changed]):
+                    coordination.step(self.client, {}, Mock())
+                self.client.advance.assert_not_called()
 
     def test_uncapped_cancel_recovery_can_remain_paused_without_dispatch(self):
         self.need.update(kind="coordination_resume", cap_usd=None, allows_no_cap=True, current_cap_usd=0)
