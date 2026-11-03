@@ -2062,7 +2062,7 @@ class ChatTUI:
         status = " · ".join(value for value in (stage, self._spend()) if value)
         if status:
             hints = status + " · " + hints
-        self._put(layout.hints_row, 2, truncate(hints, layout.width - 2), self._style("dim"))
+        self._put(layout.hints_row, 2, truncate(hints, layout.width - 2), self._style("plain"))
         right = "AutoCode"
         planted = 2 + display_width(hints)
         if planted + display_width(right) + 2 < layout.width:
@@ -2112,11 +2112,11 @@ class ChatTUI:
             "border-active": curses.A_BOLD,
             "prompt": curses.A_BOLD,
             "input": 0,
-            "placeholder": curses.A_DIM,
+            "placeholder": 0,
             "question": curses.A_BOLD,
             "working": 0,
             "info-label": curses.A_BOLD,
-            "info-body": curses.A_DIM,
+            "info-body": 0,
             "panel-title": curses.A_BOLD,
             "panel-now": 0,
             "panel-plain": 0,
