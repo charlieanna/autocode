@@ -75,6 +75,90 @@ class OverviewReads(unittest.TestCase):
         self.assertEqual(Path(row["run_dir"]), self.client.run_dir)
         self.assertEqual(2, len(self.client.tabs()))
 
+    def prepare_visible_listing(self):
+        ui = screen_ui()
+        ui.set_context(WORKSPACE, RUNS[0])
+        ui.say("You: Keep the original request.")
+        self.client._say = ui.say
+        ui.bind(self.client.slash)
+        ui._run("/runs", True)
+        for _ in range(3):
+            self.client.poll()
+            self.finish()
+        self.client.poll()
+        ui._run("/runs", True)
+        return ui
+
+    def test_run_listing_is_removed_when_returning_to_the_conversation(self):
+        ui = self.prepare_visible_listing()
+        self.assertIn("Public entry", str(ui._transcript.lines(120)))
+        ui.switch(WORKSPACE, RUNS[1])
+        ui.switch(WORKSPACE, RUNS[0])
+        shown = str(ui._transcript.lines(120))
+        self.assertNotIn("Public entry", shown)
+        self.assertIn("Keep the original request.", shown)
+
+    def test_resuming_work_removes_inventory_but_keeps_real_agent_updates(self):
+        ui = self.prepare_visible_listing()
+        ui.observe(
+            {
+                "status": "RUNNING",
+                "liveness": {"kind": "supervised"},
+                "chat": {
+                    "log": [{"id": "progress", "agent": "Planner", "kind": "message", "text": "Checking the fix."}]
+                },
+            }
+        )
+        shown = str(ui._transcript.lines(120))
+        self.assertNotIn("Public entry", shown)
+        self.assertIn("Keep the original request.", shown)
+        self.assertIn("Checking the fix.", shown)
+
+    def test_escape_dismisses_inventory_without_submitting_or_erasing_a_draft(self):
+        ui = self.prepare_visible_listing()
+        ui._composer.insert("my unsent reply")
+        self.assertIsNone(ui._handle("\x1b", asking=True))
+        self.assertNotIn("Public entry", str(ui._transcript.lines(120)))
+        self.assertIn("Keep the original request.", str(ui._transcript.lines(120)))
+        self.assertEqual("my unsent reply", ui._composer.text)
+
+    def test_inventory_requested_during_work_survives_another_working_observation(self):
+        ui = self.prepare_visible_listing()
+        ui.observe({"status": "RUNNING", "liveness": {"kind": "supervised"}})
+        ui._run("/runs", False)
+        ui.observe({"status": "RUNNING", "liveness": {"kind": "supervised"}, "iteration": 2})
+        self.assertIn("Public entry", str(ui._transcript.lines(120)))
+
+    def test_a_late_inventory_completion_is_not_a_conversation_message(self):
+        ui = screen_ui()
+        ui.say("You: Keep the selected conversation.")
+        self.client._say = ui.say
+        self.client.slash("/runs", "")
+        self.client.poll()
+        self.client._overview.cancel_navigation()
+        for _ in range(3):
+            self.finish()
+            self.client.poll()
+        shown = str(ui._transcript.lines(120))
+        self.assertNotIn("Run list read finished", shown)
+        self.assertNotIn("Public entry", shown)
+        self.assertIn("Keep the selected conversation.", shown)
+
+    def test_late_first_listing_cannot_reappear_after_work_started(self):
+        ui = screen_ui()
+        ui.say("You: Keep the running request.")
+        self.client._say = ui.say
+        ui.bind(self.client.slash)
+        ui._run("/runs", True)
+        self.client.poll()
+        ui.observe({"status": "RUNNING", "liveness": {"kind": "supervised"}})
+        for _ in range(3):
+            self.finish()
+            self.client.poll()
+        shown = str(ui._transcript.lines(120))
+        self.assertNotIn("Public entry", shown)
+        self.assertIn("Keep the running request.", shown)
+
     def test_late_correct_a_response_after_opening_b_updates_only_a_and_preserves_b_draft_and_target(self):
         self.listed()
         for _ in range(3):

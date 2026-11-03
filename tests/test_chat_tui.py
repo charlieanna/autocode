@@ -57,6 +57,36 @@ class WrapTests(unittest.TestCase):
 
 
 class TranscriptTests(unittest.TestCase):
+    def test_dismissing_inventory_retains_the_current_question_at_close(self):
+        transcript = tui.Transcript()
+        transcript.add("You: Original request.")
+        transcript.show_listing("Temporary picker")
+        transcript.asked = len(transcript.blocks)
+        transcript.add("AutoCode: Current clarification.")
+        transcript.dismiss_listing()
+        self.assertEqual(["AutoCode: Current clarification."], transcript.closing())
+
+    def test_inventory_replacement_and_dismissal_preserve_conversation_and_progress_identity(self):
+        transcript = tui.Transcript()
+        transcript.add("You: Keep /campaign/user-text and changeset-example.")
+        first = {"id": "first", "agent": "Planner", "kind": "message", "text": "First update."}
+        transcript.progress({"chat": {"log": [first]}})
+        transcript.show_listing("Old listing")
+        transcript.progress(
+            {"chat": {"log": [{"id": "second", "agent": "Planner", "kind": "message", "text": "Second update."}]}}
+        )
+        transcript.show_listing("New listing")
+        self.assertNotIn("Old listing", str(transcript.lines(120)))
+        self.assertIn("New listing", str(transcript.lines(120)))
+        transcript.dismiss_listing()
+        transcript.progress({"chat": {"log": [{**first, "text": "Updated first."}]}})
+        shown = str(transcript.lines(120))
+        self.assertNotIn("listing", shown)
+        self.assertNotIn("First update.", shown)
+        self.assertEqual(1, shown.count("Updated first."))
+        self.assertEqual(1, shown.count("Second update."))
+        self.assertIn("/campaign/user-text and changeset-example", shown)
+
     def test_only_requested_adjacent_info_repeats_are_coalesced(self):
         transcript = tui.Transcript()
         transcript.info("Working", "Your draft is kept.", coalesce=True)

@@ -36,6 +36,7 @@ try:
     from . import autocode_chat_attention as attention
     from . import autocode_chat_attention_panel as attention_panel
     from . import autocode_chat_context as contexts
+    from . import autocode_chat_inventory as inventory
     from . import autocode_chat_messages as messages
     from . import autocode_chat_meter as meter
     from . import autocode_chat_observation as observation
@@ -48,6 +49,7 @@ except ImportError:
     import autocode_chat_attention as attention
     import autocode_chat_attention_panel as attention_panel
     import autocode_chat_context as contexts
+    import autocode_chat_inventory as inventory
     import autocode_chat_messages as messages
     import autocode_chat_meter as meter
     import autocode_chat_observation as observation
@@ -379,6 +381,7 @@ class Transcript:
     asked: int = 0  # how many blocks there were when the last question was put to the person
     block_starts: list[int] = field(default_factory=list)  # set by lines(): where each spoken block begins
     progress_blocks: dict[str, int] = field(default_factory=dict)
+    _listing_index: int | None = field(default=None, init=False, repr=False)
     _revision: int = field(default=0, init=False, repr=False)
     _lines_width: int | None = field(default=None, init=False, repr=False)
     _lines_revision: int = field(default=-1, init=False, repr=False)
@@ -414,6 +417,26 @@ class Transcript:
             return
         self.blocks.append(block)
         self._revision += 1
+
+    def show_listing(self, body: str) -> None:
+        """Replace the local picker without making its rows durable chat messages."""
+        self.dismiss_listing()
+        self.info("/runs", body)
+        self._listing_index = len(self.blocks) - 1
+
+    def dismiss_listing(self) -> bool:
+        """Remove only the tagged picker, retaining conversation, prompts and progress identities."""
+        index = self._listing_index
+        if index is None:
+            return False
+        del self.blocks[index]
+        self.progress_blocks = {
+            key: position - 1 if position > index else position for key, position in self.progress_blocks.items()
+        }
+        self.asked -= int(index < self.asked)
+        self._listing_index = None
+        self._revision += 1
+        return True
 
     def progress(self, view: dict) -> None:
         """Keep readable agent updates in the same history, replacing streamed snapshots in place."""
@@ -866,6 +889,19 @@ class ChatTUI:
         with self._lock:
             if self._closed:
                 return
+            if isinstance(text, inventory.RefreshNotice):
+                return
+            if isinstance(text, inventory.Listing):
+                if isinstance(text, inventory.ListingUpdate) and self._transcript._listing_index is None:
+                    return
+                self._transcript.show_listing(text)
+                layout = self._layout(*self._size())
+                lines = self._transcript.lines(layout.body_width or layout.width)
+                start = self._transcript.block_starts[-1]
+                self._scroll = max(0, len(lines) - start - (layout.body_end - layout.body_start))
+                self._anchored = False
+                self._draw()
+                return
             anchor = self._history_anchor()
             added = self._transcript.add(text)
             self._keep_history_anchor(anchor)
@@ -997,6 +1033,8 @@ class ChatTUI:
     def switch(self, workspace: Path, run_dir: Path | None) -> bool:
         """Restore this session's display context, never an old executable view/action."""
         with self._lock:
+            if self._transcript.dismiss_listing():
+                self._scroll, self._anchored = 0, False
             fields = (
                 "_transcript",
                 "_composer",
@@ -1087,6 +1125,8 @@ class ChatTUI:
             if self._view == view:
                 self._draw()
                 return
+            if actions.working(view) and not actions.working(self._view or {}) and self._transcript.dismiss_listing():
+                self._scroll, self._anchored = 0, False
             anchor = self._history_anchor()
             self._view = view
             self._launch_execution = None
@@ -1341,6 +1381,8 @@ class ChatTUI:
                 self._pending = None
             elif composer.text.startswith("/"):
                 composer.clear()
+            elif self._transcript.dismiss_listing():
+                self._scroll, self._anchored = 0, False
             return None
         if menu and key in (curses.KEY_UP, curses.KEY_DOWN):
             step = -1 if key == curses.KEY_UP else 1
@@ -1485,6 +1527,9 @@ class ChatTUI:
             return "pause"
         if name in panel.CLIENT_COMMANDS and self._act is not None:
             result = self._act(name, argument)
+            if isinstance(result, inventory.Listing):
+                self.say(result)
+                return None
             if isinstance(result, attention.Menu):
                 attention_panel.show(self, result)
                 return None
