@@ -210,6 +210,40 @@ def _line_reasons(proof, path, source, reasons):
     return decisions
 
 
+def scripted_files_changed_code_rejections(data, files):
+    """Reject undecided lines in a failed proof, bound to the Builder's exact scripted bytes."""
+    proof = data.get("regression_proof") or {}
+    if not files or not proof.get("path") or proof.get("verdict") not in ("FAIL", "UNVERIFIED"):
+        return []
+    decisions = []
+    for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []:
+        path, line = row.get("path"), row.get("line")
+        source = files.get(path)
+        if (
+            source is None
+            or row.get("status") != "reason_required"
+            or row.get("sha256") != hashlib.sha256(source.encode()).hexdigest()
+            or type(line) is not int
+            or not 0 < line <= len(source.splitlines())
+            or row.get("mutation_outcomes")
+        ):
+            continue
+        decisions.append(
+            {
+                "gap_id": row["gap_id"],
+                "decision": "reject",
+                "reason_kind": "instrumentation_unavailable",
+                "reason": (
+                    f"The failed fixture proof does not establish behavioral evidence for {path}:{line}. "
+                    "Add a regression test for the scripted behavior, run it against the original and candidate "
+                    "source, and include this file in the verified suite before accepting the line."
+                ),
+                "evidence_refs": [proof["path"], path],
+            }
+        )
+    return decisions
+
+
 def scripted_files_changed_code_reasons(data, files):
     """The fake Tester's reasons for lines of the exact files its scripted Builder wrote that no mutant can reach.
 
