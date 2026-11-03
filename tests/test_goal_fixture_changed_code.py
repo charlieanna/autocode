@@ -80,6 +80,48 @@ class DefaultGreetingReasonsTests(unittest.TestCase):
 
 
 class ScriptedBuilderFilesReasonsTests(unittest.TestCase):
+    def test_failed_proof_rejects_undecided_scripted_lines_instead_of_claiming_coverage(self):
+        source = "def answer():\n    return 42\n"
+        row = {
+            "gap_id": "unverified-line",
+            "path": "other.py",
+            "sha256": hashlib.sha256(source.encode()).hexdigest(),
+            "line": 2,
+            "status": "reason_required",
+            "mutation_outcomes": [],
+        }
+        data = {
+            "regression_proof": {
+                "path": "proof.json",
+                "verdict": "UNVERIFIED",
+                "changed_code_evidence": {"obligations": [row]},
+            }
+        }
+        decisions = fixture.scripted_files_changed_code_rejections(data, {"other.py": source})
+        self.assertEqual(["unverified-line"], [item["gap_id"] for item in decisions])
+        self.assertEqual("reject", decisions[0]["decision"])
+        self.assertIn("other.py:2", decisions[0]["reason"])
+        self.assertIn("regression test", decisions[0]["reason"])
+        self.assertEqual(["proof.json", "other.py"], decisions[0]["evidence_refs"])
+        for files in (None, {}):
+            self.assertEqual([], fixture.scripted_files_changed_code_rejections(data, files))
+        for change in (
+            {"sha256": "0" * 64},
+            {"path": "not-scripted.py"},
+            {"line": 0},
+            {"line": 3},
+            {"line": True},
+            {"mutation_outcomes": ["survived"]},
+            {"status": "tested"},
+        ):
+            changed = copy.deepcopy(data)
+            rows_of(changed)[0].update(change)
+            with self.subTest(change=change):
+                self.assertEqual([], fixture.scripted_files_changed_code_rejections(changed, {"other.py": source}))
+        for verdict in ("PASS", None):
+            data["regression_proof"]["verdict"] = verdict
+            self.assertEqual([], fixture.scripted_files_changed_code_rejections(data, {"other.py": source}))
+
     def test_only_scripted_bytes_on_lines_without_a_mutation_site_receive_a_reason(self):
         oracle = "import unittest\nclass T(unittest.TestCase):\n    def test_x(self):\n        self.assertTrue(f())\n"
         digest = hashlib.sha256(oracle.encode()).hexdigest()

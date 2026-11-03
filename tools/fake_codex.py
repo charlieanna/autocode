@@ -14,6 +14,7 @@ from goal_fixtures import (
     body,
     greeting_changed_code_reasons,
     scripted_files_changed_code_reasons,
+    scripted_files_changed_code_rejections,
     seed_greeting_workspace,
     write_goodbye_source,
     write_greeting_source,
@@ -925,7 +926,11 @@ if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in validat
     reasons = list(
         {
             row["gap_id"]: row
-            for row in greeting_changed_code_reasons(data) + scripted_files_changed_code_reasons(data, builder_files)
+            for row in (
+                scripted_files_changed_code_rejections(data, builder_files)
+                + greeting_changed_code_reasons(data)
+                + scripted_files_changed_code_reasons(data, builder_files)
+            )
         }.values()
     )  # one reason per gap: the gate refuses a duplicate gap_id
     validation_report["changed_code_exceptions"] = reasons[:cap]
