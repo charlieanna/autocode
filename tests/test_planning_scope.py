@@ -67,6 +67,21 @@ class PlanningScopeTests(EpisodeCase):
         self.assertEqual(report, value)
         self.assertNotIn("workspace_scope", self.state)
 
+    def test_malformed_citations_are_rejected_before_saving_external_scope(self):
+        for sources, message in (
+            ([{"source_id": "task:0", "quote": self.state["task"]}] * 2, "twice with one quote"),
+            ([{"source_id": "missing", "quote": self.state["task"]}], "without quoting it verbatim"),
+        ):
+            with self.subTest(message=message):
+                report = copy.deepcopy(self.report)
+                report["contract"]["acceptance_criteria"][0]["sources"] = sources
+                before = copy.deepcopy(report)
+                with self.assertRaisesRegex(ValueError, message):
+                    self.prepare(report)
+                self.assertEqual(before, report)
+                self.assertNotIn("workspace_scope", self.state)
+                self.assertNotIn("goal_contract", self.state)
+
     def test_optional_field_and_guidance_reach_both_planner_stages(self):
         for stage in ("astra_discovery", "glm_revise"):
             with self.subTest(stage=stage):

@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_brief_obligations as brief_obligations
     from . import autocode_catalog_context as catalog
     from . import autocode_coordination_context as coordination
     from . import autocode_goals as goals
@@ -22,9 +23,11 @@ try:
     from . import autocode_run_status as run_status
     from . import autocode_scope_question as scope_question
     from . import autocode_source_scope as source_scope
+    from . import autocode_source_trace as source_trace
     from . import autocode_util as util
     from . import autocode_workspace_scope as workspace_scope
 except ImportError:
+    import autocode_brief_obligations as brief_obligations
     import autocode_catalog_context as catalog
     import autocode_coordination_context as coordination
     import autocode_goals as goals
@@ -33,6 +36,7 @@ except ImportError:
     import autocode_run_status as run_status
     import autocode_scope_question as scope_question
     import autocode_source_scope as source_scope
+    import autocode_source_trace as source_trace
     import autocode_util as util
     import autocode_workspace_scope as workspace_scope
 
@@ -68,6 +72,10 @@ def accept(state: RunState, stage: str, value: dict, record: dict) -> bool:
     """Return whether grounded external work must be assigned before this draft."""
     if stage not in STAGES or "workspace_scope" not in value:
         return False
+    # A deferred report leaves the normal completed-stage rejection path. Check
+    # its citations now so malformed output gets bounded report-only repair
+    # before a coordinator is offered an assignment it cannot apply.
+    source_trace.check_citations(value.get("contract") or {}, brief_obligations.sources(state))
     coordinated = coordination.context(state)
     scope, dropped = workspace_scope.validated(
         value["workspace_scope"],

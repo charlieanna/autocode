@@ -14,7 +14,7 @@ from .test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 @unittest.skipUnless(sys.platform == "linux", "fake providers require supported Linux")
 class PlanningScopeCliTests(unittest.TestCase):
-    def start(self, *, grounded):
+    def start(self, *, grounded, duplicate_citation=False):
         workspace, env = fixture_workspace(self)
         provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"
         env["PATH"] = f"{provider.parent}{os.pathsep}{Path(sys.executable).parent}{os.pathsep}{env['PATH']}"
@@ -26,6 +26,9 @@ class PlanningScopeCliTests(unittest.TestCase):
                 report['workspace_scope'] = {{'spans_repositories': True, 'external_parts': [{{
                     'target': 'greet-history', 'work': 'Record greetings',
                     'source_quote': {quote!r}, 'evidence': ''}}]}}
+                if {duplicate_citation!r} and not repairing:
+                    report['contract']['acceptance_criteria'][0]['sources'] = [
+                        {{'source_id': 'task:0', 'quote': {elsewhere!r}}}] * 2
         """)
         source = provider.read_text()
         self.assertEqual(1, source.count(marker))
@@ -38,6 +41,21 @@ class PlanningScopeCliTests(unittest.TestCase):
             timeout=180,
         )
         return run, env, run.advance_until_input()
+
+    def test_malformed_scope_report_is_repaired_before_offering_assignment(self):
+        run, env, view = self.start(grounded=True, duplicate_citation=True)
+        self.assertEqual("answer", view["needs"]["kind"], view["needs"])
+        self.assertTrue(view["needs"]["questions"][0]["id"].startswith("workspace-scope-"))
+        attempts = view["usage"]["accounting"]["attempts"]
+        self.assertEqual(
+            ["requirements_gather", "astra_discovery", "astra_discovery_report_repair"],
+            [row["stage"] for row in attempts],
+        )
+        self.assertTrue(attempts[-1]["report_only"])
+        reopened = taskrun.TaskRun(run.workspace, run.run_dir, env=env).status()
+        self.assertEqual(view["usage"], reopened["usage"])
+        self.assertEqual(view["cost"], reopened["cost"])
+        self.assertFalse((run.workspace / "greet.py").exists())
 
     def test_planner_discovery_reopens_at_scope_before_review_and_preserves_approval(self):
         run, env, view = self.start(grounded=True)
