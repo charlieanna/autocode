@@ -174,7 +174,10 @@ class SubprocessFlow(unittest.TestCase):
         for _ in range(2):
             if state["status"] == "PAUSED_BUILDER_RETRY_LIMIT":
                 break
-            self.assertIn("No causal progress", state["stop_reason"])
+            self.assertIn(
+                "Implementation remains blocked after the configured retries and the stronger Builder attempt",
+                state["stop_reason"],
+            )
             before = [row for row in state["stages"] if not row.get("runner_owned")]
             self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
             self.assertEqual(before, [row for row in self.saved()[1]["stages"] if not row.get("runner_owned")])

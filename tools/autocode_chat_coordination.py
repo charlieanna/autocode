@@ -138,7 +138,7 @@ def step(client, view, render_plan):
                 client.say(f"{row['target']}: {row['pr_url']}")
         return 0
     need = summary["needs"]
-    if need["kind"] == "cancelled" and getattr(client, "_observe", None):
+    if need["kind"] in ("cancelled", "blocked") and getattr(client, "_observe", None):
         return cancelled_reply(client, summary)
     if need["kind"] == "carry_approval":
         carried = need.get("carried") or {}
