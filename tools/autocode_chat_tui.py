@@ -43,6 +43,7 @@ try:
     from . import autocode_chat_stages as stages
     from . import autocode_chat_stages_panel as stages_panel
     from . import autocode_chat_verification as verification
+    from . import autocode_client_actions as actions
 except ImportError:
     import autocode_chat_attention as attention
     import autocode_chat_attention_panel as attention_panel
@@ -54,6 +55,7 @@ except ImportError:
     import autocode_chat_stages as stages
     import autocode_chat_stages_panel as stages_panel
     import autocode_chat_verification as verification
+    import autocode_client_actions as actions
 
 PROGRESS_PREFIX = "· "
 HISTORY_LIMIT = 100
@@ -412,6 +414,7 @@ class Transcript:
 
     def progress(self, view: dict) -> None:
         """Keep readable agent updates in the same history, replacing streamed snapshots in place."""
+        self.relabel_command_errors(view)
         for row in panel.log_entries(view):
             text = panel.live_text(row["text"])
             if row["kind"] != "message" or row.get("status") == "streaming" or not text.strip():
@@ -424,6 +427,17 @@ class Transcript:
                 self._revision += 1
             elif self.blocks[index] != block:
                 self.blocks[index] = block
+                self._revision += 1
+
+    def relabel_command_errors(self, view: dict) -> None:
+        """A fresh running observation makes older stop diagnostics history, preserving their detail."""
+        if view.get("status") != "RUNNING" or not actions.working(view):
+            return
+        prefix = "Coordination stopped:"
+        for index, (role, text) in enumerate(self.blocks):
+            if role == "plain" and text.lstrip().startswith(prefix):
+                reason = text.lstrip()[len(prefix) :].lstrip()
+                self.blocks[index] = ("info", "Earlier coordination error\n" + reason)
                 self._revision += 1
 
     def visible_progress(self, width: int, height: int, scroll: int) -> set[tuple[str, str]]:
