@@ -33,6 +33,28 @@ def listing(inbox, *rows, started=0):
 
 
 class InboxTests(unittest.TestCase):
+    def test_fullscreen_child_without_inbox_callback_does_not_print_background_alerts(self):
+        for detached in (False, True):
+            with self.subTest(detached=detached):
+                said = Mock()
+                client = chat.ChatClient(
+                    WORKSPACE, RUN.with_name("current"), say=said, observe=Mock(), unavailable=Mock()
+                )
+                self.addCleanup(client.close)
+                # Coordinated children use the parent's full-screen renderer,
+                # while the parent owns the inbox callback and may detach its view.
+                self.assertIsNone(client.attention_changed)
+                if detached:
+                    client._observe = client._unavailable = None
+                client._poller.tick = Mock(return_value=[])
+                listing(client._attention, row())
+                listing(client._attention, row("plan-7"))
+                client.poll()
+                said.assert_not_called()
+                self.assertEqual([row("plan-7")], client._attention.entries())
+                self.assertEqual(1, client._attention.summary()["unread"])
+                self.assertEqual([], client._attention.notifications())
+
     def test_fullscreen_background_alerts_update_the_inbox_without_chat_messages(self):
         for composing_new in (False, True):
             with self.subTest(composing_new=composing_new):
