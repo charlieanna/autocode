@@ -27,10 +27,10 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
     saved = test_subprocess.SubprocessFlow.saved
     new_run_engine_args = ("--engine", "codex")
 
-    def base_checkpoint(self):
+    def base_checkpoint(self, *, options=()):
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
         self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "astra_review"
-        self.launch(["Build greeting", "--chat"], 2, answers="CLI\nyes\n")
+        self.launch(["Build greeting", "--chat", *options], 2, answers="CLI\nyes\n")
         run, paused = self.saved()
         self.launch(["--run-dir", str(run), "--abandon-stage", runner.attempt_id(paused["active_stage"])], 0)
         return run, self.saved()[1]
@@ -136,7 +136,8 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
         # #511: three Builder batches without source changes and no automatic recovery. The resume used to
         # stop as "Automatic recovery budget exhausted ... after 0 recorded operational recoveries" and
         # offer --grant-recovery; it must run the next stage instead.
-        self.run, stopped = self.base_checkpoint()
+        # Isolate operational-recovery accounting from the independent unchanged-batch limit.
+        self.run, stopped = self.base_checkpoint(options=("--no-progress-limit", "0"))
         stopped.update(no_progress_batches=3)
         stopped.pop("automatic_recoveries_since_resume", None)
         runner.write_json(self.run / "state.json", stopped)
