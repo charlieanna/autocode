@@ -524,7 +524,7 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
         return planning_unit.recognize(state, value, record)
     if stage == "astra_discovery" and planning_unit.rerun_requirements(state, value):
         return  # the draft is discarded before any of its checks: Requirements runs next
-    value, deferred = clarification.clarify_discoverable(
+    value, deferred = planning_unit.planning_scope.prepare_handoff(
         state,
         stage,
         value,
@@ -534,7 +534,6 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
     )
     if deferred:
         return
-    clarification.apply_obligations(state, stage, value, check_code_refs=_check_code_refs)
     if stage == "requirements_gather":
         return requirements_handoff.accept(state, value, record, check_code_refs=_check_code_refs, queue=human.queue)
     # New joint plans must state every dependency; older saved contracts remain readable.

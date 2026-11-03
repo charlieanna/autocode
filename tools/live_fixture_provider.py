@@ -768,6 +768,8 @@ def main() -> int:
         report["requirement_trace"].extend(_trace(("R5", "Python standard library only")))
     if "assistant_reply" in properties:
         report.setdefault("assistant_reply", report.get("summary", ""))
+    if "workspace_scope" in properties:
+        report.setdefault("workspace_scope", {"spans_repositories": False, "external_parts": []})
     if "source_verdict" in saved:
         report["source_verdict"] = copy.deepcopy(saved["source_verdict"])
     if "source_verdict" in properties or (
