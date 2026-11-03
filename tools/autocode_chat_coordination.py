@@ -322,6 +322,16 @@ def advance_with_progress(client, summary, argv):
             child.close()
 
 
+def paused_budget_reply(client):
+    """A declined recovery leaves a full-screen viewer open without task authority."""
+    if not getattr(client, "_observe", None):
+        return 2
+    client.say("Work remains paused. No spending limit changed.")
+    if client.ask("Enter reviews recovery; /runs, /open or /quit: ").strip():
+        client.say("Nothing sent; review the recovery decision or choose a chat command.")
+    return None
+
+
 def budget_reply(client, view, need):
     planning = need["kind"] == "planning_budget"
     resuming = need["kind"] == "coordination_resume"
@@ -361,7 +371,7 @@ def budget_reply(client, view, need):
         bounds += "; 0 removes spending limits"
     text = client.ask(f"New {label} in USD ({bounds}; Enter keeps it paused): ").strip()
     if not text:
-        return 2
+        return paused_budget_reply(client)
     if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,6})?", text) or not (
         minimum <= float(text) <= maximum or (no_cap and float(text) == 0)
     ):
@@ -373,7 +383,7 @@ def budget_reply(client, view, need):
         else f"Set the {label} to ${text} and continue the displayed cost recovery? [y/N]: "
     )
     if client.ask(confirmation).strip().lower() not in ("y", "yes"):
-        return 2
+        return paused_budget_reply(client)
     fresh = read(client, view)
     if (fresh.get("needs") or {}).get("token") != need.get("token") or (fresh.get("needs") or {}).get("kind") != need[
         "kind"
