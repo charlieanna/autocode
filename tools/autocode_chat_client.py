@@ -1206,12 +1206,21 @@ class ChatClient:
         self.say(f"\nAnother chat {what} ({self.titles.get(run) or Path(run).name}). {hint}.")
 
     def converse(self) -> int:
+        failed_action: str | None = None
         try:
             while True:
                 try:
+                    if failed_action is not None:
+                        self.say(f"\n{failed_action}")
+                        if self.ask("Enter checks current status; /runs, /open or /quit: "):
+                            self.say("Nothing sent. Press Enter to check the run, or use a / command.")
+                            continue
+                        failed_action = None
+                        continue
                     if (stop := self.step()) is not None:
                         return stop
                 except (Restored, Switched, SetApproved, PromptWithdrawn):
+                    failed_action = None
                     continue  # going back to a saved step, /open or a set approval: carry on with that run
                 except Refused as error:
                     # Nothing was stopped: another driver may hold the run, or what was shown went stale. The
@@ -1223,7 +1232,16 @@ class ChatClient:
                     )
                     if self.ask("Press Enter to read the run again, or Ctrl-D to leave: "):
                         self.say("Nothing sent; the run is read again.")
+                except actions.ClientGap as error:
+                    if not self._status_in_view:
+                        raise
+                    # A stopped command is not a request to close the terminal.
+                    # Keep navigation available and await input before any fresh
+                    # status read can offer another action. Child chats retain
+                    # this display identity while their callbacks are detached.
+                    failed_action = str(error)
                 except NewChat:
+                    failed_action = None
                     self.new_chat()
                 except KeyboardInterrupt:
                     # A live view can be rendered before step() enters watch().
