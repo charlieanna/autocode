@@ -218,6 +218,7 @@ class ParallelQuotaTests(unittest.TestCase):
             '                  "contract_changes": [], "conflict_resolutions": [], "requirement_trace": []}\n'
             '        if data["stage"] in ("astra_discovery", "glm_revise"):\n'
             '            result["code_refs"] = ["goal_contract.body"]\n'
+            '            result["workspace_scope"] = {"spans_repositories": False, "external_parts": []}\n'
             '        if data["stage"] == "astra_discovery":\n'
             "            result.update(alternatives=[], uncertainties=[])\n"
             '        if data["stage"] == "glm_revise":\n'
