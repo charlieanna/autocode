@@ -119,6 +119,69 @@ class CoordinationResumeTests(unittest.TestCase):
         self.assertEqual(2, self.cli(offer["token"], 0)[0])
         self.assertEqual(after, store.read(self.anchor))
 
+    def clarification(self):
+        self.view.update(
+            status="WAITING_FOR_USER",
+            needs={
+                "kind": "answer",
+                "resolver_scope": "clarification",
+                "resolver_request_id": "question-request",
+                "resolver_token": "question-token",
+                "questions": [{"id": "Q2", "question": "Where are the exact pinned dependencies?"}],
+            },
+            controller={"kind": "boundary", "checked": True, "alive": False},
+            recovery=None,
+        )
+
+    def test_cancel_recovery_preserves_a_settled_unanswered_clarification(self):
+        self.clarification()
+        before = copy.deepcopy(self.view)
+        offer = self.offered()
+        self.assertEqual("coordination_resume", offer["kind"])
+        code, result = self.cli(offer["token"], 0)
+        self.assertEqual(0, code, result)
+        self.assertEqual("input", result["needs"]["kind"])
+        self.assertEqual(before, result["needs"]["view"])
+        self.worker.advance.assert_not_called()
+        self.worker.resume_paused.assert_not_called()
+        self.worker.answer.assert_not_called()
+
+    def test_question_recovery_requires_a_complete_settled_clarification(self):
+        self.clarification()
+        baseline = copy.deepcopy(self.view)
+        for field, value in (
+            ("status", "RUNNING"),
+            ("controller", {"kind": "running", "checked": True, "alive": True}),
+            ("controller", {"kind": "unknown", "checked": False, "alive": None}),
+            ("liveness", {"kind": "supervised"}),
+            ("usage", {"accounting": {"attempts": [{"active": True}]}}),
+        ):
+            with self.subTest(field=field, value=value):
+                self.view = copy.deepcopy(baseline)
+                self.view[field] = value
+                self.assertEqual("cancelled", self.offered()["kind"])
+        for field, value in (
+            ("resolver_scope", "recovery"),
+            ("resolver_request_id", ""),
+            ("resolver_token", ""),
+            ("questions", []),
+            ("questions", [{"id": "Q2", "question": ""}]),
+        ):
+            with self.subTest(field=field):
+                self.view = copy.deepcopy(baseline)
+                self.view["needs"][field] = value
+                self.assertEqual("cancelled", self.offered()["kind"])
+
+    def test_changed_question_refuses_the_previous_cancel_recovery_token(self):
+        self.clarification()
+        offer = self.offered()
+        self.assertEqual("coordination_resume", offer["kind"])
+        self.view["needs"]["questions"][0]["question"] = "Which pinned version is required?"
+        before = store.read(self.anchor)
+        self.assertEqual(2, self.cli(offer["token"], 0)[0])
+        self.assertEqual(before, store.read(self.anchor))
+        self.assertTrue(store.cancelled(self.anchor))
+
     def test_preserving_a_finite_cap_does_not_replenish_planning(self):
         offer = self.offered()
         self.assertEqual("coordination_resume", offer["kind"])

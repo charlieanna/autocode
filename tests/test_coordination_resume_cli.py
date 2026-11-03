@@ -22,6 +22,12 @@ from tests.test_agent_step import fixture_workspace
 
 class CancelledRetryCliTests(unittest.TestCase):
     def test_uncapped_recovery_keeps_unpriced_attempt_and_never_retries_the_child(self):
+        self.exercise_recovery(clarification=False)
+
+    def test_cancelled_question_reopens_without_answering_or_launching_a_child(self):
+        self.exercise_recovery(clarification=True)
+
+    def exercise_recovery(self, *, clarification):
         workspace, env = fixture_workspace(self)
         peer, _ = fixture_workspace(self)
         workspace, peer = workspace.resolve(), peer.resolve()
@@ -74,6 +80,19 @@ class CancelledRetryCliTests(unittest.TestCase):
                 }
             },
         }
+        if clarification:
+            held.update(
+                status="WAITING_FOR_USER",
+                needs={
+                    "kind": "answer",
+                    "resolver_scope": "clarification",
+                    "resolver_request_id": "exact-request",
+                    "resolver_token": "exact-question",
+                    "questions": [{"id": "Q2", "question": "Where are the pinned dependencies?"}],
+                },
+                recovery=None,
+                controller={"kind": "boundary", "checked": True, "alive": False},
+            )
         observations = root / "observations.json"
         observations.write_text(json.dumps({str(anchor): source, str(child): held}))
         calls, participant = root / "calls", root / "participant.py"
