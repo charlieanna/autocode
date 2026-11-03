@@ -138,6 +138,8 @@ def step(client, view, render_plan):
                 client.say(f"{row['target']}: {row['pr_url']}")
         return 0
     need = summary["needs"]
+    if need["kind"] == "cancelled" and getattr(client, "_observe", None):
+        return cancelled_reply(client, summary)
     if need["kind"] == "carry_approval":
         carried = need.get("carried") or {}
         line = (
@@ -235,6 +237,30 @@ def step(client, view, render_plan):
         return None
     client.say(need.get("reason") or "Coordination is cancelled; saved work is retained.")
     return 2
+
+
+def cancelled_reply(client, summary):
+    """Keep a stopped task navigable; only the public message offer accepts text."""
+    line = summary["needs"].get("reason") or "Coordination is cancelled; saved work is retained."
+    if line not in client.said:
+        client.say(line)
+        client.said.add(line)
+    can_message = ((summary.get("conversation") or {}).get("input") or {}).get("kind") == "coordination_message"
+    prompt = "Work is stopped. " + ("Type a message, or use " if can_message else "Use ")
+    answer = client.ask(prompt + "/runs, /open or /quit: ").strip()
+    if not answer:
+        return None
+    if not can_message:
+        client.say("Nothing sent; this stopped task currently offers no message input.")
+        return None
+    sender = getattr(client, "_task_message_sender", None)
+    if sender is None:
+        sender = client._task_message_sender = task_messages.Sender(client)
+    try:
+        sender.send(answer, summary)
+    except (actions.ClientGap, OSError, ValueError, TypeError, AttributeError):
+        client.say("Task message receipt is unconfirmed. Retry the same text to reconcile it; work remains stopped.")
+    return None
 
 
 def advance_with_progress(client, summary, argv):
