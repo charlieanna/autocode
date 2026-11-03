@@ -2460,7 +2460,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/05690088138667ac4f5eab040e1988e6544c0e5f/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/4ecce5f9b242e7817e9d1dcca4d2f1d4b9814c7b/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2692,7 +2692,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/05690088138667ac4f5eab040e1988e6544c0e5f/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/4ecce5f9b242e7817e9d1dcca4d2f1d4b9814c7b/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3302,7 +3302,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/05690088138667ac4f5eab040e1988e6544c0e5f/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/4ecce5f9b242e7817e9d1dcca4d2f1d4b9814c7b/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -4068,9 +4068,11 @@ the composer in a short rolling view, including while you read earlier messages.
 Short terminals show only the newest note or give all the space to the conversation
 and input. Questions and the optional agent-details pane replace this rolling view.
 It uses existing public progress messages and makes no extra model calls.</p>
-<p>In a terminal at least 100 columns wide, a fixed side panel shows the current
-stage, any decision needed, cost and token totals, and compact task/check counts.
-The stage name remains visible in the header and panel while waiting for an answer.
+<p>The conversation uses the full terminal width by default. The input stays above
+a compact footer showing the current stage, cost and token totals; usage takes
+priority over keyboard hints when space is limited. <code>/panel</code> opens a side panel
+with the current stage, any decision needed and compact task/check counts.
+The stage name remains visible while waiting for an answer.
 It has no scrolling activity log. <code>/details</code>, <code>/plan</code>, <code>/tasks</code> and <code>/log</code> show
 the full details in the conversation. For a task spanning repositories, <strong>Task
 usage</strong> remains the cumulative cost and tokens across the conversation,
@@ -4085,6 +4087,10 @@ edits and tool history, or <code>/live thinking</code> for reasoning. <code>/liv
 that extra pane without stopping ordinary progress updates in the conversation.
 Detailed logs retain the last 500 entries. Everything shown is display only:
 a progress message is not verification, and a command shown is not a passed check.</p>
+<p>After coordinated work stops at a saved cancellation boundary, the full-screen chat
+stays open. <code>/runs</code>, <code>/open</code> and <code>/quit</code> remain available; typed messages use only
+the current task's public message offer and do not resume the work. The line client
+still exits with status 2 at that boundary.</p>
 <p>Type <code>/</code> in the composer for commands, at a question or while AutoCode works. The
 menu narrows as you type; <code>Up</code>/<code>Down</code> choose, <code>Tab</code> completes and <code>Enter</code> runs the
 highlighted one:</p>
@@ -4206,7 +4212,7 @@ each with its state (<code>✓</code> done, <code>●</code> working, <code>↻<
 time, its accounted cost, which attempt it is on (a report repair counts as the repaired stage's next attempt;
 a stage that ran again after succeeding, such as a second review round, says how many times it ran), and on a second row the model and
 reasoning level it ran on and the tokens it used (<code>+</code> when some usage is unreported).
-The side panel and header carry the run's accounted total; with more
+The footer and optional side panel carry the run's accounted total; with more
 than one chat open the header adds a session total over the open chats, leaving out
 what a run restored from a saved step carried over. A stage on its second attempt or
 later after one that did not succeed takes the status row, with that attempt's reason. In a
@@ -4296,7 +4302,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/05690088138667ac4f5eab040e1988e6544c0e5f/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/4ecce5f9b242e7817e9d1dcca4d2f1d4b9814c7b/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
