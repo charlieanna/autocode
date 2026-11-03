@@ -795,7 +795,7 @@ class CoordinatedDisplayTests(unittest.TestCase):
 class SharedBudgetDisplayTests(unittest.TestCase):
     def setUp(self):
         self.root = Path("/tmp/coordinated-budget-display").resolve()
-        self.client = Mock(run_dir=self.root / ".autocode/runs/chat")
+        self.client = Mock(run_dir=self.root / ".autocode/runs/chat", _observe=None)
         self.need = {
             "kind": "budget",
             "cap_usd": 10,
