@@ -590,6 +590,10 @@ a member owns the live display. Questions and changes can also be typed at the
 coordinated plan prompt; free text never approves. Unconfirmed submissions keep
 their request identity for exact retry, and saved Requirements replies are shown
 once across polling. Switching to another chat clears the old task offer.
+After a command fails, terminal chat also accepts a reply through a fresh
+`coordination_message` offer. It keeps the same sender for uncertain receipt
+reconciliation. A message is pending input, never approval or authority to retry
+the failed command; without a public message offer, no text is submitted.
 
 The existing coordinator asks active participants for their named boundary pause,
 waits for saved work, and invokes source Requirements with current public plans.
