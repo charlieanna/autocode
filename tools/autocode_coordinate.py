@@ -1023,7 +1023,7 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
                 document,
                 step["target"],
                 step["entry"],
-                request.brief(document),
+                request.brief(document, target=step["target"]),
                 reported_work=step["work"],
                 supporting_evidence=step.get("supporting_evidence"),
             )

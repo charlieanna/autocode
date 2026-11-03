@@ -1,10 +1,54 @@
 """Carry the core's authenticated human request into coordinated task briefs."""
 
 
+def earlier_context(document, target):
+    """Give late arrivals prior clarifications without extending their delivery scope."""
+    if target is None:
+        return []
+    members = document.get("members", [])
+    member = next((row for row in members if row["target"] == target), {})
+    delivered = {(row["request_id"], row["text"]) for row in member.get("message_sources", [])}
+    direct = {document["task"], *(row["text"] for row in document.get("request_sources", []))}
+    context = []
+    seen = set()
+    for result in (document.get("conversation") or {}).get("results", []):
+        snapshot = result.get("context") or {}
+        participants = {row["target"] for row in snapshot.get("participants", [])}
+        if snapshot.get("kind") != "coordinated_task" or not participants or target in participants:
+            continue
+        if ((result.get("reply") or {}).get("conversation") or {}).get("intent") != "change":
+            continue
+        identifier, text = result.get("request_id"), result.get("text")
+        if not identifier or not isinstance(text, str) or not text.strip():
+            continue
+        key = (identifier, text)
+        if key in seen or key in delivered or text in direct:
+            continue
+        applied = [
+            row["target"]
+            for row in members
+            if row["target"] in result.get("affected_targets", [])
+            and any(
+                source.get("request_id") == identifier and source.get("text") == text
+                for source in row.get("message_sources", [])
+            )
+        ]
+        if not applied:
+            continue
+        seen.add(key)
+        context.append(
+            f"Earlier task clarification (applied to {', '.join(applied)} before {target} joined):\n{text}\n"
+            "Reconcile its relevance in this member's requirements and reviewed plan. This is context, "
+            "not permission to change another repository or approve a plan."
+        )
+    return context
+
+
 def brief(document, *, target=None):
     """Retain exact source text once, with the opening task for legacy records."""
     texts = [document["task"], *(row["text"] for row in document.get("request_sources", []))]
     member = next((row for row in document.get("members", []) if row["target"] == target), {})
+    texts.extend(earlier_context(document, target))
     texts.extend(row["text"] for row in member.get("message_sources", []))
     return "\n\n".join(dict.fromkeys(text for text in texts if text))
 
