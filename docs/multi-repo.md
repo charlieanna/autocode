@@ -105,7 +105,7 @@ the existing participant gates still govern continuation.
 
 ## Manual change sets
 
-- **Requirements and the Investigator notice the other repository.** When the request or the code they
+- **Requirements, the Investigator and the Planner notice the other repository.** When the request or the code they
   read shows that part of the work belongs elsewhere, the report
   says so in its `workspace_scope`. The runner keeps a reported part only when
   its quote is verbatim in the request or a saved answer, or when it cites a file

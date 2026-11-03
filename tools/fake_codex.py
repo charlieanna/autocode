@@ -930,6 +930,8 @@ if stage in ("sol", "astra_checkpoint") and "changed_code_exceptions" in validat
     )  # one reason per gap: the gate refuses a duplicate gap_id
     validation_report["changed_code_exceptions"] = reasons[:cap]
 if "--output-schema" in sys.argv:
+    if "workspace_scope" in schema.get("properties", {}):
+        result.setdefault("workspace_scope", {"spans_repositories": False, "external_parts": []})
     if "progressive_checkpoint" in schema.get("properties", {}):
         result.setdefault("progressive_checkpoint", False)
     source_verdict(result)

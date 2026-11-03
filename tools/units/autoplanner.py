@@ -44,6 +44,7 @@ try:
     from .. import autocode_planning_metadata as metadata  # noqa: F401 - planning API
     from .. import autocode_planning_report_policy as report_policy
     from .. import autocode_planning_review_usage as review_usage
+    from .. import autocode_planning_scope as planning_scope
     from .. import autocode_progressive_state as progressive
     from .. import autocode_regression_reference as regression_reference
     from .. import autocode_requirement_cues as requirement_cues
@@ -86,6 +87,7 @@ except ImportError:
     import autocode_planning_metadata as metadata  # noqa: F401 - planning API
     import autocode_planning_report_policy as report_policy
     import autocode_planning_review_usage as review_usage
+    import autocode_planning_scope as planning_scope
     import autocode_progressive_state as progressive
     import autocode_regression_reference as regression_reference
     import autocode_requirement_cues as requirement_cues
@@ -729,6 +731,8 @@ for _stage in ("astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_
 SCHEMAS["requirements_gather"]["properties"]["task_kind"] = goals.TASK_KIND
 # Work that belongs to another repository, validated on acceptance (autocode_workspace_scope, #2066).
 SCHEMAS["requirements_gather"]["properties"]["workspace_scope"] = workspace_scope.SCHEMA
+for _stage in planning_scope.STAGES:
+    SCHEMAS[_stage]["properties"]["workspace_scope"] = workspace_scope.SCHEMA
 JOB_TYPE_POLICY = goals.JOB_TYPE_POLICY
 
 
@@ -1606,6 +1610,7 @@ def context(state: RunState, stage, state_path):
     prompt = (
         (retention.FINAL_PROMPT if compact_final else PROMPTS[stage])
         + progress_rule
+        + (prompts.get("fragments/autoplanner/late-repository-scope.md") if stage in planning_scope.STAGES else "")
         + audit_instruction
         + memory_rule
         + JOB_TYPE_POLICY

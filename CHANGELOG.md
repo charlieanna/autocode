@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Planner discoveries of necessary work in another repository reach the existing grounded
+  scope handoff before a local draft is accepted. Coordination owns assignment, and the
+  revised plans still need exact approval; repeated model reports cannot erase discovered work.
+- Failed commands leave the full-screen chat open with the error, reply box and navigation
+  available. Checking current status requires input; the failed action is not retried automatically.
 - Terminal chat uses the full conversation width by default, with the input anchored
   above a compact stage, cost and token footer. `/panel` opens extra details on demand.
 - Footer redraws keep the visible reply cursor inside the input, including after resizing.
