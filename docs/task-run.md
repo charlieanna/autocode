@@ -153,7 +153,10 @@ never automatically replayed. No saved member state is edited by coordination.
 A settled cancellation offers `needs.kind=coordination_resume`. Its named
 `coordinate resume --token TOKEN --max-cost-usd N` action retains all work,
 attempts and accounting and launches no model. Terminal chat confirms the
-selected policy and rereads the exact kind and token. A finite amount keeps
+selected policy and rereads the exact kind and token. When the saved cap is
+still admitted, chat confirms resuming with those existing spending settings
+without asking for a new amount. An exhausted finite cap still requires an
+explicit budget decision. A finite amount keeps
 the planning allocation unchanged; an explicit `0` removes the shared spending
 cap and disables its planning allocation limit. The retained allocation and
 prior cap stay in history. Subsequent participant advances receive an explicit

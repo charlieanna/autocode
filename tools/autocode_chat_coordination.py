@@ -332,6 +332,26 @@ def paused_budget_reply(client):
     return None
 
 
+def unchanged_resume_amount(need, minimum, maximum):
+    """Reuse only an exactly representable, still-admitted saved spending cap."""
+    cap = need.get("current_cap_usd")
+    if need.get("kind") != "coordination_resume" or type(cap) not in (int, float) or not math.isfinite(cap):
+        return None
+    displayed = need.get("cap_usd")
+    if cap == 0:
+        uncapped = displayed is None or (type(displayed) in (int, float) and displayed == 0)
+        return "0" if uncapped and need.get("allows_no_cap") is True else None
+    if (
+        type(displayed) not in (int, float)
+        or need.get("complete") is not True
+        or displayed != cap
+        or not minimum <= cap <= maximum
+    ):
+        return None
+    amount = f"{cap:.6f}".rstrip("0").rstrip(".")
+    return amount if float(amount) == cap else None
+
+
 def budget_reply(client, view, need):
     planning = need["kind"] == "planning_budget"
     resuming = need["kind"] == "coordination_resume"
@@ -369,19 +389,23 @@ def budget_reply(client, view, need):
     no_cap = resuming and need.get("allows_no_cap") is True
     if no_cap:
         bounds += "; 0 removes spending limits"
-    text = client.ask(f"New {label} in USD ({bounds}; Enter keeps it paused): ").strip()
-    if not text:
-        return paused_budget_reply(client)
-    if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,6})?", text) or not (
-        minimum <= float(text) <= maximum or (no_cap and float(text) == 0)
-    ):
-        client.say("No cap changed. Enter a finite amount within the displayed bounds.")
-        return None
-    confirmation = (
-        "Remove spending limits and recover this saved coordination? [y/N]: "
-        if no_cap and float(text) == 0
-        else f"Set the {label} to ${text} and continue the displayed cost recovery? [y/N]: "
-    )
+    text = unchanged_resume_amount(need, minimum, maximum)
+    if text is not None:
+        confirmation = "Resume this saved coordination with the existing spending settings? [y/N]: "
+    else:
+        text = client.ask(f"New {label} in USD ({bounds}; Enter keeps it paused): ").strip()
+        if not text:
+            return paused_budget_reply(client)
+        if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,6})?", text) or not (
+            minimum <= float(text) <= maximum or (no_cap and float(text) == 0)
+        ):
+            client.say("No cap changed. Enter a finite amount within the displayed bounds.")
+            return None
+        confirmation = (
+            "Remove spending limits and recover this saved coordination? [y/N]: "
+            if no_cap and float(text) == 0
+            else f"Set the {label} to ${text} and continue the displayed cost recovery? [y/N]: "
+        )
     if client.ask(confirmation).strip().lower() not in ("y", "yes"):
         return paused_budget_reply(client)
     fresh = read(client, view)
