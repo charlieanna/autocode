@@ -712,6 +712,13 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("tools/autocode_plan_chat.py",), ("tests.test_plan_chat_cli",)),
     (
         (
+            "tools/autocode_planning_scope.py",
+            "tools/prompts/fragments/autoplanner/late-repository-scope.md",
+        ),
+        ("tests.test_planning_scope", "tests.test_planning_scope_cli"),
+    ),
+    (
+        (
             "tools/autocode_technical_questions.py",
             "tools/autocode_goal_lifecycle.py",
             "tools/autocode_contract_revision.py",
