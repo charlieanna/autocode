@@ -252,6 +252,8 @@ class RequirementsReviewCliTests(unittest.TestCase):
         need = view.get("needs") or {}
         self.assertEqual("answer", need.get("kind"), {key: view.get(key) for key in ("status", "next_stage", "needs")})
         self.assertEqual([clarifying.QUESTION_ID], [row["id"] for row in need["questions"]])
+        self.assertEqual("Requirements", view["progress"]["stage"])
+        self.assertEqual("Waiting for you", view["progress"]["headline"])
         self.assertNotIn("astra_discovery", self.stages(run))
         run.answer(clarifying.QUESTION_ID, "Both", resolver_token=need["resolver_token"])
         view = run.advance_until_input()
