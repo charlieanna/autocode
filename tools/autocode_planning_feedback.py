@@ -36,6 +36,30 @@ def semantic_stop(state: RunState, status: str | None) -> bool:
     )
 
 
+def between_stages(state: RunState) -> bool:
+    """An idle draft handoff may take new context before its next planning call."""
+    contract = state.get("goal_contract") or {}
+    return bool(
+        state.get("status") == "RUNNING"
+        and state.get("phase") == "PLANNING"
+        and state.get("next_stage") in roles.ALL_PLANNING_STAGES
+        and contract
+        and contract.get("approval_status") != "approved"
+        and not contract.get("approval_event")
+        and not any(
+            state.get(key)
+            for key in (
+                "active_stage",
+                "active_runner_check",
+                "uncertain_artifacts",
+                "pending_report_repair",
+                "pending_questions",
+                "user_request",
+            )
+        )
+    )
+
+
 def admitted(state: RunState) -> bool:
     """Conversation checkpoints and correctable planning/semantic stops.
 
@@ -46,4 +70,5 @@ def admitted(state: RunState) -> bool:
         or (not state.get("goal_contract") and roles.planning_flow(state) == "v2")
         or invalid_report(state)
         or semantic_stop(state, state.get("status"))
+        or between_stages(state)
     )
