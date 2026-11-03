@@ -143,6 +143,187 @@ class PlanningScopeTests(EpisodeCase):
         self.assertNotIn("workspace_scope", self.state)
 
 
+class RetainedPlanningScopeTests(EpisodeCase):
+    prepare = PlanningScopeTests.prepare
+
+    def setUp(self):
+        super().setUp()
+        self.part = {
+            "target": "history-service",
+            "work": "Preserve the command in stored history",
+            "source_quote": "",
+            "evidence": "config.py:1",
+        }
+        self.report = discovery(body(), workspace_scope={"spans_repositories": True, "external_parts": [self.part]})
+        self.state.update(iteration=1, stages=[], history=[])
+        subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
+        (self.workspace / ".gitignore").write_text(".autocode/\n")
+        subprocess.run(["git", "-C", str(self.workspace), "add", "."], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.workspace),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "-qm",
+                "source",
+            ],
+            check=True,
+        )
+        self.output = self.workspace / ".autocode" / "report.json"
+        self.output.parent.mkdir()
+        self.output.write_text(json.dumps(self.report))
+        self.state["run_dir"] = str(self.output.parent / "run")
+        self.record = {"stage": "astra_discovery", "output": str(self.output), "source_revision": "original"}
+
+    def hold(self):
+        import autopilot
+
+        autopilot.apply_planning(self.state, "astra_discovery", self.report, self.record)
+        return copy.deepcopy(self.state)
+
+    def resume(self):
+        import autopilot
+
+        with mock.patch.object(
+            scope.assignment, "current", return_value={"identity": workspace_scope.identity(self.state)}
+        ):
+            return planning_scope.resume(self.state, apply=autopilot.apply_planning_result)
+
+    def test_exact_assignment_resumes_the_saved_draft_once_without_a_new_report(self):
+        self.hold()
+        self.assertTrue(self.resume())
+        self.assertEqual("astra_challenge", self.state["next_stage"])
+        self.assertFalse(goals.approved(self.state))
+        self.assertEqual([], self.state["stages"])
+        self.assertEqual([self.part], scope.parts(self.state))
+        self.assertFalse(self.resume())
+
+    def test_unassigned_and_legacy_reports_have_no_reuse(self):
+        self.assertFalse(planning_scope.resume(self.state, apply=mock.Mock()))
+        self.hold()
+        before = copy.deepcopy(self.state)
+        apply = mock.Mock()
+        self.assertFalse(planning_scope.resume(self.state, apply=apply))
+        apply.assert_not_called()
+        self.assertEqual(before, self.state)
+
+    def test_saved_revision_continues_to_review_without_replacing_the_report(self):
+        import autopilot
+
+        self.apply("astra_discovery", discovery(body()))
+        self.state["planning"]["reports"]["astra_challenge"] = {"report": {"concerns": []}}
+        revision = copy.deepcopy(self.report)
+        for key in ("alternatives", "uncertainties"):
+            revision.pop(key)
+        revision["responses"] = []
+        self.output.write_text(json.dumps(revision))
+        record = {**self.record, "stage": "glm_revise"}
+        autopilot.apply_planning(self.state, "glm_revise", revision, record)
+        self.assertEqual("PAUSED_SCOPE_DECISION", self.state["status"])
+        self.assertTrue(self.resume())
+        self.assertEqual("astra_finalize", self.state["next_stage"])
+        self.assertEqual(str(self.output), self.state["planning"]["reports"]["glm_revise"]["output"])
+        self.assertFalse(goals.approved(self.state))
+
+    def test_changed_source_report_or_authority_refuses_reuse(self):
+        original = self.hold()
+        mutations = {
+            "task": lambda: self.state.update(task="A different task"),
+            "settings": lambda: self.state["settings"].update(max_seconds=999),
+            "feedback": lambda: self.state["user_events"].append({"actor": "user_cli", "text": "Change it"}),
+            "contract": lambda: self.state.update(goal_contract={"hash": "changed"}),
+            "turn": lambda: self.state.update(turns=[{}]),
+            "obligations": lambda: self.state.update(
+                deferred_obligations=[{"id": "new", "kind": "human_decision", "status": "open"}]
+            ),
+            "source": lambda: (self.workspace / "config.py").write_text("CHANGED = True\n"),
+            "report": lambda: self.output.write_text("{}"),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name=name):
+                self.state = copy.deepcopy(original)
+                (self.workspace / "config.py").write_text("PROVIDER = 'opencode'\nROUTE = 'default'\n")
+                self.output.write_text(json.dumps(self.report))
+                mutate()
+                before = copy.deepcopy(self.state)
+                with self.assertRaisesRegex(ValueError, "changed"):
+                    self.resume()
+                self.assertEqual(before, self.state)
+
+    def test_runtime_prompt_change_refuses_saved_handoff(self):
+        self.hold()
+        before = copy.deepcopy(self.state)
+        with mock.patch.object(planning_scope.prompts, "HASH", "new-runtime-prompts"):
+            with self.assertRaisesRegex(ValueError, "changed"):
+                self.resume()
+        self.assertEqual(before, self.state)
+
+    def test_assignment_keeps_resolved_questions_settled_when_peer_exclusions_expand(self):
+        self.apply("astra_discovery", discovery(clarification_only([question("Q1")])))
+        handoff_hash = self.state["investigation_request"]["handoff_hash"]
+        self.report["machine_resolutions"] = [self.resolution("Q1", handoff_hash)]
+        self.output.write_text(json.dumps(self.report))
+        self.hold()
+        self.assertNotIn("investigation_request", self.state)
+        self.assertTrue(self.resume())
+        self.assertEqual("astra_challenge", self.state["next_stage"])
+        self.assertEqual(["Q1"], [row["question_id"] for row in self.state["machine_resolutions"]])
+        self.assertIn(scope.exclusion(self.part), self.state["goal_contract"]["body"]["scope_exclusions"])
+        self.assertFalse(goals.approved(self.state))
+
+    def test_failed_draft_validation_keeps_the_saved_handoff_and_contract(self):
+        self.hold()
+        before = copy.deepcopy(self.state)
+        apply = mock.Mock(side_effect=ValueError("invalid draft"))
+        with mock.patch.object(
+            scope.assignment, "current", return_value={"identity": workspace_scope.identity(self.state)}
+        ):
+            with self.assertRaisesRegex(ValueError, "invalid draft"):
+                planning_scope.resume(self.state, apply=apply)
+        self.assertEqual(before, self.state)
+
+    def test_saved_clarification_resolution_is_not_reapplied(self):
+        self.report["machine_resolutions"] = [{"question_id": "Q1", "resolution": "resolved"}]
+        self.output.write_text(json.dumps(self.report))
+        with mock.patch.object(planning_scope.clarification, "clarify_discoverable", return_value=(self.report, False)):
+            self.prepare(self.report)
+        # Use a real artifact-backed handoff, after clarification already consumed its episode.
+        with mock.patch.object(planning_scope.clarification, "clarify_discoverable", return_value=(self.report, False)):
+            planning_scope.prepare_handoff(
+                self.state,
+                "astra_discovery",
+                self.report,
+                self.record,
+                investigation_stages=planner.INVESTIGATION_STAGES,
+                check_code_refs=lambda *args: None,
+            )
+        with mock.patch.object(
+            planning_scope.clarification, "clarify_discoverable", side_effect=AssertionError("repeated")
+        ):
+
+            def accept(state, stage, value, record):
+                result, deferred = planning_scope.prepare_handoff(
+                    state,
+                    stage,
+                    value,
+                    record,
+                    investigation_stages=planner.INVESTIGATION_STAGES,
+                    check_code_refs=lambda *args: None,
+                )
+                self.assertEqual(self.report, result)
+                self.assertFalse(deferred)
+
+            with mock.patch.object(
+                scope.assignment, "current", return_value={"identity": workspace_scope.identity(self.state)}
+            ):
+                self.assertTrue(planning_scope.resume(self.state, apply=accept))
+
+
 class PlanningScopeProviderTests(unittest.TestCase):
     def test_scripted_planners_follow_new_and_saved_report_schemas(self):
         with tempfile.TemporaryDirectory() as temporary:
