@@ -1943,6 +1943,40 @@ class MessageFormattingTests(unittest.TestCase):
         line = sorted(put for put in puts if put[0] == code[0])
         self.assertEqual("  Type /diff 1 to see what changed.", "".join(put[2] for put in line))
 
+    def test_agent_updates_render_inline_markup_like_assistant_replies(self):
+        ui = screen_ui()
+        ui.observe(
+            {
+                "status": "WAITING_FOR_USER",
+                "chat": {
+                    "log": [
+                        {
+                            "id": "planner-update",
+                            "agent": "Planner",
+                            "kind": "message",
+                            "text": "Use _Both_ for **new entries**; inspect `result_code`.",
+                        }
+                    ]
+                },
+            }
+        )
+        puts = styled(ui)
+        self.assertIn("result_code", [put[2] for put in puts])
+        code = next(put for put in puts if put[2] == "result_code")
+        bold = next(put for put in puts if put[2] == "new entries")
+        self.assertEqual(ui._style("code-inline"), code[3])
+        self.assertEqual(ui._style("assistant-body") | tui.curses.A_BOLD, bold[3])
+        line = "".join(put[2] for put in sorted(puts) if put[0] == code[0])
+        self.assertEqual("  Use Both for new entries; inspect result_code.", line)
+
+    def test_command_output_and_diff_context_keep_literal_inline_marks(self):
+        ui = screen_ui()
+        ui._transcript.info("/example", "Keep `command` and **literal**.")
+        ui._transcript.info("/diff", "@@ -1 +1 @@\n same `command` and **literal**")
+        puts = styled(ui)
+        self.assertIn("  Keep `command` and **literal**.", [text for _, _, text, _ in puts])
+        self.assertIn("   same `command` and **literal**", [text for _, _, text, _ in puts])
+
     def test_the_screen_draws_a_diffs_added_and_removed_lines_in_their_colors(self):
         ui = screen_ui()
         ui._transcript.info("/diff", "1 file changed since step 1:\n  greet.py\n\n@@ -1 +1 @@\n-old line\n+new line")
