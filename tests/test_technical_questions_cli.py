@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 import textwrap
 import unittest
 from pathlib import Path
@@ -13,19 +14,26 @@ from .test_taskrun import BRIEF, FIXTURE_OPTIONS
 
 
 class TechnicalQuestionsCliTests(unittest.TestCase):
-    def run_question(self, stage, category):
+    def run_question(self, stage, category, *, repeat=False):
         workspace, env = fixture_workspace(self)
         provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"
         marker = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
         amendment = textwrap.dedent("""
             asked = Path(os.environ["QUESTION_ASKED"])
-            if stage == os.environ["QUESTION_STAGE"] and not asked.exists():
-                asked.write_text("asked")
+            count = int(asked.read_text()) if asked.exists() else 0
+            limit = 2 if os.environ["QUESTION_REPEAT"] == "1" else 1
+            if stage == os.environ["QUESTION_STAGE"] and not repairing and count < limit:
+                asked.write_text(str(count + 1))
                 report["contract"]["open_blocking_questions"] = [{
                     "id": "internal-proof", "question": "May AC4 use the executable fixture?",
                     "why": "The example needs a complete input and exact Python invocation.",
                     "options": [], "proposed_default": "Use the complete input and Python command.",
                     "kind": "decision", "category": os.environ["QUESTION_CATEGORY"], "delegable": False}]
+                if count:
+                    report["contract"]["open_blocking_questions"][0].update(
+                        question="Can the previously selected executable fixture verify AC4?",
+                        why="The input and Python invocation are already available.",
+                        proposed_default="Keep the complete input and the same Python invocation.")
                 report["contract"].update(technical_approach=[], milestones=[])
                 if "initial_task" in report["contract"]:
                     report["contract"]["initial_task"] = {
@@ -35,7 +43,13 @@ class TechnicalQuestionsCliTests(unittest.TestCase):
         source = provider.read_text()
         self.assertEqual(1, source.count(marker))
         provider.write_text(source.replace(marker, textwrap.indent(amendment, "    ") + "\n" + marker))
-        env.update(QUESTION_ASKED=str(provider.parent / "asked"), QUESTION_STAGE=stage, QUESTION_CATEGORY=category)
+        env.update(
+            QUESTION_ASKED=str(provider.parent / "asked"),
+            QUESTION_STAGE=stage,
+            QUESTION_CATEGORY=category,
+            QUESTION_REPEAT="1" if repeat else "0",
+        )
+        env["PATH"] = f"{provider.parent}{os.pathsep}{Path(sys.executable).parent}{os.pathsep}{env['PATH']}"
         self.run = taskrun.TaskRun.start(
             workspace,
             BRIEF,
@@ -73,6 +87,21 @@ class TechnicalQuestionsCliTests(unittest.TestCase):
         self.assertEqual("answer", view["needs"]["kind"], (view["status"], view["stop_reason"]))
         self.assertEqual("WAITING_FOR_USER", view["status"])
         self.assertEqual(["internal-proof"], [q["id"] for q in view["needs"]["questions"]])
+
+    def test_rephrased_internal_question_repairs_the_report_without_another_full_planner_call(self):
+        view = self.run_question("astra_discovery", "technical", repeat=True)
+        self.assertEqual("approve_plan", view["needs"]["kind"], (view["status"], view["stop_reason"]))
+        attempts = view["usage"]["accounting"]["attempts"]
+        drafts = [row for row in attempts if row["stage"] == "astra_discovery" and not row["report_only"]]
+        self.assertEqual(2, len(drafts), "A paraphrase must not start a third full Planner pass")
+        repairs = [row for row in attempts if row["report_only"]]
+        self.assertEqual(1, len(repairs))
+        self.assertEqual("astra_discovery", repairs[0]["original_stage"])
+        self.assertTrue(any(row["rejected"] for row in drafts), "Retain the rejected repeated question")
+        self.assertNotIn("terra", [row["stage"] for row in attempts], "A technical default never approves a plan")
+        reopened = self.run.status()
+        self.assertEqual(view["displayed_plan"], reopened["displayed_plan"])
+        self.assertEqual(attempts, reopened["usage"]["accounting"]["attempts"])
 
 
 if __name__ == "__main__":
