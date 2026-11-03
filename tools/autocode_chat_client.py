@@ -317,7 +317,9 @@ class History:
                 return self.overview.request(self, current)
             try:
                 rows = self.list()
-                return panel.runs_text(rows, current, here=self.workspace.resolve(), left_out=self.left_out)
+                return inventory.Listing(
+                    panel.runs_text(rows, current, here=self.workspace.resolve(), left_out=self.left_out)
+                )
             except actions.ClientGap as error:
                 return str(error)
         if name in ("/mode", "/engine", "/connect", "/stages"):

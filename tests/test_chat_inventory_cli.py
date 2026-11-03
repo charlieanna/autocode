@@ -19,6 +19,57 @@ from tests.test_chat_screens import composer_text
 
 ROOT = Path(__file__).resolve().parents[1]
 
+
+class RunPickerPresentationTests(unittest.TestCase):
+    def test_inventory_leaves_the_terminal_when_work_resumes(self):
+        script = """
+import sys
+from pathlib import Path
+from unittest.mock import patch
+sys.path.insert(0, 'tools')
+import autocode_chat_client as chat
+from autocode_chat_tui import ChatTUI
+workspace = Path('/campaign/picker-fixture')
+rows = [{'workspace': str(workspace), 'run_dir': str(workspace / name),
+         'title': 'Picker entry ' + name, 'changeset': 'changeset-fixture'} for name in ('one', 'two')]
+history = chat.History(workspace)
+with patch.object(chat, 'project_runs', return_value=rows), patch.object(chat, 'every_project_runs', return_value=[]):
+    with ChatTUI() as ui:
+        ui.say('You: Keep my actual request.')
+        ui.bind(history.slash)
+        ui._run('/runs', True)
+        ui.ask('Choose a chat: ')
+        ui.observe({'status': 'RUNNING', 'liveness': {'kind': 'supervised'},
+                    'progress': {'stage': 'Planner'}, 'chat': {'log': [
+                        {'id': 'work', 'agent': 'Planner', 'kind': 'message', 'text': 'Checking the real task.'}]}})
+        ui.ask('Current task: ')
+"""
+        with TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
+        ) as screen:
+            screen.wait_for(
+                lambda text: all(
+                    part in text for part in ("/campaign/picker-fixture", "changeset-fixture", "Choose a chat:", "╰─")
+                ),
+                timeout=10,
+            )
+            screen.keys("Enter")
+            shown = screen.wait_for(
+                lambda text: (
+                    all(
+                        part in text
+                        for part in ("Current task:", "Checking the real task.", "Keep my actual request.", "╰─")
+                    )
+                    and "/campaign/picker-fixture" not in text
+                    and "changeset-fixture" not in text
+                ),
+                timeout=10,
+            )
+            self.assertNotIn("Picker entry", shown)
+            screen.keys("Enter")
+            self.assertEqual(0, screen.exit_status())
+
+
 BACKEND = """import json, os, pathlib, signal, sys
 root = pathlib.Path(sys.argv[1])
 args = sys.argv[2:]
@@ -101,7 +152,13 @@ raise SystemExit(code)
                 screen.type("/runs")
                 screen.keys("Enter")
                 initial = screen.wait_for(
-                    lambda frame: "Run list read finished" in frame and "Public entry 24" in frame, 10
+                    lambda frame: (
+                        "Public entry 24" in frame
+                        and "Public entry 00" in frame
+                        and "? Anything else?" in frame
+                        and composer_text(frame) == ""
+                    ),
+                    10,
                 )
                 self.assertIn("Public entry 24", initial, "the first requested list appears without a second command")
                 screen.type("/runs")
