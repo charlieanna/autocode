@@ -1461,6 +1461,84 @@ def row_text(puts, number):
 
 
 class RecentProgressScreenTests(unittest.TestCase):
+    def test_visible_progress_tracks_only_agent_messages_in_the_current_history_window(self):
+        transcript = tui.Transcript()
+        transcript.add("You: Earlier request")
+        transcript.progress(
+            {
+                "chat": {
+                    "log": [
+                        {"id": "one", "agent": "Planner", "kind": "message", "text": "First update."},
+                        {"id": "two", "agent": "Planner", "kind": "message", "text": "Second update."},
+                    ]
+                }
+            }
+        )
+        self.assertEqual({("Planner", "Second update.")}, transcript.visible_progress(80, 3, 0))
+        self.assertEqual({("Planner", "First update.")}, transcript.visible_progress(80, 3, 3))
+        self.assertEqual(set(), transcript.visible_progress(80, 3, 100))
+        self.assertEqual(set(), transcript.visible_progress(80, 0, 0))
+
+    def test_live_tail_shows_each_planner_update_once_after_revising_the_plan(self):
+        ui = screen_ui()
+        ui._panel_on = False
+        ui.say("You: Leave the request and response fields blank.")
+        ui.say("AutoCode: I will add that constraint to the saved plan.")
+        note = "I will revise the saved plan and check the logging path."
+        view = {
+            "status": "RUNNING",
+            "progress": {"stage": "Planner", "headline": "Planner working"},
+            "chat": {"log": [{"id": "revision", "agent": "Planner", "kind": "message", "text": note}]},
+        }
+        ui.observe(view)
+        ui.observe(view)
+        for rows, cols in ((40, 121), (22, 70), (16, 60)):
+            with self.subTest(rows=rows, cols=cols):
+                shown = " ".join(text.strip() for _, text in drawn(ui, rows, cols))
+                self.assertEqual(1, shown.count(note), shown)
+                self.assertNotIn("latest updates", shown)
+                self.assertIn("Planner", shown)
+                self.assertIn("❯", row_text(drawn(ui, rows, cols), rows - 3))
+
+    def test_streaming_update_remains_visible_until_it_enters_the_transcript(self):
+        ui = screen_ui()
+        view = {
+            "status": "RUNNING",
+            "progress": {"stage": "Planner"},
+            "chat": {
+                "log": [
+                    {
+                        "id": "one",
+                        "agent": "Planner",
+                        "kind": "message",
+                        "text": "Checking the request.",
+                        "status": "streaming",
+                    }
+                ]
+            },
+        }
+        ui.observe(view)
+        self.assertEqual(1, str(drawn(ui)).count("Checking the request."))
+        view["chat"]["log"][0].pop("status")
+        ui.observe(view)
+        self.assertEqual(1, str(drawn(ui)).count("Checking the request."))
+
+    def test_progress_already_visible_while_scrolled_is_not_repeated_in_the_strip(self):
+        ui = screen_ui()
+        for n in range(40):
+            ui.say(f"You: Earlier request {n}")
+        ui.observe(
+            {
+                "status": "RUNNING",
+                "progress": {"stage": "Planner"},
+                "chat": {
+                    "log": [{"id": "one", "agent": "Planner", "kind": "message", "text": "Checking the request."}]
+                },
+            }
+        )
+        ui._scroll = 1
+        self.assertEqual(1, str(drawn(ui)).count("Checking the request."))
+
     def test_recent_progress_stays_above_the_composer_while_reading_earlier_messages(self):
         ui = screen_ui()
         ui._panel_on = False

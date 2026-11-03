@@ -415,6 +415,22 @@ class Transcript:
                 self.blocks[index] = block
                 self._revision += 1
 
+    def visible_progress(self, width: int, height: int, scroll: int) -> set[tuple[str, str]]:
+        """Agent updates whose body intersects the current transcript viewport."""
+        if height <= 0:
+            return set()
+        lines = self.lines(width)
+        end = len(lines) - min(scroll, max(0, len(lines) - height))
+        start = max(0, end - height)
+        visible = set()
+        for index in self.progress_blocks.values():
+            agent, _, text = self.blocks[index][1].partition("\n")
+            first = self.block_starts[index] + 1
+            last = first + len(body_rows("info-body", text, width))
+            if first < end and last > start:
+                visible.add((agent, text.strip()))
+        return visible
+
     def closing(self) -> list[str]:
         """What to leave on the terminal after the screen closes: the client's last words, whole.
 
@@ -1593,12 +1609,18 @@ class ChatTUI:
         room = panel_end - header_rows
         if not self._asking and live_start is None and room >= 7:
             latest = panel.recent_notes(self._view, limit=2 if room >= 12 else 1)
-            if latest:
+            while latest:
                 stage = ((self._view or {}).get("progress") or {}).get("stage")
                 notes = [f"{stage} · latest updates"]
                 for note in latest:
                     notes.extend(wrapped_rows(note, max(1, body_width - 2), 2))
+                visible = self._transcript.visible_progress(body_width, room - len(notes), self._scroll)
+                remaining = [note for note in latest if (stage, safe_text(note).strip()) not in visible]
+                if remaining != latest:
+                    latest, notes = remaining, []
+                    continue  # Removing a duplicate gives the transcript more room; recheck it.
                 notes_start = panel_end - len(notes)
+                break
         return Layout(
             body_width=body_width,
             panel_col=width - panel_width if panel_width else None,

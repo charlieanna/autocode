@@ -49,13 +49,14 @@ with ChatTUI() as ui:
             ) as screen:
                 shown = screen.wait_for(
                     lambda shown: (
-                        all(
-                            text in shown for text in ("Planner · latest updates", "Checking the result mapping.", "╰─")
-                        )
+                        shown.count("Checking the history interface.") == 1
+                        and shown.count("Checking the result mapping.") == 1
+                        and "latest updates" not in shown
+                        and "╰─" in shown
                         and "Planner · $1.25+" in shown.splitlines()[-1]
                     ),
                     timeout=10,
-                    what="recent progress above the complete composer",
+                    what="one copy of each live progress message above the complete composer",
                 )
                 self.assertNotIn("│ NOW", shown)
                 screen.type("my unsent draft")
@@ -121,3 +122,14 @@ with ChatTUI() as ui:
                     what="progress and complete composer after shrinking the terminal",
                 )
                 self.assertIn("my unsent draft", shown.splitlines()[-3])
+                for _ in range(30):
+                    screen.keys("NPage")
+                screen.wait_for(
+                    lambda shown: (
+                        shown.count("Checking the result mapping.") == 1
+                        and shown.count("Comparing the failure cases.") == 1
+                        and "latest updates" not in shown
+                        and "my unsent draft" in shown.splitlines()[-3]
+                    ),
+                    what="return to live history without duplicate progress or losing the draft",
+                )
