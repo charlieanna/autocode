@@ -49,6 +49,34 @@ with ChatTUI() as ui:
 
 
 class LiveDefaultScreenTests(unittest.TestCase):
+    def test_repeated_enter_while_working_keeps_one_notice_and_the_draft(self):
+        script = """
+import sys
+sys.path.insert(0, 'tools')
+from autocode_chat_tui import ChatTUI
+with ChatTUI() as ui:
+    ui.observe({'status': 'RUNNING', 'liveness': {'kind': 'supervised'},
+                'progress': {'stage': 'Requirements', 'headline': 'Requirements working'}})
+    while True:
+        ui.wait(0.1)
+"""
+        screen = TerminalScreen(
+            [sys.executable, "-c", script], cwd=ROOT, env=os.environ, cols=120, rows=30, tmux=require_tmux(self)
+        )
+        self.addCleanup(screen.close)
+        screen.wait_for("Requirements working")
+        screen.type("hello")
+        screen.keys("Enter", "Enter", "Enter")
+        screen.type("!")
+        screen.wait_for(
+            lambda shown: (
+                composer_text(shown) == "hello!"
+                and shown.count("▌ AutoCode is working") == 1
+                and "Type / for commands. AutoCode asks here when it needs you." in shown
+            ),
+            what="one working notice with the complete unsent draft after repeated Enter",
+        )
+
     def test_planning_shows_its_stage_without_premature_completion_counters(self):
         script = """
 import sys
