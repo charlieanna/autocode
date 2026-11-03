@@ -1213,14 +1213,31 @@ class ChatTUI:
                 self._screen.timeout(100 if self._asking or was_waiting else -1)
         return None
 
+    def _discard_typeahead(self) -> bool:
+        """Drop unseen answers, retaining an exit on an empty draft at the prompt boundary."""
+        exit_requested = False
+        self._screen.timeout(0)
+        try:
+            for _ in range(4096):
+                key = self._read_key()
+                if key is None:
+                    break
+                if key == "\x04" and not self._composer.text:
+                    exit_requested = True
+        finally:
+            with contextlib.suppress(curses.error):
+                curses.flushinp()
+            self._screen.timeout(100 if self._asking or self._waiting else -1)
+        return exit_requested
+
     def ask(self, prompt: str) -> str:
         with self._lock:
             if self._closed:
                 raise EOFError
             asked_context = self._context_key
             reading = self._history_anchor() if not self._anchored else None
-            with contextlib.suppress(curses.error):
-                curses.flushinp()  # keys typed while AutoCode worked never answer a question nobody saw
+            if self._discard_typeahead():
+                raise EOFError
             if self._launched:
                 with contextlib.suppress(curses.error):
                     curses.beep()  # AutoCode worked and now needs you: the terminal's own alert

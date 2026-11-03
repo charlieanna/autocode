@@ -513,6 +513,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tests.test_chat_polling_cli",
         ),
     ),
+    (("tools/autocode_chat_tui.py",), ("tests.test_chat_prompt_exit_cli",)),
     (("tools/autocode_python_entrypoints.py", "tools/autocode_toolchain.py"), ("tests.test_toolchain",)),
     (
         (

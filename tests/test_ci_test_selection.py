@@ -887,3 +887,11 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {consumer: "11 seconds"})
                 self.assertIn(consumer, kept)
                 self.assertNotIn("tests.test_unrelated", kept)
+
+
+class PromptExitSelectionTests(unittest.TestCase):
+    def test_tui_changes_keep_the_real_prompt_exit_regression(self):
+        consumer = "tests.test_chat_prompt_exit_cli"
+        selected = run_suite.select_tests(["tools/autocode_chat_tui.py"], {consumer: "", "tests.test_unrelated": ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
