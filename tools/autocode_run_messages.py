@@ -5,8 +5,14 @@ one queued message at a time; questions restore the exact checkpoint. The normal
 feedback path alone applies a classified change after the answer is recorded.
 """
 
+from __future__ import annotations
+
 import json
 from copy import deepcopy
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_contract_identity as identity
@@ -25,7 +31,7 @@ QUESTION_KEYS = ("pending_questions", "user_request", "resolver_human_proposal",
 CHECKPOINT_KEYS = ("status", "phase", "next_stage", "stop_reason", *COMPLETION_KEYS, *QUESTION_KEYS)
 
 
-def checkpoint_allowed(state):
+def checkpoint_allowed(state: RunState):
     """Settings may rebind a genuine clarification before queued input is applied."""
     return state.get("status") in CHECKPOINTS or (
         state.get("status") == "RESOLVER_PENDING"
@@ -34,7 +40,7 @@ def checkpoint_allowed(state):
     )
 
 
-def _token(state):
+def _token(state: RunState):
     contract = state.get("goal_contract")
     if not contract:
         return "none"
@@ -43,7 +49,7 @@ def _token(state):
     return identity.token(contract)
 
 
-def receive(state, receipt):
+def receive(state: RunState, receipt):
     """Keep one exact user message once, including retries after its answer."""
     identifier, text = receipt.get("id"), receipt.get("text")
     if not isinstance(identifier, str) or not identifier or not isinstance(text, str) or not text.strip():
@@ -69,7 +75,7 @@ def receive(state, receipt):
     return event
 
 
-def active(state):
+def active(state: RunState):
     """The conversation currently occupying the Requirements stage, if any."""
     return next(
         (
@@ -81,14 +87,14 @@ def active(state):
     )
 
 
-def activate(state):
+def activate(state: RunState):
     """Start one queued conversation only at a clear, non-protected checkpoint."""
     if (
         not checkpoint_allowed(state)
         or not (state.get("settings") or {}).get("spec_first")
         or any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair"))
         or any(
-            (state.get(key) or {}).get("scope") == "operational_exhaustion"
+            cast(dict, state.get(key) or {}).get("scope") == "operational_exhaustion"
             for key in ("resolver_human_proposal", "resolver_human_request")
         )
         or any(row.get("kind") == "plan_message" and "reply_after" not in row for row in state.get("user_events", []))
@@ -101,16 +107,16 @@ def activate(state):
     event.update(
         kind="plan_message",
         contract_token=selected,
-        return_checkpoint={key: deepcopy(state[key]) for key in CHECKPOINT_KEYS if key in state},
+        return_checkpoint={key: deepcopy(cast(dict, state)[key]) for key in CHECKPOINT_KEYS if key in state},
         return_stage=state.get("next_stage"),
     )
     for key in (*COMPLETION_KEYS, *QUESTION_KEYS):
-        state.pop(key, None)
+        cast(dict, state).pop(key, None)
     run_status.running(state, "PLANNING", next_stage="requirements_gather")
     return True
 
 
-def context(state):
+def context(state: RunState):
     """Give Requirements the message and saved task context, without rewriting it."""
     event = active(state)
     if event is None or event["contract_token"] != _token(state):
@@ -139,7 +145,7 @@ def context(state):
     }
 
 
-def accept(state, value, record):
+def accept(state: RunState, value, record):
     """Save the answer and restore the checkpoint; never approve or apply a change."""
     event = active(state)
     if (
@@ -166,12 +172,12 @@ def accept(state, value, record):
     routing = message_context.routing(event, value)
     event.update(intent=value["intent"], reply_after=reply, output=record.get("output"), **routing)
     for key in CHECKPOINT_KEYS:
-        state.pop(key, None)
+        cast(dict, state).pop(key, None)
     state.update(deepcopy(checkpoint))
     return event
 
 
-def correction_admitted(state, text):
+def correction_admitted(state: RunState, text):
     """Only this answered change can enter feedback from its restored work checkpoint."""
     event = next(
         (row for row in reversed(state.get("user_events", [])) if row.get("live") and row.get("reply_after")),
@@ -193,7 +199,7 @@ def correction_admitted(state, text):
     ) == _token(state)
 
 
-def archive_completion(state):
+def archive_completion(state: RunState):
     """Retain a completed result before an admitted live correction revises it."""
     if state.get("status") == "TASK_COMPLETE":
         state.setdefault("completion_archive", []).append(
