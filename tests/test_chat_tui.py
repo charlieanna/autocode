@@ -1799,6 +1799,49 @@ def styled(ui, rows=30, cols=120):
 class MessageFormattingTests(unittest.TestCase):
     """A message's code blocks, `code` and **bold**, and a /diff's lines, are drawn as what they are."""
 
+    def test_underscore_emphasis_is_readable_without_changing_code_or_identifiers(self):
+        self.assertEqual(
+            "Fix only result_code; keep `_literal_`, __init__, _private and unfinished _text.",
+            tui.prose_text("Fix _only_ result_code; keep `_literal_`, __init__, _private and unfinished _text."),
+        )
+        self.assertEqual("Use this whole phrase.", tui.prose_text("Use _this whole phrase_."))
+
+    def test_emphasis_is_removed_before_prose_wraps_but_fenced_code_and_diffs_stay_exact(self):
+        for style in ("assistant-body", "info-body", "notice-body", "plain"):
+            with self.subTest(style=style):
+                rows = tui.body_rows(style, "Fix _only the displayed result code_.", 20)
+                self.assertEqual("Fix only the displayed result code.", " ".join(text.strip() for _, text in rows))
+        self.assertIn(("code", "  _literal_"), tui.body_rows("assistant-body", "```py\n_literal_\n```", 30))
+        self.assertIn(
+            ("diff-add", "  +_literal_"), tui.body_rows("info-body", "@@ -1 +1 @@\n+_literal_", 30, diff=True)
+        )
+
+    def test_scrolled_and_explicit_live_updates_hide_prose_emphasis(self):
+        ui = screen_ui()
+        for n in range(40):
+            ui.say(f"You: Earlier request {n}")
+        ui.observe(
+            {
+                "status": "RUNNING",
+                "progress": {"stage": "Planner"},
+                "chat": {
+                    "log": [
+                        {"id": "one", "agent": "Planner", "kind": "message", "text": "Checking _only_ the result code."}
+                    ]
+                },
+            }
+        )
+        ui._scroll = 1000
+        shown = str(drawn(ui))
+        self.assertIn("Checking only the result code.", shown)
+        self.assertNotIn("_only_", shown)
+        self.assertIn("Checking only the result code.", str(ui.live_rows(100)))
+
+    def test_user_underscore_emphasis_is_preserved_as_typed(self):
+        ui = screen_ui()
+        ui.say("You: _only_ these fields")
+        self.assertIn("_only_ these fields", str(drawn(ui)))
+
     def test_a_fenced_block_is_drawn_as_code_under_a_rule_naming_its_language(self):
         rows = tui.body_rows(
             "assistant-body", "Run it:\n```sh\npython3 greet.py Ada\n```\nThat prints the greeting.", 60

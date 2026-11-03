@@ -292,6 +292,12 @@ def _same(block: tuple[str, str], other: tuple[str, str]) -> bool:
 FENCE = "```"
 INLINE = re.compile(r"`([^`\n]+)`|\*\*([^*\n]+)\*\*")  # `code` and **bold** in a message line
 INLINE_STYLES = ("assistant-body", "plain", "notice-body")
+PROSE_EMPHASIS = re.compile(r"`[^`\n]*`|(?<![\w\\])_([^\s_](?:[^\n]*?[^\s_])?)_(?![\w_])")
+
+
+def prose_text(text: str) -> str:
+    """Remove paired underscore emphasis, preserving inline code and identifier underscores."""
+    return PROSE_EMPHASIS.sub(lambda match: match.group(1) if match.group(1) is not None else match.group(), text)
 
 
 def inline_pieces(text: str) -> list[tuple[str, str]]:
@@ -352,6 +358,8 @@ def body_rows(style: str, body: str, width: int, *, diff: bool = False) -> list[
             continue
         elif fenced:
             kind = "code"
+        if not diff and not fenced and kind != "code":
+            line = prose_text(line)
         rows.extend((kind, "  " + part) for part in wrap(line, max(1, width - 2)))
     return rows
 
@@ -1613,7 +1621,7 @@ class ChatTUI:
                 stage = ((self._view or {}).get("progress") or {}).get("stage")
                 notes = [f"{stage} · latest updates"]
                 for note in latest:
-                    notes.extend(wrapped_rows(note, max(1, body_width - 2), 2))
+                    notes.extend(wrapped_rows(prose_text(note), max(1, body_width - 2), 2))
                 visible = self._transcript.visible_progress(body_width, room - len(notes), self._scroll)
                 remaining = [note for note in latest if (stage, safe_text(note).strip()) not in visible]
                 if remaining != latest:
@@ -1889,6 +1897,8 @@ class ChatTUI:
                 else "live-plain"
             )
             agent, text = safe_text(entry["agent"]), safe_text(panel.live_text(entry["text"]))
+            if entry["kind"] in ("message", "thinking"):
+                text = prose_text(text)
             lines = wrap(f"{agent} {mark} {text}", width)
             first = lines[0]
             if first.startswith(agent):

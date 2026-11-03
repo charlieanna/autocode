@@ -15,7 +15,7 @@ class RecentProgressTerminalTests(unittest.TestCase):
     def test_updates_roll_without_raw_tools_or_moving_the_draft_off_screen(self):
         with tempfile.TemporaryDirectory() as directory:
             updates = Path(directory) / "updates.json"
-            updates.write_text(json.dumps(["Checking the history interface.", "Checking the result mapping."]))
+            updates.write_text(json.dumps(["Checking the history interface.", "Checking _only_ the result mapping."]))
             script = f"""
 import json, sys
 from pathlib import Path
@@ -50,7 +50,7 @@ with ChatTUI() as ui:
                 shown = screen.wait_for(
                     lambda shown: (
                         shown.count("Checking the history interface.") == 1
-                        and shown.count("Checking the result mapping.") == 1
+                        and shown.count("Checking only the result mapping.") == 1
                         and "latest updates" not in shown
                         and "╰─" in shown
                         and "Planner · $1.25+" in shown.splitlines()[-1]
@@ -68,7 +68,7 @@ with ChatTUI() as ui:
                         for text in (
                             "Earlier request 0",
                             "Planner · latest updates",
-                            "Checking the result mapping.",
+                            "Checking only the result mapping.",
                             "my unsent draft",
                             "╰─",
                         )
@@ -80,7 +80,7 @@ with ChatTUI() as ui:
                     json.dumps(
                         [
                             "Checking the history interface.",
-                            "Checking the result mapping.",
+                            "Checking _only_ the result mapping.",
                             "Comparing the failure cases.",
                         ]
                     )
@@ -93,7 +93,7 @@ with ChatTUI() as ui:
                             for text in (
                                 "Earlier request 0",
                                 "Planner · latest updates",
-                                "Checking the result mapping.",
+                                "Checking only the result mapping.",
                                 "Comparing the failure cases.",
                                 "my unsent draft",
                                 "╰─",
@@ -126,7 +126,7 @@ with ChatTUI() as ui:
                     screen.keys("NPage")
                 screen.wait_for(
                     lambda shown: (
-                        shown.count("Checking the result mapping.") == 1
+                        shown.count("Checking only the result mapping.") == 1
                         and shown.count("Comparing the failure cases.") == 1
                         and "latest updates" not in shown
                         and "my unsent draft" in shown.splitlines()[-3]
