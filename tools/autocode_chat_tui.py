@@ -1649,8 +1649,8 @@ class ChatTUI:
                 self._command_menu(layout)
                 attention_panel.draw(self, layout, truncate)
                 stages_panel.draw(self, layout, truncate)
-                self._composer_box(layout)
                 self._hints(layout)
+                self._composer_box(layout)  # leave the terminal cursor at the reply after footer writes
                 screen.refresh()
             except curses.error:
                 pass

@@ -1618,6 +1618,19 @@ SPENDING_VIEW = {
 
 
 class MeterScreenTests(unittest.TestCase):
+    def test_draw_leaves_the_active_cursor_in_the_composer_after_footer_output(self):
+        ui = screen_ui()
+        ui._asking = True
+        ui._composer.insert("draft")
+        ui.observe(SPENDING_VIEW)
+        ui._screen.reset_mock()
+        ui._draw()
+        calls = ui._screen.method_calls
+        moved = [index for index, call in enumerate(calls) if call[0] == "move"]
+        self.assertTrue(moved)
+        self.assertFalse(any(call[0] == "addstr" for call in calls[moved[-1] + 1 :]))
+        self.assertEqual(mock.call.move(27, 9), calls[moved[-1]])
+
     def test_the_footer_shows_the_runs_cost_and_tokens(self):
         ui = screen_ui()
         ui.observe(SPENDING_VIEW)
