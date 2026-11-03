@@ -58,6 +58,7 @@ try:
     from . import autocode_chat_changeset as changeset
     from . import autocode_chat_context as contexts
     from . import autocode_chat_coordination as coordination
+    from . import autocode_chat_diagnostics as diagnostics
     from . import autocode_chat_failed_input as failed_input
     from . import autocode_chat_inventory as inventory
     from . import autocode_chat_messages as messages
@@ -77,6 +78,7 @@ except ImportError:
     import autocode_chat_changeset as changeset
     import autocode_chat_context as contexts
     import autocode_chat_coordination as coordination
+    import autocode_chat_diagnostics as diagnostics
     import autocode_chat_failed_input as failed_input
     import autocode_chat_inventory as inventory
     import autocode_chat_messages as messages
@@ -641,7 +643,9 @@ class ChatClient:
                 raise actions.ClientGap(f"AutoCode exited {child.returncode}: {log.read()[-2000:].strip()}")
             if argv[:1] == ["coordinate"] and child.returncode:
                 log.seek(0)
-                raise actions.ClientGap("Coordination stopped: " + log.read()[-2000:].strip())
+                raise actions.ClientGap(
+                    "Coordination stopped: " + diagnostics.command_error(log.read(), secret_values=(env or {}).values())
+                )
             after = self.status() if child.returncode == 2 and before is not None else None
             if (
                 before is not None
