@@ -176,6 +176,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
             "contract": changed,
             "summary": "Correct the failure inference and obsolete receipt-status interpretation",
             "code_refs": [],
+            "workspace_scope": {"spans_repositories": False, "external_parts": []},
             "contract_changes": changes,
             "requirement_trace": [],
             "responses": [
