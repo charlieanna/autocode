@@ -489,8 +489,13 @@ class ChatScreenTests(unittest.TestCase):
         screen.type("y")
         screen.keys("Enter")
 
-        done = screen.wait_for("Anything else?", RUN_SECONDS)
-        self.assertIn("1 of 1 task done", done, "the side panel at 120 columns")
+        screen.wait_for("Anything else?", RUN_SECONDS)
+        screen.type("/panel")
+        screen.keys("Enter")
+        screen.wait_for(
+            lambda shown: "Anything else?" in shown and "1 of 1 task done" in shown,
+            what="completed task details in the explicitly opened side panel",
+        )
         screen.type("/diff")
         screen.keys("Enter")
         screen.wait_for("Type /diff N")  # the listing, not the closing summary naming the same files
