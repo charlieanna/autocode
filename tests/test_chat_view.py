@@ -93,6 +93,24 @@ class ChatViewTests(unittest.TestCase):
         public["needs"]["questions"] = [{"id": "clarify", "question": "What should we build?"}]
         self.assertIsNone(chat.project(state, public)["review"])
 
+    def test_new_bugfix_confirmation_describes_planning_and_keeps_legacy_offers(self):
+        for standard in (False, True):
+            with self.subTest(standard=standard):
+                state = {
+                    "status": "WAITING_FOR_USER",
+                    "settings": {"spec_first": True},
+                    "requirements_handoff": {"report": {"job": "bugfix", "intended_outcome": "Fix history"}},
+                }
+                if standard:
+                    state["settings"]["implementation_flow"] = "standard"
+                question = requirements_review.review_question(state)
+                public = {"status": state["status"], "needs": {"kind": "answer", "questions": [question]}}
+                offer = chat.project(state, public)["review"]
+                expected = "build" if standard else "bugfix"
+                self.assertEqual(chat.APPROVAL_OFFERS[expected][0], offer["label"])
+                self.assertEqual(chat.APPROVAL_OFFERS[expected][1], offer["spend_confirmation"]["title"])
+                self.assertEqual("plan", offer["answer"])
+
     def test_connection_stop_explains_the_user_action_without_dashboard_jargon(self):
         state = {"status": "PAUSED_TRANSPORT_CHANGED", "task": "Make it friendlier"}
         result = self.project(state, need="resume")

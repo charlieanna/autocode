@@ -129,6 +129,9 @@ class RequirementsNamesTheJobCliTests(unittest.TestCase):
         self.assertEqual("bugfix", view["workflow"])
         self.assertEqual(1, len(offers), offers)
         self.assertEqual(0, self.ran(run, "recognize-workflow"), "Requirements already named the job")
+        self.assertEqual(0, self.ran(run, "bug-investigation"), "Bug fixes share the normal implementation sequence")
+        self.assertEqual(1, self.ran(run, "discovery"), "The Planner must draft the implementation plan")
+        self.assertEqual(1, self.ran(run, "plan-challenge"), "The Plan Reviewer must review the Planner's draft")
         depth = view["planning_depth"]
         self.assertTrue(depth["adaptive"], depth)
         self.assertEqual("clear", depth["clarity"], "Requirements judged clarity as the recognizer did")

@@ -59,11 +59,12 @@ class RecordingValidationTests(unittest.TestCase):
             "compact_bugfix_planning": True,
             "sensitive_paths": ["auth/**"],
             "review_routing": "combined",
+            "implementation_flow": "standard",
         }
         self.document["launch"]["settings"] = recording.launch_settings(settings)
         self.save(self.document)
         saved = recording.load(self.manifest).document["launch"]["settings"]
-        for key in ("compact_bugfix_planning", "sensitive_paths", "review_routing"):
+        for key in ("compact_bugfix_planning", "sensitive_paths", "review_routing", "implementation_flow"):
             self.assertEqual(settings[key], saved[key])
 
     def setUp(self):

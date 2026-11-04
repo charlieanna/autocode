@@ -22,8 +22,10 @@ class ProviderAuthCLI(unittest.TestCase):
             (self.root / name).mkdir()
 
     def assert_auth_failure_is_named_and_retry_completes(self, fault, *details):
-        from harness.driver import FAKE_PROVIDER, DriveError, Driver, default_autocode, fake_setup, leaves_for_person
+        from harness.driver import FAKE_PROVIDER, DriveError, Driver, fake_setup, leaves_for_person
         from harness.project import materialize
+
+        from .legacy_bugfix_fixture import COMMAND
 
         project = materialize(self.scenario.seed, self.root / "project")
         flags, env = fake_setup(self.scenario, self.root, self.scenario.reference)
@@ -51,7 +53,7 @@ class ProviderAuthCLI(unittest.TestCase):
             )
         else:
             env[fault] = "investigate_bug:1"
-        driver = Driver(project, self.root, flags, env, autocode=default_autocode(), max_steps=40, timeout_seconds=600)
+        driver = Driver(project, self.root, flags, env, autocode=COMMAND, max_steps=40, timeout_seconds=600)
         driver.call("start", task=self.scenario.brief)
         runs = project / ".autocode" / "runs"
         candidates = sorted(runs.glob("*/state.json"), key=lambda path: path.stat().st_mtime)

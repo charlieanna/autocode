@@ -120,8 +120,10 @@ def recognize_after_approval(state: RunState):
     elif kind is None:
         workflows.begin(state, state["workflow"].get("then") or STAGE)
         state["workflow"]["requirements_approved"] = True
-    elif kind in workflows.FIRST_STAGE and not workflows.ran_this_turn(state, workflows.FIRST_STAGE[kind]):
-        state["next_stage"] = workflows.FIRST_STAGE[kind]
+    elif kind in workflows.FIRST_STAGE and not workflows.ran_this_turn(
+        state, workflows.first_stage(state, kind, workflows.planner_stage(state))
+    ):
+        state["next_stage"] = workflows.first_stage(state, kind, workflows.planner_stage(state))
     else:
         return False
     return True

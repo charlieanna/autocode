@@ -700,8 +700,8 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
         self.assertTrue(self.reopened, "A lost publication reply must be recovered by reopening the TUI")
 
     def test_a_refused_role_label_repairs_to_the_canonical_members_and_continues(self):
-        # #2420: the live attempt-5 tax investigation labeled the checkout owner
-        # "Checkout display member" and receipts "Receipt-handling member". The
+        # #2420: the historical tax investigation labeled the checkout owner
+        # "Checkout display member" and receipts "Receipt-handling member". New Requirements reports exercise the same scope check. The
         # report contract refuses both, the normal report repair names "checkout"
         # and "history" with both obligations kept, and delivery continues with no
         # /repos or repository-choice prompt: the only questions this flow may ask
@@ -723,11 +723,11 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             for line in (Path(tax["workspace"]) / ".autocode" / "provider-calls.jsonl").read_text().splitlines()
         ]
         self.assertEqual(
-            [("investigate_bug", False), ("investigate_bug", True)],
+            [("requirements_gather", False), ("requirements_gather", True)],
             [
                 (row["stage"], row["repair"])
                 for row in calls
-                if row["name"] == "tax" and row["stage"] == "investigate_bug"
+                if row["name"] == "tax" and row["stage"] == "requirements_gather"
             ],
         )
 
@@ -801,10 +801,10 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             attempts = [
                 (row["stage"], row["repair"])
                 for row in calls
-                if row["name"] == "tax" and row["stage"] == "investigate_bug"
+                if row["name"] == "tax" and row["stage"] == "requirements_gather"
             ]
             self.assertEqual(
-                [("investigate_bug", False), ("investigate_bug", True), ("investigate_bug", True)], attempts
+                [("requirements_gather", False), ("requirements_gather", True), ("requirements_gather", True)], attempts
             )
             self.assertEqual([], self.github.posts)
             self.assertTrue(

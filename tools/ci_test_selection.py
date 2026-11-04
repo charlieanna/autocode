@@ -191,6 +191,23 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     ("tools/prompts/fragments/autocode/execute-report-repair-06.md", ("tests.test_report_repair",)),
     ("tests/coordination_provider.py", ("tests.test_coordination_tui_e2e",)),
+    (
+        "tests/legacy_bugfix_fixture.py",
+        (
+            "tests.test_legacy_bugfix_fixture",
+            "tests.test_bug_job",
+            "tests.test_bug_questions",
+            "tests.test_package_investigator_cli",
+            "tests.test_pilot_investigator_cli",
+            "tests.test_stale_diagnosis_feedback_cli",
+            "tests.test_investigation_handoff_cli",
+            "tests.test_provider_auth_cli",
+            "tests.test_job_failure_recovery",
+            "tests.test_job_report_recovery",
+            "tests.test_investigation_progress",
+            "tests.test_acceptance_tests",
+        ),
+    ),
     ("docs/schemas/status-view.schema.json", ("tests.test_json_contract",)),
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture", "tests.test_review_attribution_cli")),
     ("scenarios/catalog/local-compose-two-services/", ("tests.test_local_compose_scenario",)),
@@ -751,7 +768,13 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_requirements_review.py",
             "tools/autocode_workflows.py",
         ),
-        ("tests.test_chat_cli", "tests.test_requirements_review", "tests.test_requirements_job_cli"),
+        (
+            "tests.test_chat_cli",
+            "tests.test_requirements_review",
+            "tests.test_requirements_job_cli",
+            "tests.test_requirements_first_cli",
+            "tests.test_saved_run_replay_cli",
+        ),
     ),
     # A chat's Requirements names the job and the chat starts it (#1846); the test drives the CLI.
     (

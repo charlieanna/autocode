@@ -16,6 +16,7 @@ from pathlib import Path
 
 from autocode_taskrun import TaskRun, TaskRunError
 
+from . import legacy_bugfix_fixture
 from .test_changeset_cli import register_project
 
 QUESTIONS = ["Which application version failed?", "Which input caused the failure?"]
@@ -126,6 +127,7 @@ class InvestigatorQuestionTaskRunTests(unittest.TestCase):
         return TaskRun.start(
             self.workspace,
             "Investigate the reported incorrect result from calc.double.",
+            command=legacy_bugfix_fixture.COMMAND,
             options=self.options,
             start_options=("--workflow", "bugfix"),
             env=self.env,

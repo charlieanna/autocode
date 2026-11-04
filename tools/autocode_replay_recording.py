@@ -646,6 +646,7 @@ SETTINGS_KEYS = frozenset(
         "workflow",
         "joint_planning",
         "planning_flow",
+        "implementation_flow",
         "adaptive_planning",
         "compact_bugfix_planning",
         "sensitive_paths",

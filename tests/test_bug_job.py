@@ -21,6 +21,7 @@ from autocode_taskrun import TaskRun, TaskRunError
 from autocode_workspace_scope_state import current as current_scope
 from units import autoresolver
 
+from . import legacy_bugfix_fixture
 from .test_job_failure_recovery import PROVIDER, JobHarness
 
 COORDINATED_TASK = (
@@ -1218,7 +1219,12 @@ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':1,'output_toke
             )
             try:
                 run = TaskRun.start(
-                    workspace, "Fix page_count(5, 2) returning 2 instead of 3.", options=options, env=env, timeout=60
+                    workspace,
+                    "Fix page_count(5, 2) returning 2 instead of 3.",
+                    options=options,
+                    env=env,
+                    timeout=60,
+                    command=legacy_bugfix_fixture.COMMAND,
                 )
             except TaskRunError as error:
                 self.assertIsNotNone(error.run_dir, str(error))

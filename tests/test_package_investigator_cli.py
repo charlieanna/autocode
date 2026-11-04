@@ -21,6 +21,8 @@ from pathlib import Path
 
 import autocode_taskrun as taskrun
 
+from . import legacy_bugfix_fixture
+
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = "packages/invoices"
 NOTE = "docs/bugs/invoice-pages.json"
@@ -144,6 +146,7 @@ class PackageInvestigatorCLI(unittest.TestCase):
             self.project,
             TASK,
             start_options=("--workflow", "bugfix", "--package", f"{PACKAGE}/"),
+            command=legacy_bugfix_fixture.COMMAND,
             options=(
                 "--engine",
                 "codex",

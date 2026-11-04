@@ -274,9 +274,10 @@ The live recognizer judged every request correctly: 8 clear, 3 vague.
 
 ## Compact planning for bug fixes
 
-Compact planning is enabled for new joint-planning runs. `--no-compact-bugfix-planning` disables it;
-`--compact-bugfix-planning` explicitly enables it. A reproduced, localized bug can
-skip one paid planning call. On the ordinary bug-fix path Requirements runs, the Investigator
+New implementation tasks, including bug fixes, use Requirements, Planner and Plan Reviewer before exact-plan approval. The separate initial Investigator route and compact Planner shortcut are retired for new runs. `--compact-bugfix-planning` cannot enable either shortcut for a new run. Saved runs and exported recordings retain their original sequence, approvals and accounting. New related-repository tasks use the standard sequence even when their parent predates this change.
+
+The following describes the retained behavior of older saved runs. A reproduced, localized bug can
+skip one paid planning call. On the historical bug-fix path Requirements runs, the Investigator
 reproduces the bug (`investigate_bug`), the Planner writes the plan draft (`astra_discovery`), the
 Plan Reviewer reviews it and you approve the displayed plan. On the compact path the runner
 writes that draft itself, deterministically, from two records it already holds: the

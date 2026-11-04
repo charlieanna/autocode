@@ -56,6 +56,7 @@ try:
     from . import autocode_utility_route as utility_route
     from . import autocode_verification_config as verification_config
     from . import autocode_verifier_independence as independence
+    from . import autocode_workflows as workflows
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_adaptive_planning as adaptive
@@ -88,6 +89,7 @@ except ImportError:
     import autocode_utility_route as utility_route
     import autocode_verification_config as verification_config
     import autocode_verifier_independence as independence
+    import autocode_workflows as workflows
 
 DEFAULT_ROLE_MODELS = {
     "astra": "gpt-5.6-sol",
@@ -722,6 +724,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         getattr(args, "builder_strong_model", None), provider_mod, single_model=single_model
     )
     settings = {
+        workflows.IMPLEMENTATION_FLOW: workflows.STANDARD_IMPLEMENTATION,
         "roles": roles,
         "transport_identity": local,
         "engine": engine,

@@ -10,23 +10,18 @@ coordinates along the way.
 
 Start with a rough idea and discuss it with the Requirements. It helps define the smallest
 useful end-to-end product, asks focused questions, and drafts a versioned build brief.
-The Plan Reviewer challenges that draft; the Requirements revises; the Plan Reviewer finalizes. You can revise the brief
+The Planner drafts the implementation plan. The Plan Reviewer challenges that draft; the Planner revises; the Plan Reviewer finalizes. You can revise the brief
 in the same conversation. Implementation starts only after you explicitly approve it.
 
 After approval, Autocode handles the handoffs:
 
 ```text
 You → Requirements first, on every run and follow-up turn: it names the kind of job (build, bugfix,
-   review, design, discuss), saved as `workflow`; `--workflow KIND` names it instead (a pinned build
-   still runs Requirements, any other kind starts its own first stage). A flow without Requirements
+   review, design, discuss), saved as `workflow`; `--workflow KIND` names it instead (a pinned build or bug fix
+   still runs Requirements; review, design and discuss start their own first stages). A flow without Requirements
    (v2 planning, no Requirements role) has the Job recognizer name it first
    review → Reviewer only: findings written to review/findings.json, repository untouched, run complete
-   bugfix → Investigator first: diagnosis written to docs/bugs/<name>.json, repository untouched;
-            not reproduced → run complete;
-            reproduced → the build pipeline below from the Planner on, planned from the
-              diagnosis and the Requirements handoff: no second requirements gathering, but plan
-              review and your approval
-              (small or large; the short path for small fixes is off until the full path is dependable)
+   bugfix → the standard implementation pipeline below: Requirements → Planner → Plan Reviewer → approval
    design → Architect first: a design review is written to review/design-review.json (goals met,
             blocking/advisory concerns, questions for you), repository untouched, run complete;
             a request for a NEW design → the build pipeline below; its plan may not change a file an
@@ -90,7 +85,7 @@ one another:
 | Setting | Question it answers | Where it applies |
 | --- | --- | --- |
 | **Job kind** (`workflow.kind`: build, bugfix, review, design, discuss) | What you get back, and so which stages run at all. | Every run. Named by Requirements from your request, or with `--workflow`. Fixed once named. |
-| **Workflow mode** (`settings.workflow.mode`: `glm_first_v1`, `glm_final_audit_v2`, or the legacy default) | Who checks the build: which role reviews each milestone and which audits the whole task. | Only inside the build pipeline, so only for `build` and a reproduced `bugfix`. `review`, `design` and `discuss` never reach it. |
+| **Workflow mode** (`settings.workflow.mode`: `glm_first_v1`, `glm_final_audit_v2`, or the legacy default) | Who checks the build: which role reviews each milestone and which audits the whole task. | Only inside the build pipeline, so only for `build` and `bugfix`. `review`, `design` and `discuss` never reach it. |
 | **Task-lane mode** (`ui` or `code` on an item of `autocode tasks`) | Which loop one lane task runs: the Figma design loop, or a normal code run. | Only in `autocode tasks`. A `code` item is an ordinary run and gets its own job kind. A `ui` item uses the Figma path and has no job kind. |
 
 So the kind decides whether the build pipeline runs, the workflow mode tunes who checks inside it,
@@ -425,6 +420,8 @@ Start a new run to use the current GPT Sol default in that case; saved sessions 
 move between CLIs. No global OpenCode or Codex configuration is changed.
 
 ## Bug fixes
+
+New bug fixes use the same implementation sequence as builds: Requirements, Planner, Plan Reviewer, exact-plan approval, then implementation and independent verification. In a spec-first chat, confirm Requirements before repository fan-out or planning. Unresolved business questions still return to you. Diagnosis and source inspection belong to planning; a new task does not run a separate initial Investigator or skip Planner. Saved runs keep their recorded stages and replay policy. The Investigator-specific diagnosis and compact-plan behavior described below applies only to those legacy runs.
 
 A bug report goes through the same conversation and every stage as any other
 task: requirements, planning, plan challenge, revision, final plan review, your

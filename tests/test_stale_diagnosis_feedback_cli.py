@@ -14,6 +14,8 @@ from pathlib import Path
 
 import autocode_taskrun as taskrun
 
+from . import legacy_bugfix_fixture
+
 SCENARIOS = Path(__file__).resolve().parents[1] / "scenarios"
 if str(SCENARIOS) not in sys.path:
     sys.path.insert(0, str(SCENARIOS))
@@ -114,6 +116,7 @@ class StaleDiagnosisFeedbackCliTests(unittest.TestCase):
             self.workspace,
             self.scenario.brief,
             # This fixture revises the Planner's fixed AC4, not the compiler's C1..Cn contract.
+            command=legacy_bugfix_fixture.COMMAND,
             options=(
                 *flags,
                 "--spec-first",
