@@ -69,7 +69,7 @@ def _readonly_runner_command(command):
     while index < len(args):
         option, separator, value = args[index].partition("=")
         if option == "--json" and not separator:
-            if reader not in ("inspect", "coordinate-status") or as_json:
+            if reader not in ("--status", "inspect", "coordinate-status") or as_json:
                 return False
             as_json = True
             index += 1
