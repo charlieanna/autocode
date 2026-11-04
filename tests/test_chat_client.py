@@ -563,6 +563,36 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(2, client.converse())
         self.assertEqual([], client.taken)
 
+    def test_a_declined_continue_exits_the_line_chat(self):
+        view = {
+            "status": "PAUSED_INVALID_OUTPUT",
+            "next_stage": "terra",
+            "needs": {"kind": "resume"},
+            "next_command": f"autocode {PLACE} --resume-paused",
+        }
+        client = ScriptedChat(view, replies=["n"])
+        self.assertEqual(2, client.converse())
+        self.assertEqual([], client.taken)
+        self.assertIn("Left as it is. The run remains paused.", client.text())
+        self.assertNotIn("What do you want done?", client.text())
+
+    def test_a_declined_continue_returns_to_a_new_chat_in_the_full_screen_client(self):
+        """#2701: answering N at a Continue prompt evicted the full-screen chat with exit code 2."""
+        view = {
+            "status": "PAUSED_INVALID_OUTPUT",
+            "next_stage": "terra",
+            "needs": {"kind": "resume"},
+            "next_command": f"autocode {PLACE} --resume-paused",
+        }
+        client = ScriptedChat(view, replies=["n", ""])
+        client.switched = mock.Mock(return_value=None)  # the renderer's presence
+        self.assertEqual(2, client.converse())  # EOF once the new-chat box is left empty again
+        self.assertEqual([], client.taken)
+        out = client.text()
+        self.assertIn("Left as it is. The run remains paused.", out)
+        self.assertIn("What do you want done?", out)
+        self.assertIn("Nothing started; this chat carries on.", out)
+
     def test_a_correction_at_one_option_question_uses_its_offered_feedback_action(self):
         correction = "These examples were added in the current unapproved draft."
         client = ScriptedChat(answer_view(), DONE, replies=[correction])

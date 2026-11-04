@@ -1686,6 +1686,11 @@ class ChatClient:
             return self.send(answer, conversation.get("context") or "")
         if answer.lower() not in YES:
             self.say("Left as it is. The run remains paused.")
+            if self.switched is not None:
+                # #2701: in the full-screen chat a declined action returns to a new chat
+                # instead of exiting, so the person keeps the client, its history and
+                # its / commands; the run keeps its saved place either way.
+                raise NewChat
             return False
         fresh = self.status()
         if fresh.get("needs") != view.get("needs"):
