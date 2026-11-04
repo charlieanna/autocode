@@ -828,15 +828,3 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
             message,
         )
         self.assertNotIn("did not stop on quota", message)
-
-
-class StagedRedBaseProbe(unittest.TestCase):
-    """STAGED FAULT - REVERT BEFORE MERGE. Exercises the pre-existing verdict (#2603).
-
-    tests.test_job_route already fails on 016029ebf (the cause-1 break #2598 fixed),
-    so with the checks pinned there this module must read pre-existing: it fails on
-    the base as well as here.
-    """
-
-    def test_this_fails_so_the_module_is_in_the_failing_set(self):
-        self.fail("staged fault: verifying the pre-existing verdict against a red base")
