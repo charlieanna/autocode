@@ -89,6 +89,24 @@ class CommandSourceSchemaTests(unittest.TestCase):
         )
         self.assertEqual({"out_of_scope": [], "negation_waivers": []}, report["source_trace"])
 
+    def test_planning_reports_declare_the_scripted_single_repository_scope(self):
+        from units.autoplanner import SCHEMAS
+
+        for stage in ("astra_discovery", "glm_revise"):
+            with self.subTest(stage=stage):
+                report = self.invoke(stage, SCHEMAS[stage])
+                self.assertEqual({"spans_repositories": False, "external_parts": []}, report["workspace_scope"])
+
+    def test_report_repair_preserves_an_explicit_workspace_scope(self):
+        from units.autoplanner import SCHEMAS
+
+        scope = {
+            "spans_repositories": True,
+            "external_parts": [{"repository": "other", "description": "retained scope"}],
+        }
+        retained = {"summary": "Saved proposal", "workspace_scope": scope}
+        self.assertEqual(retained, self.invoke("astra_discovery", SCHEMAS["astra_discovery"], retained=retained))
+
     def test_inherited_plan_keeps_citations_and_omits_runner_provenance(self):
         draft = body(questions=False, human=False)
         citations = [{"source_id": "task:0", "quote": "Earlier approved source"}]

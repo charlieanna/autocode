@@ -3,18 +3,20 @@
 // Keep this probe in the browser context: dashboard_app.js declares latestRun
 // with `let`, so it is not a globalThis property while its script is loading.
 // `typeof` is the only safe way to inspect that missing lexical binding.
-function dashboardReadinessExpression() {
+function dashboardReadinessExpression({requireInventory = false} = {}) {
   return `()=>{
     const applicationGlobalDeclared=typeof latestRun!=="undefined";
     const run=applicationGlobalDeclared?latestRun:null;
     const documentReadyState=document.readyState;
     const applicationRootPresent=!!document.querySelector(".app-shell");
+    const inventoryReady=typeof latestData!=="undefined"&&latestData!==null&&typeof refreshPromise!=="undefined"&&refreshPromise===null;
     return {
       document_ready_state:documentReadyState,
       document_ready:documentReadyState!=="loading",
       application_global_declared:applicationGlobalDeclared,
       application_root_present:applicationRootPresent,
-      application_ready:applicationGlobalDeclared&&applicationRootPresent,
+      application_ready:applicationGlobalDeclared&&applicationRootPresent&&(${!requireInventory}||inventoryReady),
+      inventory_ready:inventoryReady,
       status:run?.status||null,
       stage:run?.active_stage?.stage||null,
       notice:document.querySelector("#dashboard-notice")?.textContent||"",
