@@ -8,6 +8,12 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_requirements_confirmation_keeps_the_public_chat_consumer(self):
+        consumers = {"tests.test_chat_confirmation", "tests.test_chat_client"}
+        selected = run_suite.select_tests(["tools/autocode_chat_confirmation.py"], {name: "" for name in consumers})
+        kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+        self.assertEqual(consumers, set(kept))
+
     def test_coordination_provider_keeps_late_planner_scope_consumer(self):
         consumers = {"tests.test_coordination_tui_e2e", "tests.test_planning_scope_cli"}
         selected = run_suite.select_tests(

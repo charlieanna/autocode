@@ -56,6 +56,7 @@ try:
     from . import autocode_chat_attention as attention
     from . import autocode_chat_attention_discovery as attention_discovery
     from . import autocode_chat_changeset as changeset
+    from . import autocode_chat_confirmation as confirmations
     from . import autocode_chat_context as contexts
     from . import autocode_chat_coordination as coordination
     from . import autocode_chat_diagnostics as diagnostics
@@ -76,6 +77,7 @@ except ImportError:
     import autocode_chat_attention as attention
     import autocode_chat_attention_discovery as attention_discovery
     import autocode_chat_changeset as changeset
+    import autocode_chat_confirmation as confirmations
     import autocode_chat_context as contexts
     import autocode_chat_coordination as coordination
     import autocode_chat_diagnostics as diagnostics
@@ -1467,7 +1469,7 @@ class ChatClient:
             self.say(f"\nAutoCode: {summary}")
         prompt = "\nYou: " if not review else f"\n{review['label']}? [y/N], or type what to change: "
         reply = self.ask(prompt)
-        if review and (reply.lower() in YES or same_answer(reply, review)):
+        if review and (confirmations.affirmative(reply) or same_answer(reply, review)):
             if not self.confirm_spend(review.get("spend_confirmation")):
                 self.say("Not started. The understanding still waits for you.")
                 return True
@@ -1707,7 +1709,7 @@ class ChatClient:
         if not isinstance(confirmation, dict):
             return True
         self.say(f"\n{confirmation.get('title') or 'Continue?'}\n{confirmation.get('detail') or ''}".rstrip())
-        return self.ask(f"{confirmation.get('label') or 'Continue'}? [y/N]: ").lower() in YES
+        return confirmations.affirmative(self.ask(f"{confirmation.get('label') or 'Continue'}? [y/N]: "))
 
     def send(self, text: str, context: str) -> bool:
         """A message through the view's chat input, then on with the run, as the extension does."""
