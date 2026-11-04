@@ -18,6 +18,7 @@ try:
     from . import autocode_changeset_store as sets
     from . import autocode_client_actions as actions
     from . import autocode_coordination_access as access
+    from . import autocode_coordination_admission as admission
     from . import autocode_coordination_budget as budget
     from . import autocode_coordination_conversation as conversation
     from . import autocode_coordination_conversation_runtime as conversation_runtime
@@ -42,6 +43,7 @@ except ImportError:
     import autocode_changeset_store as sets
     import autocode_client_actions as actions
     import autocode_coordination_access as access
+    import autocode_coordination_admission as admission
     import autocode_coordination_budget as budget
     import autocode_coordination_conversation as conversation
     import autocode_coordination_conversation_runtime as conversation_runtime
@@ -85,6 +87,10 @@ def initialize(run_dir, *, command=tasks.AUTOCODE):
     scope = view.get("scope") or {}
     if view.get("workflow") != "bugfix" or not scope.get("external_parts") or scope.get("decision"):
         raise store.CoordinationError("This run has no unresolved multi-repository bug to coordinate")
+    if not admission.pending_scope(view):
+        raise store.CoordinationError(
+            "Confirm Requirements and resolve business questions before starting coordination"
+        )
     directory = store.root(run_dir)
     profile = view.get("related_profile")
     if not profile:

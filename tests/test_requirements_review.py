@@ -13,6 +13,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_requirements_review as review
 import autocode_taskrun as taskrun
@@ -29,6 +30,60 @@ JOINT = ("--joint-planning", "--no-adaptive-planning")
 
 
 class SettingTests(unittest.TestCase):
+    def catalog_bug(self, *, external=True):
+        report = {
+            "job": "bugfix",
+            "intended_outcome": "Show the operation and mapped result for new history entries",
+            "required_behaviors": ["Preserve stored history"],
+            "acceptance_tests": ["A new entry shows its operation and mapped result"],
+            "open_questions": [],
+            "workspace_scope": {
+                "spans_repositories": external,
+                "external_parts": [{"target": "history", "work": "Check displayed values"}] if external else [],
+            },
+        }
+        return {"settings": {"spec_first": True}, "requirements_handoff": {"report": report}, "next_stage": review.NEXT}
+
+    def test_catalog_bug_confirms_understanding_before_scope_routing_or_planning(self):
+        for external in (False, True):
+            with (
+                self.subTest(external=external),
+                patch("autocode_catalog_context.context", return_value={"repositories": [{"name": "history"}]}),
+            ):
+                current = self.catalog_bug(external=external)
+                original = json.loads(json.dumps(current))
+                question = review.review_question(current)
+                self.assertEqual([question], review.questions(current))
+                self.assertEqual(original, current)
+                self.assertTrue(review.accepts(current, {"scope": "clarification", "questions": [question]}))
+                current["answers"] = {question["id"]: {"text": "plan"}}
+                remaining = review.questions(current)
+                self.assertEqual(bool(external), bool(remaining))
+                if external:
+                    self.assertTrue(remaining[0]["id"].startswith("workspace-scope-"))
+
+    def test_catalog_bug_correction_returns_to_requirements_before_any_scope_routing(self):
+        with patch("autocode_catalog_context.context", return_value={"repositories": [{"name": "history"}]}):
+            current = self.catalog_bug()
+            question = review.review_question(current)
+            current["answers"] = {question["id"]: {"text": "Also cover the Japanese registries"}}
+            review.after_answers(current)
+            self.assertEqual(review.STAGE, current["next_stage"])
+            self.assertEqual([], review.questions(current))
+
+    def test_confirmed_members_and_joint_tasks_do_not_repeat_the_source_confirmation(self):
+        for role in ("member", "joint"):
+            with (
+                self.subTest(role=role),
+                patch("autocode_catalog_context.context", return_value={"repositories": [{"name": "history"}]}),
+                patch(
+                    "autocode_coordination_context.context", return_value={"role": role} if role == "member" else None
+                ),
+                patch("autocode_coordination_context.joint_planning", return_value=role == "joint"),
+            ):
+                current = self.catalog_bug(external=False)
+                self.assertEqual([], review.questions(current))
+
     def test_off_unless_asked_and_refused_where_requirements_gather_does_not_run(self):
         self.assertFalse(review.new_run_setting(None, True, False))
         self.assertFalse(review.new_run_setting(False, True, False))

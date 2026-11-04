@@ -41,7 +41,7 @@ def report(**change):
 
 
 class RequirementsHandoffTests(unittest.TestCase):
-    def test_catalog_bug_handoff_offers_coordination_without_requirements_confirmation(self):
+    def test_catalog_bug_handoff_confirms_requirements_before_coordination(self):
         import autocode_catalog_context as catalog
         import autocode_coordination_store as coordination
         import autocode_run_view as run_view
@@ -62,7 +62,7 @@ class RequirementsHandoffTests(unittest.TestCase):
                 ],
             },
         )
-        for configured, questions, expected in ((True, [], True), (False, [], False), (True, [QUESTION], False)):
+        for configured, questions in ((True, []), (False, []), (True, [QUESTION])):
             with self.subTest(configured=configured, questions=questions):
                 state = {
                     "task": task,
@@ -85,12 +85,14 @@ class RequirementsHandoffTests(unittest.TestCase):
                         queue=lambda *args, **kwargs: queued.append(kwargs),
                     )
                     view = run_view.view(state, run_dir="/tmp/catalog-handoff-test")
-                self.assertEqual(expected, view["coordination"] is not None)
-                if expected:
+                self.assertIsNone(view["coordination"])
+                pending = [q for row in queued for q in row["questions"]]
+                if questions:
+                    self.assertEqual(questions, pending)
+                elif configured:
                     self.assertEqual("bugfix", view["workflow"])
-                    self.assertFalse(
-                        any(q["id"].startswith("requirements-review-") for row in queued for q in row["questions"])
-                    )
+                    self.assertEqual(1, len(pending))
+                    self.assertTrue(pending[0]["id"].startswith("requirements-review-"))
 
     def accept(self, value, settings=None, **saved):
         settings = {"spec_first": True} if settings is None else settings

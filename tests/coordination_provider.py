@@ -176,7 +176,14 @@ def main():
         else:
             raise RuntimeError("Unrelated intake must never plan or build: " + stage)
         output.write_text(json.dumps(shaped(report, schema)))
-        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}), flush=True)
+        log = root / ".autocode/provider-calls.jsonl"
+        log.parent.mkdir(exist_ok=True)
+        with log.open("a") as stream:
+            stream.write(json.dumps({"stage": stage, "name": name}) + "\n")
+        print(
+            json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid5(uuid.NAMESPACE_URL, str(root)))}),
+            flush=True,
+        )
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)
         return
     if (

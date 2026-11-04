@@ -240,3 +240,20 @@ class CoordinationRequestTests(unittest.TestCase):
                 }
             ),
         )
+
+    def test_confirmation_is_retained_as_evidence_but_does_not_become_member_requirements(self):
+        import copy
+
+        from autocode_coordination_request import brief
+
+        for kind, ident, text, expected in (
+            ("user_answer", "answer:requirements-review-abc", " PLAN ", "Fix history"),
+            ("user_answer", "answer:requirements-review-abc", "Preserve old rows", "Fix history\n\nPreserve old rows"),
+            ("user_answer", "answer:Q1", "plan", "Fix history\n\nplan"),
+            ("user_feedback", "feedback:1", "plan", "Fix history\n\nplan"),
+        ):
+            with self.subTest(kind=kind, ident=ident, text=text):
+                document = {"task": "Fix history", "request_sources": [{"kind": kind, "id": ident, "text": text}]}
+                before = copy.deepcopy(document)
+                self.assertEqual(expected, brief(document))
+                self.assertEqual(before, document)
