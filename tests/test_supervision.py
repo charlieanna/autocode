@@ -2379,5 +2379,81 @@ class KeeperStderrCaptureTests(unittest.TestCase):
         self.assertIn("keeper unimportable", retained[0].read_text())
 
 
+class SampleCadenceTests(unittest.TestCase):
+    """The keeper's sample wait backs off while its tree stays quiet (#2708)."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="supervision-cadence-")
+        self.root = Path(self.temp.name)
+        self.addCleanup(self.temp.cleanup)
+
+    def test_the_tick_doubles_while_quiet_and_resets_when_activity_returns(self):
+        import autocode_supervision_keeper as keeper
+
+        tick = 0.0
+        waits = [tick := keeper.next_sample_tick(tick, activity=False) for _ in range(6)]
+        self.assertEqual([0.05, 0.1, 0.2, 0.4, 0.5, 0.5], waits)
+        self.assertEqual(0.05, keeper.next_sample_tick(0.5, activity=True))
+        self.assertEqual(0.05, keeper.next_sample_tick(0.05, activity=True))
+
+    def test_a_quiet_keeper_samples_the_tree_far_below_the_base_rate(self):
+        import autocode_supervision_keeper as keeper
+
+        provider = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            start_new_session=True,
+        )
+        self.addCleanup(provider.kill)
+        self.addCleanup(provider.wait, timeout=10)
+        metadata = {
+            "schema": 1,
+            "nonce": "c" * 32,
+            "owner": supervision._identity(os.getpid()),
+            "keeper": supervision._identity(os.getpid()),
+            "provider": supervision._identity(provider.pid),
+            "receipt": str(self.root / "receipt.json"),
+            "started_at": "initial",
+        }
+        control_r, control_w = os.pipe()
+        ack_r, ack_w = os.pipe()
+        sampled = threading.Event()
+        calls = []
+
+        def counting(tree, **kwargs):
+            result = real_sample(tree, **kwargs)
+            calls.append(time.monotonic())
+            sampled.set()
+            return result
+
+        real_sample = keeper.processes.settled_sample
+
+        def run():
+            with patch.object(keeper.processes, "settled_sample", counting):
+                keeper.main(control_r, ack_w)
+
+        try:
+            packet = {
+                "metadata": metadata,
+                "deadline": None,
+                "timing": keeper_timing(None),
+                "cleanup_policy": "freeze_tree",
+            }
+            os.write(control_w, (json.dumps(packet) + "\n").encode())
+            thread = threading.Thread(target=run, daemon=True)
+            thread.start()
+            self.assertTrue(sampled.wait(timeout=10), "the keeper never sampled its tree")
+            time.sleep(2.6)  # a quiet window: no admissions, no session traffic, one stable process
+            os.write(control_w, (json.dumps({"finished": metadata["nonce"]}) + "\n").encode())
+            thread.join(timeout=15)
+            self.assertFalse(thread.is_alive())
+            # At the base tick this window holds ~52 whole-host enumerations; the graded
+            # tick reaches its 0.5s cap after ~1.25s, so a quiet keeper stays under a dozen.
+            self.assertLessEqual(len(calls), 12, calls)
+        finally:
+            for fd in (control_r, control_w, ack_r, ack_w):
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+
+
 if __name__ == "__main__":
     unittest.main()
