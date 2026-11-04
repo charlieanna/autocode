@@ -277,7 +277,7 @@ class DynamicDependenciesTests(unittest.TestCase):
                 "tests.test_build_recovery_blackbox",
                 "tests.test_build_blackbox",
             },
-            "tools/fake_command_tool.py": {"tests.test_command_flow"},
+            "tools/fake_command_tool.py": {"tests.test_command_flow", "tests.test_command_source_schema"},
         }
         for path, consumers in mappings.items():
             with self.subTest(path=path):

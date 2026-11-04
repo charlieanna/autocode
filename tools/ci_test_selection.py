@@ -236,7 +236,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tests.test_build_blackbox",
         ),
     ),
-    ("tools/fake_command_tool.py", ("tests.test_command_flow",)),
+    ("tools/fake_command_tool.py", ("tests.test_command_flow", "tests.test_command_source_schema")),
     ("tools/fake_codex.py", ("tests.test_subprocess",)),
     # The #2133 CLI regression drives the box through the fake provider; its tests import neither module.
     ("tools/autocode_current_behavior.py", ("tests.test_bugfix_workflow",)),

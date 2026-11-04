@@ -118,6 +118,10 @@ def deliver(value):
         value["contract"] = retained
         value["requirement_trace"] = []
     properties = schema.get("properties", {})
+    if "workspace_scope" in properties:
+        # The greeting fixture scripts one repository. Repairs retain any scope
+        # already present in the original report instead of narrowing it.
+        value.setdefault("workspace_scope", {"spans_repositories": False, "external_parts": []})
     if data.get("report_repair") and "summary" in schema.get("required", []) and "summary" in properties:
         value.setdefault("summary", "Repaired report")
     draft = value.get("contract")
