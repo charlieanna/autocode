@@ -58,6 +58,17 @@ def proof_path(packet):
 
 def bindings(payload, record, row, workspace, run_dir, snapshots, gaps=None, proof=None):
     known = {"task_id": row.get("task_id"), "contract_hash": row.get("contract_hash")}
+    revision = record.get("contract_revision")
+    retained = (
+        f"r{revision}:{known['contract_hash']}"
+        if type(revision) is int and revision > 0 and known["contract_hash"]
+        else None
+    )
+    reference_paths = {
+        "/report/contract/retain_contract",
+        "/report/contract/revise_contract",
+        "/report/contract/acceptance_criteria/retain_from",
+    }
     gaps = gaps or {}
     revisions = {value.get("revision") for value in snapshots}
     result = []
@@ -92,6 +103,8 @@ def bindings(payload, record, row, workspace, run_dir, snapshots, gaps=None, pro
                 target = _pointer(pointer, key)
                 if key in known and known[key] is not None and child == known[key]:
                     add(target, key)
+                elif target in reference_paths and retained and child == retained:
+                    add(target, "retained_contract")
                 elif key == "capture_context" and capture and child == capture:
                     for captured_key, symbol in (
                         ("attempt", "output"),

@@ -64,6 +64,11 @@ replay re-derives the current value from that identity. A citation of the proof
 file itself binds to the replay's own proof, whatever its directory is named. A
 gap whose file, bytes or line differ in the replay is not rebound, and a replay whose Tester runs
 without a current changed-line proof refuses rather than guess.
+Planning references (`retain_contract`, `revise_contract` and a criteria delta's
+`retain_from`) likewise bind only when they match the original dispatch's exact
+contract revision and hash. Replay derives their new value from the current
+runner schema and verifies its contract hash. Stale references remain stale;
+prose and unrelated fields are never rewritten.
 The archived check commands compare without the interpreter's location: `/usr/bin/python3 -m
 unittest discover -v` on the recording host is the same obligation as the replay host's own
 `python3`.
