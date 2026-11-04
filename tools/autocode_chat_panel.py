@@ -245,6 +245,53 @@ def _planning(view: dict | None) -> bool:
     )
 
 
+def task_progress(view: dict | None, summary: dict | None) -> str | None:
+    """Display the anchor's public coordination step, leaving member stages intact.
+
+    This is presentation only: it never changes the view used for named actions.
+    """
+    view, summary = _mapping(view), _mapping(summary)
+    if (
+        not view.get("coordination")
+        or summary.get("version") != 1
+        or not summary.get("anchor")
+        or summary.get("anchor") != view.get("run_dir")
+    ):
+        return None
+    return {
+        "continue": "Discovering repositories",
+        "resolve": "Discovering repositories",
+        "alias": "Discovering repositories",
+        "repository": "Waiting for repository selection",
+        "start": "Preparing repository work",
+        "assign": "Preparing repository work",
+        "advance": "Coordinating repository work",
+        "watch": "Coordinating repository work",
+        "joint_plan_start": "Preparing joint regression plan",
+        "joint_plan_advance": "Preparing joint regression plan",
+        "joint_advance": "Verifying joint regression",
+        "verify": "Verifying joint regression",
+        "joint_retry": "Verifying joint regression",
+        "bind_candidates": "Preparing joint verification",
+        "reconcile": "Reconciling saved coordination",
+        "conversation": "Processing your message",
+        "request_feedback": "Updating requirements",
+        "sync_request": "Updating requirements",
+        "refresh": "Refreshing repository observations",
+        "rework": "Preparing repository revisions",
+        "carry_approval": "Checking retained plan approval",
+        "publish": "Publishing verified changes",
+        "approval": "Waiting for plan approval",
+        "input": "Waiting for clarification",
+        "budget": "Coordination paused for budget review",
+        "planning_budget": "Coordination paused for budget review",
+        "coordination_resume": "Coordination paused; review recovery",
+        "cancelled": "Coordination cancelled",
+        "blocked": "Coordination blocked",
+        "complete": "Coordination complete; see verification details",
+    }.get(_mapping(summary.get("needs")).get("kind", ""), "Repository coordination; see details")
+
+
 def doing(view: dict | None) -> str | None:
     """The newest event as a short phrase for the status row, or None when the view has none."""
     if _planning(view) and (headline := _mapping(_mapping(view).get("progress")).get("headline")):

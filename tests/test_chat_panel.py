@@ -22,6 +22,57 @@ def view(*, headline="Builder working", needs="nothing needed from you", task="w
     }
 
 
+class TaskProgressTests(unittest.TestCase):
+    def test_public_coordination_actions_have_readable_progress(self):
+        anchor = {"run_dir": "/task/run", "coordination": {"status_command": []}}
+        for kind, expected in (
+            ("continue", "Discovering repositories"),
+            ("resolve", "Discovering repositories"),
+            ("alias", "Discovering repositories"),
+            ("repository", "Waiting for repository selection"),
+            ("start", "Preparing repository work"),
+            ("assign", "Preparing repository work"),
+            ("advance", "Coordinating repository work"),
+            ("watch", "Coordinating repository work"),
+            ("joint_plan_start", "Preparing joint regression plan"),
+            ("joint_plan_advance", "Preparing joint regression plan"),
+            ("joint_advance", "Verifying joint regression"),
+            ("verify", "Verifying joint regression"),
+            ("joint_retry", "Verifying joint regression"),
+            ("bind_candidates", "Preparing joint verification"),
+            ("reconcile", "Reconciling saved coordination"),
+            ("conversation", "Processing your message"),
+            ("request_feedback", "Updating requirements"),
+            ("sync_request", "Updating requirements"),
+            ("refresh", "Refreshing repository observations"),
+            ("rework", "Preparing repository revisions"),
+            ("carry_approval", "Checking retained plan approval"),
+            ("publish", "Publishing verified changes"),
+            ("approval", "Waiting for plan approval"),
+            ("input", "Waiting for clarification"),
+            ("budget", "Coordination paused for budget review"),
+            ("planning_budget", "Coordination paused for budget review"),
+            ("coordination_resume", "Coordination paused; review recovery"),
+            ("cancelled", "Coordination cancelled"),
+            ("blocked", "Coordination blocked"),
+            ("complete", "Coordination complete; see verification details"),
+            ("future_step", "Repository coordination; see details"),
+        ):
+            with self.subTest(kind=kind):
+                summary = {"version": 1, "anchor": "/task/run", "needs": {"kind": kind}}
+                self.assertEqual(expected, panel.task_progress(anchor, summary))
+
+    def test_member_other_task_and_missing_summary_keep_their_own_progress(self):
+        summary = {"version": 1, "anchor": "/task/run", "needs": {"kind": "advance"}}
+        for current, task in (
+            ({"run_dir": "/member/run"}, summary),
+            ({"run_dir": "/other", "coordination": {"id": "other"}}, summary),
+            ({"run_dir": "/task/run", "coordination": {"id": "task"}}, None),
+        ):
+            with self.subTest(current=current, task=task):
+                self.assertIsNone(panel.task_progress(current, task))
+
+
 class SectionTests(unittest.TestCase):
     def test_recent_notes_roll_over_only_readable_messages_from_the_current_stage(self):
         current = {
