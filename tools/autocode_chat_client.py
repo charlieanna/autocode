@@ -2079,15 +2079,27 @@ def open_chat(
                     return ChatClient(workspace, Path(by_number[int(choice)]["run_dir"]), ask=ask, say=say, **kwargs)
                 say(f"There is no run {choice} waiting.")
         else:
+            by_number = {}
             if earlier:
                 say(f"{len(earlier)} earlier chat{'s' if len(earlier) != 1 else ''} here. Type /runs to see them.")
+                # A number at this question opens that chat: the picker above numbers the
+                # waiting ones as /runs does (#1754), and a number typed after that listing
+                # must not become a run whose task is that number.
+                numbers = picker_numbers(listed)
+                by_number = {numbers[str(row["run_dir"])]: row for row in earlier}
             if intro:
                 say(intro)
             while True:
                 typed = request("What do you want done? ")
-                if typed is not None:
-                    brief = typed
-                    break
+                if typed is None:
+                    continue
+                if by_number and typed.isdigit():
+                    if int(typed) in by_number:
+                        return ChatClient(workspace, Path(by_number[int(typed)]["run_dir"]), ask=ask, say=say, **kwargs)
+                    say(f"There is no chat {typed}. Type /runs to see them, then its number or /open {typed}.")
+                    continue
+                brief = typed
+                break
     except Opened as opened:
         row = opened.row
         return ChatClient(Path(row.get("workspace") or workspace), Path(row["run_dir"]), ask=ask, say=say, **kwargs)

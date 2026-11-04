@@ -14,12 +14,14 @@ try:
     from . import autocode_github as github
     from . import autocode_registry as registry
     from . import autocode_repo_catalog as source_catalog
+    from . import autocode_taskrun_reads as reads
     from . import autocode_util as util
     from .autocode_coordination_store import CoordinationError
 except ImportError:
     import autocode_github as github
     import autocode_registry as registry
     import autocode_repo_catalog as source_catalog
+    import autocode_taskrun_reads as reads
     import autocode_util as util
     from autocode_coordination_store import CoordinationError
 
@@ -110,12 +112,23 @@ def publication_repository(remote):
     return repository
 
 
+def _source_discovery():
+    """Share a validated inventory only within the coordinator's read-only observation."""
+
+    def load():
+        discovery = source_catalog.discover()
+        if not discovery["complete"]:
+            codes = ", ".join(sorted({row["code"] for row in discovery["diagnostics"]}))
+            raise CoordinationError("Configured source discovery is incomplete" + (f" ({codes})" if codes else ""))
+        return discovery
+
+    key = ("coordination-source-catalog", str(source_catalog.catalog_path()), tuple(sorted(os.environ.items())))
+    return reads.read(key, load)
+
+
 def catalog():
     """Inventory configured source roots plus legacy explicitly registered workspaces."""
-    discovery = source_catalog.discover()
-    if not discovery["complete"]:
-        codes = ", ".join(sorted({row["code"] for row in discovery["diagnostics"]}))
-        raise CoordinationError("Configured source discovery is incomplete" + (f" ({codes})" if codes else ""))
+    discovery = _source_discovery()
     entries = {}
     for group in discovery["repositories"]:
         for candidate in group["candidates"]:
@@ -143,10 +156,7 @@ def catalog():
 
 def source_snapshot():
     """Return the exact shared catalog and source revision snapshot for coordination."""
-    discovery = source_catalog.discover()
-    if not discovery["complete"]:
-        codes = ", ".join(sorted({row["code"] for row in discovery["diagnostics"]}))
-        raise CoordinationError("Configured source discovery is incomplete" + (f" ({codes})" if codes else ""))
+    discovery = _source_discovery()
     return {
         "catalog_identity": discovery["catalog_identity"],
         "source_snapshot": discovery["source_snapshot"],
