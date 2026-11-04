@@ -378,8 +378,16 @@
         "conversation": {"type": ["object", "null"]},
         "chat": {
           "type": "object",
-          "required": ["messages", "context", "input"],
+          "required": ["messages", "context", "input", "gate"],
           "properties": {
+            "gate": {"type": ["object", "null"], "required": ["kind", "token", "stage", "decision"], "properties": {
+              "kind": {"enum": ["requirements", "plan"]},
+              "token": {"type": "string"},
+              "stage": {"type": "string"},
+              "decision": {"type": ["object", "null"], "required": ["message_id", "intent"], "properties": {
+                "message_id": {"type": "string"}, "intent": {"enum": ["confirm"]}
+              }}
+            }, "description": "A displayed gate whose free-text replies are interpreted by its responsible saved agent. A current decision records the interpretation; clients still take the fresh ordinary named confirmation or approval action."},
             "progress": {"type": "array", "items": {"type": "string"}, "description": "Optional core-authored activity, saved progress counts and recent attempt descriptions. A finished attempt does not mean its result passed verification."},
             "activity": {"type": "array", "maxItems": 20, "items": {
               "type": "object", "required": ["kind", "text", "status"],

@@ -51,6 +51,47 @@ class PublicInterventionObservationTests(unittest.TestCase):
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_plan_gate_status_names_a_token_bound_conversation_and_stable_semantic_identity(self):
+        import autocode_coordinate as coordinator
+
+        from tests.test_coordination_gate import packet
+
+        for member in self.document["members"]:
+            member.update({key: key + member["target"] for key in ("base", "role", "origin", "branch", "repository")})
+            member["supporting_evidence"] = {}
+        store.save(self.document)
+        with (
+            patch.object(coordinator, "observe", return_value=self.views),
+            patch.object(coordinator, "next_step", return_value=packet()["needs"]),
+            patch.object(coordinator, "budget_observations", return_value=([], [])),
+            patch.object(coordinator, "anchor_view", return_value=self.source),
+        ):
+            first = coordinator.status(self.document["anchor"])
+            store.save(self.document)
+            second = coordinator.status(self.document["anchor"])
+        self.assertEqual(first["approval"]["basis"], second["approval"]["basis"])
+        self.assertNotEqual(first["approval"]["token"], second["approval"]["token"])
+        offer = second["conversation"]["input"]["next_command"]
+        self.assertEqual(second["approval"]["token"], offer[offer.index("--plan-token") + 1])
+        self.assertIsNone(second["conversation"]["gate"]["decision"])
+
+    def test_approval_message_keeps_captured_packet_and_refuses_changed_member_plan(self):
+        from tests.test_coordination_gate import approval_context
+
+        context = {
+            **policy.context(self.document, self.views),
+            "kind": "coordinated_plan",
+            "approval": approval_context()["approval"],
+        }
+        self.messages[0]["plan_context"] = context
+        self.views["api"]["displayed_plan"] = context["participants"][0]["plan"]
+        active = self.begin()
+        self.assertEqual(context, active["context"])
+        self.document["conversation"]["active"] = None
+        self.views["api"]["displayed_plan"] = {"token": "new-plan"}
+        with self.assertRaises(store.CoordinationError):
+            self.begin()
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

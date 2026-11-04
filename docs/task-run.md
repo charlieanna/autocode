@@ -506,7 +506,19 @@ This confirms the understanding and starts the job Requirements named: plan
 preparation and review for a build, the investigation for a bug fix, the review
 or the design work. The `label` and `spend_confirmation` say which.
 The resulting execution plan still needs its own displayed-token approval.
-The optional `review.spend_confirmation` supplies the modal's `title`, `detail`
+`chat.gate` identifies a conversational understanding or plan approval. Typed
+replies go through `chat.input`, including approvals, rejections, questions and
+qualified replies. Requirements interprets replies to its understanding; the
+saved Plan Reviewer interprets replies to its reviewed plan. This bounded exchange
+uses saved evidence without rediscovering repositories or rewriting the plan.
+The returned `gate.decision`, when present, binds the interpreted confirmation to
+that gate. The client rechecks the conversation context and gate, then submits
+the existing named answer or exact-token plan approval action. Interpretation
+alone neither approves implementation nor changes spending limits. A requested
+change goes through the normal planning and review gates; discussion preserves
+the current artifact. Clients show the planning-spend detail before inviting a
+conversational understanding reply, rather than asking for a second yes/no reply.
+For clients without conversational gates, the optional `review.spend_confirmation` supplies the modal's `title`, `detail`
 and confirm-button `label` before submitting that review's planning answer.
 `match: "trim_lower"` mechanically matches the answer after whitespace trimming
 and lowercasing, as the core does; corrections do not trigger the planning modal.
@@ -2806,3 +2818,21 @@ review facts in its header, Review result panel and `/details`.
 ### Original-test command recovery
 
 At an idle validation pause, the core can name `--resume-paused --revise-protected-tests @approved-suite` when an approved empty package-marker deletion stranded the original root unittest collector for nested repositories. The `needs.reason` displays both exact commands and the retained original-test guarantee; clients take only that named action after confirmation. This revises only the suite command, capturing the same sealed original files from their archive, never the current modified tests. The old binding and explicit user event remain. The proposal starts from a unique approved, unfiltered pytest collector covering every original path. If restoring the sealed empty root marker would collide with an empty nested test package, the explicit offer moves the joint `tests` root first and adds `--import-mode=importlib`; it displays this exact change for confirmation and retains both markers. Executable nested package setup cannot trigger this correction. Active, uncertain, unapproved, filtered or ambiguous cases offer no correction. Fresh original-test replay and independent validation remain required.
+
+#### Conversational coordinated plan approval
+
+At a complete coordinated plan gate, `coordinate status` adds an approval `basis`
+that identifies the same task, source scope and complete plans independently of
+coordinator bookkeeping revisions. `conversation.gate` carries the current
+approval token and, only after interpretation of the latest unchanged packet, a
+`decision` with `message_id` and `intent: confirm`. Its named message action includes
+`--plan-token`; clients send every typed reply through that action. Exact retries
+retain the same receipt and original plan snapshot.
+
+The source run uses its saved Plan Reviewer route for this bounded conversation.
+Questions and declines preserve the packet; changes retain the original text and
+return affected work through normal review. A joint-only correction is carried to
+the new joint plan. Interpretation consumes ordinary time and monetary accounting,
+but is not another full draft-review round. Clients reread the current gate and
+execute only its separately named exact approval action. Any changed task scope,
+member plan, joint plan, publication terms or newer message withdraws confirmation.

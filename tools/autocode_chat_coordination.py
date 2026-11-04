@@ -160,26 +160,33 @@ def step(client, view, render_plan):
     if need["kind"] in ("budget", "planning_budget", "coordination_resume"):
         return budget_reply(client, view, need)
     if summary.get("approval"):
-        client.say(approval_text(summary, render_plan))
-        can_message = ((summary.get("conversation") or {}).get("input") or {}).get("kind") == "coordination_message"
-        hint = ", or type a question or change" if can_message else ""
-        answer = client.ask(f"Approve these coordinated plans? [y/N]{hint}: ").strip()
-        if can_message and answer and answer.casefold() not in ("y", "yes", "n", "no"):
-            sender = getattr(client, "_task_message_sender", None)
-            if sender is None:
-                sender = client._task_message_sender = task_messages.Sender(client)
-            try:
-                sender.send(answer, summary)
-            except (actions.ClientGap, OSError, ValueError, TypeError, AttributeError):
-                client.say(
-                    "Task message receipt is unconfirmed. Retry the same text to reconcile it; plans remain unapproved."
-                )
-            return None
-        if answer.casefold() not in ("y", "yes"):
-            client.say("Plans remain unapproved. Reopen this chat to continue.")
-            return 2
+        gate = (summary.get("conversation") or {}).get("gate")
+        decision = (gate or {}).get("decision") or {}
+        confirmed = decision.get("intent") == "confirm" and bool(decision.get("message_id"))
+        if not confirmed:
+            client.say(approval_text(summary, render_plan))
+            can_message = ((summary.get("conversation") or {}).get("input") or {}).get("kind") == "coordination_message"
+            hint = ", or type a question or change" if can_message else ""
+            prompt = "Approve these coordinated plans?" + (hint if gate else " [y/N]" + hint) + ": "
+            answer = client.ask(prompt).strip()
+            if can_message and answer and (gate or answer.casefold() not in ("y", "yes", "n", "no")):
+                sender = getattr(client, "_task_message_sender", None)
+                if sender is None:
+                    sender = client._task_message_sender = task_messages.Sender(client)
+                try:
+                    sender.send(answer, summary)
+                except (actions.ClientGap, OSError, ValueError, TypeError, AttributeError):
+                    client.say(
+                        "Task message receipt is unconfirmed. Retry the same text to reconcile it; plans remain unapproved."
+                    )
+                return None
+            if gate or answer.casefold() not in ("y", "yes"):
+                client.say("Plans remain unapproved. Reopen this chat to continue.")
+                return 2
         fresh = read(client, view)
-        if (fresh.get("approval") or {}).get("token") != summary["approval"]["token"]:
+        if (fresh.get("approval") or {}).get("token") != summary["approval"]["token"] or (
+            gate and (fresh.get("conversation") or {}).get("gate") != gate
+        ):
             client.say("A plan changed; showing the current plans before approval.")
             return None
         argv = list(named(summary["approval"]["next_command"], client.run_dir, "approve"))

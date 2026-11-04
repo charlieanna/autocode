@@ -56,9 +56,34 @@ def proof_path(packet):
     return path if isinstance(path, str) and path and Path(path).is_absolute() else None
 
 
-def bindings(payload, record, row, workspace, run_dir, snapshots, gaps=None, proof=None):
+def gate_reply(packet):
+    """Only the current runner's bound gate exchange supplies conversation identities."""
+    message = (packet or {}).get("message")
+    if (
+        not isinstance(message, dict)
+        or message.get("kind") != "gate_message"
+        or message.get("gate_kind") not in ("requirements", "plan")
+        or any(not isinstance(message.get(key), str) or not message[key] for key in ("id", "gate_token"))
+    ):
+        return {}
+    return {"gate_message_id": message["id"], "gate_token": message["gate_token"]}
+
+
+def bindings(payload, record, row, workspace, run_dir, snapshots, gaps=None, proof=None, gate=None):
     known = {"task_id": row.get("task_id"), "contract_hash": row.get("contract_hash")}
+    revision = record.get("contract_revision")
+    retained = (
+        f"r{revision}:{known['contract_hash']}"
+        if type(revision) is int and revision > 0 and known["contract_hash"]
+        else None
+    )
+    reference_paths = {
+        "/report/contract/retain_contract",
+        "/report/contract/revise_contract",
+        "/report/contract/acceptance_criteria/retain_from",
+    }
     gaps = gaps or {}
+    gate = gate or {}
     revisions = {value.get("revision") for value in snapshots}
     result = []
     capture = record.get("capture_context")
@@ -92,6 +117,12 @@ def bindings(payload, record, row, workspace, run_dir, snapshots, gaps=None, pro
                 target = _pointer(pointer, key)
                 if key in known and known[key] is not None and child == known[key]:
                     add(target, key)
+                elif target in reference_paths and retained and child == retained:
+                    add(target, "retained_contract")
+                elif key == "message_id" and gate.get("gate_message_id") and child == gate["gate_message_id"]:
+                    add(target, "gate_message_id")
+                elif key == "gate_token" and gate.get("gate_token") and child == gate["gate_token"]:
+                    add(target, "gate_token")
                 elif key == "capture_context" and capture and child == capture:
                     for captured_key, symbol in (
                         ("attempt", "output"),

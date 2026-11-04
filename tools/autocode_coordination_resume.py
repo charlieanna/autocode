@@ -110,7 +110,9 @@ def offer(document, rows, history):
         if not (intervention or reconciled_retry(view) or planning.settled(view) or settled_clarification(view)):
             return None
     summary = budget.accounting(document.get("budget") or {}, history)
-    if not summary["complete"] and (document.get("budget") or {}).get("cap_usd") != 0:
+    # Public cost views represent an uncapped policy as null. Recovery still
+    # requires explicit zero; unknown spend cannot establish a finite cap.
+    if not summary["complete"] and (document.get("budget") or {}).get("cap_usd") not in (None, 0):
         return None
     if document.get("source_catalog") and repositories.source_snapshot() != document["source_catalog"]:
         return None

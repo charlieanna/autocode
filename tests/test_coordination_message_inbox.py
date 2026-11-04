@@ -13,6 +13,24 @@ import autocode_util as util
 
 
 class MessageInboxTests(unittest.TestCase):
+    def test_plan_reply_preserves_exact_snapshot_and_rejects_changed_retry(self):
+        from tests.test_coordination_gate import approval_context
+
+        snapshot = approval_context()
+        first = self.inbox().submit(
+            self.run, request_id="reply", text="yes coplete", plan_token="shown-token", plan_context=snapshot
+        )
+        self.assertEqual(snapshot, self.inbox().read(self.run)[0]["plan_context"])
+        repeated = self.inbox().submit(
+            self.run, request_id="reply", text="yes coplete", plan_token="shown-token", plan_context=snapshot
+        )
+        self.assertEqual(first["receipt"], repeated["receipt"])
+        for token, context in (("other-token", snapshot), (None, None)):
+            with self.assertRaises(store.CoordinationError):
+                self.inbox().submit(
+                    self.run, request_id="reply", text="yes coplete", plan_token=token, plan_context=context
+                )
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

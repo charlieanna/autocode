@@ -112,6 +112,42 @@ def main():
         schema = json.loads(Path(data["original"]["schema"]).read_text())
     output = Path(sys.argv[sys.argv.index("-o") + 1])
     root = Path.cwd()
+    message = data.get("message") or {}
+    coordinated_plan = (message.get("context") or {}).get("kind") == "coordinated_plan"
+    if message.get("kind") == "gate_message" or coordinated_plan:
+        text = message["text"].strip().casefold()
+        intent = (
+            "confirm"
+            if text in ("yes", "y", "yes coplete")
+            else "decline"
+            if text in ("no", "n")
+            else "question"
+            if text.endswith("?")
+            else "change"
+        )
+        report = {
+            "message_id": message["id"],
+            "intent": intent,
+            "assistant_reply": "Offline fixture: interpreted the displayed decision.",
+        }
+        if coordinated_plan:
+            report.update(
+                contract_token=message["contract_token"],
+                affected_targets=[message["context"]["participants"][0]["target"]] if intent == "change" else [],
+            )
+        else:
+            report["gate_token"] = message["gate_token"]
+        output.write_text(json.dumps(report))
+        log = root / ".autocode/provider-calls.jsonl"
+        log.parent.mkdir(exist_ok=True)
+        with log.open("a") as stream:
+            stream.write(json.dumps({"stage": stage, "name": "conversation", "intent": intent}) + "\n")
+        print(
+            json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid5(uuid.NAMESPACE_URL, str(root)))}),
+            flush=True,
+        )
+        print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)
+        return
     joint = (root / "repositories.json").is_file()
     if joint:
         SUITE = "python3 -m pytest -q"

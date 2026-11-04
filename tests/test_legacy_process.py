@@ -21,6 +21,15 @@ class RunnerCommandTests(unittest.TestCase):
     def test_canonical_status_is_read_only(self):
         self.assertFalse(legacy.duplicate_runner_command(f"{RUNNER} --status {PATHS}"))
 
+    def test_status_json_observer_is_read_only(self):
+        for args in (
+            f"--status {PATHS} --json",
+            f"--status --json {PATHS}",
+            f"--status {PATHS} --json --inspect-evidence",
+        ):
+            with self.subTest(args=args):
+                self.assertFalse(legacy.duplicate_runner_command(f"{RUNNER} {args}"))
+
     def test_canonical_intervention_inspect_is_read_only(self):
         self.assertFalse(legacy.duplicate_runner_command(f"{RUNNER} intervention inspect {PATHS} --json"))
         self.assertFalse(
@@ -71,6 +80,23 @@ class RunnerCommandTests(unittest.TestCase):
             )
         )
 
+    def test_coordinator_status_is_a_reader_but_its_mutating_actions_still_block(self):
+        for args in (
+            "coordinate status --run-dir /ws/run --json",
+            "coordinate status --json --run-dir=/ws/run",
+        ):
+            self.assertFalse(legacy.duplicate_runner_command(f"{RUNNER} {args}"))
+        for args in (
+            "coordinate advance --run-dir /ws/run --json",
+            "coordinate approve --run-dir /ws/run --token t --json",
+            "coordinate status --run-dir /ws/run --json --resume-paused",
+            "coordinate status --run-dir relative --json",
+            "coordinate status --run-dir /ws/run --run-dir /ws/other --json",
+            "coordinate status --run-dir /ws/run --json --json",
+            "coordinate status --workspace /ws/project --run-dir /ws/run --json",
+        ):
+            self.assertTrue(legacy.duplicate_runner_command(f"{RUNNER} {args}"))
+
     def test_python_bytecode_and_buffering_switches_are_structural(self):
         self.assertFalse(
             legacy.duplicate_runner_command(f"/usr/bin/python3 -B -u /ws/autocode/tools/autocode.py --status {PATHS}")
@@ -95,7 +121,8 @@ class RunnerCommandTests(unittest.TestCase):
     def test_unknown_duplicate_and_mixed_reader_flags_stay_blocking(self):
         for args in (
             f"--status {PATHS} --unknown",
-            f"--status {PATHS} --json",
+            f"--status {PATHS} --json --json",
+            f"--status {PATHS} --json=true",
             f"--dry-run {PATHS} --json",
             f"--status {PATHS} --status",
             f"--status {PATHS} --dry-run",
@@ -119,7 +146,7 @@ class RunnerCommandTests(unittest.TestCase):
             "--test-command pytest",
             "--terra-model model",
         ):
-            for reader in ("--status", "--dry-run"):
+            for reader in ("--status", "--status --json", "--dry-run"):
                 with self.subTest(reader=reader, mutation=mutation):
                     self.assertTrue(legacy.duplicate_runner_command(f"{RUNNER} {reader} {PATHS} {mutation}"))
 
@@ -280,6 +307,22 @@ class LiveProcessGuardTests(unittest.TestCase):
         with self.assertRaisesRegex(legacy.Paused, f"Existing run process {pid} is active") as caught:
             legacy.assert_no_legacy_process(self.run, self.workspace)
         self.assertEqual("PAUSED_WORKSPACE_BUSY", caught.exception.status)
+
+    def test_status_json_observer_does_not_block_a_writer(self):
+        self.autocode.write_text("import sys\nprint('ready', flush=True)\nsys.stdin.read()\n")
+        process = subprocess.Popen(
+            [sys.executable, str(self.autocode), "--status", *self.paths, "--json"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        self.addCleanup(process.communicate, "", timeout=30)
+        self.assertEqual("ready\n", process.stdout.readline())
+        legacy.assert_no_legacy_process(self.run, self.workspace)
+
+    def test_reading_coordination_status_does_not_block_a_source_run_launch(self):
+        self.hold(sys.executable, str(self.autocode), "coordinate", "status", "--run-dir", str(self.run), "--json")
+        legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_an_open_chat_on_the_run_does_not_block_its_next_action(self):
         self.hold(sys.executable, str(self.autocode), "chat", *self.paths)

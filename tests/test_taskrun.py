@@ -122,6 +122,7 @@ class RunViewTests(unittest.TestCase):
         self.assertFalse(action_authority.explicit_recovery_requested(SimpleNamespace(retry_report=None), None))
 
     def test_contract_fields(self):
+        self.assertIn("gate", run_view.view({"status": "RUNNING"})["chat"])
         self.assertEqual(
             {
                 "schema",

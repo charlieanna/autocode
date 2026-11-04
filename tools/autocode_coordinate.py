@@ -23,6 +23,7 @@ try:
     from . import autocode_coordination_conversation as conversation
     from . import autocode_coordination_conversation_runtime as conversation_runtime
     from . import autocode_coordination_evidence as joint_evidence
+    from . import autocode_coordination_gate as gate_chat
     from . import autocode_coordination_joint as joint
     from . import autocode_coordination_limits as limits
     from . import autocode_coordination_message_inbox as message_inbox
@@ -31,6 +32,7 @@ try:
     from . import autocode_coordination_publish as publication
     from . import autocode_coordination_repositories as repos
     from . import autocode_coordination_request as request
+    from . import autocode_coordination_request_runtime as request_runtime
     from . import autocode_coordination_resume as cancellation
     from . import autocode_coordination_store as store
     from . import autocode_coordination_usage as usage
@@ -48,6 +50,7 @@ except ImportError:
     import autocode_coordination_conversation as conversation
     import autocode_coordination_conversation_runtime as conversation_runtime
     import autocode_coordination_evidence as joint_evidence
+    import autocode_coordination_gate as gate_chat
     import autocode_coordination_joint as joint
     import autocode_coordination_limits as limits
     import autocode_coordination_message_inbox as message_inbox
@@ -56,6 +59,7 @@ except ImportError:
     import autocode_coordination_publish as publication
     import autocode_coordination_repositories as repos
     import autocode_coordination_request as request
+    import autocode_coordination_request_runtime as request_runtime
     import autocode_coordination_resume as cancellation
     import autocode_coordination_store as store
     import autocode_coordination_usage as usage
@@ -486,6 +490,8 @@ def _next_step(document, views, *, command=tasks.AUTOCODE):
         offered = limits.offer(document, rows, history)
         if offered:
             return offered
+    if resumed := request_runtime.resume_step(document, views, run_for=lambda member: handle(member, command=command)):
+        return resumed
     if document.get("rework"):
         return {"kind": "rework", "targets": document["rework"]["targets"]}
     if document.get("phase") == "complete":
@@ -646,7 +652,7 @@ def next_step(document, views, *, command=tasks.AUTOCODE):
         "joint_plan_start",
         "joint_plan_advance",
         "joint_advance",
-        "request_feedback",
+        "request_resume",
         "refresh",
         "rework",
         "conversation",
@@ -673,6 +679,7 @@ AUTOMATIC = {
     "conversation",
     "sync_request",
     "request_feedback",
+    "request_resume",
     "resolve",
     "start",
     "alias",
@@ -785,6 +792,7 @@ def status(run_dir, *, command=tasks.AUTOCODE):
         token = util.digest(binding)
         output["approval"] = {
             "token": token,
+            "basis": util.digest({key: value for key, value in binding.items() if key != "revision"}),
             "next_command": store.command(run_dir, "approve", "--token", token, "--json"),
             "publication": "After all member gates and the joint regression pass, publish one linked PR per changed repository. No automatic merge.",
         }
@@ -812,6 +820,14 @@ def status(run_dir, *, command=tasks.AUTOCODE):
             if document.get("members") and document.get("phase") not in ("publishing", "complete")
             else None,
         }
+    if output.get("approval") and output.get("conversation"):
+        current = output["conversation"]
+        current["gate"] = {
+            "token": output["approval"]["token"],
+            "decision": gate_chat.decision(output, requests, current["results"]),
+        }
+        if current.get("input"):
+            current["input"]["next_command"][-1:-1] = ["--plan-token", output["approval"]["token"]]
     return output
 
 
@@ -1015,15 +1031,14 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
                 if not row.get("started"):
                     row["brief"] = request.brief(document, target=row["target"])
         elif kind == "request_feedback":
-            document["pending"] = {
-                "operation": "request_feedback",
-                "target": member["target"],
-                "message": step["message"],
-            }
-            store.save(document)
-            handle(member, command=command).feedback(step["message"])
-            member["brief"] = step["message"]
-            document["pending"] = None
+            request_runtime.deliver(document, member, step["message"], handle(member, command=command))
+        elif kind == "request_resume":
+            request_runtime.resume(
+                document,
+                member,
+                handle(member, command=command),
+                budget_options(document, views, member["run_dir"], command=command),
+            )
         elif kind == "resolve":
             add_member(
                 document,
@@ -1044,13 +1059,7 @@ def advance(run_dir, *, command=tasks.AUTOCODE):
             start_member(document, member, command=command, limits=budget_options(document, views, command=command))
         elif kind == "reconcile":
             if step.get("operation") == "request_feedback" and member:
-                fresh = handle(member, command=command).status()
-                messages = [row for row in (fresh.get("chat") or {}).get("messages", []) if row.get("role") == "user"]
-                if not messages or messages[-1].get("text") != step["message"]:
-                    raise store.CoordinationError("Request feedback outcome is uncertain; it was not submitted twice")
-                member["brief"] = step["message"]
-                document["pending"] = None
-                store.save(document)
+                request_runtime.deliver(document, member, step["message"], handle(member, command=command))
                 return status(run_dir, command=command)
             if step.get("operation") == "follow_up" and member:
                 fresh = handle(member, command=command).status()
@@ -1322,7 +1331,8 @@ def parser():
         child.add_argument("--json", action="store_true", help="Print the result as JSON")
         if name == "message":
             child.add_argument("--request-id", required=True, help="Stable identity for exact message retries")
-            child.add_argument("--text", required=True, help="Original message for Requirements to assess")
+            child.add_argument("--text", required=True, help="Original message for the responsible agent to assess")
+            child.add_argument("--plan-token", help="Bind a plan reply to the complete displayed coordination approval")
         if name == "approve":
             child.add_argument("--token", required=True, help="Exact token of the coordinated plans shown")
         if name in ("budget", "resume"):
@@ -1382,7 +1392,11 @@ def cli(argv=None):
         if args.operation == "status":
             result = status(args.run_dir)
         elif args.operation == "message":
-            result = message_inbox.submit(args.run_dir, request_id=args.request_id, text=args.text)
+            if args.plan_token is not None:
+                token = os.environ.get("AUTOCODE_COORDINATION_TOKEN", "") if args.plan_token == "-" else args.plan_token
+                result = gate_chat.submit(args.run_dir, args.request_id, args.text, token, read_status=status)
+            else:
+                result = message_inbox.submit(args.run_dir, request_id=args.request_id, text=args.text)
         elif args.operation == "advance":
             result = advance(args.run_dir)
         elif args.operation == "bind":

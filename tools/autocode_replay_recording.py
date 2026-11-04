@@ -102,6 +102,9 @@ SYMBOLS = frozenset(
         "capture_nonce",
         "changed_code_gap",
         "regression_proof",
+        "retained_contract",
+        "gate_message_id",
+        "gate_token",
     }
 )
 
@@ -1032,6 +1035,14 @@ def export(projection, destination, secret_values=()):
                 if row["response"]
                 else None,
             }
+            gate = identity_bindings.gate_reply(packet)
+            if gate and isinstance(payload["report"], dict):
+                raw = _json(_read(run_root, Path(record["output"]).relative_to(run_root).as_posix())[0])
+                # Authenticate against original bytes before binding a masked identity.
+                # Exported artifact bytes stay redacted; this copy is used only to derive bindings.
+                for field, symbol in (("message_id", "gate_message_id"), ("gate_token", "gate_token")):
+                    if raw.get(field) == gate[symbol] and payload["report"].get(field) == "[REDACTED]":
+                        payload["report"][field] = raw[field]
             source_contexts = [
                 {"revision": util.digest({"head": snap["head"], "files": snap["files"]})} for snap in (before, after)
             ]
@@ -1044,6 +1055,7 @@ def export(projection, destination, secret_values=()):
                 source_contexts,
                 gaps=identity_bindings.changed_line_gaps(packet),
                 proof=identity_bindings.proof_path(packet),
+                gate=gate,
             )
         document["dispatches"].append(row)
     revisions = list(dict.fromkeys([*projection["revisions"], *[row["head"] for row in snapshots]]))

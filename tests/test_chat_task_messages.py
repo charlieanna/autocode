@@ -59,6 +59,152 @@ def module():
 
 
 class TaskMessageTests(unittest.TestCase):
+    def test_anchor_poll_does_not_consume_the_coordinators_labeled_reply(self):
+        from tests.test_chat_client import ScriptedChat
+
+        answer = {
+            "id": "m1-reply-after",
+            "role": "assistant",
+            "text": "You approved these plans.",
+            "conversation": {"request_id": "m1", "intent": "confirm"},
+        }
+        packet = summary()
+        packet["conversation"]["results"] = [
+            {"request_id": "m1", "context": {"kind": "coordinated_plan"}, "reply": answer}
+        ]
+        for anchor_first in (True, False):
+            with self.subTest(anchor_first=anchor_first):
+                client = ScriptedChat({})
+                self.addCleanup(client.close)
+                shown = {**view(), "chat": {"messages": [answer]}}
+                if anchor_first:
+                    client.show(shown)
+                module().show(client, packet)
+                client.show(shown)
+                module().show(client, packet)
+                self.assertEqual(["\nPlan Reviewer: You approved these plans."], client.out)
+
+    def test_standalone_conversation_still_displays_without_a_coordinator(self):
+        from tests.test_chat_client import ScriptedChat
+
+        client = ScriptedChat({})
+        self.addCleanup(client.close)
+        client.show(
+            {
+                "chat": {
+                    "messages": [
+                        {"id": "reply", "role": "assistant", "text": "Answer.", "conversation": {"request_id": "m1"}}
+                    ]
+                }
+            }
+        )
+        self.assertEqual(["\nAutoCode: Answer."], client.out)
+
+    def test_coordinated_approval_reply_is_shown_once_as_plan_reviewer(self):
+        client = self.client()
+        packet = summary()
+        packet["conversation"]["results"] = [
+            {
+                "request_id": "m1",
+                "context": {"kind": "coordinated_plan"},
+                "reply": {"text": "You approved these plans."},
+            }
+        ]
+        module().show(client, packet)
+        module().show(client, packet)
+        client.say.assert_called_once_with("\nPlan Reviewer: You approved these plans.")
+
+    def test_bound_plan_message_keeps_token_out_of_argv_and_requires_matching_receipt(self):
+        client = self.client()
+        packet = summary()
+        packet["approval"] = {"token": "exact-plan"}
+        packet["conversation"]["gate"] = {"token": "exact-plan", "decision": None}
+        packet["conversation"]["input"]["next_command"][-1:-1] = ["--plan-token", "exact-plan"]
+
+        def respond(argv, **kwargs):
+            if argv[1] == "status":
+                return SimpleNamespace(returncode=0, stdout=json.dumps(packet))
+            self.assertNotIn("exact-plan", argv)
+            self.assertEqual("exact-plan", kwargs["env"]["AUTOCODE_COORDINATION_TOKEN"])
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "version": 1,
+                        "accepted": True,
+                        "consumer": "pending_only",
+                        "receipt": {
+                            "id": argv[argv.index("--request-id") + 1],
+                            "kind": "message",
+                            "text": "yes coplete",
+                            "coordination_id": packet["id"],
+                            "plan_token": "exact-plan",
+                        },
+                    }
+                ),
+            )
+
+        client.cli.side_effect = respond
+        self.assertEqual("exact-plan", module().Sender(client).send("yes coplete", packet)["plan_token"])
+
+    def test_changed_plan_before_message_submission_is_not_reinterpreted_as_new_approval(self):
+        client = self.client()
+        packet = summary()
+        packet["approval"] = {"token": "earlier"}
+        packet["conversation"]["gate"] = {"token": "earlier", "decision": None}
+        packet["conversation"]["input"]["next_command"][-1:-1] = ["--plan-token", "earlier"]
+        with self.assertRaises(ValueError):
+            module().Sender(client).send("yes", packet)
+        self.assertEqual(["status"], [call.args[0][1] for call in client.cli.call_args_list])
+
+    def test_every_plan_reply_reaches_the_reviewer_before_approval(self):
+        for text in ("yes", "y", "no", "yes coplete", "yes, but keep the old behavior"):
+            client = self.client()
+            client.said, client.ask, client.advance = set(), Mock(return_value=text), Mock()
+            packet = summary()
+            packet.update(
+                done=False,
+                members=[],
+                needs={"kind": "approval", "summary": {"runs": []}},
+                approval={"token": "exact-plan", "publication": "Local changes only"},
+            )
+            packet["conversation"]["gate"] = {"token": "exact-plan", "decision": None}
+            with patch.object(coordination, "read", return_value=packet), patch.object(module(), "Sender") as sender:
+                self.assertIsNone(coordination.step(client, view(), str))
+                sender.return_value.send.assert_called_once_with(text, packet)
+            client.advance.assert_not_called()
+
+    def test_current_interpretation_takes_only_fresh_coordinated_approval(self):
+        client = self.client()
+        client.said, client.ask, client.advance = set(), Mock(), Mock()
+        packet = summary()
+        packet.update(
+            done=False,
+            members=[],
+            needs={"kind": "approval", "summary": {"runs": []}},
+            approval={
+                "token": "exact-plan",
+                "publication": "Local changes only",
+                "next_command": [
+                    "autocode",
+                    "coordinate",
+                    "approve",
+                    "--run-dir",
+                    str(RUN),
+                    "--token",
+                    "exact-plan",
+                    "--json",
+                ],
+            },
+        )
+        packet["conversation"]["gate"] = {"token": "exact-plan", "decision": {"intent": "confirm", "message_id": "m1"}}
+        with patch.object(coordination, "read", return_value=packet):
+            self.assertIsNone(coordination.step(client, view(), str))
+        client.ask.assert_not_called()
+        client.advance.assert_called_once()
+        self.assertEqual("exact-plan", client.advance.call_args.kwargs["env"]["AUTOCODE_COORDINATION_TOKEN"])
+        self.assertNotIn("exact-plan", client.advance.call_args.args[0])
+
     def client(self):
         client = SimpleNamespace(
             workspace=ROOT, run_dir=RUN, status=Mock(return_value=view()), cli=Mock(), seen=set(), say=Mock()

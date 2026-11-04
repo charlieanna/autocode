@@ -89,9 +89,13 @@ def active(state: RunState):
 
 def activate(state: RunState):
     """Start one queued conversation only at a clear, non-protected checkpoint."""
+    event = next((row for row in state.get("user_events", []) if row.get("kind") == "run_message"), None)
     if (
         not checkpoint_allowed(state)
-        or not (state.get("settings") or {}).get("spec_first")
+        or (
+            not (state.get("settings") or {}).get("spec_first")
+            and ((event or {}).get("context") or {}).get("kind") != "coordinated_plan"
+        )
         or any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair"))
         or any(
             cast(dict, state.get(key) or {}).get("scope") == "operational_exhaustion"
@@ -100,7 +104,6 @@ def activate(state: RunState):
         or any(row.get("kind") == "plan_message" and "reply_after" not in row for row in state.get("user_events", []))
     ):
         return False
-    event = next((row for row in state.get("user_events", []) if row.get("kind") == "run_message"), None)
     if event is None:
         return False
     selected = _token(state)
@@ -112,7 +115,13 @@ def activate(state: RunState):
     )
     for key in (*COMPLETION_KEYS, *QUESTION_KEYS):
         cast(dict, state).pop(key, None)
-    run_status.running(state, "PLANNING", next_stage="requirements_gather")
+    run_status.running(
+        state,
+        "PLANNING",
+        next_stage="astra_finalize"
+        if (event.get("context") or {}).get("kind") == "coordinated_plan"
+        else "requirements_gather",
+    )
     return True
 
 
@@ -122,7 +131,7 @@ def context(state: RunState):
     if event is None or event["contract_token"] != _token(state):
         raise ValueError("No current live conversation")
     return {
-        "stage": "requirements_gather",
+        "stage": state["next_stage"],
         "task": state.get("task"),
         "workspace": state.get("workspace"),
         "goal_contract": deepcopy(state.get("goal_contract")),
@@ -151,7 +160,12 @@ def accept(state: RunState, value, record):
     if (
         event is None
         or state.get("status") != "RUNNING"
-        or state.get("next_stage") != "requirements_gather"
+        or state.get("next_stage")
+        != (
+            "astra_finalize"
+            if (event.get("context") or {}).get("kind") == "coordinated_plan"
+            else "requirements_gather"
+        )
         or value.get("message_id") != event["id"]
         or value.get("contract_token") != event["contract_token"]
         or event["contract_token"] != _token(state)
@@ -163,7 +177,12 @@ def accept(state: RunState, value, record):
         raise ValueError("Conversation cannot replace an unrelated checkpoint")
     reply = value.get("assistant_reply")
     if (
-        value.get("intent") not in ("question", "change")
+        value.get("intent")
+        not in (
+            ("confirm", "question", "change", "decline")
+            if (event.get("context") or {}).get("kind") == "coordinated_plan"
+            else ("question", "change")
+        )
         or not isinstance(reply, str)
         or not reply.strip()
         or len(reply) > 12000

@@ -5,6 +5,7 @@ The coordinating owner alone applies a requested change through normal gates.
 """
 
 import json
+import re
 from copy import deepcopy
 
 try:
@@ -21,12 +22,28 @@ def checked(value):
         return None
     if (
         not isinstance(value, dict)
-        or set(value) != {"kind", "participants"}
-        or value["kind"] != "coordinated_task"
+        or value.get("kind") not in ("coordinated_task", "coordinated_plan")
+        or set(value)
+        != (
+            {"kind", "participants", "approval"}
+            if value.get("kind") == "coordinated_plan"
+            else {"kind", "participants"}
+        )
         or not isinstance(value["participants"], list)
         or not 1 <= len(value["participants"]) <= 12
     ):
         raise ValueError("Message context must name one to twelve public task participants")
+    if value["kind"] == "coordinated_plan":
+        approval = value.get("approval")
+        if (
+            not isinstance(approval, dict)
+            or set(approval) != {"identity", "publication"}
+            or not re.fullmatch(r"[0-9a-f]{64}", str(approval.get("identity", "")))
+            or not isinstance(approval.get("publication"), str)
+            or not approval["publication"].strip()
+            or any(not isinstance(row, dict) or not isinstance(row.get("plan"), dict) for row in value["participants"])
+        ):
+            raise ValueError("Plan conversation needs complete plans and an exact approval identity")
     targets = set()
     for row in value["participants"]:
         if (
@@ -106,6 +123,8 @@ def schema(base, event):
         "type": "array",
         "items": {"type": "string", "enum": [row["target"] for row in event["context"]["participants"]]},
     }
+    if event["context"].get("kind") == "coordinated_plan":
+        result["properties"]["intent"]["enum"] = ["confirm", "question", "change", "decline"]
     result["required"].append("affected_targets")
     return result
 

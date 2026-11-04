@@ -146,6 +146,51 @@ def facade(args, state: RunState):
     return Facade(settings, consumed(state))
 
 
+def retained_contract_symbol(schema_file, contract_hash):
+    """Re-derive a saved plan reference from the runner's current constrained schema."""
+    tokens = set()
+
+    def collect(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key in ("retain_from", "revise_contract") and isinstance(child, dict):
+                    values = child.get("enum")
+                    if isinstance(values, list) and len(values) == 1 and isinstance(values[0], str):
+                        tokens.add(values[0])
+                else:
+                    collect(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    try:
+        collect(json.loads(Path(schema_file).read_text())["properties"]["contract"])
+    except (OSError, ValueError, KeyError, TypeError):
+        raise recording.RecordingError("Replay has no current retained plan reference") from None
+    if len(tokens) != 1:
+        raise recording.RecordingError("Replay retained plan reference is missing or ambiguous")
+    token = next(iter(tokens))
+    match = re.fullmatch(r"r[1-9][0-9]*:([0-9a-f]{64})", token)
+    if not match or match[1] != contract_hash:
+        raise recording.RecordingError("Replay retained plan reference differs from the current contract")
+    return token
+
+
+def gate_symbols(schema_file):
+    """Read runner-bound enum identities; launch preparation precedes prompt persistence."""
+    try:
+        properties = json.loads(Path(schema_file).read_text())["properties"]
+        symbols = {}
+        for field, symbol in (("message_id", "gate_message_id"), ("gate_token", "gate_token")):
+            values = properties[field]["enum"]
+            if not isinstance(values, list) or len(values) != 1 or not isinstance(values[0], str) or not values[0]:
+                raise ValueError("Unbound gate identity")
+            symbols[symbol] = values[0]
+    except (OSError, ValueError, KeyError, TypeError):
+        raise recording.RecordingError("Replay gate conversation has no current runner identity") from None
+    return symbols
+
+
 def prepare(
     *,
     settings,
@@ -204,6 +249,11 @@ def prepare(
         "changed_code_gap": context.get("changed_code_proof"),
         "regression_proof": context.get("regression_proof_path"),
     }
+    if any(binding.get("symbol") == "retained_contract" for binding in row["bindings"]):
+        symbols["retained_contract"] = retained_contract_symbol(schema, context.get("contract_hash"))
+
+    if any(binding.get("symbol") in ("gate_message_id", "gate_token") for binding in row["bindings"]):
+        symbols.update(gate_symbols(schema))
     job = {
         "version": 1,
         "manifest": str(tape.manifest_path),

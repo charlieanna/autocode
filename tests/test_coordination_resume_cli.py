@@ -27,7 +27,10 @@ class CancelledRetryCliTests(unittest.TestCase):
     def test_cancelled_question_reopens_without_answering_or_launching_a_child(self):
         self.exercise_recovery(clarification=True)
 
-    def exercise_recovery(self, *, clarification):
+    def test_public_null_cap_preserves_unpriced_attempt_through_recovery_and_reopen(self):
+        self.exercise_recovery(clarification=False, cap=None)
+
+    def exercise_recovery(self, *, clarification, cap=0):
         workspace, env = fixture_workspace(self)
         peer, _ = fixture_workspace(self)
         workspace, peer = workspace.resolve(), peer.resolve()
@@ -132,7 +135,7 @@ class CancelledRetryCliTests(unittest.TestCase):
                         "started": True,
                     }
                 ],
-                "budget": {"initial_spent_usd": 1, "initial_complete": True, "cap_usd": 0},
+                "budget": {"initial_spent_usd": 1, "initial_complete": True, "cap_usd": cap},
             }
         )
 

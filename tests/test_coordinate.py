@@ -343,9 +343,29 @@ class CoordinationTests(unittest.TestCase):
 
     def test_request_source_recovery_and_feedback_use_the_public_task_action_once(self):
         sources = [{"id": "answer:Q1", "kind": "user_answer", "text": "Keep 2304."}]
-        member = {"target": "api", "started": False, "brief": self.document["task"]}
+        member = {
+            "target": "api",
+            "started": False,
+            "brief": self.document["task"],
+            "run_dir": str(self.root / "api-run"),
+        }
         self.document["members"] = [member]
-        run = Mock()
+        run = Mock(workspace=self.root, run_dir=Path(member["run_dir"]), command=["autocode"], env={})
+        message = self.document["task"] + "\n\nKeep 2304."
+        receipt = {}
+
+        def submit(argv, **kwargs):
+            receipt.update(
+                id=argv[argv.index("--request-id") + 1],
+                kind=argv[argv.index("--kind") + 1],
+                text=argv[argv.index("--text") + 1],
+            )
+            return SimpleNamespace(returncode=0, stdout=json.dumps({"accepted": True, "receipt": receipt}))
+
+        run.intervention_status.side_effect = lambda: {
+            "view": {"request_sources": [{"text": message}]},
+            "interventions": {"applied_receipts": [dict(receipt)]},
+        }
         with (
             patch.object(store, "read", return_value=self.document),
             patch.object(coordinate, "observe", return_value={}),
@@ -353,6 +373,7 @@ class CoordinationTests(unittest.TestCase):
             patch.object(coordinate, "observe_dependencies"),
             patch.object(coordinate, "status", return_value={}),
             patch.object(coordinate, "handle", return_value=run),
+            patch.object(coordinate.tasks, "run_process", side_effect=submit) as submitted,
         ):
             next_step.return_value = {"kind": "sync_request", "sources": sources}
             coordinate.advance(self.document["anchor"])
@@ -363,20 +384,24 @@ class CoordinationTests(unittest.TestCase):
             message = self.document["task"] + "\n\nKeep 2304."
             next_step.return_value = {"kind": "request_feedback", "target": "api", "message": message}
             coordinate.advance(self.document["anchor"])
-            run.feedback.assert_called_once_with(message)
+            submitted.assert_called_once()
+            self.assertEqual({"kind": "feedback", "text": message}, {k: receipt[k] for k in ("kind", "text")})
+            run.feedback.assert_not_called()
+            run.advance.assert_not_called()
             self.assertEqual(message, member["brief"])
             run.reset_mock()
             self.document["pending"] = {"operation": "request_feedback", "target": "api", "message": message}
             next_step.return_value = {"kind": "reconcile", **self.document["pending"]}
-            run.status.return_value = {"chat": {"messages": [{"role": "user", "text": message}]}}
+            run.status.return_value = {"request_sources": [{"text": message}]}
             coordinate.advance(self.document["anchor"])
             self.assertIsNone(self.document["pending"])
-            run.feedback.assert_not_called()
+            submitted.assert_called_once()
             self.document["pending"] = {"operation": "request_feedback", "target": "api", "message": message}
-            run.status.return_value = {"chat": {"messages": []}}
-            with self.assertRaisesRegex(store.CoordinationError, "uncertain"):
+            run.status.return_value = {"chat": {"messages": [{"role": "user", "text": message}]}}
+            with self.assertRaisesRegex(store.CoordinationError, "no confirmed source"):
                 coordinate.advance(self.document["anchor"])
             run.feedback.assert_not_called()
+            submitted.assert_called_once()
 
     def test_changed_catalog_snapshot_blocks_saved_coordinated_work(self):
         self.document["source_catalog"] = {
@@ -1605,7 +1630,9 @@ class CoordinationTests(unittest.TestCase):
             patch.object(coordinate, "anchor_view", return_value={}),
         ):
             result = coordinate.advance(self.document["anchor"])
-        self.assertEqual("cancelled", result["needs"]["kind"])
+        self.assertEqual("coordination_resume", result["needs"]["kind"])
+        self.assertTrue(result["needs"]["token"])
+        self.assertIsNone(result["next_command"])
         start.assert_not_called()
 
     def test_cancellation_before_initial_advance_never_initializes_a_run(self):

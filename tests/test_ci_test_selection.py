@@ -8,8 +8,45 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_legacy_guard_keeps_json_status_cli_regression(self):
+        consumer = "tests.test_json_status_observer_cli"
+        selected = run_suite.select_tests(
+            ["tools/autocode_legacy_process.py"], {consumer: "", "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+        self.assertEqual([consumer], list(kept))
+
+    def test_source_recovery_keeps_its_no_provider_public_regression(self):
+        self.assertIn(
+            "tests.test_coordination_request_cli",
+            dependencies.dependencies("tools/autocode_coordination_request_runtime.py"),
+        )
+
+    def test_coordinated_gate_keeps_its_public_cli_regression(self):
+        for path in (
+            "tools/autocode_coordination_gate.py",
+            "tools/prompts/coordinated-plan-chat.md",
+            "tools/autocode_chat_coordination.py",
+            "tests/coordination_provider.py",
+        ):
+            self.assertIn("tests.test_coordination_gate_cli", dependencies.dependencies(path))
+
+    def test_gate_interpretation_keeps_its_public_cli_regression(self):
+        for path in ("tools/autocode_gate_chat.py", "tools/prompts/gate-chat.md", "tools/autocode_chat_client.py"):
+            self.assertIn("tests.test_gate_chat_cli", dependencies.dependencies(path))
+
+    def test_requirements_confirmation_keeps_the_public_chat_consumer(self):
+        consumers = {"tests.test_chat_confirmation", "tests.test_chat_client"}
+        selected = run_suite.select_tests(["tools/autocode_chat_confirmation.py"], {name: "" for name in consumers})
+        kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+        self.assertEqual(consumers, set(kept))
+
     def test_coordination_provider_keeps_late_planner_scope_consumer(self):
-        consumers = {"tests.test_coordination_tui_e2e", "tests.test_planning_scope_cli"}
+        consumers = {
+            "tests.test_coordination_tui_e2e",
+            "tests.test_planning_scope_cli",
+            "tests.test_coordination_gate_cli",
+        }
         selected = run_suite.select_tests(
             ["tests/coordination_provider.py"],
             {**{name: "" for name in consumers}, "tests.test_unrelated": ""},

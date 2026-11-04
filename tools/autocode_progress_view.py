@@ -38,6 +38,15 @@ WAITING = {
 DESIGN_CONFLICT = "PAUSED_DESIGN_CONFLICT"
 # A validation archived with this reason was never applied to the run (autopilot.apply_review_result).
 NOT_APPLIED = "Stored during an open correction; not applied to the current candidate"
+# The headline that claims the run stopped with nothing saved. One reading of it can be a clean
+# finish caught between the worker exiting and its report landing, so a chat log waits for a second
+# reading that says the same before writing it as history (#2608).
+STOP_CLAIM = "stopped without saving a report"
+
+
+def claims_a_stop(headline) -> bool:
+    """True when this progress headline asserts the run stopped with nothing saved."""
+    return isinstance(headline, str) and STOP_CLAIM in headline
 
 
 def _mapping(value):
@@ -92,7 +101,7 @@ def progress(
     if done:
         headline = "Complete"
     elif stopped:
-        headline = f"{stage or 'The stage'} stopped without saving a report"
+        headline = f"{stage or 'The stage'} {STOP_CLAIM}"
         asked = stopped
     elif kind in WAITING:
         headline = WAITING[kind]

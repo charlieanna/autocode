@@ -4,12 +4,14 @@ import importlib
 import json
 import os
 import subprocess
+import sys
 import unittest
 from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import autocode_coordinate as coordinate
+import autocode_coordination_repositories as repositories
 import autocode_taskrun as tasks
 
 
@@ -53,6 +55,66 @@ class ReadScopeTests(unittest.TestCase):
                 self.assertEqual(2, reads().read("key", load))
                 raise RuntimeError("scope failed")
         self.assertEqual(3, reads().read("key", load))
+
+
+class CatalogReadScopeTests(unittest.TestCase):
+    def discovery(self, revision="one"):
+        return {
+            "complete": True,
+            "catalog": "/catalog/source-catalog.json",
+            "catalog_identity": "catalog",
+            "source_snapshot": revision,
+            "repositories": [],
+            "diagnostics": [],
+        }
+
+    def test_snapshot_validation_and_resolution_share_one_inventory(self):
+        with (
+            patch.object(repositories.source_catalog, "discover", return_value=self.discovery()) as discover,
+            patch.object(repositories.registry, "listing", return_value={"workspaces": []}),
+        ):
+            with reads().snapshot():
+                self.assertEqual("one", repositories.source_snapshot()["source_snapshot"])
+                self.assertEqual([], repositories.catalog())
+            discover.assert_called_once_with()
+
+    def test_new_response_and_unscoped_action_reinspect_sources(self):
+        with patch.object(
+            repositories.source_catalog, "discover", side_effect=[self.discovery(v) for v in ("one", "two", "three")]
+        ) as discover:
+            with reads().snapshot():
+                self.assertEqual("one", repositories.source_snapshot()["source_snapshot"])
+            with reads().snapshot():
+                self.assertEqual("two", repositories.source_snapshot()["source_snapshot"])
+            self.assertEqual("three", repositories.source_snapshot()["source_snapshot"])
+            self.assertEqual(3, discover.call_count)
+
+    def test_different_catalog_identity_never_reuses_another_inventory(self):
+        with patch.object(
+            repositories.source_catalog, "discover", side_effect=[self.discovery("one"), self.discovery("two")]
+        ) as discover:
+            with reads().snapshot():
+                with patch.dict(os.environ, {"AUTOCODE_SOURCE_CATALOG_HOME": "/first-catalog"}):
+                    self.assertEqual("one", repositories.source_snapshot()["source_snapshot"])
+                with patch.dict(os.environ, {"AUTOCODE_SOURCE_CATALOG_HOME": "/second-catalog"}):
+                    self.assertEqual("two", repositories.source_snapshot()["source_snapshot"])
+            self.assertEqual(2, discover.call_count)
+
+    def test_failed_inventory_is_not_retained_in_a_response(self):
+        incomplete = {**self.discovery(), "complete": False, "diagnostics": [{"code": "repository_unreadable"}]}
+        with patch.object(repositories.source_catalog, "discover", side_effect=[incomplete, self.discovery("fixed")]):
+            with reads().snapshot():
+                with self.assertRaisesRegex(repositories.CoordinationError, "repository_unreadable"):
+                    repositories.source_snapshot()
+                self.assertEqual("fixed", repositories.source_snapshot()["source_snapshot"])
+
+    def test_incomplete_discovery_cannot_authorize_resolution(self):
+        incomplete = {**self.discovery(), "complete": False, "diagnostics": [{"code": "repository_unreadable"}]}
+        with patch.object(repositories.source_catalog, "discover", return_value=incomplete):
+            with reads().snapshot():
+                for call in (repositories.source_snapshot, repositories.catalog):
+                    with self.assertRaisesRegex(repositories.CoordinationError, "repository_unreadable"):
+                        call()
 
 
 class TaskRunReadTests(unittest.TestCase):
@@ -267,3 +329,70 @@ class CoordinatorReadTests(unittest.TestCase):
             # Outside the read-only coordinator response, even the same handle reads afresh.
             coordinate.handle(member).intervention_status()
             self.assertEqual(5, len(calls))
+
+
+@unittest.skipUnless(sys.platform == "linux", "supervised provider requires supported Linux")
+class CatalogSnapshotCliTests(unittest.TestCase):
+    def test_status_reopen_rejects_changed_catalog_sources_without_starting_a_member(self):
+        from tests.test_agent_step import fixture_workspace
+        from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
+
+        workspace, env = fixture_workspace(self)
+        peer, _ = fixture_workspace(self)
+        peer = peer.rename(peer.with_name("peer"))
+        self.enterContext(patch.dict(os.environ, env))
+        source = tasks.TaskRun.start(workspace, BRIEF, options=(*FIXTURE_OPTIONS, "--spec-first"), env=env, timeout=180)
+        before = source.advance_until_input()
+        repositories.source_catalog.add_repository(peer)
+        target = peer.name
+        document = {
+            "version": 1,
+            "id": "catalog-snapshot-fixture",
+            "anchor": str(source.run_dir),
+            "phase": "discovering",
+            "revision": 1,
+            "task": BRIEF,
+            "members": [],
+            "choices": {},
+            "joint_attempts": [],
+            "initial_scope": [{"target": target, "work": "Verify the shared boundary"}],
+            "source_catalog": repositories.source_snapshot(),
+            "budget": {**coordinate.budget.initial(before), "cap_usd": 0},
+        }
+        coordinate.store.save(document)
+
+        def status():
+            reply = subprocess.run(
+                [*tasks.AUTOCODE, "coordinate", "status", "--run-dir", str(source.run_dir), "--json"],
+                env={**os.environ, **env},
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=True,
+            )
+            return json.loads(reply.stdout)
+
+        initial = status()
+        self.assertEqual("resolve", initial["needs"]["kind"])
+        self.assertEqual(str(peer.resolve()), initial["needs"]["entry"]["origin"])
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(peer),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "changed source",
+            ],
+            check=True,
+        )
+        reopened = status()
+        self.assertEqual("blocked", reopened["needs"]["kind"])
+        self.assertIn("source catalog changed", reopened["needs"]["reason"])
+        self.assertEqual([], reopened["members"])
+        self.assertEqual(before["cost"], source.status()["cost"])

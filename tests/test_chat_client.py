@@ -563,6 +563,36 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(2, client.converse())
         self.assertEqual([], client.taken)
 
+    def test_a_declined_continue_exits_the_line_chat(self):
+        view = {
+            "status": "PAUSED_INVALID_OUTPUT",
+            "next_stage": "terra",
+            "needs": {"kind": "resume"},
+            "next_command": f"autocode {PLACE} --resume-paused",
+        }
+        client = ScriptedChat(view, replies=["n"])
+        self.assertEqual(2, client.converse())
+        self.assertEqual([], client.taken)
+        self.assertIn("Left as it is. The run remains paused.", client.text())
+        self.assertNotIn("What do you want done?", client.text())
+
+    def test_a_declined_continue_returns_to_a_new_chat_in_the_full_screen_client(self):
+        """#2701: answering N at a Continue prompt evicted the full-screen chat with exit code 2."""
+        view = {
+            "status": "PAUSED_INVALID_OUTPUT",
+            "next_stage": "terra",
+            "needs": {"kind": "resume"},
+            "next_command": f"autocode {PLACE} --resume-paused",
+        }
+        client = ScriptedChat(view, replies=["n", ""])
+        client.switched = mock.Mock(return_value=None)  # the renderer's presence
+        self.assertEqual(2, client.converse())  # EOF once the new-chat box is left empty again
+        self.assertEqual([], client.taken)
+        out = client.text()
+        self.assertIn("Left as it is. The run remains paused.", out)
+        self.assertIn("What do you want done?", out)
+        self.assertIn("Nothing started; this chat carries on.", out)
+
     def test_a_correction_at_one_option_question_uses_its_offered_feedback_action(self):
         correction = "These examples were added in the current unapproved draft."
         client = ScriptedChat(answer_view(), DONE, replies=[correction])
@@ -1078,6 +1108,66 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(0, client.converse())
         self.assertEqual([["--answer", "RQ=plan"]], client.taken, "not sent as a correction")
 
+    def test_plain_confirmation_uses_the_requirements_review_action(self):
+        for reply in ("yes correct", "Correct.", "Yes, that’s correct!"):
+            with self.subTest(reply=reply):
+                client = ScriptedChat(self.REVIEW, DONE, replies=[reply, "y"])
+                self.addCleanup(client.close)
+                self.assertEqual(0, client.converse())
+                self.assertEqual([["--answer", "RQ=plan"]], client.taken)
+
+    def test_plain_confirmation_also_accepts_the_displayed_planning_spend(self):
+        client = ScriptedChat(self.REVIEW, DONE, replies=["yes correct", "yes correct"])
+        self.addCleanup(client.close)
+        self.assertEqual(0, client.converse())
+        self.assertEqual([["--answer", "RQ=plan"]], client.taken)
+
+    def test_qualified_spend_confirmation_leaves_the_understanding_unapproved(self):
+        client = ScriptedChat(self.REVIEW, DONE, replies=["yes correct", "yes, but do not spend more"])
+        self.addCleanup(client.close)
+        self.assertEqual(2, client.converse())
+        self.assertEqual([], client.taken)
+        self.assertIn("Not started", client.text())
+
+    def test_qualified_confirmation_is_still_requirements_feedback(self):
+        reply = "yes correct, but include stored entries"
+        client = ScriptedChat(self.REVIEW, DONE, replies=[reply])
+        self.addCleanup(client.close)
+        self.assertEqual(0, client.converse())
+        self.assertEqual([["--feedback", reply]], client.taken)
+
+    def test_plain_confirmation_cannot_answer_a_changed_requirements_context(self):
+        client = ScriptedChat(self.REVIEW)
+        self.addCleanup(client.close)
+        replies = iter(("yes correct", "y"))
+
+        def reply(prompt):
+            client.views[0] = {**self.REVIEW, "chat": {**self.REVIEW["chat"], "context": "changed"}}
+            return next(replies)
+
+        client.ask = reply
+        command = actions.named(self.REVIEW, WORKSPACE, RUN)
+        self.assertTrue(client.requirements(self.REVIEW, command))
+        self.assertEqual([], client.taken)
+        self.assertIn("conversation changed meanwhile", client.text())
+
+    def test_requirements_confirmation_phrases_do_not_approve_implementation_plans(self):
+        plan = {"token": "t", "acceptance_criteria": [], "constraints": [], "permission_boundaries": []}
+        view = {
+            "status": "AWAITING_GOAL_APPROVAL",
+            "needs": {"kind": "approve_plan", "token": "t"},
+            "displayed_plan": plan,
+            "next_command": f"AUTOCODE_PLAN_TOKEN=t autocode {PLACE} --approve-plan --plan-token -",
+            "chat": {
+                "context": "plan-context",
+                "input": {"kind": "feedback", "next_command": f"autocode {PLACE} --feedback MESSAGE"},
+            },
+        }
+        client = ScriptedChat(view, DONE, replies=["yes correct"])
+        self.addCleanup(client.close)
+        self.assertEqual(0, client.converse())
+        self.assertEqual([["--feedback", "yes correct"]], client.taken)
+
     def test_a_mode_that_plans_at_once_is_confirmed_before_it_starts(self):
         asked = []
         for mode, replies, expected in (
@@ -1148,6 +1238,55 @@ class ConversationTests(unittest.TestCase):
         with mock.patch.object(chat, "project_runs", return_value=listed):
             chat.open_chat(WORKSPACE, ask=lambda prompt: "3", say=said.append)
         self.assertEqual(2, len({line for line in said if "Add a --shout flag" in line}))
+
+    def test_a_number_at_the_first_question_opens_that_earlier_chat(self):
+        """Typing the number /runs just showed started a run whose task was that number."""
+
+        def run(n, bucket, title, day):
+            return {
+                "name": f"202610{day}-chat-{n}",
+                "run_dir": f"{WORKSPACE}/.autocode/runs/r{n}",
+                "workspace": str(WORKSPACE),
+                "bucket": bucket,
+                "title": title,
+                "updated_at": f"2026-10-{day}T10:00:00",
+            }
+
+        earlier = [run(1, "complete", "Fix the typo", "01"), run(2, "complete", "Old dashboard", "10")]
+        said, asked = [], []
+        replies = iter(["2"])
+        with (
+            mock.patch.object(chat, "project_runs", return_value=earlier),
+            mock.patch.object(chat, "start", side_effect=AssertionError("a number must not start a run")),
+        ):
+            client = chat.open_chat(
+                WORKSPACE, ask=lambda prompt: asked.append(prompt) or next(replies), say=said.append, hint=True
+            )
+        self.assertEqual(Path(earlier[0]["run_dir"]), client.run_dir, "2 is the newest, as /runs numbers it")
+        self.assertEqual(["What do you want done? "], asked)
+        self.assertIn("2 earlier chats here. Type /runs to see them.", said)
+
+    def test_an_out_of_range_number_at_the_first_question_still_asks_not_runs_it(self):
+        earlier = [
+            {
+                "name": "20261001-chat-1",
+                "run_dir": f"{WORKSPACE}/.autocode/runs/r1",
+                "workspace": str(WORKSPACE),
+                "bucket": "complete",
+                "title": "Fix the typo",
+                "updated_at": "2026-10-01T10:00:00",
+            }
+        ]
+        said = []
+        replies = iter(["7", ""])
+        with (
+            mock.patch.object(chat, "project_runs", return_value=earlier),
+            mock.patch.object(chat, "start", side_effect=AssertionError("an out-of-range number must not start a run")),
+        ):
+            client = chat.open_chat(WORKSPACE, ask=lambda prompt: next(replies), say=said.append, hint=True)
+        self.assertIsNone(client, "the person left instead of starting a task")
+        self.assertIn("There is no chat 7. Type /runs to see them, then its number or /open 7.", said)
+        self.assertIn("Nothing started.", said)
 
     def test_a_failing_run_listing_is_reported_not_taken_for_an_empty_project(self):
         broken = subprocess.CompletedProcess([], 2, "", "Traceback: registry unreadable")
@@ -2069,13 +2208,12 @@ class TerminalChatTests(unittest.TestCase):
         return {row["question_id"]: row["text"] for row in rows if row.get("kind") == "answer"}
 
     def test_a_person_confirms_the_understanding_approves_the_plan_and_the_run_completes(self):
-        proc = self.chat(BRIEF, replies="y\ny\ny\n\n")
+        proc = self.chat(BRIEF, replies="y\ny\n\n")
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         out = proc.stdout
-        self.assertIn("Approve understanding and prepare plan? [y/N]", out)
-        # The core's spend confirmation, as the extension's modal shows it, before paid planning.
-        self.assertIn("Prepare a reviewed plan?\nPlanning uses your selected models and saved limits.", out)
-        self.assertIn("Prepare plan? [y/N]: ", out)
+        self.assertIn("Approve understanding and prepare plan?", out)
+        self.assertIn("Planning uses your selected models and saved limits.", out)
+        self.assertNotIn("Prepare plan? [y/N]: ", out)
         self.assertNotIn(chat.LAUNCH_WARNING, out, "Full mode confirms at planning, not at launch")
         self.assertIn("Plan to approve:\n  [C1] Greeting contract holds", out)
         self.assertLess(out.index("Plan to approve:"), out.index("The requested task is complete."))
@@ -2087,12 +2225,53 @@ class TerminalChatTests(unittest.TestCase):
         self.assertTrue(out.rstrip().endswith("Done."), out[-500:])
         self.assertTrue((self.workspace / "greet.py").is_file())
 
+    def test_yes_correct_reaches_plan_review_without_repeating_requirements(self):
+        proc = self.chat(BRIEF, replies="yes correct\n")
+        self.assertEqual(2, proc.returncode, proc.stdout + proc.stderr)
+        listed = subprocess.run(
+            [sys.executable, str(AUTOCODE), "runs", "--workspace", str(self.workspace), "--json"],
+            capture_output=True,
+            text=True,
+            env=self.env,
+            check=True,
+        )
+        run = json.loads(listed.stdout)["runs"][0]["run_dir"]
+
+        def status():
+            result = subprocess.run(
+                [sys.executable, str(AUTOCODE), "--workspace", str(self.workspace), "--run-dir", run, "--status"],
+                capture_output=True,
+                text=True,
+                env=self.env,
+                check=True,
+            )
+            raw = json.loads(result.stdout)
+            return raw.get("view", raw)
+
+        view = status()
+        attempts = view["usage"]["accounting"]["attempts"]
+        self.assertEqual(2, sum(row["stage"] == "requirements_gather" for row in attempts))
+        prompts = [
+            json.loads(p.read_text().split("CURRENT HANDOFF DATA\n", 1)[1])
+            for p in Path(run).glob("iterations/*/requirements-gather-*.prompt.md")
+        ]
+        self.assertEqual(1, sum(bool(p.get("message", {}).get("gate_kind")) for p in prompts))
+        self.assertEqual("AWAITING_GOAL_APPROVAL", view["status"])
+        self.assertIsNotNone(actions.plan_for_approval(view))
+        self.assertFalse(any(row["stage"] == "terra" for row in attempts))
+        self.assertFalse((self.workspace / "greet.py").exists())
+        reopened = status()
+        self.assertEqual(view["usage"], reopened["usage"])
+        self.assertEqual(view["cost"], reopened["cost"])
+
     def test_a_question_is_answered_by_choosing_an_option(self):
         ask_one_question_once(self, self.env)
-        # Requirements first (the only mode since 2026-10-22): confirm, prepare the plan, answer, approve.
-        proc = self.chat(BRIEF, replies="y\ny\n2\ny\n\n")
+        # Requirements interprets confirmation, then the Planner asks, then the person approves.
+        proc = self.chat(BRIEF, replies="y\n2\ny\n\n")
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
-        self.assertLess(proc.stdout.index("Prepare plan? [y/N]"), proc.stdout.index("Should the README target"))
+        self.assertLess(
+            proc.stdout.index("Approve understanding and prepare plan?"), proc.stdout.index("Should the README target")
+        )
         self.assertEqual(1, proc.stdout.count("Should the README target beginners"), "the question is asked once")
         self.assertIn("  2. Experienced Python users", proc.stdout)
         self.assertEqual("Experienced Python users", self.answers()["readme-audience"])
@@ -2100,7 +2279,7 @@ class TerminalChatTests(unittest.TestCase):
     def test_a_correction_at_an_option_question_is_saved_as_feedback_without_approval(self):
         ask_one_question_once(self, self.env)
         correction = "The question needs to reflect the current draft."
-        proc = self.chat(BRIEF, replies="y\ny\n" + correction + "\n")
+        proc = self.chat(BRIEF, replies="y\n" + correction + "\n")
         self.assertEqual(2, proc.returncode, proc.stdout + proc.stderr)
         self.assertNotIn("Input rejected", proc.stdout)
         events = subprocess.run(
@@ -2119,10 +2298,10 @@ class TerminalChatTests(unittest.TestCase):
         (self.workspace / ".autocode").mkdir(exist_ok=True)
         saved = {"mode": "quick", "options": list(FIXTURE_OPTIONS)}  # kept by a chat before 2026-10-22
         (self.workspace / ".autocode" / "chat-settings.json").write_text(json.dumps(saved), encoding="utf-8")
-        proc = self.chat(BRIEF, replies="y\ny\ny\n\n", options=())
+        proc = self.chat(BRIEF, replies="y\ny\n\n", options=())
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         self.assertNotIn("no run mode", proc.stderr)
-        self.assertIn("Approve understanding and prepare plan? [y/N]", proc.stdout, "Requirements comes first")
+        self.assertIn("Approve understanding and prepare plan?", proc.stdout, "Requirements comes first")
         self.assertTrue((self.workspace / "greet.py").is_file())
 
         explicit = self.chat("--mode", "quick", BRIEF, options=())
@@ -2132,7 +2311,7 @@ class TerminalChatTests(unittest.TestCase):
         )
 
     def test_leaving_at_the_plan_changes_nothing_and_chat_picks_the_run_up_again(self):
-        left = self.chat(BRIEF, replies="y\ny\n")
+        left = self.chat(BRIEF, replies="y\n")
         self.assertEqual(2, left.returncode, left.stdout + left.stderr)
         self.assertIn("Left the chat; the run is unchanged.", left.stdout)
         self.assertNotIn("autocode chat --run-dir", left.stdout)
@@ -2144,14 +2323,14 @@ class TerminalChatTests(unittest.TestCase):
         self.assertTrue((self.workspace / "greet.py").is_file())
 
     def test_with_nothing_open_the_chat_asks_what_to_do_and_starts_it(self):
-        proc = self.chat(replies=BRIEF + "\ny\ny\ny\n\n")
+        proc = self.chat(replies=BRIEF + "\ny\ny\n\n")
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         self.assertTrue(proc.stdout.startswith("What do you want done? "), proc.stdout[:200])
         self.assertTrue((self.workspace / "greet.py").is_file())
 
     def test_with_several_runs_open_the_person_picks_one(self):
         for _ in range(2):
-            self.assertEqual(2, self.chat(BRIEF, replies="y\ny\n").returncode)
+            self.assertEqual(2, self.chat(BRIEF, replies="y\n").returncode)
         proc = self.chat(replies="2\ny\n\n", options=())
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         self.assertIn("Runs waiting here:\n  1. ", proc.stdout)
@@ -2211,7 +2390,7 @@ class TerminalChatTests(unittest.TestCase):
             rows=24,
             tmux=require_tmux(self),
         ) as screen:
-            for prompt in ("Approve understanding and prepare plan?", "Prepare plan?"):
+            for prompt in ("Approve understanding and prepare plan?",):
                 screen.wait_for(prompt)
                 screen.type("y")
                 screen.keys("Enter")
@@ -2246,7 +2425,7 @@ class TerminalChatTests(unittest.TestCase):
             *FIXTURE_OPTIONS,
         ]
         with TerminalScreen(argv, cwd=self.workspace, env=self.env, cols=100, rows=20, tmux=tmux) as screen:
-            for gate in ("Approve understanding", "Prepare plan?"):
+            for gate in ("Approve understanding",):
                 screen.wait_for(gate, 300)
                 screen.type("y")
                 screen.keys("Enter")

@@ -5,8 +5,10 @@ import secrets
 
 try:
     from . import autocode_client_actions as actions
+    from . import autocode_roles as roles
 except ImportError:
     import autocode_client_actions as actions
+    import autocode_roles as roles
 
 
 def command(summary, anchor, text, request_id):
@@ -24,6 +26,12 @@ def command(summary, anchor, text, request_id):
         "MESSAGE",
         "--json",
     ]
+    gate = (summary.get("conversation") or {}).get("gate")
+    if gate:
+        token = gate.get("token")
+        if not token or token != (summary.get("approval") or {}).get("token"):
+            raise ValueError("The plan message does not match the displayed approval")
+        expected[-1:-1] = ["--plan-token", token]
     if (
         summary.get("anchor") != str(anchor)
         or not summary.get("id")
@@ -48,7 +56,8 @@ class Sender:
         anchor = str(client.run_dir.resolve())
         if shown.get("anchor") != anchor:
             raise ValueError("The displayed task belongs to another chat; your draft is kept")
-        key = (anchor, shown.get("id"), text)
+        token = ((shown.get("conversation") or {}).get("gate") or {}).get("token")
+        key = (anchor, shown.get("id"), text, token)
         if key not in self.pending:
             view = client.status()
             if actions.own(view, client.workspace, client.run_dir) != (client.workspace, client.run_dir):
@@ -60,11 +69,18 @@ class Sender:
             fresh = json.loads(response.stdout)
             if response.returncode or fresh.get("version") != 1 or fresh.get("id") != shown.get("id"):
                 raise ValueError("Task identity changed")
+            if token and (fresh.get("approval") or {}).get("token") != token:
+                raise ValueError("The displayed plans changed before your reply; review the current packet")
             request = "chat-task-message-" + secrets.token_hex(16)
             command(shown, anchor, text, request)
             self.pending[key] = (request, command(fresh, anchor, text, request))
         request, argv = self.pending[key]
-        response = client.cli(argv, timeout=30)
+        sending = list(argv)
+        extra = {}
+        if token:
+            sending[sending.index("--plan-token") + 1] = "-"
+            extra["env"] = {"AUTOCODE_COORDINATION_TOKEN": token}
+        response = client.cli(sending, timeout=30, **extra)
         value = json.loads(response.stdout)
         receipt = value.get("receipt") or {}
         if (
@@ -76,6 +92,7 @@ class Sender:
             or receipt.get("kind") != "message"
             or receipt.get("text") != text
             or receipt.get("coordination_id") != shown["id"]
+            or (token is not None and receipt.get("plan_token") != token)
         ):
             raise ValueError("Receipt does not confirm the exact task message")
         del self.pending[key]
@@ -96,4 +113,9 @@ def show(client, summary):
         identity = answer.get("id") or "task-answer-" + row["request_id"]
         if identity not in client.seen:
             client.seen.add(identity)
-            client.say("\nRequirements: " + answer["text"])
+            stage = (
+                "astra_finalize"
+                if (row.get("context") or {}).get("kind") == "coordinated_plan"
+                else "requirements_gather"
+            )
+            client.say("\n" + roles.screen_name(stage) + ": " + answer["text"])
