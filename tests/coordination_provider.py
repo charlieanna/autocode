@@ -113,7 +113,8 @@ def main():
     output = Path(sys.argv[sys.argv.index("-o") + 1])
     root = Path.cwd()
     message = data.get("message") or {}
-    if message.get("kind") == "gate_message":
+    coordinated_plan = (message.get("context") or {}).get("kind") == "coordinated_plan"
+    if message.get("kind") == "gate_message" or coordinated_plan:
         text = message["text"].strip().casefold()
         intent = (
             "confirm"
@@ -129,7 +130,13 @@ def main():
             "intent": intent,
             "assistant_reply": "Offline fixture: interpreted the displayed decision.",
         }
-        report["gate_token"] = message["gate_token"]
+        if coordinated_plan:
+            report.update(
+                contract_token=message["contract_token"],
+                affected_targets=[message["context"]["participants"][0]["target"]] if intent == "change" else [],
+            )
+        else:
+            report["gate_token"] = message["gate_token"]
         output.write_text(json.dumps(report))
         log = root / ".autocode/provider-calls.jsonl"
         log.parent.mkdir(exist_ok=True)

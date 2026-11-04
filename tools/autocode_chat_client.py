@@ -970,6 +970,10 @@ class ChatClient:
             if row.get("streaming"):
                 streaming_text = row.get("text") or None  # shown while written, replaced by the finished message
                 continue
+            if row.get("conversation") and view.get("coordination"):
+                # The coordinator renders this receipt with its responsible stage.
+                # An earlier anchor poll must not consume the shared message ID.
+                continue
             if key in self.seen:
                 continue
             self.seen.add(key)

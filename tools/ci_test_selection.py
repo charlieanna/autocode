@@ -193,7 +193,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/prompts/fragments/autocode/execute-report-repair-06.md", ("tests.test_report_repair",)),
     (
         "tests/coordination_provider.py",
-        ("tests.test_coordination_tui_e2e", "tests.test_planning_scope_cli"),
+        ("tests.test_coordination_tui_e2e", "tests.test_planning_scope_cli", "tests.test_coordination_gate_cli"),
     ),
     (
         "tests/legacy_bugfix_fixture.py",
@@ -318,6 +318,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/autocode_native_capture_linux.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/prompts/plan-chat.md", ("tests.test_plan_chat_cli",)),
     ("tools/prompts/gate-chat.md", ("tests.test_gate_chat_cli",)),
+    ("tools/prompts/coordinated-plan-chat.md", ("tests.test_coordination_gate_cli",)),
     (
         "tools/prompts/run-chat.md",
         (
@@ -734,6 +735,15 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (("tools/autocode_plan_chat.py",), ("tests.test_plan_chat_cli",)),
     (("tools/autocode_coordination_request_runtime.py",), ("tests.test_coordination_request_cli",)),
+    (
+        (
+            "tools/autocode_coordination_gate.py",
+            "tools/prompts/coordinated-plan-chat.md",
+            "tools/autocode_chat_coordination.py",
+            "tests/coordination_provider.py",
+        ),
+        ("tests.test_coordination_gate_cli",),
+    ),
     (
         ("tools/autocode_gate_chat.py", "tools/prompts/gate-chat.md", "tools/autocode_chat_client.py"),
         ("tests.test_gate_chat_cli",),

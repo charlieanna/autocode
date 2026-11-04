@@ -219,7 +219,10 @@ def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: 
         ):
             raise InterventionError("context_unavailable", "This run cannot accept task conversation context")
         if kind == "message" and (
-            not (current_state.get("settings") or {}).get("spec_first")
+            (
+                not (current_state.get("settings") or {}).get("spec_first")
+                and (context or {}).get("kind") != "coordinated_plan"
+            )
             or (current_state.get("intervention_capability") or {}).get("supports_messages") is not True
             or current_state.get("status") == "TASK_COMPLETE"
             or any(item.get("kind") == "stop" for item in current_state.get("applied_interventions", []))

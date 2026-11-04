@@ -23,6 +23,7 @@ try:
     from . import autocode_coordination_conversation as conversation
     from . import autocode_coordination_conversation_runtime as conversation_runtime
     from . import autocode_coordination_evidence as joint_evidence
+    from . import autocode_coordination_gate as gate_chat
     from . import autocode_coordination_joint as joint
     from . import autocode_coordination_limits as limits
     from . import autocode_coordination_message_inbox as message_inbox
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_coordination_conversation as conversation
     import autocode_coordination_conversation_runtime as conversation_runtime
     import autocode_coordination_evidence as joint_evidence
+    import autocode_coordination_gate as gate_chat
     import autocode_coordination_joint as joint
     import autocode_coordination_limits as limits
     import autocode_coordination_message_inbox as message_inbox
@@ -790,6 +792,7 @@ def status(run_dir, *, command=tasks.AUTOCODE):
         token = util.digest(binding)
         output["approval"] = {
             "token": token,
+            "basis": util.digest({key: value for key, value in binding.items() if key != "revision"}),
             "next_command": store.command(run_dir, "approve", "--token", token, "--json"),
             "publication": "After all member gates and the joint regression pass, publish one linked PR per changed repository. No automatic merge.",
         }
@@ -817,6 +820,14 @@ def status(run_dir, *, command=tasks.AUTOCODE):
             if document.get("members") and document.get("phase") not in ("publishing", "complete")
             else None,
         }
+    if output.get("approval") and output.get("conversation"):
+        current = output["conversation"]
+        current["gate"] = {
+            "token": output["approval"]["token"],
+            "decision": gate_chat.decision(output, requests, current["results"]),
+        }
+        if current.get("input"):
+            current["input"]["next_command"][-1:-1] = ["--plan-token", output["approval"]["token"]]
     return output
 
 
@@ -1320,7 +1331,8 @@ def parser():
         child.add_argument("--json", action="store_true", help="Print the result as JSON")
         if name == "message":
             child.add_argument("--request-id", required=True, help="Stable identity for exact message retries")
-            child.add_argument("--text", required=True, help="Original message for Requirements to assess")
+            child.add_argument("--text", required=True, help="Original message for the responsible agent to assess")
+            child.add_argument("--plan-token", help="Bind a plan reply to the complete displayed coordination approval")
         if name == "approve":
             child.add_argument("--token", required=True, help="Exact token of the coordinated plans shown")
         if name in ("budget", "resume"):
@@ -1380,7 +1392,11 @@ def cli(argv=None):
         if args.operation == "status":
             result = status(args.run_dir)
         elif args.operation == "message":
-            result = message_inbox.submit(args.run_dir, request_id=args.request_id, text=args.text)
+            if args.plan_token is not None:
+                token = os.environ.get("AUTOCODE_COORDINATION_TOKEN", "") if args.plan_token == "-" else args.plan_token
+                result = gate_chat.submit(args.run_dir, args.request_id, args.text, token, read_status=status)
+            else:
+                result = message_inbox.submit(args.run_dir, request_id=args.request_id, text=args.text)
         elif args.operation == "advance":
             result = advance(args.run_dir)
         elif args.operation == "bind":

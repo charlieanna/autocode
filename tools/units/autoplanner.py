@@ -1047,6 +1047,8 @@ def refund_unreported(state: RunState, planning):
 def charge(state: RunState, stage, record=None, workspace=None):
     if (message := gate_chat.pending(state)) and message["stage"] == stage:
         return  # conversational interpretation is not another full plan review
+    if (message := plan_chat.pending(state)) and (message.get("context") or {}).get("kind") == "coordinated_plan":
+        return  # the saved reviewer is interpreting a reply, not reviewing another draft
     if stage not in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
         return
     if progressive.charge_review(state, stage, record):
@@ -1289,7 +1291,11 @@ RISK_OBSERVATION_REVIEW_RULE = prompts.get("fragments/autoplanner/risk-observati
 def context(state: RunState, stage, state_path):
     if (message := gate_chat.pending(state)) and message["stage"] == stage:
         return gate_chat.context(state)
-    if stage == "requirements_gather" and plan_chat.pending(state):
+    if (
+        stage in ("requirements_gather", "astra_finalize")
+        and plan_chat.pending(state)
+        and state.get("next_stage") == stage
+    ):
         return plan_chat.context(state)
     predecessor = None
     if stage in V2_STAGES:
@@ -1645,7 +1651,8 @@ def _model_report_schema(schema, state: RunState):
     # assistant_reply only in a chat; job and design_document in every Requirements report (#1860), and
     # clarity with them while an adaptive run's Requirements names the job.
     fields = result.get("properties", {})
-    dropped = [] if (state.get("settings") or {}).get("spec_first") else ["assistant_reply"]
+    conversational = bool(plan_chat.pending(state) or gate_chat.pending(state))
+    dropped = [] if conversational or (state.get("settings") or {}).get("spec_first") else ["assistant_reply"]
     if "job" in fields and not adaptive.requirements_judge_clarity(state):
         dropped.append("clarity")
     for field in dropped:
@@ -1776,7 +1783,11 @@ def schema_for(state: RunState, stage):
     """The report schema for a planning stage in this run (adaptive runs extend two of them)."""
     if (message := gate_chat.pending(state)) and message["stage"] == stage:
         return gate_chat.schema(state)
-    if stage == "requirements_gather" and plan_chat.pending(state):
+    if (
+        stage in ("requirements_gather", "astra_finalize")
+        and plan_chat.pending(state)
+        and state.get("next_stage") == stage
+    ):
         return plan_chat.message_context.schema(plan_chat.SCHEMA, plan_chat.pending(state))
     if stage == RECOGNIZE:
         return adaptive.recognizer_schema(state, SCHEMAS[stage])

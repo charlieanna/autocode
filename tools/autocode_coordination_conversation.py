@@ -70,9 +70,27 @@ def context(document, views):
         raise store.CoordinationError(str(error)) from error
 
 
+def context_matches(document, views, saved):
+    """Check every bound public plan again before accepting a coordinated interpretation."""
+    if saved.get("kind") != "coordinated_plan":
+        return context(document, views) == saved
+    required = {row["target"] for row in document["members"]} | (
+        {"Joint regression"} if "Joint regression" in views else set()
+    )
+    if {row["target"] for row in saved["participants"]} != required:
+        return False
+    current = deepcopy(saved)
+    for row in current["participants"]:
+        view = views.get(row["target"])
+        if view is None or not view.get("displayed_plan"):
+            return False
+        row["plan"] = deepcopy(view["displayed_plan"])
+    return message_context.projected(current) == saved
+
+
 def affected(document, targets):
     """Include dependents of a changed interface, within the authorized member set."""
-    allowed = {row["target"] for row in document["members"]}
+    allowed = {row["target"] for row in document["members"]} | {"Joint regression"}
     if (
         not isinstance(targets, list)
         or not targets
@@ -80,7 +98,7 @@ def affected(document, targets):
         or len(set(targets)) != len(targets)
     ):
         raise store.CoordinationError("Conversation change targets must be unique authorized members")
-    selected = set(targets)
+    selected = set(targets) - {"Joint regression"}
     while True:
         expanded = selected | {
             target
@@ -108,7 +126,12 @@ def reply(active, source):
     metadata = answer["conversation"]
     if (
         metadata.get("context_sha256") != util.digest(active["context"])
-        or metadata.get("intent") not in ("question", "change")
+        or metadata.get("intent")
+        not in (
+            ("confirm", "question", "change", "decline")
+            if active["context"].get("kind") == "coordinated_plan"
+            else ("question", "change")
+        )
         or not isinstance(answer.get("text"), str)
         or not answer["text"].strip()
     ):
@@ -195,7 +218,7 @@ def step(document, requests, views, source):
         return {"kind": "blocked", "reason": "The active task message has no matching pending receipt"}
     answer = active.get("reply")
     if answer:
-        if answer["conversation"]["intent"] == "question":
+        if answer["conversation"]["intent"] != "change":
             return {"kind": "conversation", "operation": "finish"}
         if independent:
             return independent
@@ -216,7 +239,7 @@ def step(document, requests, views, source):
         return {"kind": "watch", "target": "Requirements"}
     answer = reply(active, source)
     if answer:
-        if context(document, views) != active["context"]:
+        if not context_matches(document, views, active["context"]):
             return {"kind": "blocked", "reason": "Participant plans changed during the Requirements assessment"}
         return {"kind": "conversation", "operation": "capture"}
     intervention = source.get("interventions") or {}
