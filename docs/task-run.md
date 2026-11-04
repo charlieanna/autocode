@@ -2818,3 +2818,21 @@ review facts in its header, Review result panel and `/details`.
 ### Original-test command recovery
 
 At an idle validation pause, the core can name `--resume-paused --revise-protected-tests @approved-suite` when an approved empty package-marker deletion stranded the original root unittest collector for nested repositories. The `needs.reason` displays both exact commands and the retained original-test guarantee; clients take only that named action after confirmation. This revises only the suite command, capturing the same sealed original files from their archive, never the current modified tests. The old binding and explicit user event remain. The proposal starts from a unique approved, unfiltered pytest collector covering every original path. If restoring the sealed empty root marker would collide with an empty nested test package, the explicit offer moves the joint `tests` root first and adds `--import-mode=importlib`; it displays this exact change for confirmation and retains both markers. Executable nested package setup cannot trigger this correction. Active, uncertain, unapproved, filtered or ambiguous cases offer no correction. Fresh original-test replay and independent validation remain required.
+
+#### Conversational coordinated plan approval
+
+At a complete coordinated plan gate, `coordinate status` adds an approval `basis`
+that identifies the same task, source scope and complete plans independently of
+coordinator bookkeeping revisions. `conversation.gate` carries the current
+approval token and, only after interpretation of the latest unchanged packet, a
+`decision` with `message_id` and `intent: confirm`. Its named message action includes
+`--plan-token`; clients send every typed reply through that action. Exact retries
+retain the same receipt and original plan snapshot.
+
+The source run uses its saved Plan Reviewer route for this bounded conversation.
+Questions and declines preserve the packet; changes retain the original text and
+return affected work through normal review. A joint-only correction is carried to
+the new joint plan. Interpretation consumes ordinary time and monetary accounting,
+but is not another full draft-review round. Clients reread the current gate and
+execute only its separately named exact approval action. Any changed task scope,
+member plan, joint plan, publication terms or newer message withdraws confirmation.

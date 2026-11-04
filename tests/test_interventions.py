@@ -37,6 +37,25 @@ class AdmissionPauseIdentityTests(unittest.TestCase):
 
 
 class InterventionTests(unittest.TestCase):
+    def test_bound_coordinated_plan_message_is_admitted_without_changing_explicit_workflow_settings(self):
+        state = json.loads(self.state_path.read_text())
+        state["intervention_capability"] = {"supports_messages": True, "supports_message_context": True}
+        self.state_path.write_text(json.dumps(state))
+        before = self.state_path.read_bytes()
+        context = {
+            "kind": "coordinated_plan",
+            "participants": [{"target": "api", "status": "AWAITING_GOAL_APPROVAL", "plan": {"token": "plan-1"}}],
+            "approval": {"identity": "a" * 64, "publication": "Draft PR only"},
+        }
+        reply = interventions.submit(
+            self.workspace, self.run, request_id="plan-reply", kind="message", text="yes coplete", context=context
+        )
+        self.assertTrue(reply["accepted"])
+        self.assertEqual(context, reply["receipt"]["context"])
+        self.assertEqual(before, self.state_path.read_bytes())
+        with self.assertRaisesRegex(interventions.InterventionError, "cannot accept a live conversation"):
+            interventions.submit(self.workspace, self.run, request_id="plain", kind="message", text="hello")
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=Path.cwd(), prefix=".tmp-")  # git-ignored (#668)
         self.addCleanup(self.temp.cleanup)

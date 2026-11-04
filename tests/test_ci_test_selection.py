@@ -14,6 +14,15 @@ class DynamicDependenciesTests(unittest.TestCase):
             dependencies.dependencies("tools/autocode_coordination_request_runtime.py"),
         )
 
+    def test_coordinated_gate_keeps_its_public_cli_regression(self):
+        for path in (
+            "tools/autocode_coordination_gate.py",
+            "tools/prompts/coordinated-plan-chat.md",
+            "tools/autocode_chat_coordination.py",
+            "tests/coordination_provider.py",
+        ):
+            self.assertIn("tests.test_coordination_gate_cli", dependencies.dependencies(path))
+
     def test_gate_interpretation_keeps_its_public_cli_regression(self):
         for path in ("tools/autocode_gate_chat.py", "tools/prompts/gate-chat.md", "tools/autocode_chat_client.py"):
             self.assertIn("tests.test_gate_chat_cli", dependencies.dependencies(path))
@@ -25,7 +34,11 @@ class DynamicDependenciesTests(unittest.TestCase):
         self.assertEqual(consumers, set(kept))
 
     def test_coordination_provider_keeps_late_planner_scope_consumer(self):
-        consumers = {"tests.test_coordination_tui_e2e", "tests.test_planning_scope_cli"}
+        consumers = {
+            "tests.test_coordination_tui_e2e",
+            "tests.test_planning_scope_cli",
+            "tests.test_coordination_gate_cli",
+        }
         selected = run_suite.select_tests(
             ["tests/coordination_provider.py"],
             {**{name: "" for name in consumers}, "tests.test_unrelated": ""},

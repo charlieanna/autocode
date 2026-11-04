@@ -14,6 +14,28 @@ import autocode_chat_coordination as coordination
 
 
 class ApprovalPacketTests(unittest.TestCase):
+    def test_interpreted_approval_rechecks_the_fresh_gate_before_any_dispatch(self):
+        from types import SimpleNamespace
+
+        summary = {
+            "done": False,
+            "members": [],
+            "needs": {"kind": "approval"},
+            "approval": {"token": "shown"},
+            "conversation": {"gate": {"token": "shown", "decision": {"message_id": "reply", "intent": "confirm"}}},
+        }
+        for mutate in (
+            lambda value: value["approval"].update(token="changed"),
+            lambda value: value["conversation"]["gate"].update(decision=None),
+        ):
+            fresh = copy.deepcopy(summary)
+            mutate(fresh)
+            client = SimpleNamespace(_observe=True, say=Mock(), ask=Mock(), advance=Mock())
+            with patch.object(coordination, "read", side_effect=[summary, fresh]):
+                self.assertIsNone(coordination.step(client, {}, lambda plan: str(plan)))
+            client.ask.assert_not_called()
+            client.advance.assert_not_called()
+
     def test_identical_joint_summary_is_displayed_once_without_hiding_distinct_plans(self):
         for role, included, count in (
             ("joint", {"token": "r6:joint", "body": "Joint plan text"}, 1),

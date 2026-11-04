@@ -13,9 +13,11 @@ import json
 
 try:
     from . import autocode_coordination_store as store
+    from . import autocode_message_context as context
     from . import autocode_util as util
 except ImportError:
     import autocode_coordination_store as store
+    import autocode_message_context as context
     import autocode_util as util
 
 
@@ -70,6 +72,17 @@ def read(run_dir):
             or not row["submitted_at"]
         ):
             raise store.CoordinationError("Coordination message inbox contains an invalid or repeated request")
+        if row.get("plan_token") is not None or row.get("plan_context") is not None:
+            try:
+                if (
+                    not isinstance(row.get("plan_token"), str)
+                    or not row["plan_token"]
+                    or (row.get("plan_context") or {}).get("kind") != "coordinated_plan"
+                ):
+                    raise ValueError("Missing approval binding")
+                context.checked(row["plan_context"])
+            except (ValueError, TypeError, AttributeError) as error:
+                raise store.CoordinationError("Coordination message has an invalid approval snapshot") from error
         seen.add(row["id"])
     return value["requests"]
 
@@ -89,9 +102,20 @@ def locked(run_dir):
             util.unlock_file(handle)
 
 
-def submit(run_dir, *, request_id, text):
+def submit(run_dir, *, request_id, text, plan_token=None, plan_context=None):
     """Save once or reconcile an exact retry, without dispatching any task action."""
     validate(request_id, text)
+    if plan_token is not None or plan_context is not None:
+        try:
+            if (
+                not isinstance(plan_token, str)
+                or not plan_token
+                or (plan_context or {}).get("kind") != "coordinated_plan"
+            ):
+                raise ValueError("Missing approval binding")
+            plan_context = context.checked(plan_context)
+        except (ValueError, TypeError, AttributeError) as error:
+            raise store.CoordinationError("Plan reply requires an exact displayed approval snapshot") from error
     if not store.read(run_dir):
         raise store.CoordinationError("Coordination has not started")
     with locked(run_dir):
@@ -103,6 +127,8 @@ def submit(run_dir, *, request_id, text):
         if existing:
             if existing["text"] != text:
                 raise store.CoordinationError("Message request identity is already used by different text")
+            if existing.get("plan_token") != plan_token or existing.get("plan_context") != plan_context:
+                raise store.CoordinationError("Message request identity is already bound to different displayed plans")
             receipt = existing
         else:
             if document.get("phase") in ("publishing", "complete"):
@@ -114,6 +140,7 @@ def submit(run_dir, *, request_id, text):
                 "order": len(rows) + 1,
                 "submitted_at": util.now(),
                 "coordination_id": document["id"],
+                **({"plan_token": plan_token, "plan_context": plan_context} if plan_context is not None else {}),
             }
             inbox, _ = paths(run_dir)
             util.atomic_json(

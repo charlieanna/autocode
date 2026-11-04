@@ -61,7 +61,9 @@ def execute(document, selected, requests, views, source, *, run_for, limits_for)
         saved = document["budget"]
         if saved.get("source_run_dir") not in (None, document["anchor"]):
             raise store.CoordinationError("Task conversation source identity conflicts with retained accounting")
-        snapshot = policy.context(document, views)
+        snapshot = deepcopy(message.get("plan_context")) or policy.context(document, views)
+        if not policy.context_matches(document, views, snapshot):
+            raise store.CoordinationError("The displayed plans changed before the reply was interpreted")
         saved["source_run_dir"] = document["anchor"]
         conversation["active"] = {
             "id": message["id"],
@@ -126,7 +128,7 @@ def execute(document, selected, requests, views, source, *, run_for, limits_for)
         submit(run, argv, expected)
     elif operation == "capture":
         answer = policy.reply(active, source)
-        if answer is None or policy.context(document, views) != active["context"]:
+        if answer is None or not policy.context_matches(document, views, active["context"]):
             raise store.CoordinationError("No current Requirements reply can be captured")
         active["reply"] = deepcopy(answer)
         active["answered_at"] = util.now()

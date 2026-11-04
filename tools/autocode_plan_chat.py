@@ -114,7 +114,15 @@ def context(state: RunState):
         raise ValueError("No pending plan message")
     if message.get("live"):
         packet = run_messages.context(state)
-        prompt = prompts.get("run-chat.md") + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet, ensure_ascii=False)
+        prompt = (
+            prompts.get(
+                "coordinated-plan-chat.md"
+                if (message.get("context") or {}).get("kind") == "coordinated_plan"
+                else "run-chat.md"
+            )
+            + "\nCURRENT HANDOFF DATA\n"
+            + json.dumps(packet, ensure_ascii=False)
+        )
         return prompt, {
             "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
             "soft_budget_tokens": (state.get("settings") or {}).get("context_soft_tokens", 10000),

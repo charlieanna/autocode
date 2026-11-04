@@ -68,6 +68,10 @@ def joint_brief(document):
         for source in member.get("message_sources", []):
             key = (source["request_id"], source["text"])
             messages.setdefault(key, []).append(member["target"])
+    for result in (document.get("conversation") or {}).get("results", []):
+        decision = (result.get("reply") or {}).get("conversation") or {}
+        if decision.get("intent") == "change" and "Joint regression" in decision.get("affected_targets", []):
+            messages.setdefault((result["request_id"], result["text"]), []).append("Joint regression")
     order = {
         row["request_id"]: index for index, row in enumerate((document.get("conversation") or {}).get("results", []))
     }
