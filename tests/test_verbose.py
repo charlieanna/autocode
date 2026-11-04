@@ -90,10 +90,37 @@ class VerboseTests(unittest.TestCase):
             lines,
         )
 
+    def test_progress_heartbeats_coalesce_over_a_longer_interval_than_other_lines(self):
+        verbose.enable()
+        out = io.StringIO()
+        ticks = iter([0.0, 5.0, 10.0, 31.0, 32.0])
+        report = verbose.reporter("glm", None, stream=out, clock=lambda: next(ticks))
+        for _ in range(4):
+            report("progress", "native provider stream advanced")
+        report("tool", "command started")
+        lines = out.getvalue().splitlines()
+        self.assertEqual(
+            [
+                "glm: progress: native provider stream advanced",
+                "glm: progress: native provider stream advanced (+2 similar)",
+                "glm: tool: command started",
+            ],
+            lines,
+        )
+
+    def test_repeated_tool_lines_still_print_after_one_second(self):
+        verbose.enable()
+        out = io.StringIO()
+        ticks = iter([0.0, 1.5])
+        report = verbose.reporter("glm", None, stream=out, clock=lambda: next(ticks))
+        report("tool", "tool finished")
+        report("tool", "tool finished")
+        self.assertEqual(["glm: tool: tool finished", "glm: tool: tool finished"], out.getvalue().splitlines())
+
     def test_heartbeat_resumes_after_the_interval_and_distinct_lines_print_at_once(self):
         verbose.enable()
         out = io.StringIO()
-        ticks = iter([0.0, 0.1, 1.2, 1.3, 1.4])
+        ticks = iter([0.0, 0.1, 31.0, 31.1, 31.2])
         report = verbose.reporter("glm", None, stream=out, clock=lambda: next(ticks))
         report("progress", "native provider stream advanced")
         report("progress", "native provider stream advanced")
