@@ -1,9 +1,9 @@
 """Which answers a clarifying question accepts (#1013).
 
 A question that offers ``options`` is a choice among things AutoCode will act on, so an answer
-must name one of them, or the question's ``proposed_default``. Naming tolerates conversation:
-markdown backticks, surrounding quotes, apostrophe shape, case and spacing are ignored, and an
-answer that contains exactly one offered label names it. A question without options takes
+must name one of them, or the question's ``proposed_default``. Formatting differences in a
+complete label are ignored: markdown backticks, surrounding quotes, apostrophe shape, case and
+spacing. Free-form conversation requires interpretation, not a substring match. A question without options takes
 any nonempty text. Pure: imports nothing from AutoCode, so every answer surface (``--answer``,
 ``TaskRun.answer()``, ``--chat``) applies the same rule through ``autocode_goals.answer``.
 """
@@ -27,17 +27,15 @@ def _normalized(text):
 
 
 def _named(valid, text):
-    """The offered label ``text`` names, or None when it names none or several."""
+    """Match a complete label, preserving exact choices before normalizing their formatting."""
+    exact = [label for label in valid if label.strip() == text.strip()]
+    if len(exact) == 1:
+        return exact[0]
     answer = _normalized(text)
     if not answer:
         return None
-    for label in valid:
-        if _normalized(label) == answer:
-            return label
-    # An answer that contains exactly one offered label names it; short labels match
-    # too much prose to be trusted as contained, and two labels is a non-answer.
-    contained = [label for label in valid if len(_normalized(label)) >= 4 and _normalized(label) in answer]
-    return contained[0] if len(contained) == 1 else None
+    matches = [label for label in valid if _normalized(label) == answer]
+    return matches[0] if len(matches) == 1 else None
 
 
 def refusal(question, text, *, feedback="--feedback TEXT"):
