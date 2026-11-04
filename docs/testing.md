@@ -202,6 +202,22 @@ fake providers never bypass unsupported-host admission. The always-reporting
 `ci-required` job fails when scope selection fails or a selected job fails,
 cancels or skips. Master and manual runs retain their existing complete coverage.
 
+When the pinned PR base has a completed failing `tests` workflow, CI runs the
+full head suite and selects all checks. A corrective PR can therefore prove its
+repair without the base's historical failure vetoing a passing head. Green bases
+keep changed-test selection; an unavailable base verdict is reported and keeps
+normal head checks.
+
+`tools/run_suite.py --failed-out PATH` writes a versioned JSON report with failed
+modules, test identities, failure signatures and timeout markers, in parallel or
+serial mode. The informational attribution step reruns only those modules in an
+isolated clone of the pinned base, retaining the tool environment but removing
+the comment tokens. It calls a failure pre-existing only when every recorded head
+failure reproduces on base. Additional failures remain introduced; incomplete
+evidence stays unresolved. This comparison uses the head's installed dependencies,
+so it is evidence about observed failures, not proof that all changes are sound.
+Attribution never turns a failing head suite green.
+
 Maintain the mappings in `tools/ci_scope.py` and `tools/ci_test_selection.py`
 alongside new consumers. A tests-workflow edit exercises its heavy job wiring;
 it does not enroll the whole fake catalog as a PR prerequisite. One trigger is
