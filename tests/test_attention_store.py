@@ -40,6 +40,18 @@ class LocalAcknowledgement(unittest.TestCase):
             self.assertEqual("unread", self.inspect()["state"])
         self.assertFalse(self.root.exists())
 
+    def test_missing_account_home_disables_acknowledgement_without_crashing_status_reads(self):
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch.object(Path, "home", side_effect=RuntimeError("No account home")),
+        ):
+            result = self.inspect()
+        self.assertFalse(result["available"])
+        self.assertEqual("unknown", result["state"])
+        self.assertNotIn("receipt", result)
+        self.assertFalse(self.root.exists())
+        self.assertFalse((self.workspace / ".autocode").exists())
+
     def test_two_viewers_share_one_idempotent_receipt_and_no_task_state_is_created(self):
         with ThreadPoolExecutor(2) as workers:
             receipts = list(workers.map(lambda _: store.acknowledge(ITEM, self.workspace, self.run), range(2)))
