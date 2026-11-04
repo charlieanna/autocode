@@ -7,10 +7,13 @@ bounded line each to stderr, so an operator can see live activity without
 opening the stage's JSONL event log. Printing is best-effort: a broken stderr
 never fails the stage or the monitor.
 
-Heartbeat lines that repeat verbatim (for example the per-chunk
-"native provider stream advanced" progress) are coalesced like text: the first
-prints at once, further identical repeats within the interval are counted
-silently, and the next line to print carries the count as "(+N similar)".
+Heartbeat lines are not shown at all: the per-chunk "native provider stream
+advanced" progress carries no information the periodic activity status lines do
+not already carry, and liveness still feeds the monitor's watchdogs and the
+JSONL event log unchanged. Other lines that repeat verbatim are coalesced like
+text: the first prints at once, further identical repeats within the interval
+are counted silently, and the next line to print carries the count as
+"(+N similar)".
 """
 
 from __future__ import annotations
@@ -57,6 +60,8 @@ class _Reporter:
 
     def __call__(self, kind, detail):
         try:
+            if kind == "progress":
+                return
             if kind == "text":
                 now = self.clock()
                 if self._last_text_at is not None and now - self._last_text_at < MIN_TEXT_INTERVAL_SECONDS:
