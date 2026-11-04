@@ -39,6 +39,30 @@ from .test_replay_recording import make_export_projection
 
 
 class OwnedTransportTests(unittest.TestCase):
+    def test_retained_plan_uses_the_current_schema_reference_at_launch(self):
+        self.tape(
+            report={"contract": {"retain_contract": "r2:" + "a" * 64}},
+            updates={"contract_revision": 2, "contract_hash": "a" * 64},
+        )
+        token = "r3:" + "b" * 64
+        self.schema.write_text(
+            json.dumps(
+                {
+                    "properties": {
+                        "contract": {
+                            "properties": {"acceptance_criteria": {"properties": {"retain_from": {"enum": [token]}}}}
+                        }
+                    }
+                }
+            )
+        )
+        row = self.tape_value.document["dispatches"][0]
+        context = {key: row[key] for key in (*transport.CONTEXT_KEYS, "task_id", "contract_hash", "criteria_revision")}
+        context.update(consumed=0, contract_hash="b" * 64)
+        self.prepare(context=context)
+        job = json.loads((self.run_dir / "replay-transport/dispatch-0.json").read_text())
+        self.assertEqual(token, job["symbols"].get("retained_contract"))
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

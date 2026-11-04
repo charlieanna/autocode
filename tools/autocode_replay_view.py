@@ -46,6 +46,7 @@ RECORD_FIELDS = (
     "criteria_revision",
     "task_id",
     "contract_hash",
+    "contract_revision",
     "expected_session",
     "thread_id",
     "output_mode",

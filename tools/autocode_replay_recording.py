@@ -102,6 +102,7 @@ SYMBOLS = frozenset(
         "capture_nonce",
         "changed_code_gap",
         "regression_proof",
+        "retained_contract",
     }
 )
 
