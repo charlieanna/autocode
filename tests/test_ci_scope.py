@@ -57,6 +57,9 @@ class ScopeTests(unittest.TestCase):
     def test_legacy_guard_changes_keep_the_dashboard_approval_consumer(self):
         self.assertTrue({"suite", "dashboard"} <= self.enabled("tools/autocode_legacy_process.py"))
 
+    def test_config_tool_fixture_changes_keep_the_dashboard_handoff_consumer(self):
+        self.assertTrue({"suite", "dashboard"} <= self.enabled("tools/fake_command_tool.py"))
+
     def test_process_provider_and_boundary_changes_keep_native_refusal_consumers(self):
         for path in (
             "tools/autocode_process.py",

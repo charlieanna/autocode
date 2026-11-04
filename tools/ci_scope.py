@@ -179,6 +179,7 @@ def select(paths: list[str], *, full: bool = False) -> dict[str, bool]:
             "tools/autocode_run_view.py",
             "tools/autocode_roles.py",
             "tools/autocode_legacy_process.py",
+            "tools/fake_command_tool.py",
         ):
             selected["dashboard"] = True
         if path.startswith("tests/test_") and "browser" in path:
