@@ -2460,7 +2460,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/fd3f0e4d10d86d2a4f7aeed0d910a85233e31cb1/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/b995a3f29f082073737821afd14d4199e9057f9d/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2692,7 +2692,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/fd3f0e4d10d86d2a4f7aeed0d910a85233e31cb1/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/b995a3f29f082073737821afd14d4199e9057f9d/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -2747,7 +2747,7 @@ brief before continuing.</p>
 </tr>
 <tr>
 <td><code>--workflow build\|bugfix\|review\|design\|discuss</code></td>
-<td>Name the kind of job instead of having Requirements (or, on a flow without it, the recognizer) name it from the request. A pinned build still runs Requirements first; any other kind starts its own first stage. Also accepted by a saved run whose job is not named yet. A run whose job is already decided keeps it: start a new run to change it (see <a href="../workflow/">Workflow</a>).</td>
+<td>Name the kind of job instead of having Requirements (or, on a flow without it, the recognizer) name it from the request. New build and bug-fix tasks share the standard implementation sequence; a pinned build or bug fix still gathers Requirements. Review, design and discuss start their own first stages. Saved runs retain their recorded routing. Also accepted by a saved run whose job is not named yet. A run whose job is already decided keeps it: start a new run to change it (see <a href="../workflow/">Workflow</a>).</td>
 </tr>
 <tr>
 <td><code>--status</code></td>
@@ -3302,7 +3302,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/fd3f0e4d10d86d2a4f7aeed0d910a85233e31cb1/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/b995a3f29f082073737821afd14d4199e9057f9d/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3343,7 +3343,7 @@ spent time and recovery allowances remain intact.</p>
 </tr>
 <tr>
 <td><code>--compact-bugfix-planning</code> / <code>--no-compact-bugfix-planning</code></td>
-<td>New run, bug fixes only: when the Investigator reproduces the bug with a probe the runner ran, sizes the fix small, names its root cause, invariant and regression cases, touches at most four files and none the project's <code>sensitive-paths</code> name, the runner writes the plan draft itself from the diagnosis and the Requirements record instead of the Planner's paid draft call; the Plan Reviewer reviews that draft and you approve the displayed plan as usual, and a blocking concern returns the run to the Planner. Enabled by default for new joint-planning runs; needs adaptive planning. Without a <code>sensitive-paths</code> declaration, new runs save conservative shipped patterns for authentication, security, payments, billing, migrations, credentials, CI/build files and dependency manifests/locks. Explicit project patterns replace those defaults. The status view's <code>stage_policy</code> records the decision and its reasons (<a href="../adaptive-planning/#compact-planning-for-bug-fixes">Compact planning for bug fixes</a>).</td>
+<td>Compatibility options for saved runs, which retain their recorded policy. New bug fixes use the standard Requirements → Planner → Plan Reviewer → exact-plan approval sequence. Enabling compact planning for a new run is refused; the negative option is accepted without changing that sequence. See <a href="../adaptive-planning/#compact-planning-for-bug-fixes">historical compact planning</a>.</td>
 </tr>
 <tr>
 <td><code>--review-routing separate\|combined</code></td>
@@ -3492,7 +3492,7 @@ how long to wait for it (<code>ready-seconds</code>, 1 to 600, default 60); <cod
 the string. A new run saves it with its settings, so an edit to the file, including one the
 Builder makes, never changes the command a run serves with. Every <code>{port}</code> is replaced with a
 free loopback port; any other text goes to the shell unchanged.</p>
-<p><code>sensitive-paths</code> has no flag either: a list of shell-style path patterns over repository-relative paths (<code>src/billing/**</code>, <code>*.lock</code>, <code>migrations/</code>) naming the files a shorter planning path may never touch, saved with a new run. The compact bug-fix planning path (<code>--compact-bugfix-planning</code>) takes the full path for a fix whose files match any pattern, and uses conservative shipped patterns when a new run has no declaration. An empty list (<code>sensitive-paths = []</code>) declares that nothing is sensitive. Saved runs keep their existing policy. Matching is by path only; runner-proven reproduction, independent plan review and exact-plan approval still apply (<a href="../adaptive-planning/#compact-planning-for-bug-fixes">Compact planning for bug fixes</a>).</p>
+<p><code>sensitive-paths</code> has no flag either: a list of shell-style path patterns over repository-relative paths (<code>src/billing/**</code>, <code>*.lock</code>, <code>migrations/</code>) naming the files a shorter planning path may never touch, saved with a new run. The retired compact bug-fix planning path uses this setting only when resuming saved runs; it takes the full path for a fix whose files match any pattern. New runs always retain the Planner. An empty list (<code>sensitive-paths = []</code>) declares that nothing is sensitive. Saved runs keep their existing policy. Matching is by path only; runner-proven reproduction, independent plan review and exact-plan approval still apply (<a href="../adaptive-planning/#compact-planning-for-bug-fixes">Compact planning for bug fixes</a>).</p>
 <pre><code class="language-toml">[serve]
 command = &quot;npm run dev -- --host 127.0.0.1 --port {port}&quot;
 ready-path = &quot;/&quot;
@@ -4302,7 +4302,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/fd3f0e4d10d86d2a4f7aeed0d910a85233e31cb1/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/b995a3f29f082073737821afd14d4199e9057f9d/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,

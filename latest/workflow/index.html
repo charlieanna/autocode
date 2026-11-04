@@ -2406,27 +2406,22 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/fd3f0e4d10d86d2a4f7aeed0d910a85233e31cb1/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/b995a3f29f082073737821afd14d4199e9057f9d/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
 <h2 id="the-flow">The flow<a class="headerlink" href="#the-flow" title="Permanent link">&para;</a></h2>
 <p>Start with a rough idea and discuss it with the Requirements. It helps define the smallest
 useful end-to-end product, asks focused questions, and drafts a versioned build brief.
-The Plan Reviewer challenges that draft; the Requirements revises; the Plan Reviewer finalizes. You can revise the brief
+The Planner drafts the implementation plan. The Plan Reviewer challenges that draft; the Planner revises; the Plan Reviewer finalizes. You can revise the brief
 in the same conversation. Implementation starts only after you explicitly approve it.</p>
 <p>After approval, Autocode handles the handoffs:</p>
 <pre><code class="language-text">You → Requirements first, on every run and follow-up turn: it names the kind of job (build, bugfix,
-   review, design, discuss), saved as `workflow`; `--workflow KIND` names it instead (a pinned build
-   still runs Requirements, any other kind starts its own first stage). A flow without Requirements
+   review, design, discuss), saved as `workflow`; `--workflow KIND` names it instead (a pinned build or bug fix
+   still runs Requirements; review, design and discuss start their own first stages). A flow without Requirements
    (v2 planning, no Requirements role) has the Job recognizer name it first
    review → Reviewer only: findings written to review/findings.json, repository untouched, run complete
-   bugfix → Investigator first: diagnosis written to docs/bugs/&lt;name&gt;.json, repository untouched;
-            not reproduced → run complete;
-            reproduced → the build pipeline below from the Planner on, planned from the
-              diagnosis and the Requirements handoff: no second requirements gathering, but plan
-              review and your approval
-              (small or large; the short path for small fixes is off until the full path is dependable)
+   bugfix → the standard implementation pipeline below: Requirements → Planner → Plan Reviewer → approval
    design → Architect first: a design review is written to review/design-review.json (goals met,
             blocking/advisory concerns, questions for you), repository untouched, run complete;
             a request for a NEW design → the build pipeline below; its plan may not change a file an
@@ -2497,7 +2492,7 @@ one another:</p>
 <tr>
 <td><strong>Workflow mode</strong> (<code>settings.workflow.mode</code>: <code>glm_first_v1</code>, <code>glm_final_audit_v2</code>, or the legacy default)</td>
 <td>Who checks the build: which role reviews each milestone and which audits the whole task.</td>
-<td>Only inside the build pipeline, so only for <code>build</code> and a reproduced <code>bugfix</code>. <code>review</code>, <code>design</code> and <code>discuss</code> never reach it.</td>
+<td>Only inside the build pipeline, so only for <code>build</code> and <code>bugfix</code>. <code>review</code>, <code>design</code> and <code>discuss</code> never reach it.</td>
 </tr>
 <tr>
 <td><strong>Task-lane mode</strong> (<code>ui</code> or <code>code</code> on an item of <code>autocode tasks</code>)</td>
@@ -2837,6 +2832,7 @@ including earlier OpenCode-only runs and joint-planning runs that used the Requi
 Start a new run to use the current GPT Sol default in that case; saved sessions cannot
 move between CLIs. No global OpenCode or Codex configuration is changed.</p>
 <h2 id="bug-fixes">Bug fixes<a class="headerlink" href="#bug-fixes" title="Permanent link">&para;</a></h2>
+<p>New bug fixes use the same implementation sequence as builds: Requirements, Planner, Plan Reviewer, exact-plan approval, then implementation and independent verification. In a spec-first chat, confirm Requirements before repository fan-out or planning. Unresolved business questions still return to you. Diagnosis and source inspection belong to planning; a new task does not run a separate initial Investigator or skip Planner. Saved runs keep their recorded stages and replay policy. The Investigator-specific diagnosis and compact-plan behavior described below applies only to those legacy runs.</p>
 <p>A bug report goes through the same conversation and every stage as any other
 task: requirements, planning, plan challenge, revision, final plan review, your
 approval, orchestrator, Builder, Tester and Completion Reviewer.</p>
@@ -3097,7 +3093,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/fd3f0e4d10d86d2a4f7aeed0d910a85233e31cb1/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/b995a3f29f082073737821afd14d4199e9057f9d/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3175,7 +3171,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   also leaves a change outside the package <code>UNVERIFIED</code>, because the package
   suite never ran it.</p>
 <p>The <code>feature-monorepo-package</code> scenario
-(<a href="https://github.com/charlieanna/autocode/blob/fd3f0e4d10d86d2a4f7aeed0d910a85233e31cb1/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
+(<a href="https://github.com/charlieanna/autocode/blob/b995a3f29f082073737821afd14d4199e9057f9d/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
 one package of a two-package repository with <code>--package</code> and the scripted
 model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open <code>runner</code> finding.
@@ -3430,7 +3426,7 @@ it is generated from the front matter so reviewers can read the plan.</p>
 holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
 (<code>scenarios/run.py</code>) checks this at every plan approval its catalog runs reach: it exports the plan
 and reads the file back with <code>--check</code> before it approves the plan
-(<a href="https://github.com/charlieanna/autocode/blob/fd3f0e4d10d86d2a4f7aeed0d910a85233e31cb1/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
+(<a href="https://github.com/charlieanna/autocode/blob/b995a3f29f082073737821afd14d4199e9057f9d/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
 committing it approves nothing. Text that looks like a credential is masked before the file is
 written, with the same policy as <code>autocode bundle</code>; the export then says that the file's goal hash
 differs from the run's.</p>
