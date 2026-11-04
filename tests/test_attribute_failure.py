@@ -1,8 +1,10 @@
 """A red suite names whose failure it is (#2603)."""
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import attribute_failure
 import run_suite
@@ -51,6 +53,34 @@ class ClassifyTests(unittest.TestCase):
     def test_a_module_that_passes_on_the_base_was_introduced_here(self):
         self.module("fine", "import unittest\nclass T(unittest.TestCase):\n    def test_x(self):\n        pass\n")
         self.assertEqual(attribute_failure.INTRODUCED, attribute_failure.classify("tests.fine", self.base, 60))
+
+    def test_base_probe_keeps_test_configuration_and_path_without_comment_credentials(self):
+        binary = self.base / "fixture-bin"
+        binary.mkdir()
+        executable = binary / "attribution-fixture-tool"
+        executable.write_text("#!/bin/sh\nexit 0\n")
+        executable.chmod(0o755)
+        self.module(
+            "environment",
+            "import os,subprocess,unittest\nclass T(unittest.TestCase):\n"
+            "    def test_environment(self):\n"
+            "        self.assertEqual('present', os.environ.get('CI_ATTRIBUTION_FIXTURE'))\n"
+            "        self.assertNotIn('GH_TOKEN', os.environ)\n"
+            "        self.assertNotIn('GITHUB_TOKEN', os.environ)\n"
+            "        subprocess.run(['attribution-fixture-tool'], check=True)\n",
+        )
+        with mock.patch.dict(
+            os.environ,
+            {
+                "PATH": str(binary) + os.pathsep + os.environ["PATH"],
+                "CI_ATTRIBUTION_FIXTURE": "present",
+                "GH_TOKEN": "fixture-comment-token",
+                "GITHUB_TOKEN": "fixture-comment-token",
+            },
+        ):
+            self.assertEqual(
+                attribute_failure.INTRODUCED, attribute_failure.classify("tests.environment", self.base, 60)
+            )
 
     def test_the_module_sees_the_base_checkout_not_this_branch(self):
         # The verdict must come from the base's own copy: the same module name with a

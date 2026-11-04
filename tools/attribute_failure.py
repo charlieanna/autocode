@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -33,13 +34,17 @@ def classify(module: str, base: Path, timeout: float) -> str:
     """One module's verdict against the base checkout: introduced here, or already red there."""
     if not (base / "tests" / f"{module.rsplit('.', 1)[-1]}.py").is_file():
         return NEW_MODULE  # the module itself is new, so the failure cannot be the base's
+    environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+    # The attribution step's comment credentials are not part of the suite environment.
+    environment.pop("GH_TOKEN", None)
+    environment.pop("GITHUB_TOKEN", None)
     probe = subprocess.run(
         [sys.executable, "-m", "unittest", module],
         cwd=base,
         capture_output=True,
         text=True,
         timeout=timeout,
-        env={"PYTHONDONTWRITEBYTECODE": "1"},
+        env=environment,
     )
     return PRE_EXISTING if probe.returncode != 0 else INTRODUCED
 
