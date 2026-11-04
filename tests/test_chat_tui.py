@@ -1370,6 +1370,37 @@ class LivePaneTests(unittest.TestCase):
         ui._run("/panel", True)
         self.assertIsNone(ui._layout(30, 120).panel_col)
 
+    def test_coordination_replaces_stale_anchor_labels_without_hiding_member_stage(self):
+        ui = screen_ui()
+        anchor = {
+            "run_dir": "/task/run",
+            "status": "WAITING_FOR_USER",
+            "coordination": {"id": "task"},
+            "progress": {"stage": "Requirements", "headline": "Waiting for you"},
+        }
+        ui.observe(anchor)
+        ui.observe_conversation({"version": 1, "anchor": "/task/run", "needs": {"kind": "start"}})
+        ui._panel_on = True
+        puts = self.drawn(ui)
+        layout = ui._layout(30, 120)
+        for row in (2, layout.status_start):
+            self.assertIn("Preparing repository work", " ".join(text for r, _, text in puts if r == row))
+        self.assertNotIn("Requirements", " ".join(text for _, _, text in puts))
+        self.assertNotIn("Waiting for you", " ".join(text for _, _, text in puts))
+        self.assertEqual(anchor, ui._view, "rendering must not change the public action view")
+        ui.observe({"run_dir": "/member/run", "progress": {"stage": "Planner", "headline": "Planner working"}})
+        puts = self.drawn(ui)
+        self.assertIn("Planner working", " ".join(text for r, _, text in puts if r == 2))
+        self.assertNotIn("Preparing repository work", " ".join(text for _, _, text in puts))
+
+    def test_coordination_keeps_outage_warning_and_real_approval_visible(self):
+        ui = screen_ui()
+        ui.observe({"run_dir": "/task/run", "coordination": {"id": "task"}})
+        ui.observe_conversation({"version": 1, "anchor": "/task/run", "needs": {"kind": "approval"}})
+        self.assertIn("Waiting for plan approval", " ".join(text for r, _, text in self.drawn(ui) if r == 2))
+        ui.status_unavailable("read failed")
+        self.assertIn("Status unavailable", " ".join(text for r, _, text in self.drawn(ui) if r == 2))
+
     def test_default_progress_uses_one_conversation_and_keeps_paged_history_still(self):
         ui = screen_ui()
         for number in range(30):

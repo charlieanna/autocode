@@ -1854,7 +1854,10 @@ class ChatTUI:
             self._put(2, 0, truncate(f"{label}{status}", layout.width), self._style("panel-now"))
         else:
             cue = verification.cue(self._view, unavailable=unavailable)
-            stage = ((self._view or {}).get("progress") or {}).get("stage")
+            task = panel.task_progress(self._view, self._task_conversation)
+            if task and not unavailable:
+                cue = task
+            stage = None if task else ((self._view or {}).get("progress") or {}).get("stage")
             if isinstance(stage, str) and stage.strip() and stage.strip() not in cue:
                 cue = f"{stage.strip()} · {cue}"
             style = self._style("panel-warn" if unavailable else "panel-now")
@@ -1944,7 +1947,12 @@ class ChatTUI:
         for row in range(top, bottom):
             self._put(row, col - 2, self._glyphs.vertical, self._style("border"))
         rows: list[tuple[str, str]] = []
+        task = panel.task_progress(self._view, self._task_conversation)
         for section in panel.compact_sections(self._view, launched=self._launched, task_total=self._task_total()):
+            if task and section.title == "Stage":
+                continue
+            if task and section.title == "Now":
+                section = panel.Section("Now", task)
             rows.append(
                 (
                     "panel-title",
@@ -2091,6 +2099,7 @@ class ChatTUI:
         spinner = self._glyphs.spinner
         marker = spinner[self._frame % len(spinner)] if spinner else "*"
         reading = self._view is None
+        task = panel.task_progress(self._view, self._task_conversation)
         text = (
             STARTING
             if reading and self._starting()
@@ -2100,9 +2109,9 @@ class ChatTUI:
             if reading and self._launched
             else "Reading run status…"
             if reading
-            else panel.doing(self._view) or self._transcript.activity or "AutoCode is working…"
+            else task or panel.doing(self._view) or self._transcript.activity or "AutoCode is working…"
         )
-        trouble = "" if reading else meter.struggling(self._view, datetime.now(UTC))
+        trouble = "" if reading or task else meter.struggling(self._view, datetime.now(UTC))
         if trouble:
             text = trouble  # a stage on its second attempt or later says so where the person looks
         lead = f"  {marker} {text}"
@@ -2177,7 +2186,11 @@ class ChatTUI:
             hints = "/ commands · reading run status"
         else:
             hints = "/ commands · ctrl-c asks AutoCode to pause after this step"
-        stage = ((self._view or {}).get("progress") or {}).get("stage")
+        stage = (
+            "Coordination"
+            if panel.task_progress(self._view, self._task_conversation)
+            else ((self._view or {}).get("progress") or {}).get("stage")
+        )
         stage = stage.strip() if isinstance(stage, str) else ""
         status = " · ".join(value for value in (stage, self._spend()) if value)
         if status:
