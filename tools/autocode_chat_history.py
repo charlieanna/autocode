@@ -134,7 +134,7 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
             rows.append({"id": f"approval-{index}", "role": "user", "text": APPROVED_PLAN})
             continue
         if (
-            event.get("kind") not in ("brief_feedback", "answer", "plan_message")
+            event.get("kind") not in ("brief_feedback", "answer", "plan_message", "gate_message")
             or not event.get("text")
             or event.get("forwarded")
         ):

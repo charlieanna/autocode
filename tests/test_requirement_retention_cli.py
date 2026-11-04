@@ -20,7 +20,7 @@ class RequirementRetentionCliTests(unittest.TestCase):
         source = provider.read_text()
         self.assertIn(marker, source)
         amendment = textwrap.dedent(f"""
-            if stage == "requirements_gather":
+            if stage == "requirements_gather" and not data.get("message"):
                 for row in report["requirements"]:
                     if row["id"] == "R3":
                         row["source_quote"] = (

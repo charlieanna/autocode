@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_acceptance_tests_job as acceptance_tests_job
     from . import autocode_chat_history as history
+    from . import autocode_gate_chat as gate_chat
     from . import autocode_pause_authority as pause_authority
     from . import autocode_planning_feedback as planning_feedback
     from . import autocode_requirements_chat as requirements_chat
@@ -27,6 +28,7 @@ try:
 except ImportError:
     import autocode_acceptance_tests_job as acceptance_tests_job
     import autocode_chat_history as history
+    import autocode_gate_chat as gate_chat
     import autocode_pause_authority as pause_authority
     import autocode_planning_feedback as planning_feedback
     import autocode_requirements_chat as requirements_chat
@@ -332,6 +334,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         }
     return {
         "messages": messages,
+        "gate": gate_chat.offer(state),
         "context": context_token,
         "input": message_input,
         "review": review,

@@ -988,7 +988,7 @@ def present(state: RunState, run_dir=None, *, details=True):
     except ImportError:
         import autocode_changeset_barrier as changeset_barrier
     public = human.current(state)
-    if not plan_chat.pending(state):
+    if not (plan_chat.pending(state) or plan_chat.gate_chat.pending(state)):
         state.pop("displayed_goal", None)
     # Preserve the historical display acknowledgement for exact, already-recorded
     # review replays. Rendering still hides controls without current authority.

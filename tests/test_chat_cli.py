@@ -164,7 +164,7 @@ class ChatCliTests(unittest.TestCase):
         for path in sorted(run.run_dir.glob("iterations/*/requirements-gather-*.jsonl")):
             rows = [json.loads(line) for line in path.read_text().splitlines()]
             threads.append(next(row["thread_id"] for row in rows if row.get("type") == "thread.started"))
-        self.assertEqual(3, len(threads))
+        self.assertEqual(4, len(threads), "One reply interpretation precedes the updated Requirements handoff")
         self.assertEqual(1, len(set(threads)), "Requirements must retain its session across replies")
         self.assertEqual(0, count("recognize-workflow"))
         self.assertFalse((self.workspace / "greet.py").exists())

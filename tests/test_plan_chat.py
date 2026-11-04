@@ -191,8 +191,8 @@ class PlanMessageTests(unittest.TestCase):
         self.assertEqual(before["source_log"], state["source_log"])
         self.assertEqual([], state["brief_feedback"])
         self.assertEqual({}, state["answers"])
-        self.assertEqual(("RUNNING", "requirements_gather"), (state["status"], state["next_stage"]))
-        self.assertEqual("plan_message", state["user_events"][-1]["kind"])
+        self.assertEqual(("RUNNING", "astra_finalize"), (state["status"], state["next_stage"]))
+        self.assertEqual("gate_message", state["user_events"][-1]["kind"])
         self.assertNotIn(WHY, goals.scan_texts(state))
 
     def test_begin_is_limited_to_a_current_displayed_chat_plan(self):

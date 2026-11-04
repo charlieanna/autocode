@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 try:
+    from .. import autocode_gate_chat as gate_chat
     from .. import autocode_plan_chat as plan_chat
     from .. import autocode_plan_retention as retention
     from .. import autocode_planning_recovery_policy as planning_recovery_policy
     from .. import autocode_prompts as prompts
 except ImportError:
+    import autocode_gate_chat as gate_chat
     import autocode_plan_chat as plan_chat
     import autocode_plan_retention as retention
     import autocode_planning_recovery_policy as planning_recovery_policy
@@ -1043,6 +1045,8 @@ def refund_unreported(state: RunState, planning):
 
 
 def charge(state: RunState, stage, record=None, workspace=None):
+    if (message := gate_chat.pending(state)) and message["stage"] == stage:
+        return  # conversational interpretation is not another full plan review
     if stage not in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
         return
     if progressive.charge_review(state, stage, record):
@@ -1283,6 +1287,8 @@ RISK_OBSERVATION_REVIEW_RULE = prompts.get("fragments/autoplanner/risk-observati
 
 
 def context(state: RunState, stage, state_path):
+    if (message := gate_chat.pending(state)) and message["stage"] == stage:
+        return gate_chat.context(state)
     if stage == "requirements_gather" and plan_chat.pending(state):
         return plan_chat.context(state)
     predecessor = None
@@ -1768,6 +1774,8 @@ def prepare(state: RunState, stage, state_path, schema_dir):
 
 def schema_for(state: RunState, stage):
     """The report schema for a planning stage in this run (adaptive runs extend two of them)."""
+    if (message := gate_chat.pending(state)) and message["stage"] == stage:
+        return gate_chat.schema(state)
     if stage == "requirements_gather" and plan_chat.pending(state):
         return plan_chat.message_context.schema(plan_chat.SCHEMA, plan_chat.pending(state))
     if stage == RECOGNIZE:

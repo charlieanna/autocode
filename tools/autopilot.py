@@ -397,6 +397,8 @@ def _bind_plan(state: RunState, value, origin, record):
 
 
 def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
+    if requirements_handoff.accept_chat(state, value, record, queue=human.queue):
+        return
     if progressive_state.revision_pending(state):
         result = progressive_state.apply_revision(
             state, stage, value, record, product_findings=findings_ledger.blocking_entries(state)
@@ -509,8 +511,6 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
         }
         state["discovery_summary"] = value["summary"]
         planning_artifacts.record_prepared(state, prepared)
-        return
-    if stage == "requirements_gather" and requirements_handoff.accept_chat(state, value, record, queue=human.queue):
         return
     checked = value
     if stage == "requirements_gather" and isinstance(value.get("proposed_assumptions"), list):

@@ -176,6 +176,21 @@ def retained_contract_symbol(schema_file, contract_hash):
     return token
 
 
+def gate_symbols(schema_file):
+    """Read runner-bound enum identities; launch preparation precedes prompt persistence."""
+    try:
+        properties = json.loads(Path(schema_file).read_text())["properties"]
+        symbols = {}
+        for field, symbol in (("message_id", "gate_message_id"), ("gate_token", "gate_token")):
+            values = properties[field]["enum"]
+            if not isinstance(values, list) or len(values) != 1 or not isinstance(values[0], str) or not values[0]:
+                raise ValueError("Unbound gate identity")
+            symbols[symbol] = values[0]
+    except (OSError, ValueError, KeyError, TypeError):
+        raise recording.RecordingError("Replay gate conversation has no current runner identity") from None
+    return symbols
+
+
 def prepare(
     *,
     settings,
@@ -236,6 +251,9 @@ def prepare(
     }
     if any(binding.get("symbol") == "retained_contract" for binding in row["bindings"]):
         symbols["retained_contract"] = retained_contract_symbol(schema, context.get("contract_hash"))
+
+    if any(binding.get("symbol") in ("gate_message_id", "gate_token") for binding in row["bindings"]):
+        symbols.update(gate_symbols(schema))
     job = {
         "version": 1,
         "manifest": str(tape.manifest_path),
