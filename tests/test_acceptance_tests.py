@@ -24,6 +24,8 @@ import autocode_acceptance_tests as acceptance
 import autocode_taskrun as taskrun
 from autocode_stray_writes import StrayWrites
 
+from . import legacy_bugfix_fixture
+
 SCENARIOS = Path(__file__).resolve().parents[1] / "scenarios"
 if str(SCENARIOS) not in sys.path:
     sys.path.insert(0, str(SCENARIOS))
@@ -1069,7 +1071,13 @@ class AcceptanceTestsCliTests(unittest.TestCase):
         paths = environment["PATH"].split(os.pathsep)
         environment["PATH"] = os.pathsep.join([paths[0], str(Path(sys.executable).parent), *paths[1:]])
         run = taskrun.TaskRun.start(
-            project, self.scenario.brief, options=(*flags, *planning), env=environment, timeout=240, cwd=self.root
+            project,
+            self.scenario.brief,
+            options=(*flags, *planning),
+            env=environment,
+            timeout=240,
+            cwd=self.root,
+            command=legacy_bugfix_fixture.COMMAND if self.scenario.category == "bugfix" else taskrun.AUTOCODE,
         )
         for _ in range(16):
             view = run.advance_until_input()

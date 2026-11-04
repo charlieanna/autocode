@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import autocode_coordinate as coordinate
@@ -1566,6 +1567,35 @@ class CoordinationTests(unittest.TestCase):
         path.write_text(path.read_text() + " ")
         with self.assertRaisesRegex(ValueError, "changed"):
             profiles.load(path, digest)
+
+    def test_new_related_runs_use_standard_planning_even_from_a_legacy_profile(self):
+        for flow in (None, "standard", "legacy"):
+            with self.subTest(flow=flow):
+                settings = {"roles": {"terra": {"model": "selected"}}, "engine": "codex", "limits": {"max_cost_usd": 2}}
+                if flow:
+                    settings["implementation_flow"] = flow
+                exported = profiles.project({"settings": settings})
+                if flow:
+                    self.assertEqual(flow, exported["settings"].get("implementation_flow"))
+                path = self.root / "profile.json"
+                path.write_text(json.dumps(exported))
+                before = path.read_bytes()
+                state = {}
+                profiles.install(
+                    state,
+                    SimpleNamespace(
+                        related_profile=path,
+                        related_profile_sha256=coordinate.util.file_hash(path),
+                        run_dir=None,
+                        require_approver=None,
+                        sensitive_paths=None,
+                        serve=None,
+                    ),
+                )
+                self.assertEqual("standard", state["settings"].get("implementation_flow"))
+                self.assertEqual(settings["roles"], state["settings"]["roles"])
+                self.assertEqual(settings["limits"], state["settings"]["limits"])
+                self.assertEqual(before, path.read_bytes())
 
     def test_cancellation_precedes_any_start_or_publication(self):
         store.save(self.document)

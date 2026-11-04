@@ -54,10 +54,11 @@ class RequirementsFirstCliTests(unittest.TestCase):
         self.assertEqual("review", result["workflow"])
         self.assertEqual([REQUIREMENTS, "review_change"], result["metrics"]["model_stage_names"])
 
-    def test_a_plain_cli_bug_fix_goes_from_requirements_to_the_investigator(self):
+    def test_a_plain_cli_bug_fix_goes_from_requirements_to_the_planner(self):
         result = self.run_fake("bugfix-trivial")
         self.assertEqual("bugfix", result["workflow"])
-        self.assertStartsAtRequirements(result["metrics"]["model_stage_names"], "investigate_bug")
+        self.assertStartsAtRequirements(result["metrics"]["model_stage_names"], "astra_discovery")
+        self.assertNotIn("investigate_bug", result["metrics"]["model_stage_names"])
 
     def test_fix_the_findings_after_a_review_is_named_a_build_by_requirements(self):
         result = self.run_fake("review-then-fix")

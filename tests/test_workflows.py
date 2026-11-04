@@ -25,6 +25,52 @@ def fresh(joint=True, task="Review pr-184.patch before I merge it."):
 
 
 class ModuleTests(unittest.TestCase):
+    def test_bugfix_scenario_oracle_requires_the_entry_of_its_recorded_policy(self):
+        from scenarios.harness import oracle
+
+        for policy, expected in ((None, "investigate_bug"), ("standard", "astra_discovery")):
+            with self.subTest(policy=policy):
+                run = {
+                    "view": {"workflow": "bugfix", "related_profile": {"settings": {}}},
+                    "stages": ["requirements_gather", expected],
+                }
+                if policy:
+                    run["view"]["related_profile"]["settings"]["implementation_flow"] = policy
+                self.assertTrue(
+                    all(
+                        row.ok
+                        for row in oracle.run_checks(
+                            run, workflow="bugfix", after_requirements=oracle.bugfix_entry(run)
+                        )
+                    )
+                )
+                run["stages"][1] = "investigate_bug" if policy else "astra_discovery"
+                checks = oracle.run_checks(run, workflow="bugfix", after_requirements=oracle.bugfix_entry(run))
+                self.assertFalse(next(row.ok for row in checks if row.name == "job_starts_after_requirements"))
+
+    def test_standard_bugfix_recognition_and_requirements_use_the_build_planner_path(self):
+        for v2 in (False, True):
+            with self.subTest(v2=v2):
+                state = fresh()
+                state["settings"].update(implementation_flow="standard", planning_flow="v2" if v2 else "legacy")
+                workflows.begin(state, "requirements_gather")
+                workflows.apply(state, {"workflow": "bugfix"}, {})
+                self.assertEqual("requirements_gather", state["next_stage"])
+                workflows.begin_requirements(state)
+                workflows.from_requirements(state, {"job": "bugfix", "intended_outcome": "Fix the pager"})
+                self.assertEqual("plan" if v2 else "astra_discovery", state["next_stage"])
+                self.assertEqual("bugfix", state["workflow"]["kind"])
+
+    def test_standard_pinned_bugfix_gathers_requirements_instead_of_investigating(self):
+        state = fresh()
+        state["settings"]["implementation_flow"] = "standard"
+        workflows.begin_requirements(state)
+        workflows.pin(state, "bugfix")
+        self.assertEqual("requirements_gather", state["next_stage"])
+        state["workflow"]["requirements_approved"] = True
+        workflows.apply(state, {"workflow": "bugfix"}, {})
+        self.assertEqual("astra_discovery", state["next_stage"])
+
     def test_begin_makes_recognition_the_first_stage_and_remembers_what_follows(self):
         state = fresh()
         workflows.begin(state, "requirements_gather")

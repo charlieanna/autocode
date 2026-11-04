@@ -44,6 +44,7 @@ KEYS = (
     "limits",
     "joint_planning",
     "planning_flow",
+    "implementation_flow",
     "adaptive_planning",
     "plan_review_full",
     "planning_review_call_limit",
@@ -119,4 +120,6 @@ def install(state: RunState, args):
     if getattr(args, "serve", None):
         settings["serve"] = args.serve
     state["settings"] = settings
+    # Installing a profile starts a new task, even when its parent is legacy.
+    settings["implementation_flow"] = "standard"
     settings["coordination_member"] = True

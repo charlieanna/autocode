@@ -12,6 +12,8 @@ from pathlib import Path
 
 import autocode_taskrun as taskrun
 
+from . import legacy_bugfix_fixture
+
 ROOT = Path(__file__).resolve().parents[1]
 PROVIDER = r"""
 import json, subprocess, sys, uuid
@@ -135,6 +137,7 @@ print("PUBLIC_INPUT_READ_PASS " + json.dumps(observed, sort_keys=True))
             "Bug report: public proof inputs are missing. Diagnose by running python3 -B check_inputs.py "
             "in the prepared investigation copy. The exact supplied paths are "
             "pilot-public/PUBLIC-PROOF.md and pilot-public/pr42.patch. Do not change code.",
+            command=legacy_bugfix_fixture.COMMAND,
             options=(
                 "--engine",
                 "codex",

@@ -1,5 +1,9 @@
 """Workflow recognition: what kind of engineering job a request is.
 
+New implementation tasks use the standard build sequence: bugfix remains a request
+classification, not a separate initial Investigator route. The historical FIRST_STAGE
+entries remain only for saved policies and offline replay.
+
 Requirements is the front door of every run and follow-up turn whose saved flow
 has a Requirements role (``requirements_first``, owner decision 2026-10-22): the
 run begins there (``begin_requirements``) and its report names the job (``job``,
@@ -64,6 +68,7 @@ except ImportError:
 
 STAGE = "recognize_workflow"
 WORKFLOWS = ("build", "bugfix", "review", "design", "discuss")
+# Historical workflow entries; first_stage selects the standard path for new implementation tasks.
 # Workflows with their own first stage. The others continue into the build
 # pipeline (the stage saved as ``then`` when recognition began) for now.
 REVIEW_STAGE = "review_change"
@@ -74,6 +79,18 @@ DISCUSS_STAGE = "answer_question"
 # the design against the repository (autocode_design_check_job).
 DESIGN_CHECK_STAGE = "check_design"
 FIRST_STAGE = {"review": REVIEW_STAGE, "bugfix": INVESTIGATE_STAGE, "design": DESIGN_STAGE, "discuss": DISCUSS_STAGE}
+# New implementation tasks share the build sequence. Absence preserves a saved
+# run's historical dispatches, including offline recordings of investigation.
+IMPLEMENTATION_FLOW = "implementation_flow"
+STANDARD_IMPLEMENTATION = "standard"
+
+
+def first_stage(state: RunState, kind: str, default: str) -> str:
+    """Select a job entry without changing a saved run's in-flight stage."""
+    if kind == "bugfix" and (state.get("settings") or {}).get(IMPLEMENTATION_FLOW) == STANDARD_IMPLEMENTATION:
+        return default
+    return FIRST_STAGE.get(kind) or default
+
 
 # Who may approve a goal contract. Normally only the user (actor "user_cli"). A
 # contract a workflow built under a policy the user agreed to carries one of these
@@ -283,7 +300,7 @@ def apply(state: RunState, value: dict, record: dict) -> None:
     state.update(
         {
             "status": "RUNNING",
-            "next_stage": DESIGN_CHECK_STAGE if design else FIRST_STAGE.get(value["workflow"]) or first,
+            "next_stage": DESIGN_CHECK_STAGE if design else first_stage(state, value["workflow"], first),
         }
     )
 
@@ -349,7 +366,7 @@ def pin(state: RunState, kind: str) -> None:
         "then": then,
     }
     state.update(
-        {"status": "RUNNING", "next_stage": FIRST_STAGE.get(kind) or (REQUIREMENTS_STAGE if gathering else then)}
+        {"status": "RUNNING", "next_stage": first_stage(state, kind, REQUIREMENTS_STAGE if gathering else then)}
     )
 
 

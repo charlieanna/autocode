@@ -395,16 +395,23 @@ class CompactPlanningTests(unittest.TestCase):
         self.assertEqual("test_t9_holds", compact.test_name({"id": "T9", "then": "!!!"}))
 
     def test_the_setting_is_chosen_at_the_start_and_kept(self):
-        self.assertTrue(compact.new_run_setting(None, True))
+        self.assertFalse(compact.new_run_setting(None, True))
         self.assertFalse(compact.new_run_setting(None, False))
         self.assertFalse(compact.new_run_setting(False, True))
-        self.assertTrue(compact.new_run_setting(True, True))
-        with self.assertRaisesRegex(ValueError, "joint planning"):
-            compact.new_run_setting(True, False)
+        for joint in (False, True):
+            with self.subTest(joint=joint), self.assertRaisesRegex(ValueError, "retired"):
+                compact.new_run_setting(True, joint)
         self.assertFalse(compact.resume_refused({}, None))
         self.assertFalse(compact.resume_refused({compact.SETTING: True}, True))
         self.assertTrue(compact.resume_refused({compact.SETTING: True}, False))
         self.assertTrue(compact.resume_refused({}, True))
+
+    def test_standard_runs_cannot_take_a_compact_shortcut_even_with_a_retained_setting(self):
+        state = self.investigated(self.state())
+        state["settings"]["implementation_flow"] = "standard"
+        self.assertFalse(compact.enabled(state))
+        self.assertFalse(compact.start(state, str(self.root)))
+        self.assertEqual("full", stage_policy.view(state)["path"])
 
     def test_the_view_is_a_copy_or_null(self):
         self.assertIsNone(stage_policy.view({}))

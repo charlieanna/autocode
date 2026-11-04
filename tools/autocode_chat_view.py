@@ -321,7 +321,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         and questions[0].get("id") == requirements_review.review_question(state)["id"]
     ):
         label, title, detail, confirm = APPROVAL_OFFERS.get(
-            requirements_review.job(state) or "", APPROVAL_OFFERS["build"]
+            requirements_review.confirmation_job(state) or "", APPROVAL_OFFERS["build"]
         )
         review = {
             "question_id": questions[0]["id"],

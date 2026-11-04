@@ -1,6 +1,9 @@
-"""The compact planning path for a reproduced, localized bug fix (#2021, the first #1867 checkpoint).
+"""Legacy saved-run compact planning for a reproduced, localized bug fix (#2021, the first #1867 checkpoint).
 
-A bug-fix run plans like this: Requirements, the Investigator (``investigate_bug``), the Planner's draft
+New runs use the standard implementation sequence and cannot enable compact planning.
+The remainder of this module preserves older saved runs and recordings.
+
+A legacy bug-fix run plans like this: Requirements, the Investigator (``investigate_bug``), the Planner's draft
 (``astra_discovery``, a paid call), the Plan Reviewer (``astra_challenge``), the person's approval of the
 displayed plan, then the Builder, Tester and Completion Reviewer. On the compact path the runner writes the
 draft itself from two bound records it already holds, the Investigator's reproduced diagnosis
@@ -11,8 +14,8 @@ the run to the full path (the Planner's draft, with the concern in its packet: f
 the regression proof, the Tester and the Completion Reviewer run as on every path. The draft is never
 approved by a policy: autocode_workflows.POLICY_ORIGINS does not know its origin.
 
-The path is taken only when every trusted signal admits it (decide): the new run enables compact eligibility
-(by default with joint planning, disabled with ``--no-compact-bugfix-planning``), it plans adaptively, Requirements named the bug-fix job, the
+The path is taken only when every trusted signal admits it (decide): the saved run enabled compact
+eligibility, it plans adaptively, Requirements named the bug-fix job, the
 diagnosis is reproduced by a probe the runner ran, the Investigator sized the fix small, it names a root
 cause, an invariant and regression cases, its files are few (PATH_BOUND) and none matches the project's
 ``sensitive-paths`` (autocode_sensitive_paths; shipped defaults when the project declares none),
@@ -77,22 +80,23 @@ def add_argument(parser) -> None:
         FLAG,
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="New runs: for a bug the Investigator reproduces, sizes small and localizes to files the project's "
-        "sensitive-paths do not name, the runner writes the plan draft from the diagnosis and the Requirements "
-        "record instead of the Planner's paid draft call; the Plan Reviewer reviews it and you approve it as "
-        "usual (docs/adaptive-planning.md#compact-planning-for-bug-fixes). On by default with joint planning",
+        help="Retired for new runs: bug fixes use Requirements, Planner and Plan Reviewer. "
+        "A saved run keeps its recorded planning policy",
     )
 
 
 def enabled(state: RunState) -> bool:
-    return bool((state.get("settings") or {}).get(SETTING))
+    settings = state.get("settings") or {}
+    return (
+        bool(settings.get(SETTING)) and settings.get(workflows.IMPLEMENTATION_FLOW) != workflows.STANDARD_IMPLEMENTATION
+    )
 
 
 def new_run_setting(requested, joint: bool) -> bool:
-    """New joint runs default to compact eligibility; an explicit opt-in requires joint planning."""
-    if requested and not joint:
-        raise ValueError(f"{FLAG} needs joint planning")
-    return joint if requested is None else bool(requested)
+    """New runs always retain the Planner; saved runs use their recorded policy."""
+    if requested:
+        raise ValueError(f"{FLAG} is retired for new runs; bug fixes use the standard planning sequence")
+    return False
 
 
 def resume_refused(saved_settings: dict, requested) -> bool:

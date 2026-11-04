@@ -107,6 +107,9 @@ def main():
     if data.get("report_repair"):
         stage = data["original"]["stage"]
     schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+    wrapped_repair = bool(data.get("report_repair") and "repair_report" in schema.get("properties", {}))
+    if wrapped_repair:
+        schema = json.loads(Path(data["original"]["schema"]).read_text())
     output = Path(sys.argv[sys.argv.index("-o") + 1])
     root = Path.cwd()
     joint = (root / "repositories.json").is_file()
@@ -175,7 +178,8 @@ def main():
             )
         else:
             raise RuntimeError("Unrelated intake must never plan or build: " + stage)
-        output.write_text(json.dumps(shaped(report, schema)))
+        result = shaped(report, schema)
+        output.write_text(json.dumps({"repair_report": result} if wrapped_repair else result))
         log = root / ".autocode/provider-calls.jsonl"
         log.parent.mkdir(exist_ok=True)
         with log.open("a") as stream:
@@ -190,6 +194,7 @@ def main():
         os.environ.get("COORDINATION_FIXTURE_MEMBER_CONTEXT")
         and root.parent.name == "worktrees"
         and stage == "requirements_gather"
+        and not data.get("report_repair")
     ):
         member = data.get("coordinated_member") or {}
         if member.get("member") != name or "SEPARATE isolated integration workspace" not in member.get(
@@ -387,67 +392,6 @@ def main():
                     },
                 ]
             )
-        role = os.environ.get("COORDINATION_FIXTURE_MEMBER_ROLE_LABEL")
-        if role and name == "tax" and stage == "investigate_bug":
-            # #2420: the live attempt-5 labels. The report contract refuses them;
-            # the bounded report repair must receive the member context and the
-            # canonical names, then name the owners exactly, keeping every
-            # obligation. A stuck model repeats the same invalid labels on every
-            # original, repair and retry attempt.
-            task = data.get("task")
-            if not task:
-                # A report-repair payload carries the rejected report instead of the task.
-                rejected = (data.get("rejected_report") or {}).get("content") or {}
-                task = next(
-                    (
-                        part.get("source_quote")
-                        for part in (rejected.get("workspace_scope") or {}).get("external_parts") or []
-                        if part.get("source_quote")
-                    ),
-                    "",
-                )
-            labels = {
-                "spans_repositories": True,
-                "external_parts": [
-                    {
-                        "target": "Checkout display member",
-                        "work": "Produce the final '$110.00' display",
-                        "source_quote": task,
-                        "evidence": "",
-                    },
-                    {
-                        "target": "Receipt-handling member",
-                        "work": "Preserve malformed-receipt behavior",
-                        "source_quote": "",
-                        "evidence": source + ":1",
-                    },
-                ],
-            }
-            if data.get("report_repair"):
-                if (data.get("coordinated_member") or {}).get("members") != ["checkout", "history", "tax"]:
-                    raise RuntimeError("Investigator repair must receive the coordinated member context")
-                if "checkout, history, tax" not in str(data.get("error", "")):
-                    raise RuntimeError("Investigator repair error must name the canonical members")
-                if role != "stuck":
-                    report["workspace_scope"] = {
-                        "spans_repositories": True,
-                        "external_parts": [
-                            {
-                                "target": "checkout",
-                                "work": "Produce the final display",
-                                "source_quote": task,
-                                "evidence": "",
-                            },
-                            {
-                                "target": "history",
-                                "work": "Preserve malformed-receipt behavior in the serialized receipt record",
-                                "source_quote": "",
-                                "evidence": source + ":1",
-                            },
-                        ],
-                    }
-            if role == "stuck" or not data.get("report_repair"):
-                report["workspace_scope"] = labels
     elif "contract" in schema.get("properties", {}):
         body = {**(report.get("contract") or {}), **body}
         report["contract"] = body
@@ -463,66 +407,67 @@ def main():
                 "findings": [],
             }
     elif stage == "requirements_gather":
-        report.update(
-            summary=outcome,
-            intended_outcome=outcome,
-            required_behaviors=[outcome],
-            acceptance_tests=[SUITE],
-            constraints=["Do not mock production boundaries"],
-            source_refs=[source],
-            requirements=[{"id": "R1", "text": data["task"], "source_quote": data["task"]}],
-            open_questions=[],
-            proposed_assumptions=[],
-        )
-        if (
-            os.environ.get("COORDINATION_FIXTURE_EARLY_SCOPE") or os.environ.get("COORDINATION_FIXTURE_SCOPE_METADATA")
-        ) and target:
-            report["source_refs"] = [source]
-            report["workspace_scope"] = {
-                "spans_repositories": True,
-                "external_parts": [
-                    {
-                        "target": target,
-                        "work": "Fix the downstream total contract",
-                        "source_quote": data["task"] if joint else "",
-                        "evidence": "" if joint else source + ":3",
-                    }
-                ],
-            }
-            if os.environ.get("COORDINATION_FIXTURE_CONSUMER_ALIAS") and name == "history":
-                report["workspace_scope"]["external_parts"].append(
-                    {
-                        "target": "Coordinated checkout repository"
-                        if os.environ["COORDINATION_FIXTURE_CONSUMER_ALIAS"] == "coordinated"
-                        else "checkout repository",
-                        "work": "Format the receipt in the consumer",
-                        "source_quote": data["task"],
-                        "evidence": "",
-                    }
-                )
-            if os.environ.get("COORDINATION_FIXTURE_SCOPE_METADATA") and name == "history":
-                report["workspace_scope"]["external_parts"].extend(
-                    [
+        if data.get("report_repair"):
+            report.update(data["rejected_report"]["content"])
+        else:
+            report.update(
+                summary=outcome,
+                intended_outcome=outcome,
+                required_behaviors=[outcome],
+                acceptance_tests=[SUITE],
+                constraints=["Do not mock production boundaries"],
+                source_refs=[source],
+                requirements=[{"id": "R1", "text": data["task"], "source_quote": data["task"]}],
+                open_questions=[],
+                proposed_assumptions=[],
+            )
+            if target:
+                report["source_refs"] = [source]
+                report["workspace_scope"] = {
+                    "spans_repositories": True,
+                    "external_parts": [
                         {
-                            "target": "tax repository",
-                            "work": "Verify actual tax in the joint run",
-                            "source_quote": "",
-                            "evidence": source + ":3",
-                        },
+                            "target": target,
+                            "work": "Fix the downstream total contract",
+                            "source_quote": data["task"] if joint else "",
+                            "evidence": "" if joint else source + ":3",
+                        }
+                    ],
+                }
+                if os.environ.get("COORDINATION_FIXTURE_CONSUMER_ALIAS") and name == "history":
+                    report["workspace_scope"]["external_parts"].append(
                         {
-                            "target": "checkout",
-                            "work": "Format the receipt",
+                            "target": "Coordinated checkout repository"
+                            if os.environ["COORDINATION_FIXTURE_CONSUMER_ALIAS"] == "coordinated"
+                            else "checkout repository",
+                            "work": "Format the receipt in the consumer",
                             "source_quote": data["task"],
                             "evidence": "",
-                        },
-                        {
-                            "target": "checkout repository",
-                            "work": "Verify actual composed checkout output",
-                            "source_quote": data["task"],
-                            "evidence": "",
-                        },
-                    ]
-                )
+                        }
+                    )
+                if os.environ.get("COORDINATION_FIXTURE_SCOPE_METADATA") and name == "history":
+                    report["workspace_scope"]["external_parts"].extend(
+                        [
+                            {
+                                "target": "tax repository",
+                                "work": "Verify actual tax in the joint run",
+                                "source_quote": "",
+                                "evidence": source + ":3",
+                            },
+                            {
+                                "target": "checkout",
+                                "work": "Format the receipt",
+                                "source_quote": data["task"],
+                                "evidence": "",
+                            },
+                            {
+                                "target": "checkout repository",
+                                "work": "Verify actual composed checkout output",
+                                "source_quote": data["task"],
+                                "evidence": "",
+                            },
+                        ]
+                    )
     elif stage == "astra_challenge":
         if os.environ.get("COORDINATION_FIXTURE_SCOPE_METADATA") and name == "history":
             exclusions = contract["body"]["scope_exclusions"]
@@ -636,8 +581,74 @@ def main():
                 "proofs": [],
             }
         report["requirement_trace"] = []
+    role = os.environ.get("COORDINATION_FIXTURE_MEMBER_ROLE_LABEL")
+    if role and name == "tax" and stage in ("requirements_gather", "investigate_bug"):
+        # #2420: the live attempt-5 labels. The report contract refuses them;
+        # the bounded report repair must receive the member context and the
+        # canonical names, then name the owners exactly, keeping every
+        # obligation. A stuck model repeats the same invalid labels on every
+        # original, repair and retry attempt.
+        task = data.get("task")
+        if not task:
+            # A report-repair payload carries the rejected report instead of the task.
+            rejected = (data.get("rejected_report") or {}).get("content") or {}
+            task = next(
+                (
+                    part.get("source_quote")
+                    for part in (rejected.get("workspace_scope") or {}).get("external_parts") or []
+                    if part.get("source_quote")
+                ),
+                "",
+            )
+        labels = {
+            "spans_repositories": True,
+            "external_parts": [
+                {
+                    "target": "Checkout display member",
+                    "work": "Produce the final '$110.00' display",
+                    "source_quote": task,
+                    "evidence": "",
+                },
+                {
+                    "target": "Receipt-handling member",
+                    "work": "Preserve malformed-receipt behavior",
+                    "source_quote": "",
+                    "evidence": source + ":1",
+                },
+            ],
+        }
+        if data.get("report_repair"):
+            if stage == "investigate_bug" and (data.get("coordinated_member") or {}).get("members") != [
+                "checkout",
+                "history",
+                "tax",
+            ]:
+                raise RuntimeError("Scope repair must receive the coordinated member context")
+            if "checkout, history, tax" not in str(data.get("error", "")):
+                raise RuntimeError("Scope repair error must name the canonical members")
+            if role != "stuck":
+                report["workspace_scope"] = {
+                    "spans_repositories": True,
+                    "external_parts": [
+                        {
+                            "target": "checkout",
+                            "work": "Produce the final display",
+                            "source_quote": task,
+                            "evidence": "",
+                        },
+                        {
+                            "target": "history",
+                            "work": "Preserve malformed-receipt behavior in the serialized receipt record",
+                            "source_quote": "",
+                            "evidence": source + ":1",
+                        },
+                    ],
+                }
+        if role == "stuck" or not data.get("report_repair"):
+            report["workspace_scope"] = labels
     # Keep the fake output strictly at the active public schema, including optional fields it declared.
-    output.write_text(json.dumps(shaped(report, schema)))
+    result = shaped(report, schema)
+    output.write_text(json.dumps({"repair_report": result} if wrapped_repair else result))
     # The receipt is written only after a complete report exists, so counting it
     # counts successfully emitted answers, never crashed provider calls.
     log = root / ".autocode/provider-calls.jsonl"
