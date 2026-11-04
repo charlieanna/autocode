@@ -90,6 +90,7 @@ import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+import ci_failure_signatures
 import ci_test_selection
 
 HERE = Path(__file__).resolve().parent
@@ -601,7 +602,7 @@ def run_parallel(
         for module, reason in quiet:
             print(f"  {module}: {reason}")
     if failed_out is not None:
-        failed_out.write_text(json.dumps([row["module"] for row in failed], indent=2) + "\n")
+        ci_failure_signatures.write(failed_out, failed, REPO_ROOT)
     return not failed
 
 
@@ -758,6 +759,8 @@ def main(argv: list[str] | None = None) -> int:
     options = {"durations": args.durations} if args.durations else {}
     runner = unittest.TextTestRunner(verbosity=args.verbosity, **options)
     result = runner.run(kept)
+    if args.failed_out is not None:
+        ci_failure_signatures.write(args.failed_out, ci_failure_signatures.result_rows(result), REPO_ROOT)
     return 0 if result.wasSuccessful() else 1
 
 
