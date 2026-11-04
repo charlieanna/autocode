@@ -2426,7 +2426,6 @@ class SampleCadenceTests(unittest.TestCase):
             return result
 
         real_sample = keeper.processes.settled_sample
-        finished = threading.Event()
 
         def run():
             with patch.object(keeper.processes, "settled_sample", counting):
