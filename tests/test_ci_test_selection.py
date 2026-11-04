@@ -8,6 +8,15 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_coordination_provider_keeps_late_planner_scope_consumer(self):
+        consumers = {"tests.test_coordination_tui_e2e", "tests.test_planning_scope_cli"}
+        selected = run_suite.select_tests(
+            ["tests/coordination_provider.py"],
+            {**{name: "" for name in consumers}, "tests.test_unrelated": ""},
+        )
+        kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+        self.assertEqual(consumers, set(kept))
+
     def test_bugfix_policy_keeps_current_sequence_and_legacy_resume_consumers(self):
         cases = {
             "tools/autocode_workflows.py": {"tests.test_requirements_first_cli", "tests.test_saved_run_replay_cli"},

@@ -102,8 +102,9 @@ class AssignedPlannerReportCliTests(unittest.TestCase):
         fixture.CoordinationTuiEndToEnd.setUp(self)
         source = (fixture.ROOT / "tests/coordination_provider.py").read_text()
         source = source.replace("ROOT = Path(__file__).resolve().parents[1]", f"ROOT = Path({str(fixture.ROOT)!r})")
-        marker = "    output.write_text(json.dumps(shaped(report, schema)))"
-        at = source.rindex(marker)
+        marker = "    # Keep the fake output strictly at the active public schema"
+        self.assertEqual(1, source.count(marker))
+        at = source.index(marker)
         source = (
             source[:at]
             + textwrap.dedent("""

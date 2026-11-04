@@ -190,7 +190,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("tests.test_claude_provider", "tests.test_report_repair"),
     ),
     ("tools/prompts/fragments/autocode/execute-report-repair-06.md", ("tests.test_report_repair",)),
-    ("tests/coordination_provider.py", ("tests.test_coordination_tui_e2e",)),
+    (
+        "tests/coordination_provider.py",
+        ("tests.test_coordination_tui_e2e", "tests.test_planning_scope_cli"),
+    ),
     (
         "tests/legacy_bugfix_fixture.py",
         (
