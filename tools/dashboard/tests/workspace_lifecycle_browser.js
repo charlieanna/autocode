@@ -57,7 +57,9 @@ function waitForDashboardReadiness(label, attempts = 48) {
   return waitForReadiness({
     label,
     attempts,
-    probe: () => data(dashboardReadinessExpression()),
+    // Registry and selected-task reads finish independently. Snapshot focus
+    // order only after the sidebar's controls have rendered too.
+    probe: () => data(dashboardReadinessExpression({requireInventory: true})),
     wait: () => browser('wait', '250'),
     onTimeout: () => ({
       page_errors: browser('errors').trim() || 'No page errors.',

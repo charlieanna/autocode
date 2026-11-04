@@ -28,6 +28,17 @@ assert.equal(absentGlobal.application_global_declared, false);
 assert.equal(absentGlobal.application_ready, false);
 assert.equal(absentGlobal.status, null);
 
+// A task can render before the independent registry read adds its sidebar
+// controls. Keyboard checks need both reads to finish before taking a snapshot.
+const inventoryProbe = dashboardReadinessExpression({requireInventory: true});
+const inventoryState = {document: documentStub, latestRun: {status: 'RUNNING'}, latestData: null, refreshPromise: {}};
+const probeInventory = () => vm.runInNewContext('(' + inventoryProbe + ')()', inventoryState);
+assert.equal(probeInventory().application_ready, false, 'rendered task alone does not settle the navigation');
+inventoryState.latestData = {runs: [{run: 'one'}]};
+assert.equal(probeInventory().application_ready, false, 'an in-flight render still changes the focus order');
+inventoryState.refreshPromise = null;
+assert.equal(probeInventory().application_ready, true, 'settled registry and task reads permit the focus snapshot');
+
 let eventualProbeCount = 0;
 let eventualWaitCount = 0;
 const eventuallyReady = waitForReadiness({
