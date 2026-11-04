@@ -1,6 +1,8 @@
 """The runner provides a complete, isolated repository for bug reproduction."""
 
+import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -194,6 +196,68 @@ class GitInventoryTests(unittest.TestCase):
             self.assertEqual("ordinary untracked input", (scratch / "component/public.md").read_text())
             self.assertFalse((scratch / "component/output").exists())
             self.assertFalse((scratch / "component/.git").exists())
+
+
+class ReclaimUnusedCopiesTests(unittest.TestCase):
+    """A copy no attempt wrote into holds no evidence, so it must not hold a whole tree for the run (#2606)."""
+
+    def make_copy(self, root, name, *, stamp_age, entry_age):
+        copy = root / name
+        copy.mkdir(parents=True)
+        (copy / "code.py").write_text("copied source")
+        investigation_workspace.stamp(copy)
+        now = time.time()
+        for path in (copy, copy / "code.py"):
+            os.utime(path, (now - entry_age, now - entry_age))
+        os.utime(investigation_workspace.stamp_path(copy), (now - stamp_age, now - stamp_age))
+        return copy
+
+    def test_an_untouched_copy_older_than_the_grace_is_removed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / ".autocode/investigation"
+            root.mkdir(parents=True)
+            stale = self.make_copy(root, "bug-old", stamp_age=900, entry_age=900)
+            self.assertEqual([str(stale)], investigation_workspace.reclaim_unused(root))
+            self.assertFalse(stale.exists())
+            self.assertFalse(investigation_workspace.stamp_path(stale).exists())
+
+    def test_a_copy_an_attempt_wrote_into_is_kept(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / ".autocode/investigation"
+            root.mkdir(parents=True)
+            written = self.make_copy(root, "bug-worked", stamp_age=900, entry_age=10)
+            self.assertEqual([], investigation_workspace.reclaim_unused(root))
+            self.assertTrue((written / "code.py").exists())
+
+    def test_a_recent_untouched_copy_is_left_for_its_own_attempt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / ".autocode/investigation"
+            root.mkdir(parents=True)
+            fresh = self.make_copy(root, "bug-new", stamp_age=10, entry_age=10)
+            self.assertEqual([], investigation_workspace.reclaim_unused(root))
+            self.assertTrue(fresh.exists())
+
+    def test_a_copy_recorded_before_stamps_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / ".autocode/investigation"
+            (root / "bug-unstamped").mkdir(parents=True)
+            self.assertEqual([], investigation_workspace.reclaim_unused(root))
+            self.assertTrue((root / "bug-unstamped").exists())
+
+    def test_a_new_prepare_reclaims_the_earlier_copy_that_no_attempt_used(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "project"
+            workspace.mkdir()
+            (workspace / "code.py").write_text("original")
+            unused = investigation_workspace.prepare(workspace)
+            now = time.time()
+            past = now - investigation_workspace.RECLAIM_GRACE_SECONDS - 60
+            for path in (unused, unused / "code.py"):
+                os.utime(path, (past, past))
+            os.utime(investigation_workspace.stamp_path(unused), (past, past))
+            second = investigation_workspace.prepare(workspace)
+            self.assertFalse(unused.exists(), "an untouched copy is not evidence")
+            self.assertEqual("original", (second / "code.py").read_text())
 
 
 if __name__ == "__main__":
