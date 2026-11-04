@@ -17,13 +17,47 @@ class AnswerOptionTests(unittest.TestCase):
                 self.assertIsNone(answer_options.refusal(QUESTION, text))
                 self.assertEqual(stored, answer_options.offered(QUESTION, text))
 
+    def test_conversational_forms_of_a_label_name_it_and_store_the_offered_label(self):
+        for text, stored in (("cli", "CLI"), ("`CLI`", "CLI"), ("'Web'", "Web"), ("web", "Web")):
+            with self.subTest(text=text):
+                self.assertIsNone(answer_options.refusal(QUESTION, text))
+                self.assertEqual(stored, answer_options.offered(QUESTION, text))
+
+    def test_an_answer_containing_exactly_one_label_names_it(self):
+        question = {
+            "id": "Q1",
+            "options": [
+                "The full-screen terminal chat (today's `autocode chat`)",
+                "The Figma design workflow (today's `autocode ui`)",
+            ],
+        }
+        for text in (
+            "The full-screen terminal chat (today's autocode chat)",
+            "I'd like the Figma design workflow (today's `autocode ui`), please",
+            "the FULL-SCREEN terminal chat (today's `autocode chat`)",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(answer_options.refusal(question, text))
+                self.assertEqual(
+                    "The Figma design workflow (today's `autocode ui`)"
+                    if "figma" in text.casefold()
+                    else "The full-screen terminal chat (today's `autocode chat`)",
+                    answer_options.offered(question, text),
+                )
+
+    def test_an_answer_containing_several_labels_names_none_of_them(self):
+        question = {"id": "Q1", "options": ["The full-screen terminal chat", "The Figma design workflow"]}
+        self.assertIsNotNone(answer_options.refusal(question, "the full-screen terminal chat or the figma design workflow"))
+        with self.assertRaises(ValueError):
+            answer_options.offered(question, "the full-screen terminal chat or the figma design workflow")
+
     def test_text_that_names_no_option_is_refused_with_the_valid_labels(self):
-        for text in ("cli", "CLI please", "Command line"):
+        for text in ("CLI please", "Command line"):
             with self.subTest(text=text), self.assertRaises(ValueError) as refused:
                 answer_options.offered(QUESTION, text)
             self.assertIn("'CLI'; 'Web'; 'CLI, with no server'", str(refused.exception))
             self.assertIn("--feedback TEXT", str(refused.exception))
-        self.assertIn("/feedback TEXT", answer_options.refusal(QUESTION, "cli", feedback="/feedback TEXT"))
+        self.assertIn("/feedback TEXT", answer_options.refusal(QUESTION, "Command line", feedback="/feedback TEXT"))
 
     def test_a_question_without_options_takes_free_text(self):
         for question in ({"id": "Q1", "options": [], "proposed_default": "CLI"}, {"id": "Q1"}):
