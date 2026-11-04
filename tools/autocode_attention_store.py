@@ -98,7 +98,7 @@ def inspect(item_id, workspace, run_dir):
         root = _root(workspace)
         record = _read(root, item_id, workspace, run_dir)
         return {"available": True, "state": "acknowledged" if record else "unread", "receipt": record}
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, RuntimeError):
         return {"available": False, "state": "unknown", "reason": "Local acknowledgement storage could not be verified"}
 
 
