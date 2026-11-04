@@ -1078,6 +1078,66 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(0, client.converse())
         self.assertEqual([["--answer", "RQ=plan"]], client.taken, "not sent as a correction")
 
+    def test_plain_confirmation_uses_the_requirements_review_action(self):
+        for reply in ("yes correct", "Correct.", "Yes, that’s correct!"):
+            with self.subTest(reply=reply):
+                client = ScriptedChat(self.REVIEW, DONE, replies=[reply, "y"])
+                self.addCleanup(client.close)
+                self.assertEqual(0, client.converse())
+                self.assertEqual([["--answer", "RQ=plan"]], client.taken)
+
+    def test_plain_confirmation_also_accepts_the_displayed_planning_spend(self):
+        client = ScriptedChat(self.REVIEW, DONE, replies=["yes correct", "yes correct"])
+        self.addCleanup(client.close)
+        self.assertEqual(0, client.converse())
+        self.assertEqual([["--answer", "RQ=plan"]], client.taken)
+
+    def test_qualified_spend_confirmation_leaves_the_understanding_unapproved(self):
+        client = ScriptedChat(self.REVIEW, DONE, replies=["yes correct", "yes, but do not spend more"])
+        self.addCleanup(client.close)
+        self.assertEqual(2, client.converse())
+        self.assertEqual([], client.taken)
+        self.assertIn("Not started", client.text())
+
+    def test_qualified_confirmation_is_still_requirements_feedback(self):
+        reply = "yes correct, but include stored entries"
+        client = ScriptedChat(self.REVIEW, DONE, replies=[reply])
+        self.addCleanup(client.close)
+        self.assertEqual(0, client.converse())
+        self.assertEqual([["--feedback", reply]], client.taken)
+
+    def test_plain_confirmation_cannot_answer_a_changed_requirements_context(self):
+        client = ScriptedChat(self.REVIEW)
+        self.addCleanup(client.close)
+        replies = iter(("yes correct", "y"))
+
+        def reply(prompt):
+            client.views[0] = {**self.REVIEW, "chat": {**self.REVIEW["chat"], "context": "changed"}}
+            return next(replies)
+
+        client.ask = reply
+        command = actions.named(self.REVIEW, WORKSPACE, RUN)
+        self.assertTrue(client.requirements(self.REVIEW, command))
+        self.assertEqual([], client.taken)
+        self.assertIn("conversation changed meanwhile", client.text())
+
+    def test_requirements_confirmation_phrases_do_not_approve_implementation_plans(self):
+        plan = {"token": "t", "acceptance_criteria": [], "constraints": [], "permission_boundaries": []}
+        view = {
+            "status": "AWAITING_GOAL_APPROVAL",
+            "needs": {"kind": "approve_plan", "token": "t"},
+            "displayed_plan": plan,
+            "next_command": f"AUTOCODE_PLAN_TOKEN=t autocode {PLACE} --approve-plan --plan-token -",
+            "chat": {
+                "context": "plan-context",
+                "input": {"kind": "feedback", "next_command": f"autocode {PLACE} --feedback MESSAGE"},
+            },
+        }
+        client = ScriptedChat(view, DONE, replies=["yes correct"])
+        self.addCleanup(client.close)
+        self.assertEqual(0, client.converse())
+        self.assertEqual([["--feedback", "yes correct"]], client.taken)
+
     def test_a_mode_that_plans_at_once_is_confirmed_before_it_starts(self):
         asked = []
         for mode, replies, expected in (
@@ -2086,6 +2146,40 @@ class TerminalChatTests(unittest.TestCase):
         self.assertRegex(out, r"AutoCode: Approved plan · revision \d+\. /plan shows it\.")
         self.assertTrue(out.rstrip().endswith("Done."), out[-500:])
         self.assertTrue((self.workspace / "greet.py").is_file())
+
+    def test_yes_correct_reaches_plan_review_without_repeating_requirements(self):
+        proc = self.chat(BRIEF, replies="yes correct\nyes correct\n\n")
+        self.assertEqual(2, proc.returncode, proc.stdout + proc.stderr)
+        listed = subprocess.run(
+            [sys.executable, str(AUTOCODE), "runs", "--workspace", str(self.workspace), "--json"],
+            capture_output=True,
+            text=True,
+            env=self.env,
+            check=True,
+        )
+        run = json.loads(listed.stdout)["runs"][0]["run_dir"]
+
+        def status():
+            result = subprocess.run(
+                [sys.executable, str(AUTOCODE), "--workspace", str(self.workspace), "--run-dir", run, "--status"],
+                capture_output=True,
+                text=True,
+                env=self.env,
+                check=True,
+            )
+            raw = json.loads(result.stdout)
+            return raw.get("view", raw)
+
+        view = status()
+        attempts = view["usage"]["accounting"]["attempts"]
+        self.assertEqual(1, sum(row["stage"] == "requirements_gather" for row in attempts))
+        self.assertEqual("AWAITING_GOAL_APPROVAL", view["status"])
+        self.assertIsNotNone(actions.plan_for_approval(view))
+        self.assertFalse(any(row["stage"] == "terra" for row in attempts))
+        self.assertFalse((self.workspace / "greet.py").exists())
+        reopened = status()
+        self.assertEqual(view["usage"], reopened["usage"])
+        self.assertEqual(view["cost"], reopened["cost"])
 
     def test_a_question_is_answered_by_choosing_an_option(self):
         ask_one_question_once(self, self.env)
