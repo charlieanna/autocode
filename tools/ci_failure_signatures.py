@@ -34,7 +34,7 @@ def signatures(output: str, root: Path) -> list[dict[str, str]]:
 
 def result_rows(result) -> list[dict]:
     """Give serial unittest results the same per-module output representation as child runs."""
-    rows = {}
+    rows: dict[str, dict] = {}
     failures = [("FAIL", test, detail) for test, detail in result.failures]
     failures += [("ERROR", test, detail) for test, detail in result.errors]
     failures += [("UNEXPECTED SUCCESS", test, "") for test in result.unexpectedSuccesses]
