@@ -71,6 +71,21 @@ class SettingTests(unittest.TestCase):
             self.assertEqual(review.STAGE, current["next_stage"])
             self.assertEqual([], review.questions(current))
 
+    def test_confirmation_publishes_remaining_scope_before_the_standard_planner(self):
+        from unittest.mock import Mock
+
+        with patch("autocode_catalog_context.context", return_value={"repositories": [{"name": "history"}]}):
+            current = self.catalog_bug()
+            current["settings"]["implementation_flow"] = "standard"
+            current["workflow"] = {"kind": "bugfix"}
+            question = review.review_question(current)
+            current["answers"] = {question["id"]: {"text": "plan"}}
+            queued = Mock()
+            review.after_answers(current, queue=queued)
+            queued.assert_called_once()
+            self.assertEqual("clarification", queued.call_args.args[1])
+            self.assertTrue(queued.call_args.kwargs["questions"][0]["id"].startswith("workspace-scope-"))
+
     def test_confirmed_members_and_joint_tasks_do_not_repeat_the_source_confirmation(self):
         for role in ("member", "joint"):
             with (

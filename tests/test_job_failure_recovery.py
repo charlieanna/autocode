@@ -65,6 +65,10 @@ WRAPPER = r"""import json,os,sys
 from pathlib import Path
 sys.path.insert(0,os.environ['JOB_RUNTIME']+'/tools')
 import autocode
+if os.environ.get('JOB_LEGACY_BUGFIX'):
+ sys.path.insert(0,os.environ['JOB_RUNTIME'])
+ from tests.legacy_bugfix_fixture import install
+ install(autocode)
 try:import autocode_job_source as source
 except ImportError:source=None
 mode=os.environ['JOB_MODE']
@@ -225,6 +229,8 @@ class JobHarness(unittest.TestCase):
 
     def start(self, mode="timeout", workflow="review"):
         self.env["JOB_MODE"] = mode
+        if workflow == "bugfix":
+            self.env["JOB_LEGACY_BUGFIX"] = "1"
         return TaskRun.start(
             self.workspace,
             "Review pr-double.patch against calc.py for built-in integer equivalence.",

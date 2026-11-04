@@ -231,6 +231,18 @@ class RequirementsChatTests(unittest.TestCase):
                 self.assertTrue(chat.recognize_after_approval(state))
                 self.assertEqual(workflows.STAGE, state["next_stage"])
 
+    def test_standard_bugfix_confirmation_starts_planner_for_named_and_pinned_jobs(self):
+        for pinned in (False, True):
+            with self.subTest(pinned=pinned):
+                state = self.named("bugfix")
+                state["settings"]["implementation_flow"] = "standard"
+                if pinned:
+                    state["workflow"]["kind"] = "bugfix"
+                    state["workflow"]["source"] = "user"
+                self.assertNotIn("investigate", review.review_question(state)["question"])
+                chat.recognize_after_approval(state)
+                self.assertEqual("astra_discovery", state["next_stage"])
+
     def test_a_named_question_starts_the_analyst_without_asking_for_approval(self):
         def asked(**change):
             state = self.named("discuss", **change)

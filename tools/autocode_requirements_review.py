@@ -97,6 +97,14 @@ def builds_code(kind: str | None) -> bool:
     return kind not in READ_ONLY_JOBS
 
 
+def confirmation_job(state: RunState) -> str | None:
+    """What the understanding confirmation starts, preserving historical offers."""
+    kind = job(state)
+    if kind == "bugfix" and (state.get("settings") or {}).get("implementation_flow") == "standard":
+        return "build"
+    return kind
+
+
 # What approving the understanding starts, by job; anything not listed is planned as a build.
 CONFIRMATION = {
     "bugfix": "Approve this understanding to investigate the bug and prepare a reviewed fix plan, "
@@ -132,6 +140,7 @@ def review_question(state: RunState) -> dict:
     # only excluded work. Its treatment is explained by the saved summary.
     statements = report.get("ignored_statements") or []
     notes = str(report.get("summary") or "").strip() if statements else ""
+    kind = confirmation_job(state)
     text = "\n".join(
         [
             "Here’s what I understand. Does this match what you want?",
@@ -145,7 +154,7 @@ def review_question(state: RunState) -> dict:
             *_lines("Assumptions", assumptions),
             "",
             CONFIRMATION.get(
-                job(state) or "", "Approve this understanding to prepare a reviewed plan, or tell me what to change."
+                kind or "", "Approve this understanding to prepare a reviewed plan, or tell me what to change."
             ),
         ]
     )
@@ -254,7 +263,7 @@ def recover_scope(state: RunState, queue) -> None:
     wait(state, record, queue)
 
 
-def after_answers(state: RunState) -> None:
+def after_answers(state: RunState, *, queue=None) -> None:
     """A review answer other than 'plan', or the answers to a questions-only handoff, are new requirements
     input: Requirements runs again, not the Planner."""
     if state.get("goal_contract") or state.get("pending_questions") or not state.get("requirements_handoff"):
@@ -268,3 +277,7 @@ def after_answers(state: RunState) -> None:
         needs_refresh = questions_only(_report(state))
     if needs_refresh and state.get("next_stage") == NEXT:
         state.update({"next_stage": STAGE, "phase": "DISCOVERING"})
+    elif queue is not None and state.get("next_stage") == NEXT and questions(state):
+        # Confirmation establishes intent; it cannot settle an independent
+        # repository assignment or business question before the Planner.
+        wait(state, state["requirements_handoff"], queue)

@@ -8,6 +8,29 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_bugfix_policy_keeps_current_sequence_and_legacy_resume_consumers(self):
+        cases = {
+            "tools/autocode_workflows.py": {"tests.test_requirements_first_cli", "tests.test_saved_run_replay_cli"},
+            "tests/legacy_bugfix_fixture.py": {
+                "tests.test_acceptance_tests",
+                "tests.test_job_failure_recovery",
+                "tests.test_job_report_recovery",
+                "tests.test_investigation_progress",
+                "tests.test_bug_job",
+                "tests.test_bug_questions",
+                "tests.test_package_investigator_cli",
+                "tests.test_pilot_investigator_cli",
+                "tests.test_stale_diagnosis_feedback_cli",
+                "tests.test_investigation_handoff_cli",
+                "tests.test_provider_auth_cli",
+            },
+        }
+        for path, consumers in cases.items():
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {name: "" for name in consumers})
+                kept, _ = run_suite.drop_slow(selected, {name: "slow" for name in consumers})
+                self.assertEqual(consumers, set(kept))
+
     def test_coordinated_composer_keeps_real_terminal_message_regression(self):
         consumer = "tests.test_chat_task_messages_cli"
         for path in (

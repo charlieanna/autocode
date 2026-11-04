@@ -19,6 +19,7 @@ from pathlib import Path
 
 from harness.oracle import (
     Check,
+    bugfix_entry,
     changed_since_seed,
     hidden_tests,
     non_stdlib_imports,
@@ -62,7 +63,7 @@ def check(project, scenario, run=None):
     outside = [path for path in changed_since_seed(project) if not path.startswith(PACKAGE + "/") and path != note]
     checks.append(Check("nothing_changed_outside_the_package", not outside, f"changed outside {PACKAGE}/: {outside}"))
     checks += run_checks(
-        run, workflow="bugfix", after_requirements="investigate_bug", plan_approved=True, max_questions=0
+        run, workflow="bugfix", after_requirements=bugfix_entry(run), plan_approved=True, max_questions=0
     )
     checks += investigated_first(run)
     checks += reported(run, outside)
@@ -82,19 +83,19 @@ def runner_note(run):
 
 
 def investigated_first(run):
-    """The Investigator ran, and no model stage but Requirements (or a repair of its report) ran before
-    it. Model stages are the run's ``model_stages`` (runner-owned records left out), else its ``stages``."""
+    """The recorded policy's implementation entry ran immediately after Requirements.
+
+    The historical check name remains stable for saved scenario results. Model stages are the run's ``model_stages`` (runner-owned records left out), else its ``stages``."""
     if run is None:
         return []
     stages = run.get("model_stages")
     if stages is None:
         stages = run.get("stages") or []
-    if "investigate_bug" not in stages:
-        return [Check("investigated_first", False, f"no Investigator stage ran: {stages}")]
+    entry = bugfix_entry(run)
+    if entry not in stages:
+        return [Check("investigated_first", False, f"no {entry} stage ran: {stages}")]
     early = [
-        stage
-        for stage in stages[: stages.index("investigate_bug")]
-        if str(stage).removesuffix("_report_repair") != REQUIREMENTS
+        stage for stage in stages[: stages.index(entry)] if str(stage).removesuffix("_report_repair") != REQUIREMENTS
     ]
     return [Check("investigated_first", not early, f"ran before the Investigator: {early}" if early else "")]
 

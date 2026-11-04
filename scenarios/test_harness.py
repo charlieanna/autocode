@@ -4466,7 +4466,7 @@ class FakeRunTests(unittest.TestCase):
                 self.assertLessEqual(result["metrics"]["model_stages"], ceiling, result["metrics"]["model_stage_names"])
                 self.assertGreater(result["wall_seconds"], 0)
 
-    def test_bugfix_completes_with_runner_diagnosis_outside_builder_scope(self):
+    def test_bugfix_completes_through_standard_planning_without_a_separate_investigator(self):
         with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
             args = argparse.Namespace(
                 fake=True,
@@ -4477,11 +4477,10 @@ class FakeRunTests(unittest.TestCase):
                 max_steps=None,
                 timeout_minutes=10,
             )
-            result = run.run_one(
-                catalog.load("bugfix-trivial"), args, extra_env={"SCENARIO_FAKE_REQUIRE_DIAGNOSIS_PROVENANCE": "1"}
-            )
+            result = run.run_one(catalog.load("bugfix-trivial"), args)
             self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
-            self.assertIn("investigate_bug", result["metrics"]["model_stage_names"])
+            self.assertNotIn("investigate_bug", result["metrics"]["model_stage_names"])
+            self.assertIn("astra_discovery", result["metrics"]["model_stage_names"])
             self.assertIn("astra_review", result["metrics"]["model_stage_names"])
             self.assertEqual(0, result["metrics"]["report_repairs"])
 

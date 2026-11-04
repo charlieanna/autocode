@@ -199,6 +199,12 @@ BUILD_STAGES = ("orchestrator", "astra_plan", "terra")
 RUNNER_STAGES = ("orchestrator",)
 
 
+def bugfix_entry(run: dict | None) -> str:
+    """Expected bug-fix entry under the run's public saved launch policy."""
+    settings = (((run or {}).get("view") or {}).get("related_profile") or {}).get("settings") or {}
+    return "astra_discovery" if settings.get("implementation_flow") == "standard" else "investigate_bug"
+
+
 def run_checks(
     run: dict | None,
     *,

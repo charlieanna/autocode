@@ -68,6 +68,14 @@ if packet.get('stage')=='astra_discovery':
                 'for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"):os.environ.pop(key,None)\nimport autocode\n',
             )
         )
+        self.wrapper.write_text(
+            self.wrapper.read_text().replace(
+                "import autocode\n",
+                "import autocode\n"
+                "sys.path.insert(0,os.environ['JOB_RUNTIME'])\n"
+                "from tests.legacy_bugfix_fixture import install\ninstall(autocode)\n",
+            )
+        )
         codex_home = self.workspace / ".autocode/codex-home"
         codex_home.mkdir()
         self.env.update(CODEX_HOME=str(codex_home), OPENAI_API_KEY="", CODEX_API_KEY="", OPENAI_BASE_URL="")
