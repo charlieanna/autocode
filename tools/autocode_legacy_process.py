@@ -55,7 +55,9 @@ def _readonly_runner_command(command):
     if script >= len(argv) or os.path.basename(argv[script]) != "autocode.py":
         return False
     args = argv[script + 1 :]
-    if args[:2] == ["intervention", "inspect"]:
+    if args[:2] == ["coordinate", "status"]:
+        reader, index = "coordinate-status", 2
+    elif args[:2] == ["intervention", "inspect"]:
         reader, index = "inspect", 2
     elif args and args[0] in ("--status", "--dry-run"):
         reader, index = args[0], 1
@@ -67,7 +69,7 @@ def _readonly_runner_command(command):
     while index < len(args):
         option, separator, value = args[index].partition("=")
         if option == "--json" and not separator:
-            if reader != "inspect" or as_json:
+            if reader not in ("inspect", "coordinate-status") or as_json:
                 return False
             as_json = True
             index += 1
@@ -89,6 +91,8 @@ def _readonly_runner_command(command):
             return False
         paths[option] = value
         index += 1
+    if reader == "coordinate-status":
+        return set(paths) == {"--run-dir"} and as_json
     return set(paths) == {"--workspace", "--run-dir"} and (reader != "inspect" or as_json)
 
 

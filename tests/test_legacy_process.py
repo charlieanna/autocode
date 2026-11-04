@@ -71,6 +71,23 @@ class RunnerCommandTests(unittest.TestCase):
             )
         )
 
+    def test_coordinator_status_is_a_reader_but_its_mutating_actions_still_block(self):
+        for args in (
+            "coordinate status --run-dir /ws/run --json",
+            "coordinate status --json --run-dir=/ws/run",
+        ):
+            self.assertFalse(legacy.duplicate_runner_command(f"{RUNNER} {args}"))
+        for args in (
+            "coordinate advance --run-dir /ws/run --json",
+            "coordinate approve --run-dir /ws/run --token t --json",
+            "coordinate status --run-dir /ws/run --json --resume-paused",
+            "coordinate status --run-dir relative --json",
+            "coordinate status --run-dir /ws/run --run-dir /ws/other --json",
+            "coordinate status --run-dir /ws/run --json --json",
+            "coordinate status --workspace /ws/project --run-dir /ws/run --json",
+        ):
+            self.assertTrue(legacy.duplicate_runner_command(f"{RUNNER} {args}"))
+
     def test_python_bytecode_and_buffering_switches_are_structural(self):
         self.assertFalse(
             legacy.duplicate_runner_command(f"/usr/bin/python3 -B -u /ws/autocode/tools/autocode.py --status {PATHS}")
@@ -280,6 +297,10 @@ class LiveProcessGuardTests(unittest.TestCase):
         with self.assertRaisesRegex(legacy.Paused, f"Existing run process {pid} is active") as caught:
             legacy.assert_no_legacy_process(self.run, self.workspace)
         self.assertEqual("PAUSED_WORKSPACE_BUSY", caught.exception.status)
+
+    def test_reading_coordination_status_does_not_block_a_source_run_launch(self):
+        self.hold(sys.executable, str(self.autocode), "coordinate", "status", "--run-dir", str(self.run), "--json")
+        legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_an_open_chat_on_the_run_does_not_block_its_next_action(self):
         self.hold(sys.executable, str(self.autocode), "chat", *self.paths)
