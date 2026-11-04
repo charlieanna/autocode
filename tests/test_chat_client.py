@@ -1239,6 +1239,55 @@ class ConversationTests(unittest.TestCase):
             chat.open_chat(WORKSPACE, ask=lambda prompt: "3", say=said.append)
         self.assertEqual(2, len({line for line in said if "Add a --shout flag" in line}))
 
+    def test_a_number_at_the_first_question_opens_that_earlier_chat(self):
+        """Typing the number /runs just showed started a run whose task was that number."""
+
+        def run(n, bucket, title, day):
+            return {
+                "name": f"202610{day}-chat-{n}",
+                "run_dir": f"{WORKSPACE}/.autocode/runs/r{n}",
+                "workspace": str(WORKSPACE),
+                "bucket": bucket,
+                "title": title,
+                "updated_at": f"2026-10-{day}T10:00:00",
+            }
+
+        earlier = [run(1, "complete", "Fix the typo", "01"), run(2, "complete", "Old dashboard", "10")]
+        said, asked = [], []
+        replies = iter(["2"])
+        with (
+            mock.patch.object(chat, "project_runs", return_value=earlier),
+            mock.patch.object(chat, "start", side_effect=AssertionError("a number must not start a run")),
+        ):
+            client = chat.open_chat(
+                WORKSPACE, ask=lambda prompt: asked.append(prompt) or next(replies), say=said.append, hint=True
+            )
+        self.assertEqual(Path(earlier[0]["run_dir"]), client.run_dir, "2 is the newest, as /runs numbers it")
+        self.assertEqual(["What do you want done? "], asked)
+        self.assertIn("2 earlier chats here. Type /runs to see them.", said)
+
+    def test_an_out_of_range_number_at_the_first_question_still_asks_not_runs_it(self):
+        earlier = [
+            {
+                "name": "20261001-chat-1",
+                "run_dir": f"{WORKSPACE}/.autocode/runs/r1",
+                "workspace": str(WORKSPACE),
+                "bucket": "complete",
+                "title": "Fix the typo",
+                "updated_at": "2026-10-01T10:00:00",
+            }
+        ]
+        said = []
+        replies = iter(["7", ""])
+        with (
+            mock.patch.object(chat, "project_runs", return_value=earlier),
+            mock.patch.object(chat, "start", side_effect=AssertionError("an out-of-range number must not start a run")),
+        ):
+            client = chat.open_chat(WORKSPACE, ask=lambda prompt: next(replies), say=said.append, hint=True)
+        self.assertIsNone(client, "the person left instead of starting a task")
+        self.assertIn("There is no chat 7. Type /runs to see them, then its number or /open 7.", said)
+        self.assertIn("Nothing started.", said)
+
     def test_a_failing_run_listing_is_reported_not_taken_for_an_empty_project(self):
         broken = subprocess.CompletedProcess([], 2, "", "Traceback: registry unreadable")
         with mock.patch.object(chat.subprocess, "run", return_value=broken):
