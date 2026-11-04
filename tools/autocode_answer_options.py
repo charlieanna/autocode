@@ -1,7 +1,9 @@
 """Which answers a clarifying question accepts (#1013).
 
 A question that offers ``options`` is a choice among things AutoCode will act on, so an answer
-must name one of them, or the question's ``proposed_default``. A question without options takes
+must name one of them, or the question's ``proposed_default``. Formatting differences in a
+complete label are ignored: markdown backticks, surrounding quotes, apostrophe shape, case and
+spacing. Free-form conversation requires interpretation, not a substring match. A question without options takes
 any nonempty text. Pure: imports nothing from AutoCode, so every answer surface (``--answer``,
 ``TaskRun.answer()``, ``--chat``) applies the same rule through ``autocode_goals.answer``.
 """
@@ -18,10 +20,28 @@ def labels(question):
     return offered
 
 
+def _normalized(text):
+    """One comparison form: markdown ticks, quotes, apostrophe shape, case and spacing ignored."""
+    plain = text.replace("`", "").replace("\u2019", "'").strip().strip("'\"").strip()
+    return " ".join(plain.casefold().split())
+
+
+def _named(valid, text):
+    """Match a complete label, preserving exact choices before normalizing their formatting."""
+    exact = [label for label in valid if label.strip() == text.strip()]
+    if len(exact) == 1:
+        return exact[0]
+    answer = _normalized(text)
+    if not answer:
+        return None
+    matches = [label for label in valid if _normalized(label) == answer]
+    return matches[0] if len(matches) == 1 else None
+
+
 def refusal(question, text, *, feedback="--feedback TEXT"):
     """Why ``text`` does not answer ``question``; None when it does."""
     valid = labels(question)
-    if not valid or text.strip() in {label.strip() for label in valid}:
+    if not valid or _named(valid, text) is not None:
         return None
     return (
         f"{question['id']} offers options; answer with one of these labels exactly: "
@@ -31,11 +51,12 @@ def refusal(question, text, *, feedback="--feedback TEXT"):
 
 
 def offered(question, text):
-    """The offered label ``text`` names (surrounding spaces ignored), or ``text`` for a free-text question.
+    """The offered label ``text`` names, or ``text`` for a free-text question.
 
     Raises ValueError, naming the valid labels, for any other answer.
     """
-    problem = refusal(question, text)
-    if problem:
-        raise ValueError(problem)
-    return next((label for label in labels(question) if label.strip() == text.strip()), text)
+    valid = labels(question)
+    match = _named(valid, text) if valid else None
+    if valid and match is None:
+        raise ValueError(refusal(question, text))
+    return match or text
