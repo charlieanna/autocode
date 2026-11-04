@@ -334,7 +334,7 @@ def _project(state: RunState, *, run_dir=None):
                 }
             )
         elif kind == "gate_message":
-            match = {"kind": "approve_plan"}
+            match: dict = {"kind": "approve_plan"}
             if event.get("gate_kind") == "requirements":
                 fields = ("id", "question", "why", "options", "proposed_default")
                 match = {

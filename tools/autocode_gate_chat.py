@@ -67,13 +67,13 @@ def offer(state: RunState):
     """Expose only a current gate and its latest still-applicable interpretation."""
     if not (state.get("settings") or {}).get("spec_first") or pending(state):
         return None
-    kind = {"WAITING_FOR_USER": "requirements", "AWAITING_GOAL_APPROVAL": "plan"}.get(state.get("status"))
+    kind = {"WAITING_FOR_USER": "requirements", "AWAITING_GOAL_APPROVAL": "plan"}.get(state.get("status", ""))
     binding = _binding(state, kind)
     if not binding:
         return None
     if kind == "requirements" and state.get("pending_questions") != [review.review_question(state)]:
         return None
-    event = next(
+    event: dict = next(
         (row for row in reversed(state.get("user_events") or []) if row.get("actor") not in ("core", "runner")), {}
     )
     decision = None
