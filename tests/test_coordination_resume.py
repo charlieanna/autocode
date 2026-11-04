@@ -192,6 +192,27 @@ class CoordinationResumeTests(unittest.TestCase):
         with self.assertRaisesRegex(store.CoordinationError, "planning allowance"):
             budget.envelope(saved["budget"], [self.view], self.member["run_dir"])
 
+    def test_public_null_cap_recovers_unknown_spend_only_with_explicit_zero(self):
+        saved = copy.deepcopy(self.document)
+        saved["budget"] = budget.initial({"cost": {"cap_usd": None, "spent_usd": 1, "complete": False}})
+        store.save(saved)
+        self.view["cost"]["complete"] = False
+        offer = self.offered()
+        self.assertEqual("coordination_resume", offer["kind"])
+        self.assertFalse(offer["complete"])
+        self.assertEqual(5, offer["known_spent_usd"])
+        self.assertEqual(0, offer["current_cap_usd"])
+        self.assertEqual(2, self.cli(offer["token"], 12)[0])
+        self.assertEqual("coordination_resume", self.offered()["kind"])
+
+        code, result = self.cli(offer["token"], 0)
+        self.assertEqual(0, code, result)
+        member = next(row for row in result["accounting"]["runs"] if row["run_dir"] == self.member["run_dir"])
+        self.assertEqual(4, member["cost"]["spent_usd"])
+        self.assertFalse(member["cost"]["complete"])
+        self.worker.advance.assert_not_called()
+        self.worker.resume_paused.assert_not_called()
+
     def test_uncapped_recovery_preserves_unknown_cost_and_a_reconciled_retry_hold(self):
         saved = store.read(self.anchor)
         saved["budget"]["cap_usd"] = 0
