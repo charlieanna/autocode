@@ -1918,7 +1918,7 @@
 
 
 <h1 id="replay-a-saved-run">Replay a saved run<a class="headerlink" href="#replay-a-saved-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/8892b181466ed0b102a157fe122b52bc1f2f8afc/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/c66089f2c03b86b48db239bbb4400ef4d19d96d4/README.md">← Back to README</a></p>
 <p>Replay drives a fresh AutoCode task run with a saved brief, model routes and
 provider events. It makes no model calls. Normal replay runs the current
 verification checks again; a previous PASS cannot establish a current PASS.
@@ -1973,6 +1973,11 @@ replay re-derives the current value from that identity. A citation of the proof
 file itself binds to the replay's own proof, whatever its directory is named. A
 gap whose file, bytes or line differ in the replay is not rebound, and a replay whose Tester runs
 without a current changed-line proof refuses rather than guess.
+Planning references (<code>retain_contract</code>, <code>revise_contract</code> and a criteria delta's
+<code>retain_from</code>) likewise bind only when they match the original dispatch's exact
+contract revision and hash. Replay derives their new value from the current
+runner schema and verifies its contract hash. Stale references remain stale;
+prose and unrelated fields are never rewritten.
 The archived check commands compare without the interpreter's location: <code>/usr/bin/python3 -m
 unittest discover -v</code> on the recording host is the same obligation as the replay host's own
 <code>python3</code>.</p>
