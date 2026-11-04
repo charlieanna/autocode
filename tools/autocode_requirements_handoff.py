@@ -182,6 +182,24 @@ def outcome_question(state: RunState) -> dict:
 
 def accept_chat(state: RunState, value: dict, record: dict, *, queue) -> bool:
     """Answer a plan message or forward an actual correction through normal review."""
+    if plan_chat.gate_chat.pending(state):
+        event = plan_chat.gate_chat.accept(state, value, record)
+        if event["intent"] == "change":
+            goals.feedback(state, event["text"], interpret=False)
+            state["brief_feedback"][-1]["reply_after"] = event["reply_after"]
+            event["forwarded"] = True
+        elif event["gate_kind"] == "requirements":
+            requirements_review.wait(state, state["requirements_handoff"], queue)
+        else:
+            queue(
+                state,
+                "goal_approval",
+                {"stage": event["stage"], "output": record.get("output")},
+                status="AWAITING_GOAL_APPROVAL",
+                phase="AWAITING_GOAL_APPROVAL",
+                next_stage=event["return_stage"],
+            )
+        return True
     if not plan_chat.pending(state):
         return False
     event = plan_chat.accept(state, value, record)

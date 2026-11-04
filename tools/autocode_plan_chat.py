@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_contract_identity as identity
+    from . import autocode_gate_chat as gate_chat
     from . import autocode_message_context as message_context
     from . import autocode_prompts as prompts
     from . import autocode_run_messages as run_messages
@@ -22,6 +23,7 @@ try:
     from . import autocode_util as util
 except ImportError:
     import autocode_contract_identity as identity
+    import autocode_gate_chat as gate_chat
     import autocode_message_context as message_context
     import autocode_prompts as prompts
     import autocode_run_messages as run_messages
@@ -71,6 +73,8 @@ def _check_plan(state: RunState, selected, *, held=False):
 
 def begin(state: RunState, text: str) -> bool:
     """Interpret a plan message at approval or its approved acceptance-test hold."""
+    if gate_chat.begin(state, text):
+        return True
     held = state.get("status") == "PAUSED_ACCEPTANCE_TESTS"
     if (
         not (state.get("settings") or {}).get("spec_first")

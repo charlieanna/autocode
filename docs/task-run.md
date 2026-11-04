@@ -506,7 +506,19 @@ This confirms the understanding and starts the job Requirements named: plan
 preparation and review for a build, the investigation for a bug fix, the review
 or the design work. The `label` and `spend_confirmation` say which.
 The resulting execution plan still needs its own displayed-token approval.
-The optional `review.spend_confirmation` supplies the modal's `title`, `detail`
+`chat.gate` identifies a conversational understanding or plan approval. Typed
+replies go through `chat.input`, including approvals, rejections, questions and
+qualified replies. Requirements interprets replies to its understanding; the
+saved Plan Reviewer interprets replies to its reviewed plan. This bounded exchange
+uses saved evidence without rediscovering repositories or rewriting the plan.
+The returned `gate.decision`, when present, binds the interpreted confirmation to
+that gate. The client rechecks the conversation context and gate, then submits
+the existing named answer or exact-token plan approval action. Interpretation
+alone neither approves implementation nor changes spending limits. A requested
+change goes through the normal planning and review gates; discussion preserves
+the current artifact. Clients show the planning-spend detail before inviting a
+conversational understanding reply, rather than asking for a second yes/no reply.
+For clients without conversational gates, the optional `review.spend_confirmation` supplies the modal's `title`, `detail`
 and confirm-button `label` before submitting that review's planning answer.
 `match: "trim_lower"` mechanically matches the answer after whitespace trimming
 and lowercasing, as the core does; corrections do not trigger the planning modal.

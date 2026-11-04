@@ -333,6 +333,20 @@ def _project(state: RunState, *, run_dir=None):
                     },
                 }
             )
+        elif kind == "gate_message":
+            match = {"kind": "approve_plan"}
+            if event.get("gate_kind") == "requirements":
+                fields = ("id", "question", "why", "options", "proposed_default")
+                match = {
+                    "kind": "answer",
+                    "questions": [
+                        {key: deepcopy(question.get(key)) for key in fields}
+                        for question in event.get("questions") or []
+                    ],
+                }
+            actions.append(
+                {"before_dispatch": anchor, "kind": "feedback", "match": match, "payload": {"text": event["text"]}}
+            )
         elif kind in ("answer", "delegated", "checkpoint_answer"):
             question = event.get("question") or {}
             fields = ("id", "question", "why", "options", "proposed_default")

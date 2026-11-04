@@ -53,6 +53,14 @@ def awaiting_approval(state: RunState, **fields) -> RunState:
     return state
 
 
+def waiting_for_user(state: RunState, phase: str, **fields) -> RunState:
+    """Return a conversation to its current question without answering it."""
+    _check_fields(fields)
+    state.update({"status": "WAITING_FOR_USER", "phase": phase, **cast("RunState", fields)})
+    state.pop("stop_reason", None)
+    return state
+
+
 # How the stop reason of a run AutoCode ended itself begins (autocode_stop.end, #2485). Named here, the
 # leaf module, so the stop policy, the explanation and the pause category read one value.
 ENDED_PREFIX = "AutoCode could not finish this task: "

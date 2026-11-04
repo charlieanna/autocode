@@ -8,6 +8,16 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_source_recovery_keeps_its_no_provider_public_regression(self):
+        self.assertIn(
+            "tests.test_coordination_request_cli",
+            dependencies.dependencies("tools/autocode_coordination_request_runtime.py"),
+        )
+
+    def test_gate_interpretation_keeps_its_public_cli_regression(self):
+        for path in ("tools/autocode_gate_chat.py", "tools/prompts/gate-chat.md", "tools/autocode_chat_client.py"):
+            self.assertIn("tests.test_gate_chat_cli", dependencies.dependencies(path))
+
     def test_requirements_confirmation_keeps_the_public_chat_consumer(self):
         consumers = {"tests.test_chat_confirmation", "tests.test_chat_client"}
         selected = run_suite.select_tests(["tools/autocode_chat_confirmation.py"], {name: "" for name in consumers})

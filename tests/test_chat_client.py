@@ -2129,13 +2129,12 @@ class TerminalChatTests(unittest.TestCase):
         return {row["question_id"]: row["text"] for row in rows if row.get("kind") == "answer"}
 
     def test_a_person_confirms_the_understanding_approves_the_plan_and_the_run_completes(self):
-        proc = self.chat(BRIEF, replies="y\ny\ny\n\n")
+        proc = self.chat(BRIEF, replies="y\ny\n\n")
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         out = proc.stdout
-        self.assertIn("Approve understanding and prepare plan? [y/N]", out)
-        # The core's spend confirmation, as the extension's modal shows it, before paid planning.
-        self.assertIn("Prepare a reviewed plan?\nPlanning uses your selected models and saved limits.", out)
-        self.assertIn("Prepare plan? [y/N]: ", out)
+        self.assertIn("Approve understanding and prepare plan?", out)
+        self.assertIn("Planning uses your selected models and saved limits.", out)
+        self.assertNotIn("Prepare plan? [y/N]: ", out)
         self.assertNotIn(chat.LAUNCH_WARNING, out, "Full mode confirms at planning, not at launch")
         self.assertIn("Plan to approve:\n  [C1] Greeting contract holds", out)
         self.assertLess(out.index("Plan to approve:"), out.index("The requested task is complete."))
@@ -2148,7 +2147,7 @@ class TerminalChatTests(unittest.TestCase):
         self.assertTrue((self.workspace / "greet.py").is_file())
 
     def test_yes_correct_reaches_plan_review_without_repeating_requirements(self):
-        proc = self.chat(BRIEF, replies="yes correct\nyes correct\n\n")
+        proc = self.chat(BRIEF, replies="yes correct\n")
         self.assertEqual(2, proc.returncode, proc.stdout + proc.stderr)
         listed = subprocess.run(
             [sys.executable, str(AUTOCODE), "runs", "--workspace", str(self.workspace), "--json"],
@@ -2172,7 +2171,12 @@ class TerminalChatTests(unittest.TestCase):
 
         view = status()
         attempts = view["usage"]["accounting"]["attempts"]
-        self.assertEqual(1, sum(row["stage"] == "requirements_gather" for row in attempts))
+        self.assertEqual(2, sum(row["stage"] == "requirements_gather" for row in attempts))
+        prompts = [
+            json.loads(p.read_text().split("CURRENT HANDOFF DATA\n", 1)[1])
+            for p in Path(run).glob("iterations/*/requirements-gather-*.prompt.md")
+        ]
+        self.assertEqual(1, sum(bool(p.get("message", {}).get("gate_kind")) for p in prompts))
         self.assertEqual("AWAITING_GOAL_APPROVAL", view["status"])
         self.assertIsNotNone(actions.plan_for_approval(view))
         self.assertFalse(any(row["stage"] == "terra" for row in attempts))
@@ -2183,10 +2187,12 @@ class TerminalChatTests(unittest.TestCase):
 
     def test_a_question_is_answered_by_choosing_an_option(self):
         ask_one_question_once(self, self.env)
-        # Requirements first (the only mode since 2026-10-22): confirm, prepare the plan, answer, approve.
-        proc = self.chat(BRIEF, replies="y\ny\n2\ny\n\n")
+        # Requirements interprets confirmation, then the Planner asks, then the person approves.
+        proc = self.chat(BRIEF, replies="y\n2\ny\n\n")
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
-        self.assertLess(proc.stdout.index("Prepare plan? [y/N]"), proc.stdout.index("Should the README target"))
+        self.assertLess(
+            proc.stdout.index("Approve understanding and prepare plan?"), proc.stdout.index("Should the README target")
+        )
         self.assertEqual(1, proc.stdout.count("Should the README target beginners"), "the question is asked once")
         self.assertIn("  2. Experienced Python users", proc.stdout)
         self.assertEqual("Experienced Python users", self.answers()["readme-audience"])
@@ -2194,7 +2200,7 @@ class TerminalChatTests(unittest.TestCase):
     def test_a_correction_at_an_option_question_is_saved_as_feedback_without_approval(self):
         ask_one_question_once(self, self.env)
         correction = "The question needs to reflect the current draft."
-        proc = self.chat(BRIEF, replies="y\ny\n" + correction + "\n")
+        proc = self.chat(BRIEF, replies="y\n" + correction + "\n")
         self.assertEqual(2, proc.returncode, proc.stdout + proc.stderr)
         self.assertNotIn("Input rejected", proc.stdout)
         events = subprocess.run(
@@ -2213,10 +2219,10 @@ class TerminalChatTests(unittest.TestCase):
         (self.workspace / ".autocode").mkdir(exist_ok=True)
         saved = {"mode": "quick", "options": list(FIXTURE_OPTIONS)}  # kept by a chat before 2026-10-22
         (self.workspace / ".autocode" / "chat-settings.json").write_text(json.dumps(saved), encoding="utf-8")
-        proc = self.chat(BRIEF, replies="y\ny\ny\n\n", options=())
+        proc = self.chat(BRIEF, replies="y\ny\n\n", options=())
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         self.assertNotIn("no run mode", proc.stderr)
-        self.assertIn("Approve understanding and prepare plan? [y/N]", proc.stdout, "Requirements comes first")
+        self.assertIn("Approve understanding and prepare plan?", proc.stdout, "Requirements comes first")
         self.assertTrue((self.workspace / "greet.py").is_file())
 
         explicit = self.chat("--mode", "quick", BRIEF, options=())
@@ -2226,7 +2232,7 @@ class TerminalChatTests(unittest.TestCase):
         )
 
     def test_leaving_at_the_plan_changes_nothing_and_chat_picks_the_run_up_again(self):
-        left = self.chat(BRIEF, replies="y\ny\n")
+        left = self.chat(BRIEF, replies="y\n")
         self.assertEqual(2, left.returncode, left.stdout + left.stderr)
         self.assertIn("Left the chat; the run is unchanged.", left.stdout)
         self.assertNotIn("autocode chat --run-dir", left.stdout)
@@ -2238,14 +2244,14 @@ class TerminalChatTests(unittest.TestCase):
         self.assertTrue((self.workspace / "greet.py").is_file())
 
     def test_with_nothing_open_the_chat_asks_what_to_do_and_starts_it(self):
-        proc = self.chat(replies=BRIEF + "\ny\ny\ny\n\n")
+        proc = self.chat(replies=BRIEF + "\ny\ny\n\n")
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         self.assertTrue(proc.stdout.startswith("What do you want done? "), proc.stdout[:200])
         self.assertTrue((self.workspace / "greet.py").is_file())
 
     def test_with_several_runs_open_the_person_picks_one(self):
         for _ in range(2):
-            self.assertEqual(2, self.chat(BRIEF, replies="y\ny\n").returncode)
+            self.assertEqual(2, self.chat(BRIEF, replies="y\n").returncode)
         proc = self.chat(replies="2\ny\n\n", options=())
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         self.assertIn("Runs waiting here:\n  1. ", proc.stdout)
@@ -2305,7 +2311,7 @@ class TerminalChatTests(unittest.TestCase):
             rows=24,
             tmux=require_tmux(self),
         ) as screen:
-            for prompt in ("Approve understanding and prepare plan?", "Prepare plan?"):
+            for prompt in ("Approve understanding and prepare plan?",):
                 screen.wait_for(prompt)
                 screen.type("y")
                 screen.keys("Enter")
@@ -2340,7 +2346,7 @@ class TerminalChatTests(unittest.TestCase):
             *FIXTURE_OPTIONS,
         ]
         with TerminalScreen(argv, cwd=self.workspace, env=self.env, cols=100, rows=20, tmux=tmux) as screen:
-            for gate in ("Approve understanding", "Prepare plan?"):
+            for gate in ("Approve understanding",):
                 screen.wait_for(gate, 300)
                 screen.type("y")
                 screen.keys("Enter")

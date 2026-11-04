@@ -54,6 +54,10 @@ class StaleDiagnosisFeedbackCliTests(unittest.TestCase):
         amendment = textwrap.dedent(f"""
             _ordinary_report_for = report_for
             def report_for(stage, data):
+                if (data.get("message") or {{}}).get("kind") == "gate_message":
+                    return {{"message_id": data["message"]["id"],
+                            "gate_token": data["message"]["gate_token"],
+                            "intent": "change", "assistant_reply": "I will correct the T4 preservation requirement."}}
                 if stage == "requirements_gather" and data.get("message"):
                     return {{"message_id": data["message"]["id"],
                             "contract_token": data["message"]["contract_token"],

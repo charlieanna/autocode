@@ -803,6 +803,24 @@ def main() -> int:
         for entry in data.get("scope_exclusions_required") or []:
             if entry not in contract["scope_exclusions"]:
                 contract["scope_exclusions"] = [*contract["scope_exclusions"], entry]
+    if (message := data.get("message") or {}).get("gate_kind"):
+        # Scripted interpretation for the public chat fixtures, not production language policy.
+        text = message["text"].strip().casefold()
+        intent = (
+            "confirm"
+            if text in ("y", "yes", "plan", "yes correct")
+            else "decline"
+            if text in ("n", "no")
+            else "question"
+            if text.endswith("?")
+            else "change"
+        )
+        report = {
+            "message_id": message["id"],
+            "gate_token": message["gate_token"],
+            "intent": intent,
+            "assistant_reply": "Offline fixture: interpreted the reply to the displayed decision.",
+        }
     output = Path(sys.argv[sys.argv.index("-o") + 1])
     output.write_text(json.dumps(report))
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)

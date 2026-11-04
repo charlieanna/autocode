@@ -1409,16 +1409,26 @@ class ChatClient:
         plan = actions.plan_for_approval(view)
         if not token or plan is None:
             raise actions.ClientGap("The complete plan is unavailable, so it cannot be approved here.")
-        self.say("\n" + render_plan(plan))
+        gate = (view.get("chat") or {}).get("gate")
+        if not gate or token not in self._shown_plans:
+            self.say("\n" + render_plan(plan))
         self._shown_plans.add(token)
         if hint := changeset.approval_hint(view):
             self.say(hint)
         context = (view.get("chat") or {}).get("context") or ""
+        if gate and gate.get("decision"):
+            return self.apply_gate_decision(view)
         self._approval_open = True
         try:
-            reply = self.ask("\nApprove this plan? [y/N], or type what to change: ")
+            reply = self.ask(
+                "\nApprove this plan? You can also ask a question or request a change: "
+                if gate
+                else "\nApprove this plan? [y/N], or type what to change: "
+            )
         finally:
             self._approval_open = False
+        if gate:
+            return bool(reply.strip()) and self.send(reply, context)
         if reply.lower() in YES:
             fresh = self.status()
             if actions.approval_token(fresh) != token:
@@ -1467,6 +1477,15 @@ class ChatClient:
             self._local_echoes.add(("assistant", summary))
             self._asked.add(summary)
             self.say(f"\nAutoCode: {summary}")
+        if chat.get("gate"):
+            if chat["gate"].get("decision"):
+                return self.apply_gate_decision(view)
+            if detail := ((review or {}).get("spend_confirmation") or {}).get("detail"):
+                self.say(detail)
+            reply = self.ask(
+                f"\n{review['label']}? You can also ask a question or request a change: " if review else "\nYou: "
+            )
+            return bool(reply.strip()) and self.send(reply, context)
         prompt = "\nYou: " if not review else f"\n{review['label']}? [y/N], or type what to change: "
         reply = self.ask(prompt)
         if review and (confirmations.affirmative(reply) or same_answer(reply, review)):
@@ -1484,6 +1503,29 @@ class ChatClient:
             self.say("Nothing sent. The chat is available from your run list.")
             return False
         return self.send(reply, context)
+
+    def apply_gate_decision(self, view: dict) -> bool:
+        """Consume an agent interpretation through the unchanged, freshly named gate action."""
+        conversation = view.get("chat") or {}
+        gate = conversation.get("gate") or {}
+        decision = gate.get("decision") or {}
+        if decision.get("intent") != "confirm" or not decision.get("message_id"):
+            raise actions.ClientGap("The core has no interpreted confirmation for this decision")
+        fresh = self.status()
+        latest = fresh.get("chat") or {}
+        if latest.get("context") != conversation.get("context") or latest.get("gate") != gate:
+            self.say("The conversation changed meanwhile; here is where it stands now.")
+            return True
+        command = actions.named(fresh, self.workspace, self.run_dir)
+        if gate.get("kind") == "requirements":
+            review = latest.get("review") or {}
+            if review.get("question_id") != gate.get("token"):
+                raise actions.ClientGap("The confirmation does not match the displayed understanding")
+            command = actions.fill(fresh, command, {review["question_id"]: review["answer"]})
+        elif gate.get("kind") != "plan" or actions.approval_token(fresh) != gate.get("token"):
+            raise actions.ClientGap("The confirmation does not match the displayed plan")
+        self.take(command)
+        return self.continue_after_input()
 
     def answer(self, view: dict, command: actions.NamedCommand, decided: list[actions.Decision]) -> bool:
         answers = {}
