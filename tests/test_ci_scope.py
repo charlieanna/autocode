@@ -345,6 +345,7 @@ class WorkflowGateTests(unittest.TestCase):
                 self.assertNotIn("\n    paths:", workflow)
 
 
+@unittest.skipUnless(os.name == "posix", "these workflow shell steps run on Ubuntu")
 class RedBaseRecoveryTests(unittest.TestCase):
     def step(self, name):
         workflow = (ROOT / ".github/workflows/tests.yml").read_text()

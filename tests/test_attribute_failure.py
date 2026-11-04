@@ -123,6 +123,7 @@ class ClassifyTests(unittest.TestCase):
         self.module("fine", "import unittest\nclass T(unittest.TestCase):\n    def test_x(self):\n        pass\n")
         self.assertEqual(attribute_failure.INTRODUCED, attribute_failure.classify("tests.fine", self.base, 60))
 
+    @unittest.skipUnless(os.name == "posix", "base-attribution workflow uses a POSIX tool fixture")
     def test_base_probe_keeps_test_configuration_and_path_without_comment_credentials(self):
         binary = self.base / "fixture-bin"
         binary.mkdir()
