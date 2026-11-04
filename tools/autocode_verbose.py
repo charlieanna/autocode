@@ -7,13 +7,13 @@ bounded line each to stderr, so an operator can see live activity without
 opening the stage's JSONL event log. Printing is best-effort: a broken stderr
 never fails the stage or the monitor.
 
-Heartbeat lines that repeat verbatim (for example the per-chunk
-"native provider stream advanced" progress) are coalesced like text: the first
-prints at once, further identical repeats within the interval are counted
-silently, and the next line to print carries the count as "(+N similar)".
-Progress heartbeats add no information the periodic activity status lines do
-not already carry, so they are coalesced over a far longer interval than other
-repeated lines.
+Heartbeat lines are not shown at all: the per-chunk "native provider stream
+advanced" progress carries no information the periodic activity status lines do
+not already carry, and liveness still feeds the monitor's watchdogs and the
+JSONL event log unchanged. Other lines that repeat verbatim are coalesced like
+text: the first prints at once, further identical repeats within the interval
+are counted silently, and the next line to print carries the count as
+"(+N similar)".
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ import time
 ENV = "AUTOCODE_VERBOSE"
 MAX_TEXT = 200
 MIN_TEXT_INTERVAL_SECONDS = 1.0
-MIN_PROGRESS_INTERVAL_SECONDS = 30.0
 OFF = ("0", "false", "off", "no")
 
 
@@ -61,6 +60,8 @@ class _Reporter:
 
     def __call__(self, kind, detail):
         try:
+            if kind == "progress":
+                return
             if kind == "text":
                 now = self.clock()
                 if self._last_text_at is not None and now - self._last_text_at < MIN_TEXT_INTERVAL_SECONDS:
@@ -75,11 +76,10 @@ class _Reporter:
                 return
             base = f"{kind}: {detail}"
             now = self.clock()
-            interval = MIN_PROGRESS_INTERVAL_SECONDS if kind == "progress" else MIN_TEXT_INTERVAL_SECONDS
             if (
                 base == self._last_line
                 and self._last_line_at is not None
-                and now - self._last_line_at < interval
+                and now - self._last_line_at < MIN_TEXT_INTERVAL_SECONDS
             ):
                 self._suppressed += 1
                 return
