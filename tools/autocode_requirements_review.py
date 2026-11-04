@@ -174,18 +174,35 @@ def questions(state: RunState) -> list[dict]:
         # Clarify the requested outcome before choosing where its work belongs.
         # This answers no scope question and leaves all discovered parts intact.
         return unresolved
-    # Work that belongs to another repository is settled with the person before any plan, on every flow (#2066).
-    scope = scope_question.question(state)
-    if scope:
-        return [scope]
-    if not state.get("requirements_handoff") or state.get("goal_contract"):
-        return []
     try:
         from . import autocode_catalog_context as source_catalog
         from . import autocode_coordination_context as coordination
     except ImportError:
         import autocode_catalog_context as source_catalog
         import autocode_coordination_context as coordination
+    if (
+        state.get("requirements_handoff")
+        and not state.get("goal_contract")
+        and enabled(state)
+        and job(state) == "bugfix"
+        and not coordination.joint_planning(state)
+        and not coordination.context(state)
+        and source_catalog.context(state)
+    ):
+        # The catalog permits read-only diagnosis, not skipping the source's
+        # requested confirmation. Members inherit that confirmed task intent.
+        review = review_question(state)
+        answer = answered.get(review["id"])
+        if not answer:
+            return [review]
+        if answer.get("text", "").strip().lower() != APPROVE:
+            return []  # after_answers sends the correction back to Requirements
+    # Work that belongs to another repository is settled with the person before any plan, on every flow (#2066).
+    scope = scope_question.question(state)
+    if scope:
+        return [scope]
+    if not state.get("requirements_handoff") or state.get("goal_contract"):
+        return []
     if coordination.joint_planning(state) or (
         job(state) == "bugfix" and (coordination.context(state) or source_catalog.context(state))
     ):

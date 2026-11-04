@@ -209,11 +209,14 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             subprocess.run(["git", "-C", str(self.intake), *arguments], check=True, capture_output=True)
         setup = chat.History(self.intake, env=self.env)
         setup.read(["registry", "roots", "add", str(self.root / "sources"), "--json"])
-        self.lines, self.questions = [], []
+        self.lines, self.questions, self.confirmations = [], [], []
         self.observed_mismatch = False
         self.reopened = False
 
     def answer(self, question):
+        if question.lstrip().startswith(("Approve understanding and ", "Investigate? [y/N]", "Prepare plan? [y/N]")):
+            self.confirmations.append(question)
+            return "yes"
         self.questions.append(question)
         self.assertIn(
             "Approve these coordinated plans?",
@@ -222,7 +225,7 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
         )
         return "yes"
 
-    def test_unpinned_chat_bug_offers_coordination_without_a_scope_or_requirements_answer(self):
+    def test_unpinned_chat_requires_confirmation_before_coordination_and_reconfirms_corrections(self):
         with patch.dict(os.environ, self.env, clear=True):
             run = taskrun.TaskRun.start(
                 self.intake,
@@ -233,6 +236,36 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             )
             view = run.status()
             self.assertEqual("bugfix", view["workflow"])
+            need = view["needs"]
+            self.assertEqual("answer", need["kind"])
+            question = need["questions"][0]
+            self.assertTrue(question["id"].startswith("requirements-review-"), need)
+            self.assertIsNone(view["coordination"])
+            calls = self.intake / ".autocode/provider-calls.jsonl"
+            launches = calls.read_bytes()
+            refusal = subprocess.run(
+                [*taskrun.AUTOCODE, "coordinate", "advance", "--run-dir", str(run.run_dir), "--json"],
+                env=self.env,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertNotEqual(0, refusal.returncode, refusal.stdout + refusal.stderr)
+            self.assertIn("Confirm Requirements", refusal.stdout + refusal.stderr)
+            self.assertEqual(launches, calls.read_bytes())
+            self.assertEqual(0, len(list((self.root / "registry").rglob("profile.json"))))
+            run.answer(question["id"], "Preserve the existing totals too", resolver_token=need["resolver_token"])
+            corrected = run.advance_until_input()
+            revised_need = corrected["needs"]
+            revised = revised_need["questions"][0]
+            self.assertTrue(revised["id"].startswith("requirements-review-"), revised_need)
+            self.assertNotEqual(question["id"], revised["id"])
+            self.assertIsNone(corrected["coordination"])
+            self.assertTrue(
+                all(json.loads(line)["stage"] == "requirements_gather" for line in calls.read_text().splitlines())
+            )
+            run.answer(revised["id"], "plan", resolver_token=revised_need["resolver_token"])
+            view = run.advance_until_input()
             self.assertIsNotNone(view["coordination"], view["needs"])
             self.assertEqual([], view["scope"]["linked"])
             self.assertFalse(self.github.posts)
@@ -251,6 +284,10 @@ class CoordinationTuiEndToEnd(unittest.TestCase):
             run.feedback(clarification)
             view = run.advance_until_input()
             self.assertIn(clarification, [row["text"] for row in view["request_sources"]])
+            question = view["needs"]["questions"][0]
+            self.assertTrue(question["id"].startswith("requirements-review-"), view["needs"])
+            run.answer(question["id"], "plan", resolver_token=view["needs"]["resolver_token"])
+            run.advance_until_input()
             history = chat.History(self.intake, env=self.env)
             action = ["coordinate", "advance", "--run-dir", str(run.run_dir), "--json"]
             first = history.read(action)

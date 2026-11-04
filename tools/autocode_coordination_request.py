@@ -1,5 +1,10 @@
 """Carry the core's authenticated human request into coordinated task briefs."""
 
+try:
+    from . import autocode_control_replies as control_replies
+except ImportError:
+    import autocode_control_replies as control_replies
+
 
 def earlier_context(document, target):
     """Give late arrivals prior clarifications without extending their delivery scope."""
@@ -46,7 +51,10 @@ def earlier_context(document, target):
 
 def brief(document, *, target=None):
     """Retain exact source text once, with the opening task for legacy records."""
-    texts = [document["task"], *(row["text"] for row in document.get("request_sources", []))]
+    texts = [
+        document["task"],
+        *(row["text"] for row in document.get("request_sources", []) if not control_replies.control_record(row)),
+    ]
     member = next((row for row in document.get("members", []) if row["target"] == target), {})
     texts.extend(earlier_context(document, target))
     texts.extend(row["text"] for row in member.get("message_sources", []))

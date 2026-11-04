@@ -214,6 +214,12 @@ class CoordinationTests(unittest.TestCase):
         view = {
             "execution": {"mode": "owned"},
             "workflow": "bugfix",
+            "status": "WAITING_FOR_USER",
+            "needs": {
+                "kind": "answer",
+                "resolver_scope": "clarification",
+                "questions": [{"id": "workspace-scope-scope-1"}],
+            },
             "scope": {"external_parts": [{"target": "api", "work": "Fix response mapping"}], "identity": "scope-1"},
             "related_profile": {"settings": {"limits": {}}},
             "workspace": str(self.root / "launch"),
@@ -239,6 +245,37 @@ class CoordinationTests(unittest.TestCase):
         self.assertEqual("scope-1", saved["anchor_scope"])
         self.assertEqual([], saved["members"], "The launch checkout must not be selected as a repository member")
         add_member.assert_not_called()
+
+    def test_initialize_refuses_to_skip_requirements_or_business_questions(self):
+        view = {
+            "execution": {"mode": "owned"},
+            "workflow": "bugfix",
+            "status": "WAITING_FOR_USER",
+            "scope": {"external_parts": [{"target": "history"}], "identity": "scope-1"},
+            "related_profile": {"settings": {"limits": {}}},
+            "task": "Correct new history values",
+            "turn": 1,
+        }
+        for ident in ("requirements-review-current", "business-result-code"):
+            with (
+                self.subTest(ident=ident),
+                patch.object(
+                    coordinate,
+                    "anchor_view",
+                    return_value={
+                        **view,
+                        "needs": {"kind": "answer", "resolver_scope": "clarification", "questions": [{"id": ident}]},
+                    },
+                ),
+                patch.object(repos, "source_snapshot", return_value={}),
+                patch.object(coordinate.util, "atomic_json") as write,
+                patch.object(coordinate.util, "file_hash", return_value="profile-sha"),
+                patch.object(store, "save") as save,
+            ):
+                with self.assertRaisesRegex(store.CoordinationError, "[Rr]equirements|business"):
+                    coordinate.initialize(self.root / "unconfirmed")
+                write.assert_not_called()
+                save.assert_not_called()
 
     def test_changed_request_sources_refuse_execution_even_when_task_and_scope_match(self):
         self.document.update(anchor_turn=1, anchor_scope="same", request_sources=[])
@@ -1418,9 +1455,27 @@ class CoordinationTests(unittest.TestCase):
             task.assert_not_called()
         self.assertFalse(client.mock_calls)
 
+    def test_requirements_and_business_questions_hide_new_coordination_offer(self):
+        state = {
+            "status": "WAITING_FOR_USER",
+            "workflow": {"kind": "bugfix", "source": "user", "reason": ""},
+            "turns": [],
+            "workspace_scope": {
+                "turn": 0,
+                "spans_repositories": True,
+                "external_parts": [{"target": "history", "work": "Check displayed metadata"}],
+            },
+        }
+        for ident in ("requirements-review-current", "business-result-code"):
+            need = {"kind": "answer", "resolver_scope": "clarification", "questions": [{"id": ident}]}
+            with self.subTest(ident=ident), patch.object(run_view, "needs", return_value=need):
+                public = run_view.view(state, run_dir=self.root / "unconfirmed")
+                self.assertIsNone(public["coordination"])
+                self.assertTrue(public["scope"]["spans_repositories"])
+
     def test_only_owned_chats_offer_automatic_coordination(self):
         state = {
-            "status": "PAUSED_QUESTION",
+            "status": "WAITING_FOR_USER",
             "workflow": {"kind": "bugfix", "source": "user", "reason": ""},
             "turns": [],
             "workspace_scope": {
@@ -1430,7 +1485,14 @@ class CoordinationTests(unittest.TestCase):
             },
         }
         run_dir = self.root / "runs" / "anchor"
-        self.assertIsNotNone(run_view.view(state, run_dir=run_dir)["coordination"])
+        scope_id = assignment.scope.identity(state)
+        need = {
+            "kind": "answer",
+            "resolver_scope": "clarification",
+            "questions": [{"id": "workspace-scope-" + scope_id}],
+        }
+        with patch.object(run_view, "needs", return_value=need):
+            self.assertIsNotNone(run_view.view(state, run_dir=run_dir)["coordination"])
         state["execution"] = {
             "version": 1,
             "mode": "durable_local",

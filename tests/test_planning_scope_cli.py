@@ -131,7 +131,7 @@ class AssignedPlannerReportCliTests(unittest.TestCase):
                 ["--workflow", "bugfix"],
                 [*FIXTURE_OPTIONS, "--no-adaptive-planning", "--spec-first", "--joint-planning"],
                 env=self.env,
-                ask=lambda prompt: self.fail("No person decision is needed for assignment: " + prompt),
+                ask=lambda prompt: fixture.CoordinationTuiEndToEnd.answer(self, prompt),
                 say=self.lines.append,
             )
             self.addCleanup(client.close)
@@ -151,6 +151,7 @@ class AssignedPlannerReportCliTests(unittest.TestCase):
             else:
                 self.fail("The coordinator did not assign the late Planner scope")
             self.assertEqual("astra_challenge", view["next_stage"], view["needs"])
+            self.assertEqual([], self.questions, "Only source Requirements confirmation precedes scope assignment")
             self.assertEqual(1, len(calls))
             self.assertEqual("1", (run.workspace / ".autocode/scope-draft-count").read_text())
             reopened = run.status()

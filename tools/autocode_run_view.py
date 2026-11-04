@@ -182,6 +182,7 @@ def view(
     try:
         from . import autocode_attention as attention
         from . import autocode_changeset_store as changeset_store
+        from . import autocode_coordination_admission as coordination_admission
         from . import autocode_coordination_store as coordination_store
         from . import autocode_related_profile as related_profile
         from . import autocode_replay_view as replay_view
@@ -190,6 +191,7 @@ def view(
     except ImportError:
         import autocode_attention as attention
         import autocode_changeset_store as changeset_store
+        import autocode_coordination_admission as coordination_admission
         import autocode_coordination_store as coordination_store
         import autocode_related_profile as related_profile
         import autocode_replay_view as replay_view
@@ -370,7 +372,8 @@ def view(
             eligible=result["workflow"] == "bugfix"
             and not (state.get("settings") or {}).get("coordination_member")
             and result["scope"]["spans_repositories"]
-            and not result["scope"]["decision"],
+            and not result["scope"]["decision"]
+            and coordination_admission.pending_scope(result),
         )
         if run_dir and result["execution"]["mode"] == "owned"
         else None

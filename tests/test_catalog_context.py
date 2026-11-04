@@ -248,7 +248,7 @@ class CatalogContextTests(unittest.TestCase):
         self.assertEqual([valid, *invalid], value["source_refs"])
         self.assertNotIn("requirements_handoff", state)
 
-    def test_clear_catalog_bug_requirements_continue_to_one_plan_approval_but_keep_real_questions(self):
+    def test_catalog_bug_confirms_requirements_and_keeps_real_questions(self):
         import autocode_requirements_review as review
 
         from tests.test_bug_job import state_for
@@ -264,6 +264,9 @@ class CatalogContextTests(unittest.TestCase):
             open_questions=[],
         )
         state["requirements_handoff"] = {"report": value}
+        confirmation = review.review_question(state)
+        self.assertEqual([confirmation], review.questions(state))
+        state["answers"] = {confirmation["id"]: {"text": "plan"}}
         self.assertEqual([], review.questions(state))
         value["open_questions"] = [QUESTION]
         self.assertEqual([QUESTION], review.questions(state))
