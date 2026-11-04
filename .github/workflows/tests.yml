@@ -84,6 +84,13 @@ jobs:
 
   suite:
     needs: scope
+    # Explicit, least privilege: the only write is the attribution comment the
+    # red suite posts to its own pull request (#2603). Without this block the
+    # default token's policy is whatever the repository's is, so the comment
+    # silently warns and the verdict never reaches the author.
+    permissions:
+      contents: read
+      pull-requests: write
     if: needs.scope.outputs.suite == 'true' || needs.scope.outputs.scenarios == 'true' || needs.scope.outputs.dashboard == 'true'
     strategy:
       fail-fast: false
@@ -579,6 +586,11 @@ jobs:
     # failed scope selection or a selected job that fails/cancels cannot pass.
     needs: [scope, suite, extension, macos-tool-containment, linux-tool-containment, windows-fast-suite, wheel-smoke, visual-comparison, lint]
     if: always()
+    # Read-only apart from the Actions API: the base-red refusal below reads the
+    # base commit's own suite run, and nothing here writes (#2603).
+    permissions:
+      actions: read
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Refuse a base whose suite is red
