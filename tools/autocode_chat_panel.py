@@ -289,7 +289,7 @@ def task_progress(view: dict | None, summary: dict | None) -> str | None:
         "cancelled": "Coordination cancelled",
         "blocked": "Coordination blocked",
         "complete": "Coordination complete; see verification details",
-    }.get(_mapping(summary.get("needs")).get("kind"), "Repository coordination; see details")
+    }.get(_mapping(summary.get("needs")).get("kind", ""), "Repository coordination; see details")
 
 
 def doing(view: dict | None) -> str | None:
