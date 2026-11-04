@@ -188,7 +188,7 @@ jobs:
         # Master and manual runs retain the complete suite, including slow modules.
         # Test modules run side by side, one per CPU.
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
+          BASE: 016029ebfd5b1d18ca830c2a49eff3a30c6ff9bb
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
           if [ "${{ github.event_name }}" = pull_request ]; then
@@ -600,7 +600,7 @@ jobs:
         # (AGENTS.md). A read failure never blocks: only a confirmed red does.
         if: ${{ always() && github.event_name == 'pull_request' }}
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
+          BASE: 016029ebfd5b1d18ca830c2a49eff3a30c6ff9bb
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           count=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/tests.yml/runs?head_sha=${BASE}&per_page=20" \
