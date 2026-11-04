@@ -22,7 +22,11 @@ concurrency:
 jobs:
   scope:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     outputs:
+      full_suite: ${{ steps.base-health.outputs.full }}
       suite: ${{ steps.select.outputs.suite }}
       scenarios: ${{ steps.select.outputs.scenarios }}
       dashboard: ${{ steps.select.outputs.dashboard }}
@@ -41,14 +45,33 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Inspect base suite
+        id: base-health
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          conclusion=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/tests.yml/runs?head_sha=${BASE}&event=push&per_page=20" \
+            --jq '[.workflow_runs[] | select(.status == "completed")] | sort_by(.run_number, .run_attempt) | last | .conclusion // "unknown"' 2>/dev/null) || conclusion="unknown"
+          if [ "$conclusion" = failure ]; then
+            echo "::warning::base ${BASE} is red; require the full head suite so a corrective PR can prove its repair"
+            echo "full=true" >> "$GITHUB_OUTPUT"
+          else
+            if [ "$conclusion" != success ]; then
+              echo "::warning::no completed base suite verdict for ${BASE}; keeping normal head checks"
+            fi
+            echo "full=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Select affected checks
         id: select
         env:
           EVENT: ${{ github.event_name }}
+          FULL_SUITE: ${{ steps.base-health.outputs.full }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ "$EVENT" = pull_request ]; then
+          if [ "$EVENT" = pull_request ] && [ "$FULL_SUITE" != true ]; then
             python tools/ci_scope.py --base "$BASE" --head "$HEAD" --github-output "$GITHUB_OUTPUT"
           else
             python tools/ci_scope.py --full --github-output "$GITHUB_OUTPUT"
@@ -188,10 +211,12 @@ jobs:
         # Master and manual runs retain the complete suite, including slow modules.
         # Test modules run side by side, one per CPU.
         env:
+          EVENT: ${{ github.event_name }}
+          FULL_SUITE: ${{ needs.scope.outputs.full_suite }}
           BASE: ${{ github.event.pull_request.base.sha }}
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
-          if [ "${{ github.event_name }}" = pull_request ]; then
+          if [ "$EVENT" = pull_request ] && [ "$FULL_SUITE" != true ]; then
             .venv/bin/python tools/run_suite.py --verbosity 2 --changed "$BASE" --failed-out .suite-failed.json
           else
             .venv/bin/python tools/run_suite.py --verbosity 2 --failed-out .suite-failed.json
@@ -222,12 +247,14 @@ jobs:
         # leaves out the slow ones in tests/suite_slow.json unless it changes scenarios/ or
         # the suite machinery; master runs them all.
         run: |
-          if [ "${{ github.event_name }}" = pull_request ]; then
+          if [ "$EVENT" = pull_request ] && [ "$FULL_SUITE" != true ]; then
             .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2 --changed "$BASE"
           else
             .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2
           fi
         env:
+          EVENT: ${{ github.event_name }}
+          FULL_SUITE: ${{ needs.scope.outputs.full_suite }}
           BASE: ${{ github.event.pull_request.base.sha }}
           PYTHONDONTWRITEBYTECODE: "1"
 
@@ -586,31 +613,8 @@ jobs:
     # failed scope selection or a selected job that fails/cancels cannot pass.
     needs: [scope, suite, extension, macos-tool-containment, linux-tool-containment, windows-fast-suite, wheel-smoke, visual-comparison, lint]
     if: always()
-    # Read-only apart from the Actions API: the base-red refusal below reads the
-    # base commit's own suite run, and nothing here writes (#2603).
-    permissions:
-      actions: read
-      contents: read
     runs-on: ubuntu-latest
     steps:
-      - name: Refuse a base whose suite is red
-        # Red accumulates when pull requests stack on a red master (#2603). If the
-        # base's own suite concluded failure this branch cannot get a meaningful
-        # verdict, and the break belongs in its own small pull request first
-        # (AGENTS.md). A read failure never blocks: only a confirmed red does.
-        if: ${{ always() && github.event_name == 'pull_request' }}
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          count=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/tests.yml/runs?head_sha=${BASE}&per_page=20" \
-            --jq '[.workflow_runs[] | select(.conclusion == "failure")] | length' 2>/dev/null) || count=""
-          if [ -z "$count" ]; then
-            echo "::warning::could not read the base suite run for ${BASE}; not blocking"
-          elif [ "$count" -gt 0 ]; then
-            echo "::error::base ${BASE} is red - its tests run concluded failure. Fix it forward in its own small pull request first (AGENTS.md). See #2603."
-            exit 1
-          fi
       - name: Require every selected check
         env:
           NEEDS: ${{ toJSON(needs) }}
