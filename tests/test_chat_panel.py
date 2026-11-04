@@ -408,6 +408,25 @@ class StageLogTests(unittest.TestCase):
             said,
         )
 
+    def test_a_stop_that_stays_is_logged_once(self):
+        log = panel.StageLog()
+        stopped = view(headline="Builder stopped without saving a report")
+        log.observe(stopped, now=0)
+        self.assertEqual([], [line for line in log.lines if "stopped without" in line], "one reading waits")
+        log.observe(stopped, now=1)
+        log.observe(stopped, now=2)
+        self.assertEqual(1, len([line for line in log.lines if "stopped without" in line]))
+
+    def test_a_stop_seen_in_one_reading_is_not_kept_as_history(self):
+        # A clean finish passes through this headline once, between the worker exiting and its report
+        # landing; the run's history must not keep a stop that never happened (#2608).
+        log = panel.StageLog()
+        log.observe(view(headline="Plan Reviewer stopped without saving a report"), now=0)
+        log.observe(view(headline="Plan Reviewer finished · Next: Requirements"), now=1)
+        said = "\n".join(log.lines)
+        self.assertNotIn("stopped without saving a report", said)
+        self.assertIn("Plan Reviewer finished · Next: Requirements", said)
+
     def test_a_view_without_progress_is_not_a_change(self):
         log = panel.StageLog()
         self.assertFalse(log.observe({"status": "RUNNING"}))

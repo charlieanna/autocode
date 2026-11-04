@@ -27,6 +27,7 @@ try:
     from . import autocode_chat_recoveries as recoveries
     from . import autocode_chat_stage_policy as stage_policy
     from . import autocode_chat_verification as verification
+    from . import autocode_progress_view as progress_view
 except ImportError:
     import autocode_chat_changeset as changeset
     import autocode_chat_cost as cost
@@ -34,6 +35,7 @@ except ImportError:
     import autocode_chat_recoveries as recoveries
     import autocode_chat_stage_policy as stage_policy
     import autocode_chat_verification as verification
+    import autocode_progress_view as progress_view
 
 LOG_LIMIT = 200
 STAGE_ROWS = 4  # the newest stages the panel lists; /details has every attempt
@@ -673,6 +675,8 @@ class StageLog:
     lines: list[str] = field(default_factory=list)
     _last: dict = field(default_factory=dict)
     _seen: Counter = field(default_factory=Counter)  # how many times each (kind, text, status) has been in view
+    _pending: str | None = None  # a stop claim waiting for a second reading that says the same
+    _logged: str | None = None  # the stop claim already kept as history, so it is written once
 
     def _events(self, view: dict | None) -> list[str]:
         """A line for each new user-facing event; command text is never included."""
@@ -709,7 +713,21 @@ class StageLog:
             "problems": _mapping(progress.get("problems")).get("open"),
         }
         said = []
+        headline = facts["headline"]
+        held = progress_view.claims_a_stop(headline)
+        if held:
+            # One reading of a stop can be a clean finish caught between the worker exiting and its
+            # report landing, so a stop claim waits for a second reading that says the same before it
+            # becomes the run's history; every other headline is written as it changes.
+            if headline == self._pending and headline != self._logged:
+                said.append(str(headline))
+                self._logged = headline
+            self._pending = None if headline == self._logged else headline
+        else:
+            self._pending = None
         for key, value in facts.items():
+            if key == "headline" and held:
+                continue
             if self._last.get(key) == value or value in (None, ""):
                 continue
             if key in ("headline", "recent"):
