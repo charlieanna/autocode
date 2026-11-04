@@ -8,6 +8,14 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_legacy_guard_keeps_json_status_cli_regression(self):
+        consumer = "tests.test_json_status_observer_cli"
+        selected = run_suite.select_tests(
+            ["tools/autocode_legacy_process.py"], {consumer: "", "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+        self.assertEqual([consumer], list(kept))
+
     def test_source_recovery_keeps_its_no_provider_public_regression(self):
         self.assertIn(
             "tests.test_coordination_request_cli",
