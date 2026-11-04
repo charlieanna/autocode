@@ -10,7 +10,7 @@ is what blocks the merge; this only decides which module is whose.
 
     python3 tools/attribute_failure.py --base SHA --failed .suite-failed.json
 
-Run those modules in a worktree of the base, so each sees that revision's own
+Run those modules in a standalone clone of the base, so each sees that revision's own
 tests and tools rather than this branch's.
 """
 
@@ -103,25 +103,23 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory(prefix="attribute-base-") as scratch:
         worktree = Path(scratch) / "base"
         subprocess.run(
-            ["git", "worktree", "add", "--detach", str(worktree), args.base], check=True, capture_output=True
+            ["git", "clone", "--no-hardlinks", "--no-checkout", ".", str(worktree)], check=True, capture_output=True
         )
-        try:
-            rows = [
-                (
+        subprocess.run(["git", "-C", str(worktree), "checkout", "--detach", args.base], check=True, capture_output=True)
+        rows = [
+            (
+                item["module"] if isinstance(item, dict) else item,
+                HEAD_INCOMPLETE
+                if isinstance(item, dict) and item.get("timed_out")
+                else classify(
                     item["module"] if isinstance(item, dict) else item,
-                    HEAD_INCOMPLETE
-                    if isinstance(item, dict) and item.get("timed_out")
-                    else classify(
-                        item["module"] if isinstance(item, dict) else item,
-                        worktree,
-                        args.timeout,
-                        head_failures=item.get("failures") if isinstance(item, dict) else None,
-                    ),
-                )
-                for item in modules
-            ]
-        finally:
-            subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], check=False, capture_output=True)
+                    worktree,
+                    args.timeout,
+                    head_failures=item.get("failures") if isinstance(item, dict) else None,
+                ),
+            )
+            for item in modules
+        ]
 
     print(report(rows))
     if args.json is not None:

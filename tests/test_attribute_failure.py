@@ -237,8 +237,10 @@ class AttributionCliTests(unittest.TestCase):
             (root / "tests").mkdir()
             (root / "tests/__init__.py").touch()
             (root / "tests/test_value.py").write_text(
-                "import unittest\nclass ValueTests(unittest.TestCase):\n"
-                "    def test_value(self):\n        self.fail('old failure')\n"
+                "import unittest, subprocess\nclass ValueTests(unittest.TestCase):\n"
+                "    def test_value(self):\n"
+                "        subprocess.run(['git', 'config', 'attribution.probe', 'touched'], check=True)\n"
+                "        self.fail('old failure')\n"
             )
             for args in (
                 ["init", "-q"],
@@ -247,6 +249,7 @@ class AttributionCliTests(unittest.TestCase):
             ):
                 subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
             base = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+            original_config = (root / ".git/config").read_bytes()
             failed = root / "head-failed.json"
             failed.write_text(
                 json.dumps(
@@ -265,6 +268,7 @@ class AttributionCliTests(unittest.TestCase):
             )
             with contextlib.chdir(root), contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(0, attribute_failure.main(["--base", base, "--failed", str(failed)]))
+            self.assertEqual(original_config, (root / ".git/config").read_bytes())
             self.assertIn("introduced (different failures)", output.getvalue())
 
 
