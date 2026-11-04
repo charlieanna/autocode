@@ -6,6 +6,11 @@ ActivityMonitor reports tool starts/finishes and new provider text as one
 bounded line each to stderr, so an operator can see live activity without
 opening the stage's JSONL event log. Printing is best-effort: a broken stderr
 never fails the stage or the monitor.
+
+Heartbeat lines that repeat verbatim (for example the per-chunk
+"native provider stream advanced" progress) are coalesced like text: the first
+prints at once, further identical repeats within the interval are counted
+silently, and the next line to print carries the count as "(+N similar)".
 """
 
 from __future__ import annotations
@@ -46,6 +51,9 @@ class _Reporter:
         self.stream = stream if stream is not None else sys.stderr
         self.clock = clock or time.monotonic
         self._last_text_at = None
+        self._last_line = None
+        self._last_line_at = None
+        self._suppressed = 0
 
     def __call__(self, kind, detail):
         try:
@@ -60,8 +68,21 @@ class _Reporter:
                 if len(text) > MAX_TEXT:
                     text = text[:MAX_TEXT] + "…"
                 self._line(text)
-            else:
-                self._line(f"{kind}: {detail}")
+                return
+            base = f"{kind}: {detail}"
+            now = self.clock()
+            if (
+                base == self._last_line
+                and self._last_line_at is not None
+                and now - self._last_line_at < MIN_TEXT_INTERVAL_SECONDS
+            ):
+                self._suppressed += 1
+                return
+            line = f"{base} (+{self._suppressed} similar)" if self._suppressed else base
+            self._suppressed = 0
+            self._last_line = base
+            self._last_line_at = now
+            self._line(line)
         except Exception:
             pass
 

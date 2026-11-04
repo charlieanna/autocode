@@ -64,7 +64,7 @@ class VerboseTests(unittest.TestCase):
     def test_text_is_rate_limited_but_tool_lines_are_not(self):
         verbose.enable()
         out = io.StringIO()
-        ticks = iter([0.0, 0.1, 2.0])
+        ticks = iter([0.0, 0.1, 2.0, 2.1])
         report = verbose.reporter("sol", None, stream=out, clock=lambda: next(ticks))
         report("text", "first")
         report("text", "suppressed")
@@ -72,6 +72,44 @@ class VerboseTests(unittest.TestCase):
         report("text", "later")
         lines = out.getvalue().splitlines()
         self.assertEqual(["sol: first", "sol: tool: tool finished", "sol: later"], lines)
+
+    def test_repeated_heartbeat_lines_are_coalesced_into_one_counted_line(self):
+        verbose.enable()
+        out = io.StringIO()
+        ticks = iter([0.0, 0.1, 0.2, 0.3, 1.5])
+        report = verbose.reporter("glm", "gpt-x", stream=out, clock=lambda: next(ticks))
+        for _ in range(4):
+            report("progress", "native provider stream advanced")
+        report("tool", "command started")
+        lines = out.getvalue().splitlines()
+        self.assertEqual(
+            [
+                "glm/gpt-x: progress: native provider stream advanced",
+                "glm/gpt-x: tool: command started (+3 similar)",
+            ],
+            lines,
+        )
+
+    def test_heartbeat_resumes_after_the_interval_and_distinct_lines_print_at_once(self):
+        verbose.enable()
+        out = io.StringIO()
+        ticks = iter([0.0, 0.1, 1.2, 1.3, 1.4])
+        report = verbose.reporter("glm", None, stream=out, clock=lambda: next(ticks))
+        report("progress", "native provider stream advanced")
+        report("progress", "native provider stream advanced")
+        report("progress", "native provider stream advanced")
+        report("tool", "command started")
+        report("tool", "command finished")
+        lines = out.getvalue().splitlines()
+        self.assertEqual(
+            [
+                "glm: progress: native provider stream advanced",
+                "glm: progress: native provider stream advanced (+1 similar)",
+                "glm: tool: command started",
+                "glm: tool: command finished",
+            ],
+            lines,
+        )
 
     def test_a_broken_stream_never_raises(self):
         verbose.enable()
