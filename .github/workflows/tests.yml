@@ -22,7 +22,11 @@ concurrency:
 jobs:
   scope:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     outputs:
+      full_suite: ${{ steps.base-health.outputs.full }}
       suite: ${{ steps.select.outputs.suite }}
       scenarios: ${{ steps.select.outputs.scenarios }}
       dashboard: ${{ steps.select.outputs.dashboard }}
@@ -41,14 +45,33 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Inspect base suite
+        id: base-health
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          conclusion=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/tests.yml/runs?head_sha=${BASE}&event=push&per_page=20" \
+            --jq '[.workflow_runs[] | select(.status == "completed")] | sort_by(.run_number, .run_attempt) | last | .conclusion // "unknown"' 2>/dev/null) || conclusion="unknown"
+          if [ "$conclusion" = failure ]; then
+            echo "::warning::base ${BASE} is red; require the full head suite so a corrective PR can prove its repair"
+            echo "full=true" >> "$GITHUB_OUTPUT"
+          else
+            if [ "$conclusion" != success ]; then
+              echo "::warning::no completed base suite verdict for ${BASE}; keeping normal head checks"
+            fi
+            echo "full=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Select affected checks
         id: select
         env:
           EVENT: ${{ github.event_name }}
+          FULL_SUITE: ${{ steps.base-health.outputs.full }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ "$EVENT" = pull_request ]; then
+          if [ "$EVENT" = pull_request ] && [ "$FULL_SUITE" != true ]; then
             python tools/ci_scope.py --base "$BASE" --head "$HEAD" --github-output "$GITHUB_OUTPUT"
           else
             python tools/ci_scope.py --full --github-output "$GITHUB_OUTPUT"
@@ -84,6 +107,13 @@ jobs:
 
   suite:
     needs: scope
+    # Explicit, least privilege: the only write is the attribution comment the
+    # red suite posts to its own pull request (#2603). Without this block the
+    # default token's policy is whatever the repository's is, so the comment
+    # silently warns and the verdict never reaches the author.
+    permissions:
+      contents: read
+      pull-requests: write
     if: needs.scope.outputs.suite == 'true' || needs.scope.outputs.scenarios == 'true' || needs.scope.outputs.dashboard == 'true'
     strategy:
       fail-fast: false
@@ -181,14 +211,31 @@ jobs:
         # Master and manual runs retain the complete suite, including slow modules.
         # Test modules run side by side, one per CPU.
         env:
+          EVENT: ${{ github.event_name }}
+          FULL_SUITE: ${{ needs.scope.outputs.full_suite }}
           BASE: ${{ github.event.pull_request.base.sha }}
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
-          if [ "${{ github.event_name }}" = pull_request ]; then
-            .venv/bin/python tools/run_suite.py --verbosity 2 --changed "$BASE"
+          if [ "$EVENT" = pull_request ] && [ "$FULL_SUITE" != true ]; then
+            .venv/bin/python tools/run_suite.py --verbosity 2 --changed "$BASE" --failed-out .suite-failed.json
           else
-            .venv/bin/python tools/run_suite.py --verbosity 2
+            .venv/bin/python tools/run_suite.py --verbosity 2 --failed-out .suite-failed.json
           fi
+
+      - name: Attribute red to base or head
+        # A red suite does not say whose failure it is, so an agent debugs its own
+        # breakage and somebody else's alike (#2603). Run only the failing modules
+        # against the event's pinned base and say which are introduced here and which
+        # were already red there. Informational: ci-required is what blocks the merge.
+        if: ${{ failure() && github.event_name == 'pull_request' }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          .venv/bin/python tools/attribute_failure.py --base "$BASE" --failed .suite-failed.json | tee .attribution.md
+          cat .attribution.md >> "$GITHUB_STEP_SUMMARY"
+          gh pr comment "$PR" --body-file .attribution.md || echo "could not post the attribution comment"
 
       - name: Run the scenario harness
         if: needs.scope.outputs.scenarios == 'true'
@@ -200,12 +247,14 @@ jobs:
         # leaves out the slow ones in tests/suite_slow.json unless it changes scenarios/ or
         # the suite machinery; master runs them all.
         run: |
-          if [ "${{ github.event_name }}" = pull_request ]; then
+          if [ "$EVENT" = pull_request ] && [ "$FULL_SUITE" != true ]; then
             .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2 --changed "$BASE"
           else
             .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2
           fi
         env:
+          EVENT: ${{ github.event_name }}
+          FULL_SUITE: ${{ needs.scope.outputs.full_suite }}
           BASE: ${{ github.event.pull_request.base.sha }}
           PYTHONDONTWRITEBYTECODE: "1"
 
