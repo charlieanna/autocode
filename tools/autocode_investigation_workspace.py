@@ -3,10 +3,16 @@
 import shutil
 import subprocess
 import tempfile
+import time
 from functools import partial
 from pathlib import Path
 
 EXCLUDED = {".git", ".autocode", ".autocode-ui"}
+# Beside each copy, holding the moment that copy finished.
+STAMP_SUFFIX = ".stamp"
+# How long a finished copy is left alone even when nothing was written into it: another run of the
+# same project may be working in it before its first write.
+RECLAIM_GRACE_SECONDS = 600
 
 
 def scratch_root(workspace):
@@ -95,7 +101,11 @@ def source_inventory(workspace):
 
 
 def prepare(workspace):
-    """Return a fresh complete copy; prior attempts and application files remain intact."""
+    """Return a fresh complete copy; prior attempts and application files remain intact.
+
+    A copy is only kept when something was written into it: an earlier attempt that never wrote is
+    reclaimed here rather than holding a whole second tree on disk for the rest of the run (#2606).
+    """
     workspace = Path(workspace).resolve()
     inventory = source_inventory(workspace)
     root = scratch_root(workspace)
@@ -106,4 +116,55 @@ def prepare(workspace):
         dirs_exist_ok=True,
         ignore=partial(ignored_entries, workspace, reuse_virtualenvs=True, inventory=inventory),
     )
+    stamp(target)
+    reclaim_unused(root, keep=[target])
     return target
+
+
+def stamp(copy: Path) -> None:
+    """Record when this copy finished; its contents keep the source timestamps, so later writes stand out."""
+    stamp_path(copy).touch()
+
+
+def stamp_path(copy: Path) -> Path:
+    return copy.with_name(copy.name + STAMP_SUFFIX)
+
+
+def _written_into(copy: Path, since: float) -> bool:
+    """True when anything in the copy is newer than the copy itself.
+
+    ``shutil.copytree`` preserves the source timestamps, so a copy no attempt wrote into stays
+    entirely older than its stamp. An entry that cannot be read counts as written: evidence is
+    never discarded because of an I/O error.
+    """
+    for entry in (copy, *copy.rglob("*")):
+        try:
+            if entry.stat(follow_symlinks=False).st_mtime > since:
+                return True
+        except OSError:
+            return True
+    return False
+
+
+def reclaim_unused(root, *, keep=()) -> list[str]:
+    """Delete earlier copies that no attempt wrote into; an untouched copy carries no evidence (#2606).
+
+    A copy finished within ``RECLAIM_GRACE_SECONDS`` is left alone, because another run of the same
+    project may still be working in it before its first write.
+    """
+    root = Path(root)
+    kept = {Path(item).resolve() for item in keep}
+    deadline = time.time() - RECLAIM_GRACE_SECONDS
+    removed = []
+    for copy in sorted(path for path in root.iterdir() if path.is_dir() and not path.is_symlink()):
+        try:
+            since = stamp_path(copy).stat().st_mtime
+        except OSError:
+            continue  # a copy made before stamps existed: leave it for a person to judge
+        if copy.resolve() in kept or since > deadline or _written_into(copy, since):
+            continue
+        shutil.rmtree(copy, ignore_errors=True)
+        if not copy.exists():
+            stamp_path(copy).unlink(missing_ok=True)
+            removed.append(str(copy))
+    return removed
