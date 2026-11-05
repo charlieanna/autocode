@@ -576,6 +576,20 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("Left as it is. The run remains paused.", client.text())
         self.assertNotIn("What do you want done?", client.text())
 
+    def test_a_stop_names_its_cause_as_a_reason_not_a_bare_label(self):
+        # 2026-11-05 live run: "AutoCode stopped: AutoCode. Partial work retained."
+        view = {
+            "status": "PAUSED_STAGE_ABANDONED",
+            "next_stage": "astra_challenge",
+            "needs": {"kind": "resume", "reason": "Partial work retained."},
+            "pause_category_label": "AutoCode",
+            "next_command": f"autocode {PLACE} --resume-paused",
+        }
+        client = ScriptedChat(view, replies=["n"])
+        client.converse()
+        self.assertIn("AutoCode stopped: AutoCode hit a problem of its own. Partial work retained.", client.text())
+        self.assertNotIn("AutoCode stopped: AutoCode.", client.text())
+
     def test_a_declined_continue_returns_to_a_new_chat_in_the_full_screen_client(self):
         """#2701: answering N at a Continue prompt evicted the full-screen chat with exit code 2."""
         view = {
@@ -1090,21 +1104,23 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual([["--answer", "RQ=plan"], ["--no-chat"]], client.taken)
         self.assertNotIn("--feedback", str(client.taken))
 
-    def test_planning_starts_only_after_its_spend_is_confirmed(self):
-        client = ScriptedChat(self.REVIEW, DONE, replies=["y", "y"])
+    def test_the_spend_detail_is_shown_before_the_one_approval_prompt(self):
+        # The approval prompt already names what starts; a second yes/no after it was redundant.
+        client = ScriptedChat(self.REVIEW, DONE, replies=["y"])
         self.assertEqual(0, client.converse())
         self.assertEqual([["--answer", "RQ=plan"]], client.taken)
-        self.assertIn("Prepare a reviewed plan?\nPlanning uses your selected models.", client.text())
-        self.assertIn("Prepare plan? [y/N]: ", client.text())
+        out = client.text()
+        self.assertNotIn("Prepare plan? [y/N]: ", out)
+        detail = out.index("Planning uses your selected models.")
+        self.assertLess(detail, out.index("Approve understanding and prepare plan? [y/N]"))
 
-    def test_declining_the_spend_sends_nothing_and_the_understanding_still_waits(self):
-        client = ScriptedChat(self.REVIEW, replies=["y", "n"])
+    def test_declining_the_understanding_sends_nothing(self):
+        client = ScriptedChat(self.REVIEW, replies=["n"])
         self.assertEqual(2, client.converse())
         self.assertEqual([], client.taken)
-        self.assertIn("Not started. The understanding still waits for you.", client.text())
 
     def test_typing_the_reviews_own_answer_is_confirmed_like_yes(self):
-        client = ScriptedChat(self.REVIEW, DONE, replies=["  PLAN ", "y"])
+        client = ScriptedChat(self.REVIEW, DONE, replies=["  PLAN "])
         self.assertEqual(0, client.converse())
         self.assertEqual([["--answer", "RQ=plan"]], client.taken, "not sent as a correction")
 
@@ -1117,17 +1133,10 @@ class ConversationTests(unittest.TestCase):
                 self.assertEqual([["--answer", "RQ=plan"]], client.taken)
 
     def test_plain_confirmation_also_accepts_the_displayed_planning_spend(self):
-        client = ScriptedChat(self.REVIEW, DONE, replies=["yes correct", "yes correct"])
+        client = ScriptedChat(self.REVIEW, DONE, replies=["yes correct"])
         self.addCleanup(client.close)
         self.assertEqual(0, client.converse())
         self.assertEqual([["--answer", "RQ=plan"]], client.taken)
-
-    def test_qualified_spend_confirmation_leaves_the_understanding_unapproved(self):
-        client = ScriptedChat(self.REVIEW, DONE, replies=["yes correct", "yes, but do not spend more"])
-        self.addCleanup(client.close)
-        self.assertEqual(2, client.converse())
-        self.assertEqual([], client.taken)
-        self.assertIn("Not started", client.text())
 
     def test_qualified_confirmation_is_still_requirements_feedback(self):
         reply = "yes correct, but include stored entries"
@@ -2101,9 +2110,10 @@ class AdvancingDiagnosticTests(unittest.TestCase):
             "print(sys.argv[1]); sys.exit(2)",
             secret,
         )
-        client.advance(["--resume-paused"], {"AUTOCODE_JOB_RETRY_TOKEN": secret})
-        self.assertIn("Provider configuration or limits changed; retry is stale", client.text())
-        self.assertNotIn(secret, client.text())
+        with self.assertRaises(actions.ClientGap) as caught:
+            client.advance(["--resume-paused"], {"AUTOCODE_JOB_RETRY_TOKEN": secret})
+        self.assertIn("Provider configuration or limits changed; retry is stale", str(caught.exception))
+        self.assertNotIn(secret, str(caught.exception))
         self.assertEqual([], client.taken)
 
 

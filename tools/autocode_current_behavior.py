@@ -53,15 +53,18 @@ def evidence(state: RunState) -> dict | None:
     probe = found.get("probe_result")
     if not isinstance(probe, dict) or probe.get("exit_code") != 0:
         return None
-    text = normalized(found.get("observed"))
-    if not text:
+    # The box holds the observation verbatim (only its ends trimmed): collapsing "  Hello, World!  " to
+    # " Hello, World! " misquoted the bug, a Plan Reviewer blocked on it and the run paid a revision round
+    # (2026-11-05). Comparisons stay whitespace-normalized (of, matches).
+    text = str(found.get("observed") or "").strip()
+    if not normalized(text):
         return None
     return {"text": text, "output_hash": found["output_hash"], "source_revision": found.get("source_revision")}
 
 
 def matches(text, found) -> bool:
     """Whether ``text`` is the bound diagnosis's observed behavior, up to whitespace."""
-    return bool(found) and normalized(text) == found["text"]
+    return bool(found) and normalized(text) == normalized(found["text"])
 
 
 def prepare_body(state: RunState, body, origin):
@@ -73,7 +76,7 @@ def prepare_body(state: RunState, body, origin):
         return body
     found = evidence(state)
     previous = {
-        row["id"]: of(row)
+        row["id"]: str(row.get(KEY)).strip() if of(row) else ""
         for row in ((state.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria") or []
         if isinstance(row, dict) and row.get("id")
     }

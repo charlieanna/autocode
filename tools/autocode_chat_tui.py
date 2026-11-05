@@ -87,6 +87,7 @@ def too_small(rows: int, cols: int) -> str:
 LIVE_SHARE = 0.45  # of the conversation's rows the live log takes
 PANEL_WRAP = {"Now": 3, "Acceptance checks": 2, "Tasks": 2}  # side panel rows a section's line may take
 AGENT_STYLES = 4  # agents in the live log cycle through this many colors
+COMPOSER_ROWS = 6  # the reply box grows to this many rows as the text wraps, then scrolls with the cursor
 MENU_ROWS = 10  # at most; fewer where the screen is short, scrolled to keep the choice in view
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 PASTE_START, PASTE_END = "\x1b[200~", "\x1b[201~"  # bracketed paste, so a pasted newline is not Enter
@@ -607,6 +608,25 @@ class Composer:
         self.text = self.text[:start] + self.text[self.cursor :]
         self.cursor = start
 
+    def line_up(self) -> bool:
+        """Move to the line above, keeping the column where it fits; False on the first line."""
+        start = self.text.rfind("\n", 0, self.cursor) + 1
+        if not start:
+            return False
+        above = self.text.rfind("\n", 0, start - 1) + 1
+        self.cursor = min(above + self.cursor - start, start - 1)
+        return True
+
+    def line_down(self) -> bool:
+        """Move to the line below, keeping the column where it fits; False on the last line."""
+        start = self.text.rfind("\n", 0, self.cursor) + 1
+        end = self.text.find("\n", self.cursor)
+        if end < 0:
+            return False
+        below_end = self.text.find("\n", end + 1)
+        self.cursor = min(end + 1 + self.cursor - start, len(self.text) if below_end < 0 else below_end)
+        return True
+
     def previous(self) -> None:
         if not self.history:
             return
@@ -686,6 +706,37 @@ def window(text: str, cursor: int, width: int) -> tuple[str, int]:
     return clip(shown + after, width), display_width(shown)
 
 
+def composer_rows(text: str, cursor: int, width: int, most: int) -> tuple[list[str], int, int]:
+    """``text`` as the reply box shows it: wrapped at ``width`` cells and at its own line breaks, at
+    most ``most`` rows kept around the cursor; with the cursor's row and column among those rows."""
+    width, most = max(1, width), max(1, most)
+    rows: list[str] = []
+    at_row = at_col = 0
+    row, used = "", 0
+    for index, char in enumerate(text + "\0"):  # a sentinel closes the last row and places a cursor at the end
+        if index == cursor:
+            if used >= width and char != "\n":
+                rows.append(row)
+                row, used = "", 0
+            at_row, at_col = len(rows), used
+        if char in ("\n", "\0"):
+            rows.append(row)
+            row, used = "", 0
+        else:
+            cells = _char_width(char)
+            if used + cells > width:
+                rows.append(row)
+                row, used = "", 0
+                if index == cursor:
+                    at_row, at_col = len(rows), 0
+            row += char
+            used += cells
+    if at_row >= len(rows):
+        rows.append("")
+    first = min(max(0, at_row - most + 1), max(0, len(rows) - most))
+    return rows[first : first + most], at_row - first, at_col
+
+
 @dataclass(frozen=True)
 class Pasted:
     """Text the terminal delivered as one paste."""
@@ -732,6 +783,7 @@ class Layout:
     panel_end: int = 0  # where the side panel ends: the transcript's end, or the live log's
     notes_start: int | None = None
     notes: list[str] = field(default_factory=list)
+    box_rows: int = 1  # the reply box's text rows, from box_text down; it grows with a long reply
 
 
 def _unicode_terminal() -> bool:
@@ -1425,9 +1477,11 @@ class ChatTUI:
             elif key == curses.KEY_END:
                 composer.end()
             elif key == curses.KEY_UP:
-                composer.previous()
+                if not composer.line_up():
+                    composer.previous()
             elif key == curses.KEY_DOWN:
-                composer.next()
+                if not composer.line_down():
+                    composer.next()
             elif key == curses.KEY_PPAGE:
                 self._scroll_by(self._page())
             elif key == curses.KEY_NPAGE:
@@ -1461,11 +1515,17 @@ class ChatTUI:
         return None
 
     def _enter(self, asking: bool) -> str | None:
-        """Enter: run a ``/`` command, or send the reply (at a question only)."""
+        """Enter: run a ``/`` command, or send the reply (at a question only). After a backslash,
+        Enter starts a new line in the reply instead, as in Claude Code's terminal."""
         if self._message_sending:
             return None
         if self._pending is not None:
             self._decide(self._pending)
+            return None
+        composer = self._composer
+        if composer.cursor and composer.text[composer.cursor - 1] == "\\" and not composer.text.startswith("/"):
+            composer.backspace()
+            composer.insert("\n")
             return None
         text = self._composer.text
         word, _, argument = text.strip().partition(" ") if text.startswith("/") else ("", "", "")
@@ -1682,8 +1742,12 @@ class ChatTUI:
         width = max(1, cols - 1)
         hints_row = rows - 1
         box_bottom = rows - 2
-        box_text = rows - 3
-        box_top = rows - 4
+        box_rows = 1
+        if self._composer.text:
+            shown, _, _ = composer_rows(self._composer.text, self._composer.cursor, max(1, width - 6), COMPOSER_ROWS)
+            box_rows = max(1, min(len(shown), (rows - 8) // 2))
+        box_text = box_bottom - box_rows
+        box_top = box_text - 1
         status_row = box_top - 1
         question: list[str] = []
         prompt = f"{self._pending.question} [y/N]" if self._pending is not None else self._prompt
@@ -1729,6 +1793,7 @@ class ChatTUI:
             box_top=box_top,
             box_text=box_text,
             box_bottom=box_bottom,
+            box_rows=box_rows,
             hints_row=hints_row,
             question=question,
             notes_start=notes_start,
@@ -2138,8 +2203,9 @@ class ChatTUI:
         border = self._style("border-active" if active else "border")
         self._put(layout.box_top, 0, self._box_top(width, label), border)
         self._put(layout.box_top, 3, label, self._style("brand" if active else "dim"))
-        self._put(layout.box_text, 0, glyphs.vertical, border)
-        self._put(layout.box_text, width - 1, glyphs.vertical, border)
+        for row in range(layout.box_text, layout.box_text + layout.box_rows):
+            self._put(row, 0, glyphs.vertical, border)
+            self._put(row, width - 1, glyphs.vertical, border)
         self._put(layout.box_bottom, 0, glyphs.bottom_left + glyphs.rule * (width - 2) + glyphs.bottom_right, border)
         inner = max(1, width - 6)
         self._put(layout.box_text, 2, glyphs.prompt, self._style("prompt" if active else "dim"))
@@ -2155,16 +2221,18 @@ class ChatTUI:
             )
             self._put(layout.box_text, 4, truncate(placeholder, inner), self._style("placeholder"))
             return
+        row = 0
         if self._composer.text:
-            shown, cursor = window(self._composer.text, self._composer.cursor, inner)
-            shown = shown.replace("\n", "↵" if glyphs.unicode else " ")
-            self._put(layout.box_text, 4, truncate(shown, inner), self._style("input"))
+            # The whole reply, wrapped and on its own lines, as a person reads what they typed.
+            shown, row, cursor = composer_rows(self._composer.text, self._composer.cursor, inner, layout.box_rows)
+            for offset, line in enumerate(shown):
+                self._put(layout.box_text + offset, 4, line, self._style("input"))
         else:
             cursor = 0
             placeholder = NEW_CHAT_PLACEHOLDER if label == "New chat" else REPLY_PLACEHOLDER
             self._put(layout.box_text, 4, truncate(placeholder, inner), self._style("placeholder"))
         with contextlib.suppress(curses.error):
-            self._screen.move(layout.box_text, min(width - 2, 4 + cursor))
+            self._screen.move(layout.box_text + row, min(width - 2, 4 + cursor))
 
     def _box_top(self, width: int, label: str) -> str:
         glyphs = self._glyphs
@@ -2174,9 +2242,9 @@ class ChatTUI:
 
     def _hints(self, layout: Layout) -> None:
         if self._asking:
-            hints = "enter send · / commands · ↑↓ history · pgup/pgdn scroll · ctrl-d quit"
+            hints = "enter send · \\⏎ newline · / commands · ↑↓ history · pgup/pgdn scroll · ctrl-d quit"
             if not self._glyphs.unicode:
-                hints = "enter send | / commands | up/down history | pgup/pgdn scroll | ctrl-d quit"
+                hints = "enter send | \\enter newline | / commands | up/down history | pgup/pgdn scroll | ctrl-d quit"
         elif self._view and self._view.get("coordination"):
             detach = "ctrl-d detaches · " if self._can_detach() else ""
             hints = f"/ commands · {detach}ctrl-c cancels coordination after this step"
