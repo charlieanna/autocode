@@ -75,6 +75,17 @@ def _structured_response(text: str) -> bool:
     return text[end:].strip() in ("", "```")  # retain prose or a question after an example
 
 
+def _report_after_prose(text: str) -> int | None:
+    """Where a fenced JSON report begins after readable prose (a Plan Reviewer's summary, then its
+    report), or None. A fenced example followed by more prose or a question is not a report."""
+    start = text.find("```")
+    while start > 0:
+        if _structured_response(text[start:]):
+            return start
+        start = text.find("```", start + 3)
+    return None
+
+
 def prose_event(row: dict) -> tuple[str, dict] | None:
     """A reasoning or message row (a Codex-style item, or an OpenCode or Kilo ``text`` or ``reasoning``
     part) as an event; a later snapshot of the same item has the same key."""
@@ -87,9 +98,11 @@ def prose_event(row: dict) -> tuple[str, dict] | None:
         return None
     if kind is None or not isinstance(identifier, (str, int)) or not isinstance(text, str):
         return None
-    if kind == "message" and _structured_response(text):
+    if kind == "message" and (_structured_response(text) or (start := _report_after_prose(text)) is not None):
         partial = row.get("type") in ("item.started", "item.updated")
         shown = "Receiving a structured response. [partial]" if partial else "Structured response received."
+        if not _structured_response(text) and (before := _prose(text[:start])):
+            shown = f"{before} {shown}"
         return f"{kind}:{identifier}", {"kind": kind, "text": shown}
     shown = _prose(text)
     if shown and row.get("type") in ("item.started", "item.updated"):

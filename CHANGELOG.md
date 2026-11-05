@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat's live agent log shows a stage's closing summary when the summary is followed
+  by a fenced JSON report, instead of the last 400 characters of the report.
 - The stuck-stage Investigator's instructions now list `cause` among the fields to return. They
   described the six causes but never named the field, so a MiMo Investigator put the cause in
   its diagnosis and its report was rejected for a missing `cause`, costing a report rewrite.
