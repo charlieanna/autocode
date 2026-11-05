@@ -31,6 +31,24 @@ REPEAT_THRESHOLD = 3
 PROBE_BYTES = 262_144
 
 
+def admitted_retry(entry, authorization):
+    """Match an invocation's consumed resume grant; saved audit is never credit.
+
+    Request preparation is read-only. Final launch admission consumes the
+    separate novelty credit, so this does not authorize a second execution.
+    """
+    return bool(
+        authorization
+        and authorization.get("consumed") is True
+        and not authorization.get("_novelty_consumed")
+        and authorization.get("failure_key") == key(entry["identity"])
+        and authorization.get("identity") == entry["identity"]
+        and type(authorization.get("count")) is int
+        and authorization["count"] == entry["count"]
+        and authorization.get("source_revision") == entry["identity"]["artifact_hash"]
+    )
+
+
 def identity(record, error):
     artifact_hash = record.get("source_revision")
     if not artifact_hash:

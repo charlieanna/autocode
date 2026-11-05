@@ -309,7 +309,13 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         if stage == "orchestrator":
             record_resume(runner, args, current, state_path)  # every check that could hold the pause passed
             return autopilot.unit_module(stage).dispatch(current, workspace, run_dir)
-        request = autopilot.prepare_request(current, stage, state_path, runner.SCHEMA_DIR)
+        request = autopilot.prepare_request(
+            current,
+            stage,
+            state_path,
+            runner.SCHEMA_DIR,
+            retry_authorization=getattr(args, "_failure_retry_authorization", None),
+        )
         role, route_role = request.role, request.route_role
         runner.rotate_if_needed(current, route_role, run_dir)
         prompt, metrics = request.prompt, request.metrics
