@@ -57,9 +57,19 @@ class EvidenceTests(unittest.TestCase):
         found = current_behavior.evidence(
             {"investigation": investigation(observed="  Renewed   twice\nafter a timeout ")}
         )
-        self.assertEqual(OBSERVED, found["text"])
+        self.assertEqual("Renewed   twice\nafter a timeout", found["text"], "kept as observed, ends trimmed")
         self.assertTrue(current_behavior.matches("Renewed twice after a timeout", found))
         self.assertFalse(current_behavior.matches("Renewed once after a timeout", found))
+
+    def test_the_box_quotes_the_observation_verbatim(self):
+        # 2026-11-05: collapsing the spaces inside a quoted input misquoted the bug as slugify(" Hello, World! "),
+        # a Plan Reviewer blocked on it, and the run paid a whole revision round.
+        observed = 'slugify("  Hello, World!  ") returns "-hello-world-" but should return "hello-world"'
+        state = {"investigation": investigation(observed=observed)}
+        body = plan(criterion("C1", "no leading or trailing hyphen", "test: test_c1_strip"))
+        after = current_behavior.prepare_body(state, body, "glm_revise")
+        self.assertEqual(observed, after["acceptance_criteria"][0]["current_behavior"])
+        self.assertTrue(current_behavior.matches(observed, current_behavior.evidence(state)))
 
     def test_no_evidence_without_a_bound_reproduced_diagnosis(self):
         for name, found in (

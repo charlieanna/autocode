@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A bug-fix plan's "Today:" text quotes the Investigator's observation verbatim. Collapsing its spaces
+  misquoted inputs such as `slugify("  Hello, World!  ")`, which a Plan Reviewer blocked on and which cost
+  a whole extra Requirements and Plan Reviewer round.
 - Plan validation accepts the word “zero” for an unquoted source value of `0`, avoiding
   unnecessary report-repair calls. Exact quoted literals and different numeric values
   still require their original values.
