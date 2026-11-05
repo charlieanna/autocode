@@ -764,6 +764,23 @@ class StatusLineTests(unittest.TestCase):
         self.assertIn("TASKS  0 of 1 task done", shown)
         self.assertIn("ACCEPTANCE CHECKS  0 of 6", shown)
 
+    def test_the_status_row_follows_a_queued_stage_once_it_starts_working(self):
+        # The client said "Next: Builder" once; "Builder working" is not news to it (#1844), so the
+        # status row kept saying "Next: Builder" while the Builder worked in a live run.
+        ui = screen_ui()
+        line = "Builder working · 0 of 1 task done · 0 of 3 requirements checked · 0 open problems"
+        ui.observe(
+            {
+                "status": "RUNNING",
+                "phase": "EXECUTING",
+                "progress": {"stage": "Builder", "headline": "Builder working", "line": line},
+            }
+        )
+        ui._transcript.activity = "Next: Builder · 0 of 1 task done · 0 of 3 requirements checked · 0 open problems"
+        shown = " ".join(text for _, text in drawn(ui))
+        self.assertIn("Builder working · 0 of 1 task done", shown)
+        self.assertNotIn("Next: Builder", shown)
+
     def test_the_status_row_reads_in_plain_words_before_any_status_read(self):
         ui = screen_ui()
         shown = []
@@ -1576,6 +1593,40 @@ class LivePaneTests(unittest.TestCase):
         self.assertEqual(2, len(ui._live.shown()))
         ui._run("/live", False, "off")
         self.assertIsNone(ui._layout(30, 120).live_start)
+
+    def test_live_default_renders_thinking_in_the_pane_and_short_terminal_fallback(self):
+        for height in (30, 14):
+            with self.subTest(height=height):
+                ui = screen_ui()
+                ui._screen.getmaxyx.return_value = (height, 120)
+                ui.observe(
+                    {
+                        "status": "RUNNING",
+                        "chat": {
+                            "log": [
+                                {
+                                    "id": "thought",
+                                    "agent": "Planner",
+                                    "kind": "thinking",
+                                    "text": "Checking the caller [partial]",
+                                },
+                                {
+                                    "id": "message",
+                                    "agent": "Planner",
+                                    "kind": "message",
+                                    "text": "Found the entry point.",
+                                },
+                            ]
+                        },
+                    }
+                )
+                ui._run("/live", False)
+                if height == 30:
+                    shown = "\n".join(text for _, _, text in self.drawn(ui))
+                else:
+                    shown = ui._transcript.blocks[-1][1]
+                self.assertIn("Checking the caller [partial]", shown)
+                self.assertIn("Found the entry point.", shown)
 
     def test_where_the_pane_does_not_fit_live_prints_the_log_in_the_conversation(self):
         ui = screen_ui()

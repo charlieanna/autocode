@@ -355,6 +355,15 @@ class DispatchTests(unittest.TestCase):
         self.assertFalse(d.disjoint(["src"], ["src/module.py"]))
         self.assertTrue(d.disjoint(["src/api"], ["src/api2"]))
 
+    def test_a_dispatch_with_nothing_to_build_in_parallel_says_so_and_when_it_ran(self):
+        self.prepare()
+        self.state["settings"]["orchestration"]["max_parallel"] = 1
+        record = self.build()
+        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("No tasks can be built in parallel now; one Builder takes the next task", record["summary"])
+        # Without started_at the chat's "Recent steps" drops this step after a turn.
+        self.assertLessEqual(record["started_at"], record["finished_at"])
+
     def test_unapproved_or_stale_contract_cannot_launch(self):
         self.prepare()
         self.state["goal_contract"]["body"]["constraints"].append("Changed")

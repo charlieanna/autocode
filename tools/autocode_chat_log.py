@@ -3,7 +3,7 @@
 ``view["chat"]["log"]`` is the terminal chat's live log (owner decision 2026-10-21): for the attempt
 supervised now, and for each parallel Builder whose own attempt is supervised now, its reasoning,
 its messages, and the commands, edits and tool calls ``chat.activity`` already names, each tagged with
-the agent's screen name. Unlike ``chat.activity`` it copies reasoning and message prose, collapsed to
+the agent's screen name, and the Orchestrator's newest dispatch summary. Unlike ``chat.activity`` it copies reasoning and message prose, collapsed to
 one line, bounded to its newest words and with credential-shaped text redacted; tool output is never
 copied. It is display only: never proof that a command passed, a change is right or a requirement is
 met, never a report and never authority to approve or retry. Only the tail of an event file inside
@@ -239,6 +239,24 @@ def _workers(state: RunState, workspace, supervised: Callable[[dict], bool]) -> 
     return found
 
 
+def _dispatch_note(state: RunState) -> list[dict]:
+    """The Orchestrator's newest decision since the person's last turn, as one message. It runs no
+    model and finishes at once, so without this note the log never shows that it ran."""
+    turns = state.get("turns") or []
+    since = turns[-1].get("at") if turns and isinstance(turns[-1], dict) else None
+    for record in reversed(state.get("stages") or []):
+        if not isinstance(record, dict) or record.get("stage") != "orchestrator":
+            continue
+        at, summary = record.get("finished_at"), record.get("summary")
+        if not record.get("runner_owned") or not isinstance(at, str) or not isinstance(summary, str):
+            return []
+        if isinstance(since, str) and at <= since:
+            return []
+        text = _prose(summary)
+        return [{"id": f"orchestrator:{at}", "agent": _agent("orchestrator", state), "kind": "message", "text": text}]
+    return []
+
+
 def project(
     state: RunState,
     public,
@@ -255,7 +273,7 @@ def project(
     if public.get("status") != "RUNNING" or (public.get("needs") or {}).get("kind") != "continue" or stopped:
         return []
     workspace = state.get("workspace") or public.get("workspace")
-    found: list[dict] = []
+    found: list[dict] = _dispatch_note(state)
     active = state.get("active_stage")
     if (
         isinstance(active, dict)

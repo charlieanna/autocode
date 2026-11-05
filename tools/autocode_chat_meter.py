@@ -140,8 +140,11 @@ def stages(view: dict | None, now: datetime | None = None) -> list[dict]:
     result = []
     for stage, rows in grouped.items():
         newest = rows[-1]
+        # Only an attempt right after one that did not succeed is a retry. Once a failed attempt was
+        # repaired, the stage's next run (a further conversation turn, a second review round) is new work.
+        retry = newest.get("active") and len(rows) > 1 and _failed(rows[-2])
         if newest.get("active"):
-            state = RETRYING if any(_failed(row) for row in rows[:-1]) else WORKING
+            state = RETRYING if retry else WORKING
         elif _failed(newest):
             state = FAILED
         else:
@@ -162,7 +165,7 @@ def stages(view: dict | None, now: datetime | None = None) -> list[dict]:
             if isinstance(value, int | float) and _number(value):
                 costs.append(float(value))
         # A stage on a later attempt says why the one before it did not succeed.
-        previous = _why(rows[-2]) if newest.get("active") and len(rows) > 1 else ""
+        previous = _why(rows[-2]) if retry else ""
         result.append(
             {
                 "stage": stage,
@@ -195,7 +198,8 @@ def stage_lines(row: dict, *, unicode: bool = True) -> tuple[str, str, str]:
     if row["attempts"] > 1:
         # A stage that failed and is tried again is on an attempt; one that ran again after succeeding
         # (a second review round) simply ran more than once.
-        head.append(f"attempt {row['attempts']}" if row["failed_attempts"] else f"{row['attempts']} runs")
+        retried = row["state"] in (RETRYING, FAILED) and row["failed_attempts"]
+        head.append(f"attempt {row['attempts']}" if retried else f"{row['attempts']} runs")
     detail = [row["route"]] if row["route"] else []
     used = row["input_tokens"] + row["output_tokens"]
     if used:

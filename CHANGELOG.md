@@ -14,6 +14,13 @@ PR template asks for an entry here; a change without one is incomplete.
 - The terminal chat's prompt after a finished task starts with "This task is complete." A person
   whose view was scrolled away from the closing message saw only "Anything else?" and could not
   tell whether the task was over.
+- The full-screen chat's status row shows the stage working now ("Builder working") instead of
+  the "Next: Builder" it was told before that stage started. After planning, it kept the queued
+  line for the whole Tester and Builder stages unless a tool call was showing.
+- The terminal chat's live log shows what the Orchestrator decided, for example "No tasks can be
+  built in parallel now; one Builder takes the next task". It runs no model and finishes at once,
+  so a person saw the Plan Reviewer followed directly by a Builder. Its step now also stays in
+  "Recent steps" after a turn.
 - The terminal chat's live agent log shows a stage's closing summary when the summary is followed
   by a fenced JSON report, instead of the last 400 characters of the report.
 - The stuck-stage Investigator's instructions now list `cause` among the fields to return. They

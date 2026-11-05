@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import select
 import subprocess
 import sys
@@ -45,6 +46,23 @@ def read_terminal(leader: int, *, until: bytes | None = None, seconds: float = 6
             return seen
         seen += chunk
     return seen
+
+
+def screen_rows(output: str, *texts: str) -> dict[str, int]:
+    """The screen row each text was last drawn on, following the cursor moves curses sends:
+    an absolute position (CSI row;col H), a row (CSI row d), a move down (CSI n B) and a line feed."""
+    rows: dict[str, int] = {}
+    row = 1
+    for token in re.split(r"(\x1b\[[0-9;?]*[A-Za-z]|\n)", output):
+        if token == "\n":
+            row += 1
+        elif move := re.fullmatch(r"\x1b\[(\d+)(?:(?:;\d+)?[Hf]|d)", token):
+            row = int(move[1])
+        elif move := re.fullmatch(r"\x1b\[(\d*)B", token):
+            row += int(move[1] or 1)
+        else:
+            rows.update({text: row for text in texts if text in token})
+    return rows
 
 
 def drain_terminal(leader: int, condition, *, seconds: float = 60) -> bool:
@@ -2503,8 +2521,10 @@ class TerminalChatTests(unittest.TestCase):
             if child.poll() is None:
                 child.kill()
         self.assertEqual(2, child.wait(timeout=60))
-        self.assertIn("Line 1↵Line 2", shown)
-        self.assertNotIn("↵↵", shown)
+        # The multi-line composer draws each pasted line on its own row (#2720); a doubled break would
+        # leave an empty row between them.
+        rows = screen_rows(shown, "Line 1", "Line 2")
+        self.assertEqual(rows["Line 1"] + 1, rows["Line 2"], rows)
 
     def test_an_error_before_the_conversation_is_shown_after_the_full_screen_closes(self):
         leader, child = self.spawn_terminal("chat", "--workspace", str(self.workspace), "--mode", "bogus", BRIEF)

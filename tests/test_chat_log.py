@@ -445,6 +445,29 @@ class ProjectTests(unittest.TestCase):
         self.assertEqual(("thinking", "Thinking about tests"), (entry["kind"], entry["text"]))
         self.assertEqual(entry["id"], self.project()[0]["id"], "an entry keeps its id across views")
 
+    def test_the_orchestrators_newest_dispatch_since_the_turn_is_one_message(self):
+        # It runs no model and finishes at once, so the log never showed that it ran.
+        self.state["turns"] = [{"at": "2026-11-05T10:38:00Z"}]
+        dispatch = {"stage": "orchestrator", "runner_owned": True, "summary": "One Builder takes the next task"}
+        self.state["stages"] = [
+            {**dispatch, "finished_at": "2026-11-05T10:30:00Z", "summary": "Before the turn"},
+            {**dispatch, "finished_at": "2026-11-05T10:39:29Z"},
+            {"stage": "terra", "started_at": "2026-11-05T10:39:30Z"},
+        ]
+        note, builder = self.project()
+        self.assertEqual(
+            {
+                "id": "orchestrator:2026-11-05T10:39:29Z",
+                "agent": "Orchestrator",
+                "kind": "message",
+                "text": "One Builder takes the next task",
+            },
+            note,
+        )
+        self.assertEqual("Builder · task M2", builder["agent"])
+        self.state["turns"].append({"at": "2026-11-05T10:40:00Z"})
+        self.assertEqual(["Builder · task M2"], [entry["agent"] for entry in self.project()])
+
     def test_an_attempt_that_cannot_be_confirmed_or_is_over_shows_nothing(self):
         self.assertEqual([], self.project(finished=True))
         self.assertEqual([], self.project(stopped=True))
@@ -564,7 +587,7 @@ class StatusViewTests(unittest.TestCase):
         self.assertIn("log", chat)
         live = panel.LiveLog()
         self.assertTrue(live.observe({"chat": chat}))
-        self.assertEqual("No readable updates in this view.", live.text())
+        self.assertIn("Builder [thinking] Reasoning stream activity received", live.text())
         live.filter = "thinking"
         self.assertIn("Builder", live.text())
         self.assertIn("Reasoning stream activity received", live.text())

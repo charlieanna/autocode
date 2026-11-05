@@ -292,6 +292,15 @@ def task_progress(view: dict | None, summary: dict | None) -> str | None:
     }.get(_mapping(summary.get("needs")).get("kind", ""), "Repository coordination; see details")
 
 
+def current_line(view: dict | None) -> str | None:
+    """The view's own progress line while the run works, such as "Builder working · 0 of 1 task done".
+    The client says a progress line only when its stage or counts change (#1844), so a "Next: Builder"
+    it said stays true in the transcript after the Builder starts; the status row reads this instead."""
+    view = _mapping(view)
+    line = _mapping(view.get("progress")).get("line")
+    return line if view.get("status") == "RUNNING" and isinstance(line, str) and line.strip() else None
+
+
 def doing(view: dict | None) -> str | None:
     """The newest event as a short phrase for the status row, or None when the view has none."""
     if _planning(view) and (headline := _mapping(_mapping(view).get("progress")).get("headline")):
@@ -688,14 +697,14 @@ class LiveLog:
         return list(dict.fromkeys(entry["agent"] for entry in self.entries.values()))
 
     def shown(self) -> list[dict]:
-        """Messages by default; thinking and tool details require their explicit filters."""
+        """Readable thinking and messages by default; tool details require their explicit filter."""
         entries = [entry for entry in self.entries.values() if live_text(entry["text"])]
         wanted = self.filter.strip().casefold()
         if wanted in LIVE_KINDS:
             return [entry for entry in entries if entry["kind"] in LIVE_KINDS[wanted]]
         if wanted:
             entries = [entry for entry in entries if wanted in entry["agent"].casefold()]
-        return [entry for entry in entries if entry["kind"] == "message"]
+        return [entry for entry in entries if entry["kind"] in ("thinking", "message")]
 
     def title(self) -> str:
         return "LIVE · " + (self.filter.strip() or "all agents")
