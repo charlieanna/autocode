@@ -92,6 +92,12 @@ class PlanningScopeCliTests(unittest.TestCase):
 @unittest.skipUnless(sys.platform == "linux", "fake providers require supported Linux")
 class AssignedPlannerReportCliTests(unittest.TestCase):
     def test_assignment_reuses_completed_planner_report_instead_of_regenerating_scope(self):
+        self.assignment_reuses_report(pause_on_scope=False)
+
+    def test_paused_assignment_reuses_completed_planner_report_instead_of_regenerating_scope(self):
+        self.assignment_reuses_report(pause_on_scope=True)
+
+    def assignment_reuses_report(self, *, pause_on_scope):
         from unittest.mock import patch
 
         import autocode_chat_client as chat
@@ -121,6 +127,23 @@ class AssignedPlannerReportCliTests(unittest.TestCase):
             + "\n"
             + source[at:]
         )
+        if pause_on_scope:
+            pause = textwrap.indent(
+                textwrap.dedent(f"""
+            if stage == 'astra_discovery' and name == 'checkout':
+                subprocess.run({list(taskrun.AUTOCODE)!r} + [
+                    'intervention', 'submit', '--workspace', str(root),
+                    '--run-dir', str(output.parents[2]), '--request-id', 'pause-completed-scope',
+                    '--kind', 'pause', '--json'], check=True, capture_output=True, text=True)
+            """),
+                "    ",
+            )
+            source = source.replace(marker, pause + "\n" + marker)
+        scope_stage = "glm_revise" if pause_on_scope else "astra_discovery"
+        if pause_on_scope:
+            source = source.replace(
+                "stage == 'astra_discovery' and name == 'checkout'", "stage == 'glm_revise' and name == 'checkout'"
+            )
         provider = self.root / "bin/late-scope-provider.py"
         provider.write_text(source)
         launcher = self.root / "bin/codex"
@@ -137,6 +160,7 @@ class AssignedPlannerReportCliTests(unittest.TestCase):
             )
             self.addCleanup(client.close)
             client.history = chat.History(self.intake, env=self.env)
+            pause_restored = False
             for _ in range(45):
                 current = client.status()
                 if current.get("coordination"):
@@ -145,13 +169,23 @@ class AssignedPlannerReportCliTests(unittest.TestCase):
                     if child and child["status"] != "STARTING":
                         run = taskrun.TaskRun(Path(child["workspace"]), Path(child["run_dir"]), env=self.env)
                         view = run.status()
-                        calls = [a for a in view["usage"]["accounting"]["attempts"] if a["stage"] == "astra_discovery"]
+                        if pause_on_scope and view["status"] == "PAUSED_INTERVENTION":
+                            before = view["usage"]
+                            view = run.resume_paused()
+                            self.assertEqual("answer", view["needs"]["kind"], view["needs"])
+                            self.assertEqual(before, view["usage"])
+                            self.assertTrue(view["needs"]["questions"][0]["id"].startswith("workspace-scope-"))
+                            pause_restored = True
+                        calls = [a for a in view["usage"]["accounting"]["attempts"] if a["stage"] == scope_stage]
                         if calls and view["scope"]["decision"] == "linked_repositories":
                             break
                 client.step()
             else:
                 self.fail("The coordinator did not assign the late Planner scope")
-            self.assertEqual("astra_challenge", view["next_stage"], view["needs"])
+            self.assertEqual(pause_on_scope, pause_restored)
+            self.assertEqual(
+                "astra_finalize" if pause_on_scope else "astra_challenge", view["next_stage"], view["needs"]
+            )
             self.assertEqual([], self.questions, "Only source Requirements confirmation precedes scope assignment")
             self.assertEqual(1, len(calls))
             self.assertEqual("1", (run.workspace / ".autocode/scope-draft-count").read_text())
