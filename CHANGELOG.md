@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Tester and Completion Reviewer prompts no longer carry the coverage run's command receipts twice.
+  The changed-code receipts start with those same receipts, and each now points at its copy
+  under `diff_coverage`; in a live two-line fix that removed about 3.7 KB from each prompt.
 - The full-screen chat scrolls back down with the mouse wheel on macOS. Python's ncurses there
   has no `BUTTON5_PRESSED` and reports the wheel turned down as `REPORT_MOUSE_POSITION`, which
   the chat neither asked for nor read, so once scrolled up a person could only page back down.
