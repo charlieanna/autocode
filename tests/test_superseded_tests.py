@@ -13,6 +13,7 @@ import autocode_approval_view as approval_view
 import autocode_contract_identity as contracts
 import autocode_pause_category as pause_category
 import autocode_protected_oracles as guard
+import autocode_run_records as run_records
 import autocode_superseded_tests as superseded
 import autocode_util as util
 import autocode_verify as verify
@@ -276,6 +277,41 @@ class Display(unittest.TestCase):
         lines = approval_view.summary(body, 1, [])
         self.assertIn(
             "    Replaces existing test: tests/test_shipping.py::test_fifty_dollar_order_pays_standard_fee", lines
+        )
+
+
+class OmittedBox(unittest.TestCase):
+    def test_an_omitted_supersedes_list_replaces_nothing_and_costs_no_repair(self):
+        # The strict generation schema requires the list on every criterion; a provider that leaves it out
+        # (the offline fixtures, a provider without enforced structured output) replaces no original test.
+        criterion = {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+                "criterion": {"type": "string"},
+                "current_behavior": {"type": "string"},
+                "supersedes": {"type": "array"},
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            schema = Path(temp) / "schema.json"
+            properties = {"acceptance_criteria": {"type": "array", "items": criterion}}
+            schema.write_text(
+                json.dumps({"type": "object", "properties": {"contract": {"type": "object", "properties": properties}}})
+            )
+            record = {"stage": "astra_discovery", "schema": str(schema)}
+            rows = [{"id": "C1", "criterion": "a"}, {"id": "C2", "criterion": "b", "supersedes": [ENTRY]}]
+            value = run_records.default_missing_provenance({"contract": {"acceptance_criteria": rows}}, record)
+        self.assertEqual(
+            [
+                {"id": "C1", "criterion": "a", "current_behavior": "", "supersedes": []},
+                {"id": "C2", "criterion": "b", "current_behavior": "", "supersedes": [ENTRY]},
+            ],
+            value["contract"]["acceptance_criteria"],
+        )
+        self.assertEqual(
+            ["contract.acceptance_criteria.current_behavior", "contract.acceptance_criteria.supersedes"],
+            record["defaulted_fields"],
         )
 
 
