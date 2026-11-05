@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The stuck-stage Investigator's instructions now list `cause` among the fields to return. They
+  described the six causes but never named the field, so a MiMo Investigator put the cause in
+  its diagnosis and its report was rejected for a missing `cause`, costing a report rewrite.
 - The terminal chat says why it stopped in words ("AutoCode stopped: the model or its provider failed.")
   instead of repeating the bare cause label ("AutoCode stopped: AutoCode.").
 - Regression test names in a compact bug-fix plan leave out the "(currently returns ...)" aside and

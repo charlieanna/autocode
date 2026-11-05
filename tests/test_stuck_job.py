@@ -85,6 +85,15 @@ def report(recommendation="retry", **overrides):
 class PromptHandoffTests(unittest.TestCase):
     """C1 (#2113): the Investigator handoff renders as one compact line and round-trips its packet exactly."""
 
+    def test_prompt_names_every_required_report_field(self):
+        # A live MiMo Investigator put the cause inside diagnosis because the prompt described the
+        # six causes but never named the field; its report was rejected for "$: missing cause".
+        # untestable is defined inside the probe entry ("say why in untestable").
+        named = {*(f for f in stuck.SCHEMA["required"] if f"- {f}:" in stuck.PROMPT), "untestable"}
+        unnamed = [field for field in stuck.SCHEMA["required"] if field not in named]
+        self.assertIn("say why in untestable", stuck.PROMPT)
+        self.assertEqual(unnamed, [])
+
     def state(self, mode="ordinary"):
         state = state_for()
         request = {
