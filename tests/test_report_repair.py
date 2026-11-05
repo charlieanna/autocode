@@ -87,6 +87,55 @@ class RepairTests(unittest.TestCase):
                             r"(?:null|omit).{0,400}original_executed_checks)",
                         )
 
+    def test_a_long_executed_command_is_cited_by_its_event_not_repeated(self):
+        """Three 36 KB inline Tester scripts pushed a live Tester repair past the repair size limit."""
+        from autocode_report_repair_context import COMMAND_PREVIEW, COMMAND_SHOWN
+
+        script = "python3 - <<'PY'\n" + "print('check')\n" * 3000 + "PY"
+        self.assertGreater(len(script), COMMAND_SHOWN)
+        rows = []
+        for ident, command in (("prt_short", "python3 -m unittest -q"), ("prt_long", script)):
+            row = event(
+                "tool_use",
+                tool="bash",
+                state={
+                    "status": "completed",
+                    "input": {"command": command},
+                    "metadata": {"exit": 0},
+                    "output": "synthetic observation",
+                },
+            )
+            row["part"]["id"] = ident
+            rows.append(row)
+        self.state["next_stage"] = "sol"
+        self.queue(
+            stage="sol",
+            role="sol",
+            engine="opencode",
+            schema=str(runner.SCHEMA_DIR / "v2/sol-report.schema.json"),
+            error=ValueError("Check is not supported by an exact executed Validator event"),
+            event_rows=[*rows, terminal()],
+        )
+        repair = self.repair_request()["prompt"]
+        handoff = json.loads(repair.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(
+            [
+                {"command": "python3 -m unittest -q", "exit_code": 0, "evidence_ref": "event:prt_short"},
+                {
+                    "command": None,
+                    "command_preview": script[:COMMAND_PREVIEW],
+                    "command_chars": len(script),
+                    "exit_code": 0,
+                    "evidence_ref": "event:prt_long",
+                },
+            ],
+            handoff["original_executed_checks"],
+        )
+        self.assertNotIn(script, repair)
+        self.assertRegex(
+            handoff["finding_identity_policy"], r"(?s)command is null.{0,120}cite it only with command null"
+        )
+
     def test_repair_launch_keeps_the_original_pre_upgrade_schema_bytes(self):
         self.state["next_stage"] = "astra_review"
         schema = self.run / "legacy-review.schema.json"
@@ -1254,7 +1303,10 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(0, self.state["pending_report_repair"]["attempts"])
         self.assertEqual(0, saved["pending_report_repair"]["attempts"])
 
-    def test_oversized_command_receipts_pause_instead_of_truncating_or_launching(self):
+    def test_an_oversized_command_is_cited_by_its_event_without_changing_its_evidence(self):
+        """The exact command stays in the pinned events; the repair cites it with command null."""
+        from autocode_report_repair_context import COMMAND_PREVIEW
+
         command = "exact-command-" + "x" * runner.REPAIR_HANDOFF_BYTES
         rows = [
             {"type": "thread.started", "thread_id": "t-session"},
@@ -1267,7 +1319,21 @@ class RepairTests(unittest.TestCase):
         pending = self.queue(event_rows=rows)
         path = Path(pending["original"]["events"])
         contents = path.read_bytes()
-        self.assert_repair_blocked()
+        repair = self.repair_request()["prompt"]
+        handoff = json.loads(repair.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(
+            [
+                {
+                    "command": None,
+                    "command_preview": command[:COMMAND_PREVIEW],
+                    "command_chars": len(command),
+                    "exit_code": 1,
+                    "evidence_ref": "event:check",
+                }
+            ],
+            handoff["original_executed_checks"],
+        )
+        self.assertLess(len(repair.encode("utf-8")), runner.REPAIR_HANDOFF_BYTES)
         self.assertEqual(contents, path.read_bytes())
         self.assertEqual(command, support.events(path)[1]["item"]["command"])
 

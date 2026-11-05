@@ -753,3 +753,33 @@ class ProtectedContractRepairContextTests(unittest.TestCase):
                 self.assertNotIn("protected_contract", clarification)
                 if stage != "requirements_gather":
                     self.assertEqual({}, clarification)
+
+
+class ExecutedCheckTests(unittest.TestCase):
+    def test_only_a_command_longer_than_the_limit_is_cited_by_its_event(self):
+        def done(ident, command, exit_code=0, kind="command_execution"):
+            item = {"type": kind, "id": ident, "command": command, "exit_code": exit_code}
+            return {"type": "item.completed", "item": item}
+
+        at_limit, over = "x" * context.COMMAND_SHOWN, "y" * (context.COMMAND_SHOWN + 1)
+        events = [
+            done("a", at_limit),
+            done("b", over, 1),
+            done("c", "ls", kind="file_change"),
+            done("d", "ls", exit_code=None),
+            {"type": "item.started", "item": done("e", "ls")["item"]},
+            "not an event",
+        ]
+        self.assertEqual(
+            [
+                {"command": at_limit, "exit_code": 0, "evidence_ref": "event:a"},
+                {
+                    "command": None,
+                    "command_preview": over[: context.COMMAND_PREVIEW],
+                    "command_chars": len(over),
+                    "exit_code": 1,
+                    "evidence_ref": "event:b",
+                },
+            ],
+            context.executed_checks(events),
+        )

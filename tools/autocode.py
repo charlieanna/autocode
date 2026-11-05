@@ -1159,19 +1159,7 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
                     "contract_revision": (state.get("goal_contract") or {}).get("revision"),
                     "task_id": (state.get("current_task") or {}).get("id", ""),
                 },
-                "original_executed_checks": [
-                    {
-                        "command": e["item"]["command"],
-                        "exit_code": e["item"]["exit_code"],
-                        "evidence_ref": "event:" + e["item"]["id"],
-                    }
-                    for e in support.events(original["events"])
-                    if e.get("type") == "item.completed"
-                    and e.get("item", {}).get("type") == "command_execution"
-                    and isinstance(e["item"].get("command"), str)
-                    and isinstance(e["item"].get("id"), str)
-                    and type(e["item"].get("exit_code")) is int
-                ],
+                "original_executed_checks": report_repair_context.executed_checks(support.events(original["events"])),
                 "finding_identity_policy": prompts.get("fragments/autocode/execute-report-repair-06.md"),
                 "state_file": str(run_dir / "state.json"),
                 **jobs.repair_context(original["stage"], state),

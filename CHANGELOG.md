@@ -28,6 +28,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A report repair no longer repeats each long command the original attempt ran. A command over 2,000 characters, such as a Tester's inline script, appears with its event reference, its first 300 characters and its length, and the repair cites it with command null. In a live Tester repair, three 36 KB scripts had pushed the repair prompt past its 256 KB limit, pausing the run before any repair was sent.
 - `autocode connections check --provider claude` no longer reports a Claude login as signed in when
   Claude Code would bill an API key (for example a key from `apiKeyHelper`, or a Bedrock, Vertex or
   gateway route). Every run on such a login stopped with `PAUSED_BILLING_ROUTE`, while the check and

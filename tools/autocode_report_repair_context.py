@@ -41,6 +41,10 @@ except ImportError:
 
 PLANNING_STAGES = frozenset(roles.ALL_PLANNING_STAGES)
 DECISION_STAGES = frozenset({"astra_plan", "astra_review", "astra_checkpoint", "astra_resolve"})
+# A longer executed command (a Tester's inline script) is not repeated in a repair: three such
+# scripts filled 107 KB of one Tester repair and pushed it past the repair size limit.
+COMMAND_SHOWN = 2000
+COMMAND_PREVIEW = 300
 
 
 def requirements_sources(state: RunState, stage: str) -> dict:
@@ -219,6 +223,33 @@ def sources(pending: dict, read_source) -> tuple[dict, dict]:
     # pinned original instead (#2426). Planning and execution stages share this rule.
     latest = read_source(pending["latest_rejected"], allow_empty=True) if pending.get("latest_rejected") else original
     return original, latest
+
+
+def executed_checks(events) -> list[dict]:
+    """The original attempt's completed commands, each citable by its exact event reference.
+
+    A command longer than COMMAND_SHOWN is given as null with its start and length: the repair
+    cites it with command null, and the runner fills the exact command from the original
+    attempt's evidence, as it does for any null command with a concrete event reference.
+    """
+    checks = []
+    for event in events:
+        item = event.get("item") if isinstance(event, dict) else None
+        if (
+            not isinstance(item, dict)
+            or event.get("type") != "item.completed"
+            or item.get("type") != "command_execution"
+            or not isinstance(item.get("command"), str)
+            or not isinstance(item.get("id"), str)
+            or type(item.get("exit_code")) is not int
+        ):
+            continue
+        command = item["command"]
+        check = {"command": command, "exit_code": item["exit_code"], "evidence_ref": "event:" + item["id"]}
+        if len(command) > COMMAND_SHOWN:
+            check.update(command=None, command_preview=command[:COMMAND_PREVIEW], command_chars=len(command))
+        checks.append(check)
+    return checks
 
 
 def protected_list_differences(protected, latest) -> list[dict]:
