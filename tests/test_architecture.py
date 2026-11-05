@@ -65,7 +65,7 @@ MAX_LINES = {
     "autopilot.py": 1392,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1028,
-    "autocode_verify.py": 3333,
+    "autocode_verify.py": 3010,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its
@@ -76,11 +76,14 @@ MAX_LINES = {
 # autocode_decision_routes.
 # run_role was 648 lines; its native environment, replay context, visual launch, launch admission, activity
 # reporter, exit stop and after-stage evidence moved to autocode_role_launch.
+# verify was 587 lines; its regression proof and suite preservation became _prove_regression and _preserve_suite,
+# and the two judgments moved to autocode_verify_judgment.
 MAX_FUNCTION_LINES = {
     ("autocode_run_actions.py", "handle"): 9,
     ("autocode_args.py", "build_parser"): 539,
     ("autocode.py", "run_role"): 527,
-    ("autocode_verify.py", "verify"): 587,
+    ("autocode_verify.py", "verify"): 331,
+    ("autocode_verify.py", "_preserve_suite"): 219,
     ("autocode_configure.py", "configure"): 583,
     ("autocode_tool_containment.py", "configure"): 439,
     ("autopilot.py", "_apply_result"): 281,
