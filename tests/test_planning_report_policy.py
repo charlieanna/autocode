@@ -14,14 +14,58 @@ from .test_prompt_rendering import STATE_PATH, fixed_state
 
 
 class PlanningReportPolicyTests(unittest.TestCase):
-    def render(self, stage):
+    def render(self, stage, contract=None):
         state = fixed_state()
+        if contract is not None:
+            state["goal_contract"] = contract
         before = copy.deepcopy(state)
         with patch.object(planner.artifacts, "verify_predecessor", return_value=None):
             prompt, _ = planner.context(state, stage, STATE_PATH)
         self.assertEqual(before, state)
         instruction, raw = prompt.split("\nCURRENT HANDOFF DATA\n", 1)
         return instruction, json.loads(raw)
+
+    def test_review_uses_runner_graph_checks_for_the_exact_single_milestone_draft(self):
+        contract = {
+            "task_id": fixed_state()["task_id"],
+            "revision": 2,
+            "body": {
+                "acceptance_criteria": [{"id": "AC1"}],
+                "milestones": [{"id": "M1", "depends_on": [], "acceptance_criteria": ["AC1"]}],
+            },
+        }
+        contract.update(hash=util.digest(contract), approval_status="draft")
+        for stage in ("astra_challenge", "plan_review"):
+            with self.subTest(stage=stage):
+                instruction, packet = self.render(stage, contract)
+                self.assertEqual(
+                    {
+                        "contract_token": planner.goals.token(contract),
+                        "milestone_id": "M1",
+                        "acyclic": True,
+                        "criteria_covered": True,
+                    },
+                    packet["runner_milestone_graph"],
+                )
+                self.assertIn("Use runner_milestone_graph for structural graph checks", instruction)
+                self.assertIn("whether the milestone and tests actually cover the requested behavior", instruction)
+                self.assertIn("A protected behavior change without a saved user basis", instruction)
+                handoff = packet["contract_author_rules"]["milestone_handoff"]
+                self.assertIn("preserves independent validation", handoff)
+                self.assertIn("preserve completion gates", handoff)
+                self.assertNotIn("The Builder", handoff)
+
+        stale = copy.deepcopy(contract)
+        stale["body"]["milestones"][0]["id"] = "M2"
+        invalid_body = copy.deepcopy(contract["body"])
+        invalid_body["milestones"][0]["depends_on"] = ["M2"]
+        invalid = {"task_id": contract["task_id"], "revision": 3, "body": invalid_body}
+        invalid.update(hash=util.digest(invalid), approval_status="draft")
+        for draft in (stale, invalid, {**contract, "approval_status": "approved"}):
+            with self.subTest(draft=draft):
+                instruction, packet = self.render("astra_challenge", draft)
+                self.assertNotIn("runner_milestone_graph", packet)
+                self.assertIn("Audit every rule in contract_author_rules", instruction)
 
     def test_concern_only_reviews_audit_contract_rules_without_authoring_commands(self):
         expected = {

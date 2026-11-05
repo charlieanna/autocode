@@ -5,10 +5,14 @@ from __future__ import annotations
 import copy
 
 try:
+    from . import autocode_contract_identity as contract_identity
+    from . import autocode_planning_graph as planning_graph
     from . import autocode_prompts as prompts
     from . import autocode_roles as roles
     from . import autocode_trace_coverage as trace_coverage
 except ImportError:
+    import autocode_contract_identity as contract_identity
+    import autocode_planning_graph as planning_graph
     import autocode_prompts as prompts
     import autocode_roles as roles
     import autocode_trace_coverage as trace_coverage
@@ -121,11 +125,34 @@ def concern_validation_schema(schema: dict, record: dict) -> dict:
     return result
 
 
-def scope_contract_rules(schema: dict, rules: dict[str, str]) -> tuple[dict[str, str], dict, str]:
+def _single_milestone_graph(contract: dict | None) -> dict | None:
+    """Report only graph properties computed for the exact sealed draft in the prompt."""
+    if not contract or contract.get("approval_status") != "draft":
+        return None
+    try:
+        body = contract["body"]
+        if len(body.get("milestones", [])) != 1 or not body.get("acceptance_criteria"):
+            return None
+        if not contract_identity.sealed(contract):
+            return None
+        graph = planning_graph.derive(body)
+    except (KeyError, TypeError, ValueError):
+        return None
+    return {
+        "contract_token": contract_identity.token(contract),
+        "milestone_id": graph["nodes"][0]["id"],
+        **graph["validation"],
+    }
+
+
+def scope_contract_rules(
+    schema: dict, rules: dict[str, str], *, contract: dict | None = None
+) -> tuple[dict[str, str], dict, str]:
     """A concern report audits the full author rules as data; an author executes them.
 
     The schema, rather than a second stage/role table, owns this distinction.
-    Policy bytes and the supplied contract are preserved; no validator changes.
+    A checked draft can use the runner's structural graph facts. Validation and
+    the supplied contract stay the same.
     """
     fields = schema.get("properties", {})
     row_rule = concern_rule(schema)
@@ -141,8 +168,20 @@ def scope_contract_rules(schema: dict, rules: dict[str, str]) -> tuple[dict[str,
         )
     if "concerns" not in fields or "contract" in fields:
         return dict(rules), {}, row_rule
-    return (
-        {name: "" for name in rules},
-        {"contract_author_rules": dict(rules)},
-        prompts.get("fragments/autoplanner/concern-only-contract-audit.md"),
-    )
+    context = {"contract_author_rules": dict(rules)}
+    instruction = prompts.get("fragments/autoplanner/concern-only-contract-audit.md")
+    if graph := _single_milestone_graph(contract):
+        context["runner_milestone_graph"] = graph
+        context["contract_author_rules"]["milestone_handoff"] = (
+            "Check that the milestone bundles a coherent authorized outcome with its implementation, tests "
+            "and evidence. A narrow repair can be short. Check the affected paths, scope, prerequisites, "
+            "clear exit conditions and whether the handoff preserves independent validation. "
+            "The handoff must preserve completion gates and grant no new goal or permission approval."
+        )
+        instruction += (
+            "\nUse runner_milestone_graph for structural graph checks on this exact draft token. "
+            "The runner verified dependency IDs, acyclicity and acceptance criterion ID coverage. "
+            "Skip re-deriving those properties. Independently check for missing prerequisites in the source, "
+            "scope and ownership problems, and whether the milestone and tests actually cover the requested behavior.\n"
+        )
+    return {name: "" for name in rules}, context, instruction

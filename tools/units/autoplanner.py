@@ -1507,6 +1507,7 @@ def context(state: RunState, stage, state_path):
             "example_criteria": DESIGN_DELIVERABLES_RULE if test_cases.design_only(state) else EXAMPLE_CRITERIA_RULE,
             "milestone_handoff": s.MILESTONE_POLICY,
         },
+        contract=packet["goal_contract"],
     )
     packet.update(audit_context)
     compact_final = stage in retention.FINAL and bool(retention.token(state))
