@@ -569,13 +569,11 @@ class DecisionRepairContextTests(unittest.TestCase):
                 data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
                 self.assertEqual(report, data["rejected_report"]["content"])
                 self.assertIn("Task must belong to an approved milestone", data["error"])
-                self.assertEqual(
-                    ["M1"],
-                    [
-                        row["id"]
-                        for row in runner.support.read(data["state_file"])["goal_contract"]["body"]["milestones"]
-                    ],
-                )
+                # A Kilo report-only repair has no tools, so the approved milestones arrive inline.
+                self.assertEqual(self.state["goal_contract"]["body"]["milestones"], data["approved_milestones"])
+                self.assertEqual(["M1"], [row["id"] for row in data["approved_milestones"]])
+                self.assertNotIn("through state_file", prompt)
+                self.assertIn("approved_milestones in CURRENT HANDOFF DATA", prompt)
                 self.assertEqual("read-only", request["sandbox"])
                 self.assertFalse(request["allow_write"])
                 self.assertTrue(request["report_only"])
@@ -594,6 +592,12 @@ class DecisionRepairContextTests(unittest.TestCase):
                 ):
                     self.assertIn(instruction, prompt)
                 self.assertIn("decision.next_task", prompt)
+
+    def test_unapproved_contract_offers_no_milestones(self):
+        self.state["goal_contract"] = {"approval_status": "draft", "body": {"milestones": [{"id": "M1"}]}}
+        self.assertEqual([], context.approved_milestones(self.state))
+        self.state["goal_contract"]["approval_status"] = "approved"
+        self.assertEqual([{"id": "M1"}], context.approved_milestones(self.state))
 
     def test_missing_requirements_and_unknown_ids_are_not_repaired_by_guessing(self):
         runner = repair_fixtures.runner

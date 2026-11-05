@@ -27,6 +27,9 @@ PR template asks for an entry here; a change without one is incomplete.
   status view names a display-only `step` action for each saved step (`autocode checkpoint --step`).
 - Screens and the terminal conversation name the Resolver by its job, as every other stage is named,
   instead of "AutoResolver", and a Resolver question no longer tells you to use its approval token.
+- A Resolver, checkpoint or review report repair now receives the approved milestones in its handoff.
+  It used to be told to read them from the run's state file, but a Kilo report-only repair has no tools,
+  so in a live run each repair answered with a tool call written as text and was rejected twice.
 - A Planner model the person chose (a stage choice or `--glm-model`) is kept when a revised plan
   is blocked again, instead of climbing to Claude Opus 5.5 or GPT-6 Sol. A live Kilo run on
   GLM 5.3 climbed to an Anthropic account with no credit and stopped to ask the person.
