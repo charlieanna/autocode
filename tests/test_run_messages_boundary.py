@@ -11,6 +11,7 @@ from unittest import mock
 
 import autocode_interventions as inbox
 import autocode_stop as stop
+import autocode_taskrun as taskrun
 import autocode_util as util
 
 from tests import ROOT
@@ -168,6 +169,27 @@ class MessageBoundaryTests(unittest.TestCase):
         self.assertEqual(before["source_log"], self.state["source_log"])
         self.assertEqual([], self.state["brief_feedback"])
         self.assertEqual([], inbox.inspect(self.workspace, self.run)["requests"])
+
+    def test_cli_explains_queued_discussion_handoff_without_releasing_pause(self):
+        self.state.update(next_stage="answer_question", iteration=1, sessions={})
+        self.save()
+        self.submit("fix-request")
+        self.submit("pause-request", "pause")
+        self.consume()
+        before = self.path.read_bytes()
+        run = taskrun.TaskRun(
+            self.workspace,
+            self.run,
+            command=[sys.executable, str(ROOT / "tools/autocode.py")],
+        )
+        view = run.status()
+        self.assertEqual("PAUSED_INTERVENTION", view["status"])
+        self.assertIn("Requirements will handle your saved message", view["recovery"]["what_happened"])
+        resume = next(row for row in view["recovery"]["actions"] if row["kind"] == "resume")
+        self.assertEqual("Resume with Requirements", resume["label"])
+        self.assertEqual(["--resume-paused"], resume["args"])
+        self.assertEqual(before, self.path.read_bytes(), "Status must not release the saved pause")
+        self.assertFalse((self.run / "iterations").exists(), "Reading the handoff must not launch a provider")
         self.assertFalse(self.consume(), "reopen cannot reapply or relaunch the same message")
 
     def test_pause_and_stop_take_priority_and_leave_the_question_saved(self):
