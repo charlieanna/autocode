@@ -37,6 +37,8 @@ must exit 0 unless that declaration says otherwise.
 Behavior that already works and must keep working (the change must not break it) is a guard: write it as the
 same kind of example, with verification_method "guard: <exact supported test name>" when the request
 already names the test; otherwise use "guard: test_<criterion id in lowercase>_<what it checks>".
+A Python test is named by its bare method name alone: an existing test_simple in class SlugifyTest is
+"guard: test_simple", never "guard: SlugifyTest.test_simple" or a module path, which the runner refuses.
 The runner checks that its test passes both before and after the change. Coverage of behavior the product already
 implements — a named scenario, an existing rule, tests added with no product change — is a guard for every
 such criterion. A test: criterion cannot be proven by a test-only diff. A guard needs a real behavior to check;

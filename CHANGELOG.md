@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The Planner is told to name an existing Python guard or test by its bare method name
+  (`guard: test_simple`), not a class-qualified selector the regression proof refuses. A
+  qualified name cost two repair rounds and a stuck-stage Investigator in a live bug fix.
 - The terminal chat says why it stopped in words ("AutoCode stopped: the model or its provider failed.")
   instead of repeating the bare cause label ("AutoCode stopped: AutoCode.").
 - Regression test names in a compact bug-fix plan leave out the "(currently returns ...)" aside and
