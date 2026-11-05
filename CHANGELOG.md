@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The full-screen chat's status row shows the stage working now ("Builder working") instead of
+  the "Next: Builder" it was told before that stage started. After planning, it kept the queued
+  line for the whole Tester and Builder stages unless a tool call was showing.
 - The terminal chat's live agent log shows a stage's closing summary when the summary is followed
   by a fenced JSON report, instead of the last 400 characters of the report.
 - The stuck-stage Investigator's instructions now list `cause` among the fields to return. They

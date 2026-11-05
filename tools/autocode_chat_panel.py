@@ -292,6 +292,15 @@ def task_progress(view: dict | None, summary: dict | None) -> str | None:
     }.get(_mapping(summary.get("needs")).get("kind", ""), "Repository coordination; see details")
 
 
+def current_line(view: dict | None) -> str | None:
+    """The view's own progress line while the run works, such as "Builder working · 0 of 1 task done".
+    The client says a progress line only when its stage or counts change (#1844), so a "Next: Builder"
+    it said stays true in the transcript after the Builder starts; the status row reads this instead."""
+    view = _mapping(view)
+    line = _mapping(view.get("progress")).get("line")
+    return line if view.get("status") == "RUNNING" and isinstance(line, str) and line.strip() else None
+
+
 def doing(view: dict | None) -> str | None:
     """The newest event as a short phrase for the status row, or None when the view has none."""
     if _planning(view) and (headline := _mapping(_mapping(view).get("progress")).get("headline")):

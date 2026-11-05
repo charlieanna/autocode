@@ -2174,7 +2174,11 @@ class ChatTUI:
             if reading and self._launched
             else "Reading run status…"
             if reading
-            else task or panel.doing(self._view) or self._transcript.activity or "AutoCode is working…"
+            else task
+            or panel.doing(self._view)
+            or panel.current_line(self._view)
+            or self._transcript.activity
+            or "AutoCode is working…"
         )
         trouble = "" if reading or task else meter.struggling(self._view, datetime.now(UTC))
         if trouble:
