@@ -1198,6 +1198,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protected tests
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="./" class="md-nav__link md-nav__link--active">
         
   
@@ -1214,6 +1232,36 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#tests-an-approved-plan-replaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests an approved plan replaces
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -1810,6 +1858,25 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#tests-an-approved-plan-replaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests an approved plan replaces
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -1860,6 +1927,38 @@ original assertion. New coverage remains allowed and is executed alongside
 the candidate suite. If no suite command was available when the inventory was
 bound, changed tests remain unverified until an explicit user revision supplies
 one. Unchanged original files use the ordinary independent verification gates.</p>
+<h2 id="tests-an-approved-plan-replaces">Tests an approved plan replaces<a class="headerlink" href="#tests-an-approved-plan-replaces" title="Permanent link">&para;</a></h2>
+<p>Sometimes an existing test asserts the very behavior the task changes. A bug fix
+can meet a test that pins the bug, such as <code>shipping_fee(5000) == 499</code> when the
+fix makes a $50 order ship free. No correct fix can pass that original assertion.
+The plan names such a test instead. A <code>test:</code> criterion may carry <code>supersedes</code>, a
+list of the original tests it replaces. Each entry is a test file of the original
+binding, as a path from the repository root, and the test's own name:</p>
+<pre><code class="language-json">{&quot;id&quot;: &quot;AC1&quot;, &quot;criterion&quot;: &quot;An order of exactly $50 ships free&quot;,
+ &quot;verification_method&quot;: &quot;test: test_fifty_dollar_order_pays_standard_fee&quot;,
+ &quot;supersedes&quot;: [{&quot;file&quot;: &quot;tests/test_shipping.py&quot;, &quot;test&quot;: &quot;test_fifty_dollar_order_pays_standard_fee&quot;}]}
+</code></pre>
+<p>The approval screen shows each entry as "Replaces existing test", and approving
+the plan approves the list. AutoCode checks the list itself, with no question to
+the person:</p>
+<ul>
+<li>The draft is refused unless each entry is on a <code>test:</code> criterion and names a
+  regular file of the original binding whose original bytes define that test. A
+  name that another original file in the same directory also defines is refused,
+  because Go reports a package, not a file.</li>
+<li>The criterion's named test must still pass the <a href="../named-test-proof/">regression proof</a>:
+  it fails on the original code and passes with the change.</li>
+<li>The original suite still runs whole. Its failure is accepted only when the
+  runner reported complete per-test results (unittest, pytest, Go, <code>node:test</code> or
+  Vitest), nothing failed to collect, and every failing test is a listed one in a
+  file the change edited. Any other failing original test, a crash, a timeout or
+  a runner without per-test results keeps the gate closed, as before.</li>
+<li>The replay receipt records the accepted failures under <code>superseded</code>.
+  Completion checks them again against the plan in force, so a later plan that
+  drops the entry cannot reuse the receipt.</li>
+</ul>
+<p>A failed original gate names the failing original tests. Its pause counts as
+AutoCode's gate conflict, not as a model or provider failure.</p>
 <p><code>--status</code> exposes the binding under <code>view.evidence.protected_tests</code> and the
 replay result under <code>view.evidence.check_replay.protected_tests</code>. A failed replay
 has a unique receipt and log directory; a restart preserves it. Successful
