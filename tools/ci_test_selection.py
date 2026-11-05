@@ -163,6 +163,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/prompts/discovery.md", ("tests.test_investigation_evidence", "tests.test_investigation_handoff_cli")),
     ("tools/prompts/fragments/autoplanner/time-budget.md", ("tests.test_planning", "tests.test_planning_time")),
     (
+        "tools/prompts/fragments/autoplanner/retained-review-observations.md",
+        ("tests.test_planning_recovery_observations",),
+    ),
+    (
         "tools/prompts/fragments/autoplanner/bug-diagnosis-rule.md",
         ("tests.test_investigation_evidence", "tests.test_investigation_handoff_cli"),
     ),
