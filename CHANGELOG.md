@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Planner model the person chose (a stage choice or `--glm-model`) is kept when a revised plan
+  is blocked again, instead of climbing to Claude Opus 5.5 or GPT-6 Sol. A live Kilo run on
+  GLM 5.3 climbed to an Anthropic account with no credit and stopped to ask the person.
 - Tester and Completion Reviewer prompts no longer carry the coverage run's command receipts twice.
   The changed-code receipts start with those same receipts, and each now points at its copy
   under `diff_coverage`; in a live two-line fix that removed about 3.7 KB from each prompt.

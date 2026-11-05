@@ -22,7 +22,8 @@ to the final review, so the climb never fires there.
 
 Targets, strongest preferred first: Claude Opus 5.5, then GPT-6 Sol, both at high effort. GPT-6
 Astra is never a target (it is the Resolver's alone, user 2026-09-28), and neither is Fable 5.1,
-which no provider route lists. A target is taken only when it is a different model from the
+which no provider route lists. A Planner model the person chose (route origin ``user_explicit``) or pinned never
+climbs. A target is taken only when it is a different model from the
 Planner's, the run's provider serves it (``settings["route_ladders"]["planner"]``, filtered at
 launch like the effort ladders), the run's saved accounts permit it, and it does not share a
 family with the Plan Reviewer (autocode_verifier_independence).
@@ -47,6 +48,8 @@ except ImportError:
 
 ROLE = "glm"
 TRIGGER = "plan_sent_back"
+# autocode_role_route.USER_EXPLICIT: the route origin of a model the person chose.
+USER_EXPLICIT = "user_explicit"
 # (model, effort, label). The bare Opus spelling is the built-in Claude provider's; the others are
 # OpenCode's. A run keeps only the rungs its provider spells (``rungs``) and serves (``serve``).
 TARGETS = (
@@ -64,6 +67,7 @@ STAYS = {
     "climbed": "the Planner already moved to a stronger model in this run",
     "no_route": "the run has no Planner route",
     "pinned": "a person pinned the Planner's model",
+    "chosen": "a person chose the Planner's model for this run",
     "other_provider": "the Planner runs on a custom provider, which AutoCode never changes",
     "engine": "the Planner runs on the Codex engine, which reaches no stronger planning model",
     "already_strong": "the Planner already runs on a stronger-attempt model",
@@ -148,6 +152,10 @@ def decide(settings, escalations=()):
         return {"stay": "no_route"}
     if route.get("model_pinned"):
         return {"stay": "pinned"}
+    if ((settings.get("route_origins") or {}).get(ROLE)) == USER_EXPLICIT:
+        # A model the person chose (a stage choice or a --glm-model flag) is kept: a live Kilo run on
+        # GLM 5.3 climbed to Claude Opus 5.5, an account it had no credit on, and stopped there.
+        return {"stay": "chosen"}
     if route.get("provider") not in (None, "openai"):
         return {"stay": "other_provider"}
     if _engine(settings) == "codex":
