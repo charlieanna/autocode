@@ -1090,21 +1090,23 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual([["--answer", "RQ=plan"], ["--no-chat"]], client.taken)
         self.assertNotIn("--feedback", str(client.taken))
 
-    def test_planning_starts_only_after_its_spend_is_confirmed(self):
-        client = ScriptedChat(self.REVIEW, DONE, replies=["y", "y"])
+    def test_the_spend_detail_is_shown_before_the_one_approval_prompt(self):
+        # The approval prompt already names what starts; a second yes/no after it was redundant.
+        client = ScriptedChat(self.REVIEW, DONE, replies=["y"])
         self.assertEqual(0, client.converse())
         self.assertEqual([["--answer", "RQ=plan"]], client.taken)
-        self.assertIn("Prepare a reviewed plan?\nPlanning uses your selected models.", client.text())
-        self.assertIn("Prepare plan? [y/N]: ", client.text())
+        out = client.text()
+        self.assertNotIn("Prepare plan? [y/N]: ", out)
+        detail = out.index("Planning uses your selected models.")
+        self.assertLess(detail, out.index("Approve understanding and prepare plan? [y/N]"))
 
-    def test_declining_the_spend_sends_nothing_and_the_understanding_still_waits(self):
-        client = ScriptedChat(self.REVIEW, replies=["y", "n"])
+    def test_declining_the_understanding_sends_nothing(self):
+        client = ScriptedChat(self.REVIEW, replies=["n"])
         self.assertEqual(2, client.converse())
         self.assertEqual([], client.taken)
-        self.assertIn("Not started. The understanding still waits for you.", client.text())
 
     def test_typing_the_reviews_own_answer_is_confirmed_like_yes(self):
-        client = ScriptedChat(self.REVIEW, DONE, replies=["  PLAN ", "y"])
+        client = ScriptedChat(self.REVIEW, DONE, replies=["  PLAN "])
         self.assertEqual(0, client.converse())
         self.assertEqual([["--answer", "RQ=plan"]], client.taken, "not sent as a correction")
 
