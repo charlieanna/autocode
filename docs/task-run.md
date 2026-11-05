@@ -1925,8 +1925,9 @@ No field is a percentage or an estimate from elapsed time.
 `token`, `acceptance_criteria`, `constraints` and `permission_boundaries`. It appears
 only when the last displayed token matches the current sealed contract. Missing,
 modified or stale contracts do not expose it. Criterion `verification_method`,
-`human_review` and the optional `current_behavior` (what happens today, from the
-bound diagnosis; #2133) values are copied without interpreting or coercing model-authored
+`human_review`, the optional `current_behavior` (what happens today, from the
+bound diagnosis; #2133) and the optional `supersedes` (original tests the criterion
+replaces, each `file` and `test`; #2748, [protected tests](protected-tests.md#tests-an-approved-plan-replaces)) values are copied without interpreting or coercing model-authored
 text. Where the body carries them it also includes `milestones` (each with at least
 `id` and `objective`) and `end_to_end_flow`: the completion order the approval binds,
 so a person approving a member plan can see a coordinator-owned joint-proof milestone

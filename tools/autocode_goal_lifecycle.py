@@ -75,6 +75,7 @@ try:
     from . import autocode_risk_obligations as risk_obligations
     from . import autocode_scope_question as scope_question
     from . import autocode_source_log as source_log
+    from . import autocode_superseded_tests as superseded_tests
     from . import autocode_task_feasibility as task_feasibility
     from . import autocode_test_cases as test_cases
     from . import autocode_trace_coverage as trace_coverage
@@ -128,6 +129,7 @@ except ImportError:
     import autocode_risk_obligations as risk_obligations
     import autocode_scope_question as scope_question
     import autocode_source_log as source_log
+    import autocode_superseded_tests as superseded_tests
     import autocode_task_feasibility as task_feasibility
     import autocode_test_cases as test_cases
     import autocode_trace_coverage as trace_coverage
@@ -184,6 +186,7 @@ def validate_body(state: RunState, body, *, ready=False, allow_legacy=False, ori
             raise ValueError("Question, criterion and milestone IDs must be nonempty and unique")
     if not test_cases.design_only(state):
         proof_declarations.validate(criteria)
+    superseded_tests.validate(state, criteria)
     criterion_ids = {row["id"] for row in criteria}
     for milestone in milestones:
         covered = milestone["acceptance_criteria"]

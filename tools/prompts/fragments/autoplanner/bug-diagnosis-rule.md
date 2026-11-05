@@ -21,7 +21,10 @@ case. These approved names bind cases to milestones: a milestone proves its own 
 cases, and final completion proves every case. Without a complete unambiguous binding all cases are due.
 A fix_plan that omits a named guard is incomplete: plan its independent named assertions explicitly, even when
 an existing differently named test already covers that behavior. Keep existing tests unchanged; do not rename
-or remove them to satisfy the new case binding. The Plan Reviewer checks this coverage before approval.
+or remove them to satisfy the new case binding. The one exception is an existing test that
+asserts the bug itself (it expects today's wrong result): the fix must change it, so name it in that restore
+criterion's supersedes ({"file": its path from the repository root, "test": its own name}) and plan
+its in-place update; without that entry the original-test gate refuses every correct fix. The Plan Reviewer checks this coverage before approval.
 Fix the cause,
 not the symptom, and do not widen the change beyond what the root cause needs. Do not ask the user to repeat
 a clear requested outcome. Ask only about a genuinely unresolved choice in the task and saved user answers;

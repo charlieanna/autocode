@@ -35,6 +35,7 @@ try:
     from . import autocode_protected_commands as commands
     from . import autocode_protected_paths as paths
     from . import autocode_protected_store as store
+    from . import autocode_superseded_tests as superseded_tests
     from . import autocode_util as util
     from .autocode_protected_paths import identity, path_in
 except ImportError:
@@ -43,6 +44,7 @@ except ImportError:
     import autocode_protected_commands as commands
     import autocode_protected_paths as paths
     import autocode_protected_store as store
+    import autocode_superseded_tests as superseded_tests
     import autocode_util as util
     from autocode_protected_paths import identity, path_in
 
@@ -191,7 +193,7 @@ MAX_ASSIGNED_TESTS = 200
 MAX_ASSIGNED_BYTES = 32_000
 
 
-def context(settings, affected_paths=()):
+def context(settings, affected_paths=(), state: RunState | None = None):
     record = settings.get("protected_tests")
     if not record or not record["files"]:
         return None
@@ -210,6 +212,10 @@ def context(settings, affected_paths=()):
     result = {key: copy.deepcopy(record.get(key)) for key in ("binding_hash", "root", "inventory_path", "command")}
     result |= {"total_files": len(record["files"]), "assigned_tests": assigned}
     instruction = prompts.get("fragments/protected-oracles/context.md")
+    replaced = superseded_tests.approved(state) if state is not None else []
+    if replaced:
+        result["superseded_tests"] = [{"file": row["file"], "test": row["test"]} for row in replaced]
+        instruction += "\n\n" + prompts.get("fragments/protected-oracles/superseded.md")
     if len(assigned) < len(matching):
         result |= {"assigned_total": len(matching), "assigned_omitted": len(matching) - len(assigned)}
         instruction += "\n\n" + prompts.get("fragments/protected-oracles/omitted.md")
@@ -264,12 +270,15 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout):
             result["original"] = scratch_run(
                 workspace, directory / "original", command=record["command"], timeout=timeout, **overlays
             )
-        receipts = (result["candidate"], result["original"])
-        if any(
-            row.get("exit_code") != 0 or row.get("error") or row.get("timed_out") or not command_receipt.completed(row)
-            for row in receipts
-        ):
+        if _failed(result["candidate"]) or _failed(result["original"]):
             result["verdict"] = "FAIL"
+        replaced = superseded_tests.approved(state)
+        if replaced and not _failed(result["candidate"]) and command_receipt.completed(result["original"]):
+            # The approved plan replaces these original tests (#2748): only their failures are accepted.
+            excused = superseded_tests.excused(result["original"], replaced, changed)
+            if excused:
+                result["verdict"] = "PASS"
+                result["superseded"] = {"tests": _listed(replaced, changed), "excused_failures": excused}
     verify_binding(record)
     if source_scope.snapshot(workspace, state)["revision"] != revision:
         result.update(verdict="NOT_VERIFIED", error="Candidate changed during protected-test replay")
@@ -280,13 +289,34 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout):
     result["receipt_sha256"] = util.file_hash(receipt)
     if result["verdict"] != "PASS":
         tail = (result.get("original") or {}).get("tail", "")[-500:]
+        failing = ((result.get("original") or {}).get("results") or {}).get("failed") or []
         raise commands.OriginalGateFailure(
-            "Protected tests changed and the original gate did not pass on this implementation. "
+            commands.ORIGINAL_GATE_FAILED + " on this implementation. "
             "Repair the implementation; a modified assertion is not proof. "
-            + result.get("error", "")
-            + f" Receipt: {receipt}. {tail}"
+            + (f"Failing original tests: {', '.join(failing[:10])}. " if failing else "")
+            + "Only an approved plan criterion's supersedes list can replace an original test that asserts the "
+            "behavior being changed. " + result.get("error", "") + f" Receipt: {receipt}. {tail}"
         )
     return result
+
+
+def _failed(row):
+    return (
+        not isinstance(row, dict)
+        or row.get("exit_code") != 0
+        or bool(row.get("error"))
+        or bool(row.get("timed_out"))
+        or not command_receipt.completed(row)
+    )
+
+
+def _listed(replaced, changed):
+    changed = set(changed)
+    return [
+        {"criterion": row["criterion"], "file": row["file"], "test": row["test"]}
+        for row in replaced
+        if row["file"] in changed
+    ]
 
 
 def ready(state: RunState, current_revision):
@@ -318,8 +348,10 @@ def ready(state: RunState, current_revision):
                     or row.get("timed_out")
                     or row.get("error")
                     or not command_receipt.completed(row)
-                ):
+                ) and not (name == "original" and _superseded_ready(state, result)):
                     return False
+        elif result.get("superseded"):
+            return False
         return (
             result.get("verdict") == "PASS"
             and result.get("binding_hash") == record["binding_hash"]
@@ -327,3 +359,14 @@ def ready(state: RunState, current_revision):
         )
     except (OSError, ValueError, TypeError, KeyError):
         return False
+
+
+def _superseded_ready(state: RunState, result):
+    """The receipt's accepted original failures are, today, exactly the approved plan's superseded tests."""
+    row, accepted = result.get("original"), result.get("superseded")
+    if not isinstance(accepted, dict) or not isinstance(row, dict) or not command_receipt.completed(row):
+        return False
+    replaced = superseded_tests.approved(state)
+    changed = result.get("changed_tests") or []
+    excused = superseded_tests.excused(row, replaced, changed)
+    return bool(excused) and accepted == {"tests": _listed(replaced, changed), "excused_failures": excused}

@@ -12,16 +12,20 @@ if TYPE_CHECKING:
 try:
     from . import autocode_contract_identity as contracts
     from . import autocode_python_tests as python_tests
+    from . import autocode_run_status as run_status
     from . import autocode_util as util
     from . import autocode_verification_plan as plan
 except ImportError:
     import autocode_contract_identity as contracts
     import autocode_python_tests as python_tests
+    import autocode_run_status as run_status
     import autocode_util as util
     import autocode_verification_plan as plan
 
 
 SELECTOR = "@approved-suite"
+# The start of every failed original-gate message; pause categorization reads it (autocode_pause_category).
+ORIGINAL_GATE_FAILED = run_status.ORIGINAL_GATE_FAILED
 
 
 class OriginalGateFailure(plan.PlannedCheckFailure):
@@ -34,7 +38,7 @@ def completed_gate_repair(state: RunState):
     original, task = pending.get("original") or {}, state.get("current_task") or {}
     pins = pending.get("pins") or {}
     if (
-        not str(pending.get("error", "")).startswith("Protected tests changed and the original gate did not pass")
+        not str(pending.get("error", "")).startswith(ORIGINAL_GATE_FAILED)
         or original.get("stage") not in ("sol", "astra_checkpoint")
         or original.get("exit_code") != 0
         or not original.get("finished_at")
