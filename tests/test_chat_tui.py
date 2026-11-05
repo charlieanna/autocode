@@ -636,6 +636,24 @@ class MouseScrollTests(unittest.TestCase):
         self.assertEqual(0, ui._scroll)
         self.assertEqual("draft", ui._composer.text)
 
+    def test_wheel_down_works_on_a_library_without_button5(self):
+        # macOS's ncurses (mouse version 1) has no BUTTON5_PRESSED and reports the wheel turned down
+        # as REPORT_MOUSE_POSITION; the chat asked for BUTTON4 alone, so a person could not scroll back.
+        position = 1 << 27
+        old = vars(tui.curses).pop("BUTTON5_PRESSED", None)
+        if old is not None:
+            self.addCleanup(setattr, tui.curses, "BUTTON5_PRESSED", old)
+        with mock.patch.object(tui.curses, "REPORT_MOUSE_POSITION", position):
+            self.assertEqual(position, tui.ChatTUI._wheel_down())
+            ui = screen_ui()
+            with mock.patch.object(tui.curses, "mousemask", return_value=(0, 7)) as mask:
+                ui._mouse_reporting(True)
+            mask.assert_called_once_with(tui.curses.BUTTON4_PRESSED | position)
+            ui._scroll = 6
+            with mock.patch.object(tui.curses, "getmouse", return_value=(0, 4, 5, 0, position)):
+                ui._handle(tui.curses.KEY_MOUSE, asking=False)
+            self.assertEqual(3, ui._scroll)
+
     def test_wheel_position_survives_new_messages(self):
         ui = screen_ui()
         for n in range(40):
@@ -681,7 +699,7 @@ class MouseScrollTests(unittest.TestCase):
             ui._mouse_reporting(True)
             ui._mouse_reporting(False)
         self.assertEqual(
-            [mock.call(tui.curses.BUTTON4_PRESSED | getattr(tui.curses, "BUTTON5_PRESSED", 0)), mock.call(7)],
+            [mock.call(tui.curses.BUTTON4_PRESSED | tui.ChatTUI._wheel_down()), mock.call(7)],
             mask.call_args_list,
         )
 
