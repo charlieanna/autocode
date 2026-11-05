@@ -5,8 +5,9 @@ records. Admission reads them and retained stage history; no run-state key,
 provider route, budget, permission, or session is changed. Legacy attempts
 without the launch binding and ambiguous streams keep their existing hold.
 
-Covers the native OpenCode error row and the command-provider (kilocode) bare
-name/data row (#1001). Admission is classification-driven, not engine-driven:
+Covers the native OpenCode error row, the command-provider (kilocode) bare
+name/data row (#1001), and a read-only stream the provider ended with an
+unexplained finish, no counted usage and a clean exit (one retry, no renewal). Admission is classification-driven, not engine-driven:
 the shared attempt record (before_ref, supervision, receipts, binding) is
 engine-agnostic, and the strict-shape classifier decides. Bounds: a native
 failure keeps the validated one-retry semantics; an explicitly-retryable
@@ -244,6 +245,52 @@ def read_only_partial_error(raw):
     return retryable_error(errors[0]) if len(errors) == 1 else None
 
 
+# The finish reasons a provider gives a step it ended without saying why: no "stop", no tool call.
+_UNEXPLAINED_FINISH = frozenset({"other", "unknown"})
+
+
+def read_only_dropped_stream(raw):
+    """A read-only stage's stream the provider ended with no answer and no error row: "dropped_stream", or None.
+
+    Kilo on Xiaomi's MiMo streamed two minutes of reasoning, then closed the step with finish reason
+    "other", zero tokens counted, and exited 0 without a turn (2026-11-05). Nothing failed loudly, so
+    no error row exists to classify; the stream itself is the evidence. It is accepted only when every
+    row is model text, reasoning, progress or a completed tool call, no step finished the turn, and the
+    last step ended with an unexplained reason and no counted usage.
+    """
+    if not isinstance(raw, bytes):
+        return None
+    try:
+        lines = raw.decode("utf-8").splitlines()
+    except UnicodeError:
+        return None
+    last = None
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            return None
+        if not isinstance(row, dict) or row.get("type") not in _NO_EFFECT_ROWS:
+            return None
+        part = row.get("part") if isinstance(row.get("part"), dict) else {}
+        if row["type"] == "tool_use" and (part.get("state") or {}).get("status") not in ("completed", "error"):
+            return None
+        if row["type"] == "step_finish":
+            if part.get("reason") == "stop":
+                return None  # the turn finished: not a dropped stream
+            last = part
+    if not last or last.get("reason") not in _UNEXPLAINED_FINISH:
+        return None
+    tokens = last.get("tokens")
+    if not isinstance(tokens, dict) or any(
+        value for key, value in tokens.items() if key != "cache" and not isinstance(value, dict)
+    ):
+        return None
+    return "dropped_stream"
+
+
 def _read(path, root, limit):
     path, root = Path(path), Path(root)
     if (
@@ -369,13 +416,15 @@ def recover(runtime, state: RunState, run_dir, workspace, error):
     activity = record.get("activity") or {}
     if not isinstance(activity, dict):
         return False
+    # A provider that dropped a read-only stream without an error row exits 0 with no turn.
+    clean_exit = getattr(error, "status", None) == "PAUSED_UNCERTAIN_STAGE" and record.get("exit_code") == 0
     if (
-        getattr(error, "status", None) != "PAUSED_PROVIDER_UNCERTAIN"
+        (getattr(error, "status", None) != "PAUSED_PROVIDER_UNCERTAIN" and not clean_exit)
         or state.get("status") != "RUNNING"
         or record.get("stage") in jobs.STAGES
         or not record.get("finished_at")
         or type(record.get("exit_code")) is not int
-        or record["exit_code"] <= 0
+        or (record["exit_code"] <= 0 and not clean_exit)
         or record.get("expected_session") is not None
         or any(record.get(key) for key in ("timed_out", "interrupted", "cleanup_error", "report_only", "rejected"))
         or any(
@@ -407,9 +456,12 @@ def recover(runtime, state: RunState, run_dir, workspace, error):
             return False
         read_only = record.get("role") in READ_ONLY_ROLES
         raw = _read(record["events"], run_dir, PARTIAL_LIMIT if read_only else MAX_ERROR_BYTES)
-        code = (len(raw) <= MAX_ERROR_BYTES and retryable_error(raw.decode("utf-8"))) or (
-            read_only and read_only_partial_error(raw)
-        )
+        if clean_exit:
+            code = read_only and read_only_dropped_stream(raw)
+        else:
+            code = (len(raw) <= MAX_ERROR_BYTES and retryable_error(raw.decode("utf-8"))) or (
+                read_only and read_only_partial_error(raw)
+            )
         if not code:
             return False
         before = json.loads(_read(record["before_ref"], run_dir, 8 * 1024 * 1024))
@@ -493,7 +545,8 @@ def recover(runtime, state: RunState, run_dir, workspace, error):
     delay = 0 if retry_number == 1 else 30
     spacing = f" after {delay}s" if delay else ""
     reason = (
-        f"Retryable provider network failure ({code}) with no workspace effects; "
+        f"Retryable provider {'stream' if code == 'dropped_stream' else 'network'} failure ({code}) "
+        "with no workspace effects; "
         f"fresh same-stage retry {retry_number}/{MAX_NETWORK_RETRIES}{spacing}"
     )
     originals = runtime.archive_rejected_stage(state, run_dir, record, reason)

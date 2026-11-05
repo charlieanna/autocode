@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A read-only stage (Requirements, planning, Plan Reviewer, completion review) whose provider ends the
+  stream with no answer, an unexplained finish reason and no counted usage, exiting 0, is retried once
+  with no workspace effects instead of pausing to ask the person for "corrective information".
 - Plan validation accepts the word “zero” for an unquoted source value of `0`, avoiding
   unnecessary report-repair calls. Exact quoted literals and different numeric values
   still require their original values.
