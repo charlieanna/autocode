@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Regression test names in a compact bug-fix plan leave out the "(currently returns ...)" aside and
+  borrow the case's given clause when the expected result is too short, so `test_t1_returns_hello_world`
+  replaces `test_t1_returns_hello_world_currently_returns_hello`.
 - A bug-fix plan's "Today:" text quotes the Investigator's observation verbatim. Collapsing its spaces
   misquoted inputs such as `slugify("  Hello, World!  ")`, which a Plan Reviewer blocked on and which cost
   a whole extra Requirements and Plan Reviewer round.
