@@ -8,7 +8,8 @@ one-file ``peek()``; one step deliberated 212 s before a single edit.
 The safety net is this module's own, because the effort ladder (autocode_route_ladder) has no rungs for
 most routes: any earlier Builder attempt at the same task (a rejected report, a failed check, a
 Tester's send-back) means the next one runs at the configured effort. The Tester, the Completion
-Reviewer and every planning role keep their configured effort. ``AUTOCODE_LIGHT_BUILDER=0`` turns it off.
+Reviewer and every planning role keep their configured effort here; a review's own level under the
+person's saved stage choice is autocode_review_effort's. ``AUTOCODE_LIGHT_BUILDER=0`` turns it off.
 An effort the person chose (``--terra-reasoning-effort``, ``--reasoning-effort`` or a project setting), and a
 saved run that recorded no provenance, keep it: only the runner's or selector's own default is lowered.
 """

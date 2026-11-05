@@ -1,0 +1,252 @@
+"""A small, clear task's reviews run one level below the saved stage-choice level (owner decision 2026-11-05)."""
+
+import copy
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+import autocode_review_effort as review_effort
+
+MIMO = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+GLM = "zai-coding-plan/glm-5.3"
+
+
+def run_state(**changes):
+    """A run whose review stages took the person's stage choices at high: the 2026-11-05 slugify shape."""
+    state = {
+        "iteration": 1,
+        "workflow": {"kind": "bugfix", "clarity": "clear", "brief_size": "small"},
+        "settings": {
+            "roles": {
+                "plan_reviewer": {"model": MIMO, "reasoning_effort": "high"},
+                "sol": {"model": GLM, "reasoning_effort": "high"},
+                "completion": {"model": MIMO, "reasoning_effort": "high"},
+                "terra": {"model": MIMO, "reasoning_effort": "high"},
+            },
+            "effort_origins": {role: "stage_choice" for role in ("plan_reviewer", "sol", "completion", "terra")},
+            "declared_variants": {MIMO: ["high", "low", "medium"], GLM: ["high", "low", "max"]},
+        },
+        "stages": [],
+    }
+    for key, value in changes.items():
+        state[key] = value
+    return state
+
+
+def decide(state, stage, role, configured="high", report_only=False):
+    route = state["settings"]["roles"][role]
+    return review_effort.decide(state, stage, role, report_only, configured, model=route["model"])
+
+
+class DecideTests(unittest.TestCase):
+    def test_a_small_clear_tasks_plan_review_runs_one_level_below_the_saved_level(self):
+        for stage in ("astra_challenge", "astra_finalize"):
+            choice = decide(run_state(), stage, "plan_reviewer")
+            self.assertEqual(("medium", "high", True, "small_clear"), _key(choice), stage)
+            self.assertEqual(("clear", "small", None), (choice["clarity"], choice["brief_size"], choice["plan_size"]))
+
+    def test_the_completion_reviewer_is_lowered_too(self):
+        self.assertEqual(
+            ("medium", "high", True, "small_clear"), _key(decide(run_state(), "astra_review", "completion"))
+        )
+
+    def test_a_model_without_the_level_just_below_keeps_the_ceiling(self):
+        # GLM 5.3 offers low, high and max: high to low would drop two levels.
+        choice = decide(run_state(), "sol", "sol")
+        self.assertEqual(("high", "high", False, "no_lower_level"), _key(choice))
+        self.assertIn(GLM, choice["text"])
+
+    def test_a_model_whose_levels_are_unknown_keeps_the_ceiling(self):
+        state = run_state()
+        del state["settings"]["declared_variants"]
+        state["settings"]["certified_variants"] = {MIMO: ["high"]}
+        self.assertEqual(
+            ("high", "high", False, "levels_unknown"), _key(decide(state, "astra_challenge", "plan_reviewer"))
+        )
+
+    def test_a_probe_that_passed_the_lower_level_counts_beside_the_listing(self):
+        state = run_state()
+        state["settings"]["declared_variants"][GLM] = ["high", "max"]
+        state["settings"]["certified_variants"] = {GLM: ["medium"]}
+        self.assertEqual(("medium", "high", True, "small_clear"), _key(decide(state, "sol", "sol")))
+
+    def test_a_typed_answered_or_runner_level_is_not_a_ceiling(self):
+        for origin in ("user_explicit", "runner_default", "auto_selected", None):
+            state = run_state()
+            state["settings"]["effort_origins"]["plan_reviewer"] = origin
+            self.assertIsNone(decide(state, "astra_challenge", "plan_reviewer"), origin)
+
+    def test_other_stages_report_repairs_and_fallback_models_are_not_considered(self):
+        state = run_state()
+        self.assertIsNone(decide(state, "terra", "terra"))
+        self.assertIsNone(decide(state, "write_acceptance_tests", "sol"))
+        self.assertIsNone(decide(state, "astra_challenge", "plan_reviewer", report_only=True))
+        self.assertIsNone(decide(state, "astra_review", "plan_reviewer"), "the stage's own route only")
+        fallback = review_effort.decide(state, "astra_challenge", "plan_reviewer", False, "high", model=GLM)
+        self.assertIsNone(fallback, "a fallback route on another model is not the saved ceiling")
+        self.assertIsNone(decide(state, "astra_challenge", "plan_reviewer", configured="medium"))
+
+    def test_a_stage_that_already_ran_for_this_task_runs_at_the_ceiling(self):
+        state = run_state(current_task={"id": "task-1"})
+        state["stages"] = [{"stage": "astra_review", "task_id": "task-1", "iteration": 1}]
+        self.assertEqual("earlier_attempt", decide(state, "astra_review", "completion")["reason"])
+        state["stages"] = [
+            {"stage": "astra_review_report_repair", "original_stage": "astra_review", "task_id": "task-1"}
+        ]
+        self.assertEqual("earlier_attempt", decide(state, "astra_review", "completion")["reason"])
+        state["stages"] = [{"stage": "astra_review", "task_id": "task-0", "iteration": 1}]
+        self.assertTrue(decide(state, "astra_review", "completion")["lowered"], "another task's review")
+        # A plan review counts within the iteration; the challenge does not make the finalize a retry.
+        state["stages"] = [{"stage": "astra_challenge", "iteration": 1, "task_id": "task-1"}]
+        self.assertEqual("earlier_attempt", decide(state, "astra_challenge", "plan_reviewer")["reason"])
+        self.assertTrue(decide(state, "astra_finalize", "plan_reviewer")["lowered"])
+        state["iteration"] = 2
+        self.assertTrue(decide(state, "astra_challenge", "plan_reviewer")["lowered"], "an earlier iteration")
+
+    def test_the_drafted_plans_size_decides_once_it_is_known(self):
+        state = run_state(planning={"adaptive": {"size": "medium"}})
+        self.assertEqual("not_small_clear", decide(state, "astra_finalize", "plan_reviewer")["reason"])
+        state = run_state(planning={"adaptive": {"size": "small"}})
+        state["workflow"]["brief_size"] = "medium"
+        self.assertTrue(decide(state, "astra_finalize", "plan_reviewer")["lowered"])
+        state = run_state()
+        state["workflow"]["clarity"] = "vague"
+        self.assertEqual("not_small_clear", decide(state, "astra_challenge", "plan_reviewer")["reason"])
+        state = run_state()
+        state["workflow"]["brief_size"] = "medium"
+        self.assertEqual("not_small_clear", decide(state, "astra_challenge", "plan_reviewer")["reason"])
+
+    def test_a_climbed_route_and_a_full_plan_review_keep_the_ceiling(self):
+        state = run_state(reasoning_escalations=[{"role": "completion"}])
+        self.assertEqual("climbed", decide(state, "astra_review", "completion")["reason"])
+        self.assertTrue(decide(state, "astra_challenge", "plan_reviewer")["lowered"], "another role's climb")
+        state = run_state()
+        state["settings"]["plan_review_full"] = True
+        self.assertEqual("full_review", decide(state, "astra_challenge", "plan_reviewer")["reason"])
+        self.assertTrue(decide(state, "astra_review", "completion")["lowered"], "only the plan review is full")
+
+    def test_the_bottom_of_the_scale_stays(self):
+        state = run_state()
+        state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"] = "low"
+        self.assertEqual("no_lower_level", decide(state, "astra_challenge", "plan_reviewer", "low")["reason"])
+        self.assertEqual("xhigh", review_effort.below("max"))
+        self.assertIsNone(review_effort.below("thinking"))
+
+
+class LaunchTests(unittest.TestCase):
+    def test_launch_lowers_a_review_and_keeps_a_stage_choice_builder_at_its_level(self):
+        state = run_state()
+        before = copy.deepcopy(state["settings"])
+        route = state["settings"]["roles"]["plan_reviewer"]
+        level, choice = review_effort.launch(state, "astra_challenge", "plan_reviewer", False, route)
+        self.assertEqual(("medium", True), (level, choice["lowered"]))
+        self.assertEqual(before, state["settings"], "the saved ceiling is never rewritten")
+        state.update(
+            goal_contract={"approval_status": "approved", "body": {"milestones": [{"id": "m1"}]}},
+            current_task={"id": "task-1", "affected_paths": ["slugify.py"]},
+        )
+        self.assertEqual(
+            ("high", None), review_effort.launch(state, "terra", "terra", False, state["settings"]["roles"]["terra"])
+        )
+
+    def test_launch_keeps_the_builders_light_first_attempt_for_a_runner_default(self):
+        state = run_state(
+            goal_contract={"approval_status": "approved", "body": {"milestones": [{"id": "m1"}]}},
+            current_task={"id": "task-1", "affected_paths": ["slugify.py"]},
+        )
+        state["settings"]["effort_origins"]["terra"] = "runner_default"
+        self.assertEqual(
+            ("low", None), review_effort.launch(state, "terra", "terra", False, state["settings"]["roles"]["terra"])
+        )
+
+    def test_the_note_says_the_level_and_why_only_when_lowered(self):
+        choice = decide(run_state(), "astra_challenge", "plan_reviewer")
+        self.assertEqual(
+            "Running at medium, one level below your high: the task is small and clear.", review_effort.note(choice)
+        )
+        self.assertIsNone(review_effort.note(decide(run_state(), "sol", "sol")))
+        self.assertIsNone(review_effort.note(None))
+
+
+class RunnerLaunchTests(unittest.TestCase):
+    def test_the_runner_launches_a_small_clear_review_below_its_ceiling_and_records_why(self):
+        import autocode as runner
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            schema = root / "schema.json"
+            schema.write_text('{"type": "object", "properties": {}}')
+            state = run_state(version=2, next_stage="astra_review", current_task={"id": "task-1"})
+            state["settings"].update(engine="opencode", provider="kilocode")
+            state["settings"]["roles"]["astra"] = {"model": MIMO, "reasoning_effort": "high"}
+            state["settings"]["roles"]["terra"]["model"] = "fixture/builder"  # a checker never grades its own model
+            launched = []
+            for _attempt in (1, 2):
+                with mock.patch.object(
+                    runner.provider_launch, "prepare", return_value=(["provider"], {}, {}, {})
+                ) as prepare:
+                    _result, record = runner.run_role(
+                        role="astra",
+                        prompt="Review the finished task",
+                        sandbox="read-only",
+                        workspace=root,
+                        run_dir=root / "run",
+                        state=state,
+                        schema=schema,
+                        model=MIMO,
+                        allow_write=False,
+                        dry_run=True,
+                    )
+                launched.append(
+                    (prepare.call_args.kwargs["effort"], record["reasoning_effort"], record["effort_choice"])
+                )
+                self.assertEqual(
+                    "high", record["launch_route"]["reasoning_effort"], "the saved route stays the ceiling"
+                )
+                state["stages"].append(record)
+            (first, ran, choice), (second, again, kept) = launched
+            self.assertEqual(
+                ("medium", "medium", "small_clear", "high"), (first, ran, choice["reason"], choice["ceiling"])
+            )
+            self.assertEqual(("high", "high", "earlier_attempt"), (second, again, kept["reason"]), "a second look")
+            self.assertEqual("high", state["settings"]["roles"]["completion"]["reasoning_effort"])
+
+
+class ListingTests(unittest.TestCase):
+    def test_a_new_run_saves_the_levels_its_stage_choice_review_models_offer(self):
+        import autocode_configure as configure
+
+        listing = {
+            "candidates": [
+                {"model": MIMO, "levels": ["high", "low", "medium"]},
+                {"model": GLM, "levels": ["high", "low", "max"]},
+                {"model": "other/model", "levels": ["low"]},
+            ]
+        }
+        settings = run_state()["settings"]
+        del settings["declared_variants"]
+        settings["effort_origins"]["sol"] = "user_explicit"  # GLM serves only a typed level: not a ceiling
+        with mock.patch("autocode_route_discovery.discover", return_value=listing) as discover:
+            configure._list_review_ceilings(settings, object(), "/fixture")
+        self.assertEqual({MIMO: ["high", "low", "medium"]}, settings["declared_variants"])
+        discover.assert_called_once()
+        nobody = run_state()["settings"]
+        del nobody["declared_variants"]
+        nobody["effort_origins"] = dict.fromkeys(nobody["effort_origins"], "runner_default")
+        with mock.patch("autocode_route_discovery.discover", side_effect=RuntimeError("no listing")) as discover:
+            configure._list_review_ceilings(nobody, object(), "/fixture")
+            self.assertNotIn("declared_variants", nobody)
+            discover.assert_not_called()
+            unread = settings | {"declared_variants": {}}
+            configure._list_review_ceilings(unread, object(), "/fixture")
+            discover.assert_called_once()
+            self.assertEqual({}, unread["declared_variants"], "an unreadable listing saves nothing, never stops a run")
+
+
+def _key(choice):
+    return choice["level"], choice["ceiling"], choice["lowered"], choice["reason"]
+
+
+if __name__ == "__main__":
+    unittest.main()

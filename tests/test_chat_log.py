@@ -468,6 +468,26 @@ class ProjectTests(unittest.TestCase):
         self.state["turns"].append({"at": "2026-11-05T10:40:00Z"})
         self.assertEqual(["Builder · task M2"], [entry["agent"] for entry in self.project()])
 
+    def test_a_review_below_the_saved_level_says_so_before_its_own_entries(self):
+        # Owner decision 2026-11-05: a small, clear task's review runs one level below the stage choice.
+        lowered = {"level": "medium", "ceiling": "high", "lowered": True, "reason": "small_clear"}
+        self.state["active_stage"].update(
+            stage="astra_challenge", started_at="2026-11-05T11:35:55Z", effort_choice=lowered
+        )
+        note, thought = self.project()
+        self.assertEqual(
+            {
+                "id": "effort:2026-11-05T11:35:55Z",
+                "agent": "Plan Reviewer",
+                "kind": "message",
+                "text": "Running at medium, one level below your high: the task is small and clear.",
+            },
+            note,
+        )
+        self.assertEqual(("Plan Reviewer", "thinking"), (thought["agent"], thought["kind"]))
+        self.state["active_stage"]["effort_choice"] = {**lowered, "level": "high", "lowered": False}
+        self.assertEqual(["thinking"], [entry["kind"] for entry in self.project()], "a kept level says nothing")
+
     def test_an_attempt_that_cannot_be_confirmed_or_is_over_shows_nothing(self):
         self.assertEqual([], self.project(finished=True))
         self.assertEqual([], self.project(stopped=True))

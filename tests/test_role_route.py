@@ -331,6 +331,21 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
                     expected in ("runner_default", "auto_selected"), role_route.effort_can_reduce(settings, "terra")
                 )
 
+    def test_a_saved_stage_choice_is_the_persons_ceiling_not_a_typed_level(self):
+        # Owner decision 2026-11-05: the stage choices supply the level (autocode_stage_choices.apply), which
+        # the review stages treat as a ceiling; a typed flag for another role stays exact.
+        settings = {"roles": {"sol": {"reasoning_effort": "high"}, "terra": {"reasoning_effort": "high"}}}
+        args = SimpleNamespace(
+            sol_reasoning_effort="high",
+            terra_reasoning_effort="high",
+            reasoning_effort=None,
+            stage_choice_efforts=("sol",),
+        )
+        role_route.record_efforts(args, settings, fresh=True)
+        self.assertEqual({"sol": "stage_choice", "terra": "user_explicit"}, settings["effort_origins"])
+        self.assertFalse(role_route.effort_can_reduce(settings, "sol"), "the runner's own tiers stay off")
+        self.assertFalse(role_route.reviewer_effort_can_reduce({"effort_origins": {"plan_reviewer": "stage_choice"}}))
+
     def test_a_new_run_records_why_each_role_has_the_route_it_has(self):
         settings = self.configure({"workspace": "/fixture", "iteration": 0}, sol_model=LUNA)
         self.assertEqual("user_explicit", settings["route_origins"]["sol"])

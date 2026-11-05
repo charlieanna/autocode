@@ -303,6 +303,8 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual((OPUS, None), (args.astra_model, args.astra_reasoning_effort))
         self.assertIsNone(args.glm_model, "a stage nobody chose keeps the backend's default")
         self.assertEqual([f"Stage choices from {self.file}: Builder, Tester, Resolver and per-task Planner"], said)
+        # The levels it supplied, which the run records as the person's ceiling (owner decision 2026-11-05).
+        self.assertEqual(("terra", "sol"), args.stage_choice_efforts)
 
     def test_a_flag_or_project_setting_wins_and_whole_run_choices_take_nothing(self):
         args = self.args(terra_model=HAIKU, sol_reasoning_effort="low")
@@ -311,6 +313,7 @@ class ApplyTests(unittest.TestCase):
             (HAIKU, None), (args.terra_model, args.terra_reasoning_effort), "a typed model keeps its level"
         )
         self.assertEqual((OPUS, "low"), (args.sol_model, args.sol_reasoning_effort))
+        self.assertEqual((), args.stage_choice_efforts, "a typed level is not a stage choice")
         shared = self.args(reasoning_effort="max")
         choices.apply(shared, "claude", file=self.file)
         self.assertEqual((SONNET, None), (shared.terra_model, shared.terra_reasoning_effort))

@@ -410,6 +410,8 @@ def accounting(state: RunState):
                 "original_stage": record.get("original_stage"),
                 "launch_route": deepcopy(_dict(record.get("launch_route"))),
                 **({"reasoning_effort": record["reasoning_effort"]} if "reasoning_effort" in record else {}),
+                # The level a review ran at under a stage-choice ceiling, and why (autocode_review_effort).
+                **({"effort_choice": deepcopy(record["effort_choice"])} if _dict(record.get("effort_choice")) else {}),
                 "execution_identity": deepcopy(
                     route_evidence.execution_for_attempt(
                         {

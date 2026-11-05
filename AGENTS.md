@@ -169,6 +169,15 @@ and take only its named `set` and `reset` argument arrays, filled from the view'
 to show one dropdown per stage. Choosing models automatically by measured capability (#2049) is
 paused until the owner revisits it.
 
+**Review levels under the stage choices, owner decision 2026-11-05.** The person chooses each
+stage's model; the level they save for the Plan Reviewer, the Tester and the Completion Reviewer
+is a ceiling. On a small, clear task (Requirements judged it clear and the plan, or before one is
+sized the brief, is small) those reviews run one level below it, when the model offers that
+level; a review that runs again for the same task, a climbed route and `--plan-review-full` keep
+the ceiling (`tools/autocode_review_effort.py`). AutoCode decides this itself at each launch and
+records the decision and its reason as the stage's `effort_choice`; it is never a question for the
+person. A level typed as a flag stays exact, and every other stage runs at the saved level.
+
 **Terminal chat, approved 2026-10-19 (#1622), in `tools/autocode_chat_client.py`.**
 The same contract as the VS Code client, with the shared rules in
 `tools/autocode_client_actions.py`: it starts `autocode` as an argument array, reads

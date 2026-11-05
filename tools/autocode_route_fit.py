@@ -36,6 +36,7 @@ CERTIFIED = "certified_variants"
 # so a launch-time fit does not look like a person changing what a held recovery acts on (#2057).
 DERIVED = ("effort_fits", DECLARED, CERTIFIED)
 USER_EXPLICIT = "user_explicit"  # settings.effort_origins value: a person named the effort
+STAGE_CHOICE = "stage_choice"  # settings.effort_origins value: the person's saved stage choice (autocode_role_route)
 # A person-named effort the model does not declare: a pause with a named answer (autocode_effort_question).
 STATUS = "PAUSED_EFFORT_UNSUPPORTED"
 
@@ -102,8 +103,11 @@ def certified_for(settings: dict, model: str) -> list:
 
 
 def person_named(settings: dict, role: str) -> bool:
-    """Whether a person named ``role``'s effort (autocode_role_route records only its own or the runner's)."""
-    return ((settings or {}).get("effort_origins") or {}).get(role) == USER_EXPLICIT
+    """Whether a person named ``role``'s effort, by a flag, an answer or a saved stage choice.
+
+    A stage choice is a ceiling for the review stages (autocode_review_effort), but the saved level
+    itself is still the person's: it never moves, and one its model does not declare pauses."""
+    return ((settings or {}).get("effort_origins") or {}).get(role) in (USER_EXPLICIT, STAGE_CHOICE)
 
 
 def fit(settings: dict, role: str, *, effort=None, model=None, declared=None) -> Fit:

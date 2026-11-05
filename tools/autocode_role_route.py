@@ -60,6 +60,10 @@ CATALOGUE_REPLACEMENT = "catalogue_replacement"
 # The automatic selector's own choice (#1426 step 7, autocode_route_selector)
 AUTO_SELECTED = "auto_selected"
 CONFIGURED_ORIGINS = (USER_EXPLICIT, SINGLE_MODEL, RUNNER_DEFAULT, CATALOGUE_REPLACEMENT, AUTO_SELECTED)
+# An effort taken from the person's saved stage choices (autocode_stage_choices): their level, which the
+# review stages treat as a ceiling (autocode_review_effort, owner decision 2026-11-05). Only an effort
+# origin; the route's own origin stays ``user_explicit``.
+STAGE_CHOICE = "stage_choice"
 # A flag that also names another role's route, so that route is the person's choice too
 # (autocode_configure.configure_joint). tests/test_role_route.py pins the pairing.
 ALSO_NAMED_BY = {"requirements": ("glm_model",)}
@@ -240,8 +244,10 @@ def record_efforts(args, settings, *, fresh):
     """Every configured role's effort provenance, for the launch-boundary fit (#2057).
 
     A role's own flag names it, the global flag names every role that uses it, and a fresh
-    run's remaining roles were the runner's or selector's choice. A saved run keeps unknown
-    provenance, so its existing effort is never moved.
+    run's remaining roles were the runner's or selector's choice. A level the saved stage
+    choices supplied (``args.stage_choice_efforts``, autocode_stage_choices.apply) is the
+    person's ``stage_choice``. A saved run keeps unknown provenance, so its existing effort is
+    never moved.
     """
     for role in sorted((settings or {}).get("roles") or {}):
         _record_effort(args, settings, role, fresh=fresh)
@@ -253,7 +259,9 @@ def _record_effort(args, settings, role, *, fresh):
         return
     named = getattr(args, f"{role}_reasoning_effort", None)
     global_effort = getattr(args, "reasoning_effort", None)
-    if named is not None or global_effort is not None and route.get("reasoning_effort") == global_effort:
+    if named is not None and role in (getattr(args, "stage_choice_efforts", None) or ()):
+        chosen = STAGE_CHOICE
+    elif named is not None or global_effort is not None and route.get("reasoning_effort") == global_effort:
         chosen = USER_EXPLICIT
     elif fresh:
         selected = ((settings.get("route_selection") or {}).get("routes") or {}).get(role) or {}
