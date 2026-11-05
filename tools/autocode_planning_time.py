@@ -1,7 +1,14 @@
 """Saved execution limits made visible to planning models; no budget authority."""
 
+from __future__ import annotations
 
-def context(state):
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
+
+def context(state: RunState):
     limits = (state.get("settings") or {}).get("limits") or {}
     used = state.get("active_seconds", 0)
     maximum = limits.get("max_seconds")

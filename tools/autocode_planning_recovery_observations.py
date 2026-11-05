@@ -4,9 +4,15 @@ Only stopped, archived reviews of the same contract and unchanged source qualify
 This packet supplies observations, never report, verification or approval authority.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_prompts as prompts
@@ -70,12 +76,12 @@ def _observations(raw):
         yield row
 
 
-def context(state, stage, run_dir, source_revision):
+def context(state: RunState, stage, run_dir, source_revision):
     contract = (state.get("goal_contract") or {}).get("hash")
     if stage not in ("astra_challenge", "astra_finalize") or not contract or not source_revision:
         return None
     root = Path(run_dir).resolve()
-    attempts = []
+    attempts: list[dict] = []
     size = 0
     for record in reversed(state.get("stages") or []):
         if len(attempts) >= MAX_ATTEMPTS:
