@@ -197,6 +197,41 @@ class ReadOnlyPartialStreamTests(unittest.TestCase):
         self.assertIsNone(retry.read_only_partial_error(cut_short_stream().replace(b"ECONNRESET", b"ENOTFOUND")))
 
 
+def dropped_stream(*extra, reason="other", tokens=None):
+    """2026-11-05: Kilo on MiMo streamed reasoning, then ended the step with reason "other", zero tokens, exit 0."""
+    tokens = {"input": 0, "output": 0, "reasoning": 0, "cache": {"read": 0, "write": 0}} if tokens is None else tokens
+    rows = [
+        {"type": "step_start", "part": {"type": "step-start"}},
+        {"type": "tool_use", "part": {"type": "tool", "tool": "read", "state": {"status": "completed"}}},
+        {"type": "autocode_progress", "progress": {"kind": "reasoning", "position": 18860}},
+        {"type": "step_finish", "part": {"type": "step-finish", "reason": reason, "tokens": tokens}},
+        *extra,
+    ]
+    return ("\n".join(json.dumps(row) for row in rows) + "\n").encode()
+
+
+class ReadOnlyDroppedStreamTests(unittest.TestCase):
+    def test_an_unexplained_finish_with_no_usage_classifies(self):
+        self.assertEqual("dropped_stream", retry.read_only_dropped_stream(dropped_stream()))
+        self.assertEqual("dropped_stream", retry.read_only_dropped_stream(dropped_stream(reason="unknown")))
+
+    def test_a_finished_turn_counted_usage_an_error_or_unknown_row_does_not(self):
+        for stream in (
+            dropped_stream(reason="stop"),
+            dropped_stream(reason="tool-calls"),
+            dropped_stream(reason="length"),
+            dropped_stream(tokens={"input": 10, "output": 0}),
+            dropped_stream(tokens=None).replace(b'"tokens": {', b'"tokenz": {'),
+            dropped_stream(failure()),
+            dropped_stream({"type": "turn.completed"}),
+            dropped_stream({"type": "tool_use", "part": {"type": "tool", "state": {"status": "running"}}}),
+            dropped_stream() + b"a diagnostic line\n",
+            b"",
+        ):
+            with self.subTest(stream=stream[-120:]):
+                self.assertIsNone(retry.read_only_dropped_stream(stream))
+
+
 class CommandProviderShapeTests(unittest.TestCase):
     """#1001: command providers (kilocode) log the bare name/data error row —
     the same APIError/isRetryable facts, a different nesting than OpenCode's
@@ -546,6 +581,60 @@ class RecoveryAdmissionTests(unittest.TestCase):
     def test_a_read_only_stage_that_changed_the_workspace_keeps_its_hold(self):
         self.cut_short("astra")
         (self.workspace / "seed.txt").write_text("changed\n")
+        self.assertFalse(self.recover())
+
+    def dropped(self, role):
+        events = Path(self.record["events"])
+        events.chmod(0o600)
+        events.write_bytes(dropped_stream())
+        events.chmod(0o400)
+        clean = commands.run(
+            f'{sys.executable} -c "pass"', self.workspace, self.run / "owned/clean.log", timeout=10, env=None
+        )
+        self.assertEqual(0, clean["exit_code"])
+        self.record.update(
+            role=role,
+            exit_code=0,
+            supervision=clean["supervision"],
+            activity={"active_tool_count": 0, "completed_tool_count": 1},
+        )
+        # The launch binding names the role, so the attempt is bound as the role it ran as.
+        before = json.loads(Path(self.record["before_ref"]).read_text())
+        retry.bind_attempt(self.state, self.record, before, self.workspace)
+        self.error = util.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without turn.completed")
+
+    def test_a_read_only_stream_dropped_without_an_answer_retries_once(self):
+        self.dropped("astra")
+        self.assertTrue(self.recover())
+        archived = self.state["stages"][-1]
+        self.assertEqual("dropped_stream", archived["network_retry_chain"]["cause"])
+        self.assertTrue(archived["abandoned"])
+        # The retry is the only one: a second dropped stream on the child keeps its hold.
+        child = {**self.record, "output": str(self.base.with_name("requirements-gather-02").with_suffix(".json"))}
+        child.pop("network_retry_chain")
+        retry.bind_attempt(self.state, child, scope.snapshot(self.workspace, self.state), self.workspace)
+        self.assertEqual("dropped_stream", child["network_retry_chain"]["cause"])
+
+    def test_a_dropped_stream_on_a_writer_a_changed_workspace_or_another_pause_keeps_its_hold(self):
+        for role in ("terra", "sol"):
+            with self.subTest(role=role):
+                self.dropped(role)
+                before = copy.deepcopy(self.state)
+                self.assertFalse(self.recover())
+                self.assertEqual(before, self.state)
+        self.dropped("astra")
+        self.error = util.Paused("PAUSED_PROVIDER_UNCERTAIN", "a clean exit is not a provider failure")
+        self.assertFalse(self.recover())
+        self.dropped("astra")
+        (self.workspace / "seed.txt").write_text("changed\n")
+        self.assertFalse(self.recover())
+
+    def test_a_clean_exit_with_an_error_row_is_not_admitted(self):
+        self.dropped("astra")
+        events = Path(self.record["events"])
+        events.chmod(0o600)
+        events.write_bytes(cut_short_stream())
+        events.chmod(0o400)
         self.assertFalse(self.recover())
 
     def test_live_actor_or_denied_process_inspection_never_archives(self):

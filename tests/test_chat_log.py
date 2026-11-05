@@ -177,6 +177,36 @@ class ReadTests(unittest.TestCase):
         self.assertNotIn("a" * 64, json.dumps(entries))
         self.assertNotIn("b" * 64, json.dumps(entries))
 
+    def test_a_kilo_reasoning_preview_shows_the_newest_thinking_and_a_response_stays_opaque(self):
+        # 2026-11-05: on Kilo the live log said only "text unavailable", so a person could not tell
+        # what the Investigator was doing. The hook now previews reasoning; a response never.
+        write(
+            self.events,
+            [
+                progress(preview="Checking slugify.py: the regex turns the outer spaces into hyphens"),
+                progress(
+                    position=90,
+                    preview="Now probing slugify('  Hello, World!  ') api_key=sk-abcdefghijklmnopqrstuvwxyz123456",
+                ),
+                progress("text", "p2", preview='{"outcome": "reproduced"}'),
+            ],
+        )
+        entries = self.entries()
+        self.assertEqual("thinking", entries[0][0])
+        self.assertTrue(entries[0][1].startswith("Now probing slugify(' Hello, World! ')"), entries)
+        self.assertTrue(entries[0][1].endswith("[partial]"))
+        self.assertNotIn("sk-abcdefghijklmnopqrstuvwxyz123456", entries[0][1], "redacted like other prose")
+        self.assertEqual(("message", "Response stream activity received; text unavailable."), entries[1])
+        self.assertNotIn("reproduced", json.dumps(log.read(self.events)))
+
+    def test_a_blank_or_malformed_preview_keeps_the_opaque_receipt(self):
+        for preview in ("   ", 7, None, ["text"]):
+            with self.subTest(preview=preview):
+                write(self.events, [progress(preview=preview)])
+                self.assertEqual(
+                    [("thinking", "Reasoning stream activity received; text unavailable.")], self.entries()
+                )
+
     def test_a_run_of_identical_receipts_becomes_one_line_that_counts_the_parts(self):
         """#1999: opaque receipts must not bury the tool calls the live log exists to show."""
         write(

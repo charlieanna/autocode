@@ -23,6 +23,7 @@ try:
     from . import autocode_member_stop as member_stop
     from . import autocode_provider_auth as provider_auth
     from . import autocode_quota_route as quota_route
+    from . import autocode_run_messages as run_messages
     from .autocode_role_names import role_name
 except ImportError:
     import autocode_accepted_source as accepted_source
@@ -30,6 +31,7 @@ except ImportError:
     import autocode_member_stop as member_stop
     import autocode_provider_auth as provider_auth
     import autocode_quota_route as quota_route
+    import autocode_run_messages as run_messages
     from autocode_role_names import role_name
 
 ACTIVE = {"RUNNING", "DISCOVERING", "EXECUTING", "TASK_COMPLETE", "COMPLETE"}
@@ -71,6 +73,7 @@ BOUND_FIELDS = (
     "resolver",
     "user_events",
     "applied_interventions",
+    "pause_intent",
     "progressive",
     "stop_reason",
 )
@@ -666,11 +669,20 @@ def project(state: RunState, need=None):
         and not state.get("active_runner_check")
     ):
         requested = cause in ("PAUSED_REQUESTED", "PAUSED_INTERVENTION")
+        handoff = run_messages.resume_stage(state)
+        handoff_role = role_name(handoff) if handoff else None
+        if handoff_role:
+            result["what_happened"] = (
+                f"The task remains paused. On resume, {handoff_role} will handle your saved message "
+                f"before the saved {role} step can continue."
+            )
         actions.append(
             _action(
                 "resume",
-                "Resume" if requested else "Resume after correction",
-                "Continue from where the run paused. Existing model pins, limits and approval gates still apply."
+                f"Resume with {handoff_role}" if handoff_role else "Resume" if requested else "Resume after correction",
+                f"Handle your saved message with {handoff_role} first. Existing model pins, limits and approval gates still apply."
+                if handoff_role
+                else "Continue from where the run paused. Existing model pins, limits and approval gates still apply."
                 if requested
                 else "Continue from this saved pause after its cause is corrected. Existing model pins, limits and approval gates still apply.",
             )

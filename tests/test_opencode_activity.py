@@ -66,7 +66,9 @@ await delta("next-part", "new reasoning fragment", "next1", "next");
         positions = [r["progress"]["position"] for r in rows[:4]]
         self.assertEqual(sorted(set(positions)), positions)
         self.assertNotIn("private report fragment", result.stdout)
-        self.assertNotIn("reasoning fragment", result.stdout)
+        # A reasoning part carries its newest words for the live log; a text part (the report) never does.
+        self.assertNotIn("preview", json.dumps(rows[:4]))
+        self.assertEqual("new reasoning fragment", rows[4]["progress"]["preview"])
         self.assertNotIn("part", rows[0])  # no native part ID usable as command/report proof
         for row in rows:
             self.assertRegex(row["progress"]["content_hash"], r"^[0-9a-f]{64}$")

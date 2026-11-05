@@ -179,8 +179,20 @@ def _paths(found: dict) -> list[str]:
 
 def test_name(case: dict, taken=()) -> str:
     """The regression test the Builder writes for a diagnosis case: test_<id>_<words of its then clause>, the
-    form the Planner is told to use (units/autoplanner BUG_DIAGNOSIS_RULE), made distinct from ``taken``."""
-    words = re.findall(r"[a-z0-9]+", str(case.get("then") or case.get("text") or "").lower())[:6] or ["holds"]
+    form the Planner is told to use (units/autoplanner BUG_DIAGNOSIS_RULE), made distinct from ``taken``.
+
+    A parenthetical aside in the then clause ("(currently returns ...)") says what happens today, not what
+    the test checks, so it is left out; a clause too short to name the check (``returns ""``) borrows the
+    given clause's words. Live names were test_t1_returns_hello_world_currently_returns_hello (2026-11-05)."""
+
+    def words_of(text) -> list[str]:
+        return re.findall(r"[a-z0-9]+", str(text or "").lower())
+
+    then = case.get("then") or case.get("text") or ""
+    words = words_of(re.sub(r"\([^()]*\)", " ", str(then)))[:6]
+    if len(words) < 2:
+        words = [*words, *words_of(case.get("given"))][:6]
+    words = words or words_of(then)[:6] or ["holds"]
     base = f"test_{str(case['id']).lower()}_" + "_".join(words)
     name, number = base, 2
     while name in taken:
