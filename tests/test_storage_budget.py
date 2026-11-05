@@ -327,7 +327,7 @@ class BuildLoopFloorTests(unittest.TestCase):
         with mock.patch.object(build_loop.storage_budget, "projection", return_value=floor):
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
-                code = build_loop.run(None, None, {}, self.root / "state.json", self.root, self.root)
+                code = build_loop.run(None, SimpleNamespace(), {}, self.root / "state.json", self.root, self.root)
         self.assertEqual(code, 2)
         self.assertIn("Cannot start: preparing even one source copy", stderr.getvalue())
 
