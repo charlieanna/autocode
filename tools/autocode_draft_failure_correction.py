@@ -199,6 +199,15 @@ def repair_obligations(state: RunState):
     return {key: copy.deepcopy(body.get(key, [])) for key in ("accepted_assumptions", "delegated_decisions")}
 
 
+def _kept(criterion, ignored):
+    """A criterion's retained fields; an empty supersedes list equals an omitted one (#2748: it replaces no test)."""
+    return {
+        key: value
+        for key, value in criterion.items()
+        if key not in ignored and not (key == "supersedes" and value == [])
+    }
+
+
 def _obligation_mismatches(before, after, replacements, interpretation_corrections, criterion_corrections):
     # The failure receipt grants no authority over adjacent obligations. Only the caller's
     # existing assumption and criterion guards independently authorize their own draft corrections.
@@ -237,7 +246,7 @@ def _obligation_mismatches(before, after, replacements, interpretation_correctio
             if key in ("criterion", "verification_method", "current_behavior") and old["id"] in ids
         }
         ignored = {"sources"} | independent
-        if {k: v for k, v in old.items() if k not in ignored} != {k: v for k, v in new.items() if k not in ignored}:
+        if _kept(old, ignored) != _kept(new, ignored):
             mismatches.append(f"acceptance_criteria[{old['id']}]")
         if any(source not in new.get("sources", []) for source in old.get("sources", [])):
             mismatches.append(f"acceptance_criteria[{old['id']}].sources")

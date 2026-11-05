@@ -730,3 +730,19 @@ class DraftFailureCorrectionTests(unittest.TestCase):
             lifecycle.approve(current, goals.token(current["goal_contract"]))
             self.assertTrue(goals.approved(current))
             self.assertIn("approve", str(public))
+
+
+class SupersedesRetentionTests(unittest.TestCase):
+    def test_an_empty_supersedes_list_is_retained_but_a_new_entry_is_not(self):
+        """The loader fills supersedes [] on a criterion saved before the field existed (#2748)."""
+        before = {"acceptance_criteria": [{"id": "C1", "criterion": "Ship free over 50.", "sources": []}]}
+
+        def after(supersedes):
+            return {"acceptance_criteria": [{**before["acceptance_criteria"][0], "supersedes": supersedes}]}
+
+        def mismatches(value):
+            return correction._obligation_mismatches(before, value, {}, set(), {})
+
+        self.assertEqual([], mismatches(after([])))
+        listed = after([{"file": "tests/test_shipping.py", "test": "test_free_over_fifty"}])
+        self.assertEqual(["acceptance_criteria[C1]"], mismatches(listed))
