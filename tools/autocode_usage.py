@@ -364,8 +364,13 @@ def accounting(state: RunState):
                 native = request_usage.read(record["events"])["accounting"]
         issues = [] if runner else list(native.get("issues") or [])
         requests = [] if runner else native.get("requests") or []
-        if record.get("engine") == "opencode" and not requests:
+        # A Claude Code stage runs on the OpenCode engine but reports Codex-shaped events: its usage is the
+        # translator's session total, as a Codex stage's is, not a stream of native request finishes.
+        translated = record.get("output_mode") == "codex_events"
+        if record.get("engine") == "opencode" and not requests and not translated:
             issues.append("No native request finishes; unobserved usage is unknown")
+        if translated and not runner and metrics.get("provider_tokens_partial") is True:
+            issues.append("The stage's event stream was cut; its usage is a lower bound")
         tokens = {
             key: 0 if runner else _count(_dict(metrics.get("provider_tokens")).get(key))
             for key in request_usage.TOKEN_KEYS

@@ -143,12 +143,74 @@ class LiveSampleTests(TempMixin, unittest.TestCase):
         last = rows[-1]
         self.assertEqual("turn.completed", last["type"])
         self.assertEqual(
-            {"input_tokens": 60174, "cached_input_tokens": 29842, "output_tokens": 559, "reasoning_output_tokens": 238},
+            {
+                "input_tokens": 60174,
+                "cached_input_tokens": 29842,
+                "cache_write_tokens": 30314,
+                "fresh_input_tokens": 18,
+                "output_tokens": 559,
+                "reasoning_output_tokens": 238,
+            },
             last["usage"],
         )
+        # Fresh input, cache writes and cache reads are the three parts of input, each counted once.
+        self.assertEqual(last["usage"]["input_tokens"], 18 + 30314 + 29842)
+        metrics = support.event_metrics(self.write(rows))
+        self.assertEqual(30314, metrics["provider_tokens"]["cache_write_tokens"])
+        self.assertEqual(18, metrics["provider_tokens"]["fresh_input_tokens"])
         self.assertEqual(0.0665591, last["cost_usd"])
         self.assertEqual(sample(RUN)[2]["session_id"], last["claude"]["session_id"])
         self.assertEqual(0, code)
+
+    def test_a_finished_claude_stage_counts_its_cache_writes_and_is_complete(self):
+        rows, _ = translate(sample(RUN))
+        metrics = autocode_event_metrics.summarize(rows, {"accounting": {"requests": [], "issues": []}}, 0.0665591)
+        record = {
+            "stage": "terra",
+            "role": "terra",
+            "attempt_id": "001/builder-01",
+            "engine": "opencode",  # the Claude facade runs on the OpenCode engine with Codex-shaped events
+            "output_mode": "codex_events",
+            "provider": "claude",
+            "command": ["autocode", "--model", "claude-haiku-4-5"],
+            "metrics": metrics,
+        }
+        measured = autocode_usage.accounting({"stages": [record]})
+        attempt = measured["attempts"][0]
+        self.assertEqual([], attempt["issues"])
+        self.assertFalse(attempt["unobserved_usage_possible"])
+        self.assertEqual(30314, attempt["tokens"]["cache_write_tokens"])
+        self.assertEqual(
+            {"value": 30314, "complete": True},
+            {k: measured["tokens"]["cache_write_tokens"][k] for k in ("value", "complete")},
+        )
+        # A native OpenCode stage with no request finishes still says its usage may be unobserved.
+        native = {**record, "output_mode": "opencode_events"}
+        self.assertTrue(autocode_usage.accounting({"stages": [native]})["attempts"][0]["unobserved_usage_possible"])
+        # A cut Claude stream stays a lower bound.
+        cut = {**record, "metrics": {**metrics, "provider_tokens_partial": True}}
+        self.assertTrue(autocode_usage.accounting({"stages": [cut]})["attempts"][0]["unobserved_usage_possible"])
+
+    def test_cache_split_stays_unknown_unless_every_usage_row_reports_it(self):
+        claude_row = {"input_tokens": 10, "cached_input_tokens": 4, "cache_write_tokens": 5, "fresh_input_tokens": 1}
+        codex_row = {"input_tokens": 7, "cached_input_tokens": 2, "output_tokens": 1, "reasoning_output_tokens": 0}
+        both = autocode_event_metrics.summarize(
+            [{"type": "turn.completed", "usage": {**claude_row, "output_tokens": 1, "reasoning_output_tokens": 0}}] * 2,
+            None,
+            None,
+        )["provider_tokens"]
+        self.assertEqual((10, 2), (both["cache_write_tokens"], both["fresh_input_tokens"]))
+        mixed = autocode_event_metrics.summarize(
+            [
+                {"type": "turn.completed", "usage": {**claude_row, "output_tokens": 1, "reasoning_output_tokens": 0}},
+                {"type": "turn.completed", "usage": codex_row},
+            ],
+            None,
+            None,
+        )["provider_tokens"]
+        self.assertNotIn("cache_write_tokens", mixed)
+        self.assertNotIn("fresh_input_tokens", mixed)
+        self.assertEqual(17, mixed["input_tokens"])
 
     def test_resumed_call_reports_only_its_own_cost(self):
         session = sample(RESUME)[2]["session_id"]
@@ -666,6 +728,8 @@ class FailClosedTests(TempMixin, unittest.TestCase):
         expected = {
             "input_tokens": 29852,
             "cached_input_tokens": 0,
+            "cache_write_tokens": 29842,
+            "fresh_input_tokens": 10,
             "output_tokens": 337,
             "reasoning_output_tokens": 95,
         }

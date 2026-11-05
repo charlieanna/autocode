@@ -10,6 +10,11 @@ def summarize(rows, request_context, reported_cost):
     ]
     keys = ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"]
     usage = {k: sum(u[k] for u in usages) if usages and all(k in u for u in usages) else None for k in keys}
+    # Subsets of input that only some translators report (Claude Code): kept when every usage row has
+    # them, never zero-filled, so an engine that does not report them stays unknown.
+    for k in ("cache_write_tokens", "fresh_input_tokens"):
+        if usages and all(type(u.get(k)) is int for u in usages):
+            usage[k] = sum(u[k] for u in usages)
     # The CLI's saved cost-state records (#2592) and the sessions this provider activity
     # belongs to, so an amount can bind to the exact attempt that earned it. The thread's own
     # id names the session even when a failure stripped its diagnostics (#2599 review).
