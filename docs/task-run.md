@@ -477,7 +477,10 @@ entries beyond the newest and update a growing one in place. `kind` is
 `command`, `edit` and `tool` with the same `status` and `paths`. Unlike
 `activity`, reasoning and message prose are copied: collapsed to one line,
 credential-shaped text redacted, and cut to the newest 400 characters. Tool
-output is never copied. Each parallel Builder's attempt must itself be confirmed
+output is never copied. The Orchestrator runs no model, so its newest dispatch since the person's
+last turn appears as one `message` entry from agent `Orchestrator` with the
+runner's own summary, such as which tasks it builds in parallel or that one
+Builder takes the next task. Each parallel Builder's attempt must itself be confirmed
 as supervised, and only a file inside that attempt's run directory is read. The
 entries are display only, never a report, proof, approval or authority to retry.
 The field is omitted when nothing is working. Older cores may omit the field.
