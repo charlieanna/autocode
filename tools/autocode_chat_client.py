@@ -1750,7 +1750,9 @@ class ChatClient:
             if closing := panel.finished_text(view):
                 self.say(closing)
         try:
-            reply = self.ask("\nAnything else? Any text starts a new task in this chat; press Enter to finish: ")
+            # Say the task is over in the prompt itself: the closing message may be scrolled out of view.
+            over = "This task is complete. " if view.get("done") else ""
+            reply = self.ask(f"\n{over}Anything else? Any text starts a new task in this chat; press Enter to finish: ")
         except Left:
             return False
         return bool(reply) and self.send(reply, context)

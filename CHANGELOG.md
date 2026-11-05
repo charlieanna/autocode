@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat's prompt after a finished task starts with "This task is complete." A person
+  whose view was scrolled away from the closing message saw only "Anything else?" and could not
+  tell whether the task was over.
 - The full-screen chat's status row shows the stage working now ("Builder working") instead of
   the "Next: Builder" it was told before that stage started. After planning, it kept the queued
   line for the whole Tester and Builder stages unless a tool call was showing.

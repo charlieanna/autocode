@@ -1040,7 +1040,10 @@ class ConversationTests(unittest.TestCase):
         client = ScriptedChat(done, DONE, replies=["Add a --shout flag"])
         self.assertEqual(0, client.converse())
         self.assertEqual([["--follow-up", "Add a --shout flag"]], client.taken)
-        self.assertIn("Any text starts a new task in this chat; press Enter to finish:", client.text())
+        self.assertIn(
+            "This task is complete. Anything else? Any text starts a new task in this chat; press Enter to finish:",
+            client.text(),
+        )
 
     def test_a_finished_run_says_what_it_changed_once_before_the_follow_up(self):
         done = {
