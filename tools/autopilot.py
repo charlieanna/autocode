@@ -31,6 +31,7 @@ try:
     from . import autocode_check_replay as check_replay
     from . import autocode_completion as completion_gate
     from . import autocode_completion_result as completion_result
+    from . import autocode_decision_routes as decision_routes
     from . import autocode_design_coverage as design_coverage
     from . import autocode_efficiency as efficiency
     from . import autocode_escalation as escalation
@@ -82,6 +83,7 @@ except ImportError:
     import autocode_check_replay as check_replay
     import autocode_completion as completion_gate
     import autocode_completion_result as completion_result
+    import autocode_decision_routes as decision_routes
     import autocode_design_coverage as design_coverage
     import autocode_efficiency as efficiency
     import autocode_escalation as escalation
@@ -1169,89 +1171,20 @@ def _apply_result(runtime, state: RunState, stage, value, record, workspace, run
         for entry in value.get("deferred_backlog", []):
             if entry not in state.setdefault("deferred_backlog", []):
                 state["deferred_backlog"].append(entry)
-        if value["user_request"]["kind"] != "none":
-            request = value["user_request"]
-            origin = {
-                "stage": stage,
-                **{key: record[key] for key in ("output", "source_revision", "task_id") if key in record},
-            }
-            if workflow.final_only(state) and not stage.startswith("astra"):
-                if stage == "terra":
-                    assert_within_assignment(state, record)
-                if request["kind"] in ("blocker", "clarification"):
-                    queue_resolution(state, value, record, source_stage=stage, source_report=True)
-                else:
-                    lifecycle.wait_for_user(
-                        state, request, origin=origin, evidence={"provenance": "source_report_not_accepted_review"}
-                    )
-                save_record(state, record)
-                return
-            if stage.startswith("astra"):
-                if value["status"] != "BLOCKED":
-                    raise ValueError("The Plan Reviewer must choose BLOCKED when requesting a user decision")
-                # Record the defects already identified, then pause. The early return
-                # below never reaches the normal review path.
-                if stage != "astra_resolve":
-                    definitions = support.criteria_definition(value["acceptance_criteria"])
-                    if len({row["id"] for row in definitions}) != len(
-                        definitions
-                    ) or definitions != support.criteria_definition(state["acceptance_criteria"]):
-                        raise support.Paused(
-                            "PAUSED_CRITERIA_CHANGE", "A blocked decision cannot change approved criteria"
-                        )
-                    findings_ledger.record_decision(state, value, record)
-                if stage != "astra_resolve" and request["kind"] in ("blocker", "clarification"):
-                    queue_resolution(state, value, record, source_stage=stage)
-                else:
-                    evidence = {}
-                    if stage == "astra_resolve":
-                        evidence = {
-                            "diagnosis": value["diagnosis"],
-                            "output": record["output"],
-                            "hashes": dict(cast(dict, state["resolution_request"])["evidence_hashes"]),
-                        }
-                        evidence["hashes"][record["output"]] = support.file_hash(Path(record["output"]))
-                        resolver_recovery.retain_diagnosis(state, record)
-                    lifecycle.wait_for_user(state, request, origin=origin, evidence=evidence, next_stage="astra_review")
-                goals.record_decision(state, value)
-                state.pop("agent_request", None)
-                save_record(state, record)
-                return
-            state["agent_request"] = {"role": stage, "request": copy.deepcopy(value["user_request"])}
-            if stage == "terra":
-                state.update(
-                    {
-                        "implementation": {
-                            **value,
-                            "source_revision": record.get("source_revision"),
-                            "workspace": str(workspace),
-                        },
-                        "changed_files": record.get("changed_files", []),
-                        "source_snapshot": record.get("after_ref"),
-                        "diff_ref": record.get("diff_ref"),
-                        "next_stage": "astra_review",
-                    }
-                )
-                save_record(state, record)
-                return
+        if value["user_request"]["kind"] != "none" and decision_routes.user_request(
+            runtime,
+            state,
+            stage,
+            value,
+            record,
+            workspace,
+            queue_resolution=queue_resolution,
+            assert_within_assignment=assert_within_assignment,
+        ):
+            save_record(state, record)
+            return
     if modern and stage == "astra_review" and value.get("status") == "REWORK" and not workflow.enabled(state):
-        # Keep the review authoritative whether its correction is assigned or diagnosed.
-        diagnosed = resolver_recovery.diagnosis_current(
-            state, state.get("resolution_request") or {}, record.get("source_revision")
-        )
-        if not diagnosed:
-            rework_policy.guard_pending_human(state)
-        findings_ledger.record_decision(state, value, record)
-        if diagnosed or (milestones.progress(state) or {}).get("builder_reassessment"):
-            queue_resolution(state, value, record)
-        elif getattr(runtime, "native_calls", None) is not None:
-            # Native correction keeps the existing independent Resolver and its
-            # genuine recovery/retry gates; no direct-assignment shortcut.
-            queue_resolution(state, value, record)
-        elif not rework_policy.route(runtime, state, value, record, queue_resolution, builder_policy, run_dir=run_dir):
-            resolver_recovery.route_known_change(
-                runtime, state, value, record, run_dir=run_dir, retry_policy=builder_policy
-            )
+        decision_routes.review_rework(runtime, state, value, record, run_dir, queue_resolution=queue_resolution)
         save_record(state, record)
         return
     if stage.startswith("astra"):
@@ -1274,27 +1207,7 @@ def _apply_result(runtime, state: RunState, stage, value, record, workspace, run
         if modern and stage == "astra_review":  # only the Validator can close its own open blockers
             value = findings_ledger.recheck_by_validator(state, value, record.get("source_revision"))
         if stage == "astra_review" and value.get("progressive_checkpoint") is True:
-            if value["status"] != "CONTINUE" or not progressive_state.enabled(state):
-                raise ValueError("progressive checkpoint requires explicit CONTINUE within an approved progressive run")
-            if value["next_task"]["kind"] != "none":
-                raise ValueError(
-                    "slice checkpoint cannot manufacture a next assignment before independent slice review"
-                )
-            proven = {
-                row["id"]
-                for row in (state.get("validation") or {}).get("criterion_results", [])
-                if row["status"] == "PASS"
-            }
-            if any(row["status"] == "verified" and row["id"] not in proven for row in value["acceptance_criteria"]):
-                raise ValueError(
-                    "slice checkpoint cannot claim verified original criteria without the Validator's current product proof"
-                )
-            progressive_state.checkpoint(
-                state,
-                source_scope.snapshot(workspace, state, base_snapshot=support.snapshot),
-                record,
-                product_findings=findings_ledger.blocking_entries(state),
-            )
+            decision_routes.progressive_checkpoint(runtime, state, value, record, workspace)
             goals.record_decision(state, value)
             save_record(state, record)
             return
@@ -1395,42 +1308,9 @@ def _apply_result(runtime, state: RunState, stage, value, record, workspace, run
                 and value.get("next_task", {}).get("kind") == "implement"
                 and not (milestones.progress(state) or {}).get("builder_reassessment")
             ):
-                request = cast(dict, state["resolution_request"])
-                source_output = request.get("source_output", request.get("review_output"))
-                original: dict = next(
-                    (row for row in reversed(state.get("stages", [])) if row.get("output") == source_output), {}
+                action = decision_routes.resolver_builder_failure(
+                    runtime, state, value, record, workspace, route=route_builder_failure
                 )
-                evidence = builder_failure.evidence(state, original)
-                evidence["diagnosis"] = request.get("failure_diagnosis")
-                validation = state.get("validation") or {}
-                if (
-                    validation.get("source_revision") == original.get("source_revision")
-                    and validation.get("task_id") == cast(dict, state.get("current_task", {})).get("id")
-                    and validation.get("contract_hash") == cast(dict, state["goal_contract"])["hash"]
-                ):
-                    accepted = next(
-                        (
-                            row
-                            for row in state.get("stages", [])
-                            if row.get("output") == validation.get("output")
-                            and row.get("stage") == "sol"
-                            and not row.get("rejected")
-                        ),
-                        None,
-                    )
-                    if accepted:
-                        checked = copy.deepcopy(validation.get("checks", []))
-                        support.verify_checks(
-                            checked, workspace, accepted["events"], **runtime.check_evidence_options(accepted)
-                        )
-                        evidence["checks"] = builder_failure.check_facts(
-                            checked, accepted, workspace, read_events=support.events
-                        )
-                        evidence["checks_verified"] = True
-                action = route_builder_failure(state, evidence, value["diagnosis"], completed_record=record)
-                pending = state.get("pending_builder_failure") or state.get("stuck_investigation")
-                if action == "investigate" and pending:
-                    pending["resolver_continuation"] = {"value": copy.deepcopy(value), "record": copy.deepcopy(record)}
                 if action in ("pause", "defer", "investigate", "replan", "recover"):
                     # Exhaustion precedes assignment/replan gates and cannot be
                     # converted into another completion-owner/model round trip.
