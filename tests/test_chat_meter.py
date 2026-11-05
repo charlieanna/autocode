@@ -59,6 +59,11 @@ class StageTests(unittest.TestCase):
         self.assertEqual("  gpt-terra medium · 1.2k tokens", detail)
         self.assertEqual("good", style)
 
+    def test_a_lowered_review_shows_the_level_it_ran_at_not_the_saved_ceiling(self):
+        lowered = attempt("astra_challenge", "Plan Reviewer", model="mimo", effort="high", reasoning_effort="medium")
+        (row,) = meter.stages(view(lowered), NOW)
+        self.assertEqual("mimo medium", row["route"])
+
     def test_a_stage_with_no_model_shows_no_cost_or_model_row(self):
         plain = attempt("orchestrator", "Orchestrator", launch_route={}, attributed_tokens={})
         shown = view(plain, by_stage=[{"stage": "orchestrator", "spent_usd": 0}])

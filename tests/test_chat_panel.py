@@ -106,6 +106,15 @@ class SectionTests(unittest.TestCase):
             self.assertEqual([], panel.recent_notes({**current, "status": status}))
         self.assertEqual([], panel.recent_notes({**current, "progress": {}}))
 
+    def test_recent_notes_skip_an_opaque_stream_receipt(self):
+        receipt = "Response stream activity received; text unavailable. (4 parts streamed)"
+        log = [
+            {"id": "1", "agent": "Tester", "kind": "message", "text": "Approved suite command passed."},
+            {"id": "2", "agent": "Tester", "kind": "message", "text": receipt, "status": "streaming"},
+        ]
+        current = {"status": "RUNNING", "progress": {"stage": "Tester"}, "chat": {"log": log}}
+        self.assertEqual(["Approved suite command passed."], panel.recent_notes(current))
+
     def test_compact_usage_keeps_incomplete_accounting_visible(self):
         current = view()
         current["cost"] = {"spent_usd": 1.25, "complete": False, "unpriced_stages": 2}

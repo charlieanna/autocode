@@ -113,7 +113,8 @@ def _why(row: dict) -> str:
 def _route(row: dict) -> str:
     route = {**_mapping(row.get("launch_route"))}
     model = route.get("model") or row.get("model")
-    effort = route.get("reasoning_effort") or row.get("reasoning_effort")
+    # The launch route keeps the saved level; the row keeps the level the stage ran at (#2747).
+    effort = row.get("reasoning_effort") or route.get("reasoning_effort")
     return " ".join(str(part) for part in (model, effort) if isinstance(part, str) and part.strip())
 
 
