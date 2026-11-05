@@ -957,6 +957,9 @@ def contract(final: bool = False) -> dict:
             for cid, text in CONFIG["criteria"].items()
         ]
         body["milestones"][0]["acceptance_criteria"] = list(CONFIG["criteria"])
+        for row in body["acceptance_criteria"]:
+            if (CONFIG.get("supersedes") or {}).get(row["id"]):
+                row["supersedes"] = [dict(entry) for entry in CONFIG["supersedes"][row["id"]]]
     if CONFIG.get("fault") == "recovery_novelty_narrow":
         # #423: the failing task owns two criteria, so the Resolver's repair can keep only one.
         body["acceptance_criteria"].append(

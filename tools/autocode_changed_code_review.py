@@ -74,6 +74,22 @@ def _gaps(assessment):
     return result
 
 
+def _names(gaps):
+    """Each current gap's accepted names: its short handle (when it has one) and its full id."""
+    result = {}
+    for identity, row in gaps.items():
+        result[identity] = identity
+        handle = row.get("handle")
+        if isinstance(handle, str) and handle and handle not in gaps and handle not in result:
+            result[handle] = identity
+    return result
+
+
+def resolve(assessment, name):
+    """The exact gap id a supplied handle or id names, or the name unchanged when it names none."""
+    return _names(_gaps(assessment)).get(name, name) if isinstance(name, str) else name
+
+
 def generation_schema(schema, assessment, stage):
     """Offer only current gaps to an independent Tester; never mutate a shared schema."""
     result = copy.deepcopy(schema)
@@ -90,11 +106,14 @@ def generation_schema(schema, assessment, stage):
     field = _fields(result, stage).get(FIELD)
     if not isinstance(field, dict):
         return result
-    ids = list(_gaps(assessment))
-    field["maxItems"] = len(ids)
-    if ids:
+    gaps = _gaps(assessment)
+    field["maxItems"] = len(gaps)
+    if gaps:
+        # Handles first: a model copies "L12" reliably where it mistypes one of thirty 64-hex ids.
+        # The full ids stay accepted, so saved reports and scripted Testers bind as before.
+        names = [name for name in _names(gaps) if name not in gaps] + list(gaps)
         props = field["items"]["properties"]
-        props["gap_id"] = {**props["gap_id"], "enum": ids}
+        props["gap_id"] = {**props["gap_id"], "enum": names}
     return result
 
 
@@ -129,10 +148,12 @@ def tester_only_gaps(assessment, decisions, offered_schema, stage):
     offered = field.get("items", {}).get("properties", {}).get("gap_id", {}).get("enum")
     if not isinstance(offered, list):
         return []
-    decided = {row.get("gap_id") for row in decisions or [] if isinstance(row, dict)}
+    gaps = _gaps(assessment)
+    names = _names(gaps)
+    decided = {names.get(row.get("gap_id"), row.get("gap_id")) for row in decisions or [] if isinstance(row, dict)}
     return [
         row
-        for identity, row in _gaps(assessment).items()
+        for identity, row in gaps.items()
         if identity in offered and identity not in decided and not row.get("mutation_outcomes")
     ]
 
@@ -165,12 +186,14 @@ def bind(assessment, decisions, record, *, offered_schema, verified_refs):
     field = _fields(offered_schema, stage).get(FIELD, {})
     offered = field.get("items", {}).get("properties", {}).get("gap_id", {}).get("enum")
     gaps = _gaps(assessment)
+    names = _names(gaps)
     if (
         not isinstance(offered, list)
         or not offered
         or len(offered) != len(set(offered))
-        or field.get("maxItems") != len(offered)
-        or set(offered) != set(gaps)
+        or field.get("maxItems") != len(gaps)
+        # A legacy schema offered the full ids alone; a current one offers each handle too.
+        or set(offered) not in (set(gaps), set(names))
         or not isinstance(verified_refs, dict)
     ):
         raise ValueError("Changed-code reason review has no exact current offered gap binding")
@@ -178,8 +201,9 @@ def bind(assessment, decisions, record, *, offered_schema, verified_refs):
     for row in decisions:
         if not isinstance(row, dict) or set(row) != set(SCHEMA["items"]["properties"]):
             raise ValueError("Malformed changed-code exception decision")
-        identity = row.get("gap_id")
-        if not isinstance(identity, str) or identity not in gaps or identity in seen:
+        supplied = row.get("gap_id")
+        identity = names.get(supplied) if isinstance(supplied, str) and supplied in offered else None
+        if not isinstance(identity, str) or identity in seen:
             raise ValueError("Changed-code reason names a duplicate, unknown or stale gap")
         seen.add(identity)
         reason, refs = row.get("reason"), row.get("evidence_refs")

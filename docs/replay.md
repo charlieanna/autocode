@@ -60,7 +60,9 @@ A recorded answer may name an identity that digests where the original run
 happened, such as the independent Tester's changed-line `gap_id`s (each one
 digests the proof's source revision and execution context). The recording keeps
 what each one stably identifies (the gap's exact file, bytes and line), and
-replay re-derives the current value from that identity. A citation of the proof
+replay re-derives the current value from that identity. A Tester that names a gap
+by its short handle (`L12`) is bound the same way: replay writes the current full
+`gap_id` of that exact line in its place. A citation of the proof
 file itself binds to the replay's own proof, whatever its directory is named. A
 gap whose file, bytes or line differ in the replay is not rebound, and a replay whose Tester runs
 without a current changed-line proof refuses rather than guess.

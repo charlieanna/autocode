@@ -77,7 +77,7 @@ class ChangedCodeReviewTests(unittest.TestCase):
         state = {"regression_proof": {"changed_code_evidence": self.assessment}}
         original = copy.deepcopy((schema, state))
         field = reports.review_generation_schema(schema, state, "sol")["properties"][review.FIELD]
-        self.assertEqual([self.gap["gap_id"]], field["items"]["properties"]["gap_id"]["enum"])
+        self.assertEqual(["L1", self.gap["gap_id"]], field["items"]["properties"]["gap_id"]["enum"])
         self.assertEqual(1, field["maxItems"])
         self.assertEqual(["array", "null"], field["type"])
         self.assertNotIn(review.FIELD, schema["required"])
@@ -89,7 +89,7 @@ class ChangedCodeReviewTests(unittest.TestCase):
 
     def test_checkpoint_offers_same_binding_but_builder_self_check_does_not(self):
         field = wire("astra_checkpoint")["properties"]["validation"]["properties"][review.FIELD]
-        self.assertEqual([self.gap["gap_id"]], field["items"]["properties"]["gap_id"]["enum"])
+        self.assertEqual(["L1", self.gap["gap_id"]], field["items"]["properties"]["gap_id"]["enum"])
         builder = workflow.implementation_schema(SCHEMAS)
         self.assertNotIn(
             review.FIELD, builder["properties"]["continuation"]["properties"]["self_assessment"]["properties"]
@@ -121,6 +121,56 @@ class ChangedCodeReviewTests(unittest.TestCase):
         self.assertEqual("PASS", result["status"])
         self.assertEqual("excepted", result["obligations"][0]["status"])
         self.assertEqual(before, (self.assessment, self.decision, self.record, self.refs))
+
+    def test_handle_binds_the_exact_gap_its_full_id_names(self):
+        self.assertEqual("L1", self.gap["handle"])
+        by_id = self.bind()
+        self.decision["gap_id"] = "L1"
+        self.assertEqual(by_id, self.bind())
+        self.assertEqual(self.gap["gap_id"], review.resolve(self.assessment, "L1"))
+
+    def test_handle_and_id_of_one_gap_are_one_decision(self):
+        twice = [self.decision, {**self.decision, "gap_id": "L1"}]
+        with self.assertRaisesRegex(ValueError, "duplicate, unknown or stale"):
+            self.bind(twice)
+
+    def test_handle_numbering_is_stable_and_unknown_handles_bind_nothing(self):
+        inventory = [{"path": "calc.py", "sha256": "a" * 64, "lines": [2, 3, 4]}]
+        first = evidence.assess(inventory, None, None, source_revision="source-one", proof_context="proof-one")
+        self.assertEqual(["L1", "L2", "L3"], [row["handle"] for row in first["obligations"]])
+        decision = {**self.decision, "gap_id": "L2"}
+        bound = review.bind(
+            first, [decision], self.record, offered_schema=wire(state=self.state(first)), verified_refs=self.refs
+        )
+        again = evidence.assess(
+            inventory, None, None, source_revision="source-one", proof_context="proof-one", exceptions=bound
+        )
+        # Settling L2 renumbers nothing: L3 still names line 4.
+        self.assertEqual(["L1", "L2", "L3"], [row["handle"] for row in again["obligations"]])
+        self.assertEqual("excepted", again["obligations"][1]["status"])
+        self.assertEqual(4, again["obligations"][2]["line"])
+        for name in ("L4", "l2", "L02"):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "duplicate, unknown or stale"):
+                review.bind(
+                    first,
+                    [{**self.decision, "gap_id": name}],
+                    self.record,
+                    offered_schema=wire(state=self.state(first)),
+                    verified_refs=self.refs,
+                )
+
+    def test_legacy_id_only_offer_still_binds_ids_and_refuses_handles(self):
+        legacy = wire()
+        props = legacy["properties"][review.FIELD]["items"]["properties"]
+        props["gap_id"]["enum"] = [self.gap["gap_id"]]
+        self.assertTrue(self.bind(offered_schema=legacy))
+        self.decision["gap_id"] = "L1"
+        with self.assertRaisesRegex(ValueError, "duplicate, unknown or stale"):
+            self.bind(offered_schema=legacy)
+
+    @staticmethod
+    def state(value):
+        return {"regression_proof": {"changed_code_evidence": value}}
 
     def test_rejected_reason_is_recorded_but_never_accepted(self):
         self.decision["decision"] = "reject"
@@ -272,6 +322,8 @@ class TesterOnlyGapTests(unittest.TestCase):
         self.assertEqual([self.no_site], review.tester_only_gaps(self.assessment, [], offered, "sol"))
         decided = [{"gap_id": self.no_site["gap_id"], "decision": "reject"}]
         self.assertEqual([], review.tester_only_gaps(self.assessment, decided, offered, "sol"))
+        by_handle = [{"gap_id": self.no_site["handle"], "decision": "reject"}]
+        self.assertEqual([], review.tester_only_gaps(self.assessment, by_handle, offered, "sol"))
         self.assertEqual([], review.tester_only_gaps(self.assessment, [], {"properties": {}}, "sol"))
 
     def test_a_pass_that_leaves_it_undecided_is_returned_for_that_decision(self):
@@ -282,10 +334,15 @@ class TesterOnlyGapTests(unittest.TestCase):
                 self.state, {"verdict": "PASS", "changed_code_exceptions": []}, self.record
             )
         self.assertNotIn("calc.py:2", str(raised.exception))
+        self.assertIn(self.no_site["handle"] + " calc.py:3 (", str(raised.exception))
         self.assertIn("/run/proof.json", str(raised.exception))
         for value, record in (
             ({"verdict": "FAIL", "changed_code_exceptions": []}, self.record),
             ({"verdict": "PASS", "changed_code_exceptions": None}, {**self.record, "stage": "sol_report_repair"}),
+            # autocode_repaired_result applies a repaired report with its original stage's record, so
+            # the bounded repair is recognized by report_repaired: an undecided gap it leaves goes to
+            # the Builder and Investigator rounds instead of rejecting the whole repaired PASS.
+            ({"verdict": "PASS", "changed_code_exceptions": []}, {**self.record, "report_repaired": True}),
             ({"verdict": "PASS", "changed_code_exceptions": []}, {**self.record, "source_revision": "stale"}),
             (
                 {"verdict": "PASS", "changed_code_exceptions": [{"gap_id": self.no_site["gap_id"]}]},
@@ -294,6 +351,17 @@ class TesterOnlyGapTests(unittest.TestCase):
         ):
             with self.subTest(value=value, stage=record["stage"]):
                 self.assertIsNone(application.require_tester_decisions(self.state, value, record))
+
+    def test_only_an_explicit_repair_mark_skips_the_decision_request(self):
+        import autocode_changed_code_review_application as application
+
+        for mark in (False, "true", 1, None):
+            with self.subTest(mark=mark), self.assertRaisesRegex(ValueError, "no mutation outcome"):
+                application.require_tester_decisions(
+                    self.state,
+                    {"verdict": "PASS", "changed_code_exceptions": []},
+                    {**self.record, "report_repaired": mark},
+                )
 
     def test_the_builder_receives_the_testers_rejected_reason(self):
         import autocode_changed_code_rework as rework

@@ -192,6 +192,7 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
                 "probe": scenario.fake_probe,
                 "milestones": list(scenario.fake_milestones),
                 "criteria": dict(scenario.fake_criteria),
+                "supersedes": dict(scenario.fake_supersedes),
                 "turn_paths": [list(row) for row in scenario.fake_turn_paths],
             }
         )

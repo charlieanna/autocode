@@ -44,8 +44,8 @@
     "sha256": "b9f73224477c8b090c085e1b0f029fb1d5786baca483e559a662dd0fe83aef5e"
   },
   "context/protected-tests": {
-    "bytes": 643,
-    "sha256": "cdfdd318c7b57cb66afbc0c26f49b7f8617439be710787a75a0c2f5530d63f2c"
+    "bytes": 738,
+    "sha256": "77567b8a3387c9046a45847f19df7e48950fcc1878b8b3a0db04500cde080f00"
   },
   "design/revise": {
     "bytes": 7183,

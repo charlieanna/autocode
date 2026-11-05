@@ -669,6 +669,45 @@ class OwnedTransportTests(unittest.TestCase):
                 {"regression_proof": None},
             )
 
+    def test_a_recorded_testers_gap_handle_rebinds_to_the_replays_current_full_id(self):
+        import autocode_changed_code_evidence as line_evidence
+        import autocode_replay_bindings as identity_bindings
+
+        line = {"path": "greet.py", "sha256": "a" * 64, "line": 3}
+        packet = {
+            "regression_proof": {
+                "changed_code_evidence": {
+                    "obligations": [
+                        {"gap_id": "changed-code:" + "1" * 64, "handle": "L1", "status": "reason_required", **line},
+                        {"gap_id": "changed-code:" + "2" * 64, "handle": "L2", "status": "tested", **line},
+                    ]
+                }
+            }
+        }
+        gaps = identity_bindings.changed_line_gaps(packet)
+        self.assertEqual(line, gaps["L1"])
+        self.assertNotIn("L2", gaps)
+        payload = {"events": [], "report": {"changed_code_exceptions": [{"gap_id": "L1"}, {"gap_id": "L2"}]}}
+        bound = identity_bindings.bindings(payload, {}, {}, self.root, self.root / "run", [], gaps=gaps)
+        self.assertEqual(
+            [
+                {
+                    "pointer": "/report/changed_code_exceptions/0/gap_id",
+                    "symbol": "changed_code_gap",
+                    "original_valid": True,
+                    "gap": line,
+                }
+            ],
+            bound,
+        )
+        proof = {"source_revision": "replay-source", "proof_context": "replay-proof"}
+        rebound = recording.rebind(payload, bound, {"changed_code_gap": proof})
+        self.assertEqual(
+            line_evidence.gap_id("replay-source", "replay-proof", "greet.py", "a" * 64, 3),
+            rebound["report"]["changed_code_exceptions"][0]["gap_id"],
+        )
+        self.assertEqual("L2", rebound["report"]["changed_code_exceptions"][1]["gap_id"])
+
     def test_existing_provider_overwrite_bug_replays_the_preserved_transport_stream(self):
         # The existing bug note describes an accidental `w` open of the stdout
         # evidence path. Capture that actual attempt, then replay its saved rows.

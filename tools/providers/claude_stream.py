@@ -213,6 +213,11 @@ def usage_of(raw: Any) -> dict | None:
         usage["input_tokens"] = fresh + created + read
     if read is not None:
         usage["cached_input_tokens"] = read
+    # Cache writes and uncached input are subsets of input_tokens, kept so a run can show its cache split.
+    if created is not None:
+        usage["cache_write_tokens"] = created
+    if fresh is not None:
+        usage["fresh_input_tokens"] = fresh
     if out is not None:
         usage["output_tokens"] = out
         if thinking is not None and thinking <= out:
@@ -661,7 +666,14 @@ class Translator:
         mapped = [usage_of(raw) or {} for raw in self._usage.values()]
         if not mapped:
             return None
-        keys = ("input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens")
+        keys = (
+            "input_tokens",
+            "cached_input_tokens",
+            "cache_write_tokens",
+            "fresh_input_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+        )
         usage = {key: sum(entry[key] for entry in mapped) for key in keys if all(key in entry for entry in mapped)}
         return usage or None
 

@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A bug fix no longer stops when an existing test asserts the bug itself (#2748). The plan names
+  that test in its criterion's `supersedes`, and the approval screen shows it as "Replaces existing
+  test". The original-test gate then accepts a failure of the listed tests only, and only when the
+  runner reports every test's result. Every other existing test must still pass unchanged. A failed
+  original gate names its failing tests, and its pause is reported as AutoCode's, not as a model
+  or provider failure.
 - A reasoning level saved in your stage choices (`autocode stages`) is now a ceiling for the three
   review stages. On a small, clear task the Plan Reviewer, the Tester and the Completion Reviewer
   run one level below it, if their model offers that level. GLM 5.3 offers low, high and max, so
@@ -27,9 +33,20 @@ PR template asks for an entry here; a change without one is incomplete.
   gateway route). Every run on such a login stopped with `PAUSED_BILLING_ROUTE`, while the check and
   `autocode setup` showed it ready. The check now says `sign_in_required` and names the route.
 
+- A Tester report repair that leaves a changed line undecided is no longer rejected for it. The
+  undecided line goes to the existing Builder and Investigator rounds, as the gate intended. A
+  repaired report is applied with its original stage's record, so the check missed the repair. In a
+  live run a PASS with 132 of 133 line decisions was rejected twice for the last one.
+- The Tester names each changed line it gives a reason for by a short handle (`L12`) instead of
+  retyping its 64-character gap id. The runner maps the handle to that exact line, and a full id is
+  still accepted. In a live Kilo run, GLM mistyped one of 30+ ids in every report, so one milestone's
+  Tester ran 4 attempts and 7 report repairs over 144 minutes without finishing.
 - A recovery the Resolver's own rules settle now says so: "The Resolver's rules, with no model
   call, chose to try the stage again" instead of "The Resolver chose", which read as a model's
   judgement in a live run where the runner decided in a millisecond.
+- A Claude Code stage now records its cache writes and new input tokens, and its token totals count
+  as complete. Before, its cache writes were dropped and every Claude stage's usage was marked
+  incomplete, so the run's cache split could not be shown.
 - Terminal chat: `/diff N` on a step the files still match, such as the newest step of a finished run,
   now shows what that step itself changed instead of only "Nothing has changed since step N". The
   status view names a display-only `step` action for each saved step (`autocode checkpoint --step`).
@@ -261,6 +278,16 @@ PR template asks for an entry here; a change without one is incomplete.
   charges the coordinated task's budget.
 
 ### Added
+
+- Terminal chat: a Spend section in the side panel and a `/spend` command show where a run's model
+  spend went and what it bought. Each job's cost and share of the run, costliest first; the token
+  split into new input, cache writes, cache reads and output, with how much input came from the
+  cache; what was spent again (failed attempts, jobs that ran more than once, report repairs); and
+  the Builder's spend, a stand-in for one model building the change alone, beside what the planning
+  and checking stages produced: criteria accepted, tests that fail before and pass after, checks
+  rerun clean, broken lines caught, blocking findings and problems handled. The figures come from
+  a new `run_metrics` field of the status view, built from its existing cost, usage and evidence.
+  In a live bug fix on Claude models the Builder was 11% of $1.25 and the three reviews 76%.
 
 - Terminal chat: a Stages section in the side panel lists each stage's state, time,
   cost, attempt, model, reasoning level and tokens; a stage on a later attempt takes

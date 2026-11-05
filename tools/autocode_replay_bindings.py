@@ -47,6 +47,10 @@ def changed_line_gaps(packet):
             and line >= 1
         ):
             result[identity] = {"path": path, "sha256": digest, "line": line}
+            # A recorded handle names the same exact line; replay rebinds it to the current full id.
+            handle = obligation.get("handle")
+            if isinstance(handle, str) and handle and handle not in result:
+                result[handle] = result[identity]
     return result
 
 

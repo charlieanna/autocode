@@ -904,7 +904,7 @@ class ChatClient:
         sent to the model as the reply and spent a planning call; ``/open`` and ``/new`` leave the prompt."""
         if name == "/quit":
             raise Left
-        if name in ("/help", "/plan", "/tasks", "/details", "/why"):
+        if name in ("/help", "/plan", "/tasks", "/details", "/why", "/spend"):
             return panel.text(name, self._status_view, panel.StageLog())  # the line chat keeps no stage log
         if name in panel.CLIENT_COMMANDS:
             result = self.slash(name, argument)
@@ -1830,6 +1830,9 @@ def render_plan(plan: dict) -> str:
         lines.append(f"  [{row['id']}] {row['criterion']}")
         if row.get("current_behavior"):
             lines.append(f"      Today: {row['current_behavior']}")
+        for entry in row.get("supersedes") or []:
+            if isinstance(entry, dict):
+                lines.append(f"      Replaces existing test: {entry.get('file')}::{entry.get('test')}")
         lines.append(f"      Checked by: {row['verification_method']}")
         if row["human_review"]:
             lines.append("      You check this one yourself.")

@@ -1,0 +1,1 @@
+The approved plan replaces the original tests in superseded_tests: each asserts the behavior this task changes. Update each one in place to assert the approved behavior, as its criterion's test: says. The original-test replay accepts a failure of these named tests only; every other original test must still pass unchanged.

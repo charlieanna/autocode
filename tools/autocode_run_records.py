@@ -465,22 +465,27 @@ def default_missing_provenance(value, record):
     elif "task_kind" in defaults:
         missing.append("task_kind")
     if isinstance(contract, dict):
-        # An omitted current_behavior box is an empty one (#2133): the strict generation schema
-        # requires it on every criterion, but a provider that leaves it out has said nothing about
-        # today's behaviour, which the runner fills from the bound diagnosis or leaves empty. It costs
-        # no report-repair call.
+        # An omitted current_behavior box is an empty one (#2133), and an omitted supersedes list
+        # replaces no original test (#2748): the strict generation schema requires both on every
+        # criterion, but a provider that leaves one out has said nothing, which the runner fills from
+        # the bound diagnosis or leaves empty. It costs no report-repair call.
         rows = contract_schema.get("acceptance_criteria", {})
-        boxed = any("current_behavior" in offer.get("items", {}).get("properties", {}) for offer in _offers(rows))
+        offered = {
+            box for box in BOXES if any(box in offer.get("items", {}).get("properties", {}) for offer in _offers(rows))
+        }
         filled = {**(defaults.get("contract") or contract)}
         criteria = filled.get("acceptance_criteria")
-        if boxed and isinstance(criteria, list) and _without_box(criteria):
-            filled["acceptance_criteria"] = _boxed(criteria)
-            defaults["contract"] = filled
-            missing.append("contract.acceptance_criteria.current_behavior")
-        elif boxed and isinstance(criteria, dict) and _without_box(criteria.get("upsert")):
-            filled["acceptance_criteria"] = {**criteria, "upsert": _boxed(criteria["upsert"])}
-            defaults["contract"] = filled
-            missing.append("contract.acceptance_criteria.upsert.current_behavior")
+        for box in sorted(offered):
+            if isinstance(criteria, list) and _without_box(criteria, box):
+                criteria = _boxed(criteria, box)
+                filled["acceptance_criteria"] = criteria
+                defaults["contract"] = filled
+                missing.append("contract.acceptance_criteria." + box)
+            elif isinstance(criteria, dict) and _without_box(criteria.get("upsert"), box):
+                criteria = {**criteria, "upsert": _boxed(criteria["upsert"], box)}
+                filled["acceptance_criteria"] = criteria
+                defaults["contract"] = filled
+                missing.append("contract.acceptance_criteria.upsert." + box)
     if not defaults:
         return value
     record["defaulted_fields"] = sorted(missing)
@@ -504,17 +509,19 @@ def _offers(schema):
     return offers
 
 
-def _without_box(rows):
+# Optional criterion boxes a provider may leave out, and the empty value that means it said nothing.
+BOXES = {"current_behavior": "", "supersedes": []}
+
+
+def _without_box(rows, box):
     return isinstance(rows, list) and any(
-        isinstance(row, dict) and "criterion" in row and "current_behavior" not in row for row in rows
+        isinstance(row, dict) and "criterion" in row and box not in row for row in rows
     )
 
 
-def _boxed(rows):
+def _boxed(rows, box):
     return [
-        {**row, "current_behavior": ""}
-        if isinstance(row, dict) and "criterion" in row and "current_behavior" not in row
-        else row
+        {**row, box: type(BOXES[box])()} if isinstance(row, dict) and "criterion" in row and box not in row else row
         for row in rows
     ]
 

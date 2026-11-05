@@ -42,6 +42,7 @@ class DiscoveryReportEditsCLI(unittest.TestCase):
         expected["contract"].setdefault("git_delivery", None)
         for criterion in expected["contract"]["acceptance_criteria"]:
             criterion.setdefault("current_behavior", "")
+            criterion.setdefault("supersedes", [])
         self.assertEqual(expected, fixed)
         shown = fixture.launch(["--run-dir", str(run), "--show-goal"], 0).stdout
         self.assertIn("Greet", shown)

@@ -92,6 +92,9 @@ def plan_markdown(plan: dict) -> str:
         lines.append(f"- **{row['id']}**{review}: {row['criterion']}")
         if row.get("current_behavior"):
             lines.append(f"  - today: {row['current_behavior']}")
+        for entry in row.get("supersedes") or []:
+            if isinstance(entry, dict):
+                lines.append(f"  - replaces existing test: `{entry.get('file')}::{entry.get('test')}`")
         lines.append(f"  - checked by: {row['verification_method']}")
     for title, rows in (
         ("Constraints", plan.get("constraints")),
