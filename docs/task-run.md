@@ -1783,6 +1783,21 @@ may be required work: these labels do not claim acceptance or wasted spend.
 The cost line calls out repeated stages and failed/interrupted attempts. For
 observed repetition reasons, consult the existing `efficiency.repeats` projection.
 
+`run_metrics` (schema 1, `tools/autocode_run_metrics.py`) restates the projections above for a
+client to show where a run could cost less, without computing anything itself: `spent_usd` and
+`complete` as in `cost`; `by_job` (each job's `stages`, `attempts`, `spent_usd`, `complete` and
+`share` of the run total, costliest first, from `cost.breakdown.by_stage`); `tokens` (`input`,
+`new`, `cache_write`, `cache_read`, `output` from `usage.accounting.tokens`, the known part when a
+count is incomplete, with `complete`, `cache_read_share` and `cache_write_share` of input); `waste`
+(`failed_attempts` and their `failed_usd` from the deduplicated attempt costs, `repeated_jobs` that
+ran more than once, and `report_repair_usd`); and `single_model`: the Builder's `builder_usd` and
+`builder_share`, the rest as `checking_usd`, a `basis` saying the Builder's spend is a stand-in for
+one model building the change alone and not a measured run, and `produced`, counts from the run's
+own evidence (criteria requested and accepted, regression-proof verdict and fail-to-pass tests,
+clean-replay checks, mutants tried and killed, review findings and blocking ones, and recoveries
+handled). An amount no source knows is null. The terminal chat shows it in its Spend section and
+`/spend`.
+
 `escalation_outcomes` counts the run's escalations and Builder retries by the outcome the runner
 stamped on them (`passed`, `paused`, `open`; `tools/autocode_route_ladder.py`). The runner stamps
 every one still open `passed` when the run completes on work a validation passed (including when

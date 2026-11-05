@@ -25,6 +25,7 @@ try:
     from . import autocode_chat_cost as cost
     from . import autocode_chat_meter as meter
     from . import autocode_chat_recoveries as recoveries
+    from . import autocode_chat_spend as spend
     from . import autocode_chat_stage_policy as stage_policy
     from . import autocode_chat_verification as verification
     from . import autocode_progress_view as progress_view
@@ -33,6 +34,7 @@ except ImportError:
     import autocode_chat_cost as cost
     import autocode_chat_meter as meter
     import autocode_chat_recoveries as recoveries
+    import autocode_chat_spend as spend
     import autocode_chat_stage_policy as stage_policy
     import autocode_chat_verification as verification
     import autocode_progress_view as progress_view
@@ -112,6 +114,7 @@ COMMANDS = (
     Command("/log", "Show how the run has moved so far"),
     Command("/details", "Why the run is where it is"),
     Command("/why", "What went wrong at each stage and what AutoCode did about it"),
+    Command("/spend", "Where the money went, what was spent again, and what the checking bought"),
     Command("/live", "Show or hide the live agent log; /live NAME, thinking or tools filters it"),
     Command("/diff", "The saved code steps; /diff N shows what changed since step N"),
     Command("/undo", "Go back to a saved step on a new branch: /undo N"),
@@ -173,6 +176,7 @@ RUN_COMMANDS = (
     "/log",
     "/details",
     "/why",
+    "/spend",
     "/live",
     "/diff",
     "/undo",
@@ -401,6 +405,11 @@ def sections(view: dict | None, *, launched: bool = False, task_total: dict | No
     if verification.settled(view) and (proof := verification.compact(view)):
         summary, entries = proof
         result.append(Section(verification.title(view), summary, tuple(Row("·", line, "dim") for line in entries)))
+    # Where the spend went, what was spent again and what the checking produced (view.run_metrics);
+    # /spend has every job and the token split.
+    if spent := spend.compact(view):
+        summary, entries = spent
+        result.append(Section("Spend", summary, tuple(Row("·", line, "dim") for line in entries)))
     # The Stages section already carries the run's spend, tokens and cap; /details the rest.
     if ran is None and (usage := cost.compact(view)):
         summary, entries = usage
@@ -639,7 +648,7 @@ def step_text(change: dict, number: int, *, limit: int = 400) -> str:
 
 
 def text(name: str, view: dict | None, log: StageLog, available: list[Command] | None = None) -> str:
-    """What ``/plan``, ``/tasks``, ``/log``, ``/details``, ``/why`` and ``/help`` print into the conversation."""
+    """What ``/plan``, ``/tasks``, ``/log``, ``/details``, ``/why``, ``/spend`` and ``/help`` print into the conversation."""
     view = view or {}
     if name == "/help":
         commands = available if available is not None else COMMANDS
@@ -648,6 +657,8 @@ def text(name: str, view: dict | None, log: StageLog, available: list[Command] |
         return "\n".join(log.lines) or "Nothing has happened yet."
     if name == "/why":
         return recoveries.why(view)
+    if name == "/spend":
+        return spend.details(view)
     if name == "/details":
         explanation = _mapping(view.get("explanation")).get("explanation")
         said = str(explanation or (view.get("progress") or {}).get("line") or "AutoCode has said nothing more yet.")

@@ -48,7 +48,7 @@ try:
     from . import autocode_criterion_changes as criterion_changes
     from . import autocode_design_coverage as design_coverage
     from . import autocode_diagnosis_refresh as diagnosis_refresh
-    from . import autocode_efficiency, autocode_usage
+    from . import autocode_efficiency, autocode_run_metrics, autocode_usage
     from . import autocode_effort_question as effort_question
     from . import autocode_escalation_view as escalation_view
     from . import autocode_finding_rescope as finding_rescope
@@ -130,6 +130,7 @@ except ImportError:
     import autocode_risk_disclosure as risk_disclosure
     import autocode_role_transport as role_transport
     import autocode_route_ladder as route_ladder
+    import autocode_run_metrics
     import autocode_stage_policy as stage_policy
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
@@ -396,6 +397,9 @@ def view(
         completion_current=completion_current,
         visual_acceptance=visual_acceptance,
     )
+    # Where the spend went, what was spent again, and what the checking stages produced,
+    # read from the cost, usage, efficiency, recoveries and evidence above (display only).
+    result["run_metrics"] = autocode_run_metrics.project(result)
     contract = state.get("goal_contract") or {}
     if isinstance(contract, dict) and isinstance(contract.get("body"), dict):
         try:
