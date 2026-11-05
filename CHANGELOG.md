@@ -28,6 +28,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A spec-first run builds its parallel wave in parallel again. The Tester writes the wave's acceptance tests first, and that time was charged to the current milestone as if it had been built, so the Orchestrator found no unattempted milestone and ran one Builder. The time still counts against the milestone budget, but it is kept under `write_acceptance_tests` and is not a build attempt.
 - A spec-first run no longer crashes as it starts a parallel wave. The Orchestrator's wave (`autocode_dispatch.select`) is a list of milestone rows, and choosing the wave's acceptance tests put those rows in a set (`TypeError: unhashable type: 'dict'`). It now takes each row's id. The existing test passed ids, so it missed this; a live run crashed right after accepting its foundation milestone.
 - A draft failure correction again retains a criterion saved before `supersedes` existed. The loader fills an omitted `supersedes` with `[]` (#2748), and the retention check read that as a changed criterion, refusing the correction. An empty list now equals an omitted one; any listed entry is still a change.
 - `autocode connections check --provider claude` no longer reports a Claude login as signed in when

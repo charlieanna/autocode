@@ -141,7 +141,7 @@ def select(state: RunState):
             and "depends_on" in row
             and set(row["depends_on"]) <= accepted
             and row.get("affected_paths")
-            and not previous.get("seconds")
+            and not milestones.attempted(previous)
             and not previous.get("reviews")
             and not previous.get("replans")
             and not builder_policy.failed_before(state, row["id"])

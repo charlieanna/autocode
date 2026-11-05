@@ -825,6 +825,54 @@ class HumanGateParallelAndUpgradeTests(TortureBase):
             lifecycle.approve(self.state, old)
         self.assertFalse(goals.approved(self.state))
 
+    def test_writing_a_waves_acceptance_tests_does_not_make_it_serial(self):
+        """Live: the Tester wrote the M2+M3 wave's tests, the 802 s counted as an M2 attempt, and one Builder ran."""
+        import autocode_acceptance_tests as acceptance
+        import autocode_milestones as milestones
+
+        self.assertEqual(acceptance.STAGE, milestones.ACCEPTANCE_TESTS)
+        draft = body()
+        draft["acceptance_criteria"] = [
+            {"id": "C1", "criterion": "Greeting", "verification_method": "Run", "human_review": False},
+            {"id": "C2", "criterion": "Farewell", "verification_method": "Run", "human_review": False},
+        ]
+        draft["milestones"] = [
+            {
+                "id": "M1",
+                "objective": "Greeting",
+                "acceptance_criteria": ["C1"],
+                "depends_on": [],
+                "affected_paths": ["src/greeting.py"],
+            },
+            {
+                "id": "M2",
+                "objective": "Farewell",
+                "acceptance_criteria": ["C2"],
+                "depends_on": [],
+                "affected_paths": ["src/farewell.py"],
+            },
+        ]
+        lifecycle.install_draft(self.state, draft, origin="user_cli_edit")
+        lifecycle.human.evaluate(self.state)
+        lifecycle.present(self.state)
+        lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
+        decision = self.decision("CONTINUE")
+        decision["affected_paths"] = ["src/greeting.py"]
+        decision["next_task"].update(milestone_id="M1", acceptance_criteria=["C1"])
+        lifecycle.assign_task(self.state, decision, support.snapshot(self.root))
+        self.state["settings"]["orchestration"] = {"enabled": True, "max_parallel": 2}
+        self.state["settings"]["milestone_checkpoints"] = {"enabled": True}
+        self.state.pop("workflow", None)
+        self.state["settings"].pop("workflow", None)
+        task = self.state["current_task"]["id"]
+        written = {"stage": acceptance.STAGE, "role": "sol", "task_id": task, "duration_seconds": 802.0}
+        milestones.account(self.state, written)
+        row = milestones.progress(self.state)
+        self.assertEqual((802.0, {acceptance.STAGE: 802.0}), (row["seconds"], row["seconds_by_role"]))
+        self.assertEqual(["M1", "M2"], [row["id"] for row in dispatch.select(self.state)])
+        milestones.account(self.state, {"stage": "terra", "role": "terra", "task_id": task, "duration_seconds": 1.0})
+        self.assertEqual([], dispatch.select(self.state), "a build attempt still keeps the milestone serial")
+
     def test_parallel_waves_reject_overlap_and_keep_a_finished_sibling(self):
         draft = body()
         draft["acceptance_criteria"] = [

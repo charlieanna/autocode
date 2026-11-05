@@ -167,6 +167,10 @@ def enabled(state: RunState):
     return state.get("settings", {}).get("milestone_checkpoints", {}).get("enabled") is True
 
 
+# The spec-first acceptance-test stage (autocode_acceptance_tests.STAGE); its seconds_by_role key.
+ACCEPTANCE_TESTS = "write_acceptance_tests"
+
+
 def settings(state: RunState):
     return {**DEFAULTS, **state.get("settings", {}).get("milestone_checkpoints", {})}
 
@@ -200,8 +204,16 @@ def account(state: RunState, record):
         return
     seconds = record.get("duration_seconds", 0) or 0
     row["seconds"] += seconds
-    role = record.get("role", "unknown")
+    # Spec-first acceptance tests are written before the milestone's first build, so their time is
+    # kept apart: it counts against the budget but is not a build attempt (autocode_dispatch.select).
+    role = ACCEPTANCE_TESTS if record.get("stage") == ACCEPTANCE_TESTS else record.get("role", "unknown")
     row["seconds_by_role"][role] = row["seconds_by_role"].get(role, 0) + seconds
+
+
+def attempted(row) -> bool:
+    """Whether a milestone has had time spent on it beyond writing its spec-first acceptance tests."""
+    seconds = row.get("seconds") or 0
+    return seconds > ((row.get("seconds_by_role") or {}).get(ACCEPTANCE_TESTS) or 0)
 
 
 def _functional_evidence_ready(state: RunState, current):
