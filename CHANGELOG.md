@@ -22,6 +22,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode connections check --provider claude` no longer reports a Claude login as signed in when
+  Claude Code would bill an API key (for example a key from `apiKeyHelper`, or a Bedrock, Vertex or
+  gateway route). Every run on such a login stopped with `PAUSED_BILLING_ROUTE`, while the check and
+  `autocode setup` showed it ready. The check now says `sign_in_required` and names the route.
+
 - A recovery the Resolver's own rules settle now says so: "The Resolver's rules, with no model
   call, chose to try the stage again" instead of "The Resolver chose", which read as a model's
   judgement in a live run where the runner decided in a millisecond.
