@@ -18,7 +18,8 @@ REFERENCE_POLICY = (
 CHANGED_CODE_POLICY = (
     " A changed-line record's reason_ref supplies its reason text from the obligation with the same gap_id; "
     "each record keeps its own gap_id, decision, status and evidence. changed_code_receipts_ref names the "
-    "identical receipt list at its path."
+    "identical receipt list at its path. A changed_code_receipts entry holding only receipt_ref is the "
+    "identical receipt at that path, in the same position of the list."
 )
 
 
@@ -81,6 +82,18 @@ def _changed_code_references(packet):
         del proof["changed_code_receipts"]
         proof["changed_code_receipts_ref"] = "#/regression_proof/diff_coverage/command_receipts"
         changed = True
+    elif (
+        isinstance(coverage, dict) and isinstance(receipts, list) and isinstance(coverage.get("command_receipts"), list)
+    ):
+        # The changed-code receipts begin with the coverage run's own (autocode_changed_code_proof), then
+        # add the mutation runs', so the whole-list reference above never applies once a mutant ran: a
+        # live two-line fix carried both coverage receipts twice, about 4.5 KB per review prompt.
+        for index, (row, original) in enumerate(zip(receipts, coverage["command_receipts"], strict=False)):
+            pointer = f"#/regression_proof/diff_coverage/command_receipts/{index}"
+            if row != original or not isinstance(row, dict) or len(json.dumps(row)) <= len(pointer) + 20:
+                break
+            receipts[index] = {"receipt_ref": pointer}
+            changed = True
     reasons = {}
 
     def refer(record, gap, pointer):

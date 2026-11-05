@@ -209,6 +209,49 @@ class ReviewHandoffTests(unittest.TestCase):
         self.assertEqual(original["validation"], restored["validation"])
         self.assertEqual(small, context.compact(small, "/nonexistent/state.json")[0])
 
+    def test_coverage_receipts_leading_the_changed_code_receipts_become_exact_references(self):
+        # The changed-code receipts are the coverage run's followed by the mutation runs', so the
+        # whole-list reference never applied once a mutant ran and each coverage receipt went twice.
+        coverage = [{"command": f"coverage run {n}", "supervision": {"receipt": "r" * 400}} for n in range(2)]
+        mutant = {"command": "unittest mutant-01", "supervision": {"receipt": "m" * 400}}
+        tiny = {"command": "x"}
+        for stage in ("sol", "astra_review"):
+            with self.subTest(stage=stage):
+                original = packet(stage)
+                original["regression_proof"] = {
+                    "diff_coverage": {"command_receipts": copy.deepcopy(coverage)},
+                    "changed_code_receipts": [*copy.deepcopy(coverage), mutant],
+                }
+                before = copy.deepcopy(original)
+                small, _ = context.compact(original, "/nonexistent/state.json")
+                self.assertEqual(before, original)
+                receipts = small["regression_proof"]["changed_code_receipts"]
+                self.assertEqual(
+                    [
+                        {"receipt_ref": "#/regression_proof/diff_coverage/command_receipts/0"},
+                        {"receipt_ref": "#/regression_proof/diff_coverage/command_receipts/1"},
+                        mutant,
+                    ],
+                    receipts,
+                )
+                self.assertIn("receipt_ref", small["handoff_reference_policy"])
+                restored = [resolve(small, row["receipt_ref"]) if "receipt_ref" in row else row for row in receipts]
+                self.assertEqual(original["regression_proof"]["changed_code_receipts"], restored)
+                self.assertEqual(small, context.compact(small, "/nonexistent/state.json")[0])
+                # A receipt that differs, or one too small to be worth a pointer, stays inline.
+                original["regression_proof"]["changed_code_receipts"] = [
+                    {**coverage[0], "exit_code": 1},
+                    *copy.deepcopy(coverage[1:]),
+                ]
+                kept = context.compact(original, "/nonexistent/state.json")[0]["regression_proof"]
+                self.assertEqual(original["regression_proof"]["changed_code_receipts"], kept["changed_code_receipts"])
+                original["regression_proof"] = {
+                    "diff_coverage": {"command_receipts": [tiny]},
+                    "changed_code_receipts": [tiny, mutant],
+                }
+                kept = context.compact(original, "/nonexistent/state.json")[0]["regression_proof"]
+                self.assertEqual([tiny, mutant], kept["changed_code_receipts"])
+
     def test_different_criteria_or_commands_are_never_conflated(self):
         for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
             with self.subTest(stage=stage):
