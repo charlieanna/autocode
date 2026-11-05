@@ -4,12 +4,14 @@ from __future__ import annotations
 
 try:
     from .. import autocode_gate_chat as gate_chat
+    from .. import autocode_packet_events as packet_events
     from .. import autocode_plan_chat as plan_chat
     from .. import autocode_plan_retention as retention
     from .. import autocode_planning_recovery_policy as planning_recovery_policy
     from .. import autocode_prompts as prompts
 except ImportError:
     import autocode_gate_chat as gate_chat
+    import autocode_packet_events as packet_events
     import autocode_plan_chat as plan_chat
     import autocode_plan_retention as retention
     import autocode_planning_recovery_policy as planning_recovery_policy
@@ -1441,7 +1443,9 @@ def context(state: RunState, stage, state_path):
         packet["previous_review"] = earlier
     if state["settings"].get("figma_file"):
         packet["figma_file"] = state["settings"]["figma_file"]
-    packet["user_events"] = state.get("user_events", [])
+    packet["user_events"] = packet_events.reference_repeats(
+        state.get("user_events", []), packet.get("brief_feedback"), packet.get("saved_answers")
+    )
     try:
         from ..autocode_component_runtime import architecture_contract
     except ImportError:
