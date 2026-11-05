@@ -78,13 +78,16 @@ MAX_LINES = {
 # reporter, exit stop and after-stage evidence moved to autocode_role_launch.
 # verify was 587 lines; its regression proof and suite preservation became _prove_regression and _preserve_suite,
 # and the two judgments moved to autocode_verify_judgment.
+# autocode_configure.configure was 583 lines; its new-run refusals, Figma checks, joint-planning choice, saved-run
+# settings, history routes, milestone checkpoints and limits became functions of their own.
 MAX_FUNCTION_LINES = {
     ("autocode_run_actions.py", "handle"): 9,
     ("autocode_args.py", "build_parser"): 539,
     ("autocode.py", "run_role"): 527,
     ("autocode_verify.py", "verify"): 331,
     ("autocode_verify.py", "_preserve_suite"): 219,
-    ("autocode_configure.py", "configure"): 583,
+    ("autocode_configure.py", "configure"): 291,
+    ("autocode_configure.py", "_configure_saved"): 164,
     ("autocode_tool_containment.py", "configure"): 439,
     ("autopilot.py", "_apply_result"): 281,
 }
