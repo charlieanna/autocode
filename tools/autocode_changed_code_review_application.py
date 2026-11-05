@@ -43,7 +43,7 @@ def _spellings(ref, workspace):
     return spellings
 
 
-def accept(state: RunState, validation, record, *, pin, workspace=None):
+def accept(state: RunState, validation, record, workspace=None, *, pin):
     """Bind explicitly offered decisions after checks have their actual receipts."""
     require_tester_decisions(state, validation, record)
     decisions = validation.get(review.FIELD)
