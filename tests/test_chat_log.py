@@ -587,7 +587,7 @@ class StatusViewTests(unittest.TestCase):
         self.assertIn("log", chat)
         live = panel.LiveLog()
         self.assertTrue(live.observe({"chat": chat}))
-        self.assertEqual("No readable updates in this view.", live.text())
+        self.assertIn("Builder [thinking] Reasoning stream activity received", live.text())
         live.filter = "thinking"
         self.assertIn("Builder", live.text())
         self.assertIn("Reasoning stream activity received", live.text())

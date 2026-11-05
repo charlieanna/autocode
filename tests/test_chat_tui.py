@@ -1594,6 +1594,40 @@ class LivePaneTests(unittest.TestCase):
         ui._run("/live", False, "off")
         self.assertIsNone(ui._layout(30, 120).live_start)
 
+    def test_live_default_renders_thinking_in_the_pane_and_short_terminal_fallback(self):
+        for height in (30, 14):
+            with self.subTest(height=height):
+                ui = screen_ui()
+                ui._screen.getmaxyx.return_value = (height, 120)
+                ui.observe(
+                    {
+                        "status": "RUNNING",
+                        "chat": {
+                            "log": [
+                                {
+                                    "id": "thought",
+                                    "agent": "Planner",
+                                    "kind": "thinking",
+                                    "text": "Checking the caller [partial]",
+                                },
+                                {
+                                    "id": "message",
+                                    "agent": "Planner",
+                                    "kind": "message",
+                                    "text": "Found the entry point.",
+                                },
+                            ]
+                        },
+                    }
+                )
+                ui._run("/live", False)
+                if height == 30:
+                    shown = "\n".join(text for _, _, text in self.drawn(ui))
+                else:
+                    shown = ui._transcript.blocks[-1][1]
+                self.assertIn("Checking the caller [partial]", shown)
+                self.assertIn("Found the entry point.", shown)
+
     def test_where_the_pane_does_not_fit_live_prints_the_log_in_the_conversation(self):
         ui = screen_ui()
         ui._screen.getmaxyx.return_value = (14, 120)

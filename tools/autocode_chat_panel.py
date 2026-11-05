@@ -697,14 +697,14 @@ class LiveLog:
         return list(dict.fromkeys(entry["agent"] for entry in self.entries.values()))
 
     def shown(self) -> list[dict]:
-        """Messages by default; thinking and tool details require their explicit filters."""
+        """Readable thinking and messages by default; tool details require their explicit filter."""
         entries = [entry for entry in self.entries.values() if live_text(entry["text"])]
         wanted = self.filter.strip().casefold()
         if wanted in LIVE_KINDS:
             return [entry for entry in entries if entry["kind"] in LIVE_KINDS[wanted]]
         if wanted:
             entries = [entry for entry in entries if wanted in entry["agent"].casefold()]
-        return [entry for entry in entries if entry["kind"] == "message"]
+        return [entry for entry in entries if entry["kind"] in ("thinking", "message")]
 
     def title(self) -> str:
         return "LIVE · " + (self.filter.strip() or "all agents")
