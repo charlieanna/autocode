@@ -87,7 +87,11 @@ _NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b
 def _number_in(number, text):
     # Not inside a longer number or a decimal fragment; a range dot (1..100) or a
     # sentence-final period still counts as the stated number.
-    return re.search(r"(?<!\d)(?<!\d\.)" + re.escape(number) + r"(?!(?:\d|\.\d))", text) is not None
+    if re.search(r"(?<!\d)(?<!\d\.)" + re.escape(number) + r"(?!(?:\d|\.\d))", text):
+        return True
+    # Prose may spell out the zero baseline of a defect. Exact output literals
+    # are still checked separately; nonzero words and decimal prose are not 0.
+    return number == "0" and re.search(r"(?<![\w-])zero(?![\w-]|\s+point\b)", text, re.I) is not None
 
 
 def any_citations(body):

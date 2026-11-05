@@ -394,7 +394,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         ("tools/autocode_source_metadata.py", "tools/autocode_source_trace.py"),
-        ("tests.test_ticket_title_cli",),
+        ("tests.test_ticket_title_cli", "tests.test_source_trace_cli"),
     ),
     (
         (

@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Plan validation accepts the word “zero” for an unquoted source value of `0`, avoiding
+  unnecessary report-repair calls. Exact quoted literals and different numeric values
+  still require their original values.
 - Bug-fix planning instructions now require a connection between blocking questions and the
   requested defect. Plan Reviewer instructions require observable acceptance outcomes to
   follow from existing source or explicit planned behavior, including alternate review stages.
