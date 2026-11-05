@@ -360,26 +360,8 @@ def persisted_review_call_limit():
     return value, f"plan_review_call_limit in {path}"
 
 
-def configure(args, state: RunState, *, planning, milestones, autopilot, opencode=None):
-    role_transport.guard(args, state)
-    if getattr(args, "replay_recording", None) or (state.get("settings") or {}).get("replay_recording"):
-        try:
-            from . import autocode_replay_transport as replay_transport
-        except ImportError:
-            import autocode_replay_transport as replay_transport
-        return replay_transport.configure(args, state)
-    try:
-        from . import autocode_evidence_provenance as evidence_provenance
-    except ImportError:
-        import autocode_evidence_provenance as evidence_provenance
-    provenance = evidence_provenance.configured(state.get("settings") or {}, getattr(args, "evidence_provenance", None))
-    if opencode is None:
-        opencode = autocode_opencode
-    started = bool(state.get("settings") or state.get("sessions") or state.get("history"))
-    review_routing.configured(state.get("settings") or {}, getattr(args, "review_routing", None), started=started)
-    if getattr(args, "review_routing", None) == "combined" and getattr(args, "milestone_checkpoints", False):
-        raise ValueError("Combined review cannot use enforced milestone checkpoints")
-    single_model = getattr(args, "single_model", None)
+def _refuse_new_run_flags(args, state: RunState, *, started, single_model):
+    """Refuse the flags that only a new run may choose, and --single-model with a per-role choice."""
     if started and single_model:
         raise ValueError("--single-model is only available when starting a new run")
     if single_model and any(
@@ -413,49 +395,10 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         )
     if started and requirements_review.resume_refused(state.get("settings") or {}, getattr(args, "spec_first", None)):
         raise ValueError("--spec-first is a new-run policy; a saved run keeps its planning flow")
-    manifest_input = None
-    scope_arguments = {
-        "approved_scope": getattr(args, "figma_approved_scope", None),
-        "approved_scope_sha256": getattr(args, "figma_approved_scope_sha256", None),
-    }
-    if bool(scope_arguments["approved_scope"]) != bool(scope_arguments["approved_scope_sha256"]) or (
-        scope_arguments["approved_scope"]
-        and not (getattr(args, "figma_manifest", None) or getattr(args, "revise_figma_manifest", None))
-    ):
-        raise ValueError(
-            "Approved scope requires external path, trusted pin and --figma-manifest or stopped --revise-figma-manifest"
-        )
-    if getattr(args, "figma_manifest", None):
-        if started:
-            raise ValueError("--figma-manifest is a new-run input; saved references are immutable")
-        manifest_input = getattr(args, "_design_manifest_input", None) or design_manifest.load(
-            args.figma_manifest, **scope_arguments
-        )
-    if started and not getattr(args, "status", False):
-        design_manifest.context(state.get("settings") or {})
-    saved_provider = dict(state.get("settings") or {})
-    # Checkpoints created before provider selection shipped were necessarily
-    # OpenCode runs.  Treating that as explicit prevents an unsafe transport
-    # switch when they are resumed.
-    if started and "provider" not in saved_provider:
-        saved_provider["provider"] = "opencode"
-    saved_engine = state.get("settings", {}).get("engine") or ("codex" if started else None)
-    # A new run that nobody routed takes the backend this machine has connected when OpenCode is
-    # not installed (#2049): the CLI applies that choice to args before it resolves the provider
-    # facade (autocode_native_invocation.select_provider), so here it already reads as explicit.
-    engine = getattr(args, "engine", None) or saved_engine or DEFAULT_ENGINE
-    if engine not in ("codex", "opencode"):
-        raise ValueError(
-            f"Engine {engine!r} is not bundled in this checkout; providers live in "
-            "~/.config/autocode/providers/ and run with --provider"
-        )
-    provider_name = autocode_providers.select(
-        getattr(args, "provider", None), saved_provider, default="opencode" if engine == "codex" else None
-    )
-    if engine == "codex" and provider_name != "opencode":
-        raise ValueError("--provider requires the OpenCode engine; --engine codex uses its native transport")
-    figma_file = getattr(args, "figma_file", None)
-    saved_figma = state.get("settings", {}).get("figma_file")
+
+
+def _check_figma(args, *, manifest_input, figma_file, saved_figma, engine, started):
+    """Refuse a Figma reference the manifest does not declare, or a Figma run off Codex and GPT models."""
     if manifest_input and figma_file:
         target = urlparse(figma.design_url(figma_file))
         parts = target.path.strip("/").split("/")
@@ -488,6 +431,10 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
                 raise ValueError("Figma workflow uses the OpenAI provider through Codex")
     if started and figma_file and figma_file != saved_figma:
         raise ValueError("Start a new run to change its Figma reference")
+
+
+def _joint_planning(args, state: RunState, *, started, engine, saved_engine, single_model, planning):
+    """Whether this run plans jointly, and whether a saved run enables it now; refuse the flags joint planning needs."""
     saved_joint = bool(state.get("settings", {}).get("joint_planning"))
     requested_joint = getattr(args, "joint_planning", False) or bool(single_model)
     enable_saved_joint = started and requested_joint and not saved_joint
@@ -546,164 +493,177 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         raise ValueError("Planner role overrides require --joint-planning")
     if getattr(args, "glm_model", None) and not joint:
         raise ValueError("--glm-model requires --joint-planning")
-    if started and engine != saved_engine:
-        raise ValueError("Start a new run to change engines; Codex and OpenCode session IDs are not interchangeable")
-    if engine == "opencode" and any(getattr(args, f"{r}_provider", None) for r in DEFAULT_ROLE_MODELS):
-        raise ValueError("For OpenCode use --<role>-model instead of --<role>-provider")
-    if state.get("settings"):
-        settings = json.loads(json.dumps(state["settings"]))
-        settings["evidence_provenance"] = provenance
-        retired_token_budget.retire_settings(settings)
-        settings.setdefault("provider", provider_name)
-        # v0.5.4 introduced bounded report-only repairs.  Existing runs retain
-        # their model, auth and limit settings while gaining the safe default
-        # used by every newly-created run.
-        settings.setdefault("report_repair", {"max_attempts": 2})
-        # Preserve every saved hard limit, including explicit zero. Older runs
-        # gain activity supervision at their next configured launch boundary.
-        settings.setdefault("limits", {}).setdefault("idle_timeout_seconds", 300)
-        settings["limits"].setdefault("tool_timeout_seconds", 1800)
-        if "completion" not in settings["roles"]:
-            astra_route = settings["roles"]["astra"]
-            completion_engine = planning.engine_for(settings, "astra")
-            settings["roles"]["completion"] = {
-                **astra_route,
-                "model": (
-                    opencode.DEFAULT_MODELS["completion"]
-                    if completion_engine == "opencode"
-                    else DEFAULT_ROLE_MODELS["completion"]
-                ),
-                "reasoning_effort": opencode.DEFAULT_REASONING_EFFORTS["completion"],
-            }
-        for role in DEFAULT_ROLE_MODELS:
-            selected_model = getattr(args, f"{role}_model", None)
-            if selected_model:
-                settings["roles"][role]["model"] = selected_model
-            if getattr(args, f"{role}_provider", None):
-                settings["roles"][role]["provider"] = getattr(args, f"{role}_provider")
-            role_effort = getattr(args, f"{role}_reasoning_effort", None)
-            if role_effort or args.reasoning_effort:
-                settings["roles"][role]["reasoning_effort"] = role_effort or args.reasoning_effort
-        for role in getattr(args, "pin_model_role", []):
-            settings["roles"][role]["model_pinned"] = True
-        if args.headroom is not None:
-            settings["headroom"]["enabled"] = args.headroom == "on"
-        if args.context_soft_tokens is not None:
-            settings["context_soft_tokens"] = args.context_soft_tokens
-        if args.rotate_after_input_tokens is not None:
-            settings["rotation_after_input_tokens"] = args.rotate_after_input_tokens
-        for flag, name in (
-            ("max_iterations", "iteration_ceiling"),
-            ("legacy_iteration_ceiling", "iteration_ceiling"),
-            ("max_seconds", "max_seconds"),
-            ("max_cost_usd", "max_cost_usd"),
-            ("max_stage_seconds", "stage_timeout_seconds"),
-            ("max_idle_seconds", "idle_timeout_seconds"),
-            ("max_tool_seconds", "tool_timeout_seconds"),
-            ("no_progress_limit", "no_progress_batches"),
-            ("max_findings_per_task", "max_findings_per_task"),
-        ):
-            selected = getattr(args, flag, None)
-            if selected is not None:
-                settings.setdefault("limits", {})[name] = selected
-                settings.setdefault("budget_origins", {})[name] = "user_explicit"
-        if enable_saved_joint and engine == "opencode":
-            settings["joint_planning"] = True
-            settings["roles"].setdefault(
-                "requirements",
-                {
-                    "engine": "opencode",
-                    "provider": None,
-                    "model": getattr(args, "requirements_model", None)
-                    or getattr(args, "glm_model", None)
-                    or opencode.DEFAULT_MODELS.get("requirements", opencode.DEFAULT_MODELS["glm"]),
-                    "reasoning_effort": getattr(args, "requirements_reasoning_effort", None),
-                },
-            )
-            settings["roles"]["glm"] = {
+    return joint, enable_saved_joint
+
+
+def _configure_saved(
+    args,
+    state: RunState,
+    *,
+    engine,
+    provider_name,
+    provenance,
+    joint,
+    enable_saved_joint,
+    planning,
+    milestones,
+    autopilot,
+    opencode,
+):
+    """A saved run's settings: its own, with the safe defaults older runs lack and the flags a resume may change."""
+    settings = json.loads(json.dumps(state["settings"]))
+    settings["evidence_provenance"] = provenance
+    retired_token_budget.retire_settings(settings)
+    settings.setdefault("provider", provider_name)
+    # v0.5.4 introduced bounded report-only repairs.  Existing runs retain
+    # their model, auth and limit settings while gaining the safe default
+    # used by every newly-created run.
+    settings.setdefault("report_repair", {"max_attempts": 2})
+    # Preserve every saved hard limit, including explicit zero. Older runs
+    # gain activity supervision at their next configured launch boundary.
+    settings.setdefault("limits", {}).setdefault("idle_timeout_seconds", 300)
+    settings["limits"].setdefault("tool_timeout_seconds", 1800)
+    if "completion" not in settings["roles"]:
+        astra_route = settings["roles"]["astra"]
+        completion_engine = planning.engine_for(settings, "astra")
+        settings["roles"]["completion"] = {
+            **astra_route,
+            "model": (
+                opencode.DEFAULT_MODELS["completion"]
+                if completion_engine == "opencode"
+                else DEFAULT_ROLE_MODELS["completion"]
+            ),
+            "reasoning_effort": opencode.DEFAULT_REASONING_EFFORTS["completion"],
+        }
+    for role in DEFAULT_ROLE_MODELS:
+        selected_model = getattr(args, f"{role}_model", None)
+        if selected_model:
+            settings["roles"][role]["model"] = selected_model
+        if getattr(args, f"{role}_provider", None):
+            settings["roles"][role]["provider"] = getattr(args, f"{role}_provider")
+        role_effort = getattr(args, f"{role}_reasoning_effort", None)
+        if role_effort or args.reasoning_effort:
+            settings["roles"][role]["reasoning_effort"] = role_effort or args.reasoning_effort
+    for role in getattr(args, "pin_model_role", []):
+        settings["roles"][role]["model_pinned"] = True
+    if args.headroom is not None:
+        settings["headroom"]["enabled"] = args.headroom == "on"
+    if args.context_soft_tokens is not None:
+        settings["context_soft_tokens"] = args.context_soft_tokens
+    if args.rotate_after_input_tokens is not None:
+        settings["rotation_after_input_tokens"] = args.rotate_after_input_tokens
+    for flag, name in (
+        ("max_iterations", "iteration_ceiling"),
+        ("legacy_iteration_ceiling", "iteration_ceiling"),
+        ("max_seconds", "max_seconds"),
+        ("max_cost_usd", "max_cost_usd"),
+        ("max_stage_seconds", "stage_timeout_seconds"),
+        ("max_idle_seconds", "idle_timeout_seconds"),
+        ("max_tool_seconds", "tool_timeout_seconds"),
+        ("no_progress_limit", "no_progress_batches"),
+        ("max_findings_per_task", "max_findings_per_task"),
+    ):
+        selected = getattr(args, flag, None)
+        if selected is not None:
+            settings.setdefault("limits", {})[name] = selected
+            settings.setdefault("budget_origins", {})[name] = "user_explicit"
+    if enable_saved_joint and engine == "opencode":
+        settings["joint_planning"] = True
+        settings["roles"].setdefault(
+            "requirements",
+            {
                 "engine": "opencode",
                 "provider": None,
-                "model": getattr(args, "glm_model", None) or opencode.DEFAULT_MODELS["glm"],
-                "reasoning_effort": getattr(args, "glm_reasoning_effort", None),
-            }
-            settings.setdefault("transport_identities", {})["opencode"] = settings["transport_identity"]
-            role_transport.check_models(settings, opencode, Path(state["workspace"]))
-            role_transport.check_subscription_routes(settings, opencode, Path(state["workspace"]))
-        if joint:
-            configure_joint(settings, args, fresh=False, planning=planning, opencode=opencode)
-        # A saved run re-records only the routes a flag just moved, as `budget_origins` does below.
-        role_route.moved(args, settings)
-        role_route.record_efforts(args, settings, fresh=False)
-        if getattr(args, "planning_v2", False):
-            settings["planning_flow"] = "v2"
-        if getattr(args, "unlimited_iterations", False):
-            settings.setdefault("limits", {})["iteration_ceiling"] = None
-            settings.setdefault("budget_origins", {})["iteration_ceiling"] = "user_explicit"
-        if getattr(args, "max_milestone_seconds", None) is not None:
-            if not milestones.enabled({"settings": settings}) and not getattr(args, "milestone_checkpoints", False):
-                raise ValueError("Enable --milestone-checkpoints before setting its budget")
-            if milestones.enabled({"settings": settings}):
-                settings["milestone_checkpoints"]["max_seconds"] = args.max_milestone_seconds
-                settings.setdefault("budget_origins", {})["milestone_max_seconds"] = "user_explicit"
-        if getattr(args, "max_milestone_replans", None) is not None:
-            if not milestones.enabled({"settings": settings}) and not getattr(args, "milestone_checkpoints", False):
-                raise ValueError("Enable --milestone-checkpoints before setting the replan limit")
-            if milestones.enabled({"settings": settings}):
-                held_pause = (pause_authority.interrupted(state) or {}).get("status") or pause_authority.held_origin(
-                    state
-                ).get("pause_status")
-                if held_pause == "PAUSED_MILESTONE_STALLED" and args.max_milestone_replans > 0:
-                    current = state.get("milestone_progress", {}).get(milestones.key(state), {})
-                    if args.max_milestone_replans <= current.get("replans", 0):
-                        raise ValueError("--max-milestone-replans must exceed the replans already used, or be 0")
-                settings["milestone_checkpoints"]["max_replans"] = (
-                    None if args.max_milestone_replans == 0 else args.max_milestone_replans
-                )
-        if getattr(args, "max_milestone_stalled_reviews", None) is not None:
-            if not milestones.enabled({"settings": settings}):
-                raise ValueError("Enable --milestone-checkpoints before setting the review limit")
-            settings["milestone_checkpoints"]["stalled_reviews"] = (
-                None if args.max_milestone_stalled_reviews == 0 else args.max_milestone_stalled_reviews
+                "model": getattr(args, "requirements_model", None)
+                or getattr(args, "glm_model", None)
+                or opencode.DEFAULT_MODELS.get("requirements", opencode.DEFAULT_MODELS["glm"]),
+                "reasoning_effort": getattr(args, "requirements_reasoning_effort", None),
+            },
+        )
+        settings["roles"]["glm"] = {
+            "engine": "opencode",
+            "provider": None,
+            "model": getattr(args, "glm_model", None) or opencode.DEFAULT_MODELS["glm"],
+            "reasoning_effort": getattr(args, "glm_reasoning_effort", None),
+        }
+        settings.setdefault("transport_identities", {})["opencode"] = settings["transport_identity"]
+        role_transport.check_models(settings, opencode, Path(state["workspace"]))
+        role_transport.check_subscription_routes(settings, opencode, Path(state["workspace"]))
+    if joint:
+        configure_joint(settings, args, fresh=False, planning=planning, opencode=opencode)
+    # A saved run re-records only the routes a flag just moved, as `budget_origins` does below.
+    role_route.moved(args, settings)
+    role_route.record_efforts(args, settings, fresh=False)
+    if getattr(args, "planning_v2", False):
+        settings["planning_flow"] = "v2"
+    if getattr(args, "unlimited_iterations", False):
+        settings.setdefault("limits", {})["iteration_ceiling"] = None
+        settings.setdefault("budget_origins", {})["iteration_ceiling"] = "user_explicit"
+    if getattr(args, "max_milestone_seconds", None) is not None:
+        if not milestones.enabled({"settings": settings}) and not getattr(args, "milestone_checkpoints", False):
+            raise ValueError("Enable --milestone-checkpoints before setting its budget")
+        if milestones.enabled({"settings": settings}):
+            settings["milestone_checkpoints"]["max_seconds"] = args.max_milestone_seconds
+            settings.setdefault("budget_origins", {})["milestone_max_seconds"] = "user_explicit"
+    if getattr(args, "max_milestone_replans", None) is not None:
+        if not milestones.enabled({"settings": settings}) and not getattr(args, "milestone_checkpoints", False):
+            raise ValueError("Enable --milestone-checkpoints before setting the replan limit")
+        if milestones.enabled({"settings": settings}):
+            held_pause = (pause_authority.interrupted(state) or {}).get("status") or pause_authority.held_origin(
+                state
+            ).get("pause_status")
+            if held_pause == "PAUSED_MILESTONE_STALLED" and args.max_milestone_replans > 0:
+                current = state.get("milestone_progress", {}).get(milestones.key(state), {})
+                if args.max_milestone_replans <= current.get("replans", 0):
+                    raise ValueError("--max-milestone-replans must exceed the replans already used, or be 0")
+            settings["milestone_checkpoints"]["max_replans"] = (
+                None if args.max_milestone_replans == 0 else args.max_milestone_replans
             )
-        if getattr(args, "accept_transport_change", False):
-            if not transport_recovery.scope_matches(state, engine):
-                # #909: name the accepted command for this state instead of letting
-                # the operator guess; the plain resume is the recovery for every
-                # other pause family.
-                raise ValueError(
-                    "--accept-transport-change requires an OpenCode run paused for a transport change"
-                    + (
-                        pause_command.recovery(state.get("needs"))
-                        or f" -- from {state.get('status')}, run the plain resume (no recovery flags)"
-                    )
+    if getattr(args, "max_milestone_stalled_reviews", None) is not None:
+        if not milestones.enabled({"settings": settings}):
+            raise ValueError("Enable --milestone-checkpoints before setting the review limit")
+        settings["milestone_checkpoints"]["stalled_reviews"] = (
+            None if args.max_milestone_stalled_reviews == 0 else args.max_milestone_stalled_reviews
+        )
+    if getattr(args, "accept_transport_change", False):
+        if not transport_recovery.scope_matches(state, engine):
+            # #909: name the accepted command for this state instead of letting
+            # the operator guess; the plain resume is the recovery for every
+            # other pause family.
+            raise ValueError(
+                "--accept-transport-change requires an OpenCode run paused for a transport change"
+                + (
+                    pause_command.recovery(state.get("needs"))
+                    or f" -- from {state.get('status')}, run the plain resume (no recovery flags)"
                 )
-            if transport_recovery.unresolved_attempt(state):
-                raise ValueError("Resolve the saved provider attempt before accepting a transport change")
-            workspace = Path(state["workspace"])
-            current = opencode.local_settings(workspace)
-            routed = {
-                role: config
-                for role, config in settings["roles"].items()
-                if planning.engine_for(settings, role) == "opencode"
-            }
-            opencode.check_models(routed, workspace)
-            opencode.check_subscription_routes(routed, workspace)
-            settings["transport_identity"] = current
-            settings.setdefault("transport_identities", {})["opencode"] = current
-        if getattr(args, "max_parallel_builders", None) is not None:
-            if not settings.get("orchestration", {}).get("enabled"):
-                raise ValueError("Start a new run to enable milestone orchestration")
-            settings["orchestration"]["max_parallel"] = args.max_parallel_builders
-        if acceptance_tests.resume_refused(settings, getattr(args, "blind_tests", None)):
-            raise ValueError("Start a new run to change blind tests setting")
-        settings = autopilot.stuck.configure(settings, args)
-        settings = verification_config.configure_resume(state, settings, args)
-        settings = operator_patch.configure_resume(state, settings, args)
-        return task_preflight.configure(state, output_policy.configure(state, settings, args), args)
-    if engine == "opencode":
-        local = opencode.local_settings(state["workspace"])
-    else:
-        local = support.local_settings()
+            )
+        if transport_recovery.unresolved_attempt(state):
+            raise ValueError("Resolve the saved provider attempt before accepting a transport change")
+        workspace = Path(state["workspace"])
+        current = opencode.local_settings(workspace)
+        routed = {
+            role: config
+            for role, config in settings["roles"].items()
+            if planning.engine_for(settings, role) == "opencode"
+        }
+        opencode.check_models(routed, workspace)
+        opencode.check_subscription_routes(routed, workspace)
+        settings["transport_identity"] = current
+        settings.setdefault("transport_identities", {})["opencode"] = current
+    if getattr(args, "max_parallel_builders", None) is not None:
+        if not settings.get("orchestration", {}).get("enabled"):
+            raise ValueError("Start a new run to enable milestone orchestration")
+        settings["orchestration"]["max_parallel"] = args.max_parallel_builders
+    if acceptance_tests.resume_refused(settings, getattr(args, "blind_tests", None)):
+        raise ValueError("Start a new run to change blind tests setting")
+    settings = autopilot.stuck.configure(settings, args)
+    settings = verification_config.configure_resume(state, settings, args)
+    settings = operator_patch.configure_resume(state, settings, args)
+    return task_preflight.configure(state, output_policy.configure(state, settings, args), args)
+
+
+def _history_routes(state: RunState):
+    """The model and provider each role's recorded command named, for a run rebuilt from its history."""
     models = {}
     providers = {}
     for record in state.get("history", []):
@@ -713,6 +673,166 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         for index, item in enumerate(command[:-1]):
             if item == "-c" and command[index + 1].startswith('model_provider="'):
                 providers[record["role"]] = command[index + 1][len('model_provider="') : -1]
+    return models, providers
+
+
+def _new_milestone_checkpoints(args, milestones):
+    """A new run's milestone checkpoints: on unless review is combined, with the limits the flags set."""
+    return {
+        **milestones.DEFAULTS,
+        "enabled": getattr(args, "review_routing", None) != "combined",
+        "max_seconds": getattr(args, "max_milestone_seconds", None)
+        if getattr(args, "max_milestone_seconds", None) is not None
+        else milestones.DEFAULTS["max_seconds"],
+        "max_replans": (
+            None
+            if getattr(args, "max_milestone_replans", None) == 0
+            else getattr(args, "max_milestone_replans", None)
+            if getattr(args, "max_milestone_replans", None) is not None
+            else milestones.DEFAULTS["max_replans"]
+        ),
+        "stalled_reviews": (
+            None
+            if getattr(args, "max_milestone_stalled_reviews", None) == 0
+            else getattr(args, "max_milestone_stalled_reviews", None)
+            if getattr(args, "max_milestone_stalled_reviews", None) is not None
+            else milestones.DEFAULTS["stalled_reviews"]
+        ),
+    }
+
+
+def _new_run_limits(args, state: RunState):
+    """A new run's hard limits: each flag a person set, else the runner's default."""
+    return {
+        "iteration_ceiling": args.legacy_iteration_ceiling
+        if args.legacy_iteration_ceiling is not None
+        else (state.get("iteration", 0) + args.max_iterations if args.max_iterations is not None else None),
+        "max_seconds": args.max_seconds
+        if args.max_seconds is not None
+        else budget_recovery.RUNNER_DEFAULTS["max_seconds"],
+        "stage_timeout_seconds": (
+            getattr(args, "max_stage_seconds", None)
+            if getattr(args, "max_stage_seconds", None) is not None
+            else budget_recovery.RUNNER_DEFAULTS["stage_timeout_seconds"]
+        ),
+        "idle_timeout_seconds": (
+            getattr(args, "max_idle_seconds", None) if getattr(args, "max_idle_seconds", None) is not None else 300
+        ),
+        "tool_timeout_seconds": (
+            getattr(args, "max_tool_seconds", None) if getattr(args, "max_tool_seconds", None) is not None else 1800
+        ),
+        "no_progress_batches": args.no_progress_limit if args.no_progress_limit is not None else 3,
+        "max_findings_per_task": getattr(args, "max_findings_per_task", None),
+        "automatic_retries": 0,
+        # Saved only when set: no cost cap by default, and never a runner default (#721).
+        **({"max_cost_usd": args.max_cost_usd} if getattr(args, "max_cost_usd", None) is not None else {}),
+    }
+
+
+def configure(args, state: RunState, *, planning, milestones, autopilot, opencode=None):
+    role_transport.guard(args, state)
+    if getattr(args, "replay_recording", None) or (state.get("settings") or {}).get("replay_recording"):
+        try:
+            from . import autocode_replay_transport as replay_transport
+        except ImportError:
+            import autocode_replay_transport as replay_transport
+        return replay_transport.configure(args, state)
+    try:
+        from . import autocode_evidence_provenance as evidence_provenance
+    except ImportError:
+        import autocode_evidence_provenance as evidence_provenance
+    provenance = evidence_provenance.configured(state.get("settings") or {}, getattr(args, "evidence_provenance", None))
+    if opencode is None:
+        opencode = autocode_opencode
+    started = bool(state.get("settings") or state.get("sessions") or state.get("history"))
+    review_routing.configured(state.get("settings") or {}, getattr(args, "review_routing", None), started=started)
+    if getattr(args, "review_routing", None) == "combined" and getattr(args, "milestone_checkpoints", False):
+        raise ValueError("Combined review cannot use enforced milestone checkpoints")
+    single_model = getattr(args, "single_model", None)
+    _refuse_new_run_flags(args, state, started=started, single_model=single_model)
+    manifest_input = None
+    scope_arguments = {
+        "approved_scope": getattr(args, "figma_approved_scope", None),
+        "approved_scope_sha256": getattr(args, "figma_approved_scope_sha256", None),
+    }
+    if bool(scope_arguments["approved_scope"]) != bool(scope_arguments["approved_scope_sha256"]) or (
+        scope_arguments["approved_scope"]
+        and not (getattr(args, "figma_manifest", None) or getattr(args, "revise_figma_manifest", None))
+    ):
+        raise ValueError(
+            "Approved scope requires external path, trusted pin and --figma-manifest or stopped --revise-figma-manifest"
+        )
+    if getattr(args, "figma_manifest", None):
+        if started:
+            raise ValueError("--figma-manifest is a new-run input; saved references are immutable")
+        manifest_input = getattr(args, "_design_manifest_input", None) or design_manifest.load(
+            args.figma_manifest, **scope_arguments
+        )
+    if started and not getattr(args, "status", False):
+        design_manifest.context(state.get("settings") or {})
+    saved_provider = dict(state.get("settings") or {})
+    # Checkpoints created before provider selection shipped were necessarily
+    # OpenCode runs.  Treating that as explicit prevents an unsafe transport
+    # switch when they are resumed.
+    if started and "provider" not in saved_provider:
+        saved_provider["provider"] = "opencode"
+    saved_engine = state.get("settings", {}).get("engine") or ("codex" if started else None)
+    # A new run that nobody routed takes the backend this machine has connected when OpenCode is
+    # not installed (#2049): the CLI applies that choice to args before it resolves the provider
+    # facade (autocode_native_invocation.select_provider), so here it already reads as explicit.
+    engine = getattr(args, "engine", None) or saved_engine or DEFAULT_ENGINE
+    if engine not in ("codex", "opencode"):
+        raise ValueError(
+            f"Engine {engine!r} is not bundled in this checkout; providers live in "
+            "~/.config/autocode/providers/ and run with --provider"
+        )
+    provider_name = autocode_providers.select(
+        getattr(args, "provider", None), saved_provider, default="opencode" if engine == "codex" else None
+    )
+    if engine == "codex" and provider_name != "opencode":
+        raise ValueError("--provider requires the OpenCode engine; --engine codex uses its native transport")
+    figma_file = getattr(args, "figma_file", None)
+    saved_figma = state.get("settings", {}).get("figma_file")
+    _check_figma(
+        args,
+        manifest_input=manifest_input,
+        figma_file=figma_file,
+        saved_figma=saved_figma,
+        engine=engine,
+        started=started,
+    )
+    joint, enable_saved_joint = _joint_planning(
+        args,
+        state,
+        started=started,
+        engine=engine,
+        saved_engine=saved_engine,
+        single_model=single_model,
+        planning=planning,
+    )
+    if started and engine != saved_engine:
+        raise ValueError("Start a new run to change engines; Codex and OpenCode session IDs are not interchangeable")
+    if engine == "opencode" and any(getattr(args, f"{r}_provider", None) for r in DEFAULT_ROLE_MODELS):
+        raise ValueError("For OpenCode use --<role>-model instead of --<role>-provider")
+    if state.get("settings"):
+        return _configure_saved(
+            args,
+            state,
+            engine=engine,
+            provider_name=provider_name,
+            provenance=provenance,
+            joint=joint,
+            enable_saved_joint=enable_saved_joint,
+            planning=planning,
+            milestones=milestones,
+            autopilot=autopilot,
+            opencode=opencode,
+        )
+    if engine == "opencode":
+        local = opencode.local_settings(state["workspace"])
+    else:
+        local = support.local_settings()
+    models, providers = _history_routes(state)
     # Custom providers ship their own DEFAULT_MODELS (TOML [roles]); never
     # force the builtin OpenCode catalogue onto fixturetool/kilocode/etc.
     provider_mod = autocode_providers.resolve(provider_name) if provider_name else opencode
@@ -769,27 +889,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         },
         "report_repair": {"max_attempts": 2},
         "evidence_provenance": provenance,
-        "milestone_checkpoints": {
-            **milestones.DEFAULTS,
-            "enabled": getattr(args, "review_routing", None) != "combined",
-            "max_seconds": getattr(args, "max_milestone_seconds", None)
-            if getattr(args, "max_milestone_seconds", None) is not None
-            else milestones.DEFAULTS["max_seconds"],
-            "max_replans": (
-                None
-                if getattr(args, "max_milestone_replans", None) == 0
-                else getattr(args, "max_milestone_replans", None)
-                if getattr(args, "max_milestone_replans", None) is not None
-                else milestones.DEFAULTS["max_replans"]
-            ),
-            "stalled_reviews": (
-                None
-                if getattr(args, "max_milestone_stalled_reviews", None) == 0
-                else getattr(args, "max_milestone_stalled_reviews", None)
-                if getattr(args, "max_milestone_stalled_reviews", None) is not None
-                else milestones.DEFAULTS["stalled_reviews"]
-            ),
-        },
+        "milestone_checkpoints": _new_milestone_checkpoints(args, milestones),
         "headroom": {"enabled": args.headroom == "on", "verified": False},
         "regression": {
             key: value
@@ -818,30 +918,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         "rotation_after_input_tokens": args.rotate_after_input_tokens
         if args.rotate_after_input_tokens is not None
         else 1000000,
-        "limits": {
-            "iteration_ceiling": args.legacy_iteration_ceiling
-            if args.legacy_iteration_ceiling is not None
-            else (state.get("iteration", 0) + args.max_iterations if args.max_iterations is not None else None),
-            "max_seconds": args.max_seconds
-            if args.max_seconds is not None
-            else budget_recovery.RUNNER_DEFAULTS["max_seconds"],
-            "stage_timeout_seconds": (
-                getattr(args, "max_stage_seconds", None)
-                if getattr(args, "max_stage_seconds", None) is not None
-                else budget_recovery.RUNNER_DEFAULTS["stage_timeout_seconds"]
-            ),
-            "idle_timeout_seconds": (
-                getattr(args, "max_idle_seconds", None) if getattr(args, "max_idle_seconds", None) is not None else 300
-            ),
-            "tool_timeout_seconds": (
-                getattr(args, "max_tool_seconds", None) if getattr(args, "max_tool_seconds", None) is not None else 1800
-            ),
-            "no_progress_batches": args.no_progress_limit if args.no_progress_limit is not None else 3,
-            "max_findings_per_task": getattr(args, "max_findings_per_task", None),
-            "automatic_retries": 0,
-            # Saved only when set: no cost cap by default, and never a runner default (#721).
-            **({"max_cost_usd": args.max_cost_usd} if getattr(args, "max_cost_usd", None) is not None else {}),
-        },
+        "limits": _new_run_limits(args, state),
     }
     scoped_readonly = bool(
         scope_arguments["approved_scope"] and (getattr(args, "dry_run", False) or getattr(args, "status", False))
