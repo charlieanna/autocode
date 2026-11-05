@@ -4,6 +4,7 @@ import json
 import unittest
 
 import autocode_planner_escalation as escalation
+import autocode_role_route as role_route
 import autocode_route_ladder as route_ladder
 
 from . import test_planning
@@ -80,12 +81,22 @@ class Decide(unittest.TestCase):
             "engine": codex,
             "already_strong": settings(planner="anthropic/claude-opus-5-5"),
             "fixed_profile": settings(conversation_profile="continuous-v1"),
+            "chosen": settings(route_origins={"glm": "user_explicit", "plan_reviewer": "user_explicit"}),
             "no_route": {"roles": {}},
         }
         for reason, case in cases.items():
             with self.subTest(reason):
                 self.assertEqual({"stay": reason}, escalation.decide(case))
         self.assertEqual({"stay": "climbed"}, escalation.decide(settings(), [{"role": "glm"}]))
+
+    def test_only_a_chosen_planner_route_stays(self):
+        # Live 2026-11-05 on Kilo: the person chose GLM 5.3 for every planning stage; the climb took the
+        # Planner to Claude Opus 5.5, whose account had no credit, and the run stopped for the person.
+        chosen = settings(route_origins={"glm": "user_explicit"})
+        self.assertEqual({"stay": "chosen"}, escalation.decide(chosen))
+        others = settings(route_origins={"plan_reviewer": "user_explicit", "glm": "auto_selected"})
+        self.assertEqual("anthropic/claude-opus-5-5", escalation.decide(others)["model"])
+        self.assertEqual(escalation.USER_EXPLICIT, role_route.USER_EXPLICIT)
 
     def test_a_run_saved_before_planner_rungs_existed_never_climbs(self):
         saved = settings()

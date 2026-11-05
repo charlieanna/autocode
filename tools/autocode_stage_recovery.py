@@ -1018,6 +1018,14 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
         )
     )
     if (
+        unlaunchable
+        and cast(dict, pending).get("attempts", 0) < records.repair_limit(state)
+        and report_source.has_repairable_empty_latest(pending)
+    ):
+        # A hold saved before #2426 covered execution: the remaining repair still has its
+        # original input, so keep it instead of discarding the stage's work.
+        return False
+    if (
         (stage != state.get("next_stage") and not reroute_abandoned_sol)
         or stage == "astra_discovery"
         or planning.is_planning(state, stage)

@@ -22,6 +22,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Planner model the person chose (a stage choice or `--glm-model`) is kept when a revised plan
+  is blocked again, instead of climbing to Claude Opus 5.5 or GPT-6 Sol. A live Kilo run on
+  GLM 5.3 climbed to an Anthropic account with no credit and stopped to ask the person.
+- An empty report repair on the Builder or Tester no longer stops the run while a repair is still
+  allowed. The next repair corrects the original report, as planning stages already did (#2426). In a
+  live Kilo run the Tester's first repair returned no report; AutoCode stopped, asked the person
+  whether to continue, and threw away an 18-minute Tester attempt to start again.
 - A rejected stage report now names every schema problem at once, so one report repair can fix
   them all. Before, only the first was named: a live Requirements report missing
   `acceptance_tests` and an assumption's `text` took two repairs instead of one.

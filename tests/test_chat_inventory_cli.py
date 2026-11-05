@@ -155,7 +155,7 @@ raise SystemExit(code)
                     lambda frame: (
                         "Public entry 24" in frame
                         and "Public entry 00" in frame
-                        and "? Anything else?" in frame
+                        and "? This task is complete. Anything else?" in frame
                         and composer_text(frame) == ""
                     ),
                     10,
@@ -191,7 +191,9 @@ raise SystemExit(code)
                 self.wait_for_current_status(screen, root, runs[0], before)
                 screen.wait_for(
                     lambda shown: (
-                        "· r00" in shown.splitlines()[0] and composer_text(shown) == "" and "? Anything else?" in shown
+                        "· r00" in shown.splitlines()[0]
+                        and composer_text(shown) == ""
+                        and "? This task is complete. Anything else?" in shown
                     ),
                     10,
                 )
@@ -266,7 +268,7 @@ raise SystemExit(code)
         def ready(shown):
             return (
                 f"· {run.name}" in shown.splitlines()[0]
-                and "? Anything else?" in shown
+                and "? This task is complete. Anything else?" in shown
                 and any(
                     f"Current public status: {run.name} / {row['pid']}" in shown
                     for row in self.calls(root)
