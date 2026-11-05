@@ -697,8 +697,25 @@ def model_output_schema(schema):
     return result
 
 
+SCHEMA_ERROR_LIMIT = 20
+
+
 def validate_schema(value, schema, where="$"):
-    """The small, strict JSON Schema subset used by our checked-in verdicts."""
+    """The small, strict JSON Schema subset used by our checked-in verdicts.
+
+    Raises one ValueError naming every violation found, in document order and joined by "; ", so a
+    report repair can fix them all in one attempt instead of discovering them one repair at a time.
+    The first violation is the one earlier versions reported alone.
+    """
+    errors: list[str] = []
+    _schema_errors(value, schema, where, errors)
+    if errors:
+        shown = errors[:SCHEMA_ERROR_LIMIT]
+        more = len(errors) - len(shown)
+        raise ValueError("; ".join(shown) + (f"; and {more} more" if more else ""))
+
+
+def _schema_errors(value, schema, where, errors):
     kind = schema.get("type")
     types = {
         "object": dict,
@@ -713,26 +730,27 @@ def validate_schema(value, schema, where="$"):
     if kinds and not any(
         isinstance(value, types[k]) and not (k in ("integer", "number") and isinstance(value, bool)) for k in kinds
     ):
-        raise ValueError(f"{where}: expected {' or '.join(kinds)}")
+        errors.append(f"{where}: expected {' or '.join(kinds)}")
+        return
     if "enum" in schema and value not in schema["enum"]:
-        raise ValueError(f"{where}: invalid enum")
+        errors.append(f"{where}: invalid enum")
     if isinstance(value, dict):
         for key in schema.get("required", []):
             if key not in value:
-                raise ValueError(f"{where}: missing {key}")
+                errors.append(f"{where}: missing {key}")
         props = schema.get("properties", {})
         if schema.get("additionalProperties") is False and value.keys() - props.keys():
-            raise ValueError(f"{where}: unexpected fields: {', '.join(sorted(value.keys() - props.keys()))}")
+            errors.append(f"{where}: unexpected fields: {', '.join(sorted(value.keys() - props.keys()))}")
         for key, child in value.items():
             if key in props:
-                validate_schema(child, props[key], f"{where}.{key}")
+                _schema_errors(child, props[key], f"{where}.{key}", errors)
     if isinstance(value, list):
         if len(value) < schema.get("minItems", 0):
-            raise ValueError(f"{where}: too few items")
+            errors.append(f"{where}: too few items")
         if len(value) > schema.get("maxItems", len(value)):
-            raise ValueError(f"{where}: too many items")
+            errors.append(f"{where}: too many items")
         for index, child in enumerate(value):
-            validate_schema(child, schema.get("items", {}), f"{where}[{index}]")
+            _schema_errors(child, schema.get("items", {}), f"{where}[{index}]", errors)
 
 
 def criteria_definition(criteria):
