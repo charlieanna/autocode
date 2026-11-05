@@ -28,6 +28,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode connections check --provider claude` no longer reports a Claude login as signed in when
+  Claude Code would bill an API key (for example a key from `apiKeyHelper`, or a Bedrock, Vertex or
+  gateway route). Every run on such a login stopped with `PAUSED_BILLING_ROUTE`, while the check and
+  `autocode setup` showed it ready. The check now says `sign_in_required` and names the route.
+
 - A Tester report repair that leaves a changed line undecided is no longer rejected for it. The
   undecided line goes to the existing Builder and Investigator rounds, as the gate intended. A
   repaired report is applied with its original stage's record, so the check missed the repair. In a

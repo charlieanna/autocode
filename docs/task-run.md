@@ -2678,6 +2678,9 @@ Its result is one connection object. `credentials_present` means the backend
 reported credentials, not that every model, billing route or live task passed.
 Other statuses are `not_checked`, `unavailable`, `sign_in_required`, and
 `check_failed`. Status-command output and credential values are never returned.
+For Claude Code, a login that a run would refuse with `PAUSED_BILLING_ROUTE` (an API key,
+an `apiKeyHelper` key, or a Bedrock, Vertex or gateway route) is `sign_in_required`, and its
+`detail` names that route.
 
 `connections login --provider NAME` delegates interactive login to the backend
 in a terminal, inheriting its input and output. The core resolves the offered

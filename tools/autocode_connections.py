@@ -19,11 +19,11 @@ import sys
 try:
     from . import autocode_direct_config as direct
     from . import autocode_providers as providers
-    from .providers import command
+    from .providers import claude, command
 except ImportError:
     import autocode_direct_config as direct
     import autocode_providers as providers
-    from providers import command
+    from providers import claude, command
 
 BUILTINS = {
     # Codex is an engine (--engine codex), not a provider config; its row lets a client say it is installed
@@ -122,12 +122,18 @@ def connection_view(name, *, check=False):
                 detail="Connection check could not finish. Open the backend to diagnose it.",
             )
             return row
+        refusal = None
         if name == "claude":
             try:
-                logged_in = json.loads(result.stdout).get("loggedIn") is True
+                status_json = json.loads(result.stdout)
+                logged_in = status_json.get("loggedIn") is True
             except (ValueError, AttributeError):
                 logged_in = False
             ready = result.returncode == 0 and logged_in
+            # A login a run would refuse with PAUSED_BILLING_ROUTE is not ready either; say why without
+            # echoing the account details the status carries.
+            refusal = claude.billing_refusal(status_json) if ready else None
+            ready = ready and not refusal
         elif name in ("kilocode", "opencode"):
             # Their auth-list command succeeds even with no saved credentials.
             # Do not mistake an empty list for a signed-in account, or echo it.
@@ -148,6 +154,12 @@ def connection_view(name, *, check=False):
             row.update(
                 connection_status="credentials_present",
                 detail="Saved credentials found; they are not tested here. An expired or revoked key, model access and billing show up when a run starts.",
+            )
+        elif refusal:
+            row.update(
+                connection_status="sign_in_required",
+                detail=f"Signed in, but not on a route a run accepts: {refusal}. Sign in with a Claude "
+                "subscription and remove any apiKeyHelper or API-key setting, then check again.",
             )
         else:
             row.update(
