@@ -707,34 +707,39 @@ def window(text: str, cursor: int, width: int) -> tuple[str, int]:
 
 
 def composer_rows(text: str, cursor: int, width: int, most: int) -> tuple[list[str], int, int]:
-    """``text`` as the reply box shows it: wrapped at ``width`` cells and at its own line breaks, at
-    most ``most`` rows kept around the cursor; with the cursor's row and column among those rows."""
+    """``text`` as the reply box shows it: wrapped at ``width`` cells (between words where a row has a
+    space) and at its own line breaks, at most ``most`` rows kept around the cursor; with the cursor's
+    row and column among those rows."""
     width, most = max(1, width), max(1, most)
-    rows: list[str] = []
-    at_row = at_col = 0
-    row, used = "", 0
-    for index, char in enumerate(text + "\0"):  # a sentinel closes the last row and places a cursor at the end
-        if index == cursor:
-            if used >= width and char != "\n":
-                rows.append(row)
-                row, used = "", 0
-            at_row, at_col = len(rows), used
-        if char in ("\n", "\0"):
-            rows.append(row)
-            row, used = "", 0
-        else:
-            cells = _char_width(char)
+    spans: list[tuple[int, int]] = []  # each row's [start, end) in ``text``
+    start = 0
+    for line in text.split("\n"):
+        end_of_line = start + len(line)
+        row, used = start, 0
+        for index in range(start, end_of_line):
+            cells = _char_width(text[index])
             if used + cells > width:
-                rows.append(row)
-                row, used = "", 0
-                if index == cursor:
-                    at_row, at_col = len(rows), 0
-            row += char
+                space = text.rfind(" ", row, index)
+                cut = space + 1 if space > row else index
+                spans.append((row, cut))
+                row, used = cut, display_width(text[cut:index])
             used += cells
-    if at_row >= len(rows):
-        rows.append("")
-    first = min(max(0, at_row - most + 1), max(0, len(rows) - most))
-    return rows[first : first + most], at_row - first, at_col
+        spans.append((row, end_of_line))
+        start = end_of_line + 1
+    at_row = 0
+    for number, (first, last) in enumerate(spans):
+        if first <= cursor <= last:
+            at_row = number
+            if cursor < last or number + 1 == len(spans) or spans[number + 1][0] != last:
+                break
+    first, last = spans[at_row]
+    at_col = display_width(text[first:cursor])
+    rows = [text[a:b] for a, b in spans]
+    if at_col >= width:  # the cursor after a full row's last character starts the next row
+        rows.insert(at_row + 1, "")
+        at_row, at_col = at_row + 1, 0
+    top = min(max(0, at_row - most + 1), max(0, len(rows) - most))
+    return rows[top : top + most], at_row - top, at_col
 
 
 @dataclass(frozen=True)

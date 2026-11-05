@@ -341,6 +341,11 @@ class MultiLineComposerTests(unittest.TestCase):
         self.assertEqual((["abcde", ""], 1, 0), tui.composer_rows("abcde", 5, 5, 6), "a full row moves the cursor on")
         self.assertEqual((["你好", "世界"], 1, 4), tui.composer_rows("你好世界", 4, 5, 6))
 
+    def test_a_row_breaks_between_words_where_it_can(self):
+        # The live box split "reply" across rows as "repl" / "y" (2026-11-05).
+        self.assertEqual((["the quick ", "brown fox"], 1, 9), tui.composer_rows("the quick brown fox", 19, 10, 6))
+        self.assertEqual((["ab ", "cd"], 1, 0), tui.composer_rows("ab cd", 3, 3, 6), "the cursor sits before c")
+
     def test_only_the_rows_around_the_cursor_are_kept(self):
         self.assertEqual((["c", "d"], 1, 1), tui.composer_rows("a\nb\nc\nd", 7, 10, 2))
         self.assertEqual((["a", "b"], 0, 0), tui.composer_rows("a\nb\nc\nd", 0, 10, 2))
