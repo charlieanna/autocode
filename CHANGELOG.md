@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The full-screen chat's status row shows the stage working now ("Builder working") instead of
+  the "Next: Builder" it was told before that stage started. After planning, it kept the queued
+  line for the whole Tester and Builder stages unless a tool call was showing.
 - The terminal chat's live log shows what the Orchestrator decided, for example "No tasks can be
   built in parallel now; one Builder takes the next task". It runs no model and finishes at once,
   so a person saw the Plan Reviewer followed directly by a Builder. Its step now also stays in
