@@ -328,6 +328,7 @@ def prompt_parts(
                 **review,
                 **({"feedback_interpretations": interpretations} if interpretations else {}),
                 **({"regression_reference": regression_reference.context(state)} if stage in PLANNING_STAGES else {}),
+                **({"approved_milestones": approved_milestones(state)} if stage in DECISION_STAGES else {}),
                 # The Investigator's report repair names external owners; it needs the
                 # same canonical member context its stage packet carries (#2420).
                 **(
@@ -341,6 +342,14 @@ def prompt_parts(
             "clarification": {"clarification_context": clarification} if stage == "astra_finalize" else {},
         },
     )
+
+
+def approved_milestones(state: RunState) -> list:
+    """The approved contract's milestones, inline: a Kilo report-only repair has no tools to read state_file."""
+    contract = state.get("goal_contract") or {}
+    if contract.get("approval_status") != "approved":
+        return []
+    return copy.deepcopy((contract.get("body") or {}).get("milestones") or [])
 
 
 def instruction(stage: str) -> str:
