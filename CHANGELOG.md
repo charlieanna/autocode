@@ -14,6 +14,16 @@ PR template asks for an entry here; a change without one is incomplete.
 - A bug-fix plan's "Today:" text quotes the Investigator's observation verbatim. Collapsing its spaces
   misquoted inputs such as `slugify("  Hello, World!  ")`, which a Plan Reviewer blocked on and which cost
   a whole extra Requirements and Plan Reviewer round.
+- On Kilo and OpenCode, the live agent log shows the newest words of a stage's reasoning (bounded and
+  redacted) instead of only "Reasoning stream activity received; text unavailable". A response part,
+  which may be the report, still shows only as activity.
+- A read-only stage (Requirements, planning, Plan Reviewer, completion review) whose provider ends the
+  stream with no answer, an unexplained finish reason and no counted usage, exiting 0, is retried once
+  with no workspace effects instead of pausing to ask the person for "corrective information".
+- The terminal chat's reply box wraps a long reply and grows to six rows instead of scrolling one
+  line sideways; `\\` then Enter starts a new line, and Up/Down move between its lines.
+- The terminal chat asks once to approve its understanding and start the job: the spend detail
+  is shown before that prompt instead of a second "Investigate? [y/N]" after it.
 - Plan validation accepts the word “zero” for an unquoted source value of `0`, avoiding
   unnecessary report-repair calls. Exact quoted literals and different numeric values
   still require their original values.

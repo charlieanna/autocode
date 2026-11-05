@@ -56,17 +56,36 @@ def shell_argv(command):
 
 
 def processes_absent(metadata):
-    """Whether a readable terminal receipt's recorded processes are all gone.
+    """Whether a readable receipt's recorded processes are all gone.
 
-    An armed or stopping receipt is not a finished inventory. Unreadable bytes,
-    a live process, or denied inspection return false so the hold stays.
-    Absence is not command evidence.
+    An armed or stopping receipt is not a finished inventory, so it stays held
+    unless its keeper was lost with it (#2718): nothing can ever finish that
+    receipt, and the release still requires the owner, keeper, provider and
+    every recorded row gone by birth, plus no live process in the provider's
+    recorded session or group — a whole-host check that can only extend the
+    hold (a reused PID or session number keeps it). Unreadable bytes, a live
+    process, or denied inspection return false so the hold stays. Absence is
+    not command evidence.
     """
     final = receipts.load(metadata)
-    if not final or final.get("phase") not in ("stopped", "uncertain"):
+    if not final or final.get("phase") not in ("stopped", "uncertain", "armed", "stopping"):
         return False
     rows = [metadata["provider"], metadata["keeper"], metadata["owner"], *final["processes"]]
-    return not processes.live_processes(rows)
+    if processes.live_processes(rows):
+        return False
+    if final.get("phase") in ("stopped", "uncertain"):
+        return True
+    provider = metadata["provider"]
+    wanted = {key: provider.get(key) for key in ("session", "group")}
+    for pid in processes.process_ids():
+        try:
+            if (wanted["session"] is not None and os.getsid(pid) == wanted["session"]) or (
+                wanted["group"] is not None and os.getpgid(pid) == wanted["group"]
+            ):
+                return False
+        except (ProcessLookupError, PermissionError, OSError):
+            continue
+    return True
 
 
 def reconcile(metadata):

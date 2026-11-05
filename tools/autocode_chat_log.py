@@ -103,7 +103,8 @@ def prose_event(row: dict) -> tuple[str, dict] | None:
 
 
 def progress_event(row: dict) -> tuple[str, dict] | None:
-    """An opaque streaming receipt proves activity, never the content of a thought or response."""
+    """A streaming receipt: the reasoning's newest words when the hook previewed them, otherwise an
+    opaque line that proves activity, never the content of a response."""
     progress = row.get("progress")
     if row.get("type") != "autocode_progress" or not isinstance(progress, dict):
         return None
@@ -121,6 +122,11 @@ def progress_event(row: dict) -> tuple[str, dict] | None:
         return None
     name = "Reasoning" if kind == "reasoning" else "Response"
     shown = PROSE[kind]
+    preview = progress.get("preview")
+    if kind == "reasoning" and isinstance(preview, str) and (text := _prose(preview)):
+        # The provider hook's newest reasoning words, bounded and redacted again here. A response
+        # part (possibly the report) never carries a preview, so it stays an opaque receipt.
+        return f"{shown}:{identifier}", {"kind": shown, "text": _prose(text + " [partial]")}
     return f"{shown}:{identifier}", {
         "kind": shown,
         "text": f"{name} stream activity received; text unavailable.",

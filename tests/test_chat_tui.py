@@ -332,6 +332,60 @@ class ComposerTests(unittest.TestCase):
         self.assertEqual(["hi"], composer.history)
 
 
+class MultiLineComposerTests(unittest.TestCase):
+    """The reply box shows the whole reply over several rows, as Claude Code's terminal does."""
+
+    def test_rows_wrap_at_the_width_and_at_line_breaks_with_the_cursor_placed(self):
+        self.assertEqual((["hello", " worl", "d"], 2, 1), tui.composer_rows("hello world", 11, 5, 6))
+        self.assertEqual((["ab", "cd"], 0, 2), tui.composer_rows("ab\ncd", 2, 10, 6))
+        self.assertEqual((["abcde", ""], 1, 0), tui.composer_rows("abcde", 5, 5, 6), "a full row moves the cursor on")
+        self.assertEqual((["你好", "世界"], 1, 4), tui.composer_rows("你好世界", 4, 5, 6))
+
+    def test_only_the_rows_around_the_cursor_are_kept(self):
+        self.assertEqual((["c", "d"], 1, 1), tui.composer_rows("a\nb\nc\nd", 7, 10, 2))
+        self.assertEqual((["a", "b"], 0, 0), tui.composer_rows("a\nb\nc\nd", 0, 10, 2))
+
+    def test_up_and_down_move_between_lines_before_walking_history(self):
+        composer = tui.Composer()
+        composer.history = ["older"]
+        composer.insert("first line\nsecond")
+        self.assertTrue(composer.line_up())
+        self.assertEqual(6, composer.cursor, "the column is kept")
+        self.assertFalse(composer.line_up())
+        self.assertTrue(composer.line_down())
+        self.assertEqual(len(composer.text), composer.cursor)
+        self.assertFalse(composer.line_down())
+
+    def drawn(self, *keys):
+        ui = screen_ui(*keys)
+        ui._asking, ui._prompt = True, "Your reply"
+        for key in keys:
+            ui._handle(key, asking=True)
+        rows = {}
+        ui._put = lambda row, col, text, attr=0: rows.setdefault(row, []).append((col, text))
+        layout = ui._layout(30, 120)
+        ui._composer_box(layout)
+        return ui, layout, rows
+
+    def test_a_long_reply_grows_the_box_instead_of_scrolling_one_line(self):
+        reply = "word " * 60
+        ui, layout, rows = self.drawn(*reply)
+        self.assertGreater(layout.box_rows, 1)
+        self.assertEqual(layout.box_bottom, layout.box_text + layout.box_rows)
+        shown = "".join(
+            text for row in range(layout.box_text, layout.box_bottom) for col, text in rows[row] if col == 4
+        )
+        self.assertEqual(reply, shown, "every typed character is on screen")
+
+    def test_backslash_enter_starts_a_new_line_and_enter_then_sends(self):
+        ui, layout, rows = self.drawn(*"one\\", "\r", *"two")
+        self.assertEqual("one\ntwo", ui._composer.text)
+        self.assertEqual(2, layout.box_rows)
+        self.assertEqual([(4, "one")], [cell for cell in rows[layout.box_text] if cell[0] == 4])
+        self.assertEqual([(4, "two")], [cell for cell in rows[layout.box_text + 1] if cell[0] == 4])
+        self.assertEqual("one\ntwo", ui._handle("\r", asking=True))
+
+
 class ComposerLabelTests(unittest.TestCase):
     def test_a_new_request_prompt_names_the_chat(self):
         self.assertEqual("New chat", tui.composer_label("What do you want done?", True))

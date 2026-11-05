@@ -132,7 +132,10 @@ class RunnerCheckTests(unittest.TestCase):
             self.assertIn("runner check", view["next_action"])
             self.assertIsNone(view["attempt_id"])
 
-    def _hold(self, *, phase="uncertain", cleanup_error="keeper failed"):
+    def _hold(self, *, phase="uncertain", cleanup_error="keeper failed", cause="keeper_failure"):
+        # An armed receipt admits no cause or cleanup error (liveness._receipt).
+        if phase == "armed":
+            cause, cleanup_error = None, None
         path = self.run / "supervision.json"
         metadata = {
             "schema": 1,
@@ -147,7 +150,7 @@ class RunnerCheckTests(unittest.TestCase):
             {
                 **metadata,
                 "phase": phase,
-                "cause": "keeper_failure",
+                "cause": cause,
                 "cleanup_error": cleanup_error,
                 "observed_at": "2026-10-07T03:10:23Z",
                 "processes": [metadata["provider"]],
@@ -184,6 +187,31 @@ class RunnerCheckTests(unittest.TestCase):
         with self.assertRaises(command_receipt.OwnershipUncertain):
             runner_check.clear(self.state, self.run, self._persist)
         self.assertIn("active_runner_check", self.state)
+
+    def test_a_dead_armed_inventory_of_a_lost_keeper_is_retired(self):
+        """#2718: an armed receipt whose keeper died can never finish; a fully dead
+        recorded tree with an empty provider session and group releases the hold."""
+        self._hold(phase="armed", cleanup_error=None)
+        with (
+            patch.object(command_supervision.processes, "live_processes", return_value=[]),
+            patch.object(command_supervision.processes, "process_ids", return_value=[]),
+        ):
+            runner_check.clear(self.state, self.run, self._persist)
+        self.assertNotIn("active_runner_check", self.state)
+        self.assertEqual("runner_check_retired", self.state["user_events"][-1]["kind"])
+
+    def test_an_armed_inventory_with_a_live_provider_session_member_keeps_the_hold(self):
+        self._hold(phase="armed", cleanup_error=None)
+        member = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        self.addCleanup(member.wait, timeout=10)
+        self.addCleanup(member.kill)
+        metadata = self.state["active_runner_check"]["supervision"]
+        metadata["provider"] = {**metadata["provider"], "session": member.pid, "group": member.pid}
+        with patch.object(command_supervision.processes, "live_processes", return_value=[]):
+            with self.assertRaises(command_receipt.OwnershipUncertain):
+                runner_check.clear(self.state, self.run, self._persist)
+        self.assertIn("active_runner_check", self.state)
+        self.assertNotIn("user_events", self.state)
 
     def test_unknown_process_liveness_does_not_claim_a_dead_check(self):
         with runner_check.track(self.state, self.run, "regression_proof", "Testing the change", status.persist):

@@ -99,6 +99,7 @@ def record_resume(runner, args, state: RunState, state_path) -> None:
 def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checkout_owned=False):
     """Drive the run's stages until it stops; return the exit code, or None if the loop ends normally."""
     storage_checked = False
+    args._ready_message_boundary = False
 
     def check_storage(current):
         nonlocal storage_checked
@@ -119,6 +120,9 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         try:
             if runner.consume_interventions(current, run_dir, workspace):
                 print(f"{current['status']}: {current['stop_reason']}")
+                args._ready_message_boundary = current.get("status") == "RUNNING" and not any(
+                    current.get(key) for key in ("active_stage", "active_runner_check")
+                )
                 raise runner.orchestrator.LoopExit(2)
         except interventions.InterventionError as error:
             raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
@@ -381,12 +385,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         autopilot.publish_handoffs(current, run_dir)
         if milestones.enabled(current):
             print(milestones.status_line(current), flush=True)
-        try:
-            if runner.consume_interventions(current, run_dir, workspace):
-                print(f"{current['status']}: {current['stop_reason']}")
-                raise runner.orchestrator.LoopExit(2)
-        except interventions.InterventionError as error:
-            raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
+        consume_boundary(current)
         resolver_runtime.boundary(runner, current, run_dir, workspace)
         if skip_requirements.settle(runner, current, run_dir, native=getattr(runner, "native_calls", None)):
             runner.write_json(state_path, current)  # an unattended worker's defaults or approval (#1731)
