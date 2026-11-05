@@ -27,7 +27,9 @@ class RouteAdvisoryTests(unittest.TestCase):
         after["roles"]["glm"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
         held = copy.deepcopy((before, after))
         [message] = advisory.warnings(before, after)
-        self.assertIn("Requirements -> Builder", message)
+        # The glm slot runs the Planner's work (954f51e3 relabelled it from Requirements).
+        self.assertIn("Planner -> Builder", message)
+        self.assertIn("--glm-model / --terra-model", message)
         self.assertIn("glm", before["roles"]["glm"]["model"])
         self.assertIn("mimo-v2.6-pro", message)
         self.assertIn("original authorship", message)
@@ -48,8 +50,12 @@ class RouteAdvisoryTests(unittest.TestCase):
         messages = advisory.warnings(before, after)
         self.assertEqual(3, len(messages))
         self.assertIn("Requirements -> Builder", messages[0])
-        self.assertIn("Requirements -> Builder", messages[1])
+        self.assertIn("--requirements-model / --terra-model", messages[0])
+        # The glm and astra slots both run the Planner's work; their flags tell the links apart.
+        self.assertIn("Planner -> Builder", messages[1])
+        self.assertIn("--glm-model / --terra-model", messages[1])
         self.assertIn("Planner -> Builder", messages[2])
+        self.assertIn("--astra-model / --terra-model", messages[2])
 
     def test_v2_uses_actual_planner_route_and_job_names(self):
         before = settings(requirements="glm-5.3", glm="gpt-6-sol", astra="mimo-v2.6-pro", terra="mimo-v2.6-pro")
