@@ -553,7 +553,8 @@ class RenderedPromptTests(unittest.TestCase):
                 packet = json.loads(raw)
                 self.assertEqual(before["answers"], packet["saved_answers"])
                 self.assertEqual(before["brief_feedback"], packet["brief_feedback"])
-                self.assertEqual(before["user_events"], packet["user_events"])
+                # The event is an exact copy of the brief_feedback record: said once, by reference.
+                self.assertEqual([{"id": "feedback-1", "same_as": "brief_feedback"}], packet["user_events"])
                 self.assertLess(len(raw.encode()), len(json.dumps(packet, indent=2).encode()))
                 self.assertNotIn("\n", raw)  # literal newlines stay escaped data
                 self.assertEqual((len(prompt.encode()) + 3) // 4, metrics["estimated_prompt_tokens"])
