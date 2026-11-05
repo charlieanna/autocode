@@ -558,7 +558,10 @@ left out) are kept beside the log as `<stage>.claude.jsonl`.
   Claude Code session (`CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_REMOTE_SESSION_ID`,
   `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_DEBUG`, `CLAUDE_CODE_DIAGNOSTICS_FILE`,
   `CLAUDE_CODE_TEE_SDK_STDOUT`, `CLAUDE_CODE_MESSAGING_SOCKET`, `CLAUDE_EFFORT`,
-  `CLAUDE_AUTO_BACKGROUND_TASKS`, `CLAUDE_CODE_ENTRYPOINT`), plus `DISABLE_AUTOUPDATER=1`.
+  `CLAUDE_AUTO_BACKGROUND_TASKS`, `CLAUDE_CODE_ENTRYPOINT`), plus `DISABLE_AUTOUPDATER=1` and
+  `FORCE_PROMPT_CACHING_5M=1`. Each stage is a fresh session that finishes in minutes, so the
+  5-minute prompt cache (writes at 1.25x the input price) replaces Claude Code's default 1-hour
+  cache (2x); on two measured runs that cut 26% and 29% of model cost.
 - **Identity.** A saved run records the launch policy (hashed), the resolved `claude`, its version, a
   hash of `<workspace>/.claude/settings.json` and hashes of `ANTHROPIC_BASE_URL` and
   `CLAUDE_CONFIG_DIR`. A change pauses it with `PAUSED_TRANSPORT_CHANGED`; after a `claude` update,

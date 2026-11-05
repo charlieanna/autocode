@@ -141,6 +141,7 @@ class LaunchTests(FakeClaude, unittest.TestCase):
         self.assertLess(resumed.index("--resumed"), resumed.index("--"))
         self.assertGreater(resumed.index("--resume"), resumed.index("--"))
         self.assertEqual("1", child["DISABLE_AUTOUPDATER"])
+        self.assertEqual("1", child["FORCE_PROMPT_CACHING_5M"])
 
     def test_launch_refuses_before_any_request(self):
         with self.assertRaisesRegex(ValueError, "reasoning effort must be one of"):
@@ -198,7 +199,10 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(("1", "1"), (child["DISABLE_AUTOUPDATER"], child["KEEP"]))
         self.assertEqual("1", agent_env.scrubbed(child)["DISABLE_AUTOUPDATER"])
         given = {"CLAUDE_CODE_SESSION_ID": "x", "PATH": "/bin"}
-        self.assertEqual({"PATH": "/bin", "DISABLE_AUTOUPDATER": "1"}, claude.child_environment(given))
+        self.assertEqual(
+            {"PATH": "/bin", "DISABLE_AUTOUPDATER": "1", "FORCE_PROMPT_CACHING_5M": "1"},
+            claude.child_environment(given),
+        )
         self.assertEqual({"CLAUDE_CODE_SESSION_ID": "x", "PATH": "/bin"}, given)
 
     def test_only_a_billing_route_that_reaches_claude_is_refused(self):
