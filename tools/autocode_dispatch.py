@@ -816,6 +816,7 @@ def integrate(state: RunState, workspace, run_dir, batch):
 
 
 def dispatch(state: RunState, workspace, run_dir):
+    started_at = s.now()
     goals.execution_guard(state)
     enforce_cross_model_verification(state)
     if not enabled(state):
@@ -878,6 +879,8 @@ def dispatch(state: RunState, workspace, run_dir):
         "stage": "orchestrator",
         "role": "orchestrator",
         "iteration": state["iteration"],
+        # A started_at keeps this step in the chat's "Recent steps" after a turn (autocode_chat_progress).
+        "started_at": started_at,
         "finished_at": s.now(),
         "runner_owned": True,
         "batch_id": batch["id"] if batch else None,
@@ -885,7 +888,7 @@ def dispatch(state: RunState, workspace, run_dir):
         "duration_seconds": 0,
         "metrics": {"provider_tokens": {"input_tokens": 0, "output_tokens": 0}},
         "summary": (
-            "Dispatched one Builder"
+            "No tasks can be built in parallel now; one Builder takes the next task"
             if not batch
             else "Every Builder deferred its stronger attempt; building serially"
             if batch["status"] == "DEFERRED"
