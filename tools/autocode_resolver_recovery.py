@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_access_identity as access_identity
     from . import autocode_builder_failure as builder_failure
     from . import autocode_builder_policy as builder_policy
     from . import autocode_check_refs as check_refs
@@ -50,6 +51,7 @@ try:
     from . import autocode_tool_containment as containment
     from . import autocode_util as util
 except ImportError:
+    import autocode_access_identity as access_identity
     import autocode_builder_failure as builder_failure
     import autocode_builder_policy as builder_policy
     import autocode_check_refs as check_refs
@@ -202,12 +204,32 @@ def _holds(saved, state: RunState, revision):
     that binding a changed milestone budget remains a changed setting. A binding recorded after the
     upgrade, such as the repair admission ``finish_resolution_packet`` writes for that packet, leaves
     the budget out. A binding saved before #2057 also hashed the fit's derived evidence (#2057).
+
+    A binding also holds when it was saved while the primary tool's config lay at an earlier
+    location that the run's own settings history proves content-identical
+    (``access_identity.relocations``): resuming from another checkout moves the bundled config,
+    and only its path changes. Each earlier location is tried in both hashings above.
     """
     current = _binding(state, revision)
-    return saved == current or saved == {
-        **current,
-        "settings_hash": util.digest(_bound_settings(state, _EARLIER_CEILINGS, derived=True)),
-    }
+    for candidate in (state, *_relocated(state)):
+        if saved == {**current, "settings_hash": util.digest(_bound_settings(candidate, _CEILINGS))} or saved == {
+            **current,
+            "settings_hash": util.digest(_bound_settings(candidate, _EARLIER_CEILINGS, derived=True)),
+        }:
+            return True
+    return False
+
+
+def _relocated(state: RunState):
+    """``state`` as it was bound at each proven earlier location of its config."""
+    settings = state.get("settings") or {}
+    for before in access_identity.relocations(state):
+        moved = copy.deepcopy(settings)
+        if "transport_identity" in moved:
+            moved["transport_identity"] = copy.deepcopy(before)
+        if isinstance(moved.get("transport_identities"), dict) and "opencode" in moved["transport_identities"]:
+            moved["transport_identities"]["opencode"] = copy.deepcopy(before)
+        yield {**state, "settings": moved}
 
 
 def _scope(state: RunState):
