@@ -351,7 +351,9 @@ reason checked by the existing independent Tester. This is its code-review
 responsibility within the existing workflow, and cannot be self-approved by
 Builder. A survivor can be equivalent (no test could observe the change); the
 Tester can record that specific reason against the current offered gap ID and
-pin its source/test/check evidence. An unavailable tool alone is not a blanket
+pin its source/test/check evidence. Each obligation also carries a short handle
+(`L1`, `L2`, … in inventory order), which the offer accepts beside the full ID and
+the runner maps to the same exact line, so a model never retypes 64-hex IDs. An unavailable tool alone is not a blanket
 exception. Empty survivor lists and the old six-site sample never prove that
 all changed lines were tested.
 

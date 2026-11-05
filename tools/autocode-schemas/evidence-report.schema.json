@@ -498,6 +498,9 @@
                   "gap_id": {
                     "type": "string"
                   },
+                  "handle": {
+                    "type": "string"
+                  },
                   "path": {
                     "type": "string"
                   },

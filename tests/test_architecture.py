@@ -62,7 +62,7 @@ MAX_LINES = {
     "autocode.py": 1952,
     "autocode_goals.py": 1404,
     "autocode_support.py": 620,
-    "autopilot.py": 1513,
+    "autopilot.py": 1392,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1028,
     "autocode_verify.py": 3333,
@@ -71,7 +71,18 @@ MAX_LINES = {
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its
 # steps moved out (#1052): a new flag's action goes in its family's step, not in handle().
 # 2026-10-11: --program-guidance raised build_parser() (#866); splitting it is the next step.
-MAX_FUNCTION_LINES = {("autocode_run_actions.py", "handle"): 9, ("autocode_args.py", "build_parser"): 539}
+# 2026-11-05: the five largest core functions are held at their size (#2753) and shrink as fixes touch them.
+# _apply_result was 403 lines; its user-request, REWORK, slice-checkpoint and Builder-failure routes moved to
+# autocode_decision_routes.
+MAX_FUNCTION_LINES = {
+    ("autocode_run_actions.py", "handle"): 9,
+    ("autocode_args.py", "build_parser"): 539,
+    ("autocode.py", "run_role"): 648,
+    ("autocode_verify.py", "verify"): 587,
+    ("autocode_configure.py", "configure"): 583,
+    ("autocode_tool_containment.py", "configure"): 439,
+    ("autopilot.py", "_apply_result"): 281,
+}
 
 # Modules that still write run ``status`` directly instead of going through autocode_run_status
 # (#1071). The paused phase is already owned outright (tests/test_run_status.py); this ratchet

@@ -20,6 +20,8 @@ dependencies = ["psutil>=7.1,<8"]
 
 [project.optional-dependencies]
 test = ["pytest>=8.4,<10"]
+# CI diff coverage of this repository's own pull requests only (#2754); never a runtime dependency.
+coverage = ["coverage>=7.10,<8"]
 visual = ["Pillow>=11.3,<13"]
 visual-test = ["Pillow>=11.3,<13", "playwright>=1.56,<2"]
 
