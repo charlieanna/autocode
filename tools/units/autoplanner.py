@@ -1557,7 +1557,9 @@ def context(state: RunState, stage, state_path):
         # #498: the Go tests the user named are declared under those names; the runner refuses a prose alias.
         native = native_test_names.requested(state)
         design_rule += native_test_names.rule(native) if native else ""
-        design_rule += EXAMPLE_CHECK_RULE if stage in ("astra_challenge", "astra_finalize") else ""
+        design_rule += (
+            EXAMPLE_CHECK_RULE if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize") else ""
+        )
         design_rule += BRIEF_TRACE_RULE if stage in ("astra_challenge", "astra_finalize") else ""
         if stage in ("astra_challenge", "astra_finalize"):
             design_rule += stage_context.coordination_context.proxy_rule(state, OUT_OF_CHECKOUT_PROXY_RULE)

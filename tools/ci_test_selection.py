@@ -68,6 +68,10 @@ SCENARIO_SELECTION_INPUTS = {
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
+        "tools/prompts/fragments/autoplanner/example-check-rule.md",
+        ("tests.test_planning_scope_discipline",),
+    ),
+    (
         "tools/prompts/fragments/goals/job-type-policy.md",
         ("tests.test_planning_scope_discipline",),
     ),
