@@ -1657,7 +1657,7 @@ class ChatClient:
                 if row["id"] in changed:  # where to look (#2383), as the CLI's review stop names it (#2360)
                     self.say(f"      Changed: {', '.join(changed[row['id']])}")
         else:
-            self.say(f"\nAutoCode stopped: {STOP_CAUSES.get(label, label)}. {why}".rstrip())
+            self.say(f"\nAutoCode stopped: {STOP_CAUSES.get(str(label), label)}. {why}".rstrip())
         if need.get("recovery_hint"):
             self.say(need["recovery_hint"])
         answers = {row.key: self.decide(row, need) for row in decided}
