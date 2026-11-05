@@ -55,6 +55,26 @@ class CommandDiagnosticTests(unittest.TestCase):
         self.assertEqual("Coordination stopped: " + reason, str(caught.exception))
         process.assert_called_once()
 
+    def test_refused_continue_keeps_core_reason_instead_of_generic_no_progress(self):
+        client = chat.ChatClient(Path("/tmp/diagnostic-chat"), Path("/tmp/diagnostic-chat/run"))
+        self.addCleanup(client.close)
+        view = {"status": "RUNNING", "next_stage": "requirements_gather"}
+        client._status_view = view
+        client.status = Mock(return_value=view)
+        reason = "Another AutoCode run is working in this checkout; nothing was changed."
+        child = SimpleNamespace(returncode=2, poll=Mock(return_value=2))
+
+        def launch(*args, **kwargs):
+            kwargs["stdout"].write(reason)
+            kwargs["stdout"].flush()
+            return child
+
+        with patch.object(chat.subprocess, "Popen", side_effect=launch) as process:
+            with self.assertRaises(actions.ClientGap) as caught:
+                client.advance(["--no-chat"])
+        self.assertEqual("AutoCode action stopped: " + reason, str(caught.exception))
+        process.assert_called_once()
+
 
 class CoordinationDiagnosticTerminalTests(unittest.TestCase):
     def test_public_json_error_is_readable_and_keeps_the_composer_without_retry(self):

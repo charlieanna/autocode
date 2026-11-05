@@ -2101,9 +2101,10 @@ class AdvancingDiagnosticTests(unittest.TestCase):
             "print(sys.argv[1]); sys.exit(2)",
             secret,
         )
-        client.advance(["--resume-paused"], {"AUTOCODE_JOB_RETRY_TOKEN": secret})
-        self.assertIn("Provider configuration or limits changed; retry is stale", client.text())
-        self.assertNotIn(secret, client.text())
+        with self.assertRaises(actions.ClientGap) as caught:
+            client.advance(["--resume-paused"], {"AUTOCODE_JOB_RETRY_TOKEN": secret})
+        self.assertIn("Provider configuration or limits changed; retry is stale", str(caught.exception))
+        self.assertNotIn(secret, str(caught.exception))
         self.assertEqual([], client.taken)
 
 

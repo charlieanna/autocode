@@ -661,7 +661,7 @@ class ChatClient:
                 log.seek(0)
                 diagnostic = redact(log.read(), secret_values=(env or {}).values())[-2000:].strip()
                 if diagnostic:
-                    self.say("AutoCode action stopped: " + diagnostic)
+                    raise actions.ClientGap("AutoCode action stopped: " + diagnostic)
             if str(self.run_dir) not in self.viewed:
                 try:
                     self.status()
