@@ -28,7 +28,7 @@
         "provider", "route_assignments", "information_review", "tool_containment", "job_report_recovery",
         "efficiency", "conversation", "chat", "workspace", "run_dir", "planning_depth", "stage_policy", "pause", "package",
         "tool_containment_backend", "changes_by_criterion", "dev_server", "execution", "observation", "attention",
-        "scope", "coordination", "related_profile", "proxied_requirements", "request_sources"
+        "scope", "coordination", "related_profile", "proxied_requirements", "request_sources", "run_metrics"
       ],
       "properties": {
         "execution": {
@@ -375,6 +375,87 @@
         "tool_containment": {"type": ["string", "null"]},
         "job_report_recovery": {"type": ["object", "null"]},
         "efficiency": {"type": ["object", "null"]},
+        "run_metrics": {
+          "type": "object",
+          "required": ["schema", "spent_usd", "complete", "by_job", "tokens", "waste", "single_model"],
+          "properties": {
+            "schema": {"const": 1},
+            "spent_usd": {"type": ["number", "null"]},
+            "complete": {"type": "boolean"},
+            "by_job": {"type": "array", "items": {
+              "type": "object",
+              "required": ["job", "stages", "attempts", "spent_usd", "complete", "share"],
+              "properties": {
+                "job": {"type": "string"},
+                "stages": {"type": "array"},
+                "attempts": {"type": "integer"},
+                "spent_usd": {"type": "number"},
+                "complete": {"type": "boolean"},
+                "share": {"type": ["number", "null"]}
+              }
+            }},
+            "tokens": {
+              "type": "object",
+              "required": ["input", "new", "cache_write", "cache_read", "output", "complete", "cache_read_share", "cache_write_share"],
+              "properties": {
+                "input": {"type": ["integer", "null"]},
+                "new": {"type": ["integer", "null"]},
+                "cache_write": {"type": ["integer", "null"]},
+                "cache_read": {"type": ["integer", "null"]},
+                "output": {"type": ["integer", "null"]},
+                "complete": {"type": "boolean"},
+                "cache_read_share": {"type": ["number", "null"]},
+                "cache_write_share": {"type": ["number", "null"]}
+              }
+            },
+            "waste": {
+              "type": "object",
+              "required": ["failed_attempts", "failed_usd", "failed_usd_complete", "repeated_jobs", "report_repair_usd", "report_repair_complete"],
+              "properties": {
+                "failed_attempts": {"type": "integer"},
+                "failed_usd": {"type": "number"},
+                "failed_usd_complete": {"type": "boolean"},
+                "repeated_jobs": {"type": "array", "items": {
+                  "type": "object", "required": ["job", "attempts"],
+                  "properties": {"job": {"type": "string"}, "attempts": {"type": "integer"}}
+                }},
+                "report_repair_usd": {"type": ["number", "null"]},
+                "report_repair_complete": {"type": "boolean"}
+              }
+            },
+            "single_model": {
+              "type": "object",
+              "required": ["builder_usd", "builder_share", "checking_usd", "basis", "produced"],
+              "properties": {
+                "builder_usd": {"type": ["number", "null"]},
+                "builder_share": {"type": ["number", "null"]},
+                "checking_usd": {"type": ["number", "null"]},
+                "basis": {"type": "string"},
+                "produced": {
+                  "type": "object",
+                  "required": [
+                    "criteria_requested", "criteria_accepted", "regression_verdict", "fail_to_pass_tests",
+                    "clean_replay_checks", "clean_replay_verdict", "mutants_killed", "mutants_tried",
+                    "findings", "blocking_findings", "problems_handled"
+                  ],
+                  "properties": {
+                    "criteria_requested": {"type": ["integer", "null"]},
+                    "criteria_accepted": {"type": ["integer", "null"]},
+                    "regression_verdict": {"type": ["string", "null"]},
+                    "fail_to_pass_tests": {"type": "integer"},
+                    "clean_replay_checks": {"type": "integer"},
+                    "clean_replay_verdict": {"type": ["string", "null"]},
+                    "mutants_killed": {"type": "integer"},
+                    "mutants_tried": {"type": "integer"},
+                    "findings": {"type": "integer"},
+                    "blocking_findings": {"type": "integer"},
+                    "problems_handled": {"type": "integer"}
+                  }
+                }
+              }
+            }
+          }
+        },
         "conversation": {"type": ["object", "null"]},
         "chat": {
           "type": "object",

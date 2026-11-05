@@ -155,6 +155,7 @@ class RunViewTests(unittest.TestCase):
                 "output_transport",
                 "direct_rework_assignments",
                 "efficiency",
+                "run_metrics",
                 "recovery",
                 "recoveries",
                 "verification",

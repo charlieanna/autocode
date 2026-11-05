@@ -537,12 +537,14 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         (
             "tools/autocode_chat_cost.py",
+            "tools/autocode_chat_spend.py",
             "tools/autocode_chat_verification.py",
             "tools/autocode_chat_panel.py",
             "tools/autocode_chat_tui.py",
         ),
         (
             "tests.test_chat_cost",
+            "tests.test_run_metrics",
             "tests.test_chat_verification",
             "tests.test_chat_panel",
             "tests.test_chat_tui",
