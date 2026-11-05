@@ -29,6 +29,28 @@ from . import test_subprocess
 
 
 class PlanningTests(unittest.TestCase):
+    def test_planning_prompts_show_remaining_run_time_and_saved_limits(self):
+        state = self.state()
+        state["workspace"] = "/fixture"
+        state["active_seconds"] = 1500
+        state["settings"]["limits"] = {"max_seconds": 1800, "stage_timeout_seconds": 900, "max_cost_usd": 4}
+        before = copy.deepcopy(state)
+        for stage in ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"):
+            with self.subTest(stage=stage):
+                prompt, _ = planning.context(state, stage, Path("/fixture/state.json"))
+                packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+                self.assertEqual(
+                    {
+                        "run_active_seconds_used": 1500,
+                        "run_active_seconds_remaining": 300,
+                        "stage_seconds_limit": 900,
+                        "run_cost_limit_usd": 4,
+                    },
+                    packet["execution_budget"],
+                )
+                self.assertIn("Reserve time for implementation and independent verification", prompt)
+        self.assertEqual(before, state)
+
     def test_author_handoff_binds_one_criteria_delta_to_the_current_contract(self):
         state = self.state()
         state["workspace"] = "/fixture"
