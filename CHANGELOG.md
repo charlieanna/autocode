@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat's prompt after a finished task starts with "This task is complete." A person
+  whose view was scrolled away from the closing message saw only "Anything else?" and could not
+  tell whether the task was over.
 - The terminal chat's live agent log shows a stage's closing summary when the summary is followed
   by a fenced JSON report, instead of the last 400 characters of the report.
 - The stuck-stage Investigator's instructions now list `cause` among the fields to return. They
