@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The full-screen chat scrolls back down with the mouse wheel on macOS. Python's ncurses there
+  has no `BUTTON5_PRESSED` and reports the wheel turned down as `REPORT_MOUSE_POSITION`, which
+  the chat neither asked for nor read, so once scrolled up a person could only page back down.
 - The terminal chat's prompt after a finished task starts with "This task is complete." A person
   whose view was scrolled away from the closing message saw only "Anything else?" and could not
   tell whether the task was over.

@@ -913,11 +913,20 @@ class ChatTUI:
         for text in self._transcript.closing():
             print(text.strip("\n"))
 
+    @staticmethod
+    def _wheel_down() -> int:
+        """The mouse-event bit a wheel turned down sets. ncurses built with mouse version 1 (the
+        library Python links on macOS) has no BUTTON5_PRESSED and reports button 5 in the
+        REPORT_MOUSE_POSITION bit, so asking for BUTTON4/5 alone lost every wheel-down there: a
+        person could scroll the transcript up and never back down. The xterm mode ncurses enables
+        (1000) reports presses only, so on that library the bit carries no pointer motion."""
+        return getattr(curses, "BUTTON5_PRESSED", 0) or getattr(curses, "REPORT_MOUSE_POSITION", 0)
+
     def _mouse_reporting(self, on: bool) -> None:
         """Request wheel events while the chat owns the terminal; restore its prior mask."""
         with contextlib.suppress(curses.error):
             if on and self._previous_mouse_mask is None:
-                wheels = getattr(curses, "BUTTON4_PRESSED", 0) | getattr(curses, "BUTTON5_PRESSED", 0)
+                wheels = getattr(curses, "BUTTON4_PRESSED", 0) | self._wheel_down()
                 _, self._previous_mouse_mask = curses.mousemask(wheels)
             elif not on and self._previous_mouse_mask is not None:
                 curses.mousemask(self._previous_mouse_mask)
@@ -1722,7 +1731,7 @@ class ChatTUI:
             return
         if buttons & getattr(curses, "BUTTON4_PRESSED", 0):
             self._scroll_by(3)
-        elif buttons & getattr(curses, "BUTTON5_PRESSED", 0):
+        elif buttons & self._wheel_down():
             self._scroll_by(-3)
 
     def _scroll_by(self, delta: int) -> None:
