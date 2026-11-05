@@ -30,3 +30,15 @@ master and resumes it with the candidate through public CLI commands: one
 revision, two total repairs, original attempt identities retained, no Builder.
 These are deterministic recovery checks, not proof that a live model will return
 a valid next report or that overall task latency is solved.
+
+## Execution stages (2026-11-05)
+
+The same rule first covered planning stages only. In a live Kilo TUI run (book courses,
+GLM 5.3 Tester), the Tester's report was rejected for a receipt mismatch. Its first report
+repair then spent 63k reasoning tokens and returned 5 output tokens of text. One of two repairs
+remained, but the next repair read the empty answer and stopped at
+`PAUSED_REPORT_REPAIR_INPUT`. The chat asked the person "Continue?", and on Resume
+`prepare_exhausted_execution_report_retry` archived the repair and started a fresh 18-minute
+Tester attempt. Execution stages now follow the planning rule: the next repair gets the pinned
+original, and an older saved hold keeps its remaining repair on Resume. An empty original or
+spent allowance still stops, and Resume still starts a fresh attempt for an empty original.

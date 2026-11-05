@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- An empty report repair on the Builder or Tester no longer stops the run while a repair is still
+  allowed. The next repair corrects the original report, as planning stages already did (#2426). In a
+  live Kilo run the Tester's first repair returned no report; AutoCode stopped, asked the person
+  whether to continue, and threw away an 18-minute Tester attempt to start again.
 - A rejected stage report now names every schema problem at once, so one report repair can fix
   them all. Before, only the first was named: a live Requirements report missing
   `acceptance_tests` and an assumption's `text` took two repairs instead of one.
