@@ -28,6 +28,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A spec-first run no longer crashes as it starts a parallel wave. The Orchestrator's wave (`autocode_dispatch.select`) is a list of milestone rows, and choosing the wave's acceptance tests put those rows in a set (`TypeError: unhashable type: 'dict'`). It now takes each row's id. The existing test passed ids, so it missed this; a live run crashed right after accepting its foundation milestone.
 - `autocode connections check --provider claude` no longer reports a Claude login as signed in when
   Claude Code would bill an API key (for example a key from `apiKeyHelper`, or a Bedrock, Vertex or
   gateway route). Every run on such a login stopped with `PAUSED_BILLING_ROUTE`, while the check and

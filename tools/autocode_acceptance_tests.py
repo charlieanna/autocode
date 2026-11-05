@@ -172,10 +172,12 @@ def due(state: RunState, wave=None) -> list[dict]:
         return []
     cases = _cases(state)
     if wave:
+        # autocode_dispatch.select returns the wave's milestone rows; an id list names the same milestones.
+        ids = {member["id"] if isinstance(member, dict) else member for member in wave}
         members = {
             cid
             for row in (contract.get("body") or {}).get("milestones") or []
-            if row.get("id") in set(wave)
+            if row.get("id") in ids
             for cid in row.get("acceptance_criteria") or []
         }
         known = {case["id"] for case in cases}
