@@ -7,14 +7,18 @@ try:
     from .. import autocode_packet_events as packet_events
     from .. import autocode_plan_chat as plan_chat
     from .. import autocode_plan_retention as retention
+    from .. import autocode_planning_recovery_observations as recovery_observations
     from .. import autocode_planning_recovery_policy as planning_recovery_policy
+    from .. import autocode_planning_time as planning_time
     from .. import autocode_prompts as prompts
 except ImportError:
     import autocode_gate_chat as gate_chat
     import autocode_packet_events as packet_events
     import autocode_plan_chat as plan_chat
     import autocode_plan_retention as retention
+    import autocode_planning_recovery_observations as recovery_observations
     import autocode_planning_recovery_policy as planning_recovery_policy
+    import autocode_planning_time as planning_time
     import autocode_prompts as prompts
 
 
@@ -1345,6 +1349,7 @@ def context(state: RunState, stage, state_path):
         "brief_feedback": state.get("brief_feedback", []),
         "planning": exchange,
         "budget": prompts.get("fragments/autoplanner/context.md").format(review_call_limit(state) or "Unlimited"),
+        "execution_budget": planning_time.context(state),
         "recovery_context": state.get("recovery_context"),
     }
     if stage == "requirements_gather":
@@ -1412,6 +1417,11 @@ def context(state: RunState, stage, state_path):
         for grant in exchange.get("recovery_review_grants", [])
         if not grant.get("consumed") and grant.get("binding", {}).get("stage") == stage
     ]
+    if stage in ("astra_challenge", "astra_finalize") and (report_recovery or packet["recovery_context"]):
+        current_source = stage_context.source_scope.snapshot(Path(state["workspace"]), state)
+        retained = recovery_observations.context(state, stage, Path(state_path).parent, current_source["revision"])
+        if retained:
+            packet["retained_review_observations"] = retained
     if report_recovery:
         try:
             from ..autocode_resolver_runtime import OPERATIONAL_INSTRUCTION
@@ -1628,6 +1638,7 @@ def context(state: RunState, stage, state_path):
     prompt = (
         (retention.FINAL_PROMPT if compact_final else PROMPTS[stage])
         + progress_rule
+        + prompts.get("fragments/autoplanner/time-budget.md")
         + (prompts.get("fragments/autoplanner/late-repository-scope.md") if stage in planning_scope.STAGES else "")
         + audit_instruction
         + memory_rule
