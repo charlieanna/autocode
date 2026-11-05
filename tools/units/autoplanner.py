@@ -1315,14 +1315,26 @@ def context(state: RunState, stage, state_path):
         predecessor = artifacts.verify_predecessor(state, stage, Path(state_path).parent)
     report_recovery = planning_recovery_policy.active(state, stage)
     exchange: dict = copy.deepcopy(state.get("planning", {}))
+    current_body = (state.get("goal_contract") or {}).get("body")
+    has_contract_ref = False
     for entry in exchange.get("reports", {}).values():
+        report = entry.get("report") or {}
         # Current contract is included once. Older full drafts stay retrievable
         # via the artifact path; every concern, response and decision remains in
         # the handoff because later review stages must account for every ID.
         if not report_recovery:
-            entry["report"].pop("contract", None)
+            report.pop("contract", None)
+        elif (
+            stage == "astra_challenge"
+            and current_body
+            and report.get("contract") == current_body
+            and util.digest(report["contract"]) == util.digest(current_body)
+        ):
+            # A tool-free recovery still needs all distinct historical drafts.
+            del report["contract"]
+            report["contract_ref"] = "#/goal_contract/body"
+            has_contract_ref = True
         # Trim verbose fields from older reports to keep the prompt bounded.
-        report = entry.get("report") or {}
         for key in () if report_recovery else ("code_refs", "alternatives", "uncertainties", "summary"):
             if isinstance(report.get(key), list) and len(report[key]) > 5:
                 report[key] = report[key][:5]
@@ -1440,6 +1452,8 @@ def context(state: RunState, stage, state_path):
             "report_only": True,
         }
         recovery_instruction = "\n" + OPERATIONAL_INSTRUCTION + "\n"
+        if has_contract_ref:
+            recovery_instruction += "Resolve contract_ref within this handoff. It points to the identical saved draft.\n"
     if stage in ("astra_challenge", "astra_finalize") and (grants or packet["recovery_context"]):
         packet["workspace_inventory"] = workspace_inventory(state["workspace"], state["task"], limit=20)
     if stage == "requirements_gather":
