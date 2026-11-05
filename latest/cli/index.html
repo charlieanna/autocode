@@ -2460,7 +2460,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/bb8b8921b4547e28091eca24e53c19623bf186dc/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/81b7d3ba6dcb9728251487c5cdce5575012bb59a/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2692,7 +2692,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/bb8b8921b4547e28091eca24e53c19623bf186dc/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/81b7d3ba6dcb9728251487c5cdce5575012bb59a/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3302,7 +3302,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/bb8b8921b4547e28091eca24e53c19623bf186dc/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/81b7d3ba6dcb9728251487c5cdce5575012bb59a/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -4051,7 +4051,9 @@ in a scrollable transcript with a colored label for each speaker
 (<code>PgUp</code>/<code>PgDn</code>, or mouse wheel/trackpad over the transcript), the current question or activity above a boxed composer, and a
 hint bar. The composer is labeled <strong>New chat</strong> when typing there starts a run and
 <strong>Reply</strong> when it answers the run (<code>Up</code>/<code>Down</code> for history, <code>Ctrl-W</code>/<code>Ctrl-U</code> to
-edit, <code>Enter</code> to send, <code>Ctrl-D</code> to leave). A paste stays in the composer as one
+edit, <code>Enter</code> to send, <code>Ctrl-D</code> to leave). The composer wraps a long reply and grows
+to six rows; <code>\</code> then <code>Enter</code> starts a new line, and <code>Up</code>/<code>Down</code> move between its
+lines before walking history. A paste stays in the composer as one
 reply, line breaks included, until you press <code>Enter</code>. A plan, a question or a stop is shown
 where it is asked, and <code>Ctrl-C</code> keeps its meaning: the first asks the run to pause
 after the current step, the second interrupts it. When the chat ends, its last words
@@ -4302,7 +4304,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/bb8b8921b4547e28091eca24e53c19623bf186dc/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/81b7d3ba6dcb9728251487c5cdce5575012bb59a/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
