@@ -234,10 +234,24 @@ def _validate(document):
         if not isinstance(origins, dict) or any(
             role not in roles
             or origin
-            not in ("user_explicit", "single_model", "runner_default", "catalogue_replacement", "auto_selected")
+            not in (
+                "user_explicit",
+                "single_model",
+                "runner_default",
+                "catalogue_replacement",
+                "auto_selected",
+                "stage_choice",
+            )
             for role, origin in origins.items()
         ):
             raise RecordingError("Recording effort origin is invalid")
+    if "declared_variants" in settings:
+        listed = settings["declared_variants"]
+        if not isinstance(listed, dict) or any(
+            not isinstance(model, str) or not isinstance(levels, list) or not all(isinstance(x, str) for x in levels)
+            for model, levels in listed.items()
+        ):
+            raise RecordingError("Recording declared reasoning variants are invalid")
     for name in ("blobs", "snapshots", "artifacts"):
         if not isinstance(document[name], dict) or len(document[name]) > MAX_FILES:
             raise RecordingError("Recording inventory is invalid or too large")
@@ -635,6 +649,9 @@ SETTINGS_KEYS = frozenset(
         "single_model_mode",
         "budget_origins",
         "effort_origins",
+        # The levels each model's listing offers: a review's level under a stage-choice ceiling
+        # depends on them (autocode_review_effort), so a replay derives the same level.
+        "declared_variants",
         "builder_retry",
         "route_ladders",
         "orchestration",

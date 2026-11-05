@@ -9,6 +9,17 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Changed
+
+- A reasoning level saved in your stage choices (`autocode stages`) is now a ceiling for the three
+  review stages. On a small, clear task the Plan Reviewer, the Tester and the Completion Reviewer
+  run one level below it, if their model offers that level. GLM 5.3 offers low, high and max, so
+  a GLM review stays at high. A review that runs again for the same task uses your level. A level
+  typed as a flag is still exact, and every other stage still runs at your level. The live log
+  says when a review runs lower, and `/details` shows the level each attempt actually ran at.
+  In a live two-line fix, the Plan Reviewer had spent 10 of the task's 28 minutes in one pass at
+  high.
+
 ### Fixed
 
 - A rejected stage report now names every schema problem at once, so one report repair can fix

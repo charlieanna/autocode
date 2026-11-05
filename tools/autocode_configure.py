@@ -42,6 +42,7 @@ try:
     from . import autocode_quota_route as quota_route
     from . import autocode_requirements_review as requirements_review
     from . import autocode_retired_token_budget as retired_token_budget
+    from . import autocode_review_effort as review_effort
     from . import autocode_review_routing as review_routing
     from . import autocode_role_route as role_route
     from . import autocode_role_transport as role_transport
@@ -75,6 +76,7 @@ except ImportError:
     import autocode_quota_route as quota_route
     import autocode_requirements_review as requirements_review
     import autocode_retired_token_budget as retired_token_budget
+    import autocode_review_effort as review_effort
     import autocode_review_routing as review_routing
     import autocode_role_route as role_route
     import autocode_role_transport as role_transport
@@ -169,18 +171,42 @@ def check_subscription(identity):
 def _declared_levels(provider_mod, workspace, model):
     """The reasoning variants the tool declares for ``model``, from its own listing; None when it has no
     readable listing (the launch check decides then). Never a model request."""
+    return _listed_levels(provider_mod, workspace, {model}).get(model)
+
+
+def _listed_levels(provider_mod, workspace, models) -> dict:
+    """``{model: levels}`` for each of ``models`` the tool's own listing names, read once; empty when it
+    has no readable listing. Never a model request."""
     try:
         from . import autocode_route_discovery as discovery
     except ImportError:
         import autocode_route_discovery as discovery
+    found: dict = {}
     try:
-        found = discovery.discover(provider_mod, Path(workspace))
-        for row in found.get("candidates") or []:
-            if row.get("model") == model and isinstance(row.get("levels"), list):
-                return list(row["levels"])
+        for row in discovery.discover(provider_mod, Path(workspace)).get("candidates") or []:
+            if row.get("model") in models and isinstance(row.get("levels"), list):
+                found.setdefault(row["model"], list(row["levels"]))
     except Exception:  # noqa: BLE001 - an unreadable optional listing never blocks a launch
-        return None
-    return None
+        return {}
+    return found
+
+
+def _list_review_ceilings(settings, provider_mod, workspace) -> None:
+    """Save the levels each stage-choice review model offers (owner decision 2026-11-05).
+
+    A review stage's saved stage choice is a ceiling: on a small, clear task it runs one level below,
+    and only at a level its model offers (autocode_review_effort). That needs the tool's own listing,
+    read once here and kept as ``declared_variants`` beside any single-model listing.
+    """
+    origins = settings.get("effort_origins") or {}
+    models = {
+        settings["roles"][role]["model"]
+        for role in set(review_effort.STAGES.values())
+        if origins.get(role) == role_route.STAGE_CHOICE and isinstance(settings["roles"].get(role), dict)
+    }
+    models = {model for model in models if isinstance(model, str)} - set(settings.get(route_fit.DECLARED) or {})
+    if models and (listed := _listed_levels(provider_mod, workspace, models)):
+        settings.setdefault(route_fit.DECLARED, {}).update(listed)
 
 
 def _auto_select(
@@ -912,6 +938,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
             if route.get("origin") == role_route.AUTO_SELECTED:
                 settings["route_origins"][role] = role_route.AUTO_SELECTED
     role_route.record_efforts(args, settings, fresh=True)
+    _list_review_ceilings(settings, provider_mod, state["workspace"])
     verification_config.validate(settings["regression"])
     return task_preflight.configure(
         state, output_policy.configure(state, autopilot.stuck.configure(settings, args), args), args

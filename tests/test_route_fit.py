@@ -59,6 +59,16 @@ class FitTests(unittest.TestCase):
         self.assertRegex(str(raised.exception), "--completion-reasoning-effort.*declares low, high, max")
         self.assertEqual("medium", settings["roles"]["completion"]["reasoning_effort"], "nothing moved")
 
+    def test_a_saved_stage_choice_is_the_persons_level_and_a_tier_below_it_is_derived(self):
+        # The saved level is theirs (it never moves); the review tier under it is the runner's (2026-11-05).
+        settings = settings_for("sol", effort="medium", origin=route_fit.STAGE_CHOICE)
+        with self.assertRaises(route_fit.EffortUnsupported):
+            route_fit.fit(settings, "sol")
+        settings = settings_for("sol", effort="max", origin=route_fit.STAGE_CHOICE)
+        saved, tier = route_fit.fit(settings, "sol"), route_fit.fit(settings, "sol", effort="xhigh")
+        self.assertEqual(("max", True), (saved.effort, saved.explicit))
+        self.assertEqual(("max", False, "fitted"), (tier.effort, tier.explicit, tier.reason))
+
     def test_a_person_named_level_the_model_declares_is_kept_and_marked_explicit(self):
         settings = settings_for(effort="max", origin=route_fit.USER_EXPLICIT)
         fitted = route_fit.fit(settings, "terra")

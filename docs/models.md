@@ -222,6 +222,9 @@ routes it started with. A stage you have not chosen keeps its default, or the ro
 selection picks for it (below). `autocode stages set STAGE --model MODEL --effort LEVEL` and
 `autocode stages reset [STAGE]` change one stage without asking.
 
+A saved level differs from a typed one in one way: for the three review stages it is a ceiling
+([reasoning effort](#reasoning-effort)). Every other stage runs at the level you saved.
+
 ## Choosing models automatically
 
 New CLI and `TaskRun.start` runs choose models automatically from the selected tool's
@@ -556,6 +559,29 @@ none, AutoCode records the effort as unverified and the tool's own check decides
 flags are `--reasoning-effort LEVEL` for every role and `--<role>-reasoning-effort LEVEL`
 for one (`--glm-reasoning-effort`, `--astra-reasoning-effort`, `--terra-reasoning-effort`,
 `--sol-reasoning-effort`, and the matching flag for the other jobs).
+
+A level from your [stage choices](#choosing-each-stages-model) is a ceiling for the Plan
+Reviewer, the Tester and the Completion Reviewer (owner decision 2026-11-05). Each launch
+of one of those reviews decides the level on its own, from the run's own records, and never asks you:
+
+- On a small, clear task the review runs one level below your level, so high becomes
+  medium. A task is small and clear when Requirements judged the request clear and the
+  drafted plan is small: one milestone touching at most four files. Before the plan is
+  sized, the brief's own size decides.
+- The level one below must be one the model offers. A new run reads the levels from the
+  tool's own listing once, when it starts. GLM 5.3 offers low, high and max, so a GLM review stays at high
+  rather than drop two levels, and so does a model whose levels the run cannot list.
+- A review that already ran for this task runs at your level: a rejected answer, a
+  send-back or a second look. So does a route that climbed the effort ladder, and the Plan
+  Reviewer of a run started with `--plan-review-full`.
+
+Each review launch records its decision on its stage record as `effort_choice`: the
+level, your ceiling, the reason, and the task's clarity, brief size and plan size. The
+status view's usage attempts carry it, `/details` in the terminal chat shows the level
+each attempt ran at, and the live log says when a review runs below your level. A level
+typed as a flag (`--sol-reasoning-effort`, `--reasoning-effort`) or given as an answer is
+exact. A level the runner chose keeps its own tiers: the Plan Reviewer's reduced depth for
+small clear briefs and the Builder's light first attempt (`autocode_light_builder`).
 
 An effort AutoCode derives itself — a reduced Builder tier, a climb on the effort ladder,
 a single-model run — moves to the nearest declared variant and records the move as

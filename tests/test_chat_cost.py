@@ -122,6 +122,22 @@ class CostDisplayTests(unittest.TestCase):
         self.assertIn("low", shown)
         self.assertIn("provider unreported", shown)
 
+    def test_an_attempt_shows_the_level_it_launched_at_and_why_it_was_below_the_saved_one(self):
+        # A review under a stage-choice ceiling (owner decision 2026-11-05) launches below its saved route.
+        view = public_view()
+        attempt = view["usage"]["accounting"]["attempts"][0]
+        attempt.update(
+            reasoning_effort="medium",
+            effort_choice={"level": "medium", "ceiling": "high", "lowered": True, "reason": "small_clear"},
+        )
+        lines = details(view).splitlines()
+        first = lines.index(next(line for line in lines if line.startswith("001/validator-01")))
+        self.assertEqual("  openai/old-model · medium · provider unreported · opencode", lines[first + 1])
+        self.assertEqual("  One level below your high: the task is small and clear", lines[first + 2])
+        repair = lines.index(next(line for line in lines if line.startswith("001/validator-report-repair-01")))
+        self.assertIn(" · high · ", lines[repair + 1], "an attempt without its own level shows the saved one")
+        self.assertNotIn("One level below", lines[repair + 2])
+
     def test_attempts_and_subsets_are_not_added_to_the_core_totals(self):
         shown = details(public_view())
         self.assertIn("Input: 2,500", shown)

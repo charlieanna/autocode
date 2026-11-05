@@ -15,6 +15,8 @@ A saved choice acts as the person typing that stage's ``--ROLE-model`` and
 ``--ROLE-reasoning-effort`` flags, so every check a typed flag gets still applies. A flag on the
 command line and the project's own ``.autocode/config.toml`` win over it; ``--single-model`` leaves
 every saved choice out of the run, and a shared ``--reasoning-effort`` leaves out the saved levels.
+One difference from a typed level (owner decision 2026-11-05): a saved level is a ceiling for the
+three review stages, which run one level below it on a small, clear task (autocode_review_effort).
 
 ``offers`` lists what a stage may run on: for OpenCode and Kilo the models their connected accounts
 serve, from the tools' own local listings (``autocode_route_discovery``), with the reasoning levels
@@ -469,7 +471,7 @@ def apply(args, backend, *, file=None, say=None) -> list[str]:
     file = Path(file) if file is not None else path()
     saved = load(file).get(backend, {})
     shared_effort = getattr(args, "reasoning_effort", None) is not None
-    taken = []
+    taken, levels = [], []
     for role in ORDER:
         choice = saved.get(role)
         if not choice or getattr(args, f"{role}_model", None) or getattr(args, f"{role}_provider", None):
@@ -477,7 +479,11 @@ def apply(args, backend, *, file=None, say=None) -> list[str]:
         setattr(args, f"{role}_model", choice["model"])
         if choice["effort"] and not shared_effort and getattr(args, f"{role}_reasoning_effort", None) is None:
             setattr(args, f"{role}_reasoning_effort", choice["effort"])
+            levels.append(role)
         taken.append(role)
+    # The levels this applied, so the run records them as the person's stage choice: a ceiling for the
+    # review stages (autocode_role_route.STAGE_CHOICE, autocode_review_effort), never a typed flag's level.
+    args.stage_choice_efforts = tuple(levels)
     if taken and say is not None:
         say(f"Stage choices from {file}: {', '.join(LABELS[role] for role in taken)}")
     return taken

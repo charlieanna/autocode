@@ -1083,6 +1083,8 @@ class ExplicitRoleTransportTests(unittest.TestCase):
                 self.assertEqual("sonnet", roles["glm"]["model"], "the typed --glm-model wins")
                 self.assertEqual("sonnet", roles["sol"]["model"], "OpenCode's choices are not Claude Code's")
                 self.assertEqual(said, "Stage choices from" in notices.getvalue())
+                if said:  # the saved level is the person's stage choice, a ceiling for reviews (2026-11-05)
+                    self.assertEqual("stage_choice", self.observed[-1]["effort_origins"]["terra"])
             # Resuming the saved run (settings present) takes no choice, even one saved since.
             stage_choices.save({"claude": {"terra": {"model": "sonnet", "effort": "max"}}})
             with (

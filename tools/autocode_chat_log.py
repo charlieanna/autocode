@@ -24,10 +24,12 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_chat_activity as activity
+    from . import autocode_review_effort as review_effort
     from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
     import autocode_chat_activity as activity
+    import autocode_review_effort as review_effort
     import autocode_roles as roles
     import autocode_util as util
 
@@ -257,6 +259,15 @@ def _dispatch_note(state: RunState) -> list[dict]:
     return []
 
 
+def _effort_note(active: dict, agent: str) -> list[dict]:
+    """One message when the running review works one level below the person's saved level, saying why
+    (autocode_review_effort); the attempt's own entries follow it."""
+    text, started = review_effort.note(active.get("effort_choice")), active.get("started_at")
+    if not text or not isinstance(started, str):
+        return []
+    return [{"id": f"effort:{started}", "agent": agent, "kind": "message", "text": text}]
+
+
 def project(
     state: RunState,
     public,
@@ -282,7 +293,7 @@ def project(
         and (public.get("liveness") or {}).get("kind") == "supervised"
     ):
         milestone = (state.get("current_task") or {}).get("milestone_id")
-        found.extend(
-            _attempt(active, Path(run_dir), workspace, _agent(str(active.get("stage") or ""), state, milestone))
-        )
+        agent = _agent(str(active.get("stage") or ""), state, milestone)
+        found.extend(_effort_note(active, agent))
+        found.extend(_attempt(active, Path(run_dir), workspace, agent))
     return found + _workers(state, workspace, supervised)

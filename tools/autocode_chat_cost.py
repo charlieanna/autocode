@@ -123,6 +123,9 @@ def _attempt(row: dict, number: int) -> list[str]:
         "model": route.get("model") or row.get("model"),
         "engine": route.get("engine") or row.get("engine"),
     }
+    if isinstance(row.get("reasoning_effort"), str) and row["reasoning_effort"]:
+        # The level the attempt launched at, which a derived tier may set below the saved route's.
+        route["reasoning_effort"] = row["reasoning_effort"]
     flags = [name.replace("_", " ") for name in ("active", "rejected", "interrupted", "timed_out") if row.get(name)]
     if row.get("report_only"):
         flags.append("report repair")
@@ -134,6 +137,9 @@ def _attempt(row: dict, number: int) -> list[str]:
     job = _label(row.get("job"), "Job unreported")
     worker = f" · worker {_label(row['worker_attempt'])}" if row.get("worker_attempt") else ""
     lines = [f"{label} · {job}{worker} · {', '.join(flags)}", "  " + _route(route)]
+    choice = _mapping(row.get("effort_choice"))
+    if choice.get("lowered") and isinstance(choice.get("ceiling"), str):
+        lines.append(f"  One level below your {_label(choice['ceiling'])}: the task is small and clear")
     tokens = _mapping(row.get("attributed_tokens")) or _mapping(row.get("tokens"))
     lines.extend(_tokens(tokens, indent="  "))
     if "attributed_reported_usd" in row:

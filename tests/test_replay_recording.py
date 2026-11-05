@@ -114,7 +114,7 @@ class RecordingValidationTests(unittest.TestCase):
         document = copy.deepcopy(self.document)
         settings = document["launch"]["settings"]
         settings["roles"]["plan_reviewer"] = {"model": "fixture-model"}
-        for origin in ("user_explicit", "runner_default", "auto_selected"):
+        for origin in ("user_explicit", "runner_default", "auto_selected", "stage_choice"):
             settings["effort_origins"] = {"plan_reviewer": origin, "terra": origin}
             self.save(document)
             saved = recording.load(self.manifest).document["launch"]["settings"]
@@ -131,6 +131,21 @@ class RecordingValidationTests(unittest.TestCase):
             settings["effort_origins"] = invalid
             self.save(document)
             with self.subTest(value=invalid), self.assertRaisesRegex(recording.RecordingError, "effort origin"):
+                recording.load(self.manifest)
+
+    def test_the_levels_a_model_offers_are_portable_and_typed(self):
+        # A review under a stage-choice ceiling runs at a level its listing offers (2026-11-05), so a
+        # replay keeps the listing to derive the same level.
+        document = copy.deepcopy(self.document)
+        settings = document["launch"]["settings"]
+        settings["declared_variants"] = {"fixture-model": ["low", "medium", "high"]}
+        self.save(document)
+        saved = recording.load(self.manifest).document["launch"]["settings"]
+        self.assertEqual(settings["declared_variants"], recording.launch_settings(saved)["declared_variants"])
+        for invalid in (None, [], {"fixture-model": "high"}, {"fixture-model": [1]}):
+            settings["declared_variants"] = invalid
+            self.save(document)
+            with self.subTest(value=invalid), self.assertRaisesRegex(recording.RecordingError, "reasoning variants"):
                 recording.load(self.manifest)
 
     def test_unknown_fields_bool_version_and_missing_source_payload_are_refused(self):
