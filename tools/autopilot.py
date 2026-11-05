@@ -64,6 +64,7 @@ try:
     from . import autocode_run_status as run_status
     from . import autocode_stuck_job as stuck
     from . import autocode_support as support
+    from . import autocode_unit_request as unit_request
     from . import autocode_validation_rounds as validation_rounds
     from . import autocode_verification_plan as verification_plan
     from . import autocode_verify as verify
@@ -116,6 +117,7 @@ except ImportError:
     import autocode_run_status as run_status
     import autocode_stuck_job as stuck
     import autocode_support as support
+    import autocode_unit_request as unit_request
     import autocode_validation_rounds as validation_rounds
     import autocode_verification_plan as verification_plan
     import autocode_verify as verify
@@ -170,11 +172,6 @@ def drive(
     )
 
 
-def prepare_request(state: RunState, stage, state_path, schema_dir):
-    """A unit's model request for ``stage``, carrying the Investigator's guidance when in force."""
-    return stuck.with_guidance(state, stage, unit_module(stage).prepare(state, stage, state_path, schema_dir))
-
-
 UNITS = ("autoplanner", "autocode", "autoreview", "autoresolver")
 
 
@@ -210,6 +207,9 @@ def unit_module(stage):
     except ImportError:
         from units import autocode, autoplanner, autoresolver, autoreview
     return dict(zip(UNITS, (autoplanner, autocode, autoreview, autoresolver), strict=False))[unit_for(stage)]
+
+
+prepare_request = partial(unit_request.prepare, select_unit=lambda stage: unit_module(stage))
 
 
 def pending_unit(state: RunState):

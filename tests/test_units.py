@@ -2,6 +2,7 @@
 
 import copy
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -194,6 +195,64 @@ class ResolverFlow(unittest.TestCase):
         self.assertEqual("PAUSED_STALE_HANDOFF", state["status"])
         self.assertEqual(count, len(state["stages"]))
 
+    def test_explicit_resolver_retry_reaches_one_read_only_diagnosis(self):
+        self.env["PATH"] = os.pathsep.join((str(Path(sys.executable).parent), self.env["PATH"]))
+        probe = self.root / "provider-launches.jsonl"
+        self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
+        self.env["AUTOCODE_FIXTURE_MODE"] = "rework"
+        self.select("autoplanner")
+        self.launch(["Build greeting", "--no-chat"], 2)
+        run, _ = self.saved()
+        args = ["--run-dir", str(run), "--no-chat"]
+        self.launch([*args, "--answer", "Q1=CLI"], 0)
+        self.launch(args, 2)
+        view = json.loads(self.launch([*args, "--status"], 0).stdout)["view"]
+        self.launch([*args, "--approve-goal", view["needs"]["token"]], 0)
+        self.select("autocode_build")
+        self.launch(args, 0)
+        self.select("autoreview")
+        self.launch(args, 0)
+        _, state = self.saved()
+        revision = support.snapshot(self.project)["revision"]
+        for index in range(3):
+            output = run / f"rejected-resolver-{index}.json"
+            output.write_text('{"status":"REWORK"}')
+            record = {
+                "stage": "astra_resolve",
+                "iteration": state["iteration"],
+                "role": "astra",
+                "output": str(output),
+                "source_revision": revision,
+                "rejected": True,
+            }
+            runner.failures.record(state, record, ValueError("invalid report"), support.now())
+            state["stages"].append(record)
+        state.update(status="PAUSED_REPEATED_FAILURE", phase="PAUSED_OR_BLOCKED")
+        support.atomic_json(run / "state.json", state)
+        history = copy.deepcopy(state["failure_history"])
+        self.select("autoresolver")
+
+        def launches():
+            return [json.loads(line) for line in probe.read_text().splitlines()]
+
+        before = launches()
+
+        # Start from the repeated-failure boundary. ResolverSafety separately
+        # verifies that absent, stale and already-spent grants cannot prepare it.
+        self.launch([*args, "--resume-paused", "--retry-failed-stage"], 0)
+        retried = self.saved()[1]
+        after = launches()
+        attempts = after[len(before) :]
+        self.assertEqual(["astra_resolve"], [row["stage"] for row in attempts])
+        self.assertEqual(revision, support.snapshot(self.project)["revision"])
+        self.assertEqual(history, retried["failure_history"])
+        self.assertEqual(state["goal_contract"], retried["goal_contract"])
+        self.assertEqual("autocode", orchestrator.pending_unit(retried))
+        # The completed diagnosis is handed to the Builder; relaunching this
+        # unit cannot spend the saved authorization on another Resolver call.
+        self.launch(args, 0)
+        self.assertEqual(after, launches())
+
     def test_changed_evidence_pauses_resolution(self):
         run, args = self.rejected_build()
         evidence = next(iter(self.saved()[1]["resolution_request"]["evidence_hashes"]))
@@ -269,6 +328,56 @@ class ResolverSafety(unittest.TestCase):
         value, record = self.ready()
         value["diagnosis"] = ""
         self.rejected(value, record)
+
+    def test_authorized_retry_can_prepare_the_same_bound_resolver_handoff(self):
+        self.ready()
+        revision = support.snapshot(self.root)["revision"]
+        for index in range(3):
+            record = {
+                "stage": "astra_resolve",
+                "iteration": 1,
+                "output": str(self.run / f"failed-resolver-{index}.json"),
+                "source_revision": revision,
+                "rejected": True,
+            }
+            runner.failures.record(self.state, record, ValueError("invalid report"), support.now())
+            self.state["stages"].append(record)
+        self.state["status"] = "PAUSED_REPEATED_FAILURE"
+        with self.assertRaises(support.Paused):
+            runner.repeated_failure_resume_guard(self.state, self.root)
+        authorization = runner.authorize_failure_retry(self.state, self.run, self.root)
+        runner.repeated_failure_resume_guard(self.state, self.root, authorization=authorization)
+        for denied in (
+            None,
+            {**authorization, "consumed": False},
+            {**authorization, "_novelty_consumed": True},
+            {**authorization, "failure_key": "different"},
+            {**authorization, "identity": {**authorization["identity"], "stage": "terra"}},
+            {**authorization, "count": authorization["count"] + 1},
+            {**authorization, "count": True},
+            {**authorization, "count": float(authorization["count"])},
+            {**authorization, "source_revision": "different"},
+        ):
+            with self.subTest(authorization=denied), self.assertRaises(support.Paused):
+                orchestrator.prepare_request(
+                    self.state,
+                    "astra_resolve",
+                    self.run / "state.json",
+                    runner.SCHEMA_DIR,
+                    retry_authorization=denied,
+                )
+        request = orchestrator.prepare_request(
+            self.state,
+            "astra_resolve",
+            self.run / "state.json",
+            runner.SCHEMA_DIR,
+            retry_authorization=authorization,
+        )
+        self.assertFalse(request.allow_write)
+        self.assertEqual("resolver", request.route_role)
+        self.assertEqual(["REWORK", "BLOCKED"], request.schema["properties"]["status"]["enum"])
+        with self.assertRaises(support.Paused):
+            runner.repeated_failure_resume_guard(self.state, self.root, authorization=authorization)
 
     def test_validation_repair_still_requires_defect_evidence(self):
         value, record = self.ready()

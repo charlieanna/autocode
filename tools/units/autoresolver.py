@@ -320,11 +320,6 @@ def guard(state: RunState, workspace):
         raise util.Paused(
             "PAUSED_RESOLVER", "The saved blocker already has a diagnosis; reconcile it before another resolver call"
         )
-    if failures.repeated(state, {"stage": "astra_resolve", "source_revision": request["source_revision"]}):
-        raise util.Paused(
-            "PAUSED_REPEATED_FAILURE",
-            "Resolver failure limit reached for this source; no additional diagnosis authorized",
-        )
     for path, digest in request.get("evidence_hashes", {}).items():
         if not Path(path).is_file() or util.file_hash(path) != digest:
             raise util.Paused("PAUSED_STALE_HANDOFF", "Repair evidence changed; review again before resolving")
@@ -371,7 +366,7 @@ def prepare_stuck(state: RunState, state_path):
     return ModelRequest("astra", stuck_job.ROUTE, prompt, metrics, stuck_job.schema(state), False)
 
 
-def prepare(state: RunState, stage, state_path, schema_dir):
+def prepare(state: RunState, stage, state_path, schema_dir, *, retry_authorization=None):
     if stage == stuck_job.STAGE:
         return prepare_stuck(state, state_path)
     if stage == bug_job.STAGE:
@@ -383,6 +378,14 @@ def prepare(state: RunState, stage, state_path, schema_dir):
     if stage != "astra_resolve":
         raise ValueError(f"Autoresolver cannot run {stage}")
     guard(state, Path(state["workspace"]))
+    repeated = failures.repeated(
+        state, {"stage": stage, "source_revision": cast(dict, state["resolution_request"])["source_revision"]}
+    )
+    if repeated and not failures.admitted_retry(repeated, retry_authorization):
+        raise util.Paused(
+            "PAUSED_REPEATED_FAILURE",
+            "Resolver failure limit reached for this source; no additional diagnosis authorized",
+        )
     # Inherit the planner model, not its conversation. A dedicated route keeps
     # resolver sessions separate from planning, completion and implementation.
     state["settings"]["roles"].setdefault("resolver", copy.deepcopy(state["settings"]["roles"]["astra"]))
