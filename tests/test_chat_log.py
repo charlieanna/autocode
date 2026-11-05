@@ -108,6 +108,29 @@ class ReadTests(unittest.TestCase):
                 )
                 self.assertEqual(original, self.events.read_bytes(), "raw report evidence stays intact")
 
+    def test_a_fenced_report_after_prose_shows_the_prose_not_the_report(self):
+        # A live Plan Reviewer on Kilo ended its summary with a fenced JSON report, and the log
+        # showed the report's last 400 characters instead of the summary.
+        summary = "I've verified the current code and recomputed every worked example; one finding remains."
+        report = "```json\n" + json.dumps({"verdict": "REVISE", "notes": "saved " * 200}, indent=2) + "\n```"
+        example = summary + '\n```json\n{"code": 0}\n```\nWhich result should this show?'
+        write(
+            self.events,
+            [
+                codex("item.completed", "report", type="agent_message", text=summary + "\n\n" + report),
+                codex("item.updated", "streaming", type="agent_message", text=summary + '\n```json\n{"verdict": "RE'),
+                codex("item.completed", "example", type="agent_message", text=example),
+            ],
+        )
+        self.assertEqual(
+            [
+                ("message", summary + " Structured response received."),
+                ("message", summary + " Receiving a structured response. [partial]"),
+                ("message", log._prose(example)),
+            ],
+            self.entries(),
+        )
+
     def test_streaming_json_replaces_one_entry_and_keeps_its_partial_notice(self):
         rows = [
             codex("item.updated", "report", type="agent_message", text="{"),
