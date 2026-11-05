@@ -201,6 +201,9 @@ def category(status: object, needs: Mapping[str, object] | None = None) -> str |
     ):
         return "autocode"  # Applying feedback creates this checkpoint; the person did not request a stop.
 
+    if cause == "model_or_provider" and run_status.ORIGINAL_GATE_FAILED in str(needs.get("reason") or ""):
+        return "autocode"  # the change conflicts with the original-test gate; no model or provider failed (#2748)
+
     route = needs.get("route")
     if isinstance(route, Mapping) and route.get("cause") in ("quota", "content_filter", "output_limit"):
         return "model_or_provider"

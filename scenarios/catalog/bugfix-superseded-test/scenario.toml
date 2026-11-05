@@ -1,0 +1,12 @@
+title = "A bug fix whose plan replaces an existing test that asserts the bug"
+category = "bugfix"
+# #2748: test_fifty_dollar_order_pays_standard_fee pins the bug (shipping_fee(5000) == 499), so no correct
+# fix passes the original-test gate unless the approved plan lists it in a criterion's supersedes. Every other
+# original test must still pass unchanged. The run should finish without asking the person about the gate.
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+# Exits 0 while the seed's bug is present; the runner checks the scripted reproduction.
+probe = 'python3 -c "from shop import shipping_fee; assert shipping_fee(5000) == 499"'
+criteria = { C1 = "test: test_fifty_dollar_order_ships_free" }
+supersedes = { C1 = [{ file = "tests/test_shipping.py", test = "test_fifty_dollar_order_pays_standard_fee" }] }

@@ -1830,6 +1830,9 @@ def render_plan(plan: dict) -> str:
         lines.append(f"  [{row['id']}] {row['criterion']}")
         if row.get("current_behavior"):
             lines.append(f"      Today: {row['current_behavior']}")
+        for entry in row.get("supersedes") or []:
+            if isinstance(entry, dict):
+                lines.append(f"      Replaces existing test: {entry.get('file')}::{entry.get('test')}")
         lines.append(f"      Checked by: {row['verification_method']}")
         if row["human_review"]:
             lines.append("      You check this one yourself.")

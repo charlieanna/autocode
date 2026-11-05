@@ -173,6 +173,9 @@ def summary(
             )
             if row.get("current_behavior"):
                 lines.append(f"    Today: {row['current_behavior']}")
+            for entry in row.get("supersedes") or []:
+                if isinstance(entry, dict):
+                    lines.append(f"    Replaces existing test: {entry.get('file')}::{entry.get('test')}")
             if row.get("verification_method"):
                 lines.append(f"    Checked by: {row['verification_method']}")
             if row.get("human_review") is True:

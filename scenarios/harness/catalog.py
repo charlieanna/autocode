@@ -69,6 +69,7 @@ FAKE_KEYS = {
     "probe",
     "milestones",
     "criteria",
+    "supersedes",
     "turn_paths",
     "answers",
     "acknowledge",
@@ -131,6 +132,9 @@ class Scenario:
     # scripted provider can rehearse parallel scheduling without model spend.
     fake_milestones: tuple[dict, ...] = ()
     fake_criteria: dict = field(default_factory=dict)
+    # [fake] supersedes: {criterion_id = [{file, test}]}, the original tests the scripted plan's criterion
+    # replaces because they assert the bug (#2748).
+    fake_supersedes: dict = field(default_factory=dict)
     # [fake] turn_paths: in a conversation the solution is the end state of every turn; entry i lists
     # the solution path prefixes the scripted model delivers in turn i (0 = the brief).
     fake_turn_paths: tuple[tuple[str, ...], ...] = ()
@@ -226,6 +230,15 @@ def load(scenario_id: str) -> Scenario:
         isinstance(key, str) and isinstance(value, str) and value.strip() for key, value in criteria.items()
     ):
         raise ValueError(f"{scenario_id}: [fake] criteria maps ids to nonempty criterion definitions")
+    supersedes = fake.get("supersedes", {})
+    if not isinstance(supersedes, dict) or not all(
+        key in criteria
+        and isinstance(rows, list)
+        and rows
+        and all(isinstance(row, dict) and set(row) == {"file", "test"} for row in rows)
+        for key, rows in supersedes.items()
+    ):
+        raise ValueError(f"{scenario_id}: [fake] supersedes maps [fake] criteria ids to lists of {{file, test}}")
     if not isinstance(answers, dict) or not all(isinstance(value, str) and value.strip() for value in answers.values()):
         raise ValueError(f"{scenario_id}: [fake] answers maps question ids to nonempty answers")
     review_limit = fake.get("plan_review_call_limit")
@@ -318,6 +331,7 @@ def load(scenario_id: str) -> Scenario:
         requires_stages=tuple(run.get("requires_stages", ())),
         fake_milestones=tuple(fake.get("milestones", ())),
         fake_criteria=dict(criteria),
+        fake_supersedes=dict(supersedes),
         fake_turn_paths=tuple(tuple(row) for row in turn_paths),
         fake_answers=tuple(sorted(answers.items())),
         fake_acknowledge=acknowledge,

@@ -66,3 +66,6 @@ def waiting_for_user(state: RunState, phase: str, **fields) -> RunState:
 ENDED_PREFIX = "AutoCode could not finish this task: "
 # Existing saved feedback checkpoints use this prefix; it describes AutoCode's pause, not a pause request.
 APPLIED_FEEDBACK_PREFIX = "Queued feedback was applied;"
+# A failed original-test gate (autocode_protected_commands.ORIGINAL_GATE_FAILED): the change conflicts with an
+# AutoCode gate, so its pause is AutoCode's even when the stage's rejected reports set a provider status (#2748).
+ORIGINAL_GATE_FAILED = "Protected tests changed and the original gate did not pass"

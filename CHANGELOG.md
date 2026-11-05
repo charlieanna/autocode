@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A bug fix no longer stops when an existing test asserts the bug itself (#2748). The plan names
+  that test in its criterion's `supersedes`, and the approval screen shows it as "Replaces existing
+  test". The original-test gate then accepts a failure of the listed tests only, and only when the
+  runner reports every test's result. Every other existing test must still pass unchanged. A failed
+  original gate names its failing tests, and its pause is reported as AutoCode's, not as a model
+  or provider failure.
 - A reasoning level saved in your stage choices (`autocode stages`) is now a ceiling for the three
   review stages. On a small, clear task the Plan Reviewer, the Tester and the Completion Reviewer
   run one level below it, if their model offers that level. GLM 5.3 offers low, high and max, so
