@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The Planner is told to name an existing Python guard or test by its bare method name
+  (`guard: test_simple`), not a class-qualified selector the regression proof refuses. A
+  qualified name cost two repair rounds and a stuck-stage Investigator in a live bug fix.
 - Plan validation accepts the word “zero” for an unquoted source value of `0`, avoiding
   unnecessary report-repair calls. Exact quoted literals and different numeric values
   still require their original values.
