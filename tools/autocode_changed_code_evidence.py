@@ -170,6 +170,9 @@ def assess(inventory, coverage, mutation, *, source_revision, proof_context, exc
             demonstrated, outcomes, evidence = _mutation(changes, line)
             obligation = {
                 "gap_id": gap_id(source_revision, proof_context, path, digest, line),
+                # A short name for this exact gap, numbered over every obligation in inventory order so
+                # review decisions never shift it; the Tester cites it instead of a 64-hex id.
+                "handle": f"L{len(result['obligations']) + 1}",
                 "path": path,
                 "sha256": digest,
                 "line": line,

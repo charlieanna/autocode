@@ -22,6 +22,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The Tester names each changed line it gives a reason for by a short handle (`L12`) instead of
+  retyping its 64-character gap id. The runner maps the handle to that exact line, and a full id is
+  still accepted. In a live Kilo run, GLM mistyped one of 30+ ids in every report, so one milestone's
+  Tester ran 4 attempts and 7 report repairs over 144 minutes without finishing.
 - A recovery the Resolver's own rules settle now says so: "The Resolver's rules, with no model
   call, chose to try the stage again" instead of "The Resolver chose", which read as a model's
   judgement in a live run where the runner decided in a millisecond.
