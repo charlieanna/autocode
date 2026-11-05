@@ -70,6 +70,7 @@ def state(**keys):
             {"stage": "terra", "finished_at": "2026-11-02T05:40:00+00:00"},
             {
                 "stage": "resolver",
+                "engine": "runner",
                 "finished_at": "2026-11-02T05:45:55+00:00",
                 "decision": {"action": "retry", "rationale": "Terminal report failure eligible for report-only repair"},
             },
@@ -111,11 +112,27 @@ class RecoveryHistoryTests(unittest.TestCase):
             stuck["detail"],
         )
         self.assertEqual(
-            "The Resolver chose to try the stage again: Terminal report failure eligible for report-only repair",
+            "The Resolver's rules, with no model call, chose to try the stage again: "
+            "Terminal report failure eligible for report-only repair",
             resolved["action"],
         )
         self.assertEqual(len({row["id"] for row in rows}), len(rows))
         self.assertEqual(set(history.project(state())[0]), set(rows[0]))  # every row has the same keys
+
+    def test_a_model_resolver_decision_is_not_called_a_rule(self):
+        model_run = state(
+            history=[
+                {
+                    "stage": "astra_resolve",
+                    "engine": "opencode",
+                    "finished_at": "2026-11-02T05:46:00+00:00",
+                    "decision": {"action": "replan", "rationale": "The milestone order blocks M2"},
+                }
+            ]
+        )
+        resolved = next(row for row in history.project(model_run) if row["kind"] == "resolved")
+
+        self.assertEqual("The Resolver chose to revise the plan: The milestone order blocks M2", resolved["action"])
 
     def test_an_investigation_explains_the_rejection_it_was_called_for_and_drops_internal_text(self):
         stuck = next(row for row in history.project(state()) if row["kind"] == "investigated")

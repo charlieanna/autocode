@@ -22,6 +22,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A recovery the Resolver's own rules settle now says so: "The Resolver's rules, with no model
+  call, chose to try the stage again" instead of "The Resolver chose", which read as a model's
+  judgement in a live run where the runner decided in a millisecond.
 - Terminal chat: `/diff N` on a step the files still match, such as the newest step of a finished run,
   now shows what that step itself changed instead of only "Nothing has changed since step N". The
   status view names a display-only `step` action for each saved step (`autocode checkpoint --step`).
