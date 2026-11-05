@@ -73,6 +73,24 @@ def view(state: RunState):
     return record if isinstance(record, dict) else {}
 
 
+def ordinary_initial_draft(state: RunState) -> bool:
+    """Identify a sealed first draft whose saved report explicitly has no slice proposal."""
+    contract = state.get("goal_contract") or {}
+    if (
+        view(state)
+        or contract.get("origin") != "glm_draft"
+        or contract.get("revision") != 1
+        or contract.get("approval_status") != "draft"
+        or not contract.get("task_id")
+        or "body" not in contract
+        or not goals.sealed(contract)
+    ):
+        return False
+    report = ((state.get("planning") or {}).get("reports") or {}).get("astra_discovery") or {}
+    proposal = (report.get("report") or {}).get("progressive_proposal")
+    return isinstance(proposal, dict) and proposal.get("version") == 0 and not rules.declares(proposal)
+
+
 def retained_review_budget_pause(state: RunState, status):
     """Keep an inherited review ceiling actionable without inventing more capacity."""
     return status == "PAUSED_PLANNING_BUDGET" and bool(view(state).get("budget"))

@@ -14,8 +14,9 @@ from .test_prompt_rendering import STATE_PATH, fixed_state
 
 
 class PlanningReportPolicyTests(unittest.TestCase):
-    def render(self, stage, contract=None):
+    def render(self, stage, contract=None, **state_fields):
         state = fixed_state()
+        state.update(state_fields)
         if contract is not None:
             state["goal_contract"] = contract
         before = copy.deepcopy(state)
@@ -24,6 +25,31 @@ class PlanningReportPolicyTests(unittest.TestCase):
         self.assertEqual(before, state)
         instruction, raw = prompt.split("\nCURRENT HANDOFF DATA\n", 1)
         return instruction, json.loads(raw)
+
+    def test_first_review_omits_slice_rules_for_an_ordinary_draft(self):
+        contract = {"task_id": fixed_state()["task_id"], "revision": 1, "body": {}}
+        contract.update(hash=util.digest(contract), approval_status="draft", origin="glm_draft")
+        empty = {"version": 0, "needed_because": "", "slices": []}
+
+        def render(stage, proposal, **state_fields):
+            return self.render(
+                stage,
+                contract,
+                planning={"reports": {"astra_discovery": {"report": {"progressive_proposal": proposal}}}},
+                **state_fields,
+            )[0]
+
+        ordinary = render("astra_challenge", empty)
+        self.assertNotIn("exactly one whole-product milestone", ordinary)
+        self.assertIn("Raise a concern if the proposed milestone is too broad", ordinary)
+        self.assertIn("A protected behavior change without a saved user basis", ordinary)
+        for prompt in (
+            render("astra_challenge", {"version": 1, "slices": [{"id": "S1"}]}),
+            render("astra_challenge", empty, progressive={"version": 1}),
+            self.render("astra_challenge", contract)[0],
+            render("glm_revise", empty),
+        ):
+            self.assertIn("exactly one whole-product milestone", prompt)
 
     def test_review_uses_runner_graph_checks_for_the_exact_single_milestone_draft(self):
         contract = {

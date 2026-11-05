@@ -1197,8 +1197,13 @@ the finalization report does not propose remediations.
 PROGRESSIVE_POLICY = prompts.get("fragments/autoplanner/progressive-policy.md")
 
 
-def progressive_policy(stage):
+def progressive_policy(stage, state: RunState | None = None):
     """A concern-only review checks proposals; it cannot return one."""
+    if stage == "astra_challenge" and state is not None and progressive.ordinary_initial_draft(state):
+        return (
+            "\nThe saved draft has no progressive proposal. Raise a concern if the proposed milestone is too broad "
+            "to deliver and verify as planned.\n"
+        )
     instruction = (
         prompts.get("fragments/autoplanner/progressive-review-policy.md")
         if stage == "astra_challenge"
@@ -1529,7 +1534,7 @@ def context(state: RunState, stage, state_path):
     if stage != "requirements_gather":
         planning_policy += prompts.get("fragments/autoplanner/proof-reference-rule.md")
     progressive_rule = (
-        progressive_policy(stage)
+        progressive_policy(stage, state)
         if stage
         in (
             "astra_discovery",
