@@ -133,6 +133,28 @@ class StageTests(unittest.TestCase):
         self.assertEqual("", meter.struggling(shown, NOW))
         self.assertEqual("● Plan Reviewer · 1m30s total · 2 runs", meter.stage_lines(row)[0])
 
+    def test_a_new_turn_after_a_repaired_attempt_is_not_a_retry(self):
+        # Live 2026-11-05: Requirements' second turn was rejected and repaired, then the person
+        # answered and its third turn ran. The panel said "attempt 4", as if it were failing.
+        shown = view(
+            attempt("requirements_gather", "Requirements"),
+            attempt("requirements_gather", "Requirements", rejected=True),
+            attempt("requirements_gather_report_repair", "Requirements", original_stage="requirements_gather"),
+            attempt(
+                "requirements_gather",
+                "Requirements",
+                active=True,
+                duration_seconds=None,
+                started_at="2026-11-02T01:09:00Z",
+            ),
+        )
+        (row,) = meter.stages(shown, NOW)
+        self.assertEqual((meter.WORKING, 4), (row["state"], row["attempts"]))
+        self.assertEqual("", meter.struggling(shown, NOW))
+        self.assertEqual("● Requirements · 2m30s total · 4 runs", meter.stage_lines(row)[0])
+        done = meter.stages(view(*shown["usage"]["accounting"]["attempts"][:3]), NOW)[0]
+        self.assertEqual("✓ Requirements · 1m30s total · 3 runs", meter.stage_lines(done)[0])
+
     def test_a_first_attempt_at_work_is_not_struggling(self):
         shown = view(attempt("terra", "Builder", active=True, duration_seconds=None, started_at="2026-11-02T01:09:00Z"))
         self.assertEqual(meter.WORKING, meter.stages(shown, NOW)[0]["state"])
