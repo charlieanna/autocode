@@ -1,10 +1,17 @@
-"""Config relocation reuses charged access evidence only after public transport acceptance."""
+"""A provider config moved with its checkout keeps the run going and its charged access evidence.
 
+The same bytes at a new path are the same transport (#2773): the run continues with no pause and
+no person, and spends no new access check. Different bytes are a transport change: the run pauses,
+the change is accepted publicly, and access is checked again.
+"""
+
+import json
 import shutil
 import sys
 import unittest
 from pathlib import Path
 
+import autocode_transport_relocation as relocation
 from autocode_taskrun import TaskRun
 
 from tests import test_taskrun as fixtures
@@ -122,13 +129,28 @@ class PreflightRelocationCLI(unittest.TestCase):
         else:
             self.assertEqual(self.old_config.read_bytes(), new_config.read_bytes())
         self.pointer.write_text(str(new_config))
-        held = run.advance()
-        self.assertEqual("PAUSED_TRANSPORT_CHANGED", held["status"], held)
-        self.assertIn("--accept-transport-change", held["next_command"])
-        self.assertEqual(probes, self.operations("preflight"))
-        self.assertEqual("PAUSED_TRANSPORT_CHANGED", run.resume_paused()["status"])
-        self.assertEqual(probes, self.operations("preflight"))
-        after = run.accept_transport_change()
+        if changed:
+            held = run.advance()
+            self.assertEqual("PAUSED_TRANSPORT_CHANGED", held["status"], held)
+            self.assertIn("--accept-transport-change", held["next_command"])
+            self.assertEqual(probes, self.operations("preflight"))
+            self.assertEqual("PAUSED_TRANSPORT_CHANGED", run.resume_paused()["status"])
+            self.assertEqual(probes, self.operations("preflight"))
+            after = run.accept_transport_change()
+        else:
+            after = run.advance()
+            self.assertNotIn("--accept-transport-change", after.get("next_command") or "")
+            # The decision is recorded once, as metadata; the saved identity keeps its bound path.
+            state = json.loads((Path(after["run_dir"]) / "state.json").read_text())
+            moves = [row for row in state["configuration_changes"] if row.get("reason") == relocation.REASON]
+            self.assertEqual(
+                [(str(self.old_config), str(new_config))],
+                [(row["saved_config_path"], row["config_path"]) for row in moves],
+            )
+            self.assertEqual(str(self.old_config), state["settings"]["transport_identity"]["config_path"])
+            self.assertEqual(
+                state["settings"]["transport_identity"], state["settings"]["transport_identities"]["opencode"]
+            )
         self.assertEqual("PAUSED_REQUESTED", after["status"], after)
         self.assertEqual(approved["approved_contract"], after["approved_contract"])
         self.assertEqual(before["routes"], after["routes"])
@@ -146,7 +168,7 @@ class PreflightRelocationCLI(unittest.TestCase):
             self.assertEqual(attempts, current)
             self.assertEqual(usage, after["usage"]["by_role"]["model_preflight"])
 
-    def test_relocation_reuses_original_charged_access_attempts_after_explicit_acceptance(self):
+    def test_relocation_continues_without_a_pause_and_reuses_charged_access_attempts(self):
         self.exercise()
 
     def test_changed_toml_bytes_require_fresh_access_attempts(self):

@@ -1,8 +1,12 @@
-"""Prove access-receipt identity across a content-identical config relocation.
+"""A configured command tool's config moved, its bytes unchanged.
 
-Only retained settings snapshots can supply an old digest's preimage. This does
-not accept transport changes or certify tools: normal live admission still runs.
-No receipt or historical settings are rewritten.
+Resuming a run from another AutoCode checkout moves the bundled provider config.
+``path_only`` recognizes that move, so the transport check keeps the saved identity
+and records the move (``note_relocation``) instead of pausing for a person.
+Runs moved before that, by an explicit transport acceptance, prove their earlier
+locations from retained settings snapshots (``relocations``, ``equivalents``):
+only those snapshots can supply an old digest's preimage. No receipt or
+historical settings are rewritten.
 """
 
 from __future__ import annotations
@@ -36,6 +40,27 @@ def _complete(value):
         and isinstance(value["config_sha256"], str)
         and re.fullmatch(r"[0-9a-f]{64}", value["config_sha256"]) is not None
     )
+
+
+def path_only(current, saved) -> bool:
+    """Whether two command-tool identities differ only in where the same config bytes lie.
+
+    Both must be whole version-1 command identities with absolute paths and a config digest.
+    A tool without a version command records ``version`` as None on both sides; a missing,
+    extra or malformed field is a real change.
+    """
+    return (
+        current != saved
+        and all(_moveable(value) for value in (current, saved))
+        and all(current[key] == saved[key] for key in _FIELDS - {"config_path"})
+    )
+
+
+def _moveable(value):
+    # A tool with no version command saves None; _complete otherwise requires a version string.
+    if not isinstance(value, dict) or value.get("version", "") is not None:
+        return _complete(value)
+    return _complete({**value, "version": "unversioned"})
 
 
 def _primary(settings):
