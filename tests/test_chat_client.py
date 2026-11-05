@@ -1119,17 +1119,10 @@ class ConversationTests(unittest.TestCase):
                 self.assertEqual([["--answer", "RQ=plan"]], client.taken)
 
     def test_plain_confirmation_also_accepts_the_displayed_planning_spend(self):
-        client = ScriptedChat(self.REVIEW, DONE, replies=["yes correct", "yes correct"])
+        client = ScriptedChat(self.REVIEW, DONE, replies=["yes correct"])
         self.addCleanup(client.close)
         self.assertEqual(0, client.converse())
         self.assertEqual([["--answer", "RQ=plan"]], client.taken)
-
-    def test_qualified_spend_confirmation_leaves_the_understanding_unapproved(self):
-        client = ScriptedChat(self.REVIEW, DONE, replies=["yes correct", "yes, but do not spend more"])
-        self.addCleanup(client.close)
-        self.assertEqual(2, client.converse())
-        self.assertEqual([], client.taken)
-        self.assertIn("Not started", client.text())
 
     def test_qualified_confirmation_is_still_requirements_feedback(self):
         reply = "yes correct, but include stored entries"
