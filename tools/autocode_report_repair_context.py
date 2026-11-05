@@ -215,13 +215,9 @@ def historical_author_report(stage: str, original: dict, latest: dict | None) ->
 def sources(pending: dict, read_source) -> tuple[dict, dict]:
     """Load the original and current pinned report once, in their existing order."""
     original = read_source(pending["original"])
-    latest = (
-        read_source(pending["latest_rejected"], allow_empty=True)
-        if pending.get("latest_rejected") and pending["original"]["stage"] in PLANNING_STAGES
-        else read_source(pending["latest_rejected"])
-        if pending.get("latest_rejected")
-        else original
-    )
+    # An empty report-only answer is input, never a report: the next repair corrects the
+    # pinned original instead (#2426). Planning and execution stages share this rule.
+    latest = read_source(pending["latest_rejected"], allow_empty=True) if pending.get("latest_rejected") else original
     return original, latest
 
 
