@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A rejected stage report now names every schema problem at once, so one report repair can fix
+  them all. Before, only the first was named: a live Requirements report missing
+  `acceptance_tests` and an assumption's `text` took two repairs instead of one.
 - Tester and Completion Reviewer prompts no longer carry the coverage run's command receipts twice.
   The changed-code receipts start with those same receipts, and each now points at its copy
   under `diff_coverage`; in a live two-line fix that removed about 3.7 KB from each prompt.
