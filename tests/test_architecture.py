@@ -80,6 +80,8 @@ MAX_LINES = {
 # and the two judgments moved to autocode_verify_judgment.
 # autocode_configure.configure was 583 lines; its new-run refusals, Figma checks, joint-planning choice, saved-run
 # settings, history routes, milestone checkpoints and limits became functions of their own.
+# autocode_tool_containment.configure was 439 lines; its debug call, shell, private-read, footprint and toolchain
+# probes and its conformance record became module functions.
 MAX_FUNCTION_LINES = {
     ("autocode_run_actions.py", "handle"): 9,
     ("autocode_args.py", "build_parser"): 539,
@@ -88,7 +90,7 @@ MAX_FUNCTION_LINES = {
     ("autocode_verify.py", "_preserve_suite"): 219,
     ("autocode_configure.py", "configure"): 291,
     ("autocode_configure.py", "_configure_saved"): 164,
-    ("autocode_tool_containment.py", "configure"): 439,
+    ("autocode_tool_containment.py", "configure"): 189,
     ("autopilot.py", "_apply_result"): 281,
 }
 
