@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat says why it stopped in words ("AutoCode stopped: the model or its provider failed.")
+  instead of repeating the bare cause label ("AutoCode stopped: AutoCode.").
 - Plan validation accepts the word “zero” for an unquoted source value of `0`, avoiding
   unnecessary report-repair calls. Exact quoted literals and different numeric values
   still require their original values.

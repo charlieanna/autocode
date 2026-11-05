@@ -576,6 +576,20 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("Left as it is. The run remains paused.", client.text())
         self.assertNotIn("What do you want done?", client.text())
 
+    def test_a_stop_names_its_cause_as_a_reason_not_a_bare_label(self):
+        # 2026-11-05 live run: "AutoCode stopped: AutoCode. Partial work retained."
+        view = {
+            "status": "PAUSED_STAGE_ABANDONED",
+            "next_stage": "astra_challenge",
+            "needs": {"kind": "resume", "reason": "Partial work retained."},
+            "pause_category_label": "AutoCode",
+            "next_command": f"autocode {PLACE} --resume-paused",
+        }
+        client = ScriptedChat(view, replies=["n"])
+        client.converse()
+        self.assertIn("AutoCode stopped: AutoCode hit a problem of its own. Partial work retained.", client.text())
+        self.assertNotIn("AutoCode stopped: AutoCode.", client.text())
+
     def test_a_declined_continue_returns_to_a_new_chat_in_the_full_screen_client(self):
         """#2701: answering N at a Continue prompt evicted the full-screen chat with exit code 2."""
         view = {
