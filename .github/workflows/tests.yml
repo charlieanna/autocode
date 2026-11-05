@@ -319,6 +319,51 @@ jobs:
             node "$test_file" || exit 1
           done
 
+  diff-coverage:
+    needs: scope
+    # Advisory (#2754): which changed tools/ lines no selected test executes. It runs the
+    # same --changed selection as the suite, in its own venv with coverage.py, so the gate
+    # above never runs with a coverage tool installed. Not in ci-required, and its
+    # steps never fail the job; the suite job is still the verdict on the tests.
+    if: github.event_name == 'pull_request' && needs.scope.outputs.suite == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Prepare native Linux verification boundary
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap libseccomp2 tmux
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Install package with coverage.py
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -e '.[visual,test,coverage]'
+      - name: Run the changed selection under coverage
+        continue-on-error: true
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          .venv/bin/python tools/ci_diff_coverage.py run --data-dir "$RUNNER_TEMP/diff-coverage" -- \
+            .venv/bin/python tools/run_suite.py --changed "$BASE"
+      - name: Report changed lines no test executed
+        if: ${{ !cancelled() }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          .venv/bin/python tools/ci_diff_coverage.py report --base "$BASE" \
+            --coverage-json "$RUNNER_TEMP/diff-coverage/coverage.json" \
+            --summary "$GITHUB_STEP_SUMMARY" --json-out "$RUNNER_TEMP/diff-coverage/report.json"
+
   macos-tool-containment:
     needs: scope
     if: needs.scope.outputs.macos == 'true'

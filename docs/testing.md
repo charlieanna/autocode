@@ -344,6 +344,29 @@ sees: a stand-in curses screen cannot show type-ahead, paste or scrolling proble
 Codex launch compatibility was checked against installed exec/resume help and
 [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
 
+#### Diff coverage of a pull request (advisory)
+
+Each pull request that selects the suite also runs the `diff-coverage` job (#2754). It
+runs the same `tools/run_suite.py --changed` selection under coverage.py, in its own venv
+(`pip install -e '.[coverage]'`, never a runtime dependency), with `COVERAGE_PROCESS_START`
+set so the CLI subprocesses the tests launch are measured too. It then intersects the result
+with the pull request's changed `tools/` lines, using the hunk logic AutoCode applies to the
+projects it builds (`tools/autocode_diff_coverage.py`). The job summary lists each changed
+line no selected test executed, and the first ten show as notices on the diff. A test that
+starts Python with a cleared environment is not measured, so its lines can show as not
+executed.
+
+The job is advisory: it is not part of `ci-required` and never fails. A line no public
+input reaches carries its reason as `# pragma: no cover - <reason>`, which removes it
+from the report. To run it locally on supported Linux:
+
+```sh
+.venv/bin/python -m pip install -e '.[coverage]'
+.venv/bin/python tools/ci_diff_coverage.py run --data-dir /tmp/dc -- \
+  .venv/bin/python tools/run_suite.py --changed origin/master
+.venv/bin/python tools/ci_diff_coverage.py report --base origin/master --coverage-json /tmp/dc/coverage.json
+```
+
 ### Opt-in product audits
 
 The [shared provider conformance probe](provider-conformance.md) exercises a Builder,
