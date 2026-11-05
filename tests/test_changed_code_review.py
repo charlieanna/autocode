@@ -363,6 +363,49 @@ class TesterOnlyGapTests(unittest.TestCase):
                     {**self.record, "report_repaired": mark},
                 )
 
+    def test_the_proof_file_binds_by_its_workspace_relative_path_too(self):
+        """A live Tester cited the proof as .autocode/runs/<run>/regression/<proof>/verification.json."""
+        import autocode_changed_code_review_application as application
+
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        workspace = Path(folder.name) / "project"
+        proof = workspace / ".autocode/runs/run-1/regression/proof-07-abc/verification.json"
+        proof.parent.mkdir(parents=True)
+        proof.write_text("{}")
+        state = {"regression_proof": {"changed_code_evidence": self.assessment, "path": str(proof)}}
+        record = {
+            **self.record,
+            "role": "sol",
+            "changed_files": [],
+            "output": str(workspace / ".autocode/runs/run-1/tester.json"),
+        }
+        relative = ".autocode/runs/run-1/regression/proof-07-abc/verification.json"
+
+        def validation(ref):
+            decisions = [
+                {
+                    "gap_id": gap["handle"],
+                    "decision": "reject",
+                    "reason_kind": "equivalent_mutant",
+                    "reason": "No test observes this line.",
+                    "evidence_refs": [ref],
+                }
+                for gap in (self.survivor, self.no_site)
+            ]
+            return {"checks": [], "evidence_hashes": {}, "changed_code_exceptions": decisions}
+
+        def pin(refs):
+            return {ref: "h" * 64 for ref in refs}
+
+        accepted = validation(relative)
+        application.accept(state, accepted, record, pin=pin, workspace=workspace)
+        self.assertEqual([[str(proof)], [str(proof)]], [row["evidence"] for row in accepted["changed_code_decisions"]])
+        # Without the workspace, or spelled any other way, the citation stays unauthenticated.
+        for ref, options in ((relative, {}), ("../project/" + relative, {"workspace": workspace})):
+            with self.subTest(ref=ref), self.assertRaisesRegex(ValueError, "unauthenticated evidence"):
+                application.accept(state, validation(ref), record, pin=pin, **options)
+
     def test_the_builder_receives_the_testers_rejected_reason(self):
         import autocode_changed_code_rework as rework
 

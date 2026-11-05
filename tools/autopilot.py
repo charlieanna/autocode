@@ -902,7 +902,11 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
     efficiency.observe_replay(state, validation["check_replay"], attempt_id=record.get("events") or record["output"])
     validation["evidence_hashes"].update(check_replay.evidence_pins(validation["check_replay"]))
     changed_code_review_application.accept(
-        state, validation, record, pin=lambda refs: support.evidence_hashes(refs, workspace, run_dir)
+        state,
+        validation,
+        record,
+        pin=lambda refs: support.evidence_hashes(refs, workspace, run_dir),
+        workspace=workspace,
     )
     if stage == "sol" and (record.get("visual_runtime") or visual_runtime.requested(state)):
         visual_receipt = visual_runtime.accept_review(
