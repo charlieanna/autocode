@@ -77,11 +77,15 @@ def require_tester_decisions(state: RunState, value, record):
     )
     if not gaps:
         return
-    listed = ", ".join(f"{row['path']}:{row['line']} ({row['gap_id']})" for row in gaps[:LISTED_GAPS])
+    listed = ", ".join(
+        f"{row['handle'] + ' ' if row.get('handle') else ''}{row['path']}:{row['line']} ({row['gap_id']})"
+        for row in gaps[:LISTED_GAPS]
+    )
     more = f", and {len(gaps) - LISTED_GAPS} more in the gap_id enum" if len(gaps) > LISTED_GAPS else ""
     raise ValueError(
         "The PASS leaves changed lines that no added test can mark tested, because they have no "
-        f"mutation outcome: {listed}{more}. Give one changed_code_exceptions decision for each: accept "
+        f"mutation outcome: {listed}{more}. Give one changed_code_exceptions decision for each, with its "
+        "handle (such as L12) as gap_id: accept "
         "with the concrete reason the tests cover the line, or reject with the test it still needs. "
         f"The lines and their tests are in {(state.get('regression_proof') or {}).get('path')}."
     )
