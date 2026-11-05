@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A bug-fix plan's "Today:" text quotes the Investigator's observation verbatim. Collapsing its spaces
+  misquoted inputs such as `slugify("  Hello, World!  ")`, which a Plan Reviewer blocked on and which cost
+  a whole extra Requirements and Plan Reviewer round.
 - On Kilo and OpenCode, the live agent log shows the newest words of a stage's reasoning (bounded and
   redacted) instead of only "Reasoning stream activity received; text unavailable". A response part,
   which may be the report, still shows only as activity.
