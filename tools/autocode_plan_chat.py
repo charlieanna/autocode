@@ -115,10 +115,10 @@ def context(state: RunState):
     if message.get("live"):
         packet = run_messages.context(state)
         prompt = (
-            prompts.get(
-                "coordinated-plan-chat.md"
+            (
+                prompts.get("coordinated-plan-chat.md")
                 if (message.get("context") or {}).get("kind") == "coordinated_plan"
-                else "run-chat.md"
+                else prompts.get("run-chat.md")
             )
             + "\nCURRENT HANDOFF DATA\n"
             + json.dumps(packet, ensure_ascii=False)
