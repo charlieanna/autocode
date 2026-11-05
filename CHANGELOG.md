@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- On Kilo and OpenCode, the live agent log shows the newest words of a stage's reasoning (bounded and
+  redacted) instead of only "Reasoning stream activity received; text unavailable". A response part,
+  which may be the report, still shows only as activity.
 - A read-only stage (Requirements, planning, Plan Reviewer, completion review) whose provider ends the
   stream with no answer, an unexplained finish reason and no counted usage, exiting 0, is retried once
   with no workspace effects instead of pausing to ask the person for "corrective information".
