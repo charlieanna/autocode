@@ -18,6 +18,28 @@ import autocode_run_view as run_view
 
 
 class RecoveryViewTests(unittest.TestCase):
+    def test_paused_discussion_explains_queued_requirements_handoff_without_resuming(self):
+        state = self.state("PAUSED_INTERVENTION", next_stage="answer_question", goal_contract={})
+        state["settings"]["spec_first"] = True
+        state["pause_intent"] = {"request_ids": ["pause-1"], "acknowledged_at": None}
+        state["user_events"] = [{"kind": "run_message", "id": "run-message-1", "text": "Please fix it.", "live": True}]
+        before = copy.deepcopy(state)
+        view = run_view.view(state, workspace=Path("/p"), run_dir=Path("/p/.autocode/runs/r1"))
+        self.assertEqual("PAUSED_INTERVENTION", view["status"])
+        self.assertIn("Requirements", view["recovery"]["what_happened"])
+        self.assertIn("saved message", view["recovery"]["what_happened"])
+        self.assertIn("--resume-paused", view["next_command"])
+        self.assertNotIn("--retry-failed-stage", view["next_command"])
+        action = next(row for row in view["recovery"]["actions"] if row["kind"] == "resume")
+        self.assertEqual("Resume with Requirements", action["label"])
+        self.assertIn("Requirements first", action["effect"])
+        self.assertEqual(before, state)
+
+        state["pause_intent"]["held_pause"] = {"status": "PAUSED_COST_LIMIT"}
+        held = run_view.view(state)
+        self.assertNotEqual(view["recovery"]["token"], held["recovery"]["token"])
+        self.assertNotIn("saved message", held["recovery"]["what_happened"])
+
     def test_immutable_caller_binding_requires_fresh_run_in_every_public_reader(self):
         task = (
             "Implement the api component of a larger system: HTTP service. "

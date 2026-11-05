@@ -87,8 +87,8 @@ def active(state: RunState):
     )
 
 
-def activate(state: RunState):
-    """Start one queued conversation only at a clear, non-protected checkpoint."""
+def _queued(state: RunState):
+    """Select the message eligible at this checkpoint without changing it."""
     event = next((row for row in state.get("user_events", []) if row.get("kind") == "run_message"), None)
     if (
         not checkpoint_allowed(state)
@@ -103,7 +103,36 @@ def activate(state: RunState):
         )
         or any(row.get("kind") == "plan_message" and "reply_after" not in row for row in state.get("user_events", []))
     ):
-        return False
+        return None
+    return event
+
+
+def _stage(event):
+    return "astra_finalize" if (event.get("context") or {}).get("kind") == "coordinated_plan" else "requirements_gather"
+
+
+def resume_stage(state: RunState):
+    """Describe a queued handoff after explicit resume; never release a pause."""
+    intent = state.get("pause_intent") or {}
+    if (
+        state.get("status") != "PAUSED_INTERVENTION"
+        or (intent.get("held_pause") and not intent.get("acknowledged_at"))
+        or any(row.get("kind") == "stop" for row in state.get("applied_interventions", []))
+    ):
+        return None
+    event = _queued(cast("RunState", {**state, "status": "RUNNING"}))
+    if event is None:
+        return None
+    try:
+        _token(state)
+    except (KeyError, ValueError):
+        return None
+    return _stage(event)
+
+
+def activate(state: RunState):
+    """Start one queued conversation only at a clear, non-protected checkpoint."""
+    event = _queued(state)
     if event is None:
         return False
     selected = _token(state)
@@ -118,9 +147,7 @@ def activate(state: RunState):
     run_status.running(
         state,
         "PLANNING",
-        next_stage="astra_finalize"
-        if (event.get("context") or {}).get("kind") == "coordinated_plan"
-        else "requirements_gather",
+        next_stage=_stage(event),
     )
     return True
 
