@@ -246,6 +246,11 @@ def _resolver(state: RunState):
             continue
         choice = _RESOLVER_ACTIONS.get(decision["action"], str(decision["action"]))
         reason = _plain(decision.get("rationale"))
+        # The runner's own policy (autocode_resolver_runtime, engine "runner") decides without a model; a
+        # person reading "the Resolver chose" otherwise takes it for a model's judgement (2026-11-05 live run).
+        who = (
+            "The Resolver's rules, with no model call, chose" if row.get("engine") == "runner" else "The Resolver chose"
+        )
         yield _entry(
             "resolved",
             row.get("finished_at"),
@@ -253,6 +258,6 @@ def _resolver(state: RunState):
             state,
             headline=f"Resolver: {choice}",
             problem=None,
-            action=f"The Resolver chose to {choice}" + (f": {reason}" if reason else "."),
+            action=f"{who} to {choice}" + (f": {reason}" if reason else "."),
             by="Resolver",
         )
