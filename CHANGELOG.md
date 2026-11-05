@@ -22,6 +22,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Tester report repair that leaves a changed line undecided is no longer rejected for it. The
+  undecided line goes to the existing Builder and Investigator rounds, as the gate intended. A
+  repaired report is applied with its original stage's record, so the check missed the repair. In a
+  live run a PASS with 132 of 133 line decisions was rejected twice for the last one.
 - A recovery the Resolver's own rules settle now says so: "The Resolver's rules, with no model
   call, chose to try the stage again" instead of "The Resolver chose", which read as a model's
   judgement in a live run where the runner decided in a millisecond.

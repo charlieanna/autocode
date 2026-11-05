@@ -286,6 +286,10 @@ class TesterOnlyGapTests(unittest.TestCase):
         for value, record in (
             ({"verdict": "FAIL", "changed_code_exceptions": []}, self.record),
             ({"verdict": "PASS", "changed_code_exceptions": None}, {**self.record, "stage": "sol_report_repair"}),
+            # autocode_repaired_result applies a repaired report with its original stage's record, so
+            # the bounded repair is recognized by report_repaired: an undecided gap it leaves goes to
+            # the Builder and Investigator rounds instead of rejecting the whole repaired PASS.
+            ({"verdict": "PASS", "changed_code_exceptions": []}, {**self.record, "report_repaired": True}),
             ({"verdict": "PASS", "changed_code_exceptions": []}, {**self.record, "source_revision": "stale"}),
             (
                 {"verdict": "PASS", "changed_code_exceptions": [{"gap_id": self.no_site["gap_id"]}]},
@@ -294,6 +298,17 @@ class TesterOnlyGapTests(unittest.TestCase):
         ):
             with self.subTest(value=value, stage=record["stage"]):
                 self.assertIsNone(application.require_tester_decisions(self.state, value, record))
+
+    def test_only_an_explicit_repair_mark_skips_the_decision_request(self):
+        import autocode_changed_code_review_application as application
+
+        for mark in (False, "true", 1, None):
+            with self.subTest(mark=mark), self.assertRaisesRegex(ValueError, "no mutation outcome"):
+                application.require_tester_decisions(
+                    self.state,
+                    {"verdict": "PASS", "changed_code_exceptions": []},
+                    {**self.record, "report_repaired": mark},
+                )
 
     def test_the_builder_receives_the_testers_rejected_reason(self):
         import autocode_changed_code_rework as rework
