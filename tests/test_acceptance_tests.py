@@ -776,6 +776,19 @@ class RouteTests(unittest.TestCase):
             acceptance.route(state)
             self.assertEqual("terra", state["next_stage"], "every case is covered: two inherited, one rewritten")
 
+    def test_the_orchestrators_wave_of_milestone_rows_gets_its_cases(self):
+        """autocode_dispatch.select returns milestone rows; a live run crashed on them (TypeError, unhashable dict)."""
+        state = approved()
+        body = state["goal_contract"]["body"]
+        body["milestones"] = [
+            {"id": "M1", "acceptance_criteria": ["C1"], "depends_on": []},
+            {"id": "M2", "acceptance_criteria": ["C2"], "depends_on": ["M1"]},
+            {"id": "M3", "acceptance_criteria": ["C3"], "depends_on": ["M1"]},
+        ]
+        state.update(next_stage="orchestrator", current_task={"milestone_id": "M2"})
+        acceptance.route(state, wave=lambda: [copy.deepcopy(row) for row in body["milestones"][1:]])
+        self.assertEqual(["C2", "C3"], [case["id"] for case in acceptance.job_cases(state)])
+
     def test_a_parallel_wave_and_a_later_milestone_get_only_their_unwritten_cases(self):
         state = approved()
         body = state["goal_contract"]["body"]
