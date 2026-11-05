@@ -732,12 +732,12 @@
     "sha256": "40606db57cb1dfe868b45b1bcd1fdd17dbfd21e71389703c1fdaf2686e45962f"
   },
   "stuck/builder-failure": {
-    "bytes": 5192,
-    "sha256": "79ef2b3c7b803363e68171e09a83523d04ba14fca0eb8b87d672646c498fbc96"
+    "bytes": 5298,
+    "sha256": "f35a606837170f3b175ad5bd09a824cb6991fbd14accebf82131397dd5f8dae4"
   },
   "stuck/ordinary": {
-    "bytes": 4386,
-    "sha256": "06ec6ecfe6eb232bdb85bf796bafceb72ef3eea4bc76571bad380e1540aadd19"
+    "bytes": 4492,
+    "sha256": "e44c1103ce551a934af4e52988aa73ae1b4a62a84e08efd0ebc4179f6572fda0"
   },
   "unit/astra_checkpoint": {
     "bytes": 10565,

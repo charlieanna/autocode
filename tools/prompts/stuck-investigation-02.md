@@ -20,6 +20,7 @@ Decide what is actually wrong:
 - other: say what you found.
 
 Return:
+- cause: exactly one of the six names above, in its own field; naming it inside diagnosis does not count.
 - diagnosis: two to five sentences a person can act on, citing evidence.
 - guidance: concrete instructions for the stuck stage's next attempt (and for its reviewer when roles
   disagree): what to do differently and why. Empty when recommending pause.

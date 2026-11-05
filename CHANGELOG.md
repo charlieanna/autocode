@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The stuck-stage Investigator's instructions now list `cause` among the fields to return. They
+  described the six causes but never named the field, so a MiMo Investigator put the cause in
+  its diagnosis and its report was rejected for a missing `cause`, costing a report rewrite.
 - The Planner is told to name an existing Python guard or test by its bare method name
   (`guard: test_simple`), not a class-qualified selector the regression proof refuses. A
   qualified name cost two repair rounds and a stuck-stage Investigator in a live bug fix.
