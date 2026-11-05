@@ -28,6 +28,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A draft failure correction again retains a criterion saved before `supersedes` existed. The loader fills an omitted `supersedes` with `[]` (#2748), and the retention check read that as a changed criterion, refusing the correction. An empty list now equals an omitted one; any listed entry is still a change.
 - `autocode connections check --provider claude` no longer reports a Claude login as signed in when
   Claude Code would bill an API key (for example a key from `apiKeyHelper`, or a Bedrock, Vertex or
   gateway route). Every run on such a login stopped with `PAUSED_BILLING_ROUTE`, while the check and
