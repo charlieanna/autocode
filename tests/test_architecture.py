@@ -59,7 +59,7 @@ TANGLED: frozenset[str] = frozenset()
 # 2026-10-26: adopting a bound launch's report identity (#2135) lives in autocode_report_identity; its
 # import and one call in load_stage_report raised autocode.py by 1.
 MAX_LINES = {
-    "autocode.py": 1952,
+    "autocode.py": 1830,
     "autocode_goals.py": 1404,
     "autocode_support.py": 620,
     "autopilot.py": 1392,
@@ -74,10 +74,12 @@ MAX_LINES = {
 # 2026-11-05: the five largest core functions are held at their size (#2753) and shrink as fixes touch them.
 # _apply_result was 403 lines; its user-request, REWORK, slice-checkpoint and Builder-failure routes moved to
 # autocode_decision_routes.
+# run_role was 648 lines; its native environment, replay context, visual launch, launch admission, activity
+# reporter, exit stop and after-stage evidence moved to autocode_role_launch.
 MAX_FUNCTION_LINES = {
     ("autocode_run_actions.py", "handle"): 9,
     ("autocode_args.py", "build_parser"): 539,
-    ("autocode.py", "run_role"): 648,
+    ("autocode.py", "run_role"): 527,
     ("autocode_verify.py", "verify"): 587,
     ("autocode_configure.py", "configure"): 583,
     ("autocode_tool_containment.py", "configure"): 439,
