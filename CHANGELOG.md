@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Bug-fix planning instructions now require a connection between blocking questions and the
+  requested defect. Plan Reviewer instructions require observable acceptance outcomes to
+  follow from existing source or explicit planned behavior, including alternate review stages.
 - Planner discoveries of necessary work in another repository reach the existing grounded
   scope handoff before a local draft is accepted. Coordination owns assignment, and the
   revised plans still need exact approval; repeated model reports cannot erase discovered work.
