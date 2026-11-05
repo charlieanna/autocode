@@ -752,8 +752,9 @@ never resets the task total.
 Progress comes from the public view's `chat.log`. Commands, reasoning and
 transport counters do not appear in the default conversation. A raw structured
 report appears only as a neutral receipt; it is not a validated plan or proof.
-Use `/live` to open an optional agent-details pane, `/live tools` for commands,
-edits and tool history, or `/live thinking` for reasoning. `/live off` closes
+Use `/live` to open an optional agent-details pane with readable thinking and
+messages, `/live tools` for commands, edits and tool history, `/live thinking`
+for reasoning alone, or `/live messages` for messages alone. `/live off` closes
 that extra pane without stopping ordinary progress updates in the conversation.
 Detailed logs retain the last 500 entries. Everything shown is display only:
 a progress message is not verification, and a command shown is not a passed check.
@@ -785,7 +786,7 @@ highlighted one:
 | `/connect [NAME check\|login\|setup\|use]` | The backends `autocode connections list` reports, with their state. `check` runs the connection's own check; `login` and `setup` hand the terminal to the backend's sign-in or AutoCode's setup and bring the chat back afterwards; `use` makes new chats use it. Only an action the connection offers is run |
 | `/stages [STAGE N LEVEL]` | Each stage's model and reasoning level for new chats, from `autocode stages list --json` ([Choosing each stage's model](models.md#choosing-each-stages-model)). In the full-screen chat it opens a drawer with one list per stage: Up and Down move, Enter opens the stage's models (one the stage may not run is shown with the reason and cannot be picked), then that model's reasoning levels, and saves the choice; Esc goes back. The line-by-line chat lists the stages with numbered models and takes `/stages builder 2 medium`. It lists the backend new chats run on (`/engine`, `/connect … use`). Chats already started keep their own |
 | `/panel` | Show or hide the side panel |
-| `/live [NAME\|thinking\|messages\|tools\|all\|off]` | Open or hide the optional agent-details pane. Ordinary progress is always in the conversation; `all` shows progress messages from every agent in the extra pane. `tools` shows retained commands (including failures), edits and tool history; `thinking` shows reasoning text explicitly. Transport token/character counters are omitted. A name (such as `M2` or `reviewer`) filters progress messages by agent; `off` hides the pane. Where the terminal is too short, the newest entries are printed in the conversation |
+| `/live [NAME\|thinking\|messages\|tools\|all\|off]` | Open or hide the optional agent-details pane. Ordinary progress is always in the conversation; the pane defaults to readable thinking and messages from every agent, as does `all`. `tools` shows retained commands (including failures), edits and tool history; `thinking` shows only reasoning and `messages` only messages. Transport token/character counters are omitted. A name (such as `M2` or `reviewer`) filters thinking and messages by agent; `off` hides the pane. Where the terminal is too short, the newest entries are printed in the conversation |
 | `/attention` or F8 | Inspect current saved questions, decisions and completed turns across registered projects, even before selecting a chat. `a` acknowledges the selected alert, Enter opens its chat, `r` requests a refreshed snapshot and Esc returns to the original draft and cursor. Acknowledgement leaves the task's answer or plan approval pending. Unavailable inventory and unknown read state remain visible. |
 | `/pause` | While AutoCode works: ask it to pause after the current step, as the first `Ctrl-C` does |
 | `/help` | List the commands |

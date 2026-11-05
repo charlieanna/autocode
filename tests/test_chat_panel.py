@@ -532,7 +532,7 @@ class LiveLogTests(unittest.TestCase):
             )
         )
         self.assertFalse(live.observe(self.view(("a:c1", "Builder", "command", "ls"))), "unchanged command")
-        self.assertEqual([], live.shown(), "raw thinking and commands require an explicit detail filter")
+        self.assertEqual(["Look at greet.py"], [entry["text"] for entry in live.shown()])
         live.filter = "thinking"
         self.assertEqual(["Look at greet.py"], [entry["text"] for entry in live.shown()])
 
@@ -590,6 +590,28 @@ class LiveLogTests(unittest.TestCase):
         live.filter = "tools"
         self.assertEqual(["two"], [entry["text"] for entry in live.shown()])
         self.assertEqual("LIVE · tools", live.title())
+
+    def test_default_and_agent_filters_include_readable_thinking_and_messages(self):
+        live = panel.LiveLog()
+        live.observe(
+            self.view(
+                ("thought", "Planner", "thinking", "Checking the caller [partial]"),
+                ("message", "Planner", "message", "Found the entry point."),
+                ("other", "Tester", "thinking", "Checking coverage."),
+                ("command", "Planner", "command", "rg caller"),
+                ("counter", "Planner", "thinking", "thinking ~950 tokens"),
+            )
+        )
+        for selected, expected in (
+            ("", ["Checking the caller [partial]", "Found the entry point.", "Checking coverage."]),
+            ("pLaNnEr", ["Checking the caller [partial]", "Found the entry point."]),
+            ("thinking", ["Checking the caller [partial]", "Checking coverage."]),
+            ("messages", ["Found the entry point."]),
+            ("tools", ["rg caller"]),
+        ):
+            with self.subTest(filter=selected):
+                live.filter = selected
+                self.assertEqual(expected, [entry["text"] for entry in live.shown()])
 
     def test_only_the_newest_entries_are_kept(self):
         live = panel.LiveLog()
