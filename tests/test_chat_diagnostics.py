@@ -78,6 +78,19 @@ class CommandDiagnosticTests(unittest.TestCase):
 
 class CoordinationDiagnosticTerminalTests(unittest.TestCase):
     def test_public_json_error_is_readable_and_keeps_the_composer_without_retry(self):
+        self.check_screen(coordination=True)
+
+    def test_checkout_refusal_stays_visible_instead_of_no_progress(self):
+        self.check_screen(coordination=False)
+
+    def check_screen(self, *, coordination):
+        reason = (
+            "A repository checkout needs a delivery branch."
+            if coordination
+            else "Another AutoCode run is working in this checkout; nothing was changed."
+        )
+        response = json.dumps({"error": reason}) if coordination else reason
+        prefix = "Coordination stopped: " if coordination else "AutoCode action stopped: "
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             backend = root / "backend.py"
@@ -87,11 +100,12 @@ from pathlib import Path
 root = Path({str(root)!r})
 if '--status' in sys.argv:
     print(json.dumps({{'view': {{'workspace': str(root), 'run_dir': str(root / 'run'),
-        'status': 'WAITING_FOR_USER', 'chat': {{'log': []}}}}}}))
+        'status': 'RUNNING', 'next_stage': 'requirements_gather',
+        'needs': {{'kind': 'continue'}}, 'chat': {{'log': []}}}}}}))
 else:
     with (root / 'actions').open('a') as out:
         out.write('advance\\n')
-    print(json.dumps({{'error': 'A repository checkout needs a delivery branch.'}}))
+    print({response!r})
     raise SystemExit(2)
 """)
             script = f"""
@@ -107,7 +121,8 @@ with ChatTUI() as ui:
         wait=ui.wait, poll_seconds=0.1)
     ui.bind(client.slash, run=True)
     ui.idle = client.poll
-    client.step = lambda: client.advance(['coordinate', 'advance', '--run-dir', str(root / 'run'), '--json'])
+    if {coordination!r}:
+        client.step = lambda: client.advance(['coordinate', 'advance', '--run-dir', str(root / 'run'), '--json'])
     code = client.converse()
 raise SystemExit(code)
 """
@@ -118,7 +133,7 @@ raise SystemExit(code)
                     lambda text: all(
                         item in text
                         for item in (
-                            "Coordination stopped: A repository checkout needs a delivery branch.",
+                            prefix + reason,
                             "/quit",
                             "╰─",
                         )
@@ -126,6 +141,7 @@ raise SystemExit(code)
                     timeout=10,
                 )
                 self.assertNotIn('{"error":', text)
+                self.assertNotIn("made no progress", text)
                 screen.type("/quit")
                 screen.keys("Enter")
                 self.assertEqual(2, screen.exit_status())
