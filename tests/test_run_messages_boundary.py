@@ -1,6 +1,8 @@
 """Conversation requests preserve saved work and every protected pause."""
 
+import contextlib
 import copy
+import io
 import json
 import subprocess
 import sys
@@ -9,6 +11,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import autocode as runner
 import autocode_interventions as inbox
 import autocode_stop as stop
 import autocode_taskrun as taskrun
@@ -169,6 +172,7 @@ class MessageBoundaryTests(unittest.TestCase):
         self.assertEqual(before["source_log"], self.state["source_log"])
         self.assertEqual([], self.state["brief_feedback"])
         self.assertEqual([], inbox.inspect(self.workspace, self.run)["requests"])
+        self.assertFalse(self.consume(), "reopen cannot reapply or relaunch the same message")
 
     def test_cli_explains_queued_discussion_handoff_without_releasing_pause(self):
         self.state.update(next_stage="answer_question", iteration=1, sessions={})
@@ -190,7 +194,55 @@ class MessageBoundaryTests(unittest.TestCase):
         self.assertEqual(["--resume-paused"], resume["args"])
         self.assertEqual(before, self.path.read_bytes(), "Status must not release the saved pause")
         self.assertFalse((self.run / "iterations").exists(), "Reading the handoff must not launch a provider")
-        self.assertFalse(self.consume(), "reopen cannot reapply or relaunch the same message")
+
+    def controller_boundary(self, *, hold=None):
+        self.state.update(next_stage="answer_question", iteration=1, sessions={})
+        stop.run_messages.receive(self.state, receipt(text="Please fix it."))
+        self.save()
+        if hold:
+            self.submit("hold-request", hold)
+        args, parser = runner.cli_args.parse(
+            None,
+            ["--no-chat", "--workspace", str(self.workspace), "--run-dir", str(self.run)],
+            runner.opencode.DEFAULT_MODELS,
+        )
+
+        def before_probe(*args, **kwargs):
+            kwargs["before_probe"]()
+
+        with (
+            util.run_lock(self.run),
+            mock.patch.object(runner.run_setup, "load_locked", return_value=self.state),
+            mock.patch.object(runner.run_setup.keep_awake, "hold"),
+            mock.patch.object(runner.run_actions, "handle", return_value=None),
+            mock.patch.object(runner.build_loop.model_preflight, "check", side_effect=before_probe),
+            mock.patch.object(runner, "run_role", side_effect=AssertionError("No provider may launch")) as launch,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            code = runner.run_setup.run_locked(runner, args, parser, self.state, self.path, self.run, self.workspace)
+        self.assertEqual(2, code)
+        launch.assert_not_called()
+        return taskrun.TaskRun(
+            self.workspace, self.run, command=[sys.executable, str(ROOT / "tools/autocode.py")]
+        ).status()
+
+    def test_controller_keeps_acknowledged_message_handoff_ready_for_continue(self):
+        view = self.controller_boundary()
+        self.assertEqual("RUNNING", view["status"])
+        self.assertEqual("requirements_gather", view["next_stage"])
+        self.assertEqual("continue", view["needs"]["kind"])
+        self.assertNotIn("--resume-paused", view["next_command"])
+
+    def test_controller_preserves_explicit_pause_at_message_handoff(self):
+        view = self.controller_boundary(hold="pause")
+        self.assertEqual("PAUSED_INTERVENTION", view["status"])
+        self.assertIn("--resume-paused", view["next_command"])
+
+    def test_controller_preserves_explicit_stop_at_message_handoff(self):
+        view = self.controller_boundary(hold="stop")
+        self.assertEqual("PAUSED_INTERVENTION", view["status"])
+        self.assertIsNone(view["next_command"])
+        self.assertEqual("stopped", view["recovery"]["category"])
 
     def test_pause_and_stop_take_priority_and_leave_the_question_saved(self):
         for kind in ("pause", "stop"):
