@@ -368,7 +368,11 @@ class LiveEventTests(unittest.TestCase):
         current["chat"]["log"] = [
             {"agent": "Plan Reviewer", "kind": "tool", "text": "read app/models.py"},
             {"agent": "Planner", "kind": "thinking", "text": "An older stage's thought"},
-            {"agent": "Plan Reviewer", "kind": "thinking", "text": "Checking AC4 against   the upload flow. [partial]"},
+            {
+                "agent": "Plan Reviewer",
+                "kind": "thinking",
+                "text": "[earlier text omitted] Checking AC4 against   the upload flow. [partial]",
+            },
             {
                 "agent": "Plan Reviewer",
                 "kind": "thinking",

@@ -320,7 +320,7 @@ def planning_step(view: dict | None) -> str | None:
             continue
         if not isinstance(text, str) or not text.strip() or any(mark in text for mark in OPAQUE_STEPS):
             continue
-        text = " ".join(text.removesuffix(" [partial]").split())
+        text = " ".join(text.removesuffix(" [partial]").removeprefix("[earlier text omitted]").split())
         return {"command": "Running ", "edit": "Editing: "}.get(str(row.get("kind")), "") + text
     return None
 
