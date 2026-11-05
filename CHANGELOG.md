@@ -22,6 +22,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Tester report repair that leaves a changed line undecided is no longer rejected for it. The
+  undecided line goes to the existing Builder and Investigator rounds, as the gate intended. A
+  repaired report is applied with its original stage's record, so the check missed the repair. In a
+  live run a PASS with 132 of 133 line decisions was rejected twice for the last one.
 - The Tester names each changed line it gives a reason for by a short handle (`L12`) instead of
   retyping its 64-character gap id. The runner maps the handle to that exact line, and a full id is
   still accepted. In a live Kilo run, GLM mistyped one of 30+ ids in every report, so one milestone's

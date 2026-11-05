@@ -63,7 +63,9 @@ def require_tester_decisions(state: RunState, value, record):
     Investigator rounds.
     """
     stage = str(record.get("stage", ""))
-    if value.get("verdict") != "PASS" or stage.endswith("_report_repair") or not record.get("schema"):
+    # A repaired report is applied with its original stage's record, marked report_repaired.
+    repaired = stage.endswith("_report_repair") or record.get("report_repaired") is True
+    if value.get("verdict") != "PASS" or repaired or not record.get("schema"):
         return
     assessment = (state.get("regression_proof") or {}).get("changed_code_evidence") or {}
     if assessment.get("source_revision") != record.get("source_revision"):
