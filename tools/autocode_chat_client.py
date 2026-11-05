@@ -1658,7 +1658,7 @@ class ChatClient:
                 if row["id"] in changed:  # where to look (#2383), as the CLI's review stop names it (#2360)
                     self.say(f"      Changed: {', '.join(changed[row['id']])}")
         else:
-            self.say(f"\nAutoCode stopped: {label}. {why}".rstrip())
+            self.say(f"\nAutoCode stopped: {STOP_CAUSES.get(str(label), label)}. {why}".rstrip())
         if need.get("recovery_hint"):
             self.say(need["recovery_hint"])
         answers = {row.key: self.decide(row, need) for row in decided}
@@ -1899,6 +1899,16 @@ def start(workspace: Path, brief: str, start_args, options, *, command=AUTOCODE,
         client.close()
         raise
     return client
+
+
+# What each pause cause category (autocode_pause_category.LABELS) means, said as the reason for a stop:
+# the bare label read "AutoCode stopped: AutoCode." on a live run (2026-11-05).
+STOP_CAUSES = {
+    "Your decision": "it needs your decision",
+    "Your environment": "something on this machine needs attention",
+    "Model or provider": "the model or its provider failed",
+    "AutoCode": "AutoCode hit a problem of its own",
+}
 
 
 def same_answer(reply: str, review: dict) -> bool:

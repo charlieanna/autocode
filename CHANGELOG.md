@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat says why it stopped in words ("AutoCode stopped: the model or its provider failed.")
+  instead of repeating the bare cause label ("AutoCode stopped: AutoCode.").
 - Regression test names in a compact bug-fix plan leave out the "(currently returns ...)" aside and
   borrow the case's given clause when the expected result is too short, so `test_t1_returns_hello_world`
   replaces `test_t1_returns_hello_world_currently_returns_hello`.
