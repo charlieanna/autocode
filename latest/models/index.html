@@ -2194,7 +2194,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/278466d85a97d9e82057acff10dbbd12d5c021e4/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/9b8114f89d571b71f4c83246fce950883a4cd339/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2364,7 +2364,7 @@ review allowance leaves room for it (a large plan, <code>plan_review_call_limit<
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/278466d85a97d9e82057acff10dbbd12d5c021e4/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/9b8114f89d571b71f4c83246fce950883a4cd339/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2524,6 +2524,8 @@ a shared <code>--reasoning-effort</code> keeps the saved levels out. A task alre
 routes it started with. A stage you have not chosen keeps its default, or the route automatic
 selection picks for it (below). <code>autocode stages set STAGE --model MODEL --effort LEVEL</code> and
 <code>autocode stages reset [STAGE]</code> change one stage without asking.</p>
+<p>A saved level differs from a typed one in one way: for the three review stages it is a ceiling
+(<a href="#reasoning-effort">reasoning effort</a>). Every other stage runs at the level you saved.</p>
 <h2 id="choosing-models-automatically">Choosing models automatically<a class="headerlink" href="#choosing-models-automatically" title="Permanent link">&para;</a></h2>
 <p>New CLI and <code>TaskRun.start</code> runs choose models automatically from the selected tool's
 connected accounts for every stage you have not <a href="#choosing-each-stages-model">chosen yourself</a>.
@@ -2825,6 +2827,28 @@ none, AutoCode records the effort as unverified and the tool's own check decides
 flags are <code>--reasoning-effort LEVEL</code> for every role and <code>--&lt;role&gt;-reasoning-effort LEVEL</code>
 for one (<code>--glm-reasoning-effort</code>, <code>--astra-reasoning-effort</code>, <code>--terra-reasoning-effort</code>,
 <code>--sol-reasoning-effort</code>, and the matching flag for the other jobs).</p>
+<p>A level from your <a href="#choosing-each-stages-model">stage choices</a> is a ceiling for the Plan
+Reviewer, the Tester and the Completion Reviewer (owner decision 2026-11-05). Each launch
+of one of those reviews decides the level on its own, from the run's own records, and never asks you:</p>
+<ul>
+<li>On a small, clear task the review runs one level below your level, so high becomes
+  medium. A task is small and clear when Requirements judged the request clear and the
+  drafted plan is small: one milestone touching at most four files. Before the plan is
+  sized, the brief's own size decides.</li>
+<li>The level one below must be one the model offers. A new run reads the levels from the
+  tool's own listing once, when it starts. GLM 5.3 offers low, high and max, so a GLM review stays at high
+  rather than drop two levels, and so does a model whose levels the run cannot list.</li>
+<li>A review that already ran for this task runs at your level: a rejected answer, a
+  send-back or a second look. So does a route that climbed the effort ladder, and the Plan
+  Reviewer of a run started with <code>--plan-review-full</code>.</li>
+</ul>
+<p>Each review launch records its decision on its stage record as <code>effort_choice</code>: the
+level, your ceiling, the reason, and the task's clarity, brief size and plan size. The
+status view's usage attempts carry it, <code>/details</code> in the terminal chat shows the level
+each attempt ran at, and the live log says when a review runs below your level. A level
+typed as a flag (<code>--sol-reasoning-effort</code>, <code>--reasoning-effort</code>) or given as an answer is
+exact. A level the runner chose keeps its own tiers: the Plan Reviewer's reduced depth for
+small clear briefs and the Builder's light first attempt (<code>autocode_light_builder</code>).</p>
 <p>An effort AutoCode derives itself — a reduced Builder tier, a climb on the effort ladder,
 a single-model run — moves to the nearest declared variant and records the move as
 <code>effort_fits</code>. An effort a person named never moves. When the model does not declare it,
