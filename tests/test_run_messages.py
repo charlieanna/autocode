@@ -9,12 +9,19 @@ import autocode_plan_chat as plan_chat
 import autocode_requirements_handoff as handoff
 import autocode_run_messages as messages
 
-from tests.test_plan_chat import reviewed
+from tests.test_plan_chat import acceptance_hold, reviewed
 
 
 def working():
     state = reviewed()
     state.update(status="RUNNING", phase="PLANNING", next_stage="astra_finalize")
+    return state
+
+
+def executing():
+    state = acceptance_hold()
+    state.update(status="RUNNING", phase="EXECUTING", next_stage="terra")
+    state.pop("stop_reason", None)
     return state
 
 
@@ -213,7 +220,7 @@ class LiveConversationTests(unittest.TestCase):
 
 class LiveConversationRoutingTests(unittest.TestCase):
     def test_a_later_queued_message_does_not_prevent_applying_the_first_answered_change(self):
-        state = working()
+        state = executing()
         first = messages.receive(state, receipt(text="Please preserve the registry result."))
         second = messages.receive(state, receipt("m2", "What are the tradeoffs?"))
         messages.activate(state)
@@ -221,6 +228,8 @@ class LiveConversationRoutingTests(unittest.TestCase):
         self.assertEqual(first["text"], state["brief_feedback"][-1]["text"])
         self.assertTrue(first["forwarded"])
         self.assertEqual("run_message", second["kind"])
+        self.assertEqual("draft", state["goal_contract"]["approval_status"])
+        self.assertIsNone(state["goal_contract"]["approval_event"])
 
     def test_change_accepted_before_completion_archives_completion_and_requires_review(self):
         state = working()
@@ -245,7 +254,9 @@ class LiveConversationRoutingTests(unittest.TestCase):
     def test_unanswered_questions_different_text_and_replayed_changes_grant_no_feedback_admission(self):
         for kind in ("unanswered", "question", "different", "replayed"):
             with self.subTest(kind=kind):
-                state = working()
+                # Idle unapproved planning now accepts fresh feedback (#2670).
+                # Test conversation authority at approved work instead.
+                state = executing()
                 event = messages.receive(state, receipt())
                 messages.activate(state)
                 if kind != "unanswered":
