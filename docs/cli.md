@@ -715,7 +715,9 @@ in a scrollable transcript with a colored label for each speaker
 (`PgUp`/`PgDn`, or mouse wheel/trackpad over the transcript), the current question or activity above a boxed composer, and a
 hint bar. The composer is labeled **New chat** when typing there starts a run and
 **Reply** when it answers the run (`Up`/`Down` for history, `Ctrl-W`/`Ctrl-U` to
-edit, `Enter` to send, `Ctrl-D` to leave). A paste stays in the composer as one
+edit, `Enter` to send, `Ctrl-D` to leave). The composer wraps a long reply and grows
+to six rows; `\` then `Enter` starts a new line, and `Up`/`Down` move between its
+lines before walking history. A paste stays in the composer as one
 reply, line breaks included, until you press `Enter`. A plan, a question or a stop is shown
 where it is asked, and `Ctrl-C` keeps its meaning: the first asks the run to pause
 after the current step, the second interrupts it. When the chat ends, its last words

@@ -372,7 +372,9 @@ class MultiLineComposerTests(unittest.TestCase):
         ui, layout, rows = self.drawn(*reply)
         self.assertGreater(layout.box_rows, 1)
         self.assertEqual(layout.box_bottom, layout.box_text + layout.box_rows)
-        shown = "".join(text for row in range(layout.box_text, layout.box_bottom) for col, text in rows[row] if col == 4)
+        shown = "".join(
+            text for row in range(layout.box_text, layout.box_bottom) for col, text in rows[row] if col == 4
+        )
         self.assertEqual(reply, shown, "every typed character is on screen")
 
     def test_backslash_enter_starts_a_new_line_and_enter_then_sends(self):

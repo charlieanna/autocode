@@ -712,8 +712,8 @@ def composer_rows(text: str, cursor: int, width: int, most: int) -> tuple[list[s
     width, most = max(1, width), max(1, most)
     rows: list[str] = []
     at_row = at_col = 0
-    row, used, index = "", 0, 0
-    for char in text + "\0":  # a sentinel closes the last row and places a cursor at the end
+    row, used = "", 0
+    for index, char in enumerate(text + "\0"):  # a sentinel closes the last row and places a cursor at the end
         if index == cursor:
             if used >= width and char != "\n":
                 rows.append(row)
@@ -731,7 +731,6 @@ def composer_rows(text: str, cursor: int, width: int, most: int) -> tuple[list[s
                     at_row, at_col = len(rows), 0
             row += char
             used += cells
-        index += 1
     if at_row >= len(rows):
         rows.append("")
     first = min(max(0, at_row - most + 1), max(0, len(rows) - most))
