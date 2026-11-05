@@ -264,6 +264,29 @@ def _version(executable: str, call: Callable[[list[str]], Any]) -> str:
     return parse_version(text) or text
 
 
+def billing_refusal(status: Mapping[str, Any]) -> str | None:
+    """Why a logged-in ``claude auth status --json`` result would not bill the Claude subscription, or None.
+
+    The one billing rule for the built-in claude provider: a run's login check refuses to launch on it, and
+    ``autocode connections check`` reports it instead of calling the login ready.
+    """
+    provider = status.get("apiProvider")
+    if provider != "firstParty":
+        return (
+            f"Claude Code would bill through {provider} (CLAUDE_CODE_USE_BEDROCK, CLAUDE_CODE_USE_VERTEX or a "
+            "gateway) instead of your Claude login; claude subscription selection will not silently change "
+            "billing routes"
+        )
+    method, key_source = status.get("authMethod"), status.get("apiKeySource")
+    if method not in SUBSCRIPTION_AUTH or (key_source and key_source != "none"):
+        source = f", key from {key_source}" if key_source and key_source != "none" else ""
+        return (
+            f"Claude Code would bill an API key ({method}{source}); the built-in claude provider runs only on a "
+            "Claude subscription login; claude subscription selection will not silently change billing routes"
+        )
+    return None
+
+
 def login_check(workspace=None, *, env: Mapping[str, str] | None = None, run=None) -> dict:
     """Claude Code installed and logged in to a Claude subscription, in the agent's environment.
 
@@ -291,26 +314,15 @@ def login_check(workspace=None, *, env: Mapping[str, str] | None = None, run=Non
         )
         hint = provider_env.withheld_hint(agent_env.withheld(os.environ)) if env is None and run is None else ""
         raise RuntimeError(message + (" " + hint if hint else ""))
-    provider = status.get("apiProvider")
-    if provider != "firstParty":
-        raise RuntimeError(
-            f"Claude Code would bill through {provider} (CLAUDE_CODE_USE_BEDROCK, CLAUDE_CODE_USE_VERTEX or a "
-            "gateway) instead of your Claude login; claude subscription selection will not silently change "
-            "billing routes"
-        )
-    method, key_source = status.get("authMethod"), status.get("apiKeySource")
-    if method not in SUBSCRIPTION_AUTH or (key_source and key_source != "none"):
-        source = f", key from {key_source}" if key_source and key_source != "none" else ""
-        raise RuntimeError(
-            f"Claude Code would bill an API key ({method}{source}); the built-in claude provider runs only on a "
-            "Claude subscription login; claude subscription selection will not silently change billing routes"
-        )
+    refusal = billing_refusal(status)
+    if refusal:
+        raise RuntimeError(refusal)
     return {
         "executable": executable,
         "version": version,
         "loggedIn": True,
-        "authMethod": method,
-        "apiProvider": provider,
+        "authMethod": status.get("authMethod"),
+        "apiProvider": status.get("apiProvider"),
     }
 
 

@@ -397,6 +397,21 @@ class LoginTests(FakeClaude, unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "would bill through bedrock"):
             self.login({"loggedIn": True, "authMethod": "third_party", "apiProvider": "bedrock"})
 
+    def test_billing_refusal_names_the_route_a_logged_in_status_would_bill(self):
+        """The one billing rule, shared by a run's login check and `autocode connections check`."""
+        first = {"loggedIn": True, "apiProvider": "firstParty"}
+        self.assertIsNone(claude.billing_refusal({**first, "authMethod": "claude.ai"}))
+        self.assertIsNone(claude.billing_refusal({**first, "authMethod": "oauth_token", "apiKeySource": "none"}))
+        self.assertRegex(
+            claude.billing_refusal({**first, "authMethod": "claude.ai", "apiKeySource": "apiKeyHelper"}),
+            r"^Claude Code would bill an API key \(claude\.ai, key from apiKeyHelper\)",
+        )
+        self.assertRegex(claude.billing_refusal({**first, "authMethod": "api_key"}), r"bill an API key \(api_key\)")
+        self.assertRegex(
+            claude.billing_refusal({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "vertex"}),
+            "would bill through vertex",
+        )
+
     def test_an_injected_runner_is_the_only_thing_called(self):
         calls = []
 
