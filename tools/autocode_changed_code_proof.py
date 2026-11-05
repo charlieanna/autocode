@@ -7,6 +7,7 @@ its per-line obligations. It never turns an advisory summary into authority.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 try:
@@ -228,6 +229,41 @@ def intact(proof, result):
         except (OSError, ValueError, KeyError, TypeError):
             return False
     return True
+
+
+def cited_mutation_pins(proof, refs, *, source_revision):
+    """Authenticate cited kills against the exact saved proof and capture receipts."""
+    cited = set(refs) & policy.mutation_citations(proof).keys()
+    if not cited or proof.get("source_revision") != source_revision:
+        return {}
+    try:
+        root = Path(proof["path"]).parent
+        result = json.loads(measurement.pinned(proof["path"], proof["receipt_sha256"], root))
+        if result.get("source_revision") != source_revision or result.get("changed_code_inputs") != proof.get(
+            "changed_code_inputs"
+        ):
+            return {}
+        pins = {}
+        seen = set()
+        for row in result["changed_code_receipts"]:
+            output = row.get("output")
+            if output not in cited:
+                continue
+            if output in seen:
+                pins.pop(output, None)
+                continue
+            seen.add(output)
+            if (
+                type(row.get("exit_code")) is int
+                and row["exit_code"] != 0
+                and not row.get("timed_out")
+                and not row.get("interrupted")
+                and measurement.known_capture(row, root)
+            ):
+                pins[output] = row["output_sha256"]
+        return pins
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return {}
 
 
 def ready(proof, result, validation):

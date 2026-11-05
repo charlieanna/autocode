@@ -103,6 +103,7 @@ SYMBOLS = frozenset(
         "changed_code_gap",
         "regression_proof",
         "draft_inference_snapshot",
+        "mutation_capture",
         "retained_contract",
         "gate_message_id",
         "gate_token",
@@ -430,7 +431,7 @@ def validate_bindings(bindings):
         raise RecordingError("Recording bindings must be explicit")
     seen = set()
     for binding in bindings:
-        _object(binding, {"pointer", "symbol", "original_valid"}, {"suffix", "gap"})
+        _object(binding, {"pointer", "symbol", "original_valid"}, {"suffix", "gap", "mutation"})
         pointer = binding["pointer"]
         if (
             not isinstance(pointer, str)
@@ -439,11 +440,16 @@ def validate_bindings(bindings):
             or binding["symbol"] not in SYMBOLS
             or type(binding["original_valid"]) is not bool
             or ("gap" in binding) != (binding["symbol"] == "changed_code_gap")
+            or ("mutation" in binding) != (binding["symbol"] == "mutation_capture")
         ):
             raise RecordingError("Recording binding is invalid")
         seen.add(pointer)
         if binding.get("suffix"):
             relative_path(binding["suffix"])
+        if "mutation" in binding:
+            if "suffix" in binding:
+                raise RecordingError("Recording mutation binding cannot name a path suffix")
+            _hash(binding["mutation"])
         if "gap" in binding:
             gap = binding["gap"]
             _object(gap, {"path", "sha256", "line"})
@@ -490,13 +496,21 @@ def rebind(value, bindings, symbols):
                 raise RecordingError("Recording array pointer is not canonical")
             return int(part)
 
+        replacement = symbols[binding["symbol"]]
+        if "mutation" in binding:
+            available = replacement.get("citations", {}) if isinstance(replacement, dict) else {}
+            matches = [path for path, identity in available.items() if identity == binding["mutation"]]
+            if len(matches) != 1:
+                raise RecordingError("Replay has no unique current capture for the recorded mutation")
+            # Recorded-check simulation has only the owned archived summary.
+            # Its identity still has to match the recorded mutation exactly.
+            replacement = replacement.get("archive") or matches[0]
         owner = result
         try:
             for part in parts[:-1]:
                 owner = owner[index(part)] if isinstance(owner, list) else owner[part]
             key = index(parts[-1]) if isinstance(owner, list) else parts[-1]
             _ = owner[key]
-            replacement = symbols[binding["symbol"]]
             if binding.get("suffix"):
                 replacement = str(Path(replacement) / binding["suffix"])
             if "gap" in binding:
@@ -1079,6 +1093,7 @@ def export(projection, destination, secret_values=()):
                 proof=identity_bindings.proof_path(packet),
                 gate=gate,
                 draft_snapshot=packet.get("draft_failure_correction_snapshot"),
+                mutations=line_evidence.mutation_citations(packet.get("regression_proof")),
             )
         document["dispatches"].append(row)
     revisions = list(dict.fromkeys([*projection["revisions"], *[row["head"] for row in snapshots]]))

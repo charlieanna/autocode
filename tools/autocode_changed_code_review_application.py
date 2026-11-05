@@ -61,6 +61,21 @@ def accept(state: RunState, validation, record, workspace=None, *, pin):
             validation["evidence_hashes"].update(pin([ref]))
             for spelling in _spellings(ref, workspace):
                 verified[spelling] = ref
+    if isinstance(decisions, list):
+        cited = {
+            ref
+            for row in decisions
+            if isinstance(row, dict) and isinstance(row.get("evidence_refs"), list)
+            for ref in row["evidence_refs"]
+            if isinstance(ref, str) and ref not in verified
+        }
+        if workspace is not None:
+            cited |= {str(Path(workspace) / ref) for ref in cited if not Path(ref).is_absolute()}
+        pins = proof_policy.cited_mutation_pins(proof, cited, source_revision=record.get("source_revision"))
+        validation["evidence_hashes"].update(pins)
+        for ref in pins:
+            for spelling in _spellings(ref, workspace):
+                verified[spelling] = ref
     validation["changed_code_decisions"] = review.bind(
         proof.get("changed_code_evidence"),
         decisions,

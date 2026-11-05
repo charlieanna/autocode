@@ -822,6 +822,59 @@ class IdentityRebindingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             recording.rebind(value, saved, {"draft_inference_snapshot": None})
 
+    def test_mutation_citations_follow_only_the_same_kill_in_the_current_proof(self):
+        import autocode_changed_code_evidence as evidence
+        import autocode_replay_bindings as bindings
+
+        old = "/old/run/regression/proof-old/mutation-check/mutant-old.log"
+        new = "/new/run/regression/proof-new/mutation-check/mutant-new.log"
+
+        def proof(output, test="test_value"):
+            context = {"source_revision": "source", "proof_context": "context"}
+            mutant = {
+                "line": 2,
+                "end_line": 2,
+                "operator": "constant_return",
+                "outcome": "killed",
+                "evidence": [output],
+                "failed_tests": [test],
+            }
+            return {
+                "changed_code_evidence": context,
+                "changed_code_inputs": {
+                    "mutation": {**context, "files": [{"path": "calc.py", "sha256": "a" * 64, "mutants": [mutant]}]}
+                },
+            }
+
+        value = {"report": {"changed_code_exceptions": [{"evidence_refs": [old]}]}}
+        saved = bindings.bindings(
+            value, {}, {}, "/old/workspace", "/old/run", [], mutations=evidence.mutation_citations(proof(old))
+        )
+        self.assertEqual("mutation_capture", saved[0]["symbol"])
+        aliases = evidence.mutation_citations(proof(old))
+        relative = {"report": {"changed_code_exceptions": [{"evidence_refs": [old.removeprefix("/old/")]}]}}
+        self.assertEqual(saved, bindings.bindings(relative, {}, {}, "/old", "/old/run", [], mutations=aliases))
+        relative["report"]["changed_code_exceptions"][0]["evidence_refs"][0] = "./" + old.removeprefix("/old/")
+        self.assertEqual([], bindings.bindings(relative, {}, {}, "/old", "/old/run", [], mutations=aliases))
+        self.assertEqual(
+            {"report": {"changed_code_exceptions": [{"evidence_refs": [new]}]}},
+            recording.rebind(
+                value, saved, {"mutation_capture": {"citations": evidence.mutation_citations(proof(new))}}
+            ),
+        )
+        archive = "/new/run/replay-checks/recorded-receipt.json"
+        self.assertEqual(
+            {"report": {"changed_code_exceptions": [{"evidence_refs": [archive]}]}},
+            recording.rebind(
+                value,
+                saved,
+                {"mutation_capture": {"citations": evidence.mutation_citations(proof(old)), "archive": archive}},
+            ),
+        )
+        for available in ({}, evidence.mutation_citations(proof(new, "another_test"))):
+            with self.subTest(available=available), self.assertRaisesRegex(ValueError, "no unique current capture"):
+                recording.rebind(value, saved, {"mutation_capture": {"citations": available, "archive": archive}})
+
     def test_only_explicit_json_pointer_fields_change_and_input_is_untouched(self):
         original = {
             "checks": [{"evidence_ref": "/old/workspace/.autocode/check.json"}],

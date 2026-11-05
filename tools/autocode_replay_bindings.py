@@ -74,7 +74,17 @@ def gate_reply(packet):
 
 
 def bindings(
-    payload, record, row, workspace, run_dir, snapshots, gaps=None, proof=None, gate=None, draft_snapshot=None
+    payload,
+    record,
+    row,
+    workspace,
+    run_dir,
+    snapshots,
+    gaps=None,
+    proof=None,
+    gate=None,
+    draft_snapshot=None,
+    mutations=None,
 ):
     known = {"task_id": row.get("task_id"), "contract_hash": row.get("contract_hash")}
     revision = record.get("contract_revision")
@@ -90,6 +100,7 @@ def bindings(
     }
     gaps = gaps or {}
     gate = gate or {}
+    mutations = mutations or {}
     revisions = {value.get("revision") for value in snapshots}
     result = []
     capture = record.get("capture_context")
@@ -109,12 +120,14 @@ def bindings(
         isinstance(session, str) and session and session_values and all(value == session for value in session_values)
     )
 
-    def add(pointer, symbol, *, suffix=None, gap=None):
+    def add(pointer, symbol, *, suffix=None, gap=None, mutation=None):
         item = {"pointer": pointer, "symbol": symbol, "original_valid": True}
         if suffix is not None:
             item["suffix"] = suffix
         if gap is not None:
             item["gap"] = dict(gap)
+        if mutation is not None:
+            item["mutation"] = mutation
         result.append(item)
 
     def visit(value, pointer, field=None):
@@ -164,6 +177,13 @@ def bindings(
             "receipt",
         ):
             path = Path(value)
+            if field == "evidence_refs" and "/changed_code_exceptions/" in pointer:
+                exact = (
+                    value if path.is_absolute() else str(Path(workspace) / path) if path.as_posix() == value else None
+                )
+                if exact in mutations:
+                    add(pointer, "mutation_capture", mutation=mutations[exact])
+                    return
             if not path.is_absolute():
                 return
             if proof is not None and value == proof:

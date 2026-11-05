@@ -26,7 +26,7 @@ import hashlib
 import json
 import re
 from copy import deepcopy
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
@@ -70,6 +70,55 @@ def gap_id(source_revision, proof_context, path, sha256, line):
     """Identity shared by the assessor and independently authenticated review decisions."""
     binding = [source_revision, proof_context, path, sha256, line]
     return "changed-code:" + hashlib.sha256(json.dumps(binding, separators=(",", ":")).encode()).hexdigest()
+
+
+def mutation_citations(proof):
+    """Map killed-mutant captures to stable identities independent of run paths."""
+    assessment = (proof or {}).get("changed_code_evidence") or {}
+    mutation = ((proof or {}).get("changed_code_inputs") or {}).get("mutation")
+    files = _files(mutation, assessment.get("source_revision"), assessment.get("proof_context"))
+    citations = {}
+    for path, file in files.items():
+        sha256 = (file or {}).get("sha256")
+        mutants = (file or {}).get("mutants")
+        if not _text(sha256) or not _SHA256.fullmatch(sha256) or not isinstance(mutants, list):
+            continue
+        for mutant in mutants:
+            if not isinstance(mutant, dict):
+                continue
+            refs, tests = mutant.get("evidence"), mutant.get("failed_tests")
+            line, end, operator = mutant.get("line"), mutant.get("end_line"), mutant.get("operator")
+            if (
+                mutant.get("outcome") != "killed"
+                or not _texts(refs)
+                or len(refs) != 1
+                or not Path(refs[0]).is_absolute()
+                or not _texts(tests)
+                or not _text(operator)
+                or type(line) is not int
+                or type(end) is not int
+                or not 1 <= line <= end
+            ):
+                continue
+            identity = json.dumps([path, sha256, line, end, operator, sorted(tests)], separators=(",", ":"))
+            citations[refs[0]] = hashlib.sha256(identity.encode()).hexdigest()
+    return citations
+
+
+def replay_identity(proof):
+    """Expose only the current proof identities needed to rebind a recorded Tester."""
+    assessment = (proof or {}).get("changed_code_evidence") or {}
+    revision, context = assessment.get("source_revision"), assessment.get("proof_context")
+    if _text(revision) and _text(context):
+        return {
+            "source_revision": revision,
+            "proof_context": context,
+            "mutation_citations": mutation_citations(proof),
+            "mutation_archive": proof.get("path")
+            if proof.get("simulated") is True and proof.get("current_proof") is False
+            else None,
+        }
+    return None
 
 
 def _inventory(value):

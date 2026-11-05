@@ -9,6 +9,8 @@ from pathlib import Path
 
 import autocode_changed_code_evidence as policy
 import autocode_changed_code_proof as proof_policy
+import autocode_changed_code_review as review
+import autocode_changed_code_review_application as review_application
 from autocode_util import file_hash
 
 from .test_command_receipt import guarded_command_receipt
@@ -97,6 +99,82 @@ class ChangedCodeProofTests(unittest.TestCase):
                 "interrupted": False,
             }
         )
+
+    def test_tester_can_cite_a_current_killed_mutant_capture(self):
+        killed = self.receipt("adjacent-mutant", 1)
+        output = killed["output"]
+        self.result["changed_code_inputs"]["mutation"]["files"][0]["mutants"].append(
+            {
+                "line": 3,
+                "end_line": 3,
+                "operator": "constant_return",
+                "outcome": "killed",
+                "failed_tests": ["test_value"],
+                "evidence": [output],
+            }
+        )
+        self.result["changed_code_receipts"].append(killed)
+        self.path.write_text(json.dumps(self.result))
+        proof = {**copy.deepcopy(self.result), "path": str(self.path), "receipt_sha256": file_hash(self.path)}
+        schema = self.root / "schema.json"
+        schema.write_text(
+            json.dumps(review.generation_schema({"properties": {review.FIELD: review.SCHEMA}}, self.assessment, "sol"))
+        )
+        record = {
+            "stage": "sol",
+            "role": "sol",
+            "source_revision": "source-one",
+            "output": str(self.review),
+            "schema": str(schema),
+            "changed_files": [],
+        }
+        value = {
+            "verdict": "PASS",
+            "checks": [],
+            "evidence_hashes": {},
+            review.FIELD: [
+                {
+                    "gap_id": self.exception["gap_id"],
+                    "decision": "accept",
+                    "reason_kind": "equivalent_mutant",
+                    "reason": self.exception["reason"],
+                    "evidence_refs": [str(self.path), output],
+                }
+            ],
+        }
+
+        def accept():
+            review_application.accept(
+                {"regression_proof": proof},
+                value,
+                record,
+                self.root,
+                pin=lambda paths: {path: file_hash(self.root / path) for path in paths},
+            )
+
+        accept()
+        self.assertEqual(killed["output_sha256"], value["evidence_hashes"][output])
+        self.assertEqual([str(self.path), output], value["changed_code_decisions"][0]["evidence"])
+        refs = value[review.FIELD][0]["evidence_refs"]
+        refs[:] = [self.path.name, Path(output).name]
+        accept()
+        self.assertEqual([str(self.path), output], value["changed_code_decisions"][0]["evidence"])
+        refs[1] = "./" + Path(output).name
+        with self.assertRaisesRegex(ValueError, "unauthenticated evidence"):
+            accept()
+        refs[:] = [str(self.path), output]
+        foreign = self.receipt("other-mutant", 1)["output"]
+        value[review.FIELD][0]["evidence_refs"][1] = foreign
+        with self.assertRaisesRegex(ValueError, "unauthenticated evidence"):
+            accept()
+        value[review.FIELD][0]["evidence_refs"][1] = output
+        for path in (Path(output), self.path):
+            with self.subTest(tampered=path.name):
+                original = path.read_bytes()
+                path.write_bytes(original + b"changed")
+                with self.assertRaisesRegex(ValueError, "unauthenticated evidence"):
+                    accept()
+                path.write_bytes(original)
 
     def test_valid_unverified_gaps_reuse_measurement_without_claiming_ready(self):
         before = copy.deepcopy((self.proof, self.result))
