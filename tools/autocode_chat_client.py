@@ -715,6 +715,11 @@ class ChatClient:
         words = actions.checkpoint(self.status(), checkpoint_id, "compare", self.workspace, self.run_dir)
         return self.checkpoint_result(self.cli(words))
 
+    def step_change(self, checkpoint_id: str) -> dict:
+        """The view's named, display-only ``step``: what that saved step itself changed."""
+        words = actions.checkpoint(self.status(), checkpoint_id, "step", self.workspace, self.run_dir)
+        return self.checkpoint_result(self.cli(words))
+
     def restore(self, checkpoint_id: str, comparison: dict) -> None:
         """The view's named restore, bound to the comparison the person read; then talk to the new run."""
         words = actions.checkpoint(self.status(), checkpoint_id, "restore", self.workspace, self.run_dir)
@@ -805,7 +810,15 @@ class ChatClient:
         except actions.ClientGap as error:
             return str(error)
         if name == "/diff":
-            return panel.comparison_text(comparison, number)
+            if comparison.get("changed_files"):
+                return panel.comparison_text(comparison, number)
+            # The files still match step N (the newest step of a finished run, say): show what the step
+            # itself changed instead of only saying that nothing has changed since.
+            try:
+                own = self.step_change(str(row.get("id")))
+            except actions.ClientGap:  # Refused is one too
+                return panel.comparison_text(comparison, number)
+            return panel.step_text(own, number)
         if comparison.get("blocked_reason"):
             return panel.blocked_text(view, comparison["blocked_reason"])
 

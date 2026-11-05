@@ -5,6 +5,7 @@ import copy
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -119,6 +120,55 @@ class CodeCheckpoints(unittest.TestCase):
         comparison = self.client.compare_checkpoint(self.ident)
         self.assertEqual([], comparison["changed_files"])
         self.assertEqual("", comparison["patch"])
+
+    def step(self, ident):
+        """The named, display-only ``--step`` through the real CLI."""
+        rows = checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)["rows"]
+        [row] = [row for row in rows if row["id"] == ident]
+        [action] = [action for action in row["actions"] if action["id"] == "step"]
+        result = subprocess.run(
+            [sys.executable, str(TOOLS / "autocode.py"), *action["next_command"]],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "AUTOCODE_HOME": str(self.root / "registry")},
+            timeout=60,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        return json.loads(result.stdout)
+
+    def test_a_step_shows_its_own_change_when_the_files_still_match_it(self):
+        # compare of the newest step shows nothing on a finished run; --step shows what the step changed.
+        self.assertEqual([], self.client.compare_checkpoint(self.ident)["changed_files"])
+        first = self.step(self.ident)
+        self.assertEqual("start", first["since"])
+        self.assertEqual(["app.txt", "link", "new file.txt", "run.sh"], first["changed_files"])
+        self.assertIn("-baseline\n+checkpoint code\n", first["patch"])
+        self.assertIn("+new at checkpoint", first["patch"])
+        # A later step is shown against the step before it, from the saved code, not the files on disk.
+        (self.workspace / "app.txt").write_text("second step\n")
+        snap = util.snapshot(self.workspace)
+        self.state["iteration"] = 4
+        self.state["implementation"]["source_revision"] = snap["revision"]
+        self.state["stages"].append(
+            {
+                "stage": "terra",
+                "task_id": "bounded-task",
+                "source_revision": snap["revision"],
+                "exit_code": 0,
+                "finished_at": util.now(),
+                "changed_files": ["app.txt"],
+            }
+        )
+        checkpoints.update(self.state, self.run)
+        self.save()
+        later = self.state["code_checkpoints"][-1]["id"]
+        self.assertNotEqual(self.ident, later)
+        (self.workspace / "app.txt").write_text("not saved yet\n")
+        second = self.step(later)
+        self.assertEqual((self.ident, ["app.txt"]), (second["since"], second["changed_files"]))
+        self.assertIn("-checkpoint code\n+second step\n", second["patch"])
+        self.assertNotIn("not saved yet", second["patch"])
+        self.assertEqual("not saved yet\n", (self.workspace / "app.txt").read_text(), "display only")
 
     def test_restore_preserves_original_dirty_index_and_marks_later_findings(self):
         checkpoint_bytes = (self.run / "code-checkpoints" / f"{self.ident}.json").read_bytes()
@@ -376,6 +426,11 @@ class ProjectedRowActions(CodeCheckpoints):
                     "next_command": [*prefix, "--compare", self.ident],
                 },
                 {
+                    "id": "step",
+                    "label": "Show what this step changed",
+                    "next_command": [*prefix, "--step", self.ident],
+                },
+                {
                     "id": "restore",
                     "label": "Go back to here",
                     "next_command": [
@@ -406,13 +461,13 @@ class ProjectedRowActions(CodeCheckpoints):
     def test_an_unreconciled_pause_names_compare_only(self):
         self.state["status"] = "RUNNING"
         [row] = checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)["rows"]
-        self.assertEqual(["compare"], [action["id"] for action in row["actions"]])
+        self.assertEqual(["compare", "step"], [action["id"] for action in row["actions"]])
 
     def test_a_finished_run_names_compare_only_and_says_why_without_asking_for_a_pause(self):
         # #1643: on a finished run the reason told the person to pause, though nothing was running.
         self.state["status"] = "TASK_COMPLETE"
         projected = checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)
-        self.assertEqual(["compare"], [action["id"] for action in projected["rows"][0]["actions"]])
+        self.assertEqual(["compare", "step"], [action["id"] for action in projected["rows"][0]["actions"]])
         self.assertIn("finished run", projected["blocked_reason"])
         self.assertNotIn("Pause", projected["blocked_reason"])
 

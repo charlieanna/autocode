@@ -470,7 +470,9 @@ def row_actions(row, *, restorable, run_dir=None, workspace=None):
             "id": "compare",
             "label": "Show what changed since here",
             "next_command": [*prefix, "--compare", row["id"]],
-        }
+        },
+        # Display only: what this step itself changed, which a compare of the newest step cannot show.
+        {"id": "step", "label": "Show what this step changed", "next_command": [*prefix, "--step", row["id"]]},
     ]
     if restorable:
         actions.append(

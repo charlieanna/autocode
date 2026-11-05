@@ -579,7 +579,7 @@ def pause(view: dict, request_id: str, workspace: Path, run_dir: Path) -> list[s
 
 
 def checkpoint(view: dict, checkpoint_id: str, action_id: str, workspace: Path, run_dir: Path) -> list[str]:
-    """A saved code step's named ``compare`` or ``restore``, as arguments after ``autocode``, or a gap.
+    """A saved code step's named ``compare``, ``step`` or ``restore``, as arguments after ``autocode``, or a gap.
 
     The view names ``restore`` only where going back is allowed now; it carries ``REQUEST_ID``,
     which the caller replaces with its own stable id, and reads the token a fresh ``compare``
@@ -600,7 +600,7 @@ def checkpoint(view: dict, checkpoint_id: str, action_id: str, workspace: Path, 
         str(workspace),
         "--run-dir",
         str(run_dir),
-        "--compare" if action_id == "compare" else "--restore",
+        {"compare": "--compare", "step": "--step"}.get(action_id, "--restore"),
         checkpoint_id,
         *(["--expected-token", "-", "--request-id", "REQUEST_ID"] if action_id == "restore" else []),
     ]

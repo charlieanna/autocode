@@ -358,6 +358,7 @@ class CheckpointActionTests(unittest.TestCase):
         prefix = ["checkpoint", "--workspace", str(WORKSPACE), "--run-dir", str(RUN)]
         named = {
             "compare": [*prefix, "--compare", "s1"],
+            "step": [*prefix, "--step", "s1"],
             "restore": [*prefix, "--restore", "s1", "--expected-token", "-", "--request-id", "REQUEST_ID"],
         }
         rows = [{"id": "s1", "actions": [{"id": name, "next_command": command or named[name]} for name in names]}]
@@ -367,6 +368,9 @@ class CheckpointActionTests(unittest.TestCase):
         view = self.view("compare", "restore")
         self.assertEqual("--compare", actions.checkpoint(view, "s1", "compare", WORKSPACE, RUN)[5])
         self.assertEqual("REQUEST_ID", actions.checkpoint(view, "s1", "restore", WORKSPACE, RUN)[-1])
+        self.assertEqual("--step", actions.checkpoint(self.view("step"), "s1", "step", WORKSPACE, RUN)[5])
+        with self.assertRaisesRegex(actions.ClientGap, "Unsupported step"):
+            actions.checkpoint(self.view("step", command=["checkpoint", "--step", "s1"]), "s1", "step", WORKSPACE, RUN)
 
     def test_a_restore_the_view_does_not_name_or_names_differently_is_a_gap(self):
         with self.assertRaisesRegex(actions.ClientGap, "offers no restore"):
@@ -408,6 +412,11 @@ class SavedStepTests(unittest.TestCase):
             env={**os.environ, "AUTOCODE_HOME": str(fixture.root / "registry")},
             say=self.said.append,
         )
+
+    def test_diff_of_a_step_the_files_still_match_shows_what_the_step_itself_changed(self):
+        shown = self.client.slash("/diff", "1")
+        self.assertTrue(shown.startswith("Nothing has changed since step 1. Step 1 itself changed"), shown)
+        self.assertIn("+checkpoint code", shown)
 
     def test_diff_shows_what_changed_since_the_step(self):
         self.assertIn("1. ", self.client.slash("/diff", ""))

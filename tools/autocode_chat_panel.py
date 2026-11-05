@@ -621,6 +621,23 @@ def comparison_text(
     return "\n".join(lines)
 
 
+def step_text(change: dict, number: int, *, limit: int = 400) -> str:
+    """What a step's ``step`` action returned, for ``/diff N`` when nothing has changed since step N."""
+    files = [str(path) for path in change.get("changed_files") or []]
+    head = f"Nothing has changed since step {number}."
+    if not files:
+        return f"{head} Step {number} itself changed no files."
+    lines = [f"{head} Step {number} itself changed {len(files)} file{'' if len(files) == 1 else 's'}:"]
+    lines.extend(f"  {path}" for path in files)
+    patch = str(change.get("patch") or "").splitlines()
+    if patch:
+        lines.append("")
+        lines.extend(patch[:limit])
+    if len(patch) > limit or change.get("truncated"):
+        lines.append("(The diff is longer than this; the full changes are in the run's branch.)")
+    return "\n".join(lines)
+
+
 def text(name: str, view: dict | None, log: StageLog, available: list[Command] | None = None) -> str:
     """What ``/plan``, ``/tasks``, ``/log``, ``/details``, ``/why`` and ``/help`` print into the conversation."""
     view = view or {}

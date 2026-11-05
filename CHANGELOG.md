@@ -22,6 +22,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Terminal chat: `/diff N` on a step the files still match, such as the newest step of a finished run,
+  now shows what that step itself changed instead of only "Nothing has changed since step N". The
+  status view names a display-only `step` action for each saved step (`autocode checkpoint --step`).
+- Screens and the terminal conversation name the Resolver by its job, as every other stage is named,
+  instead of "AutoResolver", and a Resolver question no longer tells you to use its approval token.
 - A Planner model the person chose (a stage choice or `--glm-model`) is kept when a revised plan
   is blocked again, instead of climbing to Claude Opus 5.5 or GPT-6 Sol. A live Kilo run on
   GLM 5.3 climbed to an Anthropic account with no credit and stopped to ask the person.

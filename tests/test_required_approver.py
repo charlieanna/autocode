@@ -316,6 +316,22 @@ class TerminalConversationTests(unittest.TestCase):
         self.assertEqual([], goals.missing_human_reviews(self.state))
 
 
+class TerminalConversationNamesTests(unittest.TestCase):
+    """The terminal conversation names the job (Resolver), never the unit behind it."""
+
+    setUp = test_goals.GoalTests.setUp
+    converse = TerminalConversationTests.converse
+    identify = TerminalConversationTests.identify
+
+    def test_the_plan_is_put_to_the_person_by_the_resolver(self):
+        lifecycle.install_draft(self.state, body(), origin="test")
+        lifecycle.human.evaluate(self.state)
+        self.assertEqual("AWAITING_GOAL_APPROVAL", self.state["status"])
+        _, _, out = self.converse()
+        self.assertIn("Resolver: proposed plan ready for your decision:", out)
+        self.assertNotIn("AutoResolver", out)
+
+
 class CompletionAcceptanceTests(unittest.TestCase):
     """--accept-completion through the real CLI entry in-process on a run started with require-approver: an
     unlisted Git identity is refused before anything is saved, and a listed one closes the run."""
