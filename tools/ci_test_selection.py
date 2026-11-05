@@ -224,6 +224,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tests.test_job_report_recovery",
             "tests.test_investigation_progress",
             "tests.test_acceptance_tests",
+            "tests.test_go_reproduction",
         ),
     ),
     ("docs/schemas/status-view.schema.json", ("tests.test_json_contract",)),

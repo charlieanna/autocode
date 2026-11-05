@@ -15,6 +15,8 @@ from unittest import mock
 import autocode_verify as verify
 from autocode_taskrun import TaskRun, TaskRunError
 
+from . import legacy_bugfix_fixture
+
 GO = shutil.which("go")
 SOURCE = "package pager\n\nfunc PageCount(total, size int) int { return total / size }\n"
 TEST = """package pager
@@ -309,12 +311,16 @@ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':1,'output_toke
             "0",
         )
         try:
+            # The standard implementation flow sends a pinned bugfix to Requirements and the
+            # Planner; this test exercises the Investigator's Go probe, so it launches as the
+            # retained Investigator compatibility flow does.
             run = TaskRun.start(
                 self.workspace,
                 "Fix PageCount(5, 2) returning 2 instead of 3.",
                 options=options,
                 env=self.environment,
                 timeout=60,
+                command=legacy_bugfix_fixture.COMMAND,
             )
         except TaskRunError as error:
             self.assertIsNotNone(error.run_dir, str(error))

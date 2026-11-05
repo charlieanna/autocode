@@ -69,6 +69,7 @@ class DynamicDependenciesTests(unittest.TestCase):
                 "tests.test_stale_diagnosis_feedback_cli",
                 "tests.test_investigation_handoff_cli",
                 "tests.test_provider_auth_cli",
+                "tests.test_go_reproduction",
             },
         }
         for path, consumers in cases.items():
