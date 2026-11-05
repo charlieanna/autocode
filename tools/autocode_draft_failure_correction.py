@@ -24,6 +24,8 @@ except ImportError:
     import autocode_util as util
 
 FIELD = "draft_failure_correction"
+COMPATIBILITY = "unapproved_bugfix_compatibility_inference"
+TARGETS = {"unapproved_model_inference": "important_failure_cases", COMPATIBILITY: "required_behaviors"}
 ORIGINS = {"glm_draft", "astra_discovery", "glm_revise", "astra_finalize"}
 LISTS = ("required_behaviors", "scope_exclusions", "constraints", "permission_boundaries")
 SOURCES = (
@@ -45,7 +47,7 @@ RECEIPT_SCHEMA = {
     "type": ["object", "null"],
     "properties": {
         "snapshot": {"type": "string"},
-        "judgment": {"type": "string", "enum": ["unapproved_model_inference"]},
+        "judgment": {"type": "string", "enum": list(TARGETS)},
         "before": {"type": "string"},
         "after": {"type": "string"},
         "rationale": {"type": "string"},
@@ -150,7 +152,8 @@ def receipts(state: RunState, report):
     """Validate only explicit fresh first-review receipts; legacy concerns grant nothing."""
     allowed = {}
     token = snapshot(state)
-    body = (state.get("goal_contract") or {}).get("body", {})
+    contract = state.get("goal_contract") or {}
+    body = contract.get("body", {})
     for concern in report.get("concerns", []):
         receipt = concern.get(FIELD)
         if receipt is None:
@@ -161,21 +164,32 @@ def receipts(state: RunState, report):
             or any(not isinstance(value, str) or not value.strip() for value in receipt.values())
             or not token
             or receipt.get("snapshot") != token
-            or receipt.get("judgment") != "unapproved_model_inference"
+            or receipt.get("judgment") not in TARGETS
             or concern.get("blocking") is not True
             or not isinstance(concern.get("id"), str)
             or not concern["id"].strip()
         ):
             raise ValueError("Draft failure correction needs a fresh first-review inference receipt")
         before, after = receipt["before"], receipt["after"]
+        target = TARGETS[receipt["judgment"]]
+        if target == "required_behaviors":
+            handoff = (state.get("requirements_handoff") or {}).get("report") or {}
+            if (
+                body.get("task_kind") != "bugfix"
+                or contract.get("revision") != 1
+                or (state.get("workflow") or {}).get("requirements_approved")
+                or any(state.get(key) for key in ("answers", "brief_feedback", "user_events", "requirements_history"))
+                or handoff.get(target, []).count(before) != 1
+            ):
+                raise ValueError("Draft failure correction cannot replace protected human or dual-owned text")
         decisions = [
             row.get("text") for key in ("accepted_assumptions", "delegated_decisions") for row in body.get(key, [])
         ]
         if (
             before == after
             or before in allowed
-            or body.get("important_failure_cases", []).count(before) != 1
-            or any(before in body.get(key, []) for key in LISTS)
+            or body.get(target, []).count(before) != 1
+            or any(before in body.get(key, []) for key in (*LISTS, "important_failure_cases") if key != target)
             or before in decisions
             or any(before == row.get("criterion") for row in body.get("acceptance_criteria", []))
             or _quoted(state, before)
@@ -213,7 +227,10 @@ def _obligation_mismatches(before, after, replacements, interpretation_correctio
     # existing assumption and criterion guards independently authorize their own draft corrections.
     mismatches = []
     for key in (*LISTS, "delegated_decisions"):
-        if before.get(key) != after.get(key):
+        expected = before.get(key)
+        if key == "required_behaviors" and expected is not None:
+            expected = [replacements.get(item, item) for item in expected]
+        if expected != after.get(key):
             mismatches.append(key)
     old_assumptions = before.get("accepted_assumptions", [])
     new_assumptions = after.get("accepted_assumptions", [])
@@ -276,7 +293,7 @@ def corrections(state: RunState, body, changes, origin, *, interpretation_correc
             and row.get("answer_id") == ""
             and row.get("replacement") == binding["receipt"]["after"]
             and row.get("example_correction") is None
-            and item not in body.get("important_failure_cases", [])
+            and item not in body.get(TARGETS[binding["receipt"]["judgment"]], [])
         ):
             allowed[item] = binding
     if not allowed:
@@ -297,6 +314,6 @@ def corrections(state: RunState, body, changes, origin, *, interpretation_correc
         raise ValueError(
             f"Draft failure correction receipt matches, but adjacent {', '.join(mismatches)} {retention}."
             + hint
-            + " The receipt authorizes only its exact failure-case replacement."
+            + " The receipt authorizes only its exact replacement."
         )
     return allowed

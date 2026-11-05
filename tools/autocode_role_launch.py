@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_agent_env as agent_env
     from . import autocode_classification_recovery as classification_recovery
+    from . import autocode_draft_failure_correction as failure_correction
     from . import autocode_format_correction as format_correction
     from . import autocode_job_failure as job_failure
     from . import autocode_output_cap as output_cap
@@ -46,6 +47,7 @@ try:
 except ImportError:
     import autocode_agent_env as agent_env
     import autocode_classification_recovery as classification_recovery
+    import autocode_draft_failure_correction as failure_correction
     import autocode_format_correction as format_correction
     import autocode_job_failure as job_failure
     import autocode_output_cap as output_cap
@@ -97,6 +99,9 @@ def replay_context(state: RunState, *, stage, iteration, report_only, original_s
         "consumed": sum(isinstance(row.get("replay"), dict) for row in state.get("stages", [])),
         "changed_code_proof": changed_code_proof,
         "regression_proof_path": (state.get("regression_proof") or {}).get("path"),
+        "draft_inference_snapshot": failure_correction.snapshot(state)
+        if (original_stage if report_only else stage) == "astra_challenge"
+        else None,
     }
 
 

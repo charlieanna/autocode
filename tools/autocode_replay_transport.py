@@ -248,6 +248,7 @@ def prepare(
         "capture_nonce": None,
         "changed_code_gap": context.get("changed_code_proof"),
         "regression_proof": context.get("regression_proof_path"),
+        "draft_inference_snapshot": context.get("draft_inference_snapshot"),
     }
     if any(binding.get("symbol") == "retained_contract" for binding in row["bindings"]):
         symbols["retained_contract"] = retained_contract_symbol(schema, context.get("contract_hash"))

@@ -804,6 +804,24 @@ class SourceRecoveryTests(unittest.TestCase):
 
 
 class IdentityRebindingTests(unittest.TestCase):
+    def test_reviewed_draft_inference_rebinds_only_the_offered_snapshot(self):
+        import autocode_replay_bindings as bindings
+
+        old = "draft-failure-v1:" + "a" * 64
+        new = "draft-failure-v1:" + "b" * 64
+        receipt = {"snapshot": old, "rationale": "Keep the archived snapshot text " + old}
+        value = {"report": {"concerns": [{"draft_failure_correction": receipt}]}}
+        saved = bindings.bindings(value, {}, {}, "/old/work", "/old/run", [], draft_snapshot=old)
+        self.assertEqual(["draft_inference_snapshot"], [row["symbol"] for row in saved])
+        rebound = recording.rebind(value, saved, {"draft_inference_snapshot": new})
+        self.assertEqual(
+            {"snapshot": new, "rationale": receipt["rationale"]},
+            rebound["report"]["concerns"][0]["draft_failure_correction"],
+        )
+        self.assertEqual([], bindings.bindings(value, {}, {}, "/old/work", "/old/run", [], draft_snapshot=new))
+        with self.assertRaises(ValueError):
+            recording.rebind(value, saved, {"draft_inference_snapshot": None})
+
     def test_only_explicit_json_pointer_fields_change_and_input_is_untouched(self):
         original = {
             "checks": [{"evidence_ref": "/old/workspace/.autocode/check.json"}],

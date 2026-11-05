@@ -102,6 +102,7 @@ SYMBOLS = frozenset(
         "capture_nonce",
         "changed_code_gap",
         "regression_proof",
+        "draft_inference_snapshot",
         "retained_contract",
         "gate_message_id",
         "gate_token",
@@ -502,6 +503,10 @@ def rebind(value, bindings, symbols):
                 replacement = _current_gap(replacement, binding["gap"])
             elif binding["symbol"] == "regression_proof" and not (isinstance(replacement, str) and replacement):
                 raise RecordingError("Replay has no current regression proof for a recorded citation of one")
+            elif binding["symbol"] == "draft_inference_snapshot" and not (
+                isinstance(replacement, str) and re.fullmatch(r"draft-failure-v1:[0-9a-f]{64}", replacement)
+            ):
+                raise RecordingError("Replay has no current draft eligible for the recorded correction")
             owner[key] = replacement
         except (KeyError, IndexError, TypeError, ValueError):
             raise RecordingError("Recording binding does not name an existing field") from None
@@ -1073,6 +1078,7 @@ def export(projection, destination, secret_values=()):
                 gaps=identity_bindings.changed_line_gaps(packet),
                 proof=identity_bindings.proof_path(packet),
                 gate=gate,
+                draft_snapshot=packet.get("draft_failure_correction_snapshot"),
             )
         document["dispatches"].append(row)
     revisions = list(dict.fromkeys([*projection["revisions"], *[row["head"] for row in snapshots]]))

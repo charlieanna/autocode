@@ -73,7 +73,9 @@ def gate_reply(packet):
     return {"gate_message_id": message["id"], "gate_token": message["gate_token"]}
 
 
-def bindings(payload, record, row, workspace, run_dir, snapshots, gaps=None, proof=None, gate=None):
+def bindings(
+    payload, record, row, workspace, run_dir, snapshots, gaps=None, proof=None, gate=None, draft_snapshot=None
+):
     known = {"task_id": row.get("task_id"), "contract_hash": row.get("contract_hash")}
     revision = record.get("contract_revision")
     retained = (
@@ -139,6 +141,13 @@ def bindings(payload, record, row, workspace, run_dir, snapshots, gaps=None, pro
                     add(target, "session")
                 elif key == "source_revision" and isinstance(child, str) and child in revisions:
                     add(target, "source_revision")
+                elif (
+                    key == "snapshot"
+                    and field == "draft_failure_correction"
+                    and draft_snapshot
+                    and child == draft_snapshot
+                ):
+                    add(target, "draft_inference_snapshot")
                 elif key == "gap_id" and isinstance(child, str) and child in gaps:
                     add(target, "changed_code_gap", gap=gaps[child])
                 else:
