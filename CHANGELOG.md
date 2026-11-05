@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- On Kilo and OpenCode, the live agent log shows the newest words of a stage's reasoning (bounded and
+  redacted) instead of only "Reasoning stream activity received; text unavailable". A response part,
+  which may be the report, still shows only as activity.
 - Plan validation accepts the word “zero” for an unquoted source value of `0`, avoiding
   unnecessary report-repair calls. Exact quoted literals and different numeric values
   still require their original values.

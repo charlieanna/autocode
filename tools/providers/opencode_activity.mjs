@@ -1,10 +1,13 @@
 // Forward bounded native progress that `opencode run --format json` omits.
 // Hashes describe liveness only: never emit report text, tool proof or completion.
+// A reasoning part also carries a short preview of its newest words, for the live log to show
+// what the model is thinking (display only); a text part, which may be the report, never does.
 // A compaction part (the provider summarized the conversation) is forwarded as its own
 // row, so the runner can refuse the response that follows it (autocode_context_window).
 import { createHash } from "node:crypto";
 
 const WINDOW = 8192;
+const PREVIEW = 600; // characters of a reasoning part's newest text; the runner bounds and redacts again
 const MAX_PARTS = 4096;
 const MAX_EVENTS = 65536;
 const digest = (text) => createHash("sha256").update(text.trim()).digest("hex");
@@ -16,10 +19,11 @@ export default async () => {
   const compactions = new Set();
   function flush(id, part) {
     if (!part.pending.trim()) return;
+    const progress = {id, kind: part.kind, position: part.position, nonwhite: true,
+      content_hash: digest(part.window), delta_hash: digest(part.pending)};
+    if (part.kind === "reasoning") progress.preview = part.window.slice(-PREVIEW);
     process.stdout.write(JSON.stringify({
-      type: "autocode_progress", version: 1, timestamp: Date.now(), sessionID,
-      progress: {id, kind: part.kind, position: part.position, nonwhite: true,
-        content_hash: digest(part.window), delta_hash: digest(part.pending)}
+      type: "autocode_progress", version: 1, timestamp: Date.now(), sessionID, progress
     }) + "\n");
     part.pending = "";
     part.emitted = performance.now();
