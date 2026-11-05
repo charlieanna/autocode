@@ -2460,7 +2460,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/503f1b2c3269aeb75aa4b0f786ff20f4eabbbd9a/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/b08cacaf7aa916280862d5c1252c519347834242/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2692,7 +2692,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/503f1b2c3269aeb75aa4b0f786ff20f4eabbbd9a/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/b08cacaf7aa916280862d5c1252c519347834242/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3302,7 +3302,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/503f1b2c3269aeb75aa4b0f786ff20f4eabbbd9a/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/b08cacaf7aa916280862d5c1252c519347834242/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -4084,8 +4084,9 @@ never resets the task total.</p>
 <p>Progress comes from the public view's <code>chat.log</code>. Commands, reasoning and
 transport counters do not appear in the default conversation. A raw structured
 report appears only as a neutral receipt; it is not a validated plan or proof.
-Use <code>/live</code> to open an optional agent-details pane, <code>/live tools</code> for commands,
-edits and tool history, or <code>/live thinking</code> for reasoning. <code>/live off</code> closes
+Use <code>/live</code> to open an optional agent-details pane with readable thinking and
+messages, <code>/live tools</code> for commands, edits and tool history, <code>/live thinking</code>
+for reasoning alone, or <code>/live messages</code> for messages alone. <code>/live off</code> closes
 that extra pane without stopping ordinary progress updates in the conversation.
 Detailed logs retain the last 500 entries. Everything shown is display only:
 a progress message is not verification, and a command shown is not a passed check.</p>
@@ -4170,7 +4171,7 @@ highlighted one:</p>
 </tr>
 <tr>
 <td><code>/live [NAME\|thinking\|messages\|tools\|all\|off]</code></td>
-<td>Open or hide the optional agent-details pane. Ordinary progress is always in the conversation; <code>all</code> shows progress messages from every agent in the extra pane. <code>tools</code> shows retained commands (including failures), edits and tool history; <code>thinking</code> shows reasoning text explicitly. Transport token/character counters are omitted. A name (such as <code>M2</code> or <code>reviewer</code>) filters progress messages by agent; <code>off</code> hides the pane. Where the terminal is too short, the newest entries are printed in the conversation</td>
+<td>Open or hide the optional agent-details pane. Ordinary progress is always in the conversation; the pane defaults to readable thinking and messages from every agent, as does <code>all</code>. <code>tools</code> shows retained commands (including failures), edits and tool history; <code>thinking</code> shows only reasoning and <code>messages</code> only messages. Transport token/character counters are omitted. A name (such as <code>M2</code> or <code>reviewer</code>) filters thinking and messages by agent; <code>off</code> hides the pane. Where the terminal is too short, the newest entries are printed in the conversation</td>
 </tr>
 <tr>
 <td><code>/attention</code> or F8</td>
@@ -4304,7 +4305,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/503f1b2c3269aeb75aa4b0f786ff20f4eabbbd9a/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/b08cacaf7aa916280862d5c1252c519347834242/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
