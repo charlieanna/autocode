@@ -394,6 +394,23 @@ class CompactPlanningTests(unittest.TestCase):
         )
         self.assertEqual("test_t9_holds", compact.test_name({"id": "T9", "then": "!!!"}))
 
+    def test_a_name_leaves_out_what_happens_today_and_borrows_the_given_when_too_short(self):
+        # 2026-11-05 live slugify run: names repeated the "(currently returns ...)" aside or said nothing.
+        def case(cid, given, then):
+            return {"id": cid, "given": given, "then": then}
+
+        self.assertEqual(
+            "test_t1_returns_hello_world",
+            compact.test_name(
+                case("T1", 'text "  Hello, World!  "', 'returns "hello-world" (currently returns "-hello-world-")')
+            ),
+        )
+        self.assertEqual(
+            "test_t4_returns_text_all_separators",
+            compact.test_name(case("T4", 'text "---" (all separators)', 'returns "" (currently returns "-")')),
+        )
+        self.assertEqual("test_t9_currently_fails", compact.test_name({"id": "T9", "then": "(currently fails)"}))
+
     def test_the_setting_is_chosen_at_the_start_and_kept(self):
         self.assertFalse(compact.new_run_setting(None, True))
         self.assertFalse(compact.new_run_setting(None, False))

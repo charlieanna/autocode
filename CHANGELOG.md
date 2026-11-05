@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Regression test names in a compact bug-fix plan leave out the "(currently returns ...)" aside and
+  borrow the case's given clause when the expected result is too short, so `test_t1_returns_hello_world`
+  replaces `test_t1_returns_hello_world_currently_returns_hello`.
 - Plan validation accepts the word “zero” for an unquoted source value of `0`, avoiding
   unnecessary report-repair calls. Exact quoted literals and different numeric values
   still require their original values.
