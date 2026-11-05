@@ -1490,12 +1490,13 @@ class ChatClient:
                 f"\n{review['label']}? You can also ask a question or request a change: " if review else "\nYou: "
             )
             return bool(reply.strip()) and self.send(reply, context)
+        if review and (detail := (review.get("spend_confirmation") or {}).get("detail")):
+            # The spend detail comes before the one prompt that approves and starts, so a yes is
+            # asked once, as the conversational gate does (docs/task-run.md), not again after it.
+            self.say(detail)
         prompt = "\nYou: " if not review else f"\n{review['label']}? [y/N], or type what to change: "
         reply = self.ask(prompt)
         if review and (confirmations.affirmative(reply) or same_answer(reply, review)):
-            if not self.confirm_spend(review.get("spend_confirmation")):
-                self.say("Not started. The understanding still waits for you.")
-                return True
             fresh = self.status()
             if (fresh.get("chat") or {}).get("context") != context:
                 self.say("The conversation changed meanwhile; here is where it stands now.")
@@ -1753,14 +1754,6 @@ class ChatClient:
         except Left:
             return False
         return bool(reply) and self.send(reply, context)
-
-    def confirm_spend(self, confirmation) -> bool:
-        """The core's spend confirmation before paid planning, as the extension's modal shows it:
-        its title and detail, then its own button label as the question. None: nothing to confirm."""
-        if not isinstance(confirmation, dict):
-            return True
-        self.say(f"\n{confirmation.get('title') or 'Continue?'}\n{confirmation.get('detail') or ''}".rstrip())
-        return confirmations.affirmative(self.ask(f"{confirmation.get('label') or 'Continue'}? [y/N]: "))
 
     def send(self, text: str, context: str) -> bool:
         """A message through the view's chat input, then on with the run, as the extension does."""
