@@ -618,7 +618,7 @@ class ControllerExitCliTests(unittest.TestCase):
                 self.assertTrue(payload["stale"], payload)
                 self.assertEqual("ended", payload["view"]["controller"]["kind"])
                 if key == "active_stage":
-                    self.assertIn("AutoResolver must reconcile retained attempt", payload["next_action"])
+                    self.assertIn("The Resolver must settle the interrupted attempt", payload["next_action"])
                     self.assertIn(payload["attempt_id"], payload["next_action"])
                 else:
                     self.assertEqual("Inspect the retained runner check and resume the run", payload["next_action"])

@@ -2553,6 +2553,13 @@ The CLI equivalent is `autocode checkpoint --workspace WORKTREE --run-dir RUN
 --expected-token TOKEN --request-id ID`. The dashboard uses this supported
 interface, places confirmation in chat and comparison in the Changes pane.
 
+Each available row also names `step`, `autocode checkpoint --step CHECKPOINT`, which shows what that
+step itself changed. It is display only, like `--working`: it prints `{checkpoint_id, since,
+changed_files, patch, truncated}`. It reads both sides from saved code: the step before it (`since` is
+that step's id) or, for the first step, the commit it was saved on (`since` is `"start"`, limited to the
+run's own scope), and never the files on disk. It carries no token and restores nothing. A finished
+run's newest step still matches the files, so `compare` shows nothing there, but `step` shows its change.
+
 While a Builder step runs, `code_checkpoints.working` (otherwise null) names one more action in the
 same shape, `autocode checkpoint --working`. It is display only: it prints `{since, changed_files,
 patch, truncated, compared_at}`, the files as they are now against the newest saved step (`since` is

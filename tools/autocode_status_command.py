@@ -299,7 +299,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
     if following_id and following_id == (active or {}).get("stage"):
         following_id = None
     next_action = (
-        f"AutoResolver must reconcile retained attempt {runner.attempt_id(active)} before any provider call"
+        f"The Resolver must settle the interrupted attempt {runner.attempt_id(active)} before any new model call"
         if stale
         else "Inspect the retained runner check and resume the run"
         if stale_check
@@ -362,7 +362,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         print(
             f"STALE CHECKPOINT: saved status is RUNNING but the retained "
             f"{cast(dict, active).get('stage')} attempt has no current supervised result. "
-            "AutoResolver must reconcile the retained attempt before any further provider call.",
+            "The Resolver must settle the interrupted attempt before any new model call.",
             file=sys.stderr,
         )
     if stale_check:

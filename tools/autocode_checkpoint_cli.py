@@ -98,8 +98,9 @@ def source_token(state: RunState, saved, source):
     return "checkpoint-v1:" + util.digest({"state": bound, "checkpoint": saved, "source": source})
 
 
-def patch_text(state: RunState, commit, changed, before, after):
-    """The unified diff of `changed` paths from files at `commit` (or none) to the files on disk."""
+def patch_text(state: RunState, commit, changed, before, after, *, new_commit=None):
+    """The unified diff of `changed` paths from files at `commit` (or none) to the files on disk, or to
+    the files at `new_commit` when it is given."""
     patch = ""
     for name in changed:
         old, new = before.get(name), after.get(name)
@@ -112,7 +113,12 @@ def patch_text(state: RunState, commit, changed, before, after):
             patch += "Executable mode changed.\n"
         try:
             old_bytes = checkpoints.git(state["workspace"], "show", commit + ":" + name) if old else b""
-            new_bytes = path.read_bytes() if new else b""
+            if not new:
+                new_bytes = b""
+            elif new_commit:
+                new_bytes = checkpoints.git(state["workspace"], "show", new_commit + ":" + name)
+            else:
+                new_bytes = path.read_bytes()
             if max(len(old_bytes), len(new_bytes)) > 100000 or b"\0" in old_bytes + new_bytes:
                 patch += "Binary or large file changed; inspect the saved checkpoint and current file.\n"
             else:
@@ -120,8 +126,8 @@ def patch_text(state: RunState, commit, changed, before, after):
                     difflib.unified_diff(
                         old_bytes.decode().splitlines(True),
                         new_bytes.decode().splitlines(True),
-                        "checkpoint/" + name,
-                        "current/" + name,
+                        "checkpoint/" + name if not new_commit else "before/" + name,
+                        "current/" + name if not new_commit else "step/" + name,
                     )
                 )
         except UnicodeError:
@@ -152,6 +158,35 @@ def compare(state: RunState, run_dir, ident):
         "source_workspace": state["workspace"],
         "source_branch": state.get("task_branch")
         or checkpoints.git(state["workspace"], "branch", "--show-current").decode().strip(),
+    }
+
+
+def step(state: RunState, run_dir, ident):
+    """What one saved step itself changed: its saved code against the step before it, or against the
+    commit it was saved on for the first. Display only, like ``working``: no token, nothing restored.
+    A finished run's newest step matches the files, so ``compare`` shows nothing; this shows its change."""
+    saved = receipt(state, run_dir, ident, current_plan=False)
+    rows = [row for row in state.get("code_checkpoints") or [] if row.get("available")]
+    index = next(number for number, row in enumerate(rows) if row.get("id") == ident)
+    after = checkpoints.content_files(saved["source"])
+    if index:
+        earlier = receipt(state, run_dir, rows[index - 1]["id"], current_plan=False)
+        commit, before, since = earlier["commit"], checkpoints.content_files(earlier["source"]), earlier["id"]
+        changed = util.changed_paths(earlier["source"], saved["source"])
+    else:
+        commit, since = saved["source"]["head"], None
+        before = checkpoints.tree_files(state["workspace"], commit)
+        # Only the run's own scope, as `working` reads it; a file the step removed is in its record.
+        removed = [name for name in rows[0].get("changed_files") or [] if name in before and name not in after]
+        changed = sorted({*(name for name in after if before.get(name) != after.get(name)), *removed})
+    patch = patch_text(state, commit, changed, before, after, new_commit=saved["commit"])
+    return {
+        "version": 1,
+        "checkpoint_id": ident,
+        "since": since or "start",
+        "changed_files": changed,
+        "patch": patch[:200000],
+        "truncated": len(patch) > 200000,
     }
 
 
@@ -378,6 +413,7 @@ def parser() -> argparse.ArgumentParser:
     action.add_argument("--compare", metavar="CHECKPOINT", help="Show what a saved code step changed")
     action.add_argument("--restore", metavar="CHECKPOINT", help="Restore the code of a saved step; needs its token")
     action.add_argument("--working", action="store_true", help="Show what changed since the newest saved step")
+    action.add_argument("--step", metavar="CHECKPOINT", help="Show what a saved step itself changed (display only)")
     result.add_argument("--expected-token", help="The exact token the comparison showed, for --restore")
     result.add_argument("--request-id", help="Stable ID of this action, so a repeat is recognized")
     result.add_argument("--json", action="store_true", help="Format output as JSON (default)")
@@ -394,6 +430,8 @@ def cli(argv):
             result = compare(state, run_dir, args.compare)
         elif args.working:
             result = working(state, run_dir)
+        elif args.step:
+            result = step(state, run_dir, args.step)
         else:
             with util.run_lock(run_dir), checkout_lock.exclusive(workspace, run_dir):
                 workspace, run_dir, state = target(workspace, run_dir)

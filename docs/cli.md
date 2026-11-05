@@ -607,7 +607,7 @@ also accepts `-h` / `--help`.
 | `autocode bundle` | `--run-dir`, `--out`, `--with-diff`, `--json` | The run, as the other commands name it (instead of the positional `RUN`); where to write the archive; add the run's diff of the workspace source; print the archive path and manifest as JSON. |
 | `autocode prune-run` | `--run-dir`, `--yes`, `--json` | The run, as the other commands name it (instead of the positional `RUN`); delete the listed settled evidence bytes (manifests, receipts and hashes retained); without it the command only lists; optionally format output as JSON. |
 | `autocode merge` | `--workspace`, `--into`, `--json` | Select the project and target branch for a delivered task worktree; optionally format result as JSON. |
-| `autocode checkpoint` | `--workspace`, `--run-dir`, `--compare`, `--restore`, `--working`, `--expected-token`, `--request-id`, `--json` | Compare or restore retained code; `--working` shows what the running Builder has changed so far (display only). Restore requires its exact inspected token; the request ID identifies the action. |
+| `autocode checkpoint` | `--workspace`, `--run-dir`, `--compare`, `--restore`, `--working`, `--step`, `--expected-token`, `--request-id`, `--json` | Compare or restore retained code; `--working` shows what the running Builder has changed so far and `--step CHECKPOINT` what one saved step itself changed (both display only). Restore requires its exact inspected token; the request ID identifies the action. |
 | `autocode replay` | `--into`, `--export` | Create a replay at an exact fresh run directory in an isolated workspace, or export a bounded recording bundle. Exactly one target is required. |
 | `autocode replay` | `--recorded-checks`, `--json` | Simulate archived checks with `--into` without current completion or delivery proof; optionally print the result as JSON. Fresh checks are the default. |
 | `autocode tasks` | `--workspace`, `--max-parallel`, `--dry-run`, `--json` | Project, concurrent lanes and a read-only manifest preview. |
@@ -773,7 +773,7 @@ highlighted one:
 | `/plan`, `/tasks`, `/log` | Show the requirements, the task list or the run's log in the conversation |
 | `/details` | Why the run is where it is, verification and recovery evidence, recorded timings, cost coverage, token usage, actual attempt routes and saved routes for future attempts |
 | `/why` | What went wrong in this run, oldest first: each rejected answer, rewritten report, Builder sent back for untested lines, stage handed to the Investigator and Resolver decision, with the stage, the problem, what AutoCode did next and what the Investigator found. When the Investigator or the Resolver ran, it also says when and why AutoCode calls each one |
-| `/diff` | List the saved code steps with the files each changed; `/diff N` shows the files and the diff changed since step N |
+| `/diff` | List the saved code steps with the files each changed; `/diff N` shows the files and the diff changed since step N, and when nothing has changed since step N (the newest step of a finished run), what step N itself changed |
 | `/undo N` | At a question: go back to saved step N. It shows what differs and asks first; yes makes a new run on a new branch, your branch and its later work stay as they are, and the chat carries on with the new run, which checks every requirement again |
 | `/changeset` | For a run linked with runs in other repositories (`autocode changeset link`): every run of the change set and its state. Once every run waits on a complete plan it shows each plan and asks before approving them together; once every run is complete and an integration check is due it asks before running it. Nothing else is offered: linking, the check command, waivers, reopening and the merge order stay `autocode changeset` commands |
 | `/runs` | Your chats in every project, open and finished, grouped by project: this project first, then the others by their latest activity, newest chat first in each. Each shows its request, its state and when it last moved; a chat whose run was removed is left out and counted. Chats of one change set are marked and listed together at the end. Also at the first "What do you want done?" |
@@ -870,7 +870,7 @@ answered-request waiting are shown only where the core supplies those measuremen
 missing durations stay unknown, and overlapping categories are not added together.
 
 A command never answers the question that is waiting. To send a reply that starts
-with `/`, type `//`. `/diff` and `/undo` take only the `compare` and `restore`
+with `/`, type `//`. `/diff` and `/undo` take only the `compare`, `step` and `restore`
 actions the status view names for a saved step ([Saved code
 checkpoints](task-run.md#saved-code-checkpoints)); the view offers going back only
 at a pause it can restore from, and `/undo` says why when it cannot.

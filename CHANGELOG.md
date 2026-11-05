@@ -22,6 +22,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Terminal chat: `/diff N` on a step the files still match, such as the newest step of a finished run,
+  now shows what that step itself changed instead of only "Nothing has changed since step N". The
+  status view names a display-only `step` action for each saved step (`autocode checkpoint --step`).
+- Screens and the terminal conversation name the Resolver by its job, as every other stage is named,
+  instead of "AutoResolver", and a Resolver question no longer tells you to use its approval token.
 - A Resolver, checkpoint or review report repair now receives the approved milestones in its handoff.
   It used to be told to read them from the run's state file, but a Kilo report-only repair has no tools,
   so in a live run each repair answered with a tool call written as text and was rejected twice.

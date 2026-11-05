@@ -654,10 +654,6 @@ class LiveLogTests(unittest.TestCase):
         self.assertNotIn("/live", [command.name for command in panel.commands(asking=True, run=False)])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class RunListTests(unittest.TestCase):
     """What /runs lists: this project's chats, newest first, from `autocode runs --json` rows."""
 
@@ -762,3 +758,23 @@ class TaskUsageSectionTests(unittest.TestCase):
         sections = panel.sections(current, task_total=total)
         task = next(row for row in sections if row.title == "Task usage")
         self.assertEqual("$3.00+ · 300+ tokens", task.summary)
+
+
+class StepTextTests(unittest.TestCase):
+    def test_a_steps_own_change_is_named_with_its_files_and_diff(self):
+        change = {"changed_files": ["app.txt"], "patch": "-old\n+new"}
+        self.assertEqual(
+            "Nothing has changed since step 2. Step 2 itself changed 1 file:\n  app.txt\n\n-old\n+new",
+            panel.step_text(change, 2),
+        )
+        self.assertEqual(
+            "Nothing has changed since step 1. Step 1 itself changed no files.",
+            panel.step_text({"changed_files": []}, 1),
+        )
+        long = panel.step_text({"changed_files": ["a"], "patch": "x\ny\nz"}, 1, limit=2)
+        self.assertTrue(long.endswith("(The diff is longer than this; the full changes are in the run's branch.)"))
+        self.assertNotIn("z", long.splitlines()[-2])
+
+
+if __name__ == "__main__":
+    unittest.main()

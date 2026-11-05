@@ -151,10 +151,11 @@ class HumanPublicationTests(unittest.TestCase):
         self.assertEqual("WAITING_FOR_USER", saved["status"])
         self.assertEqual("resolver", human.current(saved)["issuer"])
         self.assertEqual([self.question], saved["pending_questions"])
-        self.assertIn("AutoResolver:", stderr.getvalue())
+        self.assertIn("Resolver:", stderr.getvalue())
+        self.assertNotIn("AutoResolver", stderr.getvalue())
         self.assertNotIn("Planner:", stderr.getvalue())
         self.assertEqual("assistant", saved["progress_messages"][-1]["role"])
-        self.assertEqual("AutoResolver", saved["progress_messages"][-1]["speaker"])
+        self.assertEqual("Resolver", saved["progress_messages"][-1]["speaker"])
 
     def test_status_does_not_mint_authority_for_a_legacy_question(self):
         self.state.update(status="WAITING_FOR_USER", pending_questions=[self.question], sessions={})

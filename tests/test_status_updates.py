@@ -109,7 +109,8 @@ class StatusTests(unittest.TestCase):
         self.state.update(status="WAITING_FOR_USER", user_request={"question": "Allow a new dependency?"})
         entry = status.record(self.state, timestamp=101)
         self.assertNotIn("Allow a new dependency?", entry["text"])
-        self.assertIn("no human request has been authorized", entry["text"])
+        self.assertEqual("The Resolver is deciding the next step. Nothing is needed from you yet.", entry["text"])
+        self.assertEqual("Resolver", entry["speaker"])
         # Once AutoResolver publishes the request, the blocker is reported immediately.
         self.state.pop("user_request")
         human.queue(
@@ -125,7 +126,9 @@ class StatusTests(unittest.TestCase):
         self.assertEqual("escalate", human.evaluate(self.state))
         entry = status.record(self.state, timestamp=102)
         self.assertIn("Allow a new dependency?", entry["text"])
-        self.assertIn("Respond to the issued AutoResolver request.", entry["text"])
+        # The job's screen name, never the unit, and no token for a person to use.
+        self.assertEqual("Resolver: Allow a new dependency? Answer its question.", entry["text"])
+        self.assertEqual("Resolver", entry["speaker"])
         self.assertIsNone(status.record(self.state, timestamp=900))
         self.state.update(status="PAUSED_BUDGET", user_request=None, stop_reason="Milestone time exhausted")
         self.assertIn("Milestone time exhausted", status.record(self.state, timestamp=901)["text"])
@@ -404,9 +407,10 @@ class StaleCheckpointTests(unittest.TestCase):
         self.assertTrue(payload["stale"])
         self.assertFalse(payload["active_stage_finished"])
         self.assertFalse(payload["active_stage_workers"]["alive"])
-        # 009c8b8: a stale attempt is reconciled by AutoResolver, not by an
+        # 009c8b8: a stale attempt is settled by the Resolver, not by an
         # operator --abandon-stage hint; the exact attempt is still named.
-        self.assertIn("AutoResolver must reconcile", payload["next_action"])
+        self.assertIn("The Resolver must settle the interrupted attempt", payload["next_action"])
+        self.assertNotIn("AutoResolver", payload["next_action"] + result.stderr)
         self.assertIn(payload["attempt_id"], payload["next_action"])
         # The progress line does not call a stage with dead workers "working" (#29).
         progress = payload["view"]["progress"]

@@ -1728,7 +1728,7 @@ def commit_boundary_candidate(
 
 def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None) -> bool:
     """Collect discovery answers and goal approval in a single terminal conversation."""
-    speaker = "AutoResolver"
+    speaker = "Resolver"  # the job's screen name (autocode_roles)
     save = persist or write_json
     if native is not None and (state.get("user_request") or {}).get("kind") == "human_review":
         raise support.Paused("PAUSED_VISUAL_EVIDENCE", "Native image/human artifact review requires later scopes")
@@ -1779,7 +1779,7 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
     while state["status"] == "WAITING_FOR_USER":
         published = resolver_human.current(state)
         if not published:
-            print("AutoResolver must evaluate this request before collecting an answer.")
+            print("The Resolver is still deciding whether this needs you; it asks once it does.")
             return False
         if published["scope"] in ("operational_exhaustion", "blocker"):
             show_question()
@@ -1857,7 +1857,7 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
         published = resolver_human.current(state)
         if not published or published["scope"] != "goal_approval":
             return False
-        print("\nAutoResolver: proposed plan ready for your decision:\n")
+        print(f"\n{speaker}: proposed plan ready for your decision:\n")
         show_handoff(details=False)  # the decision first; /details shows the full brief (#2535)
         while True:
             try:
