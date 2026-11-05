@@ -32,6 +32,51 @@ def response(event, intent="question"):
 
 
 class LiveConversationTests(unittest.TestCase):
+    def test_resume_projection_matches_activation_but_keeps_discussion_paused(self):
+        for context, stage in ((None, "requirements_gather"), ({"kind": "coordinated_plan"}, "astra_finalize")):
+            with self.subTest(context=context):
+                state = working()
+                state.update(status="PAUSED_INTERVENTION", next_stage="answer_question")
+                event = messages.receive(state, receipt(text="Please fix it."))
+                if context:
+                    event["context"] = context
+                    state["settings"]["spec_first"] = False
+                before = copy.deepcopy(state)
+                self.assertEqual(stage, messages.resume_stage(state))
+                self.assertFalse(messages.activate(state))
+                self.assertEqual(before, state)
+                state["status"] = "RUNNING"
+                self.assertTrue(messages.activate(state))
+                self.assertEqual(stage, state["next_stage"])
+                self.assertEqual("answer_question", event["return_stage"])
+
+    def test_resume_projection_does_not_promise_a_protected_handoff(self):
+        for change in (
+            {"status": "PAUSED_JOB_FAILURE"},
+            {"pause_intent": {"held_pause": {"status": "PAUSED_COST_LIMIT"}}},
+            {"applied_interventions": [{"kind": "stop"}]},
+            {"active_stage": {"stage": "answer_question"}},
+            {"uncertain_artifacts": ["attempt"]},
+            {"pending_report_repair": {"stage": "answer_question"}},
+            {"resolver_human_proposal": {"scope": "operational_exhaustion"}},
+            {"resolver_human_request": {"scope": "operational_exhaustion"}},
+            {"user_events": [{"kind": "plan_message"}]},
+            {"settings": {"spec_first": False}},
+            {"goal_contract": {"hash": "invalid", "task_id": "t", "revision": 1, "body": {}}},
+            {"goal_contract": {"hash": "incomplete"}},
+        ):
+            with self.subTest(change=change):
+                state = working()
+                state.update(status="PAUSED_INTERVENTION", next_stage="answer_question")
+                state.update(change)
+                messages.receive(state, receipt())
+                before = copy.deepcopy(state)
+                self.assertIsNone(messages.resume_stage(state))
+                self.assertEqual(before, state)
+        state = working()
+        state["status"] = "PAUSED_INTERVENTION"
+        self.assertIsNone(messages.resume_stage(state))
+
     def test_message_suspends_and_restores_a_clarification_rebound_after_settings_change(self):
         for intent in ("question", "change"):
             state = working()

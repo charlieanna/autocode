@@ -894,7 +894,11 @@ def run_locked(
                 **({"checkout_owned": True} if checkout_owned else {}),
             )
             if code is not None:
-                return owned_result(code, ready=code == 0 and bool(getattr(args, "unit", None)))
+                return owned_result(
+                    code,
+                    ready=(code == 0 and bool(getattr(args, "unit", None)))
+                    or (code == 2 and bool(getattr(args, "_ready_message_boundary", False))),
+                )
         except runner.util.JSONCommitUncertain as error:
             if owner is not None:
                 owner.hold_persistence()
