@@ -50,29 +50,21 @@ def _primary(settings):
     return value if _complete(value) else None
 
 
-def equivalents(state: RunState, identity) -> list[dict]:
-    """Current identity plus proven preceding locations, newest first.
+def relocations(state: RunState) -> list[dict]:
+    """Earlier locations of the primary tool's content-identical config, newest first.
 
     Explicit role-bound transports remain immutable and have no relocation path.
     Walk only the primary tool's saved settings transitions. A real tool or route
     change, a broken chain or an incomplete snapshot ends the proof. Metadata-only
     history entries contain no settings transition and grant no equivalence.
     """
-    if not isinstance(identity, dict):
-        return []
-    result = [identity]
     settings = state.get("settings") or {}
     current = _primary(settings)
     roles = settings.get("roles") if isinstance(settings, dict) else None
     changes = state.get("configuration_changes")
-    if (
-        current is None
-        or not isinstance(roles, dict)
-        or identity.get("provider") != current["engine"]
-        or identity.get("transport_sha256") != digest(current)
-        or not isinstance(changes, list)
-    ):
-        return result
+    if current is None or not isinstance(roles, dict) or not isinstance(changes, list):
+        return []
+    result = []
     for change in reversed(changes):
         if not isinstance(change, dict):
             break
@@ -90,8 +82,26 @@ def equivalents(state: RunState, identity) -> list[dict]:
             or any(before[key] != current[key] for key in _FIELDS - {"config_path"})
         ):
             break
+        if before not in result:
+            result.append(before)
+        current = before
+    return result
+
+
+def equivalents(state: RunState, identity) -> list[dict]:
+    """Current identity plus proven preceding locations (``relocations``), newest first."""
+    if not isinstance(identity, dict):
+        return []
+    result = [identity]
+    current = _primary(state.get("settings") or {})
+    if (
+        current is None
+        or identity.get("provider") != current["engine"]
+        or identity.get("transport_sha256") != digest(current)
+    ):
+        return result
+    for before in relocations(state):
         alternate = {**identity, "transport_sha256": digest(before)}
         if alternate not in result:
             result.append(alternate)
-        current = before
     return result
