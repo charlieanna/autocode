@@ -7,6 +7,7 @@ grants authority from an unverified model citation.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -24,7 +25,25 @@ except ImportError:
     import autocode_util as util
 
 
-def accept(state: RunState, validation, record, *, pin):
+def _spellings(ref, workspace):
+    """A pinned file's exact path, and its workspace-relative form when it lies in the workspace.
+
+    The Tester cites the other changed-line inputs by workspace-relative path, so it also cites the
+    proof file that way (live: ``.autocode/runs/<run>/regression/proof-07-<id>/verification.json``).
+    Both spellings name the one file pinned here; nothing outside these exact refs is admitted.
+    """
+    spellings = [ref]
+    if workspace is not None and Path(ref).is_absolute():
+        try:
+            relative = Path(ref).relative_to(Path(workspace)).as_posix()
+        except ValueError:
+            relative = None
+        if relative and all(part not in ("", ".", "..") for part in Path(relative).parts):
+            spellings.append(relative)
+    return spellings
+
+
+def accept(state: RunState, validation, record, workspace=None, *, pin):
     """Bind explicitly offered decisions after checks have their actual receipts."""
     require_tester_decisions(state, validation, record)
     decisions = validation.get(review.FIELD)
@@ -40,7 +59,8 @@ def accept(state: RunState, validation, record, *, pin):
     for ref in refs:
         if ref:
             validation["evidence_hashes"].update(pin([ref]))
-            verified[ref] = ref
+            for spelling in _spellings(ref, workspace):
+                verified[spelling] = ref
     validation["changed_code_decisions"] = review.bind(
         proof.get("changed_code_evidence"),
         decisions,
