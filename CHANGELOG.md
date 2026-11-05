@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A read-only stage (Requirements, planning, Plan Reviewer, completion review) whose provider ends the
+  stream with no answer, an unexplained finish reason and no counted usage, exiting 0, is retried once
+  with no workspace effects instead of pausing to ask the person for "corrective information".
 - The terminal chat's reply box wraps a long reply and grows to six rows instead of scrolling one
   line sideways; `\\` then Enter starts a new line, and Up/Down move between its lines.
 - The terminal chat asks once to approve its understanding and start the job: the spend detail
