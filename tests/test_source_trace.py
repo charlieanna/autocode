@@ -49,6 +49,28 @@ def wrapper(**kwargs):
     return {"version": 1, "out_of_scope": [], "negation_waivers": [], "review": {}, **kwargs}
 
 
+class NumericSurvivalTests(unittest.TestCase):
+    def test_zero_word_matches_only_a_standalone_whole_value(self):
+        for text in ("code zero", "Zero is retained.", "returns ZERO"):
+            with self.subTest(text=text):
+                self.assertTrue(trace._number_in("0", text))
+        for text in (
+            "nonzero",
+            "non-zero",
+            "zeroed",
+            "zero_based",
+            "zero-based",
+            "zero point five",
+            "zero POINT five",
+            "zero-point-five",
+            "0.5",
+            "1000",
+        ):
+            with self.subTest(text=text):
+                self.assertFalse(trace._number_in("0", text))
+        self.assertFalse(trace._number_in("0.5", "zero"))
+
+
 class CitationSyntaxTests(unittest.TestCase):
     def test_an_unknown_source_is_refused(self):
         state = make_state()
@@ -171,6 +193,33 @@ class ReadyGateTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "changed a number"):
             self.ready(draft)
+
+    def test_zero_in_prose_preserves_a_numeric_source_value(self):
+        text = "History currently shows result code 0."
+        records = [{"id": "task:0", "kind": "task", "text": text}]
+        for word in ("zero", "Zero", "ZERO"):
+            with self.subTest(word=word):
+                draft = body(
+                    [criterion("C1", "History records the mapped result code.", [text])],
+                    technical_approach=[f"Enrich history when the existing result code is {word}."],
+                )
+                self.ready(draft, records=records)
+
+    def test_zero_prose_does_not_replace_an_exact_output_literal(self):
+        text = "Print `0` exactly."
+        with self.assertRaisesRegex(ValueError, "dropped a literal"):
+            self.ready(
+                body([criterion("C1", "Print zero exactly.", [text])]),
+                records=[{"id": "task:0", "kind": "task", "text": text}],
+            )
+
+    def test_zero_prose_does_not_preserve_a_different_value(self):
+        text = "Preserve result code 7."
+        with self.assertRaisesRegex(ValueError, "changed a number.*7"):
+            self.ready(
+                body([criterion("C1", "Preserve result code zero.", [text])]),
+                records=[{"id": "task:0", "kind": "task", "text": text}],
+            )
 
     def test_a_standards_name_is_not_a_number_the_criteria_must_repeat(self):
         # Live bugfix-iso-weeks (#1689): "ISO 8601 weeks" was refused because no criterion said 8601.
