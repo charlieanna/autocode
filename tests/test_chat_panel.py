@@ -360,6 +360,35 @@ class LiveEventTests(unittest.TestCase):
         current["needs"] = {"kind": "continue"}
         self.assertEqual("Editing: edited app/greet.py", panel.doing(current))
 
+    def test_a_working_planning_stage_says_what_it_did_last(self):
+        # Live 2026-11-05: a 40-minute plan review showed only "Plan Reviewer working" and read as stuck.
+        current = self.live(self.EDIT)
+        current["phase"] = "PLANNING"
+        current["progress"].update(headline="Plan Reviewer working", stage="Plan Reviewer")
+        current["chat"]["log"] = [
+            {"agent": "Plan Reviewer", "kind": "tool", "text": "read app/models.py"},
+            {"agent": "Planner", "kind": "thinking", "text": "An older stage's thought"},
+            {
+                "agent": "Plan Reviewer",
+                "kind": "thinking",
+                "text": "[earlier text omitted] Checking AC4 against   the upload flow. [partial]",
+            },
+            {
+                "agent": "Plan Reviewer",
+                "kind": "thinking",
+                "text": "Reasoning stream activity received; text unavailable.",
+            },
+        ]
+        self.assertEqual("Plan Reviewer working · Checking AC4 against the upload flow.", panel.doing(current))
+        current["chat"]["log"].append({"agent": "Plan Reviewer", "kind": "command", "text": "pytest -q"})
+        self.assertEqual("Plan Reviewer working · Running pytest -q", panel.doing(current))
+        current["progress"].update(headline="Waiting for you")
+        self.assertEqual("Waiting for you", panel.doing(current))
+        current["progress"].update(headline="Planner working", stage="Planner")
+        self.assertEqual("Planner working · An older stage's thought", panel.doing(current))
+        current["chat"]["log"] = [{"agent": "Builder · task M1", "kind": "tool", "text": "read x"}]
+        self.assertEqual("Planner working", panel.doing(current))
+
     def live(self, *events, needs="nothing needed from you", kind="continue"):
         shown = view(headline="Builder working", needs=needs)
         shown["needs"] = {"kind": kind}

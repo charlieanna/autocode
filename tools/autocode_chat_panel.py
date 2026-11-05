@@ -301,10 +301,35 @@ def current_line(view: dict | None) -> str | None:
     return line if view.get("status") == "RUNNING" and isinstance(line, str) and line.strip() else None
 
 
+# Receipts that prove a stream is alive but say nothing about what the agent is doing.
+OPAQUE_STEPS = ("stream activity received", "Partial thought received.", "Partial message received.")
+
+
+def planning_step(view: dict | None) -> str | None:
+    """What the working planning agent did last, from its own ``chat.log`` rows, for the status row.
+
+    A plan review can run for many minutes; its headline alone ("Plan Reviewer working") read as
+    stuck in a live run. Only the working stage's own rows count, and only while it works."""
+    progress = _mapping(_mapping(view).get("progress"))
+    stage, headline = progress.get("stage"), str(progress.get("headline") or "")
+    if not isinstance(stage, str) or not stage or not headline.endswith("working"):
+        return None
+    for row in reversed(_rows(_mapping(_mapping(view).get("chat")).get("log"))):
+        agent, text = str(row.get("agent") or ""), row.get("text")
+        if agent != stage and not agent.startswith(stage + " ·"):
+            continue
+        if not isinstance(text, str) or not text.strip() or any(mark in text for mark in OPAQUE_STEPS):
+            continue
+        text = " ".join(text.removesuffix(" [partial]").removeprefix("[earlier text omitted]").split())
+        return {"command": "Running ", "edit": "Editing: "}.get(str(row.get("kind")), "") + text
+    return None
+
+
 def doing(view: dict | None) -> str | None:
     """The newest event as a short phrase for the status row, or None when the view has none."""
     if _planning(view) and (headline := _mapping(_mapping(view).get("progress")).get("headline")):
-        return str(headline)
+        step = planning_step(view)
+        return f"{headline} · {step}" if step else str(headline)
     activity_rows = _rows(_mapping(_mapping(view).get("chat")).get("activity"))
     if activity_rows and activity_rows[-1].get("kind") == "command":
         return None
