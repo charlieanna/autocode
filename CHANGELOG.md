@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A report-only Investigator repair restores its recorded temporary model route after a pause,
+  instead of falling back to the default review model. Conflicting route metadata refuses launch.
+
 - An Investigator report repair survives run-wide time, cost, iteration and transport boundaries.
   Existing stranded classifications can continue their pinned repair without replaying the
   investigation, resetting its allowances or changing the approved plan.

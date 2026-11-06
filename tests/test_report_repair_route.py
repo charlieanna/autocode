@@ -1,0 +1,65 @@
+"""A retained report repair keeps the exact physical attempt's temporary route."""
+
+import copy
+import unittest
+
+import autocode_report_repair_route as repair_route
+
+
+class ReportRepairRouteTests(unittest.TestCase):
+    def fixture(self):
+        state = {"settings": {"roles": {"astra": {"model": "different-default"}}}}
+        original = {
+            "stage": "investigate_stuck",
+            "route_role": "stuck_investigator",
+            "launch_route": {
+                "model": "independent-model",
+                "engine": "opencode",
+                "provider": "external-tool",
+                "reasoning_effort": "high",
+            },
+        }
+        return state, original
+
+    def test_restore_keeps_original_engine_model_provider_effort_without_aliasing(self):
+        state, original = self.fixture()
+        before = copy.deepcopy(original)
+        repair_route.restore(state, original)
+        self.assertEqual(original["launch_route"], state["settings"]["roles"]["stuck_investigator"])
+        self.assertEqual({"model": "different-default"}, state["settings"]["roles"]["astra"])
+        state["settings"]["roles"]["stuck_investigator"]["model"] = "mutation"
+        self.assertEqual(before, original)
+
+    def test_existing_matching_route_is_unchanged_and_conflicts_refuse(self):
+        for field in (None, "model", "engine", "provider", "reasoning_effort"):
+            with self.subTest(field=field):
+                state, original = self.fixture()
+                state["settings"]["roles"]["stuck_investigator"] = copy.deepcopy(original["launch_route"])
+                if field:
+                    state["settings"]["roles"]["stuck_investigator"][field] = "changed"
+                before = copy.deepcopy(state)
+                if field:
+                    with self.assertRaisesRegex(repair_route.util.Paused, "route changed"):
+                        repair_route.restore(state, original)
+                else:
+                    repair_route.restore(state, original)
+                self.assertEqual(before, state)
+
+    def test_missing_original_route_refuses_instead_of_using_default(self):
+        for route in (None, {}, {"model": None}, {"model": ""}):
+            with self.subTest(route=route):
+                state, original = self.fixture()
+                original["launch_route"] = route
+                before = copy.deepcopy(state)
+                with self.assertRaisesRegex(repair_route.util.Paused, "no original launch route"):
+                    repair_route.restore(state, original)
+                self.assertEqual(before, state)
+
+    def test_other_stages_and_records_without_a_temporary_route_are_not_rewritten(self):
+        for field, value in (("stage", "sol"), ("route_role", "astra"), ("route_role", None)):
+            with self.subTest(field=field):
+                state, original = self.fixture()
+                original[field] = value
+                before = copy.deepcopy(state)
+                repair_route.restore(state, original)
+                self.assertEqual(before, state)

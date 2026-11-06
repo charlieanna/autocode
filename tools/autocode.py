@@ -46,10 +46,11 @@ except ImportError:
 # isort: off
 # fmt: off
 try:
-    from . import autocode_native_image as native_image, autocode_native_invocation as native_invocation
+    from . import autocode_native_image as native_image, autocode_native_invocation as native_invocation, autocode_report_repair_route as repair_route
 except ImportError:
     import autocode_native_image as native_image
     import autocode_native_invocation as native_invocation
+    import autocode_report_repair_route as repair_route
 try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs  # noqa: F401 - compatibility API
     from . import autocode_classification_recovery as classification_recovery  # noqa: F401 - compatibility API
@@ -336,30 +337,7 @@ ReportRepairQueued = report_repair_queue.ReportRepairQueued  # a finished reques
 
 
 def reset_report_repair_for_resume(state: RunState):
-    """Clear the bounded report-repair attempt count for an explicit resume.
-
-    Mirrors resolver_runtime.reset_for_resume: the count is a current-cycle
-    allowance an operator can renew after fixing the underlying cause, not a
-    lifetime cap, but clearing it is recorded rather than silent, and the
-    erased attempts fold into a lifetime total this function never resets.
-    """
-    pending = state.get("pending_report_repair")
-    if not isinstance(pending, dict):
-        return
-    prior = pending.get("attempts", 0)
-    pending["attempts"] = 0
-    if not prior:
-        return
-    state["report_repair_lifetime_attempts"] = state.get("report_repair_lifetime_attempts", 0) + prior
-    state.setdefault("user_events", []).append(
-        {
-            "kind": "report_repair_resume_epoch",
-            "actor": "user_cli",
-            "at": now(),
-            "cleared_attempts": prior,
-            "lifetime_attempts": state["report_repair_lifetime_attempts"],
-        }
-    )
+    report_repair_queue.reset_for_resume(state, now=now)
 
 
 REPAIR_HANDOFF_BYTES = 256 * 1024
@@ -1076,6 +1054,7 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
         or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending["pins"].items())
     ):
         raise support.Paused("PAUSED_STALE_VALIDATION", "Saved report-repair inputs changed; do not retry")
+    repair_route.restore(state, original)
     resolver_runtime.boundary(runtime, state, run_dir, workspace)
     if native is None and format_correction.execute(runtime, state, run_dir, workspace):
         return

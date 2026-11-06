@@ -296,6 +296,11 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scenarios/harness/fake_codex.py", ("tests.test_brief_cli", "tests.test_requirements_job_cli")),
     ("tools/fake_codex.py", ("tests.test_subprocess",)),
     (
+        "tools/autocode_report_repair_route.py",
+        ("tests.test_report_repair", "tests.test_classification_recovery"),
+    ),
+    ("tools/autocode_report_repair_queue.py", ("tests.test_resolver_runtime",)),
+    (
         "tests/failure_routing_provider.py",
         ("tests.test_failure_routing_cli", "tests.test_classification_recovery"),
     ),
