@@ -498,7 +498,12 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_model_catalogue", "tests.test_route_evidence", "tests.test_route_execution_evidence"),
     ),
     (
-        ("tools/autocode_handoff_dedup.py", "tools/autocode_context.py", "tools/autocode_stage_context.py"),
+        (
+            "tools/autocode_handoff_dedup.py",
+            "tools/autocode_context.py",
+            "tools/autocode_proof_detail.py",
+            "tools/autocode_stage_context.py",
+        ),
         ("tests.test_verification_claim_cli",),
     ),
     (

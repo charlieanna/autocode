@@ -11,6 +11,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A review handoff for a large wave no longer overflows the Tester's context. When a proof's mutant
+  lists, per-criterion survivors, evidence inputs or per-line obligations are over 64 KiB, each moves
+  whole into the hash-pinned context artifact, and so does a receipt list that is still over 64 KiB
+  after the receipt bound. The handoff keeps counts, outcomes, every timed-out or supervision-failed
+  receipt, each file's tested lines, and every other changed line's handle, line, status and
+  mutation outcomes. Only a gap carries a handle, so the Tester cannot decide a tested line. A live two-Builder
+  wave's Tester handoff went from 3.63 MB (1.99 MB after the receipt bound) to 0.25 MB (#2806).
 - Complete review-repair reports now reach the ordinary compatibility checks, preserving exact approved criterion text while still rejecting changed text, malformed patches and invalid evidence.
 
 - A report repair can remove one extra array item with a small source-bound edit instead of rewriting the entire array. Mixed edits keep their original indices; ordinary evidence and contract checks still apply.

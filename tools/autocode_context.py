@@ -49,16 +49,19 @@ def compact(base, state_path):
     try:
         from . import autocode_handoff_dedup as handoff
         from . import autocode_handoff_history as history
+        from . import autocode_proof_detail as proof_detail
         from . import autocode_util as util
     except ImportError:
         import autocode_handoff_dedup as handoff
         import autocode_handoff_history as history
+        import autocode_proof_detail as proof_detail
         import autocode_util as util
 
     def build(source, condensed):
         result, moved = history.condense(source) if condensed else (source, {})
         result = handoff.deduplicate(result)
         proof_receipts(source, result, moved)
+        proof_detail.move(source, result, moved)
         # Never remove requirements, human decisions or current findings. Saved answers and feedback are only
         # shortened for review stages once an approved contract reflects them (autocode_handoff_history).
         for key in (
