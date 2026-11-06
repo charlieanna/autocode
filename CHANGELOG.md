@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Combined milestone validation now explicitly covers every integrated member even when model-authored
+  recovery notes describe separate serial reviews. Concrete checks and permission constraints remain
+  in force; missing member evidence still blocks acceptance (#2793).
 - A monorepo whose package folders have no `__init__.py` (`packages/`, `apps/`, `services/`, `libs/`)
   is tested package by package, each from its own folder, instead of a root discovery that found no
   tests and stopped the run to ask a person.

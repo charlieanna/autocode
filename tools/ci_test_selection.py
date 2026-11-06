@@ -165,6 +165,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # subprocess, invisible to the import selector (#2442).
     ("tests/opencode_fixture_cli.py", ("tests.test_quota_worker",)),
     ("tools/prompts/fragments/stage-context/context-packet-04.md", ("tests.test_capture_event_contract",)),
+    (
+        "tools/prompts/fragments/stage-context/context-packet-07.md",
+        ("tests.test_milestone_checkpoints", "tests.test_build_graph_cli"),
+    ),
     ("tools/prompts/discovery.md", ("tests.test_investigation_evidence", "tests.test_investigation_handoff_cli")),
     ("tools/prompts/fragments/autoplanner/time-budget.md", ("tests.test_planning", "tests.test_planning_time")),
     (
