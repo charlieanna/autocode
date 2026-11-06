@@ -410,6 +410,32 @@ class MilestoneCheckpointTests(unittest.TestCase):
         runner.apply_result(self.state, "astra_review", complete, {"output": "astra.json"}, self.root, self.run)
         self.assertEqual("TASK_COMPLETE", self.state["status"])
 
+    def test_combined_validation_scope_overrides_serial_model_notes_without_dropping_checks(self):
+        self.start()
+        task = self.state["current_task"]
+        task.update(
+            kind="validate",
+            milestone_ids=["M1", "M2"],
+            acceptance_criteria=["C1", "C2", "C3"],
+            objective="Validate M1 first; validate M2 in a separate later task",
+            requirements=["Validate only M1 now", "Keep the empty-input assertion"],
+            validation_plan=["Execute empty input; Unicode review follows separately"],
+        )
+        before = copy.deepcopy(self.state)
+        for stage in ("sol", "astra_checkpoint", "astra_review"):
+            with self.subTest(stage=stage):
+                prompt, _ = stage_context.context_packet(self.state, stage, self.run / "state.json")
+                instruction, raw = prompt.split("CURRENT HANDOFF DATA\n", 1)
+                packet = json.loads(raw)
+                self.assertEqual(["M1", "M2"], [row["id"] for row in packet["current_milestone"]["members"]])
+                self.assertEqual(["C1", "C2", "C3"], packet["current_milestone"]["acceptance_criteria"])
+                self.assertEqual(task, packet["current_task"])
+                self.assertIn("scope overrides model-authored objective, requirements, validation_plan", instruction)
+                self.assertIn("perform the missing checks for every current member now", instruction)
+                self.assertIn("Retain every concrete check, constraint and required behavior", instruction)
+                self.assertIn("cannot receive an overall PASS while any member is not PASS", instruction)
+        self.assertEqual(before, self.state)
+
     def test_review_handoff_evaluates_current_gate_without_erasing_history(self):
         self.start()
         self.validate(flow_status="NOT_VERIFIED")

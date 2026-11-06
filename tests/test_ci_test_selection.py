@@ -301,6 +301,15 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {public: "slow"})
                 self.assertEqual({public} if path.startswith("tests/") else {public, metadata}, set(kept))
 
+    def test_batch_scope_prompt_keeps_the_handoff_and_public_join_consumers(self):
+        consumers = {"tests.test_milestone_checkpoints", "tests.test_build_graph_cli"}
+        selected = run_suite.select_tests(
+            ["tools/prompts/fragments/stage-context/context-packet-07.md"],
+            {**{module: "" for module in consumers}, "tests.test_unrelated": ""},
+        )
+        kept, _ = run_suite.drop_slow(selected, {module: "slow" for module in consumers})
+        self.assertEqual(consumers, set(kept))
+
     def test_graph_execution_changes_keep_the_slow_joined_graph_cli_consumer(self):
         consumer = "tests.test_build_graph_cli"
         for path in (
