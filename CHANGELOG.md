@@ -14,6 +14,14 @@ PR template asks for an entry here; a change without one is incomplete.
 - A first project whose only code is a pytest `conftest.py` (beside a README and an empty package) is
   proved like any other first project. The base collects no tests, so there is no existing behavior to
   preserve; the proof used to report preservation unproven and ask a person how to proceed.
+- Report repair retains the exact integrated milestone batch and its acceptance criteria, so a
+  malformed combined report cannot silently become a review of only one Builder's work (#2788).
+- Tester handoffs keep full raw proof receipts in an immutable context artifact while bounding the
+  inline receipt details; proof outcomes and evidence checks remain unchanged (#2789).
+- Applicable Investigator guidance survives a requested boundary pause and is checked against the
+  task and source when execution resumes. Stale guidance still fails closed (#2790).
+- Tester report repair identifies the current enclosing proof for changed-code evidence citations,
+  while retaining failed checks and rejected coverage gaps (#2791).
 - Combined milestone validation now explicitly covers every integrated member even when model-authored
   recovery notes describe separate serial reviews. Concrete checks and permission constraints remain
   in force; missing member evidence still blocks acceptance (#2793).
