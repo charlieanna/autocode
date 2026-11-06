@@ -10,10 +10,11 @@ runs these tests itself, with those of milestones already accepted: each must pa
 not have passed before the run began. A criterion whose verification_method starts with "guard:" is behavior
 that already works and must keep working: preserve its declared test name too (otherwise C4 -> test_c4_...);
 it must pass before and after the change, so put it where it imports only code that exists before the change.
-The runner executes the base guards in a separate checkout. Run the guards against your candidate and
-keep the fix applied after you make it. If the approved task also requires your own baseline guard run,
-use a separate workspace-contained scratch copy. Reuse a passing candidate check when its command and inputs
-are unchanged. Rerun after a relevant change, failure, or required repetition.
+The runner checks fail-first tests and base guards in a separate checkout. If the approved plan requires
+your own fail-first run, write and run the new tests first. Run the named checks against your candidate and
+keep the fix applied after you make it. If you must run the approved plan's baseline checks after applying
+the fix, use a separate workspace-contained scratch copy. Reuse a passing candidate check when its command
+and inputs are unchanged. Rerun after a relevant change, failure, or required repetition.
 Criteria without "test:" or "guard:" are checked by the Validator as usual.
 Keep existing test names and assertions intact. Add a new case test when needed; do not rename or remove an
 existing test to make its name match a planned case id. The regression proof rejects removed test names.

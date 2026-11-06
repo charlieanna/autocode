@@ -158,6 +158,9 @@ class CompactSchemaPromptTests(unittest.TestCase):
         self.assertIn("strict filesystem boundary", prompt)
         self.assertIn("without tools", prompt)
         self.assertIn("missing evidence as a concern", prompt)
+        instruction = " ".join(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0].split())
+        self.assertIn("Use in-memory inputs for file-shaped examples", instruction)
+        self.assertIn("leave the execution to the Tester", instruction)
 
     def test_a_verdict_report_with_assistant_text_keeps_execution_evidence_rules(self):
         schema = {"properties": {"assistant_reply": {"type": "string"}, "checks": {"type": "array"}}}

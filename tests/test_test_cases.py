@@ -1280,7 +1280,10 @@ class PromptTests(unittest.TestCase):
             prompt = common.execution_request(state, "terra", state_path, schemas).prompt
         instruction = " ".join(prompt.split("\nCURRENT HANDOFF DATA\n")[0].split())
         self.assertIn("TESTS NAMED IN THE PLAN", instruction)
-        self.assertIn("The runner executes the base guards in a separate checkout", instruction)
+        self.assertIn("The runner checks fail-first tests and base guards in a separate checkout", instruction)
+        self.assertIn(
+            "If the approved plan requires your own fail-first run, write and run the new tests first", instruction
+        )
         self.assertIn("keep the fix applied after you make it", instruction)
         self.assertIn("Reuse a passing candidate check when its command and inputs are unchanged", instruction)
         self.assertIn("Rerun after a relevant change, failure, or required repetition", instruction)
