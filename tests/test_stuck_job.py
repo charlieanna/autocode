@@ -544,6 +544,41 @@ class ApplyTests(unittest.TestCase):
 
 
 class GuidanceTests(unittest.TestCase):
+    def test_execution_guidance_handles_a_saved_snapshot_path_without_reading_it(self):
+        state = state_for(next_stage="sol", source_snapshot="/saved/source-1.json")
+        stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "x")
+        stuck.apply(state, report(), {}, state["workspace"])
+        self.assertIn("INVESTIGATOR GUIDANCE", stuck.with_guidance(state, "sol", self.request()).prompt)
+        state["source_snapshot"] = "/saved/source-2.json"
+        self.assertEqual(self.request(), stuck.with_guidance(state, "sol", self.request()))
+
+    def test_execution_guidance_is_bound_to_the_task_source_contract_and_user_input(self):
+        for change in (
+            {"current_task": {"id": "another-task"}},
+            {"goal_contract": {"revision": 5, "hash": "new-contract"}},
+            {"source_snapshot": {"revision": "changed-source"}},
+            {"answers": {"Q1": {"text": "Changed requirement"}}},
+            {"brief_feedback": [{"id": "new", "text": "Use the other API"}]},
+            {"task": "Another task"},
+        ):
+            with self.subTest(change=change):
+                state = self.in_force("sol")
+                state.update(change)
+                self.assertEqual(self.request(), stuck.with_guidance(state, "sol", self.request()))
+                stuck.retire(state, "PAUSED_INTERVENTION")
+                self.assertNotIn("stuck_investigation", state)
+
+    def test_boundary_pause_keeps_advice_without_changing_grants_history_or_limits(self):
+        for stage in ("terra", "sol", "astra_review", "astra_discovery"):
+            with self.subTest(stage=stage):
+                state = self.in_force(stage)
+                before = copy.deepcopy(state)
+                stuck.retire(state, "PAUSED_INTERVENTION")
+                self.assertEqual(before, state)
+                self.assertIn("INVESTIGATOR GUIDANCE", stuck.with_guidance(state, stage, self.request()).prompt)
+                stuck.retire(state, "PAUSED_REPEATED_FAILURE")
+                self.assertNotIn("stuck_investigation", state)
+
     def test_replanning_does_not_replay_obsolete_report_instructions_or_diagnoses(self):
         for change in (
             {"goal_contract": {"revision": 5, "hash": "new-contract"}},

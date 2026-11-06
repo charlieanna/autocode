@@ -1,4 +1,4 @@
-"""Bind planning recovery advice to the inputs it diagnosed, without granting retries."""
+"""Bind recovery advice to the inputs it diagnosed, without granting retries."""
 
 from __future__ import annotations
 
@@ -17,7 +17,21 @@ except ImportError:
 
 def binding(state: RunState, stage: str) -> dict:
     if stage not in roles.ALL_PLANNING_STAGES:
-        return {}
+        contract = state.get("goal_contract") or {}
+        # Core recomputes this at interception, including replay. Model reports neither
+        # supply nor cite it. A saved snapshot may be an inline record or an artifact path.
+        return {
+            "execution_context": util.digest(
+                {
+                    "task": state.get("task"),
+                    "current_task": state.get("current_task"),
+                    "contract": {key: contract.get(key) for key in ("revision", "hash")},
+                    "source_snapshot": state.get("source_snapshot"),
+                    "answers": state.get("answers") or {},
+                    "feedback": state.get("brief_feedback") or [],
+                }
+            )
+        }
     contract = state.get("goal_contract") or {}
     planning = state.get("planning") or {}
     return {
@@ -40,6 +54,6 @@ def binding(state: RunState, stage: str) -> dict:
 
 
 def applies(state: RunState, row: dict, stage: str) -> bool:
-    """Unbound legacy planning advice remains history, never a current instruction."""
+    """Unbound legacy advice remains history, never a current instruction."""
     expected = binding(state, stage)
-    return not expected or row.get("planning_context") == expected["planning_context"]
+    return all(row.get(key) == value for key, value in expected.items())
