@@ -18,6 +18,13 @@ PR template asks for an entry here; a change without one is incomplete.
   receipt, each file's tested lines, and every other changed line's handle, line, status and
   mutation outcomes. Only a gap carries a handle, so the Tester cannot decide a tested line. A live two-Builder
   wave's Tester handoff went from 3.63 MB (1.99 MB after the receipt bound) to 0.25 MB (#2806).
+- Complete review-repair reports now reach the ordinary compatibility checks, preserving exact approved criterion text while still rejecting changed text, malformed patches and invalid evidence.
+
+- A report repair can remove one extra array item with a small source-bound edit instead of rewriting the entire array. Mixed edits keep their original indices; ordinary evidence and contract checks still apply.
+
+- Tester and completion-review JSON repairs can use exact-source-bound edits, preserving unrelated captured commands; lossless inline history avoids duplicating large reports in later repair handoffs.
+  Scripted scenario reviewers use the offered repair envelope too, retaining their full-report
+  corrections without mixing them with an empty transport placeholder.
 - A spec-first wave built one milestone at a time is proved against each milestone's own tests. The
   regression proof of the first member used to run the tests already written for the others, which cannot
   pass until they are built, and refused it. Those files are now left out until their milestone is due;

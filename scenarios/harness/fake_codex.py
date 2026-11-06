@@ -42,6 +42,7 @@ from pathlib import Path
 CONFIG = json.loads(Path(os.environ["SCENARIO_FAKE_CONFIG"]).read_text())
 PROMPT = ""
 OUTPUT_SCHEMA: dict = {}
+WIRE_SCHEMA: dict = {}
 DATA: dict = {}
 CHECK = CONFIG["check"]
 ALL_PATHS = CONFIG["paths"]
@@ -1042,7 +1043,21 @@ def emit(event: dict) -> None:
         print(json.dumps(event), flush=True)
 
 
+def report_schema(schema):
+    """Script the full report branch while retaining the offered transport envelope."""
+    branches = schema.get("properties", {}).get("repair_report", {}).get("anyOf")
+    if isinstance(branches, list) and len(branches) == 2 and isinstance(branches[1], dict):
+        return branches[1]
+    return schema
+
+
 def _report(report, output):
+    if (
+        "repair_report" in WIRE_SCHEMA.get("properties", {})
+        and isinstance(report, dict)
+        and "repair_report" not in report
+    ):
+        report = {"repair_report": report}
     if os.environ.get("AUTOCODE_REPLAY_EMITTER_COMMAND"):
         _stream({"kind": "report", "output": output, "report": report})
     else:
@@ -2774,7 +2789,7 @@ def _main() -> int:
         return silent_hang()
     if CONFIG.get("fault") == "chatter_no_progress":
         return chatter_no_progress()
-    global PROMPT, OUTPUT_SCHEMA
+    global PROMPT, OUTPUT_SCHEMA, WIRE_SCHEMA
     prompt = PROMPT = sys.stdin.read()
     session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
     # Auth-helper timeouts happen while resolving credentials, before a session
@@ -2831,15 +2846,16 @@ def _main() -> int:
             partial.write_text("# partial builder work retained across route change\n")
         emit({"type": "error", "error": {"message": "subscription usage limit reached; add credits"}})
         return 3
-    OUTPUT_SCHEMA = (
+    WIRE_SCHEMA = (
         json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
         if "--output-schema" in sys.argv
         else {}
     )
     # Always-on: the live gocode gateway rejects uniqueItems. Autocode must strip it
     # before --output-schema is written (tools/autocode_util.model_output_schema).
-    if OUTPUT_SCHEMA and _schema_has_unique_items(OUTPUT_SCHEMA):
-        return refuse_unique_items_schema(OUTPUT_SCHEMA)
+    if WIRE_SCHEMA and _schema_has_unique_items(WIRE_SCHEMA):
+        return refuse_unique_items_schema(WIRE_SCHEMA)
+    OUTPUT_SCHEMA = report_schema(WIRE_SCHEMA)
     # Live #452 run jb1acns9: the Builder's first report after approval cites no evidence.
     no_evidence = stage == "terra" and os.environ.get("SCENARIO_FAKE_BUILDER_NO_EVIDENCE") == "1"
     if no_evidence and data.get("report_repair"):
@@ -2969,7 +2985,7 @@ def _main() -> int:
             {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
         )
     if "--output-schema" in sys.argv:
-        schema = OUTPUT_SCHEMA
+        schema = WIRE_SCHEMA if "repair_report" in report else OUTPUT_SCHEMA
         # Runner-owned brief fields exist only for protected human declarations.
         # Match this call's schema, including report repairs with a smaller packet.
         for field in (

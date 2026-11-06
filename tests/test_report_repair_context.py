@@ -15,6 +15,33 @@ from . import test_report_repair as repair_fixtures
 
 
 class ClarificationContextTests(unittest.TestCase):
+    def test_review_history_is_lossless_without_duplicating_large_evidence(self):
+        original = {
+            "checks": [{"command": r"python -c 'print(\"\\u00e9\")'", "exit_code": 0}],
+            "changed_code_exceptions": [{"gap_id": "L1", "reason": "exact reason " * 10000}],
+            "verdict": "FAIL",
+        }
+        latest = copy.deepcopy(original)
+        latest["checks"][0]["command"] = "changed by a failed repair"
+        latest["verdict"] = "PASS"
+        source = {"path": "original.json", "sha256": "a" * 64, "format": "json", "content": original}
+        for stage in ("sol", "astra_review", "astra_checkpoint"):
+            with self.subTest(stage=stage):
+                instruction, compact = context.historical_author_report(stage, source, {**source, "content": latest})
+                self.assertNotIn("content", list(compact))
+                self.assertIn("immutable execution-history baseline", instruction)
+                self.assertIn("escape sequences", instruction)
+                restored = copy.deepcopy(latest)
+                for change in compact["content_delta"]["replace"]:
+                    parent = restored
+                    for part in change["path"][:-1]:
+                        parent = parent[part]
+                    parent[change["path"][-1]] = change["value"]
+                self.assertEqual(original, restored)
+                self.assertEqual("a" * 64, compact["sha256"])
+                self.assertLess(len(json.dumps(compact)), 1000)
+                self.assertEqual("PASS", latest["verdict"])
+
     def test_batch_scope_is_copied_and_omitted_from_serial_and_unrelated_repairs(self):
         task = {"id": "batch-task", "milestone_id": "B", "milestone_ids": ["B", "C"], "acceptance_criteria": ["C2"]}
         state = {"current_task": task}
@@ -646,6 +673,28 @@ class DecisionRepairContextTests(unittest.TestCase):
             self.assertEqual(original_source[key], data["original_report"][key])
         self.assertEqual(original, json.loads(Path(data["original_report"]["path"]).read_text()))
         self.assertLess(len(request["prompt"].encode()), 262144)
+
+    def test_large_tester_repair_retains_both_reports_and_offers_bounded_edits(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["next_stage"] = "sol"
+        original = {"summary": "x" * 120000, "checks": [{"command": r"echo \\u00e9"}]}
+        latest = {**original, "repair_fault": True}
+        schema = self.run / "review.schema.json"
+        schema.write_text(json.dumps({"type": "object", "properties": {"summary": {"type": "string"}}}))
+        repair_fixtures.RepairTests.queue(
+            self, stage="sol", role="sol", report=json.dumps(original), schema=str(schema)
+        )
+        with self.assertRaises(runner.ReportRepairQueued):
+            repair_fixtures.RepairTests.reject_repair(self, 6, ValueError("Invalid receipt"), report=json.dumps(latest))
+        request = repair_fixtures.RepairTests.repair_request(self)
+        data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(latest, data["rejected_report"]["content"])
+        self.assertEqual({"remove": [["repair_fault"]], "replace": []}, data["original_report"]["content_delta"])
+        self.assertEqual(original, json.loads(Path(data["original_report"]["path"]).read_text()))
+        self.assertLess(len(request["prompt"].encode()), 180000)
+        self.assertIn("BOUNDED REPORT EDITS", request["prompt"])
+        self.assertIn("repair_report", json.loads(Path(request["schema"]).read_text())["properties"])
 
     def test_discovery_repair_controller_supplies_the_approved_protected_contract(self):
         runner = repair_fixtures.runner

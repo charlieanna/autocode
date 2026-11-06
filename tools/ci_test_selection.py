@@ -67,6 +67,10 @@ SCENARIO_SELECTION_INPUTS = {
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    *(
+        (path, ("tests.test_review_report_repair_cli",))
+        for path in ("tools/autocode_report_edits.py", "tools/autocode_report_repair_context.py")
+    ),
     ("tools/autocode_pause_codes.py", ("tests.test_run_status",)),
     ("tools/autocode_stuck_job.py", ("tests.test_investigator_pause_cli",)),
     ("tools/autocode_planning_advice.py", ("tests.test_investigator_pause_cli",)),
@@ -295,7 +299,16 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("scenarios/harness/conformance.py", ("tests.test_planning_allowance_cli",)),
-    ("scenarios/harness/fake_codex.py", ("tests.test_brief_cli", "tests.test_requirements_job_cli")),
+    (
+        "scenarios/harness/fake_codex.py",
+        (
+            "tests.test_brief_cli",
+            "tests.test_requirements_job_cli",
+            "tests.test_changed_code_evidence_cli",
+            "tests.test_scenario_report_envelope",
+        ),
+    ),
+    ("tools/autocode_report_edits.py", ("tests.test_changed_code_evidence_cli", "tests.test_scenario_report_envelope")),
     ("tools/fake_codex.py", ("tests.test_subprocess",)),
     (
         "tools/autocode_report_repair_route.py",
