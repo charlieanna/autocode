@@ -183,7 +183,8 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
             and need.get("resolver_scope") in ("blocker", "operational_exhaustion")
             and not need.get("route")
         ):
-            terms = ("--resolver-response", "provide_information")
+            # Words for a person, never a flag (#2607): a held bound names its raise, anything else the information.
+            terms = ("raise the",) if need.get("command_inputs") else ("corrective information",)
         elif kind == "planning_budget" and need.get("action"):
             terms = (need["action"],)
         elif kind == "resume":
@@ -191,6 +192,8 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
                 terms = ("fresh component run", "approval")
             elif need.get("edit_required"):
                 terms = (need["action"], "fresh approval")
+            elif need.get("command_inputs") and need.get("action", "").endswith(" N"):
+                terms = ("raise the",)
             elif need.get("action"):
                 terms = (need["action"],)
         self.assertTrue(asked)
@@ -483,7 +486,9 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         need = before["needs"]
         self.assertEqual("--resume-paused --no-progress-limit N", need["action"])
         self.assertEqual(3, need["no_progress_batches"])
-        self.assertIn(need["action"], before["progress"]["needs_you"])
+        self.assertEqual(
+            "raise the unchanged implementation batches allowed to continue", before["progress"]["needs_you"]
+        )
         # The core describes the number (#2044), so the shared client fills it; nothing reads prose.
         row = need["command_inputs"][0]
         self.assertEqual(("no_progress_limit", 3, 4), (row["id"], row["used"], row["minimum"]))
@@ -548,6 +553,38 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         self.assertEqual(7, saved["settings"]["limits"]["iteration_ceiling"])
         self.assertEqual("WAITING_FOR_USER", after["status"])
         self.assertEqual("clarification", after["needs"]["resolver_scope"])
+
+    def test_a_time_limit_held_for_a_person_is_offered_as_a_raise_in_words(self):
+        # #2607: AutoResolver holds a time pause the person set. The view asked for a written reply, which cannot
+        # lift a limit, and showed the person `--resolver-response provide_information`. It now says in words
+        # that the way on is a larger total, and the chat offers that raise, never a reply box.
+        self.state["settings"]["limits"]["max_seconds"] = 60
+        self.state["settings"].setdefault("budget_origins", {})["max_seconds"] = "user_explicit"
+        self.state.update(
+            status="PAUSED_TIME_LIMIT",
+            stop_reason="Saved active-time limit reached at stage boundary",
+            active_seconds=75.5,
+            next_stage="terra",
+        )
+        error = support.Paused(self.state["status"], self.state["stop_reason"])
+        self.assertTrue(
+            runner.resolver_runtime.record_operational_exhaustion(runner, self.state, self.directory, error)
+        )
+        self.save()
+        before = self.shown("answer", scope="operational_exhaustion")
+        self.assertEqual(
+            "raise the total active time to continue, or leave the run paused", before["progress"]["needs_you"]
+        )
+        self.assertNotIn("--", before["progress"]["needs_you"])
+        said = [row["text"] for row in before["chat"]["messages"] if row["id"].startswith("resolver-")]
+        self.assertEqual(1, len(said))
+        self.assertIn("reached its limit for total active time (1m15s used of 1m00s)", said[0])
+        self.assertIn("A written reply can't lift a limit", said[0])
+        self.assertNotIn("Reply with what changed", said[0])
+        row, named = client_actions.bound_offer(before, self.workspace, self.directory)
+        self.assertEqual(76, row["minimum"])
+        command = client_actions.fill_offer(before, row, named, "600")
+        self.assertEqual(["--resume-paused", "--max-seconds", "600", "--expected-recovery-token", "-"], command.argv)
 
     def test_recover_source_names_the_required_inspection(self):
         self.state.update(status="PAUSED_JOB_FAILURE", stop_reason="The original source capture is unavailable")

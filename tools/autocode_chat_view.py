@@ -74,6 +74,38 @@ APPROVAL_OFFERS = {
 }
 
 
+def raised_bound(need) -> dict | None:
+    """The one bound a person may raise to continue (autocode_command_inputs, #2044), or None."""
+    rows = (need or {}).get("command_inputs")
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        return None
+    row = rows[0]
+    return row if isinstance(row.get("label"), str) and row.get("minimum") is not None else None
+
+
+def _amount(row, value) -> str:
+    if row.get("id") == "max_cost_usd":
+        return f"${value:.2f}" if isinstance(value, (int, float)) else str(value)
+    if str(row.get("id", "")).endswith("seconds") and isinstance(value, (int, float)):
+        seconds = int(value)
+        if seconds < 60:
+            return f"{seconds}s"
+        if seconds < 3600:
+            return f"{seconds // 60}m{seconds % 60:02d}s"
+        return f"{seconds // 3600}h{seconds % 3600 // 60:02d}m"
+    return str(value)
+
+
+def bound_words(row) -> str:
+    """'total active time (2m05s used of 2m00s)': a bound and how much of it the run used, in words."""
+    name = row["label"].split(" (")[0].lower()
+    used = next((row[key] for key in ("elapsed", "used") if key in row), None)
+    current = row.get("current")
+    if used is None or current is None:
+        return name
+    return f"{name} ({_amount(row, used)} used of {_amount(row, current)})"
+
+
 def notice(public):
     """Explain the next human step without exposing the diagnostic dashboard."""
     status = public.get("status") or ""
@@ -278,7 +310,14 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         )
         # The recovery card owns the human explanation; raw causes and full
         # question/options remain available in Run details.
-        if need.get("resolver_scope") == "operational_exhaustion":
+        bound = raised_bound(need)
+        if need.get("resolver_scope") == "operational_exhaustion" and bound:
+            # A limit is lifted only by a larger total (#2607): never ask for a reply that cannot do it.
+            question_text = (
+                f"The run reached its limit for {bound_words(bound)}. A written reply can't lift a limit: "
+                "give the run a larger total to continue, or leave it paused. Your saved work and evidence are kept."
+            )
+        elif need.get("resolver_scope") == "operational_exhaustion":
             recovery = public.get("recovery") or {}
             explanation = recovery.get("what_happened") or "I couldn’t finish this step."
             question_text = explanation + (

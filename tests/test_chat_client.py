@@ -960,6 +960,9 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(0, client.converse())
         out = client.text()
         self.assertIn("or type a new total active time (seconds) (2411 or more): ", out)
+        # The person's own limit, said as such: not "a problem of its own" with a CLI command in it (#2607).
+        self.assertIn("AutoCode stopped: the run reached its limit for total active time.", out)
+        self.assertNotIn("problem of its own", out)
         self.assertEqual([["--resume-paused", "--max-seconds", "3600", "--expected-recovery-token", "-"]], client.taken)
         self.assertNotIn("Left as it is", out)
         self.assertNotIn("Next it runs:", out)
@@ -967,11 +970,51 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(0, plain.converse())
         self.assertEqual([["--resume-paused"]], plain.taken)
 
+    def operational_time_pause(self):
+        """#2607's shape: AutoResolver published its request for a time limit the person set."""
+        view = self.held_time_pause()
+        flags = "--resolver-request R1 --resolver-token - --resolver-response provide_information"
+        reply = f"AUTOCODE_RESOLVER_TOKEN=t1 autocode {PLACE} {flags} --resolver-message MESSAGE"
+        view["status"] = "WAITING_FOR_USER"
+        view["needs"] = {
+            "kind": "answer",
+            "resolver_scope": "operational_exhaustion",
+            "resolver_request_id": "R1",
+            "resolver_token": "t1",
+            "pause_origin": "PAUSED_TIME_LIMIT",
+            "questions": [{"id": "resolver-R1", "question": "q", "options": ["Provide corrective information"]}],
+            "command_inputs": view["needs"]["command_inputs"],
+        }
+        view["next_command"] = reply.replace("MESSAGE", "'WHAT CHANGED'")
+        view["chat"] = {"context": "c1", "input": {"kind": "resolver_response", "next_command": reply}}
+        return view
+
+    def test_a_time_limit_offers_a_raise_or_leave_and_never_a_written_reply(self):
+        """#2607: the chat asked for a written reply first, which cannot lift a limit, and the raise came second.
+        Now the person chooses to raise the limit or leave the run paused; the raise is the core's named command."""
+        client = ScriptedChat(self.operational_time_pause(), DONE, replies=["1", "3600"])
+        self.assertEqual(0, client.converse())
+        out = client.text()
+        self.assertIn("1. Raise the total active time and continue", out)
+        self.assertIn("2. Leave the run paused", out)
+        self.assertIn("New total active time (seconds) (2411 or more): ", out)
+        self.assertNotIn("Your reply", out)
+        self.assertNotIn("9007199254740991", out)
+        self.assertEqual([["--resume-paused", "--max-seconds", "3600", "--expected-recovery-token", "-"]], client.taken)
+
+    def test_a_written_reply_at_a_time_limit_is_explained_and_sends_nothing(self):
+        client = ScriptedChat(self.operational_time_pause(), replies=["please keep going", ""])
+        self.assertEqual(2, client.converse())
+        out = client.text()
+        self.assertIn("A written reply can't lift a limit", out)
+        self.assertIn("Nothing changed. The run is still paused.", out)
+        self.assertEqual([], client.taken)
+
     def test_a_number_below_the_bound_or_for_a_stale_offer_takes_nothing(self):
         low = ScriptedChat(self.held_time_pause(), DONE, replies=["2400"])
         low.converse()
         self.assertEqual([], low.taken)
-        self.assertIn("Enter a whole number from 2411", low.text())
+        self.assertIn("Enter a whole number of 2411 or more", low.text())
         stale = self.held_time_pause()
         stale["recovery"] = {"token": "other"}
         client = ScriptedChat(stale, DONE, replies=["3600"])
