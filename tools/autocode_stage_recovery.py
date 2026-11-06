@@ -36,8 +36,10 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_reviewer_fallback as reviewer_fallback
+    from . import autocode_roles as roles
     from . import autocode_run_records as records
     from . import autocode_run_status as run_status
+    from . import autocode_stage_stalls as stage_stalls
     from . import autocode_support as support
     from . import autocode_validation_recovery as validation_recovery
     from . import autocode_workflow as workflow
@@ -56,8 +58,10 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
     import autocode_reviewer_fallback as reviewer_fallback
+    import autocode_roles as roles
     import autocode_run_records as records
     import autocode_run_status as run_status
+    import autocode_stage_stalls as stage_stalls
     import autocode_support as support
     import autocode_validation_recovery as validation_recovery
     import autocode_workflow as workflow
@@ -757,7 +761,18 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
     if semantic_stage == "terra":
         state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
     state["consecutive_timeout_recoveries"] = state.get("consecutive_timeout_recoveries", 0) + 1
-    run_status.running(state, phase, next_stage=next_stage)
+    stalls = stage_stalls.repeated(state, semantic_stage, after["revision"])
+    if len(stalls) >= stage_stalls.REPEATS:
+        # A review that re-issues the stage saves a valid report and ends the failure streak, so
+        # this stage could stall on the same source forever: pause for the Investigator instead.
+        run_status.pause(
+            state,
+            stage_stalls.STATUS,
+            stage_stalls.reason(roles.screen_name(semantic_stage, state), stalls),
+            next_stage=semantic_stage,
+        )
+    else:
+        run_status.running(state, phase, next_stage=next_stage)
     records.write_json(run_dir / "state.json", state)
     for artifact in originals:
         artifact.unlink(missing_ok=True)
@@ -1090,6 +1105,71 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
             "reason": "Explicit fresh execution retry; rejected reports retained",
         }
     )
+    records.write_json(run_dir / "state.json", state)
+    return True
+
+
+RESTARTS_PER_SOURCE = 2
+CANNOT_LAUNCH = "the report repair cannot launch from its saved inputs"
+
+
+def restart_unlaunchable_repair(state: RunState, run_dir, workspace, error):
+    """Start a fresh attempt of a stage whose report repair cannot launch; never ask a person.
+
+    A repair whose saved inputs are too large, or hold no usable report, can never run, so it is
+    spent. Before this, the run paused and told the person to resume, which only archived the repair
+    and started the same fresh attempt this does (a live Tester, 2026-11-06). The rejected reports
+    stay in the archive. The retry preparation keeps a repair that can still run. A stage that needed this
+    ``RESTARTS_PER_SOURCE`` times on unchanged source pauses ``PAUSED_REPEATED_FAILURE`` instead, which
+    the Investigator diagnoses; the existing repeated-failure hold applies first."""
+    pending = state.get("pending_report_repair")
+    original = pending.get("original") if isinstance(pending, dict) else None
+    if (
+        getattr(error, "status", None) != "PAUSED_REPORT_REPAIR_INPUT"
+        or state.get("active_stage")
+        or not isinstance(original, dict)
+    ):
+        return False
+    stage = original.get("stage")
+    # The person-facing resume route no longer applies: the runner takes that step itself.
+    cause = str(error).replace(report_source.REPAIR_INPUT_ROUTE, "")
+    earlier = [
+        row
+        for row in state.get("report_repair_archive") or []
+        if CANNOT_LAUNCH in str(row.get("reason"))
+        and ((row.get("repair") or {}).get("original") or {}).get("stage") == stage
+        and ((row.get("repair") or {}).get("original") or {}).get("source_revision") == original.get("source_revision")
+    ]
+    if len(earlier) >= RESTARTS_PER_SOURCE:
+        message = (
+            f"{roles.screen_name(str(stage), state)}'s report repair could not launch "
+            f"{len(earlier) + 1} times on unchanged source; another identical attempt is not started. " + cause
+        )
+        run_status.pause(state, "PAUSED_REPEATED_FAILURE", message, paused_at=records.now())
+        records.write_json(run_dir / "state.json", state)
+        raise support.Paused("PAUSED_REPEATED_FAILURE", message)
+    # The retry preparation an explicit resume runs reads the pause it is resuming from.
+    run_status.pause(
+        state,
+        "PAUSED_REPORT_REPAIR_INPUT",
+        cause + " The runner archives this repair and starts a fresh attempt of the stage.",
+        paused_at=records.now(),
+    )
+    planning_stage = prepare_planning_retry(state, run_dir)
+    if not planning_stage and not prepare_exhausted_execution_report_retry(state, run_dir, workspace):
+        records.write_json(run_dir / "state.json", state)
+        return False
+    state.setdefault("user_events", []).append(
+        {
+            "kind": "automatic_unlaunchable_repair_restart",
+            "actor": "runner",
+            "at": records.now(),
+            "stage": stage,
+            "source_revision": original.get("source_revision"),
+            "reason": cause,
+        }
+    )
+    run_status.running(state, "PLANNING" if planning_stage else "EXECUTING", next_stage=state.get("next_stage"))
     records.write_json(run_dir / "state.json", state)
     return True
 

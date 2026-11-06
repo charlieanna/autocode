@@ -233,9 +233,12 @@ shows the cause; the runner makes it in another scratch tree and the probe must 
 there, so a probe that passes whatever the files say retries nothing (#1769). The
 probe's receipt, with its counterexample's exit code, is recorded with the investigation.
 
-Bounds: one investigation per distinct stage and pause, three per run
-(`settings.stuck_investigation.max_calls_per_run`; 0 turns it off). A Builder failure the
-Investigator classifies does not count toward these three: it has its own budget per
+Bounds: one investigation per distinct stage and pause on one source revision (the same
+problem after the source changed is a new one), and per run three or one per milestone of the
+approved plan, whichever is more (`settings.stuck_investigation.max_calls_per_run`; 0 turns it
+off). A stage that stops twice on unchanged source without a valid report, even when a review
+re-issues it in between, pauses as a repeated failure and reaches the Investigator. A Builder
+failure the Investigator classifies does not count toward this budget: it has its own budget per
 milestone ([Models](models.md#builder-retry-policy)). A second failure of the
 same problem, a `pause` recommendation or a failed investigation restores the original
 pause, with the diagnosis in its reason. It never approves anything, changes requirements or

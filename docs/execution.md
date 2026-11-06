@@ -133,8 +133,13 @@ permission boundaries still appear a second time there.
 
 Report sources are limited to 128 KiB each and the runner-supplied repair prompt to
 256 KiB, including provider-added schema/instructions. Missing, empty, or oversized
-inputs pause as `PAUSED_REPORT_REPAIR_INPUT` before another provider call, without
-charging a repair attempt. Full originals remain available for inspection; report
+inputs make the repair unlaunchable before another provider call, without charging a
+repair attempt. Such a repair is spent: the runner archives it, keeps the rejected
+reports, and starts a fresh attempt of the stage itself, without asking anyone. A
+stage whose repair could not launch three times on unchanged source pauses as
+`PAUSED_REPEATED_FAILURE` instead, and the Investigator diagnoses it. Only a repair the
+runner cannot restart this way (a native planning call) still pauses as
+`PAUSED_REPORT_REPAIR_INPUT`. Full originals remain available for inspection; report
 content is never silently truncated to satisfy the limit. Old pending OpenCode
 checkpoints with missing report files can materialize their terminal response locally
 from intact, pinned events instead of making the model search the log.
@@ -1178,7 +1183,7 @@ receive the bounded automatic recovery above; other uncertain responses need ins
 first.
 
 An execution report whose two read-only repairs are exhausted, or whose repair
-cannot launch (`PAUSED_REPORT_REPAIR_INPUT`), can be retried with
+cannot launch and was not restarted automatically (`PAUSED_REPORT_REPAIR_INPUT`), can be retried with
 `--resume-paused`. If the same Validator report fails repeatedly, the failure
 guard may stop recovery earlier: the cheap serialization correction contributes
 to that guard but does not spend a full repair attempt. After correcting the

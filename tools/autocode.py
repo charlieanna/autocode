@@ -175,7 +175,7 @@ try:
         automatically_recover_timed_out_stage, automatically_recover_truncated_review,
         archive_stale_report_repair, prepare_abandoned_completion_revalidation, stale_report_repair,
         prepare_exhausted_execution_report_retry, prepare_timeout_archived_completion, prepare_planning_retry, reconcile_rate_limited_stage,
-        recover_legacy_report_repair, retry_format_failed_report)  # noqa: F401 - compatibility API
+        recover_legacy_report_repair, restart_unlaunchable_repair, retry_format_failed_report)  # noqa: F401 - compatibility API
     from .autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT  # noqa: F401 - compatibility API
     from . import autocode_idle_policy as idle_policy  # noqa: F401 - compatibility API
 except ImportError:
@@ -226,7 +226,7 @@ except ImportError:
         automatically_recover_timed_out_stage, automatically_recover_truncated_review,
         archive_stale_report_repair, prepare_abandoned_completion_revalidation, stale_report_repair,
         prepare_exhausted_execution_report_retry, prepare_timeout_archived_completion, prepare_planning_retry, reconcile_rate_limited_stage,
-        recover_legacy_report_repair, retry_format_failed_report)  # noqa: F401 - compatibility API
+        recover_legacy_report_repair, restart_unlaunchable_repair, retry_format_failed_report)  # noqa: F401 - compatibility API
     from autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT  # noqa: F401 - compatibility API
     import autocode_idle_policy as idle_policy  # noqa: F401 - compatibility API
 # fmt: on
@@ -993,7 +993,19 @@ def accept_repaired_report(state: RunState, run_dir, workspace, value, repair_re
 
 
 def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
-    """Launch the bounded report-only repair; native planning keeps its own writer and launch owner."""
+    """Launch the bounded report-only repair; native planning keeps its own writer and launch owner.
+
+    A repair that cannot launch from its saved inputs (too large, or no usable report) starts a fresh
+    attempt of its stage instead of asking a person to resume (``restart_unlaunchable_repair``)."""
+    try:
+        _execute_report_repair(state, run_dir, workspace, native=native)
+    except support.Paused as error:
+        if native is None and restart_unlaunchable_repair(state, run_dir, workspace, error):
+            raise ReportRepairQueued() from error
+        raise
+
+
+def _execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
     runtime = native_invocation.runner_view(sys.modules[__name__], native) if native else sys.modules[__name__]
     pending = state["pending_report_repair"]
     original = pending["original"]

@@ -23,7 +23,8 @@ attempt or the question only the user can answer. Then:
 - ``pause``, a ``DIAGNOSE_ONLY`` status, or a failed investigation: the original pause
   is restored exactly, with the diagnosis added to its reason.
 
-Bounds: one investigation per distinct (stage, pause) problem and ``MAX_CALLS`` per run
+Bounds: one investigation per distinct (stage, pause) problem on one source revision, and
+``MAX_CALLS`` per run, or one per approved milestone when there are more
 (``settings.stuck_investigation.max_calls_per_run``; 0 disables). A Builder failure's
 classification (autocode_builder_failure) is not counted here: it has its own budget per
 milestone (#686). The Investigator
@@ -195,6 +196,28 @@ def identity(stage: str, status: str) -> str:
     return f"{stage}:{status}"
 
 
+def source_revision(state: RunState, stage: str):
+    """The source the stuck stage's latest attempt saw, or None when it recorded none."""
+    last: dict = next(
+        (
+            row
+            for row in reversed(state.get("stages") or [])
+            if (row.get("original_stage") or row.get("stage")) == stage
+        ),
+        {},
+    )
+    return last.get("source_revision")
+
+
+def same_problem(entry: dict, key: str, revision) -> bool:
+    """One (stage, pause) problem on one source. An entry saved before revisions were recorded, or a
+    stage that records none, matches its identity on any source, as before."""
+    if entry.get("identity") != key:
+        return False
+    seen = entry.get("source_revision")
+    return seen is None or revision is None or seen == revision
+
+
 def intercept(state: RunState, status: str, reason: str) -> bool:
     """Send a run about to pause with a non-convergence ``status`` to the Investigator.
 
@@ -216,9 +239,12 @@ def intercept(state: RunState, status: str, reason: str) -> bool:
         return False
     history = state.get("stuck_investigations") or []
     key = identity(stuck, status)
+    revision = source_revision(state, stuck)
     spent = sum(entry.get("trigger") != "builder_failure" for entry in history)
     if (
-        any(entry.get("identity") == key for entry in history)
+        # The same problem again on the same source: once is enough. A Builder that changed the
+        # source makes it a new problem, still within the run's budget.
+        any(same_problem(entry, key, revision) for entry in history)
         or spent >= max_calls(state)
         or operator_retried(state, stuck)
     ):
@@ -257,6 +283,7 @@ def intercept(state: RunState, status: str, reason: str) -> bool:
             "requested_at": request["requested_at"],
             "outcome": "investigating",
             "trigger": trigger,
+            **({"source_revision": revision} if revision else {}),
             **recovery_binding.binding(state, stuck),
         }
     )
@@ -285,7 +312,7 @@ def annotate(state: RunState, status: str, reason: str) -> str:
         (
             row
             for row in reversed(state.get("stuck_investigations", []))
-            if row.get("identity") == identity(stuck or "", status)
+            if same_problem(row, identity(stuck or "", status), source_revision(state, stuck or ""))
             and row.get("diagnosis")
             and recovery_binding.applies(state, row, stuck or "")
         ),
