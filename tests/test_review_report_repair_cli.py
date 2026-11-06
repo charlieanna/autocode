@@ -17,19 +17,21 @@ if sys.argv[1:] == ["login", "status"]:
 prompt = sys.stdin.read()
 data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
 repair = bool(data.get("report_repair"))
+array_case = os.environ.get("REVIEW_REPAIR_ARRAY") == "1"
 stage = data["original"]["stage"] if repair else data["stage"]
 output = Path(sys.argv[sys.argv.index("-o") + 1])
 if repair and stage == "sol":
     source = data["rejected_report"]
     schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
     offered = "repair_report" in schema.get("properties", {})
+    target = ["checks", len(source["content"]["checks"]) - 1] if array_case else ["extraneous_field"]
     report = {"repair_report": {"sha256": source["sha256"], "edits": [
-        {"op": "remove", "path": ["extraneous_field"], "value_json": "null"}
+        {"op": "remove", "path": target, "value_json": "null"}
     ]}} if offered else source["content"]
     output.write_text(json.dumps(report))
     with Path(os.environ["REVIEW_REPAIR_TRACE"]).open("a") as stream:
         stream.write(json.dumps({"offered": offered, "patch": report, "output": str(output),
-                                 "checks": source["content"]["checks"]}) + "\n")
+                                 "checks": source["content"]["checks"][:-1] if array_case else source["content"]["checks"]}) + "\n")
     print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
     print(json.dumps({"type": "turn.completed"}))
 else:
@@ -41,7 +43,10 @@ else:
             raise
     if stage == "sol" and not repair:
         report = json.loads(output.read_text())
-        report["extraneous_field"] = "Only this schema defect needs correction."
+        if array_case:
+            report["checks"].append({"unexpected": "Only this extra item needs removal."})
+        else:
+            report["extraneous_field"] = "Only this schema defect needs correction."
         output.write_text(json.dumps(report))
 """
 
@@ -49,6 +54,13 @@ else:
 @unittest.skipUnless(sys.platform.startswith("linux"), "supervised provider requires supported Linux")
 class ReviewReportRepairCLI(unittest.TestCase):
     def test_tester_patch_completes_with_original_checks_and_preserved_raw_response(self):
+        self.assert_review_patch_completes()
+
+    def test_tester_removes_one_extra_array_item_without_recopying_authenticated_checks(self):
+        row = self.assert_review_patch_completes(array_case=True)
+        self.assertEqual(["checks", len(row["checks"])], row["patch"]["repair_report"]["edits"][0]["path"])
+
+    def assert_review_patch_completes(self, *, array_case=False):
         fixture = cli_support.SubprocessFlow()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
@@ -58,6 +70,8 @@ class ReviewReportRepairCLI(unittest.TestCase):
         executable.chmod(0o755)
         trace = fixture.root / "review-repair-trace.jsonl"
         fixture.env.update(AUTOCODE_FIXTURE_MODE="no-human", REVIEW_REPAIR_TRACE=str(trace))
+        if array_case:
+            fixture.env["REVIEW_REPAIR_ARRAY"] = "1"
         fixture.env["PATH"] = (
             str(executable.parent) + os.pathsep + str(Path(sys.executable).parent) + os.pathsep + fixture.env["PATH"]
         )
@@ -75,3 +89,4 @@ class ReviewReportRepairCLI(unittest.TestCase):
         self.assertEqual(row["checks"], repaired["checks"])
         self.assertNotIn("extraneous_field", repaired)
         self.assertEqual(row["patch"], json.loads(report.with_suffix(".reported.json").read_text()))
+        return row
