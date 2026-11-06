@@ -2333,6 +2333,11 @@ all changed lines were tested.</p>
 <p>The core returns unresolved exact lines to Builder for two bounded repair rounds,
 then uses its existing Investigator path and saved run limits. It records those
 decisions and the fallback in the public verification view and final report.
+When a batch correction has narrowed the assignment to one component, a rejected
+gap in another batch member first returns to the Completion Reviewer for
+reassignment within the approved plan. That scope review neither expands the
+Builder's permission nor consumes a Builder repair round; unresolved evidence
+continues to block acceptance.
 Missing project coverage tooling uses demonstrated mutation evidence alone where
 available; otherwise the line remains open for independent judgment. No project
 dependency is installed. Blank/comment-only lines, Python declaration-only lines
