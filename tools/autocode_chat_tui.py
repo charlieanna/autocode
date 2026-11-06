@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import contextlib
 import curses
-import fcntl
 import json
 import locale
 import os
@@ -1404,10 +1403,12 @@ class ChatTUI:
         reads of X10 mouse bytes. Restore descriptor flags before handling or drawing.
         """
         try:
+            import fcntl
+
             fd = sys.stdin.fileno()
             flags = fcntl.fcntl(fd, fcntl.F_GETFL)
             fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-        except (OSError, ValueError):
+        except (ImportError, OSError, ValueError):
             yield
             return
         try:

@@ -1044,7 +1044,7 @@
       }
     },
     "changed_code_repairs": {
-      "description": "Optional source-bound historical Builder/Investigator decisions, copied from the public verification view. Absent from legacy reports. History does not resolve current obligations.",
+      "description": "Optional source-bound historical Builder/Investigator repairs and scope-review decisions, copied from the public verification view. Absent from legacy reports. History does not resolve current obligations.",
       "type": "array",
       "items": {
         "type": "object",
@@ -1066,8 +1066,12 @@
             "type": "string",
             "enum": [
               "builder",
-              "investigator"
+              "investigator",
+              "reviewer"
             ]
+          },
+          "scope_reason": {
+            "type": "string"
           },
           "source_revision": {
             "type": "string"

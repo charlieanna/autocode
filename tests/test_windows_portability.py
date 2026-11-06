@@ -9,6 +9,7 @@ is out of scope.
 """
 
 import ast
+import importlib.util
 import json
 import subprocess
 import sys
@@ -84,6 +85,18 @@ def posix_only_imports():
 
 
 class LoadTimeImportTests(unittest.TestCase):
+    @unittest.skipUnless(importlib.util.find_spec("curses"), "terminal rendering needs the optional curses module")
+    def test_terminal_module_loads_without_the_optional_posix_input_helper(self):
+        result = subprocess.run(
+            [sys.executable, "-c", IMPORT_WITHOUT_FCNTL, str(TOOLS), "autocode_chat_tui"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual({}, json.loads(result.stdout))
+
     def test_no_new_module_imports_a_posix_only_module_at_load(self):
         self.assertEqual(
             {},
