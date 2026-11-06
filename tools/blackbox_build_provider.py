@@ -278,7 +278,13 @@ def main():
     rows = spec["contract"]["milestones"]
     if data.get("report_repair"):
         result = json.loads(Path(data["original"]["output"]).read_text())
-        if data["original"]["stage"] == "sol" and spec.get("batch_report_repair"):
+        if data["original"]["stage"] == "sol" and spec.get("changed_code_citation_repair"):
+            context = data.get("changed_code_citation_context") or {}
+            result = copy.deepcopy(data["rejected_report"]["content"])
+            if context.get("proof_reference"):
+                result["changed_code_exceptions"][0]["evidence_refs"] = [context["proof_reference"]]
+            record("citation_repair", context=context)
+        elif data["original"]["stage"] == "sol" and spec.get("batch_report_repair"):
             scope = data.get("batch_validation") or {}
             # A report-only provider cannot discover the batch by reading private run state.
             # The original check evidence covers every member; only its result inventory was damaged.
@@ -642,6 +648,11 @@ def main():
         schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
         if "changed_code_exceptions" in schema.get("properties", {}):
             result["changed_code_exceptions"] = scripted_changed_code_reasons(spec, data)
+            if spec.get("changed_code_citation_repair") and result["changed_code_exceptions"]:
+                # Deliberately invalid nested proof citation; only the enclosing proof is admitted.
+                result["changed_code_exceptions"][0]["evidence_refs"] = [
+                    str(Path(data["regression_proof"]["path"]).parent / "mutation-check/raw.log")
+                ]
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
     record("finish")
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)

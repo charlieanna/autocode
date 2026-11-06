@@ -357,6 +357,61 @@ class ClarificationContextTests(unittest.TestCase):
 class DecisionRepairContextTests(unittest.TestCase):
     setUp = repair_fixtures.base.RetrofitTest.setUp
 
+    def test_tester_repair_names_enclosing_proof_without_changing_rejected_judgments(self):
+        for stage, role in (("sol", "sol"), ("astra_checkpoint", "astra")):
+            with self.subTest(stage=stage):
+                self.setUp()
+                self.state["next_stage"] = stage
+                report = {
+                    "verdict": "FAIL",
+                    "changed_code_exceptions": [
+                        {
+                            "gap_id": "L14",
+                            "decision": "reject",
+                            "reason_kind": "equivalent_mutant",
+                            "reason": "Missing assertion for non-string id",
+                            "evidence_refs": ["mutation-check/mutant.log"],
+                        }
+                    ],
+                }
+                pending = repair_fixtures.RepairTests.queue(
+                    self,
+                    stage=stage,
+                    role=role,
+                    report=json.dumps(report),
+                    error=ValueError("Changed-code reason cites unauthenticated evidence: 'mutation-check/mutant.log'"),
+                )
+                source = pending["original"]["source_revision"]
+                proof_path = str(self.run / "regression/proof-04/verification.json")
+                self.state["regression_proof"] = {"path": proof_path, "source_revision": source, "verdict": "FAIL"}
+                before = copy.deepcopy(self.state["regression_proof"])
+                request = repair_fixtures.RepairTests.repair_request(self)
+                data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+                self.assertEqual(
+                    {"proof_reference": proof_path, "source_revision": source},
+                    data.get("changed_code_citation_context"),
+                )
+                self.assertEqual(report, data["rejected_report"]["content"])
+                self.assertEqual(before, self.state["regression_proof"])
+                self.assertIn("Preserve rejects, findings and missing evidence", request["prompt"])
+                self.assertIn("do not return a shell command", request["prompt"])
+                self.assertTrue(request["report_only"])
+
+    def test_citation_context_omits_stale_missing_or_non_tester_proofs(self):
+        pending = {"original": {"source_revision": "current"}}
+        proof = {"path": "/run/proof/verification.json", "source_revision": "current"}
+        for stage in ("terra", "astra_review", "glm_revise"):
+            self.assertEqual({}, context.changed_code_citation_context({"regression_proof": proof}, pending, stage))
+        for invalid in (
+            {},
+            {**proof, "source_revision": "old"},
+            {**proof, "source_revision": None},
+            {**proof, "path": None},
+            {**proof, "path": ""},
+            {**proof, "path": ["bad"]},
+        ):
+            self.assertEqual({}, context.changed_code_citation_context({"regression_proof": invalid}, pending, "sol"))
+
     def test_combined_review_repair_receives_exact_batch_scope_without_reading_state(self):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)
