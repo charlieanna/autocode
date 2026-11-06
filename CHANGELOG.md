@@ -19,6 +19,37 @@ PR template asks for an entry here; a change without one is incomplete.
   Scripted scenario reviewers use the offered repair envelope too, retaining their full-report
   corrections without mixing them with an empty transport placeholder.
 
+- Review handoffs name the current enclosing proof as the accepted citation for changed-code mutation and coverage observations. Follow-up tasks refer to it symbolically, preventing avoidable raw-log and stale-proof citation repairs.
+
+- Loading the terminal UI no longer requires the POSIX-only descriptor helper; input reads use it
+  only when available, keeping nonblocking mouse handling on supported terminals.
+- Report repair tolerates bounded JSON formatting overhead while retaining the complete
+  saved artifact and the existing compact-content and final-handoff limits.
+- Investigator report repairs avoid duplicating the preceding Tester diagnosis, retain the exact
+  classification citation allowlist, and can continue a retained repair after a corrected renderer
+  resolves a prelaunch prompt-size refusal. Saved evidence and size limits remain unchanged.
+
+- An Investigator report repair survives run-wide time, cost, iteration and transport boundaries.
+  Existing stranded classifications can continue their pinned repair without replaying the
+  investigation, resetting its allowances or changing the approved plan.
+
+- The supervision cadence regression simulates its quiet interval and excludes shutdown samples, avoiding a timing-dependent failure on healthy keepers.
+
+- Report-only Kilo repairs now state that all tools are disabled and must use the supplied evidence, avoiding instructions to wait for unavailable tools.
+
+- Changed-code repair no longer repeats a narrowed batch assignment when the Tester rejects
+  a gap owned by another batch member. The Completion Reviewer first reassigns the correction
+  within the approved plan; the recorded scope review grants no write permission or completion
+  authority and consumes no Builder repair round.
+- The pause-code inventory references the shared paused-phase constant, preserving the single
+  definition enforced by the run-status architecture check.
+- The terminal progress regression now distinguishes the working stage's latest thought in its
+  status line from the message-only recent updates panel, matching the existing interface.
+- Recovery CLI regressions now check automatic stopping after pinned-Builder exhaustion, including
+  no further launches on resume, and distinguish report-only repair attempts from task retries.
+- A spec-first wave stays parallel when writing its tests needed recovery. A repair of the Tester's report,
+  or the Investigator looking at why it stopped, no longer counts as an attempt at the milestone, so the
+  Orchestrator still gives each wave member its own Builder.
 - A malformed report-only repair no longer hides the original validation error from the next repair.
   Both diagnostics remain available with the pinned reports, while evidence checks and retry limits
   stay in force.

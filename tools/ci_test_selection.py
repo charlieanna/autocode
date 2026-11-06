@@ -71,6 +71,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         (path, ("tests.test_review_report_repair_cli",))
         for path in ("tools/autocode_report_edits.py", "tools/autocode_report_repair_context.py")
     ),
+    ("tools/autocode_pause_codes.py", ("tests.test_run_status",)),
     ("tools/autocode_stuck_job.py", ("tests.test_investigator_pause_cli",)),
     ("tools/autocode_planning_advice.py", ("tests.test_investigator_pause_cli",)),
     (
@@ -244,6 +245,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture", "tests.test_review_attribution_cli")),
     ("scenarios/catalog/local-compose-two-services/", ("tests.test_local_compose_scenario",)),
     ("scenarios/harness/components_driver.py", ("tests.test_local_compose_scenario",)),
+    ("tools/prompts/fragments/provider-launch/tool-free-report-repair.md", ("tests.test_provider_launch",)),
     ("scenarios/harness/profiles.py", ("tests.test_kilocode_effort",)),
     ("tools/prompts/acceptance-tests.md", ("tests.test_acceptance_tests", "tests.test_acceptance_runner_handoff")),
     (
@@ -316,6 +318,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/autocode_requirements_handoff.py", ("tests.test_requirements_citation_cli",)),
     ("scripts/homebrew_formula.py", ("tests.test_homebrew_formula",)),
     ("scenarios/catalog/review-clean-pr/broken/blocks-on-a-nit/", ("tests.test_review_attribution_cli",)),
+    (
+        "tools/prompts/fragments/stuck-repair-context/evidence-instruction-02.md",
+        ("tests.test_stuck_repair_context", "tests.test_classification_recovery"),
+    ),
     ("tools/prompts/fragments/report-repair-context/requirements-corrections.md", ("tests.test_report_repair",)),
     (
         "tools/prompts/fragments/report-repair-context/revision-review.md",
@@ -667,6 +673,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/units/autoplanner.py",
         ),
         ("tests.test_stage_repair_cli", "tests.test_discovery_report_edits_cli"),
+    ),
+    (
+        ("tools/autocode_report_source.py",),
+        ("tests.test_report_formatting_repair_cli",),
     ),
     (
         (

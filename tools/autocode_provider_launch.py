@@ -481,6 +481,10 @@ def render_native_image_prompt(
 
 def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=False, regression_handoff=None):
     """Advertise only the current stage's permitted scratch area, not broader write access."""
+    if worker.get("kilo_readonly_tools") and worker.get("planning_report_recovery"):
+        before, marker, after = prompt.rpartition("\nCURRENT HANDOFF DATA\n")
+        instruction = prompts.get("fragments/provider-launch/tool-free-report-repair.md")
+        return before + instruction + marker + after if marker else prompt + instruction
     policy = worker.get("tool_containment")
     if not policy:
         return prompt

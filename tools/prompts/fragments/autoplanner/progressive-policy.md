@@ -8,9 +8,10 @@ unrelated check, infer removal from changed IDs, or claim a model approval. Ordi
 review and explicit user approval of the new goal token are required before retirement takes effect.
 The runner mirrors the exact scope_exclusions retirement declaration into visible constraints
 before independent review and user approval; retain that exact line, never a conflicting mirror.
-For a version 1 proposal, contract.milestones must contain exactly one whole-product milestone,
-not one milestone per slice and not an extra final-checkpoint milestone. That milestone has
-depends_on=[], all product acceptance criterion IDs, and affected_paths covering every slice's paths.
+For a version 1 progressive_proposal (never version 0), contract.milestones must contain
+exactly one whole-product milestone, not one milestone per slice and not an extra final-checkpoint
+milestone. That milestone has depends_on=[], all product acceptance criterion IDs, and
+affected_paths covering every slice's paths.
 Delivery order belongs in progressive_proposal.slices and their depends_on edges, not extra milestones.
 contract.initial_task executes only slices[0], using the whole-product milestone's ID but only the
 first slice's objective, paths, criteria and checks. One product milestone does not mean one long task.

@@ -63,5 +63,12 @@ def context(state: RunState, stage: str, state_path, workspace, sources=()) -> d
         content = source.get("content")
         if isinstance(content, dict):
             refs.extend(content.get("evidence_refs") or [])
+    if failure := packet.get("builder_failure"):
+        # The rejected Investigator report already carries its diagnosis. Its
+        # report-only repair needs the exact classification authority, not a
+        # second inline copy of the preceding Tester's potentially huge report.
+        # That full evidence remains pinned on disk and in the saved request.
+        failure.pop("diagnosis", None)
+        refs = failure["evidence_refs"]
     packet["evidence_files"] = evidence_files(refs, workspace, Path(state_path).parent)
     return packet

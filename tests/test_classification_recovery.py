@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -165,6 +166,66 @@ class ClassificationRecoveryCLI(unittest.TestCase):
             investigators[0]["handoff"]["builder_failure"]["failure_id"],
             investigators[1]["handoff"]["builder_failure"]["failure_id"],
         )
+        self.assertEqual(2, len(self.trace("terra")))
+
+    def test_time_boundary_preserves_investigator_report_repair_through_public_resume(self):
+        self.boundary_repair_resume(legacy=False)
+
+    def test_legacy_boundary_hold_continues_the_same_report_through_public_action(self):
+        self.boundary_repair_resume(legacy=True)
+
+    def test_oversized_preparation_hold_continues_the_retained_report_through_public_action(self):
+        self.boundary_repair_resume(legacy=True, input_size=True)
+
+    def boundary_repair_resume(self, *, legacy, input_size=False):
+        import autocode
+
+        self.seed(planner_extra=["--max-seconds", "1000"])
+        self.env.update(
+            BUILD_AUDIT_FAULT="no_change",
+            FAILURE_ROUTING_DIAGNOSIS="execution",
+            FAILURE_ROUTING_MALFORMED_DIAGNOSIS="1",
+        )
+        guard = autocode.timeout_recovery_guard
+
+        def boundary(current):
+            if ((current.get("pending_report_repair") or {}).get("original") or {}).get("stage") == "investigate_stuck":
+                if input_size:
+                    raise recovery.util.Paused(
+                        "PAUSED_REPORT_REPAIR_INPUT",
+                        "Complete report-repair handoff exceeds 262144 bytes; no unbounded repair was launched."
+                        " Resume with autocode resume to archive this repair (evidence retained) and start a fresh attempt of the stage.",
+                    )
+                raise recovery.util.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
+            return guard(current)
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(autocode, "timeout_recovery_guard", side_effect=boundary))
+            if legacy:
+                # Reproduce the old boundary disposition through the real CLI, then
+                # remove the fault before asking its public view how to continue.
+                stack.enter_context(patch.object(recovery, "pending_repair", return_value=False, create=True))
+            self.drive(codes=(2,))
+        limited = self.status()
+        extra = []
+        if legacy:
+            need = limited["view"]["needs"]
+            self.assertEqual("retry_job", need["kind"], need)
+            self.assertIn("report-only", need["recovery_hint"])
+            extra = ["--retry-failed-stage", "--job-retry-token", need["job_retry_token"]]
+        else:
+            self.assertEqual("PAUSED_TIME_LIMIT", limited["view"]["needs"].get("pause_origin"))
+        self.assertEqual(1, len(self.trace("investigate_stuck")))
+        self.assertEqual([], self.trace("investigate_stuck_report_repair"))
+        self.assertEqual(self.approved_token, limited["contract_token"])
+        self.env.pop("BUILD_AUDIT_FAULT")
+        self.drive("--resume-paused", *extra, "--max-seconds", "5000", codes=(0,))
+        completed = self.status()
+        self.assertEqual("TASK_COMPLETE", completed["status"])
+        self.assertTrue(completed["completion_current"])
+        self.assertEqual(self.approved_token, completed["contract_token"])
+        self.assertEqual(1, len(self.trace("investigate_stuck")))
+        self.assertEqual(1, len(self.trace("investigate_stuck_report_repair")))
         self.assertEqual(2, len(self.trace("terra")))
 
     def test_retry_preserves_the_existing_report_failure_limit(self):
@@ -703,6 +764,113 @@ class ClassificationOfferTests(unittest.TestCase):
                 with patch.object(recovery.failure, "guard"):
                     recovery.admit(state, record, Path(temporary))
                 self.assertEqual(request["classification_retry"]["token"], record["classification_retry_token"])
+
+    def pending_classification_repair(self):
+        state = self.state()
+        context = state["builder_failure_hold"]["classification_retry"]
+        request = copy.deepcopy(context["request"])
+        state["stuck_investigation"] = request
+        state.pop("builder_failure_hold")
+        state["stuck_investigations"][0].update(outcome="investigating", requested_at=request["requested_at"])
+        original = {
+            "stage": "investigate_stuck",
+            "started_at": "2026-10-10T00:00:01+00:00",
+            "finished_at": "2026-10-10T00:00:02+00:00",
+            "exit_code": 0,
+        }
+        state["stages"] = [original]
+        state["pending_report_repair"] = {"original": copy.deepcopy(original), "attempts": 1}
+        state.update(status="RUNNING", next_stage="investigate_stuck")
+        return state
+
+    def test_boundary_during_report_repair_keeps_the_same_classification_and_attempts(self):
+        for status in sorted(stuck.BOUNDARY_LIMITS):
+            with self.subTest(status=status):
+                state = self.pending_classification_repair()
+                before = copy.deepcopy(state)
+                error = self.drive_into(state, status)
+                self.assertEqual(status, error.status)
+                self.assertEqual(before, state)
+
+    def test_only_an_owned_remaining_report_repair_survives_a_boundary(self):
+        for changed in ("spent", "other_stage", "older", "negative_attempts", "other_pause"):
+            with self.subTest(changed=changed):
+                state = self.pending_classification_repair()
+                pending = state["pending_report_repair"]
+                status = "PAUSED_TIME_LIMIT"
+                if changed == "spent":
+                    pending["attempts"] = 2
+                elif changed == "other_stage":
+                    pending["original"]["stage"] = "sol"
+                elif changed == "older":
+                    pending["original"]["started_at"] = "2026-10-09T00:00:01+00:00"
+                elif changed == "negative_attempts":
+                    pending["attempts"] = -1
+                else:
+                    status = "PAUSED_STALE_VALIDATION"
+                self.assertEqual("PAUSED_BUILDER_CLASSIFICATION", self.drive_into(state, status).status)
+                self.assertNotIn("stuck_investigation", state)
+
+    def test_legacy_boundary_hold_resumes_only_the_retained_report_repair(self):
+        state = self.pending_classification_repair()
+        request = copy.deepcopy(state["stuck_investigation"])
+        pending = copy.deepcopy(state["pending_report_repair"])
+        stuck.abandon(state, "Saved active-time limit reached at stage boundary")
+        history = copy.deepcopy(state["stuck_investigations"])
+        used = len(recovery.failure.classified(state))
+        need = recovery.offer(state)
+        self.assertEqual("retry_job", need["kind"])
+        self.assertIn("report-only", need["recovery_hint"])
+        runtime = SimpleNamespace(
+            assert_stage_stopped=Mock(),
+            write_json=Mock(),
+            intervention_metadata=Mock(return_value={"pending_count": 0, "inbox_error": None}),
+        )
+        with patch.object(recovery.failure, "guard"):
+            recovery.authorize(
+                runtime, state, Path("/owned/run"), Path("/owned"), need["job_retry_token"], supersede_job=Mock()
+            )
+        self.assertEqual(request, state["stuck_investigation"])
+        self.assertEqual(pending, state["pending_report_repair"])
+        self.assertEqual(used, len(recovery.failure.classified(state)))
+        self.assertEqual(history[0], state["user_events"][-1]["retained_history"])
+        self.assertNotIn("builder_failure_hold", state)
+        self.assertIsNone(recovery.offer(state))
+
+    def test_only_prelaunch_prompt_size_refusals_offer_retained_repair(self):
+        for error, allowed in (
+            ("Complete report-repair handoff exceeds 262144 bytes; no unbounded repair was launched.", True),
+            ("Provider-decorated repair prompt exceeds 262144 bytes; no request was launched.", True),
+            ("Repair report is too large: saved.json", False),
+            ("Retained report-repair inputs changed", False),
+            ("Provider-decorated repair prompt exceeds 262144 bytes; provider already ran.", False),
+        ):
+            with self.subTest(error=error):
+                state = self.pending_classification_repair()
+                stuck.abandon(state, error)
+                need = recovery.offer(state)
+                self.assertEqual(allowed, need.get("kind") == "retry_job", need)
+
+    def test_legacy_repair_cannot_bypass_another_failure_or_an_exhausted_repair(self):
+        for changed in ("error", "spent", "older", "attempt_changed", "disabled"):
+            with self.subTest(changed=changed):
+                state = self.pending_classification_repair()
+                if changed == "spent":
+                    state["pending_report_repair"]["attempts"] = 2
+                elif changed == "older":
+                    state["pending_report_repair"]["original"]["started_at"] = "2026-10-09T00:00:01+00:00"
+                error = (
+                    "Other admission failure"
+                    if changed == "error"
+                    else "Saved active-time limit reached at stage boundary"
+                )
+                stuck.abandon(state, error)
+                if changed == "attempt_changed":
+                    state["stages"][0]["exit_code"] = 9
+                elif changed == "disabled":
+                    state["settings"]["stuck_investigation"] = {"max_calls_per_run": 0}
+                need = recovery.offer(state)
+                self.assertFalse(need and need.get("kind") == "retry_job", need)
 
     def test_raising_a_bound_or_accepting_a_transport_keeps_the_grant_but_other_settings_do_not(self):
         with tempfile.TemporaryDirectory() as temporary:
