@@ -406,5 +406,26 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         )
 
 
+class ChangedCodeCitationPromptTests(unittest.TestCase):
+    def test_initial_tester_handoff_names_the_authenticated_proof_citation(self):
+        import autocode_regression as regression
+
+        instruction = regression.mutation_note({"changed_code_evidence": {"obligations": []}})
+        self.assertIn("regression_proof.path", instruction)
+        self.assertIn("Individual mutation logs and raw coverage files are not accepted", instruction)
+        self.assertIn("may inspect those artifacts", instruction)
+        self.assertIn("does not change a judgment", instruction)
+        self.assertEqual("", regression.mutation_note({}))
+
+    def test_review_handoff_uses_current_proof_even_when_retry_task_names_an_old_one(self):
+        import autocode_regression as regression
+
+        instruction = regression.mutation_note({"changed_code_evidence": {"obligations": []}})
+        self.assertIn("Earlier task requirements or reports may name an older proof", instruction)
+        self.assertIn("use the current regression_proof.path", instruction)
+        self.assertIn("In a next_task, refer to the runner's current proof symbolically", instruction)
+        self.assertIn("do not pin a proof directory", instruction)
+
+
 if __name__ == "__main__":
     unittest.main()

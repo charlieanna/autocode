@@ -107,11 +107,25 @@ def pending_repair(state: RunState, request):
     )
 
 
+def _preparation_size_stop(error):
+    # A corrected renderer can fit the same immutable inputs without another
+    # investigation. Only the two runner-owned prelaunch handoff bounds qualify;
+    # oversized source reports and all evidence/admission failures still refuse.
+    return any(
+        error.startswith(prefix) and suffix in error[len(prefix) :]
+        for prefix, suffix in (
+            ("Complete report-repair handoff exceeds ", " bytes; no unbounded repair was launched."),
+            ("Provider-decorated repair prompt exceeds ", " bytes; no request was launched."),
+        )
+    )
+
+
 def _repair_continuation(state: RunState, context):
     error = context["history"].get("error") or ""
     return bool(
         (
             error in failure.BOUNDARY_STOPS
+            or _preparation_size_stop(error)
             or (error.startswith("Spend so far ") and error.endswith("cost cap at stage boundary"))
         )
         and pending_repair(state, context["request"])
@@ -223,7 +237,7 @@ def offer(state: RunState):
         "classification_attempts": {"used": used, "limit": limit},
         "action": ACTION,
         "recovery_hint": (
-            "Continue the retained report-only repair under its remaining limits. The boundary stop did not spend a new classification; no Investigator work or repair allowance is restarted."
+            "Continue the retained report-only repair under its remaining limits. The prelaunch stop did not spend a new classification; no Investigator work or repair allowance is restarted."
             if continuation
             else "Inspect the retained failed classification before retrying. This grants one read-only Investigator under the remaining limits; the Resolver proposal stays unassigned until normal policy accepts a fresh diagnosis."
         ),

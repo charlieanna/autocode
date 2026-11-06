@@ -174,10 +174,13 @@ class ClassificationRecoveryCLI(unittest.TestCase):
     def test_legacy_boundary_hold_continues_the_same_report_through_public_action(self):
         self.boundary_repair_resume(legacy=True)
 
+    def test_oversized_preparation_hold_continues_the_retained_report_through_public_action(self):
+        self.boundary_repair_resume(legacy=True, input_size=True)
+
     def test_pinned_investigator_model_and_effort_survive_report_repair(self):
         self.boundary_repair_resume(legacy=False, pinned=True)
 
-    def boundary_repair_resume(self, *, legacy, pinned=False):
+    def boundary_repair_resume(self, *, legacy, input_size=False, pinned=False):
         import autocode
 
         self.seed(
@@ -196,6 +199,12 @@ class ClassificationRecoveryCLI(unittest.TestCase):
 
         def boundary(current):
             if ((current.get("pending_report_repair") or {}).get("original") or {}).get("stage") == "investigate_stuck":
+                if input_size:
+                    raise recovery.util.Paused(
+                        "PAUSED_REPORT_REPAIR_INPUT",
+                        "Complete report-repair handoff exceeds 262144 bytes; no unbounded repair was launched."
+                        " Resume with autocode resume to archive this repair (evidence retained) and start a fresh attempt of the stage.",
+                    )
                 raise recovery.util.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
             return guard(current)
 
@@ -846,6 +855,20 @@ class ClassificationOfferTests(unittest.TestCase):
         self.assertEqual(history[0], state["user_events"][-1]["retained_history"])
         self.assertNotIn("builder_failure_hold", state)
         self.assertIsNone(recovery.offer(state))
+
+    def test_only_prelaunch_prompt_size_refusals_offer_retained_repair(self):
+        for error, allowed in (
+            ("Complete report-repair handoff exceeds 262144 bytes; no unbounded repair was launched.", True),
+            ("Provider-decorated repair prompt exceeds 262144 bytes; no request was launched.", True),
+            ("Repair report is too large: saved.json", False),
+            ("Retained report-repair inputs changed", False),
+            ("Provider-decorated repair prompt exceeds 262144 bytes; provider already ran.", False),
+        ):
+            with self.subTest(error=error):
+                state = self.pending_classification_repair()
+                stuck.abandon(state, error)
+                need = recovery.offer(state)
+                self.assertEqual(allowed, need.get("kind") == "retry_job", need)
 
     def test_legacy_repair_cannot_bypass_another_failure_or_an_exhausted_repair(self):
         for changed in ("error", "spent", "older", "attempt_changed", "disabled"):
