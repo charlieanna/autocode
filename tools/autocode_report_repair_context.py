@@ -259,6 +259,7 @@ def prompt_parts(
     )
     receipt_instruction, receipt_handoff = receipt_parts
     batch = batch_validation_context(state, stage)
+    citation = changed_code_citation_context(state, pending, stage)
     interpretations = goals.feedback_interpretation_context(state) if stage in PLANNING_STAGES else {}
     adjacent = failure_correction.repair_obligations(state) if stage == "glm_revise" else None
     # Revision validation uses the current review, not the execution findings ledger.
@@ -297,6 +298,19 @@ def prompt_parts(
     return (
         receipt_instruction
         + retention_instruction
+        + (
+            "CHANGED-CODE CITATION REPAIR. changed_code_citation_context names the enclosing runner proof "
+            "for this source. Individual mutation logs and raw coverage files are not accepted "
+            "changed_code_exceptions evidence_refs; cite the enclosing proof_reference for those "
+            "observations. You may also cite check:<n> from the report or exact inventoried product/test "
+            "files, subject to ordinary authentication. The reference is a citation choice, not proof of "
+            "PASS or permission to change a judgment. Preserve rejects, findings and missing evidence. "
+            "Repair the supplied JSON directly; do not return a shell command or request a tool call. "
+            "Do not invent a new check or claim execution during report-only repair. All original check, "
+            "source and citation admission still runs.\n"
+            if citation
+            else ""
+        )
         + historical_instruction
         + review_instruction
         + difference_instruction
@@ -335,6 +349,7 @@ def prompt_parts(
         {
             "header": {
                 **receipt_handoff,
+                **({"changed_code_citation_context": citation} if citation else {}),
                 **({"batch_validation": batch} if batch else {}),
                 **({"protected_list_differences": differences} if differences else {}),
                 **({"draft_failure_adjacent_obligations": adjacent} if adjacent is not None else {}),
@@ -386,3 +401,20 @@ def instruction(stage: str) -> str:
     if stage == "astra_finalize":
         return prompts.get("fragments/report-repair-context/instruction-02.md")
     return prompts.get("fragments/report-repair-context/instruction.md")
+
+
+def changed_code_citation_context(state: RunState, pending: dict, stage: str) -> dict:
+    """Offer the current enclosing proof as a citation, never new evidence authority."""
+    if stage not in {"sol", "astra_checkpoint"}:
+        return {}
+    proof = state.get("regression_proof") or {}
+    source = proof.get("source_revision")
+    if (
+        not isinstance(source, str)
+        or not source
+        or source != pending["original"].get("source_revision")
+        or not isinstance(proof.get("path"), str)
+        or not proof["path"]
+    ):
+        return {}
+    return {"proof_reference": proof["path"], "source_revision": source}
