@@ -277,6 +277,7 @@ class DynamicDependenciesTests(unittest.TestCase):
                 "tests.test_builder_policy",
                 "tests.test_build_recovery_blackbox",
                 "tests.test_build_blackbox",
+                "tests.test_build_graph_cli",
             },
             "tools/fake_command_tool.py": {"tests.test_command_flow", "tests.test_command_source_schema"},
         }
@@ -299,6 +300,19 @@ class DynamicDependenciesTests(unittest.TestCase):
                 selected = run_suite.select_tests([path], {public: "", metadata: "", "tests.test_unrelated": ""})
                 kept, _ = run_suite.drop_slow(selected, {public: "slow"})
                 self.assertEqual({public} if path.startswith("tests/") else {public, metadata}, set(kept))
+
+    def test_graph_execution_changes_keep_the_slow_joined_graph_cli_consumer(self):
+        consumer = "tests.test_build_graph_cli"
+        for path in (
+            "tools/autocode_dispatch.py",
+            "tools/autocode_builder_worker.py",
+            "tools/autocode_milestones.py",
+            "tests/test_build_blackbox.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
 
     def test_launch_identity_keeps_the_public_http_and_evidence_consumers(self):
         consumers = {"tests.test_direct_connections_cli", "tests.test_route_execution_evidence"}

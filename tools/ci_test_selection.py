@@ -248,7 +248,17 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tests.test_builder_policy",
             "tests.test_build_recovery_blackbox",
             "tests.test_build_blackbox",
+            "tests.test_build_graph_cli",
         ),
+    ),
+    *(
+        (path, ("tests.test_build_graph_cli",))
+        for path in (
+            "tools/autocode_dispatch.py",
+            "tools/autocode_builder_worker.py",
+            "tools/autocode_milestones.py",
+            "tests/test_build_blackbox.py",
+        )
     ),
     ("tools/fake_command_tool.py", ("tests.test_command_flow", "tests.test_command_source_schema")),
     ("tools/fake_codex.py", ("tests.test_subprocess",)),

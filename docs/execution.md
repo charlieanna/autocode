@@ -1201,7 +1201,10 @@ never applied stays paused instead, and its message names the `--abandon-stage`
 step. `--accept-completion` refuses a validation of another source, goal
 revision or task and says so; resume to re-validate first. A transport-change pause
 can be resumed with `--resume-paused --accept-transport-change` after Autocode checks
-that the current OpenCode models and subscription routes are available.
+that the current OpenCode models and subscription routes are available. A configured
+command tool's config read from another path with the same bytes, as when a run is resumed
+from another AutoCode checkout, is not a transport change: the run continues, keeps its
+saved identity, and records the move once in `configuration_changes`.
 
 To retain partial edits and set aside a stopped attempt manually:
 

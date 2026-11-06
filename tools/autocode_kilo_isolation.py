@@ -475,6 +475,15 @@ def _run(command, *, environment, cwd, timeout, receipt, input_bytes=None, check
     return Path(str(receipt) + ".stdout").read_bytes()
 
 
+def saved_config(path, identity) -> bool:
+    """Whether the config at ``path`` is the one ``identity`` saved.
+
+    Its bytes decide. It may lie in another checkout than the one it was bound in, because a
+    run resumed from another checkout keeps its saved identity (#2773).
+    """
+    return Path(path).is_file() and util.file_hash(path) == identity.get("config_sha256")
+
+
 class KiloRoleIsolation:
     """Only the two explicitly pinned readonly Claude roles can construct this."""
 
@@ -627,11 +636,7 @@ class KiloRoleIsolation:
             role == "completion" or image_preparation is not None,
             "native Sol requires its original byte-bound visual packet",
         )
-        _require(
-            str(adapter._path) == self._identity["config_path"]
-            and util.file_hash(adapter._path) == self._identity["config_sha256"],
-            "saved provider configuration changed",
-        )
+        _require(saved_config(adapter._path, self._identity), "saved provider configuration changed")
         self._check(self._state)
         target = self._run / ("native-kilo-" + uuid.uuid4().hex)
         target.mkdir(mode=0o700)
