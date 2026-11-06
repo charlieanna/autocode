@@ -1,4 +1,4 @@
-"""Numeric stdout corrections in model-written, never-approved draft examples.
+"""Validation and numeric stdout corrections for model-written draft examples.
 
 The receipt is saved in the existing contract's declared_changes/history. The
 revision guard reads it, and review_notes displays it at final plan approval.
@@ -29,6 +29,40 @@ RECEIPT_SCHEMA = {
     "properties": {key: {"type": "string"} for key in ("concern_id", "before", "after")},
 }
 RULE = prompts.get("fragments/draft-examples/rule.md")
+QUOTED_OUTPUT = re.compile(r"""\b(?:returns?|writes?|prints?)\s+(?:exactly\s+)?(['"])""")
+
+
+def _unterminated_output(text):
+    for opening in QUOTED_OUTPUT.finditer(text):
+        quote = opening[1]
+        rest = text[opening.end() :]
+        if "\\n" not in rest or not re.search(rf"\\{quote}(?=\s|[.,;)]|$)", rest):
+            continue
+        # Backslashes escape one character. A genuine closing quote may still
+        # follow an escaped apostrophe or a literal trailing backslash.
+        if not re.match(rf"(?:[^{quote}\\]|\\[\s\S])*{quote}", rest):
+            return True
+    return False
+
+
+def refuse_unterminated_outputs(body, previous):
+    """Send a newly written ambiguous output literal back to the draft author."""
+    retained = {(row["id"], row["criterion"]) for row in previous.get("acceptance_criteria", [])}
+    errors = [
+        f"Criterion {row['id']} has an unterminated exact-output literal"
+        for row in body.get("acceptance_criteria", [])
+        if (row["id"], row["criterion"]) not in retained and _unterminated_output(row["criterion"])
+    ]
+    errors.extend(
+        f"End-to-end step {index} has an unterminated exact-output literal"
+        for index, text in enumerate(body.get("end_to_end_flow", []), start=1)
+        if text not in previous.get("end_to_end_flow", []) and _unterminated_output(text)
+    )
+    if errors:
+        raise ValueError(
+            ". ".join(errors)
+            + ". Copy the exact result from the source or rule into a closed literal, including any terminal newline."
+        )
 
 
 def spelling(text):

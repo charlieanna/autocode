@@ -156,6 +156,34 @@ class ReviewerRequestedRevisionCliTests(unittest.TestCase):
         self.assertEqual("approve_plan", view["needs"]["kind"], (view["status"], view["stop_reason"]))
         self.assertEqual(revised, view["displayed_plan"]["acceptance_criteria"][0]["criterion"])
 
+    def test_an_unterminated_output_literal_is_repaired_before_the_first_plan_review(self):
+        workspace, env = fixture_workspace(self)
+        provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"
+        trace = provider.parent / "literal-review.jsonl"
+        marker = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
+        malformed = "The CLI prints exactly 'week  3.00h\\ntotal  3.00h\\' with the existing format."
+        corrected = malformed.replace("3.00h\\'", "3.00h\\n'")
+        amendment = textwrap.dedent(f"""
+            if stage in ("astra_discovery", "astra_challenge"):
+                with Path({str(trace)!r}).open("a") as log:
+                    log.write(json.dumps([stage, repairing]) + "\\n")
+            if stage == "astra_discovery":
+                if repairing and "unterminated exact-output literal" not in repair_error:
+                    raise ValueError(repair_error)
+                report["contract"]["acceptance_criteria"][0]["criterion"] = {corrected!r} if repairing else {malformed!r}
+        """)
+        source = provider.read_text()
+        self.assertEqual(1, source.count(marker))
+        provider.write_text(source.replace(marker, textwrap.indent(amendment, "    ") + "\n" + marker))
+        run = taskrun.TaskRun.start(workspace, BRIEF, options=FIXTURE_OPTIONS, env=env, timeout=180)
+        view = run.advance_until_input()
+        self.assertEqual("approve_plan", view["needs"]["kind"], (view["status"], view["stop_reason"]))
+        self.assertEqual(corrected, view["displayed_plan"]["acceptance_criteria"][0]["criterion"])
+        self.assertEqual(
+            [["astra_discovery", False], ["astra_discovery", True], ["astra_challenge", False]],
+            [json.loads(row) for row in trace.read_text().splitlines()],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

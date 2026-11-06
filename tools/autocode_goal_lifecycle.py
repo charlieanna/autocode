@@ -357,6 +357,8 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
     if not allow_legacy or any(key in body for key in BRIEF_FIELDS):  # a legacy body has no such box
         body = current_behavior.prepare_body(state, body, origin)
     validate_body(state, body, allow_legacy=allow_legacy, origin=origin)
+    if origin in examples.PLANNER_ORIGINS:
+        examples.refuse_unterminated_outputs(body, (state.get("goal_contract") or {}).get("body") or {})
     # Here, not in validate_body, which approval runs again on a saved draft. Human-review criteria too:
     # autocode_dispatch.task_for puts their methods in other milestones' task plans, which reach the Validator.
     if origin not in UNAUTHORED_DRAFTS:
