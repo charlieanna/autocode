@@ -222,10 +222,16 @@ class FamilyInventory:
         """Whether the isolated collector must run this tree instead of a root discovery."""
         return self.has_components() or self.has_repos() or bool(self.package_families)
 
-    def package_arguments(self):
-        """The collector's ``--package-family FOLDER MEMBER...`` arguments, in folder order."""
+    def collector_arguments(self):
+        """The collector's family arguments: components, repos, then each package folder in order."""
         return [
-            word for folder, members in self.package_families.items() for word in ("--package-family", folder, *members)
+            *(["--components", *self.components] if self.has_components() else []),
+            *(["--repos", *self.repo_members] if self.has_repos() else []),
+            *(
+                word
+                for folder, members in self.package_families.items()
+                for word in ("--package-family", folder, *members)
+            ),
         ]
 
 

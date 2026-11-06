@@ -46,3 +46,12 @@ reports: each cited a command it had run only inside a longer Bash call (`cmd 2>
 so that command's own exit code is unknown. They are still refused; the rejection now names the call, the
 Claude prompt says to run each cited command as its own call, and the exact retry still recognizes the
 explained message (`autocode_report_retry.retryable`).
+
+## Monorepo package suites (2026-11-06)
+
+The monorepo run stopped because root `unittest discover` never enters a package folder without
+`__init__.py` and found 0 tests. Unmarked `packages/`, `apps/`, `services/` and `libs/` folders now run
+through the isolated collector (`autocode_component_tests.py --package-family FOLDER MEMBER...`): each
+package with tests runs from its own directory, and same-named modules keep distinct identities
+(`packages.invoices.test_pager...`, `packages.search.test_pager...`). Live rerun: bugfix-monorepo-package
+PASS, $2.67, 431 s (master: blocked at the $5.05 cap; before this fix: stopped at $2.52 asking a person).
