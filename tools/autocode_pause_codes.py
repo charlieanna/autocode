@@ -17,12 +17,17 @@ This is a different axis from ``autocode_pause_category``, which is the status v
 contract. Status strings are unchanged; this table only names them. ``tests/test_pause_codes.py``
 fails when ``tools/`` names a PAUSED_* status that is missing here.
 
-Utility layer: plain data, imports nothing from AutoCode.
+Utility layer: plain data over the shared run-status constants.
 """
 
 from __future__ import annotations
 
 from types import MappingProxyType
+
+try:
+    from .autocode_run_status import PAUSE_PHASE
+except ImportError:
+    from autocode_run_status import PAUSE_PHASE
 
 CATEGORIES = ("person", "machinery", "budget", "environment")
 
@@ -80,7 +85,7 @@ _GROUPS = {
         "PAUSED_ORCHESTRATOR_DRIFT",
         "PAUSED_ORCHESTRATOR_WORKER",
         "PAUSED_ORCHESTRATOR_WORKERS",
-        "PAUSED_OR_BLOCKED",  # autocode_run_status.PAUSE_PHASE: the generic phase, its cause named elsewhere
+        PAUSE_PHASE,  # the generic phase, its cause named elsewhere
         "PAUSED_PERMISSION_LOOP",
         "PAUSED_PROCESS_CLEANUP",
         "PAUSED_PROGRESSIVE_AUTHORITY",

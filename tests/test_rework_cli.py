@@ -350,16 +350,29 @@ class CompletionReworkCLI(unittest.TestCase):
         checks = self.scenario.oracle()(self.project, self.scenario)
         self.assertTrue(all(check.ok for check in checks), checks)
 
-    def test_exhausted_pinned_builder_keeps_existing_pause(self):
+    def test_exhausted_pinned_builder_ends_without_changing_route_or_asking_for_recovery(self):
         driver = self.driver("exhausted", "--pin-model-role", "terra")
+        pinned_model = driver.flags[driver.flags.index("--terra-model") + 1]
         view = driver.drive(self.scenario.brief)
         self.assertFalse(view["done"], view)
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", view["status"])
+        self.assertEqual("PAUSED_INTERVENTION", view["status"])
+        self.assertEqual("could_not_finish", view["recovery"]["outcome"]["result"])
+        self.assertEqual("stopped", view["recovery"]["category"])
+        self.assertNotEqual("answer", view["needs"]["kind"])
+        self.assertEqual(pinned_model, view["routes"]["terra"]["model"])
+        self.assertEqual([], view["escalations"])
         self.assertEqual(1, len(view["direct_rework_assignments"]))
         self.assertEqual(
             ["terra", "sol", "astra_review", "terra", "sol", "astra_review"], [row["stage"] for row in self.trace()]
         )
         self.assertEqual([1, 1], [row["exit_code"] for row in self.trace() if row["stage"] == "sol"])
+        attempts = self.trace()
+        driver.call("resume-ended-task", "--resume-paused")
+        self.assertEqual(attempts, self.trace(), "an exhausted task must not launch another attempt")
+        resumed = driver.view()
+        self.assertFalse(resumed["done"])
+        self.assertEqual("could_not_finish", resumed["recovery"]["outcome"]["result"])
+        self.assertEqual(pinned_model, resumed["routes"]["terra"]["model"])
 
     def test_restart_after_assignment_commit_does_not_repeat_assignment_or_provider(self):
         driver = self.driver()
