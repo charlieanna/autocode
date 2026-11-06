@@ -1243,6 +1243,15 @@ MAX_AUTOMATIC_RECOVERIES = recovery_accounting.MAX_AUTOMATIC_RECOVERIES
 
 
 def timeout_recovery_guard(state: RunState):
+    investigation = state.get("stuck_investigation") or {}
+    if (
+        state.get("next_stage") == "investigate_stuck"
+        and investigation.get("status") == "PAUSED_TIMEOUT_RECOVERY"
+        and not investigation.get("in_force")
+    ):
+        # The Investigator queued to diagnose this very exhaustion runs under its own bounded budget;
+        # only a retry it grants (autocode_stuck_job.grant_one_attempt) lets the stuck stage run again.
+        return
     reason = recovery_limits.stop_reason(state, recovery_count(state), MAX_AUTOMATIC_RECOVERIES)
     if reason:
         raise support.Paused(*reason)

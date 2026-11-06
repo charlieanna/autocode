@@ -75,6 +75,7 @@ try:
     from . import autocode_model_identity as model_identity
     from . import autocode_planning_advice as recovery_binding
     from . import autocode_progressive_state as progressive
+    from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
     from . import autocode_stage_access as stage_access
@@ -87,6 +88,7 @@ except ImportError:
     import autocode_model_identity as model_identity
     import autocode_planning_advice as recovery_binding
     import autocode_progressive_state as progressive
+    import autocode_recovery_accounting as recovery_accounting
     import autocode_roles as roles
     import autocode_run_status as run_status
     import autocode_stage_access as stage_access
@@ -105,6 +107,9 @@ RETRYABLE = frozenset(
         "PAUSED_PLANNING_BUDGET",
         "PAUSED_NO_PROGRESS",
         "PAUSED_COMPLETION_REVIEW",
+        # The automatic timeout recoveries ran out. Without this the run asked a person to grant more
+        # (--grant-recovery), a question about AutoCode's own retries (2026-11-06 live run).
+        "PAUSED_TIMEOUT_RECOVERY",
     }
 )
 # These have operator-only resume semantics; the Investigator explains them, the user decides.
@@ -714,6 +719,11 @@ def grant_one_attempt(state: RunState, request: dict) -> None:
     elif status == "PAUSED_NO_PROGRESS":
         limit = ((state.get("settings") or {}).get("limits") or {}).get("no_progress_batches") or 1
         state["no_progress_batches"] = max(0, limit - 1)
+    elif status == "PAUSED_TIMEOUT_RECOVERY":
+        # One more automatic recovery on each counter the exhaustion stop reads
+        # (autocode_recovery_limits.stop_reason); the recovery history stays intact.
+        state["automatic_recoveries_since_resume"] = max(0, recovery_accounting.spent(state) - 1)
+        state["consecutive_timeout_recoveries"] = max(0, recovery_accounting.consecutive_timeouts(state) - 1)
 
 
 def launched(state: RunState, request: dict) -> bool:

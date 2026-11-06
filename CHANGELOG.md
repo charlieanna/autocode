@@ -17,7 +17,9 @@ PR template asks for an entry here; a change without one is incomplete.
   source is investigated again, and a plan with more milestones than the per-run budget gets one
   investigation per milestone. A report repair that cannot launch (too large, or no usable report)
   starts a fresh attempt of its stage by itself instead of asking a person to resume; three on
-  unchanged source go to the Investigator.
+  unchanged source go to the Investigator. When the automatic timeout recoveries run out
+  (`PAUSED_TIMEOUT_RECOVERY`), the Investigator diagnoses the stop and may grant one more recovery,
+  instead of the run asking a person to `--grant-recovery`.
 - A review handoff for a large wave no longer overflows the Tester's context. When a proof's mutant
   lists, per-criterion survivors, evidence inputs or per-line obligations are over 64 KiB, each moves
   whole into the hash-pinned context artifact, and so does a receipt list that is still over 64 KiB

@@ -14,6 +14,8 @@ import autocode_builder_failure as builder_failure
 import autocode_investigation_policy as investigation_policy
 import autocode_jobs as jobs
 import autocode_planning_advice as recovery_binding
+import autocode_recovery_accounting as recovery_accounting
+import autocode_recovery_limits as runner_limits
 import autocode_stuck_job as stuck
 import autocode_util as util
 import autopilot
@@ -532,6 +534,38 @@ class ApplyTests(unittest.TestCase):
         state = self.investigated("PAUSED_NO_PROGRESS", no_progress_batches=3)
         stuck.apply(state, report(), {}, state["workspace"])
         self.assertEqual(2, state["no_progress_batches"])
+
+    def test_exhausted_timeout_recovery_goes_to_the_investigator_which_grants_one_recovery(self):
+        # A live run (2026-11-06) asked a person to --grant-recovery after three stage timeouts.
+        self.assertIn("PAUSED_TIMEOUT_RECOVERY", stuck.RETRYABLE)
+        state = self.investigated(
+            "PAUSED_TIMEOUT_RECOVERY",
+            stage="astra_review",
+            automatic_recoveries_since_resume=3,
+            consecutive_timeout_recoveries=3,
+            automatic_timeout_recoveries=[{"stage": "astra_review"}] * 3,
+        )
+        stuck.apply(state, report(), {}, state["workspace"])
+        self.assertEqual(
+            (2, 2, "RUNNING", "astra_review"),
+            (
+                state["automatic_recoveries_since_resume"],
+                state["consecutive_timeout_recoveries"],
+                state["status"],
+                state["next_stage"],
+            ),
+        )
+        self.assertEqual(3, len(state["automatic_timeout_recoveries"]))
+        self.assertIsNone(
+            runner_limits.stop_reason(
+                state, recovery_accounting.spent(state), recovery_accounting.MAX_AUTOMATIC_RECOVERIES
+            )
+        )
+        state.update(automatic_recoveries_since_resume=3, consecutive_timeout_recoveries=3)
+        self.assertEqual(
+            "PAUSED_TIMEOUT_RECOVERY",
+            runner_limits.stop_reason(state, 3, recovery_accounting.MAX_AUTOMATIC_RECOVERIES)[0],
+        )
 
     def test_pause_restores_the_original_pause_with_the_diagnosis(self):
         state = self.investigated("PAUSED_REPEATED_FAILURE", pending_report_repair={"attempts": 2})

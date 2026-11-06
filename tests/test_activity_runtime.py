@@ -27,7 +27,7 @@ import autopilot
 from autocode_activity import ActivityMonitor
 from goal_fixtures import assert_operational_wait, envelope
 
-from . import test_goals
+from . import test_goals, test_stuck_job
 from .supervision_fixture import launcher
 
 
@@ -744,6 +744,25 @@ class ActivityRuntimeTests(unittest.TestCase):
             }
         )
         recovery_accounting.stage_saved(self.state)
+
+    def test_only_the_investigator_of_an_exhausted_recovery_budget_passes_its_guard(self):
+        state = test_stuck_job.state_for(
+            next_stage="astra_review", automatic_recoveries_since_resume=3, consecutive_timeout_recoveries=3
+        )
+        with self.assertRaises(support.Paused) as stopped:
+            runner.timeout_recovery_guard(state)
+        self.assertEqual("PAUSED_TIMEOUT_RECOVERY", stopped.exception.status)
+        self.assertTrue(stuck_job.intercept(state, stopped.exception.status, str(stopped.exception)))
+        self.assertEqual("investigate_stuck", state["next_stage"])
+        runner.timeout_recovery_guard(state)  # the queued diagnosis launches
+        for change in ({"in_force": True}, {"status": "PAUSED_NO_PROGRESS"}):
+            other = copy.deepcopy(state)
+            other["stuck_investigation"].update(change)
+            with self.subTest(change=change), self.assertRaises(support.Paused):
+                runner.timeout_recovery_guard(other)
+        other = {**copy.deepcopy(state), "next_stage": "astra_review"}
+        with self.assertRaises(support.Paused):
+            runner.timeout_recovery_guard(other)
 
     def test_a_tester_stalling_again_on_unchanged_source_goes_to_the_investigator(self):
         # 2026-11-06 live run: each stalled Tester was re-issued by a Completion Reviewer whose valid
