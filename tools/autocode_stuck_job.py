@@ -643,7 +643,7 @@ def apply(
     grant_one_attempt(state, request)
     state["stuck_investigation"] = {
         **{k: request[k] for k in ("identity", "stage", "status")},
-        **({"planning_context": request["planning_context"]} if "planning_context" in request else {}),
+        **{key: request[key] for key in ("planning_context", "execution_context") if key in request},
         "guidance": value["guidance"],
         "diagnosis": value["diagnosis"],
         "example": value.get("example", ""),
@@ -789,9 +789,16 @@ def settle(state: RunState, stage: str) -> None:
         state.pop("stuck_investigation")
 
 
-def retire(state: RunState) -> None:
-    """The run left RUNNING: guidance in force ends with the cycle it was given for."""
-    if (state.get("stuck_investigation") or {}).get("in_force"):
+def retire(state: RunState, status: str | None = None) -> None:
+    """A requested boundary pause preserves applicable advice, never a new retry grant."""
+    current = state.get("stuck_investigation") or {}
+    if (
+        status == "PAUSED_INTERVENTION"
+        and current.get("in_force")
+        and recovery_binding.applies(state, current, current.get("stage", ""))
+    ):
+        return
+    if current.get("in_force"):
         state.pop("stuck_investigation")
 
 
@@ -865,7 +872,7 @@ def drive(
                 if getattr(error, "quota_worker", None):
                     reraised.quota_worker = error.quota_worker
                 raise reraised from error
-            retire(state)
+            retire(state, status)
             if not fresh():
                 raise
             if not queue or not intercept(state, status, reason):
@@ -878,7 +885,7 @@ def drive(
             continue
         if not investigate:
             return state
-        retire(state)
+        retire(state, state.get("status"))
         if queue and fresh() and intercept(state, cast(str, state.get("status")), state.get("stop_reason") or ""):
             if persist:
                 persist(state)

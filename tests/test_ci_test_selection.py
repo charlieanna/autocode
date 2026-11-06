@@ -552,6 +552,14 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
                 self.assertEqual([consumer], list(kept))
 
+    def test_recovery_advice_keeps_the_public_boundary_pause_regression(self):
+        consumer = "tests.test_investigator_pause_cli"
+        for path in ("tools/autocode_stuck_job.py", "tools/autocode_planning_advice.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
     def test_checkpoint_projection_keeps_its_public_status_consumers(self):
         consumers = {"tests.test_liveness", "tests.test_usage"}
         selected = run_suite.select_tests(
