@@ -1340,13 +1340,14 @@ def context(state: RunState, stage, state_path):
                 report[key] = report[key][:5]
             elif isinstance(report.get(key), str) and len(report[key]) > 500:
                 report[key] = report[key][:500] + "…"
+    route = route_for(state, stage)
     packet = {
         "task": state["task"],
         "workspace": state["workspace"],
         "state_file": str(state_path),
         "joint_planning": True,
         **({"spec_first": True} if stage == "requirements_gather" and state["settings"].get("spec_first") else {}),
-        "execution_engine": engine_for(state["settings"], route_for(state, stage)),
+        "execution_engine": engine_for(state["settings"], route),
         "stage": stage,
         "goal_contract": None if stage == "requirements_gather" else state.get("goal_contract"),
         "requirements_handoff": None if stage == "requirements_gather" else state.get("requirements_handoff"),
@@ -1441,6 +1442,13 @@ def context(state: RunState, stage, state_path):
         retained = recovery_observations.context(state, stage, Path(state_path).parent, current_source["revision"])
         if retained:
             packet["retained_review_observations"] = retained
+    elif stage == "astra_finalize":
+        prior_examples = retention.prior_review_examples(
+            state, route, lambda: stage_context.source_scope.snapshot(Path(state["workspace"]), state)["revision"]
+        )
+        if prior_examples:
+            packet["prior_review_examples"] = prior_examples
+            exchange["reports"]["astra_challenge"]["report"].pop("summary", None)
     if report_recovery:
         try:
             from ..autocode_resolver_runtime import OPERATIONAL_INSTRUCTION
@@ -1453,7 +1461,9 @@ def context(state: RunState, stage, state_path):
         }
         recovery_instruction = "\n" + OPERATIONAL_INSTRUCTION + "\n"
         if has_contract_ref:
-            recovery_instruction += "Resolve contract_ref within this handoff. It points to the identical saved draft.\n"
+            recovery_instruction += (
+                "Resolve contract_ref within this handoff. It points to the identical saved draft.\n"
+            )
     if stage in ("astra_challenge", "astra_finalize") and (grants or packet["recovery_context"]):
         packet["workspace_inventory"] = workspace_inventory(state["workspace"], state["task"], limit=20)
     if stage == "requirements_gather":
@@ -1596,6 +1606,8 @@ def context(state: RunState, stage, state_path):
         design_rule += (
             EXAMPLE_CHECK_RULE if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize") else ""
         )
+        if packet.get("prior_review_examples"):
+            design_rule += retention.REVIEWED_EXAMPLES_RULE
         design_rule += BRIEF_TRACE_RULE if stage in ("astra_challenge", "astra_finalize") else ""
         if stage in ("astra_challenge", "astra_finalize"):
             design_rule += stage_context.coordination_context.proxy_rule(state, OUT_OF_CHECKOUT_PROXY_RULE)
