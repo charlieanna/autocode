@@ -296,18 +296,20 @@ from `tools/autocode_mutants.py`).
   cookie spells it), files that do not parse with the runner's Python and files
   with a carriage return no line feed follows (Python and git number their lines
   differently) are never changed; the record notes why.
-- **What.** Nine operators: negate a condition (`if`, `while`, a conditional
+- **What.** Ten operators: negate a condition (`if`, `while`, a conditional
   expression, `assert`, a comprehension filter or a `case` guard); swap a bound
   (`<` and `<=`, `>` and `>=`); drop a branch (an `if` body or its `else` becomes
   `pass`, a decorated definition with its decorators; an `elif` is mutated as
   its own `if`); return a constant instead of the value; shift an integer
   bound by one: a literal beside `<`, `<=`, `>` or `>=` (an `==`, `!=`, `is` or
-  `in` operand is not a bound); and bind another constant where a bool, number
+  `in` operand is not a bound); bind another constant where a bool, number
   or string literal is assigned to a name (`TEXT = "hello"` becomes `TEXT = ""`),
   so a line whose whole behavior is the value it binds has a site a test can
-  see. A line none of those reaches gets one statement site (#2815): a call made
-  for its effect is dropped (`log.write(x)` becomes `None`), a computed value
-  bound to a name becomes `None`, and a `for` loop runs over nothing. Each mutant replaces the bytes of one syntax node,
+  see. The tuple assignment operator swaps the first two distinct names in a
+  simple unpacking on a changed line. A line none of those reaches gets one
+  statement site (#2815): a call made for its effect is dropped (`log.write(x)`
+  becomes `None`), a computed value bound to a name becomes `None`, and a `for`
+  loop runs over nothing. Each mutant replaces a span of source bytes,
   keeps every line number, must compile, and must change its statement exactly as
   intended; a site that fails one of these, or cannot be checked at all (a
   statement nested too deep, an integer too long to print), is skipped with a

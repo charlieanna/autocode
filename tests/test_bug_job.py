@@ -760,6 +760,8 @@ class InvariantTests(unittest.TestCase):
         )
         self.assertIn("BUG INVARIANT", request.prompt)
         self.assertIn(state["investigation"]["invariant"], request.prompt)
+        self.assertIn("Start with the ready approved verification commands", request.prompt)
+        self.assertIn("capture creates its receipt directory", request.prompt)
 
     def test_a_feature_followup_keeps_old_diagnosis_without_ordering_another_bug_probe(self):
         state = {

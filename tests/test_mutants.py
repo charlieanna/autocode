@@ -58,6 +58,28 @@ class OperatorTests(unittest.TestCase):
         self.assertEqual({5}, {mutant.line for mutant in made})
         self.assertEqual(([], []), mutants.python_mutants("app.py", WINDOW, []))
 
+    def test_tuple_assignment_swaps_the_first_two_names_on_a_changed_line(self):
+        source = b"def week_key(day):\n    year,  week, _ = day.isocalendar()  # ISO\n    return year, week\n"
+        made, notes = mutants.python_mutants("weeks.py", source, [2])
+        self.assertEqual([], notes)
+        self.assertEqual([(2, "swap_tuple_assignment", "year, week", "week, year")], shown(made))
+        self.assertEqual(source.replace(b"year,  week", b"week,  year"), mutants.apply(source, made[0]))
+        self.assertEqual(["constant_return"], [m.operator for m in mutants.python_mutants("weeks.py", source, [3])[0]])
+
+    def test_tuple_assignment_skips_non_simple_or_split_targets(self):
+        for source in (
+            b"a, a = pair\n",
+            b"a, *rest = values\n",
+            b"a, obj.b = pair\n",
+            b"(a,\n b) = pair\n",
+            b"a, b = c, d = pair\n",
+        ):
+            with self.subTest(source=source):
+                made, notes = mutants.python_mutants("values.py", source, every_line(source))
+                self.assertEqual([], notes)
+                self.assertNotIn("swap_tuple_assignment", [mutant.operator for mutant in made])
+                self.assertEqual({"none_assignment"}, {mutant.operator for mutant in made})
+
     def test_an_integer_bound_shifts_by_one_but_a_bool_is_not_a_bound(self):
         made, _ = mutants.python_mutants("limits.py", b"ok = n > 52\nflag = n < True\n", [1, 2], limit=20)
         self.assertIn((1, "shift_bound", "52", "53"), shown(made))
@@ -315,15 +337,20 @@ class ValidityTests(unittest.TestCase):
 
 class LimitTests(unittest.TestCase):
     def test_the_limit_spreads_over_operators_and_lines_and_says_so(self):
-        source = b"".join(
-            f"def f{index}(n):\n    if n > {index}:\n        n = 0\n    return n\n".encode() for index in range(10)
+        source = (
+            b"".join(
+                f"def f{index}(n):\n    if n > {index}:\n        n = 0\n    return n\n".encode() for index in range(10)
+            )
+            + b"a, b = values\n"
         )
-        made, notes = mutants.python_mutants("many.py", source, every_line(source), limit=6)
-        self.assertEqual(6, len(made))
-        self.assertEqual(set(mutants.OPERATORS) - mutants.STATEMENT_OPERATORS, {mutant.operator for mutant in made})
-        self.assertEqual(6, len({mutant.line for mutant in made}))
-        self.assertEqual(sorted(made, key=lambda mutant: mutant.line), made)
-        self.assertEqual(["many.py: 60 mutation sites on the changed lines; 6 were chosen"], notes)
+        for limit in (6, 7):
+            with self.subTest(limit=limit):
+                made, notes = mutants.python_mutants("many.py", source, every_line(source), limit=limit)
+                self.assertEqual(limit, len(made))
+                self.assertEqual(set(mutants.OPERATORS[:limit]), {mutant.operator for mutant in made})
+                self.assertEqual(limit, len({mutant.line for mutant in made}))
+                self.assertEqual(sorted(made, key=lambda mutant: mutant.line), made)
+                self.assertEqual([f"many.py: 61 mutation sites on the changed lines; {limit} were chosen"], notes)
         self.assertEqual(mutants.PER_FILE_LIMIT, len(mutants.python_mutants("many.py", source, every_line(source))[0]))
 
 
