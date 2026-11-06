@@ -18,6 +18,8 @@ PR template asks for an entry here; a change without one is incomplete.
   receipt, each file's tested lines, and every other changed line's handle, line, status and
   mutation outcomes. Only a gap carries a handle, so the Tester cannot decide a tested line. A live two-Builder
   wave's Tester handoff went from 3.63 MB (1.99 MB after the receipt bound) to 0.25 MB (#2806).
+- A GLM request that Z.ai refuses with "Prompt exceeds max length" is now a context-window stop
+  (`PAUSED_CONTEXT_WINDOW`), not an uncertain provider stop the Resolver holds for a person.
 
 - A report-only Investigator repair restores its recorded temporary model route after a pause,
   instead of falling back to the default review model. Conflicting route metadata refuses launch.
