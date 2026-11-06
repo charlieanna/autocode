@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The supervision cadence regression simulates its quiet interval and excludes shutdown samples, avoiding a timing-dependent failure on healthy keepers.
+
 - Report-only Kilo repairs now state that all tools are disabled and must use the supplied evidence, avoiding instructions to wait for unavailable tools.
 
 - Changed-code repair no longer repeats a narrowed batch assignment when the Tester rejects
