@@ -517,6 +517,52 @@ class MalformedReportEditsTests(unittest.TestCase):
         self.assertEqual(self.original_schema, edits.validation_schema(json.loads(self.offered.read_text())))
         self.assertIs(fixed, edits.expand(fixed, self.record))
 
+    def test_large_review_text_and_fences_are_repaired_only_by_exact_model_edits(self):
+        original = {
+            "checks": [{"command": "captured check", "exit_code": 0}],
+            "decisions": [{"line": i, "reason": "Exact independently checked line. " * 7} for i in range(704)],
+            "summary": "done",
+        }
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"checks": {"type": "array"}, "decisions": {"type": "array"}, "summary": {"type": "string"}},
+            "required": ["checks", "decisions", "summary"],
+        }
+        self.schema.write_text(json.dumps(schema))
+        invalid = json.dumps(original).replace('"summary": "done"', '"summary": "done".replace("unused","")')
+        for stage in ("sol", "astra_review", "astra_checkpoint"):
+            for prefix, suffix in (("", ""), ("All checks complete.\n```json\n", "\n```")):
+                with self.subTest(stage=stage, fenced=bool(prefix)):
+                    text = prefix + invalid + suffix
+                    self.assertGreater(len(text.encode()), 128 * 1024)
+                    self.source.write_text(text)
+                    descriptor = {**self.descriptor, "content": text, "sha256": file_hash(self.source)}
+                    offered = edits.prepare(self.schema, descriptor, stage)
+                    self.assertNotEqual(self.schema, offered)
+                    self.assertIn("must be removed explicitly", edits.instruction(stage, descriptor))
+                    operations = [{"find": '.replace("unused","")', "replace": ""}]
+                    if prefix:
+                        operations.extend([{"find": prefix, "replace": ""}, {"find": "}" + suffix, "replace": "}"}])
+                    patch = {"repair_report": {"sha256": descriptor["sha256"], "text_edits": operations}}
+                    self.assertLess(len(json.dumps(patch)), 512)
+                    record = {**self.record, "stage": stage + "_report_repair", "schema": str(offered)}
+                    fixed = edits.expand(patch, record)
+                    validate_schema(fixed, schema)
+                    self.assertEqual(original, fixed)
+                    self.assertEqual(text, self.source.read_text())
+
+    def test_fenced_text_offer_refuses_ambiguous_or_unbounded_wrappers(self):
+        for text in (
+            '```python\n{"summary":"done"}\n```',
+            '```json\n{"summary":"done"}\n```\nMore prose',
+            '```json\n{"summary":"done"}\n```\n```json\n{}\n```',
+            "é" * 1025 + "\n```json\n{}\n```",
+            '```json\n{"summary":\n```',
+        ):
+            with self.subTest(text=text[:60]):
+                self.assertFalse(text_edits.eligible({"format": "text", "content": text}))
+
     def test_text_repairs_keep_hash_route_offer_and_full_schema_guards(self):
         for fault in (
             "stale",
@@ -611,7 +657,7 @@ class MalformedReportEditsTests(unittest.TestCase):
             {"content": "{" + "x" * text_edits.MAX_REPORT_BYTES},
         ):
             self.assertEqual(self.schema, edits.prepare(self.schema, {**self.descriptor, **change}, "glm_revise"))
-        self.assertEqual(self.schema, edits.prepare(self.schema, self.descriptor, "sol"))
+        self.assertEqual(self.schema, edits.prepare(self.schema, self.descriptor, "terra"))
 
 
 class DiscoveryFixtureSchemaTests(unittest.TestCase):

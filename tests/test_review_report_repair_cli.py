@@ -19,6 +19,8 @@ data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
 repair = bool(data.get("report_repair"))
 array_case = os.environ.get("REVIEW_REPAIR_ARRAY") == "1"
 completion_case = os.environ.get("REVIEW_REPAIR_COMPLETION") == "1"
+text_case = os.environ.get("REVIEW_REPAIR_TEXT") == "1"
+prefix, suffix, expression = "All checks complete.\n```json\n", "\n```", '.replace("unused","")'
 stage = data["original"]["stage"] if repair else data["stage"]
 target_stage = "astra_review" if completion_case else "sol"
 output = Path(sys.argv[sys.argv.index("-o") + 1])
@@ -26,6 +28,21 @@ if repair and stage == target_stage:
     source = data["rejected_report"]
     schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
     offered = "repair_report" in schema.get("properties", {})
+    if text_case:
+        raw = source["content"]
+        source_report = json.loads(raw.removeprefix(prefix).removesuffix(suffix).replace(expression, ""))
+        report = {"repair_report": {"sha256": source["sha256"], "text_edits": [
+            {"find": prefix, "replace": ""}, {"find": "}" + suffix, "replace": "}"},
+            {"find": expression, "replace": ""}
+        ]}} if offered else source_report
+        output.write_text(json.dumps(report))
+        with Path(os.environ["REVIEW_REPAIR_TRACE"]).open("a") as stream:
+            stream.write(json.dumps({"offered": offered, "patch": report, "output": str(output),
+                                     "checks": source_report["checks"], "source_path": source["path"],
+                                     "source_text": raw}) + "\n")
+        print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
+        print(json.dumps({"type": "turn.completed"}))
+        raise SystemExit(0)
     target = ["checks", len(source["content"]["checks"]) - 1] if array_case else ["extraneous_field"]
     report = {"repair_report": {"sha256": source["sha256"], "edits": [
         {"op": "remove", "path": target, "value_json": "null"}
@@ -50,11 +67,16 @@ else:
             raise
     if stage == target_stage and not repair:
         report = json.loads(output.read_text())
-        if array_case:
+        if text_case:
+            raw = json.dumps(report).replace('"verdict": "PASS"', '"verdict": "PASS"' + expression)
+            assert expression in raw
+            output.write_text(prefix + " " * (140 * 1024) + raw + suffix)
+        elif array_case:
             report["checks"].append({"unexpected": "Only this extra item needs removal."})
         else:
             report["extraneous_field"] = "Only this schema defect needs correction."
-        output.write_text(json.dumps(report))
+        if not text_case:
+            output.write_text(json.dumps(report))
 """
 
 
@@ -71,7 +93,13 @@ class ReviewReportRepairCLI(unittest.TestCase):
         row = self.assert_review_patch_completes(completion_case=True)
         self.assertTrue(all(item["criterion"] for item in row["patch"]["repair_report"]["acceptance_criteria"]))
 
-    def assert_review_patch_completes(self, *, array_case=False, completion_case=False):
+    def test_large_fenced_tester_report_uses_three_text_edits_and_preserves_checks(self):
+        row = self.assert_review_patch_completes(text_case=True)
+        self.assertEqual(3, len(row["patch"]["repair_report"]["text_edits"]))
+        self.assertGreater(len(row["source_text"].encode()), 128 * 1024)
+        self.assertEqual(row["source_text"], Path(row["source_path"]).read_text())
+
+    def assert_review_patch_completes(self, *, array_case=False, completion_case=False, text_case=False):
         fixture = cli_support.SubprocessFlow()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
@@ -85,6 +113,8 @@ class ReviewReportRepairCLI(unittest.TestCase):
             fixture.env["REVIEW_REPAIR_ARRAY"] = "1"
         if completion_case:
             fixture.env["REVIEW_REPAIR_COMPLETION"] = "1"
+        if text_case:
+            fixture.env["REVIEW_REPAIR_TEXT"] = "1"
         fixture.env["PATH"] = (
             str(executable.parent) + os.pathsep + str(Path(sys.executable).parent) + os.pathsep + fixture.env["PATH"]
         )
