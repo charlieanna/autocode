@@ -357,6 +357,25 @@ class ClarificationContextTests(unittest.TestCase):
 class DecisionRepairContextTests(unittest.TestCase):
     setUp = repair_fixtures.base.RetrofitTest.setUp
 
+    def test_later_repair_retains_the_original_rejection_beside_its_format_error(self):
+        self.state["next_stage"] = "sol"
+        original_error = "Missing changed-code decision L183 for parser.py:160"
+        original = {"verdict": "PASS", "changed_code_exceptions": []}
+        repair_fixtures.RepairTests.queue(
+            self, stage="sol", role="sol", report=json.dumps(original), error=ValueError(original_error)
+        )
+        with self.assertRaises(repair_fixtures.runner.ReportRepairQueued):
+            repair_fixtures.RepairTests.reject_repair(
+                self, 6, ValueError("Final message is not JSON"), report="I will repair the report"
+            )
+        request = repair_fixtures.RepairTests.repair_request(self)
+        data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(original_error, data.get("original_error"))
+        self.assertEqual("Final message is not JSON", data["error"])
+        self.assertEqual(original, data["original_report"]["content"])
+        self.assertIn("earlier rejection is not evidence that a later draft still has that defect", request["prompt"])
+        self.assertTrue(request["report_only"])
+
     def test_tester_repair_names_enclosing_proof_without_changing_rejected_judgments(self):
         for stage, role in (("sol", "sol"), ("astra_checkpoint", "astra")):
             with self.subTest(stage=stage):
