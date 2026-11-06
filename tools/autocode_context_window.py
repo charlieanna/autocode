@@ -37,7 +37,14 @@ _TYPED = ("contextoverflowerror", "context_length_exceeded", OVERFLOW_CODE, "pro
 # Phrases that say this request did not fit. A quota error often quotes the model's window size in the
 # same sentence ("...limit exhausted; its context window is 200000 tokens"), so a bare mention of the
 # window is not evidence of an overflow: the wording has to say the input exceeded it.
-_WORDS = ("context_length_exceeded", "prompt is too long", "input is too long", "exceeds the context window")
+# Z.ai's coding endpoint says "Prompt exceeds max length" (its error code 1261) for GLM.
+_WORDS = (
+    "context_length_exceeded",
+    "prompt is too long",
+    "input is too long",
+    "exceeds the context window",
+    "prompt exceeds max length",
+)
 
 
 def _typed(value) -> bool:

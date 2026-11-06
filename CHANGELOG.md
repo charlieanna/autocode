@@ -18,6 +18,8 @@ PR template asks for an entry here; a change without one is incomplete.
 - Tester and completion-review JSON repairs can use exact-source-bound edits, preserving unrelated captured commands; lossless inline history avoids duplicating large reports in later repair handoffs.
   Scripted scenario reviewers use the offered repair envelope too, retaining their full-report
   corrections without mixing them with an empty transport placeholder.
+- A GLM request that Z.ai refuses with "Prompt exceeds max length" is now a context-window stop
+  (`PAUSED_CONTEXT_WINDOW`), not an uncertain provider stop the Resolver holds for a person.
 
 - A report-only Investigator repair restores its recorded temporary model route after a pause,
   instead of falling back to the default review model. Conflicting route metadata refuses launch.
