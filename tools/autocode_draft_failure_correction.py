@@ -178,7 +178,17 @@ def receipts(state: RunState, report):
                 body.get("task_kind") != "bugfix"
                 or contract.get("revision") != 1
                 or (state.get("workflow") or {}).get("requirements_approved")
-                or any(state.get(key) for key in ("answers", "brief_feedback", "user_events", "requirements_history"))
+                or any(state.get(key) for key in ("answers", "brief_feedback", "requirements_history"))
+                # A read-only retry changes the receipt snapshot without supplying new requirements.
+                or any(
+                    not (
+                        event.get("kind") == "automatic_timeout_recovery"
+                        and event.get("actor") == "runner"
+                        and event.get("next_stage") == "astra_challenge"
+                        and event.get("changed_files") == []
+                    )
+                    for event in state.get("user_events", [])
+                )
                 or handoff.get(target, []).count(before) != 1
             ):
                 raise ValueError("Draft failure correction cannot replace protected human or dual-owned text")

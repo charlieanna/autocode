@@ -112,6 +112,48 @@ class DraftFailureCorrectionTests(unittest.TestCase):
     def admit(self, current, review):
         autopilot.apply_planning(current, "astra_challenge", review, {"output": "review.json"})
 
+    def test_read_only_plan_reviewer_timeout_does_not_make_draft_compatibility_human_owned(self):
+        current, review, changed, changes = fixture(compatibility=True)
+        current["user_events"] = [
+            {
+                "kind": "automatic_timeout_recovery",
+                "actor": "runner",
+                "attempt_id": "001/plan-challenge-01",
+                "next_stage": "astra_challenge",
+                "changed_files": [],
+            }
+        ]
+        receipt = review["concerns"][0][correction.FIELD]
+        with self.assertRaisesRegex(ValueError, "fresh first-review inference receipt"):
+            correction.receipts(current, review)
+        receipt["snapshot"] = correction.snapshot(current)
+        self.admit(current, review)
+        lifecycle.install_draft(current, changed, origin="glm_revise", changes=changes)
+        self.assertEqual(AFTER, current["goal_contract"]["body"]["required_behaviors"][-1])
+        self.assertEqual("astra_finalize", current["next_stage"])
+
+    def test_a_user_event_or_other_recovery_still_blocks_the_compatibility_receipt(self):
+        for change in (
+            {"actor": "user_cli"},
+            {"kind": "brief_feedback"},
+            {"next_stage": "terra"},
+            {"changed_files": ["greet.py"]},
+        ):
+            current, review, _, _ = fixture(compatibility=True)
+            current["user_events"] = [
+                {
+                    "kind": "automatic_timeout_recovery",
+                    "actor": "runner",
+                    "attempt_id": "001/plan-challenge-01",
+                    "next_stage": "astra_challenge",
+                    "changed_files": [],
+                }
+                | change
+            ]
+            review["concerns"][0][correction.FIELD]["snapshot"] = correction.snapshot(current)
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, "protected human or dual-owned text"):
+                self.admit(current, review)
+
     def test_exact_receipt_revises_unapproved_bugfix_compatibility_without_a_user_question(self):
         current, review, changed, changes = fixture(compatibility=True)
         self.admit(current, review)
@@ -564,7 +606,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
         for stage in ("glm_revise", "astra_finalize", "astra_challenge"):
             with self.subTest(stage=stage):
                 instruction, payload = repair_context.prompt_parts(
-                    current, {"original": {"stage": stage}}, source, source, ("", {})
+                    current, {"original": {"stage": stage}}, source, source, ("", {}), schema={}
                 )
                 if stage == "glm_revise":
                     expected = current["goal_contract"]["body"]["accepted_assumptions"]
