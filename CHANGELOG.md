@@ -13,6 +13,21 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - The supervision cadence regression simulates its quiet interval and excludes shutdown samples, avoiding a timing-dependent failure on healthy keepers.
 
+- Report-only Kilo repairs now state that all tools are disabled and must use the supplied evidence, avoiding instructions to wait for unavailable tools.
+
+- Changed-code repair no longer repeats a narrowed batch assignment when the Tester rejects
+  a gap owned by another batch member. The Completion Reviewer first reassigns the correction
+  within the approved plan; the recorded scope review grants no write permission or completion
+  authority and consumes no Builder repair round.
+- The pause-code inventory references the shared paused-phase constant, preserving the single
+  definition enforced by the run-status architecture check.
+- The terminal progress regression now distinguishes the working stage's latest thought in its
+  status line from the message-only recent updates panel, matching the existing interface.
+- Recovery CLI regressions now check automatic stopping after pinned-Builder exhaustion, including
+  no further launches on resume, and distinguish report-only repair attempts from task retries.
+- A spec-first wave stays parallel when writing its tests needed recovery. A repair of the Tester's report,
+  or the Investigator looking at why it stopped, no longer counts as an attempt at the milestone, so the
+  Orchestrator still gives each wave member its own Builder.
 - A malformed report-only repair no longer hides the original validation error from the next repair.
   Both diagnostics remain available with the pinned reports, while evidence checks and retry limits
   stay in force.

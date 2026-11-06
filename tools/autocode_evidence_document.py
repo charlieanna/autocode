@@ -568,7 +568,7 @@ def _changed_code_lines(proof, repairs):
         ]
         for row in rows(repairs):
             action = row.get("action")
-            stage = {"builder": "terra", "investigator": "investigate_stuck"}.get(action)
+            stage = {"builder": "terra", "investigator": "investigate_stuck", "reviewer": "astra_review"}.get(action)
             label = roles.screen_name(stage) if stage else action
             prior = mapping(row.get("assessment"))
             lines += [
@@ -576,6 +576,7 @@ def _changed_code_lines(proof, repairs):
                 f"proof context {text(prior.get('proof_context'))}; task {text(row.get('task_id'))}; "
                 f"plan r{text(row.get('contract_revision'))}:{text(row.get('contract_hash'))}.",
                 "  Review record: " + text(row.get("review_output")) + ". " + text(prior.get("reason")),
+                *(["  Assignment: " + text(row["scope_reason"])] if row.get("scope_reason") else []),
                 "  Unresolved gaps: "
                 + text(
                     ", ".join(
