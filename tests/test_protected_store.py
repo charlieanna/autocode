@@ -10,6 +10,7 @@ from unittest.mock import patch
 import autocode_protected_oracles as guard
 import autocode_protected_paths as paths
 import autocode_protected_store as store
+from autocode_util import snapshot
 
 from .protected_store_fixture import rewrite_archive
 from .test_verify import Project
@@ -61,6 +62,25 @@ class ProtectedStorageTests(unittest.TestCase):
             self.assertEqual(0o751, retained.stat().st_mode & 0o777)
         self.assertFalse(extracted.exists())
         self.assertEqual(0o600, Path(self.record["root"]).stat().st_mode & 0o777)
+
+    def test_reviewer_compares_retained_test_bytes_against_the_current_snapshot(self):
+        settings = {"protected_tests": self.record}
+        name = "src/example.test.js"
+        current = snapshot(self.root)
+        report = guard.context(settings, ["src"], current=current)
+        self.assertEqual(
+            {"source_revision": current["revision"], "matches_original": {name: True}}, report["content_comparison"]
+        )
+        self.assertIn("Inspect changed assertions", report["instruction"])
+        self.test.write_text("changed")
+        changed = snapshot(self.root)
+        self.assertEqual(
+            {"source_revision": changed["revision"], "matches_original": {name: False}},
+            guard.context(settings, ["src"], current=changed)["content_comparison"],
+        )
+        changed["files"][name] = "symlink:other.js"
+        self.assertNotIn("content_comparison", guard.context(settings, ["src"], current=changed))
+        self.assertNotIn("content_comparison", guard.context(settings, ["src"]))
 
     def test_compaction_preserves_binding_and_settings_without_changing_source(self):
         record = self.legacy()

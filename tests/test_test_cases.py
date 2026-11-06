@@ -1285,6 +1285,7 @@ class PromptTests(unittest.TestCase):
             "If the approved plan requires your own fail-first run, write and run the new tests first", instruction
         )
         self.assertIn("keep the fix applied after you make it", instruction)
+        self.assertIn("Use the existing fail-first receipt for guards it already ran", instruction)
         self.assertIn("Reuse a passing candidate check when its command and inputs are unchanged", instruction)
         self.assertIn("Rerun after a relevant change, failure, or required repetition", instruction)
 

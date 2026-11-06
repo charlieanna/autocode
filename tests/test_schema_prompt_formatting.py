@@ -168,6 +168,8 @@ class CompactSchemaPromptTests(unittest.TestCase):
         schema = {"properties": {"assistant_reply": {"type": "string"}, "checks": {"type": "array"}}}
         prompt = opencode.prompt_for_schema("Task\nCURRENT HANDOFF DATA\n{}", schema, Path("/run/events.jsonl"))
         self.assertIn("A PASS report", prompt)
+        self.assertIn("submit them together as separate capture tool calls", prompt)
+        self.assertIn("keep a unique receipt for each command", prompt)
 
     def test_schema_prompt_is_compact_and_round_trips_exactly(self):
         path = Path(__file__).resolve().parents[1] / "tools/autocode-schemas/v2/sol-report.schema.json"
