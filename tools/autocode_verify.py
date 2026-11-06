@@ -2604,6 +2604,7 @@ def verify(
     candidate_tree=None,
     package=None,
     package_exempt=(),
+    withheld=(),
 ) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
@@ -2654,6 +2655,7 @@ def verify(
     Only its independently canonical detected suite may establish a first suite.
     So do changes outside a run's ``package`` (autocode_package_scope): its suite does not run them.
     ``package_exempt`` names paths outside it that are not the change (autocode_package_writes.exempt).
+    ``withheld`` test files are left out of the change and its trees (autocode_pending_tests).
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     test_root = test_roots.normalize(test_root) if test_root is not None else None
@@ -2663,6 +2665,7 @@ def verify(
         framework = Framework("node", suite_command, invocation=configured)
     before = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
     changes = changed_files(workspace, base, source_paths=source_paths)
+    changes = {path: changes[path] for path in changes if path not in withheld}
     tests = [p for p in changes if is_test_path(p)]
     sources = [p for p in changes if not is_test_path(p)]
     preserve = preserve_only or (test_only_allowed and not sources)

@@ -73,6 +73,7 @@ try:
     from . import autocode_mutation_check as mutation_check
     from . import autocode_package_scope as package_scope
     from . import autocode_package_writes as package_writes
+    from . import autocode_pending_tests as pending_tests
     from . import autocode_regression_selection as selection
     from . import autocode_run_base as run_base
     from . import autocode_runner_check as runner_check
@@ -95,6 +96,7 @@ except ImportError:
     import autocode_mutation_check as mutation_check
     import autocode_package_scope as package_scope
     import autocode_package_writes as package_writes
+    import autocode_pending_tests as pending_tests
     import autocode_regression_selection as selection
     import autocode_run_base as run_base
     import autocode_runner_check as runner_check
@@ -676,6 +678,7 @@ def _proving(
         if coverage and not regression_command:
             regression_command = options.get("test_command")
         guards = sorted({case["test_name"] for case in due if case.get("kind") == "preserve" and case.get("test_name")})
+        ahead = [] if all_due else pending_tests.withheld(state, workspace, due)
         kept.append(out / "scratch" / "candidate")
         result = verify.verify(
             workspace,
@@ -699,12 +702,15 @@ def _proving(
             candidate_tree=kept[-1],
             package=package_scope.of(state.get("settings")),
             package_exempt=package_writes.exempt(state, workspace, base),
+            withheld=ahead,
             **rooted(options),
         )
         path = out / "verification.json"
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
         if inputs:
             proof["notes"] = [*(proof.get("notes") or []), *inputs.notes]
+        if ahead:
+            proof["notes"] = [*(proof.get("notes") or []), pending_tests.NOTE + ", ".join(ahead)]
         if operator:
             proof["review_reasons"] = [*(proof.get("review_reasons") or []), operator_patch.review_reason(operator)]
         if (coverage or (test_only and not result.get("source_files"))) and any(

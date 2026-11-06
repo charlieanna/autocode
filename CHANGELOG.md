@@ -18,6 +18,10 @@ PR template asks for an entry here; a change without one is incomplete.
   receipt, each file's tested lines, and every other changed line's handle, line, status and
   mutation outcomes. Only a gap carries a handle, so the Tester cannot decide a tested line. A live two-Builder
   wave's Tester handoff went from 3.63 MB (1.99 MB after the receipt bound) to 0.25 MB (#2806).
+- A spec-first wave built one milestone at a time is proved against each milestone's own tests. The
+  regression proof of the first member used to run the tests already written for the others, which cannot
+  pass until they are built, and refused it. Those files are now left out until their milestone is due;
+  the final completion proof still runs every test.
 - A GLM request that Z.ai refuses with "Prompt exceeds max length" is now a context-window stop
   (`PAUSED_CONTEXT_WINDOW`), not an uncertain provider stop the Resolver holds for a person.
 
