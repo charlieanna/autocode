@@ -739,6 +739,54 @@ class LayoutExampleRevisionTests(unittest.TestCase):
         state, revised, changes = self.inputs(before, after)
         self.assertEqual(changes, revision_guard(state, revised, changes, "glm_revise"))
 
+    def quoted_lines(self, after="2025-W10     7.50h\\n2025-W11     8.00h\\ntotal       15.50h\\n"):
+        before = "2025-W10     7.50h\\n2025-W11    8.00h\\ntotal       15.50h\\n"
+        state, revised, changes = self.inputs(before, after)
+        old = state["goal_contract"]["body"]["acceptance_criteria"][0]
+        old["criterion"] = old["criterion"].replace(
+            f"it writes exactly `{before}` to stdout",
+            'stdout is exactly the three lines "2025-W10     7.50h", "2025-W11    8.00h", '
+            '"total       15.50h", each followed by a newline',
+        )
+        return state, revised, changes
+
+    def test_a_quoted_line_example_can_use_canonical_stdout_for_a_padding_correction(self):
+        state, revised, changes = self.quoted_lines()
+        self.assertEqual(changes, revision_guard(state, revised, changes, "glm_revise"))
+
+    def test_quoted_lines_still_require_exact_scope_and_reviewer_authority(self):
+        for kind in ("number", "tab", "newline", "command", "count", "duplicate", "approval", "user_row", "concern"):
+            state, revised, changes = self.quoted_lines()
+            old = state["goal_contract"]["body"]["acceptance_criteria"][0]
+            new = revised["acceptance_criteria"][0]
+            if kind == "number":
+                state, revised, changes = self.quoted_lines(
+                    "2025-W10     7.50h\\n2025-W11     8.10h\\ntotal       15.50h\\n"
+                )
+            elif kind == "tab":
+                state, revised, changes = self.quoted_lines(
+                    "2025-W10     7.50h\\n2025-W11\\t8.00h\\ntotal       15.50h\\n"
+                )
+            elif kind == "newline":
+                state, revised, changes = self.quoted_lines(
+                    "2025-W10     7.50h\\n2025-W11     8.00h\\ntotal       15.50h"
+                )
+            elif kind == "command":
+                new["criterion"] = new["criterion"].replace("--by-project", "--other")
+                changes[0]["replacement"] = new["criterion"]
+            elif kind == "count":
+                old["criterion"] = old["criterion"].replace("the three lines", "the four lines")
+            elif kind == "duplicate":
+                old["criterion"] += " " + old["criterion"]
+            elif kind == "approval":
+                state["goal_contract"]["approval_status"] = "approved"
+            elif kind == "user_row":
+                state["task"] += ' Preserve the line "2025-W11    8.00h".'
+            else:
+                state["planning"]["reports"]["astra_challenge"]["report"]["concerns"][0]["blocking"] = False
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                revision_guard(state, revised, changes, "glm_revise")
+
     def test_a_word_or_number_inside_the_row_cannot_change_under_the_padding_receipt(self):
         before = "total" + " " * 10 + "15.50h\\n"
         for after in (

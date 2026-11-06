@@ -108,6 +108,54 @@ class ReviewerRequestedRevisionCliTests(unittest.TestCase):
             "the refusal says why the allowance did not apply",
         )
 
+    def test_the_planners_quoted_stdout_padding_correction_reaches_approval(self):
+        workspace, env = fixture_workspace(self)
+        provider = Path(env["PATH"].split(os.pathsep)[0]) / "codex"
+        marker = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
+        before = "2025-W10     7.50h\\n2025-W11    8.00h\\ntotal       15.50h\\n"
+        after = before.replace("W11    ", "W11     ")
+        prefix = "Given the sample rows, when the report command runs, then "
+        old = prefix + (
+            'stdout is exactly the three lines "2025-W10     7.50h", "2025-W11    8.00h", '
+            '"total       15.50h", each followed by a newline.'
+        )
+        revised = prefix + f"it writes exactly `{after}` to stdout."
+        amendment = textwrap.dedent(f"""
+            if stage == "astra_discovery":
+                report["contract"]["acceptance_criteria"][0]["criterion"] = {old!r}
+            elif stage == "astra_challenge":
+                cid = data["goal_contract"]["body"]["acceptance_criteria"][0]["id"]
+                report["concerns"] = [{{
+                    "id": "C_PAD", "concern": f"{{cid}} should print " + {after!r} + " instead of " + {before!r},
+                    "evidence_refs": ["goal_contract.body.acceptance_criteria"],
+                    "requested_change": "Correct the W11 padding only",
+                    "acceptance_test": "Compare the corrected example to the expected stdout", "blocking": True}}]
+            elif stage == "glm_revise":
+                report["contract"] = data["goal_contract"]["body"]
+                criterion = report["contract"]["acceptance_criteria"][0]
+                criterion["criterion"] = {revised!r}
+                report["contract_changes"] = [{{
+                    "item": criterion["id"], "change": "reworded", "basis": "agent_proposed", "answer_id": "",
+                    "replacement": {revised!r},
+                    "example_correction": {{"concern_id": "C_PAD", "before": {before!r}, "after": {after!r}}}}}]
+                report["responses"] = [{{
+                    "concern_id": "C_PAD", "response": "Corrected one padding space",
+                    "evidence_refs": ["goal_contract.body.acceptance_criteria"],
+                    "change": "Corrected the W11 padding", "acceptance_test": "Compare exact stdout"}}]
+            elif stage == "astra_finalize":
+                report["decisions"] = [{{
+                    "concern_id": "C_PAD", "decision": "The padding example is correct",
+                    "rationale": "The expected row uses five spaces", "resolved": True,
+                    "acceptance_test": "Compare exact stdout"}}]
+        """)
+        source = provider.read_text()
+        self.assertEqual(1, source.count(marker))
+        provider.write_text(source.replace(marker, textwrap.indent(amendment, "    ") + "\n" + marker))
+        run = taskrun.TaskRun.start(workspace, BRIEF, options=FIXTURE_OPTIONS, env=env, timeout=180)
+        view = run.advance_until_input()
+        self.assertEqual("approve_plan", view["needs"]["kind"], (view["status"], view["stop_reason"]))
+        self.assertEqual(revised, view["displayed_plan"]["acceptance_criteria"][0]["criterion"])
+
 
 if __name__ == "__main__":
     unittest.main()
