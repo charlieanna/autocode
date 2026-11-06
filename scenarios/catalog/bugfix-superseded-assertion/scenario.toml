@@ -1,0 +1,13 @@
+title = "A bug fix where one assertion of a larger existing test asserts the bug"
+category = "bugfix"
+# #2748 follow-up: test_fee_schedule checks four amounts and one of them pins the bug (shipping_fee(5000) == 499),
+# so a correct fix changes that assertion in place and keeps the other three. Live GLM 5.3 planners left
+# supersedes empty here (2026-11-05). The fake plan lists nothing either: the original-test gate refuses the
+# Tester's PASS, the runner sends the plan back to plan review with test_fee_schedule in supersedes, and the
+# run finishes after the revised plan is approved, without a question to the person about the gate.
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+# Exits 0 while the seed's bug is present; the runner checks the scripted reproduction.
+probe = 'python3 -c "from shop import shipping_fee; assert shipping_fee(5000) == 499"'
+criteria = { C1 = "test: test_fifty_dollar_order_ships_free" }

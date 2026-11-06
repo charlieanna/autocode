@@ -1,0 +1,1 @@
+Our shop promises free shipping on orders of $50 or more, but an order of exactly $50.00 (shipping_fee(5000)) is still charged the $4.99 fee; only orders above $50 ship free. Fix it so $50.00 ships free, and add a regression test. This is a small fix; don't turn it into a project.

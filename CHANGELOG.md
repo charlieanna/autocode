@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A bug fix whose plan forgot to list an existing test it changes in place no longer stops (#2748
+  follow-up). This is common when one assertion in a larger test expects the bug. When the
+  original-test gate refuses the change for exactly that reason, AutoCode adds the test to the plan's
+  `supersedes` and sends the plan back for review and approval, once per test. The Planner's note now
+  covers a single contradicting assertion and uses an example unrelated to any catalog scenario. A new
+  catalog scenario, `bugfix-superseded-assertion`, covers this case.
 - A bug fix no longer stops when an existing test asserts the bug itself (#2748). The plan names
   that test in its criterion's `supersedes`, and the approval screen shows it as "Replaces existing
   test". The original-test gate then accepts a failure of the listed tests only, and only when the

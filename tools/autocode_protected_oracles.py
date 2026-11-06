@@ -295,7 +295,8 @@ def replay(state: RunState, workspace, out, scratch_run, *, timeout):
             "Repair the implementation; a modified assertion is not proof. "
             + (f"Failing original tests: {', '.join(failing[:10])}. " if failing else "")
             + "Only an approved plan criterion's supersedes list can replace an original test that asserts the "
-            "behavior being changed. " + result.get("error", "") + f" Receipt: {receipt}. {tail}"
+            "behavior being changed. " + result.get("error", "") + f" Receipt: {receipt}. {tail}",
+            result,
         )
     return result
 
