@@ -278,7 +278,16 @@ def main():
     rows = spec["contract"]["milestones"]
     if data.get("report_repair"):
         result = json.loads(Path(data["original"]["output"]).read_text())
-        if data["original"]["stage"] == "sol" and spec.get("validator_repair_incidents"):
+        if data["original"]["stage"] == "sol" and spec.get("batch_report_repair"):
+            scope = data.get("batch_validation") or {}
+            # A report-only provider cannot discover the batch by reading private run state.
+            # The original check evidence covers every member; only its result inventory was damaged.
+            template = result["milestone_results"][0]
+            result["milestone_results"] = [
+                {**template, "milestone_id": member} for member in scope.get("milestone_ids", [])
+            ]
+            record("batch_repair", scope=scope)
+        elif data["original"]["stage"] == "sol" and spec.get("validator_repair_incidents"):
             result.pop("milestone_results", None)
             state = json.loads(Path(data["state_file"]).read_text())
             # M4 needs both bounded repairs; the final validate task needs its own.
@@ -542,6 +551,8 @@ def main():
                 )
                 for m in task["milestone_ids"]
             ]
+            if spec.get("batch_report_repair"):
+                result["milestone_results"] = result["milestone_results"][:1]
         elif spec.get("validator_repair_incidents") and mid == rows[-1]["id"]:
             result["milestone_results"] = []
     else:
