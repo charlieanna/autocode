@@ -459,14 +459,14 @@ class StageRepairCLI(unittest.TestCase):
         self.assertEqual(1, sum(row["stage"] == "astra_challenge" for row in trace), trace)
         self.assertFalse(any(row["stage"] == "investigate_stuck" for row in trace), trace)
 
-    def test_revision_repairs_a_stale_reference_using_the_current_inventory(self):
+    def test_revision_repairs_a_stale_delta_using_the_current_contract_token(self):
         fixture = self.fixture_for("retained-criteria")
         _, state, view, trace = self.plan(fixture)
         self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
         repairs = [row for row in trace if row["stage"] == "glm_revise" and row["repair"]]
         self.assertEqual(1, len(repairs), trace)
-        self.assertIn("Retained criterion reference is stale", repairs[0]["error"])
-        self.assertTrue(repairs[0]["used_current_retained_criteria"])
+        self.assertIn("Retained criteria delta", repairs[0]["error"])
+        self.assertTrue(repairs[0]["used_current_retained_contract"])
         self.assertNotEqual("approved", state["goal_contract"]["approval_status"])
         self.assertFalse((fixture.project / "greet.py").exists())
         self.assertFalse(any(row["stage"] == "terra" for row in trace))
@@ -560,7 +560,7 @@ class StageRepairCLI(unittest.TestCase):
         self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
         repairs = [row for row in trace if row["stage"] == "glm_revise" and row["repair"]]
         self.assertEqual(2, len(repairs), trace)
-        self.assertTrue(all(row["used_current_retained_criteria"] for row in repairs))
+        self.assertTrue(all(row["used_current_retained_contract"] for row in repairs))
         self.assertIn("repair_fault", repairs[1]["error"])
         self.assertNotEqual("approved", state["goal_contract"]["approval_status"])
         self.assertFalse((fixture.project / "greet.py").exists())

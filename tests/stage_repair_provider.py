@@ -568,30 +568,24 @@ def main():
         row["criteria_delta"] = copy.deepcopy(delta)
     elif stage == "glm_revise" and case in ("retained-criteria", "retained-criteria-large"):
         if repair:
-            references = {item["retain_criterion"]: item for item in data.get("retained_criteria", [])}
-            if not references or "RETAIN VALIDATED TEXT." not in prompt:
-                raise RuntimeError("The repair handoff omitted the current retained-criterion inventory or rule")
+            token = data.get("retained_contract")
+            if not token or "CRITERIA DELTA." not in prompt or "retained_criteria" in data:
+                raise RuntimeError("The repair handoff must offer the current contract reference and criteria delta")
             value = copy.deepcopy(data["rejected_report"]["content"])
-            for index, item in enumerate(value["contract"]["acceptance_criteria"]):
-                if "retain_criterion" in item:
-                    value["contract"]["acceptance_criteria"][index] = references[item["retain_criterion"]]
-            row["used_current_retained_criteria"] = True
+            value["contract"]["acceptance_criteria"]["retain_from"] = token
+            row["used_current_retained_contract"] = True
             if case == "retained-criteria-large" and not traced(stage, True):
                 value["repair_fault"] = True  # one schema fault, preserving the complete large draft
             else:
                 value.pop("repair_fault", None)
         else:
-            references = {item["retain_criterion"]: item for item in data.get("retained_criteria", [])}
-            for index, item in enumerate(value["contract"]["acceptance_criteria"]):
-                reference = references.get(item.get("id"))
-                identity = hashlib.sha256(json.dumps(item, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-                if reference and identity == reference["sha256"]:
-                    bad = dict(reference)
-                    bad["sha256"] = ("0" if identity[0] != "0" else "1") + identity[1:]
-                    value["contract"]["acceptance_criteria"][index] = bad
-                    break
-            else:
-                raise RuntimeError("Fixture needs an unchanged criterion before injecting the stale-reference fault")
+            originals = {item["id"]: item for item in data["goal_contract"]["body"]["acceptance_criteria"]}
+            proposed = {item["id"]: item for item in value["contract"]["acceptance_criteria"]}
+            value["contract"]["acceptance_criteria"] = {
+                "retain_from": "r0:" + "0" * 64,
+                "upsert": [item for key, item in proposed.items() if item != originals.get(key)],
+                "remove": [key for key in originals if key not in proposed],
+            }
             if case == "retained-criteria-large":
                 # Stay below the per-artifact 128 KiB bound, while two copies
                 # plus the real repair instructions exceed the handoff bound.

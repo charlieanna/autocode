@@ -593,6 +593,9 @@ class DecisionRepairContextTests(unittest.TestCase):
                     data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
                     self.assertEqual(retention.token(self.state), data["retained_contract"])
                     self.assertEqual(not legacy, retention.DELTA_RULE in request["prompt"])
+                    if stage == "glm_revise" and not legacy:
+                        self.assertNotIn("retained_criteria", data)
+                        self.assertNotIn(retention.RULE, request["prompt"])
                     self.assertEqual(original_bytes, path.read_bytes())
 
     def test_criterion_author_repairs_receive_exact_current_retention_references(self):

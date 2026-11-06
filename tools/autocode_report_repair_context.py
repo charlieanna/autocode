@@ -154,10 +154,12 @@ def repair_payloads(state: RunState, stage: str) -> tuple[dict, dict | None]:
     return clarification, protected_contract
 
 
-def criterion_retention(clarification: dict, stage: str) -> tuple[str, dict]:
+def criterion_retention(clarification: dict, stage: str, schema: dict) -> tuple[str, dict]:
     """Author repairs need exact current references, without repeating earlier plan reports."""
     if stage not in retention.AUTHORS - retention.FINAL or not clarification.get("retained_contract"):
         return "", {}
+    if stage == "glm_revise" and retention.allows_delta(schema) and not retention.allows_row_references(schema):
+        return "", {"retained_contract": clarification["retained_contract"]}
     return retention.RULE, {
         "retained_criteria": copy.deepcopy(clarification["retained_criteria"]),
         "retained_contract": clarification["retained_contract"],
@@ -257,12 +259,12 @@ def protected_list_differences(protected, latest) -> list[dict]:
 
 
 def prompt_parts(
-    state: RunState, pending: dict, original: dict, latest: dict, receipt_parts: tuple
+    state: RunState, pending: dict, original: dict, latest: dict, receipt_parts: tuple, *, schema: dict
 ) -> tuple[str, dict]:
     """Assemble bounded planning context while keeping receipt policy with its caller."""
     stage = pending["original"]["stage"]
     clarification, protected = repair_payloads(state, stage)
-    retention_instruction, references = criterion_retention(clarification, stage)
+    retention_instruction, references = criterion_retention(clarification, stage, schema)
     historical_instruction, historical_source = historical_author_report(
         stage, original, latest if pending.get("latest_rejected") else None
     )

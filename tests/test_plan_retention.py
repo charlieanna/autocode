@@ -354,7 +354,28 @@ class PlanRetentionTests(unittest.TestCase):
             self.assertEqual(criteria["items"], delta["properties"]["upsert"]["items"])
             self.assertEqual({"retain_from", "upsert", "remove"}, set(delta["required"]))
             self.assertEqual("array", options[0]["type"])
+            self.assertEqual(stage == "astra_discovery", retention.allows_row_references(schema))
+            if stage == "glm_revise":
+                self.assertEqual(criteria["items"], options[0]["items"])
+                self.assertNotIn("retain_criterion", json.dumps(schema))
+            else:
+                self.assertIn("retain_criterion", json.dumps(options[0]["items"]))
         self.assertEqual(planner.SCHEMAS["glm_revise"], source)
+
+    def test_planner_revision_prompt_copies_one_contract_reference_instead_of_row_hashes(self):
+        state = self.state()
+        state.update(
+            task="Fix the report",
+            workspace="/tmp",
+            version=2,
+            settings={"joint_planning": True, "roles": {"glm": {"model": "fixture", "engine": "codex"}}},
+        )
+        prompt, _ = planner.context(state, "glm_revise", Path("/tmp/run/state.json"))
+        packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(retention.token(state), packet["retained_contract"])
+        self.assertNotIn("retained_criteria", packet)
+        self.assertNotIn(retention.RULE, prompt)
+        self.assertIn(retention.DELTA_RULE, prompt)
 
     def test_final_review_retains_exact_plan_and_validated_trace_without_approval(self):
         state = self.state()

@@ -1652,18 +1652,19 @@ def context(state: RunState, stage, state_path):
         rejection_rule = PRIOR_REJECTION_RULE
     retain_rule = ""
     if stage in retention.AUTHORS and retention.token(state):
-        packet["retained_criteria"] = retention.inventory(state)
+        if stage != "glm_revise":
+            packet["retained_criteria"] = retention.inventory(state)
         packet["retained_contract"] = retention.token(state)
         if stage in retention.FINAL:
             # The reference form takes no per-row references; its criteria delta is in the final rule.
             packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
             retention.compact_final_packet(packet)
             retain_rule = retention.final_rule()
+        elif stage == "glm_revise":
+            retain_rule = retention.revision_reference.RULE + retention.delta_rule()
+            packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
         else:
             retain_rule = retention.RULE + retention.delta_rule()
-            if stage == "glm_revise":
-                retain_rule += retention.revision_reference.RULE
-                packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
     progress_rule = (
         prompts.get("fragments/autoplanner/review-progress.md")
         if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize")

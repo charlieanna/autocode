@@ -145,13 +145,14 @@ def model_schema(schema, state: RunState, stage):
     body = result["properties"]["contract"]
     criteria = body["properties"]["acceptance_criteria"]
     full_row = copy.deepcopy(criteria["items"])
-    reference: dict = {
-        "type": "object",
-        "properties": {"retain_criterion": {"type": "string"}, "sha256": {"type": "string"}},
-        "required": ["retain_criterion", "sha256"],
-        "additionalProperties": False,
-    }
-    criteria["items"] = {"anyOf": [reference, criteria["items"]]}
+    if stage == "astra_discovery":
+        row_reference = {
+            "type": "object",
+            "properties": {"retain_criterion": {"type": "string"}, "sha256": {"type": "string"}},
+            "required": ["retain_criterion", "sha256"],
+            "additionalProperties": False,
+        }
+        criteria["items"] = {"anyOf": [row_reference, criteria["items"]]}
     delta = {
         "type": "object",
         "properties": {
@@ -208,6 +209,18 @@ def _delta_offers(schema):
 def allows_delta(schema):
     """A repair must obey its pinned generation schema, including older array-only reports."""
     return any("retain_from" in offer for offer in _delta_offers(schema))
+
+
+def allows_row_references(schema):
+    """Keep the instructions for an older attempt whose pinned schema offered row references."""
+    body = schema.get("properties", {}).get("contract", {})
+    for contract in body.get("anyOf", [body]):
+        criteria = contract.get("properties", {}).get("acceptance_criteria", {})
+        for branch in criteria.get("anyOf", [criteria]):
+            items = branch.get("items", {})
+            if any("retain_criterion" in row.get("properties", {}) for row in items.get("anyOf", [items])):
+                return True
+    return False
 
 
 def delta_rule(schema=None):
