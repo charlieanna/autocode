@@ -1204,7 +1204,7 @@ def retry_format_failed_report(state: RunState, run_dir, workspace, selected):
     if (
         state.get("status") != "PAUSED_REPEATED_FAILURE"
         or any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts"))
-        or pending.get("error") not in report_retry.RETRYABLE_ERRORS
+        or not report_retry.retryable(pending.get("error"))
         or original.get("stage") != "sol"
         or not repair
         or selected != records.attempt_id(repair)

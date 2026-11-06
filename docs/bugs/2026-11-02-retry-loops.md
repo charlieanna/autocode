@@ -39,6 +39,10 @@ the receipt line was cut and the attestation line was filtered out. The attestat
 (`2>&1 | grep -o ...`), the rejection names that filter so the fresh Tester attempt runs capture unfiltered.
 
 Still open: the monorepo run (without `--package`) checks the suite with root `unittest discover`, which
-finds 0 tests when the package folders have no `__init__.py`, and asks a person to allow one; and Testers'
-bare `event:` checks refused as "not supported by an exact executed Validator event" (5 rejections across
-these runs).
+finds 0 tests when the package folders have no `__init__.py`, and asks a person to allow one.
+
+Testers' bare `event:` checks were refused as "not supported by an exact executed Validator event" in five
+reports: each cited a command it had run only inside a longer Bash call (`cmd 2>&1 | tail -15`, `a; b; c`),
+so that command's own exit code is unknown. They are still refused; the rejection now names the call, the
+Claude prompt says to run each cited command as its own call, and the exact retry still recognizes the
+explained message (`autocode_report_retry.retryable`).

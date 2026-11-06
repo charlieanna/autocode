@@ -402,7 +402,10 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
                     check["exit_code"] = latest["exit_code"]
                     check["command"] = latest["command"]
                     continue
-            raise ValueError("Check is not supported by an exact executed Validator event")
+            raise ValueError(
+                "Check is not supported by an exact executed Validator event"
+                + receipts.compound_hint(check.get("command"), [item.get("command") for item in tool_outputs])
+            )
         path = Path(check["evidence_ref"])
         path = path if path.is_absolute() else Path(workspace) / path
         if not path.resolve().is_relative_to(Path(workspace).resolve() / ".autocode"):

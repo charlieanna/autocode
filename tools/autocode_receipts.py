@@ -74,6 +74,27 @@ def display_filter(commands, receipt_names) -> str | None:
     return None
 
 
+def compound_hint(cited, commands) -> str:
+    """Why a bare ``event:`` check matched no command, when it ran only inside a longer one.
+
+    Live Testers ran ``cmd 2>&1 | tail -15`` or ``a; b; c`` in one Bash call and cited ``cmd``
+    alone; the runner cannot know that part's exit code, so the report was refused, repaired and
+    re-run (docs/bugs/2026-11-02-retry-loops.md). The rejection names the call it ran in, so the
+    fresh attempt runs each cited command by itself. Empty when no such call exists.
+    """
+    if not isinstance(cited, str) or not cited.strip():
+        return ""
+    for command in reversed(commands):
+        if isinstance(command, str) and command != cited and cited.strip() in command:
+            shown = command if len(command) <= 160 else command[:157] + "..."
+            return (
+                f": it ran only inside `{shown}`, joined with other commands or piped into a filter, so its own"
+                " exit code is unknown. Run each command you cite as its own Bash call, exactly as cited, or"
+                " capture it."
+            )
+    return ""
+
+
 def adopt_command(check: dict, argv: list[str]) -> bool:
     """True when ``check["command"]`` is the receipt's argument list (any quoting); the check
     then carries the receipt's own spelling. Anything else, including a placeholder, a summary
