@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal progress regression now distinguishes the working stage's latest thought in its
+  status line from the message-only recent updates panel, matching the existing interface.
 - Recovery CLI regressions now check automatic stopping after pinned-Builder exhaustion, including
   no further launches on resume, and distinguish report-only repair attempts from task retries.
 - A spec-first wave stays parallel when writing its tests needed recovery. A repair of the Tester's report,
