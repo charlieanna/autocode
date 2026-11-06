@@ -26,6 +26,37 @@ REPAIR_ROUNDS = 2
 REJECTIONS_SHOWN = 20
 
 
+def _contains(parent, path):
+    parent = parent.rstrip("/")
+    return bool(parent) and (path == parent or path.startswith(parent + "/"))
+
+
+def _scope_conflict(task, contract, rejected):
+    """Detect a batch member whose tests the narrowed assignment cannot repair.
+
+    Compare approved ownership areas, not the product file directly with test-only
+    task paths. This only requests review; no model citation grants write scope.
+    Legacy tasks without those declarations retain their existing bounded route.
+    """
+    members, assigned = task.get("milestone_ids") or [], task.get("affected_paths") or []
+    if len(members) < 2 or not assigned:
+        return None
+    for milestone in contract.get("body", {}).get("milestones", []):
+        areas = milestone.get("affected_paths") or []
+        if milestone["id"] not in members or any(
+            _contains(area, path) or _contains(path, area) for area in areas for path in assigned
+        ):
+            continue
+        for gap in rejected:
+            if any(_contains(area, gap["path"]) for area in areas):
+                return (
+                    f"Rejected test gap {gap['path']}:{gap['line']} belongs to batch milestone "
+                    f"{milestone['id']}, whose ownership areas are outside the current assignment. "
+                    "Review and reassign the correction within the approved plan before retrying the Builder."
+                )
+    return None
+
+
 def route(state: RunState, record, *, investigation_enabled, rejected=()):
     """Consume only a reconciled independent review of this exact measurement."""
     actual = record.get("original_stage") or record.get("stage")
@@ -58,6 +89,8 @@ def route(state: RunState, record, *, investigation_enabled, rejected=()):
     if any(row.get("review_output") == record.get("output") for row in previous):
         return True  # Reconciliation must never charge or queue this accepted report twice.
     reason = assessment["reason"]
+    scope_reason = _scope_conflict(task, contract, rejected)
+    builder_rounds = sum(row.get("action") == "builder" for row in previous)
     event = {
         "kind": "changed_code_rework",
         **binding,
@@ -65,9 +98,14 @@ def route(state: RunState, record, *, investigation_enabled, rejected=()):
         "review_output": record["output"],
         "assessment": assessment,
         "at": util.now(),
-        "action": "builder" if len(previous) < REPAIR_ROUNDS else "investigator",
+        "action": "reviewer" if scope_reason else "builder" if builder_rounds < REPAIR_ROUNDS else "investigator",
     }
+    if scope_reason:
+        event["scope_reason"] = scope_reason
     history.append(event)
+    if scope_reason:
+        run_status.running(state, "EXECUTING", next_stage="astra_review", next_action=scope_reason)
+        return True
     run_status.running(
         state,
         "EXECUTING",
@@ -148,6 +186,7 @@ def queued(state: RunState, record):
     """A nested checkpoint cannot replace the repair that its own Tester queued."""
     return any(
         row.get("kind") == "changed_code_rework"
+        and row.get("action") != "reviewer"
         and row.get("review_output") == record.get("output")
         and row.get("source_revision") == record.get("source_revision")
         for row in state.get("regression_proofs") or []
