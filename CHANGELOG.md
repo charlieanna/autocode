@@ -28,10 +28,16 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
-- A repair the Resolver planned no longer stops as a stale handoff when you resume the run from
-  another AutoCode checkout. Moving checkouts moves the bundled provider config, so its path changed
-  in the run's settings even though its contents did not. The held repair now still applies when
-  the run's own settings history proves the config is byte-identical and nothing else changed.
+- Resuming a run from another AutoCode checkout no longer stops it. The bundled Kilo config moves
+  with the checkout, so its path changed while its bytes did not, and the run paused with
+  `PAUSED_TRANSPORT_CHANGED` for a person to accept, after which a repair the Resolver had planned
+  stopped as a stale handoff on every resume. A configured command tool whose config has the same
+  bytes at another path is now the same transport, for the run's tool and for a tool pinned to one
+  stage: the run continues, keeps its saved identity, and records the move once in
+  `configuration_changes`. Different bytes, another version or executable, or an incomplete
+  identity still pause. Kilo is no longer recorded as an "Expanded OpenCode configuration identity"
+  on every loop. A run already moved by an explicit acceptance keeps its held repair when its
+  settings history proves the move.
 - A Tester's changed-line decision may cite the regression proof file by its workspace-relative path, as it cites the other changed-line inputs. In a live run the Tester wrote `.autocode/runs/<run>/regression/<proof>/verification.json`, and the whole repaired report was refused as citing unauthenticated evidence. Both spellings bind to the one pinned file, and the decision records its exact path.
 - A spec-first run no longer crashes as it starts a parallel wave. The Orchestrator's wave (`autocode_dispatch.select`) is a list of milestone rows, and choosing the wave's acceptance tests put those rows in a set (`TypeError: unhashable type: 'dict'`). It now takes each row's id. The existing test passed ids, so it missed this; a live run crashed right after accepting its foundation milestone.
 - A draft failure correction again retains a criterion saved before `supersedes` existed. The loader fills an omitted `supersedes` with `[]` (#2748), and the retention check read that as a changed criterion, refusing the correction. An empty list now equals an omitted one; any listed entry is still a change.

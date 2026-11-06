@@ -35,6 +35,7 @@ try:
     from . import autocode_skip_requirements as skip_requirements
     from . import autocode_storage_budget as storage_budget
     from . import autocode_support as support
+    from . import autocode_transport_relocation as transport_relocation
     from . import autocode_workflow as workflow
     from . import autocode_workflows as workflows
     from . import autopilot
@@ -59,6 +60,7 @@ except ImportError:
     import autocode_skip_requirements as skip_requirements
     import autocode_storage_budget as storage_budget
     import autocode_support as support
+    import autocode_transport_relocation as transport_relocation
     import autocode_workflow as workflow
     import autocode_workflows as workflows
     import autopilot
@@ -253,7 +255,11 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
                 raise support.Paused(
                     "PAUSED_TRANSPORT_CHANGED", "Local model/auth/provider settings differ from checkpoint"
                 )
-            if using_opencode and current["settings"]["transport_identity"].get("identity_version", 1) < 2:
+            if using_opencode:
+                transport_relocation.follow(current, workspace, current_settings, at=runner.now())
+            if using_opencode and transport_relocation.expands(
+                current_settings, current["settings"]["transport_identity"]
+            ):
                 current.setdefault("configuration_changes", []).append(
                     {
                         "at": runner.now(),
