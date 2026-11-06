@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Changed-code repair no longer repeats a narrowed batch assignment when the Tester rejects
+  a gap owned by another batch member. The Completion Reviewer first reassigns the correction
+  within the approved plan; the recorded scope review grants no write permission or completion
+  authority and consumes no Builder repair round.
 - The pause-code inventory references the shared paused-phase constant, preserving the single
   definition enforced by the run-status architecture check.
 - The terminal progress regression now distinguishes the working stage's latest thought in its
