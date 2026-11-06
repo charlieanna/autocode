@@ -12,6 +12,8 @@ PR template asks for an entry here; a change without one is incomplete.
 ### Fixed
 
 - Tester and completion-review JSON repairs can use exact-source-bound edits, preserving unrelated captured commands; lossless inline history avoids duplicating large reports in later repair handoffs.
+  Scripted scenario reviewers use the offered repair envelope too, retaining their full-report
+  corrections without mixing them with an empty transport placeholder.
 
 - A malformed report-only repair no longer hides the original validation error from the next repair.
   Both diagnostics remain available with the pinned reports, while evidence checks and retry limits
