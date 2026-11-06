@@ -238,11 +238,20 @@ def expand(value, record):
     offered = schema["properties"][KEY]
     branches = offered.get("anyOf") if isinstance(offered, dict) else None
     if isinstance(branches, list) and len(branches) == 2:
-        patch_schema, full_report_schema = branches
+        patch_schema = branches[0]
         try:
             validate_schema(value[KEY], patch_schema)
         except ValueError:
-            validate_schema(value[KEY], full_report_schema)
+            if isinstance(value[KEY], dict) and set(value[KEY]) & set(patch_schema.get("properties", {})):
+                # A malformed patch must never fall back to a full report.
+                raise
+            # Decode the transport before the ordinary loader validates the
+            # complete report. Its schema compatibility checks authenticate
+            # legacy criterion text against the approved contract, adopt bound
+            # identity and normalize absent optional fields. Validating against
+            # the generation schema here would bypass those existing rules.
+            if not isinstance(value[KEY], dict):
+                raise ValueError("A full repaired report must be an object") from None
             return value[KEY]
     else:
         # Saved reports from the earlier root-level patch schema remain valid.

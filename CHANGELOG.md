@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Complete review-repair reports now reach the ordinary compatibility checks, preserving exact approved criterion text while still rejecting changed text, malformed patches and invalid evidence.
+
 - A report repair can remove one extra array item with a small source-bound edit instead of rewriting the entire array. Mixed edits keep their original indices; ordinary evidence and contract checks still apply.
 
 - Tester and completion-review JSON repairs can use exact-source-bound edits, preserving unrelated captured commands; lossless inline history avoids duplicating large reports in later repair handoffs.

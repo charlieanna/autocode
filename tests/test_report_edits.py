@@ -138,6 +138,56 @@ class ReportEditsTests(unittest.TestCase):
                 self.assertEqual(set(branch["properties"]), set(branch["required"]))
                 self.assertFalse(branch["additionalProperties"])
 
+    def test_wrapped_full_review_keeps_exact_legacy_criteria_and_rejects_conflicts(self):
+        criterion = "Preserve the approved behavior"
+        schema = {
+            "type": "object",
+            "properties": {
+                "acceptance_criteria": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"id": {"type": "string"}, "status": {"type": "string"}},
+                        "required": ["id", "status"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["acceptance_criteria"],
+            "additionalProperties": False,
+        }
+        self.schema.write_text(json.dumps(schema))
+        offered = edits.prepare(self.schema, self.descriptor, "astra_review")
+        state = {"acceptance_criteria": [{"id": "C1", "criterion": criterion}]}
+        correct = {"acceptance_criteria": [{"id": "C1", "status": "verified", "criterion": criterion}]}
+        for label, report, error in (
+            ("matching", correct, None),
+            (
+                "conflicting",
+                {"acceptance_criteria": [{"id": "C1", "status": "verified", "criterion": "changed"}]},
+                "conflicts",
+            ),
+            ("unknown", {**correct, "invented": True}, "unexpected fields"),
+            ("missing", {"acceptance_criteria": []}, "each approved criterion"),
+            ("scalar", "not a report", "object"),
+        ):
+            with self.subTest(label=label):
+                record = {
+                    **self.record,
+                    "stage": "astra_review_report_repair",
+                    "original_stage": "astra_review",
+                    "schema": str(offered),
+                    "output": str(self.root / (label + ".json")),
+                }
+                wrapped = {"repair_report": report}
+                Path(record["output"]).write_text(json.dumps(wrapped))
+                if error:
+                    with self.assertRaisesRegex(ValueError, error):
+                        runner.load_stage_report(record, state=state)
+                else:
+                    self.assertEqual(correct, runner.load_stage_report(record, state=state))
+                    self.assertEqual(wrapped, json.loads(Path(record["reported_output"]).read_text()))
+
     def test_report_edit_instructions_require_json_encoded_values(self):
         instruction = edits.instruction("requirements_gather", self.descriptor)
         self.assertIn("value_json", instruction)
