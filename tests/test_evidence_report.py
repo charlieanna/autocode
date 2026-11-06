@@ -106,6 +106,20 @@ def value(view=None):
 
 
 class ChangedCodeReportTests(unittest.TestCase):
+    def test_scope_reassignment_is_preserved_and_rendered_as_a_review(self):
+        view = self.changed_view()
+        repair = view["verification"]["changed_code_repairs"][0]
+        repair.update(action="reviewer", scope_reason="Reassign the evaluator tests within the approved batch.")
+        report = value(view)
+        util.validate_schema(
+            report,
+            util.read(Path(__file__).resolve().parents[1] / "tools/autocode-schemas/evidence-report.schema.json"),
+        )
+        self.assertEqual(repair, report["changed_code_repairs"][0])
+        rendered = document.render(report)
+        self.assertIn("Completion Reviewer; source", rendered)
+        self.assertIn("Assignment: Reassign the evaluator tests within the approved batch.", rendered)
+
     def changed_view(self):
         import autocode_changed_code_evidence as changed_code
 

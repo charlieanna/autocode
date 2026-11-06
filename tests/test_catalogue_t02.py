@@ -274,6 +274,43 @@ class DagScenarios(DagCase):
         self.check("no_wave_after_builder", [], dispatch.select(self.state))
         self.finish(summary="READY_BUILD: test writing before dispatch keeps the wave parallel")
 
+    def test_dag01c_recovering_the_waves_test_writing_is_not_an_attempt_either(self):
+        """The Tester's report repairs and the Investigator's look at a stopped test writing.
+
+        A live medium run (2026-11-06) repaired the Tester's report twice and sent it to the
+        Investigator; those 23 minutes counted as building M2, so its pricing and stock wave
+        went to one Builder.
+        """
+        self.start_diamond()
+        self.assign("MA")
+        self.validate({"C1"})
+        self.assign("MB")
+        task = self.state["current_task"]["id"]
+        writing = {"role": "sol", "task_id": task, "duration_seconds": 150.0}
+        records.account_stage(self.state, {**writing, "stage": "write_acceptance_tests"})
+        records.account_stage(
+            self.state,
+            {**writing, "stage": "write_acceptance_tests_report_repair", "original_stage": "write_acceptance_tests"},
+        )
+        self.state["stuck_investigation"] = {"stage": "write_acceptance_tests"}
+        investigator = {"stage": "investigate_stuck", "role": "astra", "task_id": task, "duration_seconds": 890.0}
+        records.account_stage(self.state, dict(investigator))  # account_stage marks a record accounted
+        self.state.pop("stuck_investigation")
+        self.state["stuck_investigations"] = [{"stage": "write_acceptance_tests", "outcome": "guidance"}]
+        records.account_stage(self.state, {**investigator, "duration_seconds": 10.0})
+        row = milestones.progress(self.state)
+        self.check("recovery_still_charged", 1200.0, row["seconds"])
+        self.check("recovery_is_not_an_attempt", 0, milestones.attempted_seconds(row))
+        self.check("wave_after_recovery", ["MB", "MC"], [row["id"] for row in dispatch.select(self.state)])
+        # The Investigator looking at a Builder that stopped is an attempt at the milestone.
+        self.state["stuck_investigations"].append({"stage": "terra"})
+        records.account_stage(self.state, {**investigator, "duration_seconds": 30.0})
+        self.check(
+            "builder_investigation_attempted", 30.0, milestones.attempted_seconds(milestones.progress(self.state))
+        )
+        self.check("no_wave_after_builder_investigation", [], dispatch.select(self.state))
+        self.finish(summary="READY_BUILD: recovering the wave's test writing keeps the wave parallel")
+
     def test_dag02_cycles_rejected(self):
         """DAG-02. Existing: test_autopilot_torture cycle case."""
         for label, edges in (
