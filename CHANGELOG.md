@@ -28,6 +28,17 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat's "latest updates" lines under a working stage no longer show "Response stream
+  activity received; text unavailable." That receipt only proves the model is streaming, and it stays
+  in the live log (`/live`). In a live run it was the only update shown for most of the Tester's and
+  the Completion Reviewer's turns.
+- The stage meter in the terminal chat now shows the reasoning level a stage actually ran at. A
+  review lowered one level on a small, clear task (#2747) was shown at its saved level, so a live
+  Plan Reviewer that ran at medium read "mimo-v2.6-pro high", while `/details` said medium.
+- A repair the Resolver planned no longer stops as a stale handoff when you resume the run from
+  another AutoCode checkout. Moving checkouts moves the bundled provider config, so its path changed
+  in the run's settings even though its contents did not. The held repair now still applies when
+  the run's own settings history proves the config is byte-identical and nothing else changed.
 - Resuming a run from another AutoCode checkout no longer stops it. The bundled Kilo config moves
   with the checkout, so its path changed while its bytes did not, and the run paused with
   `PAUSED_TRANSPORT_CHANGED` for a person to accept, after which a repair the Resolver had planned

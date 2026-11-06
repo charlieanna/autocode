@@ -691,6 +691,11 @@ def log_entries(view: dict | None) -> list[dict]:
 
 _THOUGHT = re.compile(r"thinking ~(\d+) tokens")
 _WRITING = re.compile(r"writing (\S+) input: (\d+) chars")
+# An opaque streaming receipt (autocode_chat_log.progress_event) proves activity in /live; as a
+# stage's latest update it tells a person nothing.
+_RECEIPT = re.compile(
+    r"(?:Reasoning|Response) stream activity received; text unavailable\.(?: \(\d+ parts streamed\))?"
+)
 
 
 def live_text(text: str) -> str:
@@ -720,7 +725,12 @@ def recent_notes(view: dict | None, limit: int = 2) -> list[str]:
         if row["kind"] != "message" or row["agent"] != stage:
             continue
         text = live_text(row["text"]).strip()
-        if not text or text == "Structured response received." or (notes and notes[-1] == text):
+        if (
+            not text
+            or text == "Structured response received."
+            or _RECEIPT.fullmatch(text)
+            or (notes and notes[-1] == text)
+        ):
             continue
         notes.append(text)
     return notes[-limit:]
