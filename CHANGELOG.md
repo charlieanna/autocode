@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The pause-code inventory references the shared paused-phase constant, preserving the single
+  definition enforced by the run-status architecture check.
 - The terminal progress regression now distinguishes the working stage's latest thought in its
   status line from the message-only recent updates panel, matching the existing interface.
 - Recovery CLI regressions now check automatic stopping after pinned-Builder exhaustion, including
