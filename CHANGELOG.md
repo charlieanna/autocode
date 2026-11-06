@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A first project whose only code is a pytest `conftest.py` (beside a README and an empty package) is
+  proved like any other first project. The base collects no tests, so there is no existing behavior to
+  preserve; the proof used to report preservation unproven and ask a person how to proceed.
 - A monorepo whose package folders have no `__init__.py` (`packages/`, `apps/`, `services/`, `libs/`)
   is tested package by package, each from its own folder, instead of a root discovery that found no
   tests and stopped the run to ask a person.

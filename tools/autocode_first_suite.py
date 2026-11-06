@@ -189,6 +189,20 @@ def manifest(path) -> bool:
     )
 
 
+def test_harness(path) -> bool:
+    """A pytest ``conftest.py``: configuration the test runner loads, never a test it collects.
+
+    It holds no product behavior. In a base with no other code or test file it only prepares
+    a suite that does not exist yet (a first project's ``sys.path`` setup).
+    """
+    return PurePosixPath(str(path)).name == "conftest.py"
+
+
+def holds_source(regular, code_or_test) -> bool:
+    """A nonempty code or test file among the base's (path, size) entries; a conftest.py configures a suite and is never one."""
+    return any(size and code_or_test(path) and not test_harness(path) for path, size in regular)
+
+
 def inert_base_file(path, size, *, separate, source, read=None) -> bool:
     """True when a pinned base entry holds no behavior a suite could run.
 
@@ -202,7 +216,8 @@ def inert_base_file(path, size, *, separate, source, read=None) -> bool:
     the design workflow's directory is not one of those data files: the workflow
     writes Markdown, so another format there is not the approved design (#2069).
     In the same base, a short extensionless text note (plain_note, its content
-    supplied by ``read``) holds no behavior either (#2259).
+    supplied by ``read``) holds no behavior either (#2259), nor does a pytest
+    ``conftest.py`` (test_harness). ``source`` never counts a conftest.py itself.
     """
     if path == "README.md":
         return True
@@ -215,6 +230,7 @@ def inert_base_file(path, size, *, separate, source, read=None) -> bool:
         or size == 0
         or (not source and (manifest(path) or (data_file(path) and not non_markdown_design_document(path))))
         or (not source and read is not None and size <= NOTE_LIMIT and plain_note(path, read(path)))
+        or (not source and test_harness(path))
     )
 
 
