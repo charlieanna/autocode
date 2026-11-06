@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A review handoff for a large wave no longer overflows the Tester's context. When a proof's mutant
+  lists, per-criterion survivors, evidence inputs or per-line obligations are over 64 KiB, each moves
+  whole into the hash-pinned context artifact. The handoff keeps counts, outcomes and every changed
+  line's handle, line, status and mutation outcomes. A live two-Builder wave's Tester handoff went
+  from 3.63 MB (1.99 MB after the receipt bound) to 0.45 MB (#2806).
+
 - A first project whose only code is a pytest `conftest.py` (beside a README and an empty package) is
   proved like any other first project. The base collects no tests, so there is no existing behavior to
   preserve; the proof used to report preservation unproven and ask a person how to proceed.

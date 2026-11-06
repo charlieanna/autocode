@@ -40,3 +40,25 @@ and candidate patch SHA-256
 Only this evidence note was added afterward. Commands, logs, the measured packet
 and the immutable receipt artifact remain in the ignored local directory
 `.scenario-runs/orchestrator-heavy-live-20261105/`.
+
+## Follow-up: mutation and per-line detail (#2806)
+
+A later live run on Kilo integrated a two-Builder wave of about 900 changed lines.
+It sent its GLM 5.3 Tester a 3.63 MB handoff, and Z.ai refused the first request with
+"Prompt exceeds max length". With the receipt bound above, the same handoff was still
+1.99 MB. Four other fields made up most of it:
+
+- every mutant per file (333 KB);
+- every surviving mutant once per criterion (597 KB);
+- the same mutants again under the evidence's inputs (226 KB);
+- one obligation row per changed line (492 KB).
+
+For review stages, `autocode_proof_detail` moves each of these fields into the same
+artifact once it is over 64 KiB, and leaves a summary inline. Each file keeps its
+mutant count and outcomes. Each criterion keeps its survivor count and the tests that
+let a mutant survive. Every changed line keeps its handle, line, status, execution and
+mutation outcomes, grouped by file. The Tester names a gap by its handle, which the
+generation schema already offers and the runner resolves against the run's own
+assessment. Nothing moves when another part of the handoff points into an obligation.
+On the retained handoff the packet went from 3.63 MB to 0.45 MB, with all 892 lines
+and every gap still named.
