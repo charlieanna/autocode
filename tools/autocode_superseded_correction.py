@@ -33,7 +33,7 @@ from __future__ import annotations
 import copy
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -49,7 +49,7 @@ except ImportError:
 
 # A runner-built draft (autocode_goal_lifecycle.UNAUTHORED_DRAFTS); plan review and approval still follow.
 ORIGIN = "superseded_tests_correction"
-KEY = "superseded_corrections"
+KEY = "superseded_corrections"  # spelled out where the state is typed (autocode_run_state)
 _PARAMETERS = re.compile(r"\[.*\]$")
 
 
@@ -76,7 +76,7 @@ def _entry(test_id: str, changed) -> dict | None:
 def _sent(state: RunState) -> set[tuple[str, str]]:
     return {
         (str(row.get("file")), str(row.get("test")))
-        for record in state.get(KEY) or []
+        for record in state.get("superseded_corrections") or []
         if isinstance(record, dict)
         for row in record.get("tests") or []
         if isinstance(row, dict)
@@ -183,7 +183,7 @@ def send_back(state: RunState, record, error) -> bool:
         return False
     candidate = copy.deepcopy(state)
     candidate.pop("pending_report_repair", None)  # a revised plan, not a repaired report, settles this refusal
-    candidate.setdefault(KEY, []).append(
+    candidate.setdefault("superseded_corrections", []).append(
         {
             "contract_revision": (state.get("goal_contract") or {}).get("revision"),
             "tests": found["tests"],
@@ -198,6 +198,6 @@ def send_back(state: RunState, record, error) -> bool:
     except ValueError:
         return False
     planning_cycle.start(candidate)
-    state.clear()
+    cast(dict, state).clear()
     state.update(candidate)
     return True
