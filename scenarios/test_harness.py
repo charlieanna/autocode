@@ -4621,6 +4621,10 @@ class StockRefusalsRunTests(unittest.TestCase):
                 "astra_challenge",
                 "terra",
                 "sol",
+                # The trap's PASS leaves changed lines with no mutation outcome undecided: one bounded
+                # Tester report repair asks for those decisions (#2621). This fixture's Tester has no
+                # reason for the trap's bytes, so the run goes on to the Completion Reviewer as before.
+                "sol_report_repair",
                 "astra_review",
                 "astra_resolve",
                 "investigate_stuck",
@@ -4681,7 +4685,9 @@ class StockRefusalsRunTests(unittest.TestCase):
         self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
         self.assertEqual("PAUSED_INTERVENTION", result["runner_status"])
         self.assertEqual(3, result["metrics"]["model_stage_names"].count("astra_resolve"))
-        self.assertEqual(4, result["metrics"]["model_stage_names"].count("investigate_stuck"))
+        # One Investigator per Resolver cycle. Since #2597 the ladder's end settles itself, so no fourth
+        # Investigator is asked about a retry-limit pause.
+        self.assertEqual(3, result["metrics"]["model_stage_names"].count("investigate_stuck"))
         # Classifying each unknown failure precedes its bounded execution retry, and AutoCode grants them itself.
         self.assertEqual(
             ["investigate", "retry", "investigate", "escalate", "investigate", "pause"],
@@ -4899,7 +4905,18 @@ class HybridRunTests(unittest.TestCase):
     counts only calls the live side served; nothing about how a model diagnoses."""
 
     SCRIPTED = ["requirements_gather", "astra_discovery", "astra_challenge", "terra"]
-    LIVE = ["sol", "astra_review", "astra_resolve", "investigate_stuck", "terra", "sol", "astra_review"]
+    # The trap's PASS leaves changed lines with no mutation outcome undecided, so the Tester gets one
+    # bounded report repair to decide them (#2621) before the Completion Reviewer runs.
+    LIVE = [
+        "sol",
+        "sol_report_repair",
+        "astra_review",
+        "astra_resolve",
+        "investigate_stuck",
+        "terra",
+        "sol",
+        "astra_review",
+    ]
 
     def run_hybrid(self, out, **fields):
         args = argparse.Namespace(
@@ -4928,8 +4945,11 @@ class HybridRunTests(unittest.TestCase):
         self.assertEqual(
             (self.SCRIPTED, self.LIVE), (result["hybrid"]["scripted_stage_names"], result["hybrid"]["live_stage_names"])
         )
+        # The call log names a report repair by the stage it repairs.
         self.assertEqual(
-            [(stage, "scripted") for stage in self.SCRIPTED] + [(stage, "live") for stage in self.LIVE], trace
+            [(stage, "scripted") for stage in self.SCRIPTED]
+            + [(stage.removesuffix("_report_repair"), "live") for stage in self.LIVE],
+            trace,
         )
         # The regression proof failed on the scripted Builder's source: the trap, by construction.
         scripted_build = next(row for row in state["stages"] if row["stage"] == "terra")
@@ -5026,6 +5046,7 @@ class HybridRunTests(unittest.TestCase):
                     models[role]
                     for role in (
                         "validator",
+                        "validator",  # its report repair
                         "completion",
                         "resolver",
                         "reviewer",
