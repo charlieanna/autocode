@@ -706,6 +706,15 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         state.pop("displayed_review", None)
 
     next_stage, phase = records.timeout_recovery_route(state, record)
+    retry_missing_tester_report = (
+        semantic_stage == "sol"
+        and next_stage == "astra_review"
+        and not had_validation
+        and record["changed_files"] == []
+        and workflow.review_stage(state) == "sol"
+    )
+    if retry_missing_tester_report:
+        next_stage = "sol"
     # Final-audit-only runs keep the Builder in charge of implementation. Other routing
     # modes retain the established Plan Reviewer recovery review before another writer.
     # The completion retry this route chose needs the evidence just retired, so it goes to the
@@ -740,6 +749,13 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         "checks, or fix the identified stall. Preserve all acceptance checks; do not replay the same "
         "task under unchanged limits. Do not extend limits or reset budgets without authorization.",
     }
+    if retry_missing_tester_report:
+        recovery["instruction"] = (
+            "The archived stage left no accepted Tester report and did not change source. "
+            "Execute the required checks for this attempt, using the current runner proof to focus inspection. "
+            "Partial work remains archived and is not a completed report. Completion Review still needs the "
+            "new independent report. Preserve the approved checks and saved execution limits."
+        )
     records.count_automatic_recovery(state)
     state.setdefault("automatic_timeout_recoveries", []).append(recovery)
     state.setdefault("user_events", []).append(

@@ -831,6 +831,36 @@ class ActivityRuntimeTests(unittest.TestCase):
             state, self.run, self.root, support.Paused("PAUSED_PROVIDER_TIMEOUT", "idle")
         )
 
+    def tester_timeout(self, *, changed_source=False):
+        self.start_task()
+        _, record = self.interrupted_attempt()
+        record.update(role="sol", stage="sol", original_stage="sol")
+        self.state["next_stage"] = "sol"
+        self.state["sessions"].pop("terra")
+        self.state["sessions"]["sol"] = "expired-session"
+        if not changed_source:
+            support.atomic_json(Path(record["before_ref"]), support.snapshot(self.root))
+
+    def test_read_only_tester_timeout_retries_the_missing_validation_before_completion(self):
+        self.tester_timeout()
+        original_task = copy.deepcopy(self.state["current_task"])
+        with patch.object(runner, "run_role", side_effect=AssertionError("Recovery must not run a provider")):
+            self.assertTrue(self.timed_out_review(self.state))
+        saved = support.read(self.run / "state.json")
+        self.assertEqual("sol", saved["next_stage"])
+        self.assertEqual(original_task, saved["current_task"])
+        self.assertNotIn("validation", saved)
+        self.assertNotIn("sol", saved["sessions"])
+        self.assertEqual(1, len(saved["automatic_timeout_recoveries"]))
+        self.assertIn("no accepted Tester report", saved["recovery_context"]["instruction"])
+        self.assertTrue(any(row.get("abandoned") and row["stage"] == "sol" for row in saved["stages"]))
+
+    def test_tester_timeout_with_source_changes_keeps_the_recovery_review(self):
+        self.tester_timeout(changed_source=True)
+        self.assertTrue(self.timed_out_review(self.state))
+        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertEqual(["greet.py"], self.state["recovery_context"]["changed_files"])
+
     def test_completion_review_timeout_keeps_current_validation_and_retries_completion(self):
         # 2026-10-30 live run: two idle-stopped Completion Reviews archived the Tester's current
         # evidence, so the third valid COMPLETE could never pass the gate that needs it.
