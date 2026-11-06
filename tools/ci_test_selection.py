@@ -311,6 +311,11 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/autocode_report_edits.py", ("tests.test_changed_code_evidence_cli", "tests.test_scenario_report_envelope")),
     ("tools/fake_codex.py", ("tests.test_subprocess",)),
     (
+        "tools/autocode_report_repair_route.py",
+        ("tests.test_report_repair", "tests.test_classification_recovery"),
+    ),
+    ("tools/autocode_report_repair_queue.py", ("tests.test_resolver_runtime",)),
+    (
         "tests/failure_routing_provider.py",
         ("tests.test_failure_routing_cli", "tests.test_classification_recovery"),
     ),
