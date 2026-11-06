@@ -132,8 +132,8 @@
     "sha256": "624e7625638110321bece18ba33c0ccacb23d294f665eaa3f880cd60f7542951"
   },
   "full-repair/investigate_stuck": {
-    "bytes": 8147,
-    "sha256": "8dd0499278267cbc9c6681d3bd0a2b567638f39fec8bd3e80165662ba86fc339"
+    "bytes": 8697,
+    "sha256": "7cacc1d79f5ef616640f0dfa5bfc442de84784d60fbf09ea8c3ed4d10d0431d4"
   },
   "full-repair/requirements_gather": {
     "bytes": 14540,
@@ -592,8 +592,8 @@
     "sha256": "ee32650d58c819693b86bdd049e47cd5bd3d24f4b15321f33eeb22363ec57550"
   },
   "repair/evidence/investigate_stuck": {
-    "bytes": 943,
-    "sha256": "49f695bbd1ddf50795bf0bea1bbc2bf817be6d9ef708f1b8e305749e0802ffa2"
+    "bytes": 1493,
+    "sha256": "bf4fbc337932607fa03aa3dec9664b247d388f49e29264179ace1e70d6244797"
   },
   "repair/evidence/requirements_gather": {
     "bytes": 1163,
