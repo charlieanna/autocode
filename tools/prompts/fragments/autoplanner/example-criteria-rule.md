@@ -11,6 +11,9 @@ criterion under the milestone that delivers it: the runner checks a milestone's 
 already accepted, at that milestone's checkpoint, so a test must not depend on a later milestone. Keep criteria
 a test cannot check (documentation, visual design, performance under real load) with an ordinary
 verification_method.
+Keep a worked example's exact inputs and results in its acceptance criterion. When a required behavior or
+important failure case describes that same example, state the rule or failure mode and refer to its criterion
+ID instead of retyping the values. Keep every distinct failure mode and every literal the person supplied.
 Before you return the plan, check each criterion against itself: its examples must agree with each other and
 with its own rule, and with approved_design when there is one. Where the request, the rule and the design leave
 a boundary open (a value exactly at a limit, a tie, an empty input), leave it untested: pick examples clearly
