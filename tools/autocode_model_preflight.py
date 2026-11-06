@@ -50,6 +50,7 @@ try:
     from . import autocode_access_evidence as access_evidence
     from . import autocode_access_identity as access_identity
     from . import autocode_agent_env as agent_env
+    from . import autocode_builder_policy as builder_policy
     from . import autocode_cost as cost
     from . import autocode_preflight_attempts as attempts
     from . import autocode_process as processes
@@ -63,6 +64,7 @@ except ImportError:
     import autocode_access_evidence as access_evidence
     import autocode_access_identity as access_identity
     import autocode_agent_env as agent_env
+    import autocode_builder_policy as builder_policy
     import autocode_cost as cost
     import autocode_preflight_attempts as attempts
     import autocode_process as processes
@@ -630,6 +632,13 @@ def check(
         publish()
         # Stop wins over budget and must also apply after the final probe.
         before_probe()
+        if outcome["blocking"] and builder_policy.withdraw_unreachable(
+            state, model, detail=outcome["detail"] or outcome["status"], evidence=outcome["evidence"]
+        ):
+            # AutoCode's own stronger Builder route is unusable on this account; no person is asked.
+            checkpoint()
+            print(f"Model preflight: {model}{where} cannot be used; the Builder keeps its route", flush=True)
+            raise support.Paused(state["status"], state.get("stop_reason") or "Builder retries exhausted")
         if outcome["blocking"]:
             raise support.Paused(
                 outcome["status"],
