@@ -21,6 +21,7 @@ from pathlib import Path
 from unittest import mock
 
 import autocode_acceptance_tests as acceptance
+import autocode_dispatch as dispatch
 import autocode_taskrun as taskrun
 from autocode_stray_writes import StrayWrites
 
@@ -775,6 +776,35 @@ class RouteTests(unittest.TestCase):
             )
             acceptance.route(state)
             self.assertEqual("terra", state["next_stage"], "every case is covered: two inherited, one rewritten")
+
+    def test_a_parallel_builder_starts_with_the_waves_tests_written_and_fixed(self):
+        """A worker's run inherits the parent Tester's receipts (autocode_dispatch.inherited_state).
+
+        Without them each parallel Builder sent itself back to the Tester for its own cases, and
+        integration refused the batch for the changed test files."""
+        with tempfile.TemporaryDirectory() as root:
+            archive = Path(root) / "archived-test.py"
+            archive.write_bytes(b"def test_c2(): assert False\n")
+            entry = {"sha256": acceptance.sha256(archive), "archive": str(archive)}
+            parent = approved(milestone_progress={"h1:M2": {"seconds": 1}})
+            parent["acceptance_tests"] = {"pending_case_ids": ["C3"], "redirected_from": "orchestrator"}
+            acceptance.record_receipt(
+                parent,
+                acceptance.due(parent),
+                {"contract_hash": "h1", "case_ids": sorted(CASES), "files": {"tests/test_stock.py": entry}},
+            )
+            child = dispatch.inherited_state(parent)
+            self.assertEqual({"receipts": acceptance.receipts(parent)}, child["acceptance_tests"])
+            self.assertEqual(parent["milestone_progress"], child["milestone_progress"])
+            child.update(next_stage="terra", current_task={"milestone_id": "M2"})
+            acceptance.route(child)
+            self.assertEqual("terra", child["next_stage"], "the worker's Builder runs; no second Tester")
+            self.assertEqual({"tests/test_stock.py": entry}, acceptance.protected(child), "the tests stay fixed")
+            # The copy is the worker's own: changing it leaves the parent's record alone.
+            child["acceptance_tests"]["receipts"].clear()
+            self.assertTrue(acceptance.receipts(parent))
+        # A run that wrote no acceptance tests passes nothing on.
+        self.assertNotIn("acceptance_tests", dispatch.inherited_state(approved()))
 
     def test_the_orchestrators_wave_of_milestone_rows_gets_its_cases(self):
         """autocode_dispatch.select returns milestone rows; a live run crashed on them (TypeError, unhashable dict)."""

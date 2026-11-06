@@ -1,9 +1,48 @@
-"""Move bulky historical material to an immutable, retrievable handoff artifact."""
+"""Move bulky handoff detail to an immutable, retrievable artifact."""
 
+import copy
 import json
 from pathlib import Path
 
 HISTORY_FIELDS = ("brief_feedback", "saved_answers")
+
+
+def proof_receipts(source, result, moved):
+    """Keep every receipt outcome inline; archive its bulky execution details whole."""
+    if result.get("stage") not in ("sol", "astra_review", "astra_checkpoint") or result.get("context_artifact"):
+        return
+    proof = result.get("regression_proof")
+    original = source.get("regression_proof")
+    receipts = original.get("changed_code_receipts") if isinstance(original, dict) else None
+    if (
+        not isinstance(proof, dict)
+        or not isinstance(receipts, list)
+        or not receipts
+        or not all(isinstance(row, dict) for row in receipts)
+        or "receipt_details_instruction" in proof
+        or len(json.dumps(proof.get("changed_code_receipts"))) <= 65536
+    ):
+        return
+    receipts = copy.deepcopy(receipts)
+    summaries = [
+        {
+            **{key: value for key, value in row.items() if key not in ("command", "tail", "results", "supervision")},
+            "details_artifact": {"field": "regression_proof_receipts", "index": index},
+        }
+        for index, row in enumerate(receipts)
+    ]
+    if len(json.dumps(summaries)) + 2048 >= len(json.dumps(proof["changed_code_receipts"])):
+        return
+    moved["regression_proof_receipts"] = receipts
+    proof["changed_code_receipts"] = summaries
+    proof["receipt_details_instruction"] = (
+        "Each changed_code_receipts entry keeps its outcome and evidence identities inline. Its "
+        "details_artifact selects the complete original receipt at that field and list index in "
+        "context_artifact (path and SHA-256 below). Read the complete receipt before relying on its "
+        "command, test results, output tail or supervision evidence; those details are not omitted "
+        "from the proof. Missing, unreadable or hash-mismatched artifacts are unverified evidence, "
+        "never permission to infer PASS. Current obligations, mutation results and all gates still apply."
+    )
 
 
 def compact(base, state_path):
@@ -19,6 +58,7 @@ def compact(base, state_path):
     def build(source, condensed):
         result, moved = history.condense(source) if condensed else (source, {})
         result = handoff.deduplicate(result)
+        proof_receipts(source, result, moved)
         # Never remove requirements, human decisions or current findings. Saved answers and feedback are only
         # shortened for review stages once an approved contract reflects them (autocode_handoff_history).
         for key in (
@@ -51,7 +91,7 @@ def compact(base, state_path):
                     key: {"total": len(value) if isinstance(value, (dict, list)) else None}
                     for key, value in moved.items()
                 },
-                "instruction": "Earlier material is preserved here. Retrieve relevant fields before relying on historical evidence. This index does not change requirements or authorize skipping checks.",
+                "instruction": "Full material is preserved here. Retrieve relevant fields before relying on their evidence. This index does not change requirements or authorize skipping checks.",
             }
         return result, moved
 

@@ -258,6 +258,7 @@ def prompt_parts(
         stage, original, latest if pending.get("latest_rejected") else None
     )
     receipt_instruction, receipt_handoff = receipt_parts
+    batch = batch_validation_context(state, stage)
     interpretations = goals.feedback_interpretation_context(state) if stage in PLANNING_STAGES else {}
     adjacent = failure_correction.repair_obligations(state) if stage == "glm_revise" else None
     # Revision validation uses the current review, not the execution findings ledger.
@@ -300,6 +301,18 @@ def prompt_parts(
         + review_instruction
         + difference_instruction
         + (
+            "COMBINED VALIDATION SCOPE. batch_validation is the runner's current task scope, not a model "
+            "proposal. milestone_results must report exactly the milestone_ids in batch_validation, once "
+            "each; do not add an earlier accepted milestone or use an internal batch ID. Preserve failed "
+            "or missing evidence: use FAIL or NOT_VERIFIED where appropriate, and never return an overall "
+            "PASS unless every batch member has passing evidence. For a proposed validate task, use the "
+            "approved primary milestone_id from batch_validation and retain all its acceptance_criteria; "
+            "do not split or narrow the batch to repair an identifier. No state-file lookup or new test "
+            "execution is needed to identify the required members. All existing evidence gates still apply.\n"
+            if batch
+            else ""
+        )
+        + (
             "DRAFT FAILURE ADJACENT OBLIGATIONS. draft_failure_adjacent_obligations supplies the exact saved "
             "assumption and decision rows that must be retained beside a receipted failure-case correction. "
             "Use these rows directly, including their order, basis and answer_id; no private-state lookup is needed. "
@@ -322,6 +335,7 @@ def prompt_parts(
         {
             "header": {
                 **receipt_handoff,
+                **({"batch_validation": batch} if batch else {}),
                 **({"protected_list_differences": differences} if differences else {}),
                 **({"draft_failure_adjacent_obligations": adjacent} if adjacent is not None else {}),
                 **references,
@@ -342,6 +356,19 @@ def prompt_parts(
             "clarification": {"clarification_context": clarification} if stage == "astra_finalize" else {},
         },
     )
+
+
+def batch_validation_context(state: RunState, stage: str) -> dict:
+    """Keep report-only repairs grounded in the exact current combined task."""
+    task = state.get("current_task") or {}
+    if stage not in DECISION_STAGES | {"sol"} or not task.get("milestone_ids"):
+        return {}
+    return {
+        "task_id": task["id"],
+        **copy.deepcopy(
+            {key: task[key] for key in ("milestone_id", "milestone_ids", "acceptance_criteria") if key in task}
+        ),
+    }
 
 
 def approved_milestones(state: RunState) -> list:
