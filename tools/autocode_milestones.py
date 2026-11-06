@@ -202,9 +202,24 @@ def account(state: RunState, record):
     row["seconds"] += seconds
     role = record.get("role", "unknown")
     row["seconds_by_role"][role] = row["seconds_by_role"].get(role, 0) + seconds
-    if record.get("stage") == "write_acceptance_tests":
+    if acceptance_test_work(state, record):
         # Writing a wave's tests first is not an attempt at the milestone (attempted_seconds).
         row["acceptance_test_seconds"] = row.get("acceptance_test_seconds", 0) + seconds
+
+
+def acceptance_test_work(state: RunState, record) -> bool:
+    """A stage record spent getting the wave's tests written, not building the milestone.
+
+    That is the Tester's own call, a repair of its report (``original_stage``), or the
+    Investigator looking at why it stopped (the subject of ``stuck_investigation``, or of the
+    latest ``stuck_investigations`` entry once the investigation is settled).
+    """
+    stage = record.get("original_stage") or record.get("stage")
+    if stage == "investigate_stuck":
+        history = state.get("stuck_investigations") or [{}]
+        request = state.get("stuck_investigation") or history[-1]
+        stage = request.get("stage") if isinstance(request, dict) else None
+    return stage == "write_acceptance_tests"
 
 
 def attempted_seconds(row) -> float:
