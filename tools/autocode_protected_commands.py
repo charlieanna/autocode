@@ -29,7 +29,13 @@ ORIGINAL_GATE_FAILED = run_status.ORIGINAL_GATE_FAILED
 
 
 class OriginalGateFailure(plan.PlannedCheckFailure):
-    """An executed original gate failed; JSON report repair cannot change it."""
+    """An executed original gate failed; JSON report repair cannot change it.
+
+    ``receipt`` is the replay's result, which autocode_superseded_correction reads to revise the plan."""
+
+    def __init__(self, message, receipt=None):
+        super().__init__(message)
+        self.receipt = receipt
 
 
 def completed_gate_repair(state: RunState):

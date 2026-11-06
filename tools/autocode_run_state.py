@@ -256,6 +256,7 @@ KEYS: frozenset[str] = frozenset(
         "stop_reason",
         "stuck_investigation",
         "stuck_investigations",
+        "superseded_corrections",
         "targeted_consultation",
         "task",
         "task_archive",
@@ -329,6 +330,9 @@ class RunState(TypedDict, total=False):
     settings: dict  # roles, budgets, engine, workflow mode; configure owns effort_origins (reviewer effort policy)
     prompts_hash: str  # written once by run_setup; read by run_view/evidence_export; launch prompt set
     acceptance_criteria: list  # the approved criteria; written by goals
+    # Original tests the runner sent back to plan review as supersedes entries, once each; written and read only by
+    # autocode_superseded_correction (#2748 follow-up).
+    superseded_corrections: list
     acceptance_tests: dict  # spec-first receipts, redirect and contract-bound pending test names; route pins names, job writes receipts; read by job/check/run_view
     criteria_revision: str | None  # hash of the criteria; follow_up clears it before a fresh plan
     # The approved contract; written by goals. A revision loaded with --goal-file also names that file in

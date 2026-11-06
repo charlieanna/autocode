@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A bug fix whose plan forgot to list an existing test it changes in place no longer stops (#2748
+  follow-up). This is common when one assertion in a larger test expects the bug. When the
+  original-test gate refuses the change for exactly that reason, AutoCode adds the test to the plan's
+  `supersedes` and sends the plan back for review and approval, once per test. The Planner's note now
+  covers a single contradicting assertion and uses an example unrelated to any catalog scenario. A new
+  catalog scenario, `bugfix-superseded-assertion`, covers this case.
 - When the Builder's stronger route is one AutoCode chose itself (not a `--builder-strong-model`
   you named) and its account cannot use it, for example after an expired login, the run no longer
   stops on a login question. AutoCode moves the Builder and its checkers back to their earlier
