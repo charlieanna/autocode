@@ -589,6 +589,11 @@ class CoordinatedMeterTests(unittest.TestCase):
 
 
 class MouseScrollTests(unittest.TestCase):
+    def test_keyboard_reads_still_work_without_the_posix_descriptor_helper(self):
+        ui = screen_ui("x")
+        with mock.patch.dict("sys.modules", {"fcntl": None}):
+            self.assertEqual("x", ui._read_key())
+
     def test_key_reads_do_not_block_on_missing_mouse_bytes_and_restore_flags(self):
         import fcntl
         import os

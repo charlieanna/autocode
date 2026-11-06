@@ -188,6 +188,17 @@ def _sent_back(state: RunState):
             else assessment.get("reason")
         )
         investigation = row.get("investigation") or {}
+        if row.get("action") == "reviewer":
+            yield _entry(
+                "sent_back",
+                row.get("at"),
+                "astra_review",
+                state,
+                headline="Test repair needs reassignment",
+                problem=row.get("scope_reason") or problem,
+                action="AutoCode requested review and reassignment within the approved plan before another Builder attempt.",
+            )
+            continue
         if row.get("action") == "investigator":
             action, by = (
                 "The Builder had already been sent back twice, so AutoCode called the Investigator.",
