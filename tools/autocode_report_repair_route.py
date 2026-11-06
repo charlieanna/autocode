@@ -25,9 +25,19 @@ def restore(state: RunState, original):
     route = original.get("launch_route")
     if not isinstance(route, dict) or not isinstance(route.get("model"), str) or not route["model"]:
         raise util.Paused("PAUSED_STALE_REPORT_ROUTE", "Saved Investigator repair has no original launch route")
+    route = copy.deepcopy(route)
+    # launch_route records absent role fields as None; the attempt's engine is
+    # the resolved value actually used, including the run-level default.
+    if route.get("engine") is None:
+        route["engine"] = original.get("engine")
+        if not isinstance(route["engine"], str) or not route["engine"]:
+            raise util.Paused("PAUSED_STALE_REPORT_ROUTE", "Saved Investigator repair has no original engine")
     roles = state["settings"]["roles"]
     existing = roles.get("stuck_investigator")
-    if existing is not None and any(existing.get(key) != value for key, value in route.items()):
+    effective = dict(existing or {})
+    if "engine" not in effective:
+        effective["engine"] = state["settings"].get("engine", "codex")
+    if existing is not None and any(effective.get(key) != value for key, value in route.items()):
         raise util.Paused("PAUSED_STALE_REPORT_ROUTE", "Investigator route changed since its rejected report")
     if existing is None:
         roles["stuck_investigator"] = copy.deepcopy(route)

@@ -45,6 +45,31 @@ class ReportRepairRouteTests(unittest.TestCase):
                     repair_route.restore(state, original)
                 self.assertEqual(before, state)
 
+    def test_inherited_engine_is_restored_from_the_attempt_not_the_current_default(self):
+        for existing in (False, True):
+            with self.subTest(existing=existing):
+                state, original = self.fixture()
+                original["engine"] = "codex"
+                original["launch_route"]["engine"] = None
+                state["settings"]["engine"] = "codex" if existing else "opencode"
+                if existing:
+                    route = copy.deepcopy(original["launch_route"])
+                    del route["engine"]
+                    state["settings"]["roles"]["stuck_investigator"] = route
+                repair_route.restore(state, original)
+                restored = state["settings"]["roles"]["stuck_investigator"]
+                self.assertEqual("codex", restored.get("engine", state["settings"]["engine"]))
+                self.assertEqual("independent-model", restored["model"])
+                self.assertIsNone(original["launch_route"]["engine"])
+
+    def test_unrecorded_inherited_engine_refuses_instead_of_selecting_a_new_one(self):
+        state, original = self.fixture()
+        original["launch_route"]["engine"] = None
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(repair_route.util.Paused, "no original engine"):
+            repair_route.restore(state, original)
+        self.assertEqual(before, state)
+
     def test_missing_original_route_refuses_instead_of_using_default(self):
         for route in (None, {}, {"model": None}, {"model": ""}):
             with self.subTest(route=route):

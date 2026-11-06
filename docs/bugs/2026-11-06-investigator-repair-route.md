@@ -8,7 +8,9 @@ review role, changing the model used to repair the saved report.
 Report-repair preparation now restores the original attempt's recorded temporary
 route, including model, engine, provider and reasoning level. It does so after
 source and evidence validation and before ordinary boundary/transport admission.
-An existing conflicting route or missing recorded route refuses launch. Other
+When the role inherited its engine, the attempt's resolved engine supplies the
+value; a null snapshot field is never installed as an engine. An existing
+conflicting route or missing recorded route/engine refuses launch. Other
 stages and old records without a temporary route marker retain their behavior.
 No new transport identity, session, approval or retry allowance is created.
 
