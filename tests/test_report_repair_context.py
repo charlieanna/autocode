@@ -15,6 +15,21 @@ from . import test_report_repair as repair_fixtures
 
 
 class ClarificationContextTests(unittest.TestCase):
+    def test_batch_scope_is_copied_and_omitted_from_serial_and_unrelated_repairs(self):
+        task = {"id": "batch-task", "milestone_id": "B", "milestone_ids": ["B", "C"], "acceptance_criteria": ["C2"]}
+        state = {"current_task": task}
+        supplied = context.batch_validation_context(state, "sol")
+        supplied["milestone_ids"].append("A")
+        supplied["acceptance_criteria"].clear()
+        self.assertEqual(["B", "C"], task["milestone_ids"])
+        self.assertEqual(["C2"], task["acceptance_criteria"])
+        for stage in ("terra", "requirements_gather", "astra_discovery", "investigate_stuck"):
+            with self.subTest(stage=stage):
+                self.assertEqual({}, context.batch_validation_context(state, stage))
+        for serial in ({}, {"current_task": None}, {"current_task": {"id": "single", "milestone_id": "B"}}):
+            with self.subTest(state=serial):
+                self.assertEqual({}, context.batch_validation_context(serial, "sol"))
+
     def test_plan_reviewer_repair_includes_source_trace_review_guidance(self):
         instruction = context.baseline_instruction("astra_challenge")
 
@@ -341,6 +356,47 @@ class ClarificationContextTests(unittest.TestCase):
 
 class DecisionRepairContextTests(unittest.TestCase):
     setUp = repair_fixtures.base.RetrofitTest.setUp
+
+    def test_combined_review_repair_receives_exact_batch_scope_without_reading_state(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["settings"]["roles"]["resolver"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["current_task"] = {
+            "id": "combined-task",
+            "milestone_id": "B",
+            "milestone_ids": ["B", "C"],
+            "acceptance_criteria": ["AC2", "AC3"],
+        }
+        expected = {
+            "task_id": self.state["current_task"]["id"],
+            "milestone_id": "B",
+            "milestone_ids": ["B", "C"],
+            "acceptance_criteria": ["AC2", "AC3"],
+        }
+        before = copy.deepcopy(self.state)
+        rejected = {"verdict": "PASS", "milestone_results": [{"milestone_id": "B", "status": "PASS"}]}
+        for stage in ("sol", "astra_checkpoint", "astra_review", "astra_plan", "astra_resolve"):
+            with self.subTest(stage=stage):
+                self.state = copy.deepcopy(before)
+                self.state["next_stage"] = stage
+                repair_fixtures.RepairTests.queue(
+                    self,
+                    stage=stage,
+                    role="sol" if stage == "sol" else "astra",
+                    report=json.dumps(rejected),
+                    error=ValueError("Combined validation must report every batch milestone exactly once"),
+                )
+                request = repair_fixtures.RepairTests.repair_request(self)
+                data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+                self.assertEqual(expected, data.get("batch_validation"))
+                self.assertEqual(rejected, data["rejected_report"]["content"])
+                self.assertIn("exactly the milestone_ids in batch_validation", request["prompt"])
+                self.assertIn("NOT_VERIFIED", request["prompt"])
+                self.assertIn("do not split or narrow the batch", request["prompt"])
+                self.assertTrue(request["report_only"])
+                self.assertEqual("read-only", request["sandbox"])
+                data["batch_validation"]["milestone_ids"].append("A")
+                self.assertEqual(["B", "C"], self.state["current_task"]["milestone_ids"])
 
     def test_first_id_repair_also_names_independently_missing_protected_text(self):
         runner = repair_fixtures.runner

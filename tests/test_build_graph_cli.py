@@ -48,6 +48,29 @@ class JoinedGraphCLI(unittest.TestCase):
     def status(self):
         return json.loads(self.invoke("autocode", ["--run-dir", str(self.run), "--status"]).stdout)
 
+    def test_combined_report_repair_uses_current_pair_without_rebuilding_or_adding_accepted_parent(self):
+        spec = fixtures.notes()
+        spec["batch_report_repair"] = True
+        self.seed(spec, max_parallel=2)
+        self.build()
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
+        self.assertEqual(1, self.status()["view"]["progress"]["tasks"]["done"])
+        self.build()
+        starts = self.events()
+        self.assertEqual(["M1", "M2", "M3"], sorted(row["milestone"] for row in starts))
+
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
+
+        status = self.status()
+        self.assertEqual(3, status["view"]["progress"]["tasks"]["done"])
+        self.assertEqual(starts, self.events(), "Report repair never launches another Builder")
+        repairs = self.events("batch_repair", stage="sol_report_repair")
+        self.assertEqual(1, len(repairs), "The exact member inventory repairs the first rejected report")
+        self.assertEqual(["M2", "M3"], repairs[0]["scope"]["milestone_ids"])
+        self.assertEqual(["C2", "C3"], repairs[0]["scope"]["acceptance_criteria"])
+        self.assertTrue(any(row["kind"] == "report_repaired" for row in status["view"]["recoveries"]))
+        self.assertFalse(status["completion_current"], "The dependent CLI milestone has not been delivered")
+
     def test_ten_milestones_join_only_reviewed_inputs_and_finish_without_duplicate_builders(self):
         spec, dependencies, values = joined_graph()
         self.seed(spec, max_parallel=3)
