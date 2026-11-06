@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A first project whose only code is a pytest `conftest.py` (beside a README and an empty package) is
+  proved like any other first project. The base collects no tests, so there is no existing behavior to
+  preserve; the proof used to report preservation unproven and ask a person how to proceed.
 - Combined milestone validation now explicitly covers every integrated member even when model-authored
   recovery notes describe separate serial reviews. Concrete checks and permission constraints remain
   in force; missing member evidence still blocks acceptance (#2793).

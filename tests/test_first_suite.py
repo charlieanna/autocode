@@ -170,6 +170,30 @@ class FirstPythonSuiteTests(unittest.TestCase):
         self.assertEqual(verify.PASS, result["verdict"], result)
         self.assertFalse(result["unverified"], result)
 
+    def test_a_conftest_that_only_prepares_the_first_suite_has_no_behavior_to_preserve(self):
+        # A live first project held README.md, an empty package and a tests/conftest.py that only put the
+        # repository on sys.path. The base collected no tests, so the proof asked a person to accept it.
+        conftest = "import sys, pathlib\nsys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))\n"
+        result = self.prove(
+            {"README.md": "A new project.\n", "inventory/__init__.py": "", "tests/conftest.py": conftest}
+        )
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertFalse(result["unverified"], result)
+        self.assertTrue(any("no executable source" in note for note in result["notes"]), result["notes"])
+
+    def test_a_conftest_beside_existing_code_or_tests_still_requires_preservation(self):
+        conftest = "import sys\n"
+        for seed in (
+            {"tests/conftest.py": conftest, "legacy.py": "VALUE = 1\n"},
+            {"conftest.py": conftest, "tests/helpers.py": "VALUE = 1\n"},
+        ):
+            with self.subTest(sorted(seed)):
+                self.assertEqual(verify.UNVERIFIED, self.prove(seed)["verdict"])
+        self.assertTrue(first_suite.test_harness("tests/conftest.py"))
+        self.assertFalse(first_suite.test_harness("tests/helpers.py"))
+        self.assertFalse(first_suite.inert_base_file("conftest.py", 11, separate=True, source=True))
+        self.assertFalse(first_suite.inert_base_file("conftest.py", 11, separate=False, source=False))
+
     def test_an_extensionless_file_that_can_run_still_requires_preservation(self):
         for seed in (
             {"a": "hello\n", "Makefile": "test:\n\techo hi\n"},

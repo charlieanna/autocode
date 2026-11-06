@@ -225,7 +225,7 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
     document (``.md``), a .gitignore, an empty file, or, if no nonempty file in
     the base is code or a test path, a project, dependency or license manifest
     (``first_suite.manifest``: a first project, #1783) or a plain text or data
-    file the deliverable reads (``first_suite.data_file``, #2036; ``plain_note``, #2259); and
+    file the deliverable reads (``data_file``, #2036; ``plain_note``, #2259; ``test_harness``); and
     make_tree copies no git-ignored code into the proof trees (``generated_sources`` of
     ``dependencies_from`` is empty, and so is the launch inventory of an
     in-place run, ``ignored_inputs``: autocode_launch_inputs.Supply).
@@ -279,7 +279,7 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
     launched = ignored_inputs.generated if ignored_inputs is not None else {}
     # With no code or test file in the base, the suite had nothing to run, so a
     # manifest holds no behavior to preserve (#1783).
-    source = any(size and (is_code_path(path) or is_test_path(path)) for path, size in regular)
+    source = first_suite.holds_source(regular, lambda path: is_code_path(path) or is_test_path(path))
     read = first_suite.blob_reader(workspace, base)
     accepted = [
         first_suite.inert_base_file(path, size, separate=separate, source=source, read=read) for path, size in regular
