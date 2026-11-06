@@ -17,6 +17,11 @@ PR template asks for an entry here; a change without one is incomplete.
   a limit, and says the run reached its limit rather than "AutoCode hit a problem of its own". The
   status view's `needs_you` no longer names `--resolver-response provide_information`, and a number
   with no real ceiling reads "N or more" (#2607).
+- Fewer changed lines need a written reason. The mutation check now also breaks a line whose only
+  behavior is a call made for its effect (the call is dropped), a computed value it binds (the value
+  becomes `None`) or a loop (it runs over nothing), when no other operator reaches that line. On a live
+  build with no coverage tool, the first proof left 86 of 229 changed lines for the Tester to excuse
+  by hand instead of 146 of 208, and tested 143 lines instead of 62 (#2815).
 - The Investigator now sees runs that used to stall out of its reach. A stage that stops twice on
   unchanged source without a valid report (a Tester re-issued by the Completion Reviewer after each
   idle timeout) pauses as a repeated failure instead of looping. The same stuck problem on changed
