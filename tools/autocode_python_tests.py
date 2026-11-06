@@ -4,7 +4,7 @@ import ast
 import re
 import shlex
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 try:
@@ -132,6 +132,12 @@ def prefers_pytest_in(directory, files, read) -> bool:
 
 
 FAMILY_DIRS = ("components", "repos")
+# Monorepo package folders (2026-11-06): each package runs its own tests from its own folder, and
+# without a parent ``__init__.py`` a root ``unittest discover`` never enters the folder and finds
+# none. A run then could not prove the existing tests and asked a person to add a marker file
+# (docs/bugs/2026-11-02-retry-loops.md). Each package with tests runs as an isolated member of its
+# folder instead, as the collector already runs components/ (autocode_component_tests).
+PACKAGE_DIRS = ("packages", "apps", "services", "libs")
 
 
 def family_inventory(files, read, root: Path):
@@ -166,8 +172,23 @@ def family_inventory(files, read, root: Path):
         )
         for family in FAMILY_DIRS
     }
+    package_families = {
+        folder: holding
+        for folder in PACKAGE_DIRS
+        if f"{folder}/__init__.py" not in files
+        and (
+            holding := sorted(
+                {
+                    PurePosixPath(p).parts[1]
+                    for p in tests
+                    if len(PurePosixPath(p).parts) > 2 and PurePosixPath(p).parts[0] == folder
+                }
+            )
+        )
+    }
     return FamilyInventory(
         tests=tests,
+        package_families=package_families,
         components=members["components"],
         component_packages=packages["components"],
         repo_members=members["repos"],
@@ -184,6 +205,8 @@ class FamilyInventory:
     repo_members: list
     repo_packages: list
     repo_parent_package: bool
+    # Unmarked monorepo package folders (PACKAGE_DIRS) and the members that hold tests.
+    package_families: dict = field(default_factory=dict)
 
     def any_family(self):
         """Whether any nested family (or family-shaped test tree) selects Python unittest."""
@@ -197,7 +220,13 @@ class FamilyInventory:
 
     def collected_by_runner(self):
         """Whether the isolated collector must run this tree instead of a root discovery."""
-        return self.has_components() or self.has_repos()
+        return self.has_components() or self.has_repos() or bool(self.package_families)
+
+    def package_arguments(self):
+        """The collector's ``--package-family FOLDER MEMBER...`` arguments, in folder order."""
+        return [
+            word for folder, members in self.package_families.items() for word in ("--package-family", folder, *members)
+        ]
 
 
 def unittest_package(source: str) -> bool:

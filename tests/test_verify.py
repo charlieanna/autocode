@@ -263,6 +263,51 @@ class ComponentCollectionTests(unittest.TestCase):
         self.assertNotIn(" -c ", framework.suite)
 
 
+class MonorepoPackageCollectionTests(unittest.TestCase):
+    """Packages that run their own tests from their own folders (live run, 2026-11-06).
+
+    Without packages/__init__.py a root ``unittest discover`` found 0 tests, so the proof could not
+    show the existing tests still pass and the run asked a person to add a marker file. Each package
+    now runs isolated from its own folder; same-named test modules keep distinct identities.
+    """
+
+    PAGER = "def page_count(total, size):\n    return -(-total // size)\n"
+
+    def files(self):
+        test = (
+            "import unittest\nfrom pager import page_count\n\n"
+            "class {name}(unittest.TestCase):\n def test_exact_multiple(self): self.assertEqual(2, page_count(4, 2))\n"
+        )
+        return {
+            "README.md": "Run tests from each package: cd packages/invoices && python3 -m unittest discover -v\n",
+            "packages/invoices/pager.py": self.PAGER,
+            "packages/invoices/test_pager.py": test.format(name="InvoicePager"),
+            "packages/search/pager.py": self.PAGER,
+            "packages/search/test_pager.py": test.format(name="SearchPager"),
+        }
+
+    def test_each_package_runs_its_own_tests_from_its_own_folder(self):
+        project = Project(self.files())
+        self.addCleanup(project.close)
+        framework = verify.detect_framework(project.root, python=sys.executable)
+        self.assertIn("--package-family packages invoices search", framework.suite)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "packages", timeout=60)
+        text = Path(receipt["output"]).read_text()
+        self.assertEqual(0, receipt["exit_code"], text)
+        self.assertEqual(2, receipt["results"]["total"], text)
+        for name in ("packages.invoices.test_pager.InvoicePager", "packages.search.test_pager.SearchPager"):
+            self.assertIn(f"test_exact_multiple ({name}.test_exact_multiple) ... ok", text)
+
+    def test_a_marked_package_folder_keeps_root_discovery(self):
+        # packages/__init__.py lets root discovery reach the tests, so nothing changes there.
+        files = {**self.files(), "packages/__init__.py": "", "packages/invoices/__init__.py": ""}
+        files.pop("packages/search/test_pager.py")
+        project = Project(files)
+        self.addCleanup(project.close)
+        framework = verify.detect_framework(project.root, python=sys.executable)
+        self.assertNotIn("--package-family", framework.suite)
+
+
 class ReposCollectionTests(unittest.TestCase):
     """The joint integration workspace layout: markerless suites under repos/<member>/ (#2414)."""
 
