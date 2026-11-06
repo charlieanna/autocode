@@ -259,7 +259,18 @@ def _authenticate_check_receipt(receipt, path, workspace, tool_outputs, *, recei
                 value = json.loads(line)
                 matched |= value == receipt or (attested is not None and receipts.attests(value, attested))
     if not matched:
-        raise ValueError("No independently executed Validator tool event matches receipt")
+        names = {str(path), os.path.relpath(path.resolve(), Path(workspace).resolve())}
+        shortened = receipts.display_filter([item.get("command") for item in tool_outputs], names)
+        raise ValueError(
+            "No independently executed Validator tool event matches receipt"
+            + (
+                f": its capture command sent the output through `{shortened}`, which dropped both the receipt"
+                " line and capture's short exit_code line. Run capture again without filtering its output"
+                " and cite that new receipt."
+                if shortened
+                else ""
+            )
+        )
     return "executed_capture_event"
 
 
