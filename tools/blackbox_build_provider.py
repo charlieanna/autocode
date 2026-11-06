@@ -280,10 +280,18 @@ def main():
         result = json.loads(Path(data["original"]["output"]).read_text())
         if data["original"]["stage"] == "sol" and spec.get("changed_code_citation_repair"):
             context = data.get("changed_code_citation_context") or {}
-            result = copy.deepcopy(data["rejected_report"]["content"])
-            if context.get("proof_reference"):
+            record("citation_repair", context=context, error=data["error"], original_error=data.get("original_error"))
+            if spec.get("repair_loses_error") and not data.get("original_report"):
+                # A format failure in repair must not erase the original evidence rejection.
+                Path(sys.argv[sys.argv.index("-o") + 1]).write_text("I will repair the report")
+                record("finish")
+                print(json.dumps({"type": "turn.completed"}), flush=True)
+                return
+            source = data.get("original_report") or data["rejected_report"]
+            result = copy.deepcopy(source["content"])
+            rejection = data.get("original_error", "") if spec.get("repair_loses_error") else data["error"]
+            if context.get("proof_reference") and "unauthenticated evidence" in rejection:
                 result["changed_code_exceptions"][0]["evidence_refs"] = [context["proof_reference"]]
-            record("citation_repair", context=context)
         elif data["original"]["stage"] == "sol" and spec.get("batch_report_repair"):
             scope = data.get("batch_validation") or {}
             # A report-only provider cannot discover the batch by reading private run state.
