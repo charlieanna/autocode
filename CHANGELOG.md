@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A spec-first wave stays parallel when writing its tests needed recovery. A repair of the Tester's report,
+  or the Investigator looking at why it stopped, no longer counts as an attempt at the milestone, so the
+  Orchestrator still gives each wave member its own Builder.
 - A first project whose only code is a pytest `conftest.py` (beside a README and an empty package) is
   proved like any other first project. The base collects no tests, so there is no existing behavior to
   preserve; the proof used to report preservation unproven and ask a person how to proceed.
