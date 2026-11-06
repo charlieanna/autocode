@@ -48,6 +48,23 @@ class JoinedGraphCLI(unittest.TestCase):
     def status(self):
         return json.loads(self.invoke("autocode", ["--run-dir", str(self.run), "--status"]).stdout)
 
+    def test_format_failure_in_first_repair_keeps_the_original_evidence_error(self):
+        spec = fixtures.notes()
+        spec["changed_code_citation_repair"] = True
+        spec["repair_loses_error"] = True
+        self.seed(spec, max_parallel=2)
+        self.build()
+        starts = self.events()
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
+        status = self.status()
+        self.assertEqual(1, status["view"]["progress"]["tasks"]["done"])
+        self.assertEqual(starts, self.events(), "A reporting failure must not replay the Builder")
+        repairs = self.events("citation_repair", stage="sol_report_repair")
+        self.assertEqual(2, len(repairs))
+        self.assertEqual(repairs[0]["error"], repairs[1]["original_error"])
+        self.assertNotEqual(repairs[0]["error"], repairs[1]["error"])
+        self.assertFalse(status["completion_current"])
+
     def test_changed_line_citation_repair_uses_enclosing_proof_without_new_builder(self):
         spec = fixtures.notes()
         spec["changed_code_citation_repair"] = True
