@@ -37,8 +37,9 @@ example against the earlier exact result when the recorded inputs and rule match
 Use that comparison to check the example without repeating the same computation.
 Recompute changed examples and any result the earlier report does not establish
 exactly. A blanket statement that examples passed is insufficient. Still audit
-every concern, revised failure case, test selector and obligation in the exact
-current plan. These observations grant no approval or execution evidence.
+every concern, revised failure case, test selector, changed implementation detail
+and obligation in the exact current plan. These observations grant no approval
+or execution evidence.
 """
 RULE = """
 RETAIN VALIDATED TEXT. retained_criteria lists hash-bound references to the current
@@ -297,6 +298,39 @@ def validated_trace(state: RunState):
     return copy.deepcopy(trace) if isinstance(trace, list) else None
 
 
+def _example_scope_matches(before, after):
+    """A guard addition may extend both bindings and their implementation description."""
+    changed = {k for k in before.keys() | after.keys() if before.get(k) != after.get(k)}
+    changed -= {"acceptance_criteria", "important_failure_cases"}
+    if not changed:
+        return True
+    if not changed <= {"milestones", "initial_task", "technical_approach"} or len(before.get("milestones") or []) != 1:
+        return False
+
+    prior_ids = {row["id"] for row in before["acceptance_criteria"]}
+    current_ids = {row["id"] for row in after["acceptance_criteria"]}
+    added = [row for row in after["acceptance_criteria"] if row["id"] not in prior_ids]
+    if (
+        not added
+        or not prior_ids <= current_ids
+        or any(not row["verification_method"].startswith("guard: ") for row in added)
+    ):
+        return False
+
+    guard_ids = [row["id"] for row in added]
+    for old, new in (
+        (before["milestones"][0], after["milestones"][0]),
+        (before.get("initial_task") or {}, after.get("initial_task") or {}),
+    ):
+        if new != {
+            **old,
+            "objective": new.get("objective"),
+            "acceptance_criteria": [*(old.get("acceptance_criteria") or []), *guard_ids],
+        }:
+            return False
+    return True
+
+
 def prior_review_examples(state: RunState, route: str, snapshot_revision: Callable[[], str]) -> dict | None:
     """Carry only accepted reviewer prose for unchanged examples in the first bugfix revision."""
     current = state.get("goal_contract") or {}
@@ -320,11 +354,7 @@ def prior_review_examples(state: RunState, route: str, snapshot_revision: Callab
         or not all(identity.sealed(draft) for draft in (prior, current))
         or after.get("task_kind") != "bugfix"
         or len(after.get("milestones") or []) != 1
-        or any(
-            before.get(k) != after.get(k)
-            for k in before.keys() | after.keys()
-            if k not in {"acceptance_criteria", "important_failure_cases"}
-        )
+        or not _example_scope_matches(before, after)
     ):
         return None
     entry = ((state.get("planning") or {}).get("reports") or {}).get("astra_challenge") or {}

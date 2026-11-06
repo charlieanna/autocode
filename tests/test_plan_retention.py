@@ -53,12 +53,31 @@ class PlanRetentionTests(unittest.TestCase):
             },
         }
 
-    def reviewed_state(self):
+    def reviewed_state(self, *, added_guard=False):
         state = self.state()
         draft = state["goal_contract"]
         draft.update(task_id="small-fix", revision=1, approval_status="draft", origin="glm_draft")
         body = draft["body"]
-        body.update(task_kind="bugfix", milestones=[{"id": "M1"}])
+        body.update(
+            task_kind="bugfix",
+            milestones=[
+                {
+                    "id": "M1",
+                    "objective": "Fix the bug",
+                    "acceptance_criteria": ["AC8", "AC9"],
+                    "affected_paths": ["todos.py"],
+                    "depends_on": [],
+                }
+            ],
+            initial_task={
+                "milestone_id": "M1",
+                "objective": "Fix the bug",
+                "acceptance_criteria": ["AC8", "AC9"],
+                "affected_paths": ["todos.py"],
+                "validation_plan": ["python3 -m unittest"],
+            },
+            technical_approach=["Fix the bug and test it"],
+        )
         body["acceptance_criteria"].append(
             {**body["acceptance_criteria"][0], "id": "AC9", "current_behavior": "Old count: 3"}
         )
@@ -66,7 +85,22 @@ class PlanRetentionTests(unittest.TestCase):
         revised = copy.deepcopy(draft)
         revised.update(revision=2, origin="glm_revise")
         revised["body"]["acceptance_criteria"][0]["verification_method"] = "guard: test_ac8_bad_usage"
-        revised["body"]["acceptance_criteria"][1]["current_behavior"] = "Old count: 4"
+        if added_guard:
+            revised_body = revised["body"]
+            revised_body["acceptance_criteria"].append(
+                {
+                    **body["acceptance_criteria"][0],
+                    "id": "AC10",
+                    "criterion": "Given an empty list, print an empty report.",
+                    "verification_method": "guard: test_empty",
+                }
+            )
+            for binding in (revised_body["initial_task"], revised_body["milestones"][0]):
+                binding["acceptance_criteria"].append("AC10")
+                binding["objective"] += " and retain the empty report test"
+            revised_body["technical_approach"] = ["Fix the bug, test it, and retain the empty report test"]
+        else:
+            revised["body"]["acceptance_criteria"][1]["current_behavior"] = "Old count: 4"
         revised["hash"] = digest({k: revised[k] for k in ("task_id", "revision", "body")})
         state.update(goal_contract=revised, contract_history=[draft], iteration=1)
         state["planning"]["reports"]["astra_challenge"] = {
@@ -116,6 +150,28 @@ class PlanRetentionTests(unittest.TestCase):
         draft = state["goal_contract"]
         draft["hash"] = digest({k: draft[k] for k in ("task_id", "revision", "body")})
         self.assertIsNone(retention.prior_review_examples(state, "plan_reviewer", lambda: "source-1"))
+
+    def test_adding_a_guard_keeps_only_earlier_examples_eligible_for_reuse(self):
+        state = self.reviewed_state(added_guard=True)
+        result = retention.prior_review_examples(state, "plan_reviewer", lambda: "source-1")
+        self.assertEqual(["AC8", "AC9"], result["unchanged_example_ids"])
+
+    def test_guard_reuse_refuses_a_change_to_scope_binding_or_test_kind(self):
+        for kind in ("path", "command", "removed_binding", "fail_first"):
+            state = self.reviewed_state(added_guard=True)
+            draft = state["goal_contract"]
+            body = draft["body"]
+            if kind == "path":
+                body["milestones"][0]["affected_paths"].append("unrelated.py")
+            elif kind == "command":
+                body["initial_task"]["validation_plan"] = ["echo passed"]
+            elif kind == "removed_binding":
+                body["initial_task"]["acceptance_criteria"].remove("AC8")
+            else:
+                body["acceptance_criteria"][-1]["verification_method"] = "test: test_empty"
+            draft["hash"] = digest({k: draft[k] for k in ("task_id", "revision", "body")})
+            with self.subTest(kind=kind):
+                self.assertIsNone(retention.prior_review_examples(state, "plan_reviewer", lambda: "source-1"))
 
     def test_final_prompt_carries_current_observations_and_keeps_the_full_review(self):
         state = self.reviewed_state()
