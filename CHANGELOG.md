@@ -11,7 +11,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
-- The initial Tester handoff names the enclosing proof as the accepted citation for changed-code mutation and coverage observations, preventing avoidable raw-log citation repairs.
+- Review handoffs name the current enclosing proof as the accepted citation for changed-code mutation and coverage observations. Follow-up tasks refer to it symbolically, preventing avoidable raw-log and stale-proof citation repairs.
 
 - A first project whose only code is a pytest `conftest.py` (beside a README and an empty package) is
   proved like any other first project. The base collects no tests, so there is no existing behavior to

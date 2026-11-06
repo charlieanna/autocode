@@ -11,3 +11,11 @@ that raw mutation logs and coverage files may be inspected but are not accepted
 references in changed_code_exceptions. Existing evidence and judgment gates are
 unchanged. A regression checks the original handoff, with the existing CLI
 evidence-gate tests retained as the mapped consumer.
+
+A later read-only retry regenerated the proof while its Completion Reviewer task
+still named the previous proof directory. The Tester inspected both proofs but
+cited the older one, triggering another report repair. The shared Tester and
+Completion Reviewer instruction now identifies the current handoff's proof as
+the citation authority and tells next-task authors to refer to that proof
+symbolically. Requested checks and source-bound admission remain unchanged.
+The retry guidance regression fails without this instruction.
