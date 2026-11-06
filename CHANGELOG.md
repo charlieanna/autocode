@@ -16,6 +16,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The Builder is told to keep a superseded test under its own name and change only its contradicting
+  assertions (#2748 follow-up). A live GLM run renamed the old test to the criterion's new test name,
+  which the Completion Reviewer sent back as a removed test.
 - A bug fix whose plan forgot to list an existing test it changes in place no longer stops (#2748
   follow-up). This is common when one assertion in a larger test expects the bug. When the
   original-test gate refuses the change for exactly that reason, AutoCode adds the test to the plan's

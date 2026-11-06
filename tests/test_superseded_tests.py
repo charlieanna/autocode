@@ -259,6 +259,8 @@ class Gate(unittest.TestCase):
         packet = guard.context(self.state["settings"], ["tests/"], self.state)
         self.assertEqual([ENTRY], packet["superseded_tests"])
         self.assertIn("superseded_tests", packet["instruction"])
+        # A live GLM Builder renamed the superseded test to the criterion's new test name (2026-11-06).
+        self.assertIn("Never rename, move or delete one", packet["instruction"])
         self.assertNotIn("superseded_tests", guard.context(self.state["settings"], ["tests/"]))
 
 
