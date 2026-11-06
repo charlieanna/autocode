@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A spec-first wave built one milestone at a time is proved against each milestone's own tests. The
+  regression proof of the first member used to run the tests already written for the others, which cannot
+  pass until they are built, and refused it. Those files are now left out until their milestone is due;
+  the final completion proof still runs every test.
 - A first project whose only code is a pytest `conftest.py` (beside a README and an empty package) is
   proved like any other first project. The base collects no tests, so there is no existing behavior to
   preserve; the proof used to report preservation unproven and ask a person how to proceed.
