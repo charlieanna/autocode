@@ -18,6 +18,10 @@ PR template asks for an entry here; a change without one is incomplete.
 - Tester and completion-review JSON repairs can use exact-source-bound edits, preserving unrelated captured commands; lossless inline history avoids duplicating large reports in later repair handoffs.
   Scripted scenario reviewers use the offered repair envelope too, retaining their full-report
   corrections without mixing them with an empty transport placeholder.
+- A spec-first wave built one milestone at a time is proved against each milestone's own tests. The
+  regression proof of the first member used to run the tests already written for the others, which cannot
+  pass until they are built, and refused it. Those files are now left out until their milestone is due;
+  the final completion proof still runs every test.
 - A GLM request that Z.ai refuses with "Prompt exceeds max length" is now a context-window stop
   (`PAUSED_CONTEXT_WINDOW`), not an uncertain provider stop the Resolver holds for a person.
 

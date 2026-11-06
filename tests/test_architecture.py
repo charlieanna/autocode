@@ -49,6 +49,8 @@ TANGLED: frozenset[str] = frozenset()
 # tree for it and diffs product files through the staged tree, which raised autocode_verify.py.
 # 2026-10-15: the pinned pytest policy reader moved beside the current one in autocode_test_root, and a
 # package's suite (#711) is detected and run through autocode_package_scope, which lowered autocode_verify.py.
+# 2026-11-06: a proof leaves out a spec-first wave's tests for members not built yet (autocode_pending_tests);
+# verify() takes the files to withhold and drops them from the change: autocode_verify.py +2, verify() +3.
 # 2026-10-16: queuing a report-only repair moved to autocode_report_repair_queue (#1257).
 # 2026-10-16: annotating commit_boundary_candidate's state as RunState (#695) pushed its signature past
 # the line length, and ruff format wrapped it onto three lines: autocode.py +2, no new behavior.
@@ -65,7 +67,7 @@ MAX_LINES = {
     "autopilot.py": 1392,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1028,
-    "autocode_verify.py": 3010,
+    "autocode_verify.py": 3012,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its
@@ -86,7 +88,7 @@ MAX_FUNCTION_LINES = {
     ("autocode_run_actions.py", "handle"): 9,
     ("autocode_args.py", "build_parser"): 539,
     ("autocode.py", "run_role"): 527,
-    ("autocode_verify.py", "verify"): 331,
+    ("autocode_verify.py", "verify"): 334,
     ("autocode_verify.py", "_preserve_suite"): 219,
     ("autocode_configure.py", "configure"): 291,
     ("autocode_configure.py", "_configure_saved"): 164,
