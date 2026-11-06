@@ -406,5 +406,17 @@ class ChangedCodeEvidenceCliTests(unittest.TestCase):
         )
 
 
+class ChangedCodeCitationPromptTests(unittest.TestCase):
+    def test_initial_tester_handoff_names_the_authenticated_proof_citation(self):
+        import autocode_regression as regression
+
+        instruction = regression.mutation_note({"changed_code_evidence": {"obligations": []}})
+        self.assertIn("regression_proof.path", instruction)
+        self.assertIn("Individual mutation logs and raw coverage files are not accepted", instruction)
+        self.assertIn("may inspect those artifacts", instruction)
+        self.assertIn("does not change a judgment", instruction)
+        self.assertEqual("", regression.mutation_note({}))
+
+
 if __name__ == "__main__":
     unittest.main()
