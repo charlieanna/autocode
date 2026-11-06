@@ -106,6 +106,28 @@ class ProviderLaunchTests(unittest.TestCase):
                 self.assertEqual(not write and not repair, "/authorized/external" in actual)
                 self.assertEqual(not write and not repair, roots.called)
 
+    def test_tool_free_repair_handoff_matches_the_recorded_launch_boundary(self):
+        data = {"report_repair": True, "original_report": {"content": {"diagnosis": "saved"}}}
+        prompt = "General instructions mention shell commands.\nCURRENT HANDOFF DATA\n" + json.dumps(data)
+        worker = {
+            "engine": "opencode",
+            "configured": True,
+            "provider": "kilocode",
+            "kilo_readonly_tools": True,
+            "planning_report_recovery": True,
+        }
+        rendered = launch.containment_prompt(prompt, worker, stage="investigate_stuck")
+        instructions, payload = rendered.rsplit("\nCURRENT HANDOFF DATA\n", 1)
+        self.assertIn("all tools disabled", launch.stage_record(worker)["isolation"])
+        self.assertIn("All tools are disabled", instructions)
+        self.assertIn("Do not call or wait for tools", instructions)
+        self.assertIn("runner executes", instructions)
+        self.assertIn("Preserve uncertainty", instructions)
+        self.assertEqual(data, json.loads(payload))
+        for key in ("kilo_readonly_tools", "planning_report_recovery"):
+            other = {**worker, key: False}
+            self.assertEqual(prompt, launch.containment_prompt(prompt, other))
+
     def test_native_handoff_keeps_all_task_input_with_small_owned_manifest_locator(self):
         descriptor = {
             "manifest": "/owned/isolation.json",

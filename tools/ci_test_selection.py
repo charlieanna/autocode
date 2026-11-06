@@ -240,6 +240,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scenarios/catalog/review-clean-pr/", ("tests.test_review_clean_fixture", "tests.test_review_attribution_cli")),
     ("scenarios/catalog/local-compose-two-services/", ("tests.test_local_compose_scenario",)),
     ("scenarios/harness/components_driver.py", ("tests.test_local_compose_scenario",)),
+    ("tools/prompts/fragments/provider-launch/tool-free-report-repair.md", ("tests.test_provider_launch",)),
     ("scenarios/harness/profiles.py", ("tests.test_kilocode_effort",)),
     ("tools/prompts/acceptance-tests.md", ("tests.test_acceptance_tests", "tests.test_acceptance_runner_handoff")),
     (

@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Report-only Kilo repairs now state that all tools are disabled and must use the supplied evidence, avoiding instructions to wait for unavailable tools.
+
 - A first project whose only code is a pytest `conftest.py` (beside a README and an empty package) is
   proved like any other first project. The base collects no tests, so there is no existing behavior to
   preserve; the proof used to report preservation unproven and ask a person how to proceed.
