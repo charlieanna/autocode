@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Loading the terminal UI no longer requires the POSIX-only descriptor helper; input reads use it
+  only when available, keeping nonblocking mouse handling on supported terminals.
 - Report repair tolerates bounded JSON formatting overhead while retaining the complete
   saved artifact and the existing compact-content and final-handoff limits.
 - Investigator report repairs avoid duplicating the preceding Tester diagnosis, retain the exact
