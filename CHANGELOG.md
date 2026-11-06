@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- An Investigator report repair survives run-wide time, cost, iteration and transport boundaries.
+  Existing stranded classifications can continue their pinned repair without replaying the
+  investigation, resetting its allowances or changing the approved plan.
+
 - A first project whose only code is a pytest `conftest.py` (beside a README and an empty package) is
   proved like any other first project. The base collects no tests, so there is no existing behavior to
   preserve; the proof used to report preservation unproven and ask a person how to proceed.
