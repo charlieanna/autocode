@@ -234,6 +234,27 @@ class ReadyGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "changed a number the source states: 29.50"):
             self.ready(draft, records=records)
 
+    def test_amounts_in_cents_survive_when_the_sentence_itself_spells_one_in_cents(self):
+        # Live GLM planners (#2780) wrote the brief's $50 and $4.99 as the code's cents, and finalize refused it.
+        text = (
+            "Our shop promises free shipping on orders of $50 or more, but an order of exactly $50.00 "
+            "(shipping_fee(5000)) is still charged the $4.99 fee; only orders above $50 ship free."
+        )
+        records = [{"id": "task:0", "kind": "task", "text": text}]
+        kept = "shipping_fee(5000) == 0 and shipping_fee(4999) == 499: orders of 5000 cents or more ship free"
+        self.ready(body([criterion("C1", kept, [text])]), records=records)
+        # The amount itself must still survive: a changed fee is refused, named as the source writes it.
+        changed = "shipping_fee(5000) == 0 and shipping_fee(4999) == 498"
+        with self.assertRaisesRegex(ValueError, r"changed a number the source states: 4\.99 \(state each as"):
+            self.ready(body([criterion("C1", changed, [text])]), records=records)
+        # Without the source's own pairing, a cents value is not the stated amount.
+        plain = "Orders of $50 or more ship free."
+        with self.assertRaisesRegex(ValueError, "changed a number the source states: 50"):
+            self.ready(
+                body([criterion("C1", "shipping_fee(5000) == 0", [plain])]),
+                records=[{"id": "task:0", "kind": "task", "text": plain}],
+            )
+
     def test_an_issue_reference_is_not_a_number_the_criteria_must_repeat(self):
         # Live OSS bugfix (#1874): "Fix issue #474 ..." was refused because no criterion said 474.
         text = "Fix issue #474 in this repo: from_html() raises ValueError on a ragged HTML table."

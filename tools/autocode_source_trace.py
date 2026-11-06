@@ -94,6 +94,28 @@ def _number_in(number, text):
     return number == "0" and re.search(r"(?<![\w-])zero(?![\w-]|\s+point\b)", text, re.I) is not None
 
 
+# A money amount the source writes with a dollar sign: $50, $50.00, $4.99.
+_DOLLARS = re.compile(r"\$(\d+)(?:\.(\d{2}))?(?!\d|\.\d)")
+
+
+def _cents(sentence):
+    """The source's dollar amounts and their values in cents, when the sentence itself spells one in cents.
+
+    A brief such as "an order of exactly $50.00 (shipping_fee(5000)) is still charged the $4.99 fee" tells
+    the planner the code counts cents. Criteria that then say ``shipping_fee(5000) == 0`` and ``499`` keep
+    the amounts the source states, in the code's own unit (#2780). Without such a pairing in the sentence,
+    "$50" must survive as 50: a stray 5000 elsewhere is not the same amount.
+    """
+    amounts = {}
+    for match in _DOLLARS.finditer(sentence):
+        stated = match[1] + ("." + match[2] if match[2] else "")
+        amounts.setdefault(stated, str(int(match[1]) * 100 + int(match[2] or 0)))
+    outside = _DOLLARS.sub(" ", sentence)
+    if not any(_number_in(cents, outside) for cents in amounts.values()):
+        return {}
+    return amounts
+
+
 def any_citations(body):
     """True when at least one criterion carries a non-empty sources list."""
     return any(row.get("sources") for row in body.get("acceptance_criteria") or [])
@@ -264,9 +286,18 @@ def _survival_errors(body, records, waivers):
                 ticket_reference_keys=ticket_reference_keys,
             )
             numbers = _NUMBER.findall(_REFERENCE.sub(" ", _STANDARD.sub(" ", value_text)))
-            lost = [number for number in dict.fromkeys(numbers) if not _number_in(number, corpus)]
+            cents = _cents(value_text)
+            lost = [
+                number
+                for number in dict.fromkeys(numbers)
+                if not _number_in(number, corpus) and not (number in cents and _number_in(cents[number], corpus))
+            ]
             if lost:
-                errors.append(f"Criteria citing {record['id']} changed a number the source states: " + ", ".join(lost))
+                errors.append(
+                    f"Criteria citing {record['id']} changed a number the source states: "
+                    + ", ".join(lost)
+                    + " (state each as the source writes it in the criterion text, beside any other spelling)"
+                )
             bound = set(_bound_literals(body, citing)) | _inactive_literals(body, records, record["id"])
             # The quotes themselves are not survival: a citation names the
             # obligation; the criterion must still carry it.
