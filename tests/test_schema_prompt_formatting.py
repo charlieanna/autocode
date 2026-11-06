@@ -161,6 +161,8 @@ class CompactSchemaPromptTests(unittest.TestCase):
         instruction = " ".join(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0].split())
         self.assertIn("Use in-memory inputs for file-shaped examples", instruction)
         self.assertIn("leave the execution to the Tester", instruction)
+        self.assertIn("copy the literal from the current handoff", instruction)
+        self.assertIn("compare the complete strings in one read-only computation", instruction)
 
     def test_a_verdict_report_with_assistant_text_keeps_execution_evidence_rules(self):
         schema = {"properties": {"assistant_reply": {"type": "string"}, "checks": {"type": "array"}}}
