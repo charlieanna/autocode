@@ -11,6 +11,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A spec-first run now builds a parallel wave in parallel. Before the Orchestrator dispatches a wave,
+  the Tester writes its acceptance tests. That time counted as an attempt at the current milestone,
+  so every wave went to one Builder. That Builder then built the first milestone against the other
+  milestones' tests, which cannot pass yet. The time still counts toward the milestone's budget.
+- A parallel Builder now starts with its wave's acceptance tests counted as written, and keeps them
+  fixed. Before, each worker would have sent itself back to the Tester to write them again, and
+  integration would then have refused the batch for the changed test files.
 - A Tester that runs `capture` through `2>&1 | grep '"exit_code"'` keeps its receipt: capture's short
   attestation line now leads with `exit_code`. When a filter drops every line, the rejection names it.
 

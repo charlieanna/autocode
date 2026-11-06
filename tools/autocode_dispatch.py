@@ -141,7 +141,7 @@ def select(state: RunState):
             and "depends_on" in row
             and set(row["depends_on"]) <= accepted
             and row.get("affected_paths")
-            and not previous.get("seconds")
+            and not milestones.attempted_seconds(previous)
             and not previous.get("reviews")
             and not previous.get("replans")
             and not builder_policy.failed_before(state, row["id"])
@@ -278,6 +278,38 @@ def task_for(state: RunState, milestone, baseline):
     return task
 
 
+INHERITED_KEYS = (
+    "version",
+    "task",
+    "task_id",
+    "goal_contract",
+    "changeset_approval",
+    "turns",
+    "user_events",
+    "settings",
+    "acceptance_criteria",
+    "criteria_revision",
+    "answers",
+    "brief_feedback",
+    "milestone_progress",
+)
+
+
+def inherited_state(state: RunState) -> dict:
+    """What a parallel Builder's own run starts from, before its task and workspace are set.
+
+    On a spec-first run it also takes the receipts of the acceptance tests the parent's Tester
+    wrote (autocode_acceptance_tests), so its tests count as written and stay fixed for its
+    Builder. Without them each worker sent itself back to the Tester to write them again,
+    and integration refused the batch for the changed test files.
+    """
+    source = cast(dict, state)
+    child: dict = {k: copy.deepcopy(source[k]) for k in INHERITED_KEYS if k in source}
+    if acceptance_tests.receipts(state):
+        child["acceptance_tests"] = {"receipts": copy.deepcopy(acceptance_tests.receipts(state))}
+    return child
+
+
 def prepare(state: RunState, workspace, run_dir, selected):
     batch_id = uuid.uuid4().hex[:12]
     directory = run_dir / "orchestration" / batch_id
@@ -345,25 +377,7 @@ def finish_preparation(state: RunState, workspace, run_dir, batch):
                 "Existing files were left untouched",
             )
         worker_dir.mkdir(parents=True, exist_ok=True)
-        child: dict = {
-            k: copy.deepcopy(state[k])
-            for k in (
-                "version",
-                "task",
-                "task_id",
-                "goal_contract",
-                "changeset_approval",
-                "turns",
-                "user_events",
-                "settings",
-                "acceptance_criteria",
-                "criteria_revision",
-                "answers",
-                "brief_feedback",
-                "milestone_progress",
-            )
-            if k in state
-        }
+        child = inherited_state(state)
         child.update(
             workspace=str(worker_workspace),
             current_task=task,

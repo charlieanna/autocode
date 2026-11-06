@@ -202,6 +202,22 @@ def account(state: RunState, record):
     row["seconds"] += seconds
     role = record.get("role", "unknown")
     row["seconds_by_role"][role] = row["seconds_by_role"].get(role, 0) + seconds
+    if record.get("stage") == "write_acceptance_tests":
+        # Writing a wave's tests first is not an attempt at the milestone (attempted_seconds).
+        row["acceptance_test_seconds"] = row.get("acceptance_test_seconds", 0) + seconds
+
+
+def attempted_seconds(row) -> float:
+    """Time spent building or checking a milestone, leaving out the Tester writing its tests first.
+
+    The Orchestrator builds in parallel only milestones nobody has attempted yet
+    (autocode_dispatch.select). On a spec-first run the Tester writes a wave's acceptance tests
+    before that dispatch, and that time is charged to the current milestone like any other
+    stage's. Counting it as an attempt sent every wave to one Builder, which then built the
+    first member against the other members' unbuilt tests.
+    """
+    row = row or {}
+    return max(0, (row.get("seconds") or 0) - (row.get("acceptance_test_seconds") or 0))
 
 
 def _functional_evidence_ready(state: RunState, current):

@@ -20,6 +20,7 @@ import autocode_dispatch as dispatch
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 import autocode_milestones as milestones
+import autocode_run_records as records
 import autocode_support as support
 from goal_fixtures import body, envelope
 
@@ -243,6 +244,35 @@ class DagScenarios(DagCase):
         self.check("md_admitted_after_prereqs", "MD", self.state["current_task"]["milestone_id"])
         self.check("not_complete_before_integration_verification", False, self.state["status"] == "TASK_COMPLETE")
         self.finish(summary="COMPLETE-ordered: no consumer started before its accepted prerequisites")
+
+    def test_dag01b_writing_a_waves_tests_first_still_builds_the_wave_in_parallel(self):
+        """A spec-first run writes the wave's acceptance tests before the Orchestrator dispatches it.
+
+        That Tester time is charged to the current milestone like any stage's. Counted as an
+        attempt, it sent every wave to one Builder (book-courses demo run, 2026-11-05: three
+        dispatches, no fan-out), which then built the first member against the others' tests.
+        """
+        self.start_diamond()
+        self.assign("MA")
+        self.validate({"C1"})
+        self.assign("MB")
+        self.check("wave_before_tests", ["MB", "MC"], [row["id"] for row in dispatch.select(self.state)])
+        task = self.state["current_task"]["id"]
+        records.account_stage(
+            self.state,
+            {"stage": "write_acceptance_tests", "role": "sol", "task_id": task, "duration_seconds": 801.0},
+        )
+        row = milestones.progress(self.state)
+        self.check("test_writing_still_charged_to_the_milestone", 801.0, row["seconds"])
+        self.check("test_writing_is_not_an_attempt", 0, milestones.attempted_seconds(row))
+        self.check("wave_after_tests", ["MB", "MC"], [row["id"] for row in dispatch.select(self.state)])
+        # A Builder's own attempt still keeps the milestone out of a new wave.
+        records.account_stage(
+            self.state, {"stage": "terra", "role": "terra", "task_id": task, "duration_seconds": 60.0}
+        )
+        self.check("attempted_after_builder", 60.0, milestones.attempted_seconds(milestones.progress(self.state)))
+        self.check("no_wave_after_builder", [], dispatch.select(self.state))
+        self.finish(summary="READY_BUILD: test writing before dispatch keeps the wave parallel")
 
     def test_dag02_cycles_rejected(self):
         """DAG-02. Existing: test_autopilot_torture cycle case."""
