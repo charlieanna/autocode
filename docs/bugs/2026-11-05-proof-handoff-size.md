@@ -60,5 +60,12 @@ let a mutant survive. Every changed line keeps its handle, line, status, executi
 mutation outcomes, grouped by file. The Tester names a gap by its handle, which the
 generation schema already offers and the runner resolves against the run's own
 assessment. Nothing moves when another part of the handoff points into an obligation.
-On the retained handoff the packet went from 3.63 MB to 0.45 MB, with all 892 lines
-and every gap still named.
+
+That left the receipt outlines, 209 KB for 357 mutant runs. When the outline list is still
+over 64 KiB, it becomes a count per exit code, plus every receipt that timed out or has
+supervision errors, kept whole with its index into the artifact. Each mutant's outcome is
+already in `mutation_check` and on its changed line.
+
+On the retained handoff the packet went from 3.63 MB to 0.25 MB, with all 892 lines and
+every gap still named. A live GLM 5.3 Tester accepted the 0.45 MB version (about 204k
+input tokens on its first request) before the receipt step was added.

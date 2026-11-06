@@ -54,6 +54,23 @@ def obligation(index):
     }
 
 
+def receipt(index):
+    return {
+        "command": "python -m unittest tests.test_core " + "x" * 300,
+        "tail": "Ran 3 tests " + "y" * 300,
+        "results": {"tests": ["tests.test_core.CoreTests.test_value"]},
+        "supervision": {"events": ["observed"]},
+        "exit_code": None if index == 7 else index % 2,
+        "timed_out": index == 7,
+        "duration_seconds": 1.9,
+        "supervision_errors": ["missing observation"] if index == 11 else [],
+        "output": LOG.format(index),
+        "output_sha256": hashlib.sha256(b"o%d" % index).hexdigest(),
+        "supervision_sha256": hashlib.sha256(b"s%d" % index).hexdigest(),
+        "results_expected": True,
+    }
+
+
 def proof():
     files = [
         {"path": f"pkg/mod{n}.py", "sha256": str(n) * 64, "notes": [], "mutants": [mutant(i) for i in range(120)]}
@@ -90,6 +107,7 @@ def proof():
             "reason": "Some changed lines lack behavioral evidence.",
             "obligations": [obligation(i) for i in range(400)],
         },
+        "changed_code_receipts": [receipt(i) for i in range(400)],
     }
 
 
@@ -112,7 +130,7 @@ class ProofDetailTests(unittest.TestCase):
                 small, moved = context.compact(original, path)
                 self.assertEqual(before, original)
                 fields = [proof_detail.FILES, proof_detail.SURVIVORS, proof_detail.INPUTS, proof_detail.OBLIGATIONS]
-                self.assertEqual(fields, moved)
+                self.assertEqual([proof_detail.RECEIPTS, *fields], moved)
                 self.assertLess(len(json.dumps(small)), len(json.dumps(original)) // 4)
                 artifact = small["context_artifact"]
                 raw = Path(artifact["path"]).read_bytes()
@@ -123,8 +141,21 @@ class ProofDetailTests(unittest.TestCase):
                 self.assertEqual(whole["mutation_check"]["survivors"], saved[proof_detail.SURVIVORS])
                 self.assertEqual(whole["changed_code_inputs"], saved[proof_detail.INPUTS])
                 self.assertEqual(whole["changed_code_evidence"]["obligations"], saved[proof_detail.OBLIGATIONS])
+                self.assertEqual(whole["changed_code_receipts"], saved[proof_detail.RECEIPTS])
 
                 inline = small["regression_proof"]
+                # Hundreds of receipt outlines are still large: a count per exit code stays, and every
+                # timed-out or supervision-failed receipt stays whole with the index of its full record.
+                receipts = inline["changed_code_receipts"]
+                self.assertEqual({"0": 200, "1": 199, "None": 1}, receipts["exit_codes"])
+                self.assertEqual(400, receipts["total"])
+                self.assertEqual([7, 11], [row["index"] for row in receipts["notable"]])
+                self.assertTrue(receipts["notable"][0]["timed_out"])
+                self.assertEqual(["missing observation"], receipts["notable"][1]["supervision_errors"])
+                self.assertEqual(
+                    whole["changed_code_receipts"][11]["output_sha256"], receipts["notable"][1]["output_sha256"]
+                )
+                self.assertIn("at that index", inline["receipt_details_instruction"])
                 for key in ("verdict", "fail_to_pass"):
                     self.assertEqual(whole[key], inline[key])
                 for key in ("goal_contract", "unresolved_findings"):

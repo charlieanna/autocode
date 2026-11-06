@@ -27,6 +27,7 @@ FILES = "regression_proof_mutation_files"
 SURVIVORS = "regression_proof_mutation_survivors"
 INPUTS = "regression_proof_changed_code_inputs"
 OBLIGATIONS = "regression_proof_obligations"
+RECEIPTS = "regression_proof_receipts"  # moved whole by autocode_context.proof_receipts
 POINTER = "#/regression_proof/changed_code_evidence/obligations"
 INSTRUCTION = (
     "Large mutation and per-line detail is summarized here and kept whole in context_artifact (path and "
@@ -36,6 +37,14 @@ INSTRUCTION = (
     "mutation outcomes, grouped by file, and names a gap by its handle. Read the complete rows before "
     "relying on a mutant, a reason or an evidence log. Missing, unreadable or hash-mismatched artifacts are "
     "unverified evidence, never permission to infer PASS. Every obligation and gate still applies."
+)
+RECEIPT_INSTRUCTION = (
+    "changed_code_receipts is summarized: the receipt count, the count of each exit code, and every "
+    "receipt that timed out or has supervision errors, whole with its index. Every complete receipt is in "
+    "context_artifact under regression_proof_receipts at that index. Read the complete receipt before "
+    "relying on its command, test results, output tail or supervision evidence. Missing, unreadable or "
+    "hash-mismatched artifacts are unverified evidence, never permission to infer PASS. Current "
+    "obligations, mutation results and all gates still apply."
 )
 
 
@@ -110,6 +119,22 @@ def _obligations(rows):
     return [{"path": path, "sha256": digest, "lines": lines} for (path, digest), lines in groups.items()]
 
 
+def _receipts(rows):
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        return None
+    exits = Counter(str(row.get("exit_code")) for row in rows if "exit_code" in row)
+    return {
+        "total": len(rows),
+        "exit_codes": dict(sorted(exits.items())),
+        "notable": [
+            {**row, "index": index}
+            for index, row in enumerate(rows)
+            if row.get("timed_out") or row.get("supervision_errors") or "exit_code" not in row
+        ],
+        "details_artifact": {"field": RECEIPTS},
+    }
+
+
 def move(source, result, moved) -> None:
     """Summarize ``result``'s oversized proof detail in place; put the originals from ``source`` in ``moved``."""
     proof = result.get("regression_proof")
@@ -140,5 +165,13 @@ def move(source, result, moved) -> None:
         moved[field] = copy.deepcopy(whole)
         holder[key] = summary
         fields.append(field)
+    receipts = proof.get("changed_code_receipts")
+    if RECEIPTS in moved and isinstance(receipts, list) and _size(receipts) > LIMIT:
+        # Even without their execution detail, hundreds of mutant receipts stay large; each one's
+        # mutant outcome is already in mutation_check and on its changed line.
+        summary = _receipts(receipts)
+        if summary is not None and _size(summary) + 2048 < _size(receipts):
+            proof["changed_code_receipts"] = summary
+            proof["receipt_details_instruction"] = RECEIPT_INSTRUCTION
     if fields:
         proof["proof_detail_instruction"] = INSTRUCTION.format(fields=", ".join(fields))
