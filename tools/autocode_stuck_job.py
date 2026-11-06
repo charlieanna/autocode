@@ -70,6 +70,7 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_classification_recovery as classification_recovery
     from . import autocode_model_identity as model_identity
     from . import autocode_planning_advice as recovery_binding
     from . import autocode_progressive_state as progressive
@@ -81,6 +82,7 @@ try:
     from .autocode_investigation_policy import enabled, max_calls
     from .autocode_test_cases import COUNTEREXAMPLE, run_probes
 except ImportError:
+    import autocode_classification_recovery as classification_recovery
     import autocode_model_identity as model_identity
     import autocode_planning_advice as recovery_binding
     import autocode_progressive_state as progressive
@@ -862,7 +864,9 @@ def drive(
                 if state.get("active_stage"):
                     # An unreconciled attempt pauses like any stage; the investigation reruns after.
                     raise
-                if status in BOUNDARY_LIMITS and not launched(state, current):
+                if status in BOUNDARY_LIMITS and (
+                    not launched(state, current) or classification_recovery.pending_repair(state, current)
+                ):
                     release_route(state)
                     raise
                 status, reason = abandon(state, reason)

@@ -305,6 +305,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/autocode_requirements_handoff.py", ("tests.test_requirements_citation_cli",)),
     ("scripts/homebrew_formula.py", ("tests.test_homebrew_formula",)),
     ("scenarios/catalog/review-clean-pr/broken/blocks-on-a-nit/", ("tests.test_review_attribution_cli",)),
+    (
+        "tools/prompts/fragments/stuck-repair-context/evidence-instruction-02.md",
+        ("tests.test_stuck_repair_context", "tests.test_classification_recovery"),
+    ),
     ("tools/prompts/fragments/report-repair-context/requirements-corrections.md", ("tests.test_report_repair",)),
     (
         "tools/prompts/fragments/report-repair-context/revision-review.md",

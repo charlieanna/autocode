@@ -340,7 +340,7 @@ class RunState(TypedDict, total=False):
     # autocode_plan_file_origin reads it for run_view's approved_contract and the evidence report).
     goal_contract: dict | None
     current_task: dict | None  # the task the Builder is on
-    user_events: list  # goals writes answers/approvals; gate_chat/plan_chat/run_messages write bound conversational intent/reply_after/forwarded receipts; technical_questions and timeouts append receipts
+    user_events: list  # classification_recovery retains resumed repair boundary history; goals writes answers/approvals; gate_chat/plan_chat/run_messages write bound conversational intent/reply_after/forwarded receipts; technical_questions and timeouts append receipts
     answers: dict  # question id -> answer text
     pending_questions: list  # lifecycle writes questions; operational_change pins offered timeout settings
     user_request: dict | None  # a pending decision request

@@ -11,6 +11,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Investigator report repairs avoid duplicating the preceding Tester diagnosis, retain the exact
+  classification citation allowlist, and can continue a retained repair after a corrected renderer
+  resolves a prelaunch prompt-size refusal. Saved evidence and size limits remain unchanged.
+
+- An Investigator report repair survives run-wide time, cost, iteration and transport boundaries.
+  Existing stranded classifications can continue their pinned repair without replaying the
+  investigation, resetting its allowances or changing the approved plan.
+
 - The supervision cadence regression simulates its quiet interval and excludes shutdown samples, avoiding a timing-dependent failure on healthy keepers.
 
 - Report-only Kilo repairs now state that all tools are disabled and must use the supplied evidence, avoiding instructions to wait for unavailable tools.
