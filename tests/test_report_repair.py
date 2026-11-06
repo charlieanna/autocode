@@ -1698,14 +1698,11 @@ class RepairTests(unittest.TestCase):
         self.assertTrue(data["rejected_report"]["empty_response"])
         self.assertEqual(2, self.state["pending_report_repair"]["attempts"])
 
-    def test_empty_execution_original_still_stops(self):
+    def test_empty_execution_original_starts_a_fresh_attempt(self):
         self.state["next_stage"] = "terra"
         self.queue(report="")
-        self.assert_repair_blocked("PAUSED_REPORT_REPAIR_INPUT")
-        self.state["status"] = "PAUSED_REPORT_REPAIR_INPUT"
-        # Nothing remains to correct, so resume keeps discarding the repair for a fresh attempt.
-        self.assertTrue(runner.prepare_exhausted_execution_report_retry(self.state, self.run))
-        self.assertNotIn("pending_report_repair", self.state)
+        # Nothing remains to correct, so the runner discards the repair for a fresh attempt itself.
+        self.assert_repair_restarted()
 
     def test_unlaunchable_repair_without_a_pending_repair_admits_nothing(self):
         self.state["settings"]["joint_planning"] = True

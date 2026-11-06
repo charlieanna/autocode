@@ -762,7 +762,7 @@ def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, e
         state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
     state["consecutive_timeout_recoveries"] = state.get("consecutive_timeout_recoveries", 0) + 1
     stalls = stage_stalls.repeated(state, semantic_stage, after["revision"])
-    if len(stalls) >= stage_stalls.REPEATS:
+    if stage_stalls.escapes_streak(state, stalls):
         # A review that re-issues the stage saves a valid report and ends the failure streak, so
         # this stage could stall on the same source forever: pause for the Investigator instead.
         run_status.pause(
