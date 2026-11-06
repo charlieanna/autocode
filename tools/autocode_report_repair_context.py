@@ -187,11 +187,11 @@ def _original_overlay(original, latest) -> dict:
 
 
 def historical_author_report(stage: str, original: dict, latest: dict | None) -> tuple[str, dict | None]:
-    """Keep every older author value inline without duplicating unchanged JSON subtrees."""
+    """Keep every older author/reviewer value inline without duplicating JSON subtrees."""
     if latest is None:
         return "", None
     if (
-        stage not in retention.AUTHORS - retention.FINAL
+        stage not in (retention.AUTHORS - retention.FINAL) | report_edits.REVIEW_STAGES
         or any(source.get("format") != "json" or source.get("truncated") for source in (original, latest))
         or any(not isinstance(source.get("content"), dict) for source in (original, latest))
     ):
@@ -201,13 +201,22 @@ def historical_author_report(stage: str, original: dict, latest: dict | None) ->
     reference["content_delta"] = _original_overlay(original["content"], latest["content"])
     if len(json.dumps(reference, indent=2)) >= len(json.dumps(original, indent=2)):
         return "", original
+    review = stage in report_edits.REVIEW_STAGES
     return (
-        "HISTORICAL PLANNING DRAFT. original_report encodes its complete older JSON inline relative to "
+        ("HISTORICAL EXECUTION REPORT. " if review else "HISTORICAL PLANNING DRAFT. ")
+        + "original_report encodes its complete older JSON inline relative to "
         "rejected_report.content: copy that base, remove each content_delta.remove path, then replace each "
         "content_delta.replace path with its exact supplied value. Path arrays name object keys or list indices; "
         "an empty path replaces the root. No file access is needed. The original artifact path/hash stay pinned. "
-        "The complete latest rejected_report and protected_contract remain below; repair the latest draft, "
-        "not the superseded one.\n",
+        + (
+            "The reconstructed original is the immutable execution-history baseline, not an accepted report. "
+            "Preserve exact recorded commands, including literal escape sequences; do not normalize Unicode "
+            "or quoting. Repair the latest report against both recorded errors without undoing valid corrections, "
+            "inventing execution or erasing failures. All ordinary evidence checks still run.\n"
+            if review
+            else "The complete latest rejected_report and protected_contract remain below; repair the latest draft, "
+            "not the superseded one.\n"
+        ),
         reference,
     )
 

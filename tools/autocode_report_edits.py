@@ -1,4 +1,4 @@
-"""Bounded edits to a pinned rejected planning report, before full validation.
+"""Bounded edits to a pinned rejected report, before full validation.
 
 This is an optional wire format, not a report validator or a source of authority.
 The caller retains the raw response and validates the reconstructed complete report.
@@ -19,15 +19,19 @@ except ImportError:
 
 KEY = "repair_report"
 META = "x-autocode-report-edits"
-STAGES = frozenset({"requirements_gather", "astra_discovery", "glm_revise"})
+PLANNING_STAGES = frozenset({"requirements_gather", "astra_discovery", "glm_revise"})
+REVIEW_STAGES = frozenset({"sol", "astra_review", "astra_checkpoint"})
+STAGES = PLANNING_STAGES | REVIEW_STAGES
 MAX_EDIT_VALUE_BYTES = 128 * 1024
 RULE = (
     "BOUNDED REPORT EDITS. When the output schema offers repair_report, prefer that form for a small correction: "
     "return only repair_report with the exact rejected_report.sha256 and up to 32 edits. Each edit has op, path "
     'and value_json, a JSON-encoded string (use the literal string "null" for remove). Paths are nonempty '
     "arrays of object keys or existing array indices. "
-    "Use add only for an absent object field; remove only an existing object field; replace only an existing "
-    "field/item. Do not edit overlapping paths or shift arrays. The runner applies edits to the complete "
+    "Use add only for an absent object field; remove only an existing field/item; replace only an existing "
+    "field/item. Every path uses original array indices, before any removals; array insertion and overlapping "
+    "paths are forbidden. For an extra array item, remove the item instead of rewriting the array. "
+    "The runner applies edits to the complete "
     "pinned rejected_report.content and then runs every ordinary schema, provenance, protected-contract and "
     "evidence check. This does not authorize changed requirements, approvals or invented execution. "
     "A complete corrected report is also accepted as the value of repair_report without sha256 or edits. "
@@ -45,7 +49,8 @@ def eligible(stage, source):
             source.get("format") == "json"
             and isinstance(source.get("content"), dict)
             and KEY not in source["content"]
-            or text_edits.eligible(source)
+            or stage in PLANNING_STAGES
+            and text_edits.eligible(source)
         )
         and isinstance(source.get("sha256"), str)
         and len(source["sha256"]) == 64
@@ -164,9 +169,10 @@ def _parent(root, path):
 
 
 def apply(base, edits):
-    """Apply disjoint edits without index shifting or coercing keys and indices."""
+    """Apply disjoint edits against original indices, removing array items last."""
     result = copy.deepcopy(base)
     seen = []
+    removals = {}
     for edit in edits:
         path, op = edit["path"], edit["op"]
         if "value_json" in edit and "value" not in edit:
@@ -200,10 +206,20 @@ def apply(base, edits):
                 parent[key] = copy.deepcopy(value)
             else:
                 raise ValueError("Unknown report edit operation")
-        elif isinstance(parent, list) and type(key) is int and 0 <= key < len(parent) and op == "replace":
-            parent[key] = copy.deepcopy(value)
+        elif isinstance(parent, list) and type(key) is int and 0 <= key < len(parent) and op in ("replace", "remove"):
+            if op == "replace":
+                parent[key] = copy.deepcopy(value)
+            else:
+                if value is not None:
+                    raise ValueError("Report remove edit must have null value")
+                # Keep every later path bound to the pinned source's indices.
+                # Overlap checks above forbid edits inside a removed item.
+                removals.setdefault(id(parent), (parent, []))[1].append(key)
         else:
-            raise ValueError("Report edit target is invalid; array insertion/removal is forbidden")
+            raise ValueError("Report edit target is invalid; array insertion is forbidden")
+    for parent, indices in removals.values():
+        for index in sorted(indices, reverse=True):
+            del parent[index]
     return result
 
 
@@ -222,11 +238,20 @@ def expand(value, record):
     offered = schema["properties"][KEY]
     branches = offered.get("anyOf") if isinstance(offered, dict) else None
     if isinstance(branches, list) and len(branches) == 2:
-        patch_schema, full_report_schema = branches
+        patch_schema = branches[0]
         try:
             validate_schema(value[KEY], patch_schema)
         except ValueError:
-            validate_schema(value[KEY], full_report_schema)
+            if isinstance(value[KEY], dict) and set(value[KEY]) & set(patch_schema.get("properties", {})):
+                # A malformed patch must never fall back to a full report.
+                raise
+            # Decode the transport before the ordinary loader validates the
+            # complete report. Its schema compatibility checks authenticate
+            # legacy criterion text against the approved contract, adopt bound
+            # identity and normalize absent optional fields. Validating against
+            # the generation schema here would bypass those existing rules.
+            if not isinstance(value[KEY], dict):
+                raise ValueError("A full repaired report must be an object") from None
             return value[KEY]
     else:
         # Saved reports from the earlier root-level patch schema remain valid.

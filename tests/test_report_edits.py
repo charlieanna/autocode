@@ -1,6 +1,7 @@
 """Exact-bound planning report edits retain content and fail closed."""
 
 import copy
+import itertools
 import json
 import tempfile
 import unittest
@@ -15,6 +16,42 @@ from goal_fixtures import body
 
 
 class ReportEditsTests(unittest.TestCase):
+    def test_review_patch_preserves_commands_and_rejects_invented_execution(self):
+        import shlex
+
+        from .test_check_command_from_receipt import ARGV, CommandFromReceiptTests
+
+        receipt = CommandFromReceiptTests()
+        receipt.setUp()
+        self.addCleanup(receipt.doCleanups)
+        check = {"command": shlex.join(ARGV), "exit_code": 0, "evidence_ref": ".autocode/evidence/check.json"}
+        original = {"checks": [check], "summary": "incorrect citation"}
+        schema = {"type": "object", "properties": {"checks": {"type": "array"}, "summary": {"type": "string"}}}
+        self.source.write_text(json.dumps(original))
+        self.schema.write_text(json.dumps(schema))
+        descriptor = {**self.descriptor, "content": original, "sha256": file_hash(self.source)}
+        for stage in ("sol", "astra_review", "astra_checkpoint"):
+            with self.subTest(stage=stage):
+                offered = edits.prepare(self.schema, descriptor, stage)
+                self.assertNotEqual(self.schema, offered)
+                record = {**self.record, "stage": stage + "_report_repair", "schema": str(offered)}
+                patch = {
+                    "repair_report": {
+                        "sha256": descriptor["sha256"],
+                        "edits": [{"op": "replace", "path": ["summary"], "value_json": '"corrected citation"'}],
+                    }
+                }
+                repaired = edits.expand(patch, record)
+                self.assertEqual([check], repaired["checks"])
+                runner.support.verify_checks(repaired["checks"], receipt.workspace, receipt.events)
+                patch["repair_report"]["edits"].append(
+                    {"op": "replace", "path": ["checks", 0, "command"], "value_json": '"invented command"'}
+                )
+                forged = edits.expand(patch, record)
+                with self.assertRaises(ValueError):
+                    runner.support.verify_checks(forged["checks"], receipt.workspace, receipt.events)
+                self.assertEqual(original, json.loads(self.source.read_text()))
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -101,6 +138,56 @@ class ReportEditsTests(unittest.TestCase):
                 self.assertEqual(set(branch["properties"]), set(branch["required"]))
                 self.assertFalse(branch["additionalProperties"])
 
+    def test_wrapped_full_review_keeps_exact_legacy_criteria_and_rejects_conflicts(self):
+        criterion = "Preserve the approved behavior"
+        schema = {
+            "type": "object",
+            "properties": {
+                "acceptance_criteria": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"id": {"type": "string"}, "status": {"type": "string"}},
+                        "required": ["id", "status"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["acceptance_criteria"],
+            "additionalProperties": False,
+        }
+        self.schema.write_text(json.dumps(schema))
+        offered = edits.prepare(self.schema, self.descriptor, "astra_review")
+        state = {"acceptance_criteria": [{"id": "C1", "criterion": criterion}]}
+        correct = {"acceptance_criteria": [{"id": "C1", "status": "verified", "criterion": criterion}]}
+        for label, report, error in (
+            ("matching", correct, None),
+            (
+                "conflicting",
+                {"acceptance_criteria": [{"id": "C1", "status": "verified", "criterion": "changed"}]},
+                "conflicts",
+            ),
+            ("unknown", {**correct, "invented": True}, "unexpected fields"),
+            ("missing", {"acceptance_criteria": []}, "each approved criterion"),
+            ("scalar", "not a report", "object"),
+        ):
+            with self.subTest(label=label):
+                record = {
+                    **self.record,
+                    "stage": "astra_review_report_repair",
+                    "original_stage": "astra_review",
+                    "schema": str(offered),
+                    "output": str(self.root / (label + ".json")),
+                }
+                wrapped = {"repair_report": report}
+                Path(record["output"]).write_text(json.dumps(wrapped))
+                if error:
+                    with self.assertRaisesRegex(ValueError, error):
+                        runner.load_stage_report(record, state=state)
+                else:
+                    self.assertEqual(correct, runner.load_stage_report(record, state=state))
+                    self.assertEqual(wrapped, json.loads(Path(record["reported_output"]).read_text()))
+
     def test_report_edit_instructions_require_json_encoded_values(self):
         instruction = edits.instruction("requirements_gather", self.descriptor)
         self.assertIn("value_json", instruction)
@@ -129,6 +216,65 @@ class ReportEditsTests(unittest.TestCase):
             {"field": {"kept": [1]}},
             edits.apply({}, [{"op": "add", "path": ["field"], "value": {"kept": [1]}}]),
         )
+
+    def test_array_removals_and_neighbor_edits_use_original_indices_in_any_order(self):
+        original = {"rows": [{"id": "a"}, {"id": "b"}, {"id": "c"}, {"id": "d", "refs": [1, 2, 3]}]}
+        operations = [
+            {"op": "remove", "path": ["rows", 0], "value_json": "null"},
+            {"op": "remove", "path": ["rows", 2], "value_json": "null"},
+            {"op": "replace", "path": ["rows", 1], "value_json": '{"id":"corrected b"}'},
+            {"op": "remove", "path": ["rows", 3, "refs", 1], "value_json": "null"},
+        ]
+        for ordered in itertools.permutations(operations):
+            with self.subTest(paths=[row["path"] for row in ordered]):
+                self.assertEqual(
+                    {"rows": [{"id": "corrected b"}, {"id": "d", "refs": [1, 3]}]},
+                    edits.apply(original, ordered),
+                )
+        self.assertEqual(["a", "b", "c", "d"], [row["id"] for row in original["rows"]])
+        self.assertEqual([1, 2, 3], original["rows"][3]["refs"])
+
+    def test_removing_the_only_array_item_keeps_the_empty_array(self):
+        self.assertEqual(
+            {"rows": []},
+            edits.apply({"rows": ["extra"]}, [{"op": "remove", "path": ["rows", 0], "value_json": "null"}]),
+        )
+
+    def test_one_bounded_removal_preserves_a_large_review_and_its_checks(self):
+        decisions = [
+            {"gap_id": f"L{i}", "reason": "Independently checked exact source and test. " * 5} for i in range(319)
+        ]
+        original = {"checks": [{"command": "original captured check", "exit_code": 0}], "decisions": decisions}
+        rejected = copy.deepcopy(original)
+        rejected["decisions"].insert(285, {"gap_id": "not-offered", "reason": "Extraneous entry"})
+        schema = {
+            "type": "object",
+            "properties": {
+                "checks": {"type": "array"},
+                "decisions": {"type": "array", "maxItems": 319},
+            },
+        }
+        self.source.write_text(json.dumps(rejected))
+        self.schema.write_text(json.dumps(schema))
+        source = {**self.descriptor, "content": rejected, "sha256": file_hash(self.source)}
+        offered = edits.prepare(self.schema, source, "sol")
+        record = {**self.record, "stage": "sol_report_repair", "schema": str(offered)}
+        patch = {
+            "repair_report": {
+                "sha256": source["sha256"],
+                "edits": [{"op": "remove", "path": ["decisions", 285], "value_json": "null"}],
+            }
+        }
+        self.assertLess(len(json.dumps(patch)), 256)
+        fixed = edits.expand(patch, record)
+        validate_schema(fixed, schema)
+        self.assertEqual(original, fixed)
+        self.assertEqual(rejected, json.loads(self.source.read_text()))
+
+    def test_array_remove_instructions_keep_original_indices_and_avoid_recopying(self):
+        instruction = edits.instruction("sol", self.descriptor)
+        self.assertIn("original array indices", instruction)
+        self.assertIn("remove the item instead of rewriting the array", instruction)
 
     def test_saved_legacy_patch_schema_and_raw_values_still_expand(self):
         legacy_schema = json.loads(self.offered.read_text())
@@ -163,6 +309,7 @@ class ReportEditsTests(unittest.TestCase):
 
     def test_discovery_edits_do_not_authorize_removing_protected_behavior(self):
         previous = body()
+        previous["required_behaviors"].append("Preserve the existing greeting format")
         base = {"contract": previous, "extra": "bad"}
         self.source.write_text(json.dumps(base))
         schema = {
@@ -191,6 +338,21 @@ class ReportEditsTests(unittest.TestCase):
         Path(record["output"]).write_text(json.dumps(patch))
         fixed = runner.load_stage_report(record)
         state = {"goal_contract": {"body": previous, "approval_status": "approved", "revision": 1}}
+        with self.assertRaisesRegex(ValueError, "without a user-backed contract change"):
+            goals.revision_guard(state, fixed["contract"], [], "astra_discovery")
+        patch["repair_report"]["edits"][1] = {
+            "op": "remove",
+            "path": ["contract", "required_behaviors", 0],
+            "value_json": "null",
+        }
+        remove_record = {
+            **self.record,
+            "stage": "astra_discovery_report_repair",
+            "schema": str(offered),
+            "output": str(self.root / "remove-behavior-repair.json"),
+        }
+        Path(remove_record["output"]).write_text(json.dumps(patch))
+        fixed = runner.load_stage_report(remove_record)
         with self.assertRaisesRegex(ValueError, "without a user-backed contract change"):
             goals.revision_guard(state, fixed["contract"], [], "astra_discovery")
         self.assertEqual(base, json.loads(self.source.read_text()))
@@ -236,7 +398,14 @@ class ReportEditsTests(unittest.TestCase):
     def test_invalid_or_overlapping_operations_never_apply(self):
         bad = [
             [{"op": "remove", "path": [], "value_json": "null"}],
-            [{"op": "remove", "path": ["proposed_assumptions", 0], "value_json": "null"}],
+            [{"op": "add", "path": ["proposed_assumptions", 0], "value_json": "null"}],
+            [{"op": "remove", "path": ["proposed_assumptions", 1], "value_json": "null"}],
+            [{"op": "remove", "path": ["proposed_assumptions", 0], "value_json": "false"}],
+            [
+                {"op": "remove", "path": ["proposed_assumptions", 0], "value_json": "null"},
+                {"op": "replace", "path": ["proposed_assumptions", 0, "text"], "value_json": '"new"'},
+            ],
+            [{"op": "remove", "path": ["proposed_assumptions", 0], "value_json": "null"}] * 2,
             [{"op": "replace", "path": ["proposed_assumptions", True], "value_json": "{}"}],
             [{"op": "replace", "path": ["absent", "child"], "value_json": "0"}],
             [{"op": "add", "path": ["summary"], "value_json": '"new"'}],
@@ -272,7 +441,7 @@ class ReportEditsTests(unittest.TestCase):
             {**self.descriptor, "content": []},
         ]:
             self.assertEqual(self.schema, edits.prepare(self.schema, source, "requirements_gather"))
-        self.assertEqual(self.schema, edits.prepare(self.schema, self.descriptor, "sol"))
+        self.assertEqual(self.schema, edits.prepare(self.schema, self.descriptor, "terra"))
 
     def test_legacy_or_conflicting_schemas_keep_the_original_protocol(self):
         for schema in [
