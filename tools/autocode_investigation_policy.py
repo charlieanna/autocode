@@ -14,6 +14,18 @@ def enabled(state: RunState) -> bool:
     return state.get("version", 2) >= 3 and max_calls(state) > 0
 
 
+def default_calls(state: RunState) -> int:
+    """MAX_CALLS, or one per approved milestone when the plan has more.
+
+    A seven-milestone live run (2026-11-06) spent its three investigations on its planning and
+    first wave, so a later wave's stalled Tester could only ask a person.
+    """
+    body = (state.get("goal_contract") or {}).get("body") or {}
+    milestones = body.get("milestones") if isinstance(body, dict) else None
+    return max(MAX_CALLS, len(milestones) if isinstance(milestones, list) else 0)
+
+
 def max_calls(state: RunState) -> int:
-    limit = ((state.get("settings") or {}).get("stuck_investigation") or {}).get("max_calls_per_run", MAX_CALLS)
-    return limit if type(limit) is int and limit >= 0 else MAX_CALLS
+    default = default_calls(state)
+    limit = ((state.get("settings") or {}).get("stuck_investigation") or {}).get("max_calls_per_run", default)
+    return limit if type(limit) is int and limit >= 0 else default

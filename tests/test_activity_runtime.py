@@ -19,6 +19,8 @@ import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 import autocode_milestones as milestones
 import autocode_planning as planning
+import autocode_recovery_accounting as recovery_accounting
+import autocode_stuck_job as stuck_job
 import autocode_support as support
 import autocode_validation_recovery as validation_recovery
 import autopilot
@@ -718,6 +720,65 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual("PAUSED_PROVIDER_TIMEOUT", failures[0]["identity"]["error_class"])
         self.assertEqual(1, failures[0]["output_probe"]["attempts"])
         self.assertNotIn("active_stage", self.state)
+
+    def stalled_tester(self, iteration):
+        _, record = self.interrupted_attempt()
+        record.update(role="sol", stage="sol", iteration=iteration)
+        return runner.automatically_recover_timed_out_stage(
+            self.state, self.run, self.root, support.Paused("PAUSED_PROVIDER_TIMEOUT", "idle")
+        )
+
+    def saved_report(self, stage, name):
+        """A valid report ``stage`` saved, which ends the run-wide failure streak."""
+        events = self.run / f"{name}.jsonl"
+        events.write_text('{"type":"turn.completed"}\n')
+        self.state["stages"].append(
+            {
+                "role": "astra" if stage == "astra_review" else "sol",
+                "stage": stage,
+                "output": str(self.run / f"{name}.json"),
+                "events": str(events),
+                "schema": str(self.run / f"{name}.schema.json"),
+                "exit_code": 0,
+                "finished_at": support.now(),
+            }
+        )
+        recovery_accounting.stage_saved(self.state)
+
+    def test_a_tester_stalling_again_on_unchanged_source_goes_to_the_investigator(self):
+        # 2026-11-06 live run: each stalled Tester was re-issued by a Completion Reviewer whose valid
+        # report ended the failure streak, so six Testers stalled and none reached the Investigator.
+        self.start_task()
+        self.state["next_stage"] = "sol"
+        self.assertTrue(self.stalled_tester(1))
+        self.assertEqual("RUNNING", self.state["status"])
+        self.saved_report("astra_review", "completion-review-01")
+        self.assertEqual(0, self.state["consecutive_timeout_recoveries"])
+        self.state["next_stage"] = "sol"
+        self.assertTrue(self.stalled_tester(2))
+        self.assertEqual("PAUSED_REPEATED_FAILURE", self.state["status"])
+        self.assertEqual("sol", self.state["next_stage"])
+        self.assertIn("Tester stopped 2 times on unchanged source", self.state["stop_reason"])
+        self.assertIn("idle timeout", self.state["stop_reason"])
+        self.assertEqual("PAUSED_REPEATED_FAILURE", support.read(self.run / "state.json")["status"])
+        # The pause is one the Investigator takes before anyone is asked.
+        self.assertTrue(stuck_job.intercept(self.state, self.state["status"], self.state["stop_reason"]))
+        self.assertEqual("investigate_stuck", self.state["next_stage"])
+        self.assertEqual("sol", self.state["stuck_investigation"]["stage"])
+
+    def test_a_valid_tester_report_or_changed_source_starts_the_stall_count_again(self):
+        self.start_task()
+        self.state["next_stage"] = "sol"
+        self.assertTrue(self.stalled_tester(1))
+        self.saved_report("sol", "validator-01")
+        self.state["next_stage"] = "sol"
+        self.assertTrue(self.stalled_tester(2))
+        self.assertEqual("RUNNING", self.state["status"])
+        (self.root / "other.py").write_text("print('changed by a Builder')\n")
+        self.state["next_stage"] = "sol"
+        self.assertTrue(self.stalled_tester(3))
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertEqual(3, len(self.state["automatic_timeout_recoveries"]))
 
     def completion_review_timeout(self):
         """A stopped non-terminal Completion Review over a source the Validator already passed."""

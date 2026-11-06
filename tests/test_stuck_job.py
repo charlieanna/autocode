@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode_builder_failure as builder_failure
+import autocode_investigation_policy as investigation_policy
 import autocode_jobs as jobs
 import autocode_planning_advice as recovery_binding
 import autocode_stuck_job as stuck
@@ -186,6 +187,35 @@ class InterceptTests(unittest.TestCase):
             self.assertTrue(stuck.intercept(state, "PAUSED_INVALID_OUTPUT", "x"))
         state["next_stage"] = "astra_challenge"
         self.assertFalse(stuck.intercept(state, "PAUSED_PLANNING_BUDGET", "x"), "three per run by default")
+
+    def test_the_same_problem_on_changed_source_is_a_new_problem(self):
+        state = state_for()
+        state["stages"] = [{"stage": "sol", "source_revision": "rev-a", "exit_code": -15}]
+        state["next_stage"] = "sol"
+        self.assertTrue(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "stalled twice"))
+        self.assertEqual("rev-a", state["stuck_investigations"][-1]["source_revision"])
+        state.update(next_stage="sol", status="RUNNING")
+        self.assertFalse(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "stalled again"), "same source: once")
+        state["stages"].append({"stage": "sol", "source_revision": "rev-b", "exit_code": -15})
+        self.assertTrue(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "stalled on the Builder's new source"))
+        # An entry saved before revisions were recorded still matches its problem on any source.
+        legacy = state_for()
+        legacy["stuck_investigations"] = [{"identity": "sol:PAUSED_INVALID_OUTPUT", "outcome": "retried"}]
+        legacy["stages"] = [{"stage": "sol", "source_revision": "rev-c"}]
+        legacy["next_stage"] = "sol"
+        self.assertFalse(stuck.intercept(legacy, "PAUSED_INVALID_OUTPUT", "rejected again"))
+
+    def test_a_plan_with_more_milestones_than_the_budget_gets_one_investigation_each(self):
+        state = state_for()
+        self.assertEqual(stuck.MAX_CALLS, investigation_policy.max_calls(state))
+        state["goal_contract"] = {"body": {"milestones": [{"id": f"M{n}"} for n in range(1, 8)]}}
+        self.assertEqual(7, investigation_policy.max_calls(state))
+        for n, stage in enumerate(("astra_challenge", "astra_review", "sol", "terra")):
+            state.update(next_stage=stage, status="RUNNING")
+            self.assertTrue(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", f"stuck {n}"), "beyond three")
+        state["settings"]["stuck_investigation"] = {"max_calls_per_run": 4}
+        state.update(next_stage="astra_finalize", status="RUNNING")
+        self.assertFalse(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "x"), "an explicit budget wins")
 
 
 class BuilderFailureClassificationTests(unittest.TestCase):

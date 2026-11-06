@@ -628,35 +628,33 @@ class StageRepairCLI(unittest.TestCase):
         self.assertEqual(1, len(accepted))
         self.assertEqual(original["events"], accepted[0]["repair"]["applied_original_events"])
 
-    def test_oversized_finalizer_repair_resumes_as_a_fresh_review_then_awaits_approval(self):
+    def test_oversized_finalizer_repair_starts_a_fresh_review_by_itself_then_awaits_approval(self):
         # 2026-10-05 self-build: the rejected final review's repair handoff exceeded 256 KiB, and every
-        # resume retried the same unlaunchable repair. An explicit resume now starts a fresh review.
+        # resume retried the same unlaunchable repair. A resume then started a fresh review, but the run
+        # still paused to ask a person for that resume (2026-11-06). The runner now archives the spent
+        # repair and starts the fresh review itself.
         fixture = self.fixture_for("oversized")
         run, state, view, trace = self.plan(fixture)
-        self.assertEqual("PAUSED_REPORT_REPAIR_INPUT", state["status"], state.get("stop_reason"))
-        self.assertIn("Complete report-repair handoff exceeds", state["stop_reason"])
-        self.assertIn("autocode resume to archive this repair", state["stop_reason"])
-        pending = state["pending_report_repair"]
-        self.assertEqual(("astra_finalize", 0), (pending["original"]["stage"], pending["attempts"]))
-        self.assertLess(Path(pending["original"]["output"]).stat().st_size, repair_support.runner.REPAIR_REPORT_BYTES)
-        self.assertEqual([False], [row["repair"] for row in trace if row["stage"] == "astra_finalize"])
-        self.assertEqual(2, state["planning"]["astra_calls"])
-
-        # The fresh review is a third plan-review call: it stops at the allowance as any review does,
-        # and AutoResolver asks for the operator's decision.
-        fixture.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
-        run, state = fixture.saved()
-        self.assertEqual(
-            ("WAITING_FOR_USER", "astra_finalize"), (state["status"], state["next_stage"]), state.get("stop_reason")
-        )
-        self.assertIn("2/2 plan-review calls used", state["stop_reason"])
-        trace = [json.loads(line) for line in (fixture.root / "stage-repair-trace.jsonl").read_text().splitlines()]
-        self.assertEqual([False], [row["repair"] for row in trace if row["stage"] == "astra_finalize"])
         self.assertNotIn("pending_report_repair", state)
         archived = state["report_repair_archive"][-1]
-        self.assertEqual(pending, archived["repair"])
+        pending = archived["repair"]
+        self.assertEqual(("astra_finalize", 0), (pending["original"]["stage"], pending["attempts"]))
+        self.assertLess(Path(pending["original"]["output"]).stat().st_size, repair_support.runner.REPAIR_REPORT_BYTES)
         self.assertIn("cannot launch from its saved inputs", archived["reason"])
         self.assertTrue(all(Path(path).is_file() for path in pending["pins"]))
+        restarts = [row for row in state["user_events"] if row["kind"] == "automatic_unlaunchable_repair_restart"]
+        self.assertEqual(["astra_finalize"], [row["stage"] for row in restarts])
+        self.assertIn("Complete report-repair handoff exceeds", restarts[0]["reason"])
+        self.assertEqual([False], [row["repair"] for row in trace if row["stage"] == "astra_finalize"])
+
+        # The fresh review is a third plan-review call: it stops at the allowance as any review does.
+        self.assertEqual(
+            ("PAUSED_PLANNING_BUDGET", "astra_finalize"),
+            (state["status"], state["next_stage"]),
+            state.get("stop_reason"),
+        )
+        self.assertIn("2/2 plan-review calls used", state["stop_reason"])
+        self.assertEqual(2, state["planning"]["astra_calls"])
 
         fixture.launch(["--run-dir", str(run), "--planning-review-call-limit", "3"], 0)
         fixture.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)

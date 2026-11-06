@@ -11,6 +11,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_stage_recovery as stage_recovery
+import autocode_stuck_job as stuck_job
 from autocode_taskrun import TaskRun, TaskRunError
 from goal_fixtures import body
 
@@ -820,6 +822,27 @@ class RepairTests(unittest.TestCase):
         repair_schema = rejected.with_name(rejected.stem + ".repair-edits.schema.json")
         self.assertIn("repair_report", json.loads(repair_schema.read_text())["properties"])
 
+    def assert_repair_restarted(self):
+        """A repair that cannot launch is archived and its stage starts afresh; no person is asked."""
+        pending = copy.deepcopy(self.state["pending_report_repair"])
+        with patch.object(runner, "run_role") as launch, self.assertRaises(runner.ReportRepairQueued):
+            runner.execute_report_repair(self.state, self.run, self.root)
+        launch.assert_not_called()
+        saved = support.read(self.run / "state.json")
+        for current in (self.state, saved):
+            self.assertNotIn("pending_report_repair", current)
+            self.assertNotIn("active_stage", current)
+            self.assertEqual(("RUNNING", pending["original"]["stage"]), (current["status"], current["next_stage"]))
+            archived = current["report_repair_archive"][-1]
+            self.assertEqual(pending["original"], archived["repair"]["original"])
+            self.assertEqual(pending["attempts"], archived["repair"]["attempts"])
+            self.assertIn("cannot launch from its saved inputs", archived["reason"])
+        restart = saved["user_events"][-1]
+        self.assertEqual("automatic_unlaunchable_repair_restart", restart["kind"])
+        self.assertEqual(pending["original"]["source_revision"], restart["source_revision"])
+        self.assertNotIn("autocode resume", restart["reason"] + saved.get("stop_reason", ""))
+        return saved
+
     def assert_repair_blocked(self, status="PAUSED_REPORT_REPAIR_INPUT"):
         attempts = self.state["pending_report_repair"]["attempts"]
         with patch.object(runner, "run_role") as launch, self.assertRaises(support.Paused) as error:
@@ -1152,9 +1175,26 @@ class RepairTests(unittest.TestCase):
                     pending = self.queue(report=None, response_text=record[key])
                 path = Path(pending["original"][key])
                 self.assertEqual(runner.REPAIR_REPORT_BYTES + 1, path.stat().st_size)
-                self.assert_repair_blocked()
+                self.assert_repair_restarted()
                 self.assertEqual((text + "\n").encode("utf-8"), path.read_bytes())
                 self.assertEqual(pending["pins"][str(path)], support.file_hash(path))
+
+    def test_repairs_that_keep_failing_to_launch_on_unchanged_source_go_to_the_investigator(self):
+        oversized = "x" * (runner.REPAIR_REPORT_BYTES + 1)
+        for _ in range(stage_recovery.RESTARTS_PER_SOURCE):
+            self.queue(report=oversized)
+            self.assert_repair_restarted()
+        self.queue(report=oversized)
+        with patch.object(runner, "run_role") as launch, self.assertRaises(support.Paused) as error:
+            runner.execute_report_repair(self.state, self.run, self.root)
+        launch.assert_not_called()
+        self.assertEqual("PAUSED_REPEATED_FAILURE", error.exception.status)
+        self.assertIn("could not launch 3 times on unchanged source", str(error.exception))
+        self.assertNotIn("autocode resume", str(error.exception))
+        self.assertIn(error.exception.status, stuck_job.STATUSES)
+        saved = support.read(self.run / "state.json")
+        self.assertEqual("PAUSED_REPEATED_FAILURE", saved["status"])
+        self.assertIn("pending_report_repair", saved)
 
     def test_latest_rejected_report_overflow_does_not_charge_second_attempt(self):
         self.queue()["attempts"] = 1
@@ -1162,7 +1202,7 @@ class RepairTests(unittest.TestCase):
         with self.assertRaises(runner.ReportRepairQueued):
             self.reject_repair(6, ValueError("Malformed large repair"), report=oversized)
         pending = self.state["pending_report_repair"]
-        self.assert_repair_blocked()
+        self.assert_repair_restarted()
         self.assertEqual(oversized, Path(pending["latest_rejected"]["output"]).read_text())
         self.assertEqual("{}", Path(pending["original"]["output"]).read_text())
 
@@ -1177,7 +1217,7 @@ class RepairTests(unittest.TestCase):
             path = Path(pending[key]["output"])
             self.assertLess(path.stat().st_size, runner.REPAIR_REPORT_BYTES)
             self.assertEqual(support.read(path), runner.repair_report_source(pending[key])["content"])
-        self.assert_repair_blocked()
+        self.assert_repair_restarted()
         self.assertEqual(original, Path(pending["original"]["output"]).read_text())
         self.assertEqual(latest, Path(pending["latest_rejected"]["output"]).read_text())
 
@@ -1198,7 +1238,7 @@ class RepairTests(unittest.TestCase):
         self.state = copy.deepcopy(initial)
         self.state["acceptance_criteria"][0]["criterion"] += "x" * (padding + 1)
         support.atomic_json(self.run / "state.json", self.state)
-        self.assert_repair_blocked()
+        self.assert_repair_restarted()
         self.assertEqual(
             len(initial["acceptance_criteria"][0]["criterion"]) + padding + 1,
             len(self.state["acceptance_criteria"][0]["criterion"]),
@@ -1221,7 +1261,7 @@ class RepairTests(unittest.TestCase):
                 self.assertNotIn("\n", packet.strip())
                 self.assertIn(json.dumps(schema, separators=(",", ":")), head)
 
-    def test_provider_decorated_handoff_overflow_never_publishes_or_launches_and_refunds_attempt(self):
+    def test_provider_decorated_handoff_overflow_never_launches_and_starts_a_fresh_attempt(self):
         self.state["settings"]["engine"] = "opencode"
         self.queue()
         initial = copy.deepcopy(self.state)
@@ -1239,9 +1279,9 @@ class RepairTests(unittest.TestCase):
             patch.object(runner.processes, "preflight", return_value=None),
             patch.object(runner.subprocess, "Popen", side_effect=AssertionError("No provider may launch")) as launch,
         ):
-            with self.assertRaises(support.Paused) as error:
+            with self.assertRaises(runner.ReportRepairQueued) as error:
                 runner.execute_report_repair(self.state, self.run, self.root)
-        self.assertEqual("PAUSED_REPORT_REPAIR_INPUT", error.exception.status)
+        self.assertEqual("PAUSED_REPORT_REPAIR_INPUT", error.exception.__cause__.status)
         schema_prompt.assert_called_once()
         args = schema_prompt.call_args.args
         self.assertEqual(runner.REPAIR_HANDOFF_BYTES - 1, len(args[0].encode("utf-8")))
@@ -1251,10 +1291,13 @@ class RepairTests(unittest.TestCase):
         self.assertNotIn("active_stage", self.state)
         saved = support.read(self.run / "state.json")
         self.assertNotIn("active_stage", saved)
-        self.assertEqual(0, self.state["pending_report_repair"]["attempts"])
-        self.assertEqual(0, saved["pending_report_repair"]["attempts"])
+        # The spent repair is archived with its attempt refunded, and the stage starts afresh.
+        for current in (self.state, saved):
+            self.assertNotIn("pending_report_repair", current)
+            self.assertEqual(0, current["report_repair_archive"][-1]["repair"]["attempts"])
+            self.assertEqual(("RUNNING", "terra"), (current["status"], current["next_stage"]))
 
-    def test_oversized_command_receipts_pause_instead_of_truncating_or_launching(self):
+    def test_oversized_command_receipts_start_a_fresh_attempt_instead_of_truncating_or_launching(self):
         command = "exact-command-" + "x" * runner.REPAIR_HANDOFF_BYTES
         rows = [
             {"type": "thread.started", "thread_id": "t-session"},
@@ -1267,7 +1310,7 @@ class RepairTests(unittest.TestCase):
         pending = self.queue(event_rows=rows)
         path = Path(pending["original"]["events"])
         contents = path.read_bytes()
-        self.assert_repair_blocked()
+        self.assert_repair_restarted()
         self.assertEqual(contents, path.read_bytes())
         self.assertEqual(command, support.events(path)[1]["item"]["command"])
 
@@ -1655,14 +1698,11 @@ class RepairTests(unittest.TestCase):
         self.assertTrue(data["rejected_report"]["empty_response"])
         self.assertEqual(2, self.state["pending_report_repair"]["attempts"])
 
-    def test_empty_execution_original_still_stops(self):
+    def test_empty_execution_original_starts_a_fresh_attempt(self):
         self.state["next_stage"] = "terra"
         self.queue(report="")
-        self.assert_repair_blocked("PAUSED_REPORT_REPAIR_INPUT")
-        self.state["status"] = "PAUSED_REPORT_REPAIR_INPUT"
-        # Nothing remains to correct, so resume keeps discarding the repair for a fresh attempt.
-        self.assertTrue(runner.prepare_exhausted_execution_report_retry(self.state, self.run))
-        self.assertNotIn("pending_report_repair", self.state)
+        # Nothing remains to correct, so the runner discards the repair for a fresh attempt itself.
+        self.assert_repair_restarted()
 
     def test_unlaunchable_repair_without_a_pending_repair_admits_nothing(self):
         self.state["settings"]["joint_planning"] = True
