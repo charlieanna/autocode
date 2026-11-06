@@ -84,8 +84,11 @@ regression, not claimed as a second live retry.
 - Import bindings have no mutation sites; independent Testers accepted exact
   source-bound reasons. Parallel stability repeats omitted the contract tests;
   a separate final contract-suite run passed.
-- Feedback offered at the repeated-failure pause was refused by the CLI. The
-  public-view action mismatch and two-step pause recovery remain recorded gaps.
+- Direct `--feedback` at the repeated-failure pause was refused by the CLI.
+  A later audit of all 49 saved snapshots found that the feedback card carried
+  no executable arguments: it was a chat drafting hint. The driver incorrectly
+  inferred a command from that hint; this is not evidence of an executable
+  public-view action mismatch. Two-step pause recovery remains recorded friction.
 
 ## Final verification follow-up
 
@@ -110,3 +113,40 @@ in `finish-testing-report.json`, `final-native-command.json`, `final-native.log`
 and `final-static-result.json` under the ignored evidence directory above.
 The final rerun resolves the earlier failures; it is not a claim that the
 initial 80-module invocation passed.
+
+## Broader hard-case qualification
+
+After the owner requested coverage beyond the two live diamonds, the exact
+published runtime `3593e82358bf69ccbafd7cfa26b6a13c18311015` passed **317 tests
+in 20 modules in 452 seconds** on the supported Linux container. This covers:
+
+| Boundary | Cases exercised |
+| --- | --- |
+| Scheduling | Dependency readiness, ownership overlap, parallel limits, independent worktrees, reviewed prerequisites |
+| Crashes | Controller SIGKILL/SIGTERM, before spawn, after spawn before PID save, after patch application, worktree retirement |
+| Partial failure | Successful siblings retained, failed member retried alone, late failed result cannot replace integrated retry |
+| Source safety | Parent edits and new files preserved, scope escapes refused, stale contracts rejected, merge conflicts retain both sides |
+| Delivery evidence | Combined review required, incompatible client/server rejected, missing or deleted tests fail, prior passing criteria cannot silently regress |
+| Recovery | Report repairs do not reimplement, duplicate results consumed once, queued pause/stop blocks subsequent calls |
+| Bounds | Retry/escalation exhaustion, cost/time/milestone limits, worker quota, pinned routes and verifier independence |
+
+`tests.test_build_graph_cli` adds a ten-milestone computation with five waves
+of 1, 3, 3, 2 and 1 Builders. It passed in 89.706 seconds, with real public CLI
+calls and worktrees and scripted providers. Assertions require exact reviewed
+prerequisite bytes, overlapping isolated siblings, review before advancement,
+exactly ten Builder launches, no Resolver launches and current final completion.
+Breaking a shared prerequisite then fails the downstream test and invalidates
+completion. Explicit CI mappings retain this test for dispatcher, worker,
+milestone and fixture changes.
+
+Another 149 pure tests passed for CI selection, dependency graph validation,
+recovery views, pause authority and queued messages. Four new CI-selection
+assertions fail against the original mapping and pass with the added mapping.
+The earlier feedback finding was corrected using all 49 saved repeated-failure
+status snapshots, not by weakening the operational pause.
+
+Commands, source hashes, logs and the coverage inventory are under
+`hard-cases/` in the ignored evidence directory. These are finite test results,
+not proof of all possible schedules or of model effectiveness on every complex
+project. The ten-milestone trial is scripted; the earlier live-host and replay
+limits still apply. No additional live-model calls were made.
