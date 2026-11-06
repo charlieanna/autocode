@@ -75,6 +75,7 @@ try:
     from . import autocode_model_identity as model_identity
     from . import autocode_planning_advice as recovery_binding
     from . import autocode_progressive_state as progressive
+    from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
     from . import autocode_stage_access as stage_access
@@ -87,6 +88,7 @@ except ImportError:
     import autocode_model_identity as model_identity
     import autocode_planning_advice as recovery_binding
     import autocode_progressive_state as progressive
+    import autocode_recovery_accounting as recovery_accounting
     import autocode_roles as roles
     import autocode_run_status as run_status
     import autocode_stage_access as stage_access
@@ -105,6 +107,9 @@ RETRYABLE = frozenset(
         "PAUSED_PLANNING_BUDGET",
         "PAUSED_NO_PROGRESS",
         "PAUSED_COMPLETION_REVIEW",
+        # The automatic timeout recoveries ran out. Without this the run asked a person to grant more
+        # (--grant-recovery), a question about AutoCode's own retries (2026-11-06 live run).
+        "PAUSED_TIMEOUT_RECOVERY",
     }
 )
 # These have operator-only resume semantics; the Investigator explains them, the user decides.
@@ -112,6 +117,9 @@ DIAGNOSE_ONLY = frozenset(
     {"PAUSED_REPORT_REPAIR_LIMIT", "PAUSED_BUILDER_RETRY_LIMIT", "PAUSED_MILESTONE_STALLED", "PAUSED_MILESTONE_REPLAN"}
 )
 STATUSES = RETRYABLE | DIAGNOSE_ONLY
+# Pauses the runner publishes as an AutoResolver operational request when they reach it raised. An
+# investigation that ends in one of them raises it again, so it is published as before.
+PUBLISHED = frozenset({"PAUSED_TIMEOUT_RECOVERY"})
 # Run-wide holds checked at every stage boundary: the bounds, and a provider transport that changed
 # under the run. One reached before a queued Builder classification launched stops the run, not the
 # Investigator (#1949): the classification stays queued under that pause, whose own control (a raise,
@@ -714,6 +722,11 @@ def grant_one_attempt(state: RunState, request: dict) -> None:
     elif status == "PAUSED_NO_PROGRESS":
         limit = ((state.get("settings") or {}).get("limits") or {}).get("no_progress_batches") or 1
         state["no_progress_batches"] = max(0, limit - 1)
+    elif status == "PAUSED_TIMEOUT_RECOVERY":
+        # One more automatic recovery on each counter the exhaustion stop reads
+        # (autocode_recovery_limits.stop_reason); the recovery history stays intact.
+        state["automatic_recoveries_since_resume"] = max(0, recovery_accounting.spent(state) - 1)
+        state["consecutive_timeout_recoveries"] = max(0, recovery_accounting.consecutive_timeouts(state) - 1)
 
 
 def launched(state: RunState, request: dict) -> bool:
@@ -863,6 +876,7 @@ def drive(
     attempts = lambda: sum(1 for row in state.get("stages") or [] if not row.get("runner_owned"))
     attempted = attempts()
     fresh = lambda: attempts() > attempted
+    owed: set[str] = set()  # PUBLISHED pauses this invocation sent to the Investigator
     while True:
         try:
             while active(state):
@@ -911,6 +925,8 @@ def drive(
                 if getattr(error, "quota_worker", None):
                     reraised.quota_worker = error.quota_worker
                 raise reraised from error
+            if status in PUBLISHED:
+                owed.add(status)
             if persist:
                 persist(state)
             continue
@@ -923,6 +939,9 @@ def drive(
             continue
         if state.get("status") in STATUSES and state.get("stop_reason"):
             state["stop_reason"] = annotate(state, state["status"], state["stop_reason"])
+        if state.get("status") in owed and state.get("stop_reason"):
+            # The Investigator did not retry: publish the restored pause as the runner always has.
+            raise paused(state["status"], state["stop_reason"])
         return state
 
 
