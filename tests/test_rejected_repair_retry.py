@@ -67,6 +67,9 @@ class RejectedRepairRetryCLI(unittest.TestCase):
         driver = self.driver("retry")
         view = driver.drive(self.scenario.brief)
         retry = self.assert_repaired(driver, view)
+        # This fixture deliberately scripts a weak Tester. Its report-only repair
+        # is retained, but is not another implementation or independent check.
+        decisions = [stage for stage in self.stages(driver) if not stage.endswith("_report_repair")]
         self.assertEqual(
             [
                 "terra",
@@ -80,7 +83,7 @@ class RejectedRepairRetryCLI(unittest.TestCase):
                 "sol",
                 "astra_review",
             ],
-            self.stages(driver)[-10:],
+            decisions[-10:],
         )
         # The Investigator's verified retry is the one attempt it promises, not a second novelty-free one.
         self.assertEqual(
