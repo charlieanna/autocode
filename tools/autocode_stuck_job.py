@@ -117,6 +117,9 @@ DIAGNOSE_ONLY = frozenset(
     {"PAUSED_REPORT_REPAIR_LIMIT", "PAUSED_BUILDER_RETRY_LIMIT", "PAUSED_MILESTONE_STALLED", "PAUSED_MILESTONE_REPLAN"}
 )
 STATUSES = RETRYABLE | DIAGNOSE_ONLY
+# Pauses the runner publishes as an AutoResolver operational request when they reach it raised. An
+# investigation that ends in one of them raises it again, so it is published as before.
+PUBLISHED = frozenset({"PAUSED_TIMEOUT_RECOVERY"})
 # Run-wide holds checked at every stage boundary: the bounds, and a provider transport that changed
 # under the run. One reached before a queued Builder classification launched stops the run, not the
 # Investigator (#1949): the classification stays queued under that pause, whose own control (a raise,
@@ -873,6 +876,7 @@ def drive(
     attempts = lambda: sum(1 for row in state.get("stages") or [] if not row.get("runner_owned"))
     attempted = attempts()
     fresh = lambda: attempts() > attempted
+    owed: set[str] = set()  # PUBLISHED pauses this invocation sent to the Investigator
     while True:
         try:
             while active(state):
@@ -921,6 +925,8 @@ def drive(
                 if getattr(error, "quota_worker", None):
                     reraised.quota_worker = error.quota_worker
                 raise reraised from error
+            if status in PUBLISHED:
+                owed.add(status)
             if persist:
                 persist(state)
             continue
@@ -933,6 +939,9 @@ def drive(
             continue
         if state.get("status") in STATUSES and state.get("stop_reason"):
             state["stop_reason"] = annotate(state, state["status"], state["stop_reason"])
+        if state.get("status") in owed and state.get("stop_reason"):
+            # The Investigator did not retry: publish the restored pause as the runner always has.
+            raise paused(state["status"], state["stop_reason"])
         return state
 
 

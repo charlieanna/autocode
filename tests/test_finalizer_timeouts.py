@@ -192,7 +192,13 @@ class FinalizerTimeoutTests(unittest.TestCase):
         stopped = self.saved()[1]
         self.assertFalse(goals.approved(stopped))
         self.assert_no_planning_recovery_grant(stopped)
-        self.assertEqual(["astra_challenge", "glm_revise"], self.launched()[-2:])
+        # The exhausted recovery budget went to the Investigator once, before the operator request;
+        # it did not retry, so no fourth final review ran and the request stands as before.
+        self.assertEqual(["astra_challenge", "glm_revise", "investigate_stuck"], self.launched()[-3:])
+        self.assertEqual(1, self.launched().count("investigate_stuck"))
+        self.assertEqual(
+            ["astra_finalize:PAUSED_TIMEOUT_RECOVERY"], [row["identity"] for row in stopped["stuck_investigations"]]
+        )
 
 
 if __name__ == "__main__":
