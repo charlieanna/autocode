@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Report repair tolerates bounded JSON formatting overhead while retaining the complete
+  saved artifact and the existing compact-content and final-handoff limits.
 - Investigator report repairs avoid duplicating the preceding Tester diagnosis, retain the exact
   classification citation allowlist, and can continue a retained repair after a corrected renderer
   resolves a prelaunch prompt-size refusal. Saved evidence and size limits remain unchanged.
