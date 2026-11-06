@@ -177,10 +177,19 @@ class ClassificationRecoveryCLI(unittest.TestCase):
     def test_oversized_preparation_hold_continues_the_retained_report_through_public_action(self):
         self.boundary_repair_resume(legacy=True, input_size=True)
 
-    def boundary_repair_resume(self, *, legacy, input_size=False):
+    def test_pinned_investigator_model_and_effort_survive_report_repair(self):
+        self.boundary_repair_resume(legacy=False, pinned=True)
+
+    def boundary_repair_resume(self, *, legacy, input_size=False, pinned=False):
         import autocode
 
-        self.seed(planner_extra=["--max-seconds", "1000"])
+        self.seed(
+            planner_extra=[
+                "--max-seconds",
+                "1000",
+                *(["--investigator-model", "gpt-5.4", "--investigator-reasoning-effort", "medium"] if pinned else []),
+            ]
+        )
         self.env.update(
             BUILD_AUDIT_FAULT="no_change",
             FAILURE_ROUTING_DIAGNOSIS="execution",
@@ -226,6 +235,16 @@ class ClassificationRecoveryCLI(unittest.TestCase):
         self.assertEqual(self.approved_token, completed["contract_token"])
         self.assertEqual(1, len(self.trace("investigate_stuck")))
         self.assertEqual(1, len(self.trace("investigate_stuck_report_repair")))
+        self.assertEqual(
+            self.trace("investigate_stuck")[0]["model"],
+            self.trace("investigate_stuck_report_repair")[0]["model"],
+            "A report-only repair must retain its original Investigator model",
+        )
+        if pinned:
+            for stage in ("investigate_stuck", "investigate_stuck_report_repair"):
+                call = self.trace(stage)[0]
+                self.assertEqual("gpt-5.4", call["model"])
+                self.assertIn('model_reasoning_effort="medium"', call["argv"])
         self.assertEqual(2, len(self.trace("terra")))
 
     def test_retry_preserves_the_existing_report_failure_limit(self):
