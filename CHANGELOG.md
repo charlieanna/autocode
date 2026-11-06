@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Changed-code repair no longer repeats a narrowed batch assignment when the Tester rejects
+  a gap owned by another batch member. The Completion Reviewer first reassigns the correction
+  within the approved plan; the recorded scope review grants no write permission or completion
+  authority and consumes no Builder repair round.
 - A first project whose only code is a pytest `conftest.py` (beside a README and an empty package) is
   proved like any other first project. The base collects no tests, so there is no existing behavior to
   preserve; the proof used to report preservation unproven and ask a person how to proceed.
