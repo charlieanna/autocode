@@ -2004,7 +2004,9 @@ A <code>test:</code> case the plan itself added that already passes is not that 
 <code>guard:</code> and reviewed again, exactly as in a build (#1868).</p>
 <p>In a plan with milestones, the Tester writes the cases due when a milestone is reached; a parallel batch
 gets the cases of every milestone in it at once. Tests for milestones not yet built are written later, so
-they never fail an earlier milestone's checks.</p>
+they never fail an earlier milestone's checks. When a batch's members are then built one at a time, the
+proof of each member leaves out the test files that hold only the other members' tests (its notes name
+them); they are proved with their own milestone, and the final completion proof runs every test.</p>
 <p>The Builder then works with the Tester's lines fixed. Its prompt names the files. It may add tests to them
 (a plan can name further tests in the same file), but every line the Tester wrote must stay, in order. When
 an attempt changes or deletes one, the runner puts the file back and sends the Builder straight back,
