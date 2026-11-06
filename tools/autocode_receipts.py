@@ -23,19 +23,76 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shlex
 
 ATTESTATION = "autocode_receipt_sha256"
 
 
 def attestation_line(receipt_bytes: bytes) -> str:
-    """The line capture prints after the receipt: the digest of the receipt file's bytes."""
-    return json.dumps({ATTESTATION: hashlib.sha256(receipt_bytes).hexdigest()}) + "\n"
+    """The line capture prints after the receipt: its exit code and the digest of the receipt file's bytes.
+
+    The exit code comes first and under the receipt's own key, so a display filter that keeps
+    lines naming ``"exit_code"`` (``2>&1 | grep -E '"exit_code"|Tests'``, live run 2026-11-02)
+    keeps this line whole.
+    """
+    receipt = json.loads(receipt_bytes)
+    return (
+        json.dumps({"exit_code": receipt.get("exit_code"), ATTESTATION: hashlib.sha256(receipt_bytes).hexdigest()})
+        + "\n"
+    )
 
 
 def attests(value, receipt_bytes: bytes) -> bool:
     """True when a parsed output line is capture's attestation of exactly these receipt bytes."""
-    return value == {ATTESTATION: hashlib.sha256(receipt_bytes).hexdigest()}
+    if not isinstance(value, dict) or value.get(ATTESTATION) != hashlib.sha256(receipt_bytes).hexdigest():
+        return False
+    if set(value) == {ATTESTATION}:  # capture before 2026-11-06 printed the digest alone
+        return True
+    return set(value) == {"exit_code", ATTESTATION} and value["exit_code"] == json.loads(receipt_bytes).get("exit_code")
+
+
+# A pipe into a line filter, or a redirect of stdout or stderr, after capture's arguments.
+_FILTER = re.compile(r"(?:2>&1\s*)?\|\s*(?:grep|tail|head|cut|sed|awk|jq)\b[^|;&\n]*|[12]?>\s*/dev/null")
+
+
+def display_filter(commands, receipt_names) -> str | None:
+    """The filter a capture command for this receipt sent its display through, if any.
+
+    Said in the rejection, so the next Tester attempt runs capture unfiltered instead of
+    repeating the filter that dropped its receipt (docs/bugs/2026-11-02-retry-loops.md).
+    """
+    for command in commands:
+        if not isinstance(command, str):
+            continue
+        for name in receipt_names:
+            at = command.find(name)
+            if at >= 0 and "capture" in command[:at]:
+                found = _FILTER.search(command, at + len(name))
+                if found:
+                    return found.group(0).strip()
+    return None
+
+
+def compound_hint(cited, commands) -> str:
+    """Why a bare ``event:`` check matched no command, when it ran only inside a longer one.
+
+    Live Testers ran ``cmd 2>&1 | tail -15`` or ``a; b; c`` in one Bash call and cited ``cmd``
+    alone; the runner cannot know that part's exit code, so the report was refused, repaired and
+    re-run (docs/bugs/2026-11-02-retry-loops.md). The rejection names the call it ran in, so the
+    fresh attempt runs each cited command by itself. Empty when no such call exists.
+    """
+    if not isinstance(cited, str) or not cited.strip():
+        return ""
+    for command in reversed(commands):
+        if isinstance(command, str) and command != cited and cited.strip() in command:
+            shown = command if len(command) <= 160 else command[:157] + "..."
+            return (
+                f": it ran only inside `{shown}`, joined with other commands or piped into a filter, so its own"
+                " exit code is unknown. Run each command you cite as its own Bash call, exactly as cited, or"
+                " capture it."
+            )
+    return ""
 
 
 def adopt_command(check: dict, argv: list[str]) -> bool:

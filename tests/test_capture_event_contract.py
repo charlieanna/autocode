@@ -171,6 +171,8 @@ class CaptureEventContractTests(unittest.TestCase):
             "merged-tail": "2>&1 | tail -c 200",
             "grep": "| grep -o '\"exit_code\": [0-9]*'",
             "discarded": ">/dev/null",
+            # A merged line filter (live run 2026-11-02): the attestation line names "exit_code", so it is kept.
+            "merged-grep": "2>&1 | grep -E '\"exit_code\"|Tests ' | cut -c1-300",
         }
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary).resolve()
@@ -203,3 +205,51 @@ class CaptureEventContractTests(unittest.TestCase):
                     receipt.write_text(json.dumps({**json.loads(receipt.read_text()), "duration_seconds": 0}))
                     with self.assertRaisesRegex(ValueError, "No independently executed Validator tool event"):
                         support.verify_checks([dict(check)], workspace, events)
+
+    def test_a_filter_that_drops_every_receipt_line_is_named_in_the_rejection(self):
+        # `2>&1 | grep -o` keeps only the matched text, so no line can attest the receipt. The rejection says
+        # which filter dropped it, so the fresh Tester attempt runs capture unfiltered instead of repeating it.
+        capture = shlex.join([sys.executable, str(Path(support.__file__).parent / "autocode.py"), "capture"])
+        argv = [sys.executable, "-c", "print('ok')"]
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary).resolve()
+            environment = {key: value for key, value in os.environ.items() if not key.startswith("AUTOCODE_")}
+            environment["AUTOCODE_OUTPUT_STORE"] = str(workspace / ".output-store")
+            ref = ".autocode/evidence/only-exit.json"
+            command = f"{capture} --output {ref} -- {shlex.join(argv)} 2>&1 | grep -o '\"exit_code\": [0-9]*'"
+            ran = subprocess.run(["sh", "-c", command], cwd=workspace, env=environment, capture_output=True, text=True)
+            self.assertEqual('"exit_code": 0\n"exit_code": 0\n', ran.stdout)
+            events = workspace / "events.jsonl"
+            item = {"type": "command_execution", "id": "item_1", "command": command, "exit_code": 0}
+            item["aggregated_output"] = ran.stdout
+            events.write_text(json.dumps({"type": "item.completed", "item": item}) + "\n")
+            check = {"command": shlex.join(argv), "exit_code": 0, "evidence_ref": ref}
+            with self.assertRaises(ValueError) as refused:
+                support.verify_checks([check], workspace, events)
+            message = str(refused.exception)
+            self.assertTrue(message.startswith("No independently executed Validator tool event matches receipt"))
+            self.assertIn("""`2>&1 | grep -o '"exit_code": [0-9]*'`""", message)
+            self.assertIn("Run capture again without filtering its output", message)
+
+    def test_a_cited_command_that_ran_only_inside_a_longer_call_is_named_in_the_rejection(self):
+        # Live Testers ran `cmd 2>&1 | tail -15` or `a; b` in one call and cited `cmd` with a bare event:
+        # (2026-11-02, 2026-11-06). Its own exit code is unknown, so it is still refused, and the rejection
+        # now names the call so the fresh attempt runs the cited command by itself.
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            events = workspace / "events.jsonl"
+            ran = "node node_modules/vitest/vitest.mjs run 2>&1 | tail -15"
+            item = {"type": "command_execution", "id": "item_1", "command": ran, "exit_code": 0}
+            item["aggregated_output"] = "Tests  4 passed (4)"
+            events.write_text(json.dumps({"type": "item.completed", "item": item}) + "\n")
+            check = {"command": "node node_modules/vitest/vitest.mjs run", "exit_code": None, "evidence_ref": "event:"}
+            with self.assertRaises(ValueError) as refused:
+                support.verify_checks([check], workspace, events)
+            message = str(refused.exception)
+            self.assertTrue(message.startswith("Check is not supported by an exact executed Validator event: "))
+            self.assertIn(f"`{ran}`", message)
+            self.assertIn("Run each command you cite as its own Bash call", message)
+            # A command that ran nowhere keeps the plain message.
+            other = {"command": "go test ./...", "exit_code": None, "evidence_ref": "event:"}
+            with self.assertRaisesRegex(ValueError, "^Check is not supported by an exact executed Validator event$"):
+                support.verify_checks([other], workspace, events)

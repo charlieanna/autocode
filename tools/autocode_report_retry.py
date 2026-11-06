@@ -29,6 +29,13 @@ RETRYABLE_ERRORS = (
 )
 
 
+def retryable(error) -> bool:
+    """Whether a rejection is one of RETRYABLE_ERRORS, which may carry a trailing explanation after ': '."""
+    return isinstance(error, str) and any(
+        error == known or error.startswith(known + ": ") for known in RETRYABLE_ERRORS
+    )
+
+
 def rejected_attempt(state: RunState):
     """The latest rejected attempt of the pending repair, or None: its latest report-only repair,
     or the original itself when no correction or repair followed it and it is still the last
