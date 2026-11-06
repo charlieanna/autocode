@@ -208,16 +208,48 @@ def _holds(saved, state: RunState, revision):
     A binding also holds when it was saved while the primary tool's config lay at an earlier
     location that the run's own settings history proves content-identical
     (``access_identity.relocations``): resuming from another checkout moves the bundled config,
-    and only its path changes. Each earlier location is tried in both hashings above.
+    and only its path changes. Each earlier location is tried in both hashings above. So is
+    each route of the Builder lane's own escalation (``_escalated``).
     """
     current = _binding(state, revision)
-    for candidate in (state, *_relocated(state)):
-        if saved == {**current, "settings_hash": util.digest(_bound_settings(candidate, _CEILINGS))} or saved == {
-            **current,
-            "settings_hash": util.digest(_bound_settings(candidate, _EARLIER_CEILINGS, derived=True)),
-        }:
-            return True
+    for located in (state, *_relocated(state)):
+        for candidate in _escalated(located):
+            if saved == {**current, "settings_hash": util.digest(_bound_settings(candidate, _CEILINGS))} or saved == {
+                **current,
+                "settings_hash": util.digest(_bound_settings(candidate, _EARLIER_CEILINGS, derived=True)),
+            }:
+                return True
     return False
+
+
+def _escalated(state: RunState):
+    """``state``, then ``state`` on each other route of the Builder lane it is on now.
+
+    A repair held before the Builder escalated, or before an escalation was undone, was bound on
+    another of the lane's own routes (``builder_policy.escalation_routes``). A route outside the
+    lane, such as a model a person named, matches none, and the binding sees it.
+    """
+    yield state
+    roles = (state.get("settings") or {}).get("roles") or {}
+    lanes = builder_policy.escalation_routes(state)
+    on = [
+        lane
+        for lane in lanes
+        if all(
+            isinstance(roles.get(role), dict)
+            and (roles[role].get("model"), roles[role].get("reasoning_effort")) == route
+            for role, route in lane.items()
+        )
+    ]
+    if not on:
+        return
+    for lane in lanes:
+        if lane in on:
+            continue
+        moved = copy.deepcopy(state.get("settings") or {})
+        for role, (model, effort) in lane.items():
+            moved["roles"][role].update(model=model, reasoning_effort=effort)
+        yield {**state, "settings": moved}
 
 
 def _relocated(state: RunState):
