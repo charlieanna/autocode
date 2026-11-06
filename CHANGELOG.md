@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A GLM request that Z.ai refuses with "Prompt exceeds max length" is now a context-window stop
+  (`PAUSED_CONTEXT_WINDOW`), not an uncertain provider stop the Resolver holds for a person.
+
 - A first project whose only code is a pytest `conftest.py` (beside a README and an empty package) is
   proved like any other first project. The base collects no tests, so there is no existing behavior to
   preserve; the proof used to report preservation unproven and ask a person how to proceed.
