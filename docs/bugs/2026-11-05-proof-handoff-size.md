@@ -56,8 +56,10 @@ It sent its GLM 5.3 Tester a 3.63 MB handoff, and Z.ai refused the first request
 For review stages, `autocode_proof_detail` moves each of these fields into the same
 artifact once it is over 64 KiB, and leaves a summary inline. Each file keeps its
 mutant count and outcomes. Each criterion keeps its survivor count and the tests that
-let a mutant survive. Every changed line keeps its handle, line, status, execution and
-mutation outcomes, grouped by file. The Tester names a gap by its handle, which the
+let a mutant survive. Each file lists its tested lines by number, and every other line
+keeps its handle, line, status, execution and mutation outcomes. The first live version
+gave tested lines handles too. The Tester then decided 16 tested lines, and the schema
+refused the whole 1,297-second report, so now only a gap carries a handle. The Tester names a gap by its handle, which the
 generation schema already offers and the runner resolves against the run's own
 assessment. Nothing moves when another part of the handoff points into an obligation.
 

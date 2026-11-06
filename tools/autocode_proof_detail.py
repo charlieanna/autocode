@@ -8,8 +8,8 @@ and the model's provider refused the prompt as too long before the Tester could 
 
 For a review stage, each of those fields that is over ``LIMIT`` moves whole into the hash-pinned context
 artifact, and the handoff keeps a summary: counts and outcomes per file, the tests each criterion's
-survivors passed, and every obligation's handle, line, status, execution and mutation outcomes, grouped
-by file. The gap a Tester decides is named by its handle, which the generation schema already offers and
+survivors passed, and per file the tested lines plus every other line's handle, line, status, execution
+and mutation outcomes. The gap a Tester decides is named by its handle, which the generation schema already offers and
 the runner resolves against the run's own assessment (``autocode_changed_code_review``). Nothing moves
 when another part of the handoff points into an obligation, or when the summary would not be smaller.
 Pure: the caller passes the original proof, the packet it already copied, and the dict of moved fields.
@@ -33,8 +33,10 @@ INSTRUCTION = (
     "Large mutation and per-line detail is summarized here and kept whole in context_artifact (path and "
     "SHA-256 below) under {fields}. mutation_check.files keeps each file's mutant count and outcomes; "
     "mutation_check.survivors keeps each criterion's survivor count and the tests that passed with a mutant; "
-    "changed_code_evidence.obligations keeps every changed line's handle, line, status, execution and "
-    "mutation outcomes, grouped by file, and names a gap by its handle. Read the complete rows before "
+    "changed_code_evidence.obligations groups the changed lines by file: tested_lines lists the lines whose "
+    "mutants the tests already kill, and gaps lists every other line with its handle, line, status, "
+    "execution and mutation outcomes. Only a handle under gaps names a gap; a tested line is not one and "
+    "takes no changed_code_exceptions decision. Read the complete rows before "
     "relying on a mutant, a reason or an evidence log. Missing, unreadable or hash-mismatched artifacts are "
     "unverified evidence, never permission to infer PASS. Every obligation and gate still applies."
 )
@@ -108,15 +110,20 @@ def _obligations(rows):
     for row in rows:
         if not isinstance(row, dict) or not isinstance(row.get("handle"), str) or not row["handle"]:
             return None  # a gap without a handle could only be named by its full id, which stays in the rows
-        group = groups.setdefault((row.get("path"), row.get("sha256")), [])
-        group.append(
+        group = groups.setdefault((row.get("path"), row.get("sha256")), {"tested_lines": [], "gaps": []})
+        if row.get("status") == "tested" and isinstance(row.get("line"), int) and "end_line" not in row:
+            # A live Tester given every line with a handle decided tested lines too, and the schema
+            # refused the whole report: only a gap gets a handle here.
+            group["tested_lines"].append(row["line"])
+            continue
+        group["gaps"].append(
             {
                 key: row[key]
                 for key in ("handle", "line", "end_line", "status", "executed", "mutation_outcomes")
                 if key in row
             }
         )
-    return [{"path": path, "sha256": digest, "lines": lines} for (path, digest), lines in groups.items()]
+    return [{"path": path, "sha256": digest, **lines} for (path, digest), lines in groups.items()]
 
 
 def _receipts(rows):

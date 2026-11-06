@@ -179,19 +179,25 @@ class ProofDetailTests(unittest.TestCase):
                 # Every changed line keeps its handle, line, status, execution and outcomes; each gap the
                 # Tester may decide is named by a handle the runner resolves to the run's exact gap id.
                 assessment = whole["changed_code_evidence"]
-                lines = [
-                    {**line, "path": group["path"], "sha256": group["sha256"]}
-                    for group in inline["changed_code_evidence"]["obligations"]
-                    for line in group["lines"]
-                ]
-                self.assertEqual(len(assessment["obligations"]), len(lines))
-                by_handle = {line["handle"]: line for line in lines}
+                groups = inline["changed_code_evidence"]["obligations"]
+                gaps = [{**gap, "path": g["path"], "sha256": g["sha256"]} for g in groups for gap in g["gaps"]]
+                tested = {(g["path"], g["sha256"], line) for g in groups for line in g["tested_lines"]}
+                by_handle = {gap["handle"]: gap for gap in gaps}
                 for row in assessment["obligations"]:
+                    if row["status"] == "tested":
+                        # A tested line is listed by number only: no handle the Tester could decide.
+                        self.assertIn((row["path"], row["sha256"], row["line"]), tested)
+                        self.assertNotIn(row["handle"], by_handle)
+                        continue
                     kept = by_handle[row["handle"]]
                     for key in ("path", "sha256", "line", "status", "executed", "mutation_outcomes"):
                         self.assertEqual(row[key], kept[key])
-                    if row["status"] == "reason_required":
-                        self.assertEqual(row["gap_id"], changed_code_review.resolve(assessment, row["handle"]))
+                    self.assertEqual(row["gap_id"], changed_code_review.resolve(assessment, row["handle"]))
+                self.assertEqual(len(assessment["obligations"]), len(gaps) + len(tested))
+                self.assertEqual(
+                    set(changed_code_review._gaps(assessment)),
+                    {changed_code_review.resolve(assessment, h) for h in by_handle},
+                )
                 self.assertEqual(assessment["status"], inline["changed_code_evidence"]["status"])
 
                 instruction = inline["proof_detail_instruction"]
