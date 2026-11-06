@@ -88,6 +88,36 @@ class ReportSourceTests(unittest.TestCase):
                     self.assertNotIn("parse_error", source)
                 else:
                     self.assertEqual(0, source["parse_error"]["position"])
+
+    def test_formatting_overhead_does_not_block_complete_bounded_json(self):
+        report = {"rows": [{"line": i, "reason": "retained café"} for i in range(2200)]}
+        compact = json.dumps(report, ensure_ascii=False, separators=(",", ":")).encode()
+        output = self.root / "report.json"
+        raw = json.dumps(report, ensure_ascii=True, indent=2).encode()
+        self.assertLess(len(compact), report_source.REPAIR_REPORT_BYTES)
+        self.assertGreater(len(raw), report_source.REPAIR_REPORT_BYTES)
+        output.write_bytes(raw)
+        source = report_source.repair_report_source({"engine": "codex", "output": str(output)})
+        self.assertEqual(report, source["content"])
+        self.assertEqual("json", source["format"])
+        self.assertEqual(len(raw), source["bytes"])
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), source["sha256"])
+        self.assertFalse(source["truncated"])
+        self.assertEqual(raw, output.read_bytes())
+
+    def test_formatting_allowance_does_not_admit_oversized_content_or_text(self):
+        output = self.root / "report.json"
+        for raw in (
+            json.dumps({"summary": "é" * (report_source.REPAIR_REPORT_BYTES // 2)}, ensure_ascii=False),
+            "not JSON " + "x" * report_source.REPAIR_REPORT_BYTES,
+            " " * (4 * report_source.REPAIR_REPORT_BYTES) + "{}",
+        ):
+            with self.subTest(prefix=raw[:12]):
+                output.write_text(raw)
+                with self.assertRaises(report_source.support.Paused) as caught:
+                    report_source.repair_report_source({"engine": "codex", "output": str(output)})
+                self.assertEqual("PAUSED_REPORT_REPAIR_INPUT", caught.exception.status)
+                self.assertEqual(raw.encode(), output.read_bytes())
                 self.assertEqual(raw, output.read_text())
 
     def test_repair_context_uses_latest_syntax_diagnostic_not_the_original(self):
