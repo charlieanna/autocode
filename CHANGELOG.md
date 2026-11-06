@@ -11,6 +11,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- When the Builder's stronger route is one AutoCode chose itself (not a `--builder-strong-model`
+  you named) and its account cannot use it, for example after an expired login, the run no longer
+  stops on a login question. AutoCode moves the Builder and its checkers back to their earlier
+  routes and ends the milestone's retries. The run's report then says which model failed its access
+  check and gives the probe evidence. A route you named still pauses for its login as before.
+  Moving the Builder between its own routes before and after escalating no longer makes a held
+  Resolver repair look out of date.
 - A bug fix no longer stops when an existing test asserts the bug itself (#2748). The plan names
   that test in its criterion's `supersedes`, and the approval screen shows it as "Replaces existing
   test". The original-test gate then accepts a failure of the listed tests only, and only when the
