@@ -60,6 +60,29 @@ class InvestigatorRepairHandoffTests(unittest.TestCase):
             context["evidence_files"],
         )
 
+    def test_classification_repair_omits_large_preceding_diagnosis_but_keeps_exact_authority(self):
+        output = self.investigation()
+        failure = {
+            "failure_id": "pinned-incident",
+            "binding": {"output": str(output), "evidence_hashes": {str(output): repairs.support.file_hash(output)}},
+            "evidence_refs": [str(output)],
+            "diagnosis": {"changed_code_exceptions": [{"reason": "preceding tester detail " * 20000}]},
+            "record": {"output": str(output), "stage": "sol", "source_revision": "unchanged"},
+        }
+        self.state["stuck_investigation"].update(mode="builder_failure", failure_evidence=failure)
+        before = copy.deepcopy(failure)
+        prompt = self.repair_request()["prompt"]
+        self.assertLess(len(prompt.encode()), repairs.runner.REPAIR_HANDOFF_BYTES)
+        data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        context = data["investigation_context"]
+        self.assertNotIn("diagnosis", context["builder_failure"])
+        for key in ("failure_id", "binding", "evidence_refs", "record"):
+            self.assertEqual(failure[key], context["builder_failure"][key])
+        self.assertEqual([{"evidence_ref": str(output), "probe_path": "run/" + output.name}], context["evidence_files"])
+        self.assertEqual(before, failure)
+        self.assertIn("Cite only investigation_context.builder_failure.evidence_refs", prompt)
+        self.assertIn("original_report", prompt)
+
     def test_investigator_repair_does_not_permit_shell_event_citations(self):
         self.investigation()
         prompt = self.repair_request()["prompt"].split("CURRENT HANDOFF DATA\n", 1)[0]

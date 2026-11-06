@@ -311,6 +311,16 @@ def prompt_parts(
             if citation
             else ""
         )
+        + (
+            "ORIGINAL REJECTION. original_error records why the pinned original attempt was rejected; "
+            "error describes the latest failed repair. A format failure in repair does not erase the "
+            "original evidence or schema defect. Check both against the supplied drafts and current "
+            "context. The earlier rejection is not evidence that a later draft still has that defect; "
+            "do not undo valid corrections or restore superseded planning decisions. Preserve failures "
+            "and uncertainty; every ordinary admission check still runs.\n"
+            if pending.get("original_error") and pending.get("latest_rejected")
+            else ""
+        )
         + historical_instruction
         + review_instruction
         + difference_instruction
@@ -349,6 +359,11 @@ def prompt_parts(
         {
             "header": {
                 **receipt_handoff,
+                **(
+                    {"original_error": pending["original_error"]}
+                    if pending.get("original_error") and pending.get("latest_rejected")
+                    else {}
+                ),
                 **({"changed_code_citation_context": citation} if citation else {}),
                 **({"batch_validation": batch} if batch else {}),
                 **({"protected_list_differences": differences} if differences else {}),
