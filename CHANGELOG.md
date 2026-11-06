@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Review handoffs name the current enclosing proof as the accepted citation for changed-code mutation and coverage observations. Follow-up tasks refer to it symbolically, preventing avoidable raw-log and stale-proof citation repairs.
+
 - Loading the terminal UI no longer requires the POSIX-only descriptor helper; input reads use it
   only when available, keeping nonblocking mouse handling on supported terminals.
 - Report repair tolerates bounded JSON formatting overhead while retaining the complete
