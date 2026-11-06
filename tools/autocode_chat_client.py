@@ -1576,7 +1576,7 @@ class ChatClient:
         if row.kind == "integer":
             spec = row.integer or {}
             while True:
-                text = self.ask(f"\n{spec.get('label')} ({spec.get('minimum')} to {spec.get('maximum')}): ")
+                text = self.ask(f"\n{spec.get('label')} ({within(spec)}): ")
                 try:
                     return actions.integer_value(text, spec)
                 except actions.ClientGap as error:
@@ -1644,8 +1644,7 @@ class ChatClient:
         context = (view.get("chat") or {}).get("context") or ""
         offer = self.bound_offer(view)
         if offer:
-            row = offer[0]
-            self.say(f"To raise it instead, type a new {row['label'].lower()} ({row['minimum']} or more).")
+            return self.raise_or_leave(view, offer)
         reply = self.ask("\nYour reply (Enter to leave it for now): ")
         if not reply:
             self.say("Nothing sent. The run is still paused.")
@@ -1670,6 +1669,12 @@ class ChatClient:
                 self.say(f"  [{row['id']}] {row['criterion']}")
                 if row["id"] in changed:  # where to look (#2383), as the CLI's review stop names it (#2360)
                     self.say(f"      Changed: {', '.join(changed[row['id']])}")
+        elif (
+            bound := next((row.integer for row in decided if row.kind == "integer"), None)
+            or ((self.bound_offer(view) or [None])[0])
+        ):
+            # A limit the run reached is not "a problem of its own", and its reason names CLI commands (#2607).
+            self.say(f"\nAutoCode stopped: the run reached its limit for {bound['label'].split(' (')[0].lower()}.")
         else:
             self.say(f"\nAutoCode stopped: {STOP_CAUSES.get(str(label), label)}. {why}".rstrip())
         if need.get("recovery_hint"):
@@ -1712,6 +1717,25 @@ class ChatClient:
             return True
         self.take(actions.fill(fresh, command, answers))
         return True
+
+    def raise_or_leave(self, view: dict, offer) -> bool:
+        """A limit the run reached: raise it or leave the run paused (#2607).
+
+        A written reply cannot lift a limit, so none is asked for; the raise is the core's named command."""
+        row = offer[0]
+        name = row["label"].split(" (")[0].lower()
+        self.say(f"  1. Raise the {name} and continue")
+        self.say("  2. Leave the run paused")
+        while True:
+            choice = self.ask("Your choice (1-2, Enter to leave it paused): ").strip()
+            if choice in ("", "2"):
+                self.say("Nothing changed. The run is still paused.")
+                return False
+            if choice == "1":
+                return self.raise_bound(view, offer, self.ask(f"\nNew {row['label'].lower()} ({within(row)}): "))
+            if choice.isdigit():
+                return self.raise_bound(view, offer, choice)
+            self.say(f"A written reply can't lift a limit. Choose 1 to raise the {name}, or 2 to leave the run paused.")
 
     def bound_offer(self, view: dict):
         """The view's separate raise of the bound holding the run (#2044), or None when it names none."""
@@ -1921,6 +1945,13 @@ def start(workspace: Path, brief: str, start_args, options, *, command=AUTOCODE,
 
 # What each pause cause category (autocode_pause_category.LABELS) means, said as the reason for a stop:
 # the bare label read "AutoCode stopped: AutoCode." on a live run (2026-11-05).
+def within(row: dict) -> str:
+    """A number's allowed range in words: '2411 or more' when the core sets no real maximum."""
+    if row.get("maximum") == actions.MAX_SAFE_INTEGER:
+        return f"{row.get('minimum')} or more"
+    return f"{row.get('minimum')} to {row.get('maximum')}"
+
+
 STOP_CAUSES = {
     "Your decision": "it needs your decision",
     "Your environment": "something on this machine needs attention",

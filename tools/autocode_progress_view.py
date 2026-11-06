@@ -344,6 +344,15 @@ def _problems(state: RunState, turns):
     return {"open": total, "items": items, "reports": reports}
 
 
+def _raised_bound(needs) -> str | None:
+    """The bound a person may raise to continue, in words ('total active time'), or None (#2044)."""
+    rows = needs.get("command_inputs")
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        return None
+    label = rows[0].get("label")
+    return label.split(" (")[0].lower() if isinstance(label, str) and label else None
+
+
 def _asked(needs, state: RunState | None = None):
     kind = (needs or {}).get("kind")
     if (
@@ -354,7 +363,10 @@ def _asked(needs, state: RunState | None = None):
         return needs["recovery_hint"]
     if kind == "answer":
         if needs.get("resolver_scope") in ("blocker", "operational_exhaustion") and not needs.get("route"):
-            return "provide corrective information with --resolver-response provide_information"
+            # Words for a person, never a flag (#2607); a limit is raised, not explained away.
+            if bound := _raised_bound(needs):
+                return f"raise the {bound} to continue, or leave the run paused"
+            return "send AutoResolver corrective information"
         return f"{_count(len(needs.get('questions') or []), 'question')} to answer"
     if kind == "review":
         return f"{_count(len(needs.get('criteria') or []), 'requirement')} to review"
@@ -373,6 +385,8 @@ def _asked(needs, state: RunState | None = None):
         if needs.get("edit_required"):
             actions = " or ".join(action for action in (needs["action"], needs.get("feedback_action")) if action)
             return f"correct the plan with {actions}; fresh approval needed"
+        if (bound := _raised_bound(needs)) and needs.get("action", "").endswith(" N"):
+            return f"raise the {bound} to continue"
         if needs.get("action"):
             return f"inspect the pause, then use {needs['action']}"
         return "inspect the pause, then resume"

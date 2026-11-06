@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A run that reaches a limit you set (active time, cost, iterations, milestone time, unchanged
+  batches) now offers what continues it. The terminal chat asks "1. Raise the total active time and
+  continue / 2. Leave the run paused" instead of a reply box, explains that a written reply can't lift
+  a limit, and says the run reached its limit rather than "AutoCode hit a problem of its own". The
+  status view's `needs_you` no longer names `--resolver-response provide_information`, and a number
+  with no real ceiling reads "N or more" (#2607).
 - The Investigator now sees runs that used to stall out of its reach. A stage that stops twice on
   unchanged source without a valid report (a Tester re-issued by the Completion Reviewer after each
   idle timeout) pauses as a repeated failure instead of looping. The same stuck problem on changed

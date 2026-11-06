@@ -342,11 +342,17 @@ def unsupplied(view: dict, command: NamedCommand) -> str | None:
 def integer_value(text: str, row: dict) -> str:
     """Digits a person typed, within the advertised bounds."""
     text = text.strip()
+    # No real ceiling reads as "N or more", never as the 2^53 - 1 the core uses for none (#2607).
+    allowed = (
+        f"of {row['minimum']} or more"
+        if row["maximum"] == MAX_SAFE_INTEGER
+        else f"from {row['minimum']} to {row['maximum']}"
+    )
     if not re.fullmatch(r"[0-9]+", text) or len(text.lstrip("0")) > 16:
-        raise ClientGap(f"Enter a whole number from {row['minimum']} to {row['maximum']} for {row['label']}")
+        raise ClientGap(f"Enter a whole number {allowed} for {row['label']}")
     number = int(text)
     if not row["minimum"] <= number <= row["maximum"]:
-        raise ClientGap(f"Enter a whole number from {row['minimum']} to {row['maximum']} for {row['label']}")
+        raise ClientGap(f"Enter a whole number {allowed} for {row['label']}")
     return str(number)
 
 
