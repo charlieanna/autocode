@@ -30,6 +30,9 @@ except ImportError:
     from providers import claude as claude_provider
 
 REPAIR_REPORT_BYTES = 128 * 1024
+# Saved JSON is indented, while the repair handoff serializes it compactly.
+# Permit bounded serialization overhead without increasing the content budget.
+REPAIR_ARTIFACT_BYTES = 4 * REPAIR_REPORT_BYTES
 TRUNCATED_REVIEW_STAGES = ("sol", "astra_review", "astra_checkpoint", "astra_challenge", "astra_finalize")
 # Saved repair inputs never shrink, so a repair refused for them cannot launch on a later resume;
 # an explicit resume archives it and starts a fresh attempt of the stage (autocode_stage_recovery).
@@ -130,10 +133,10 @@ def repair_report_source(record, *, allow_empty=False):
             _write_json(output, value)
         record["response_text"] = str(response)
     path = output if output.is_file() else response
-    if not path.is_file() or path.stat().st_size > REPAIR_REPORT_BYTES:
+    if not path.is_file() or path.stat().st_size > REPAIR_ARTIFACT_BYTES:
         raise support.Paused(
             "PAUSED_REPORT_REPAIR_INPUT",
-            f"Repair report is missing or exceeds {REPAIR_REPORT_BYTES} bytes: {path}; "
+            f"Repair report is missing or exceeds the {REPAIR_ARTIFACT_BYTES}-byte artifact bound: {path}; "
             "inspect the saved artifact instead of truncating or reconstructing it." + REPAIR_INPUT_ROUTE,
         )
     text = path.read_text()
@@ -156,13 +159,24 @@ def repair_report_source(record, *, allow_empty=False):
         }
     except ValueError:
         content, format_ = text, "text"
+    size = len(text.encode("utf-8"))
+    if size > REPAIR_REPORT_BYTES:
+        # Use the same compact JSON encoding as the handoff. Never rewrite the
+        # saved source or compact malformed text: its exact bytes are evidence.
+        content_size = len(json.dumps(content, separators=(",", ":")).encode("utf-8")) if format_ == "json" else size
+        if content_size > REPAIR_REPORT_BYTES:
+            raise support.Paused(
+                "PAUSED_REPORT_REPAIR_INPUT",
+                f"Repair report content exceeds {REPAIR_REPORT_BYTES} bytes: {path}; "
+                "inspect the saved artifact instead of truncating or reconstructing it." + REPAIR_INPUT_ROUTE,
+            )
     return {
         "path": str(path),
         "sha256": support.file_hash(path),
         "format": format_,
         **({"empty_response": True} if empty else {}),
         **({"parse_error": parse_error} if parse_error is not None else {}),
-        "bytes": len(text.encode("utf-8")),
+        "bytes": size,
         "truncated": False,
         "content": content,
         **({"repair_response": True} if format_ == "text" and record.get("report_only") else {}),

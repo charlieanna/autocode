@@ -2403,8 +2403,8 @@ class SampleCadenceTests(unittest.TestCase):
             [sys.executable, "-c", "import time; time.sleep(60)"],
             start_new_session=True,
         )
-        self.addCleanup(provider.kill)
         self.addCleanup(provider.wait, timeout=10)
+        self.addCleanup(provider.kill)
         metadata = {
             "schema": 1,
             "nonce": "c" * 32,
@@ -2416,21 +2416,35 @@ class SampleCadenceTests(unittest.TestCase):
         }
         control_r, control_w = os.pipe()
         ack_r, ack_w = os.pipe()
-        sampled = threading.Event()
         calls = []
+        elapsed = [0.0]
+        sampling = [True]
+        real_wait = threading.Event.wait
+
+        def advance_quiet_clock(event, timeout=None):
+            if threading.current_thread() is thread and sampling[0] and timeout is not None:
+                elapsed[0] += timeout
+                return event.is_set()
+            return real_wait(event, timeout)
 
         def counting(tree, **kwargs):
-            result = real_sample(tree, **kwargs)
-            calls.append(time.monotonic())
-            sampled.set()
-            return result
+            if sampling[0] and elapsed[0] >= 2.6:
+                sampling[0] = False
+                return []  # End the simulated quiet interval; normal cleanup still runs.
+            if sampling[0]:
+                calls.append(elapsed[0])
+            return real_sample(tree, **kwargs)
 
         real_sample = keeper.processes.settled_sample
 
         def run():
-            with patch.object(keeper.processes, "settled_sample", counting):
-                keeper.main(control_r, ack_w)
+            with (
+                patch.object(keeper.processes, "settled_sample", counting),
+                patch.object(threading.Event, "wait", advance_quiet_clock),
+            ):
+                result.append(keeper.main(control_r, ack_w))
 
+        result = []
         try:
             packet = {
                 "metadata": metadata,
@@ -2441,11 +2455,12 @@ class SampleCadenceTests(unittest.TestCase):
             os.write(control_w, (json.dumps(packet) + "\n").encode())
             thread = threading.Thread(target=run, daemon=True)
             thread.start()
-            self.assertTrue(sampled.wait(timeout=10), "the keeper never sampled its tree")
-            time.sleep(2.6)  # a quiet window: no admissions, no session traffic, one stable process
-            os.write(control_w, (json.dumps({"finished": metadata["nonce"]}) + "\n").encode())
             thread.join(timeout=15)
             self.assertFalse(thread.is_alive())
+            self.assertEqual([0], result)
+            self.assertGreaterEqual(elapsed[0], 2.6)
+            self.assertGreater(len(calls), 1)
+            # Shutdown intentionally samples more frequently; count only the quiet interval.
             # At the base tick this window holds ~52 whole-host enumerations; the graded
             # tick reaches its 0.5s cap after ~1.25s, so a quiet keeper stays under a dozen.
             self.assertLessEqual(len(calls), 12, calls)

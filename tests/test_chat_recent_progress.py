@@ -36,7 +36,7 @@ with ChatTUI() as ui:
                 'chat': {{'log': [{{'id': str(n), 'agent': 'Planner', 'kind': 'message', 'text': text}}
                                  for n, text in enumerate(json.loads(texts))]
                     + [{{'id': 'tool', 'agent': 'Planner', 'kind': 'command', 'text': 'bash -lc hidden-command'}},
-                       {{'id': 'thought', 'agent': 'Planner', 'kind': 'thinking', 'text': 'hidden-reasoning'}}]}}}})
+                       {{'id': 'thought', 'agent': 'Planner', 'kind': 'thinking', 'text': 'Inspecting parser boundaries.'}}]}}}})
         ui.wait(0.1)
 """
             with TerminalScreen(
@@ -54,6 +54,7 @@ with ChatTUI() as ui:
                         and "latest updates" not in shown
                         and "╰─" in shown
                         and "Planner · $1.25+" in shown.splitlines()[-1]
+                        and "Planner working · Inspecting parser boundaries." in shown
                     ),
                     timeout=10,
                     what="one copy of each live progress message above the complete composer",
@@ -100,11 +101,16 @@ with ChatTUI() as ui:
                             )
                         )
                         and "Checking the history interface." not in shown
+                        and "Planner working · Inspecting parser boundaries." in shown
                     ),
                     what="new notes roll in without scrolling the person's history",
                 )
                 self.assertNotIn("hidden-command", shown)
-                self.assertNotIn("hidden-reasoning", shown)
+                # The working stage's latest thought belongs in its status line;
+                # the recent-message panel and conversation remain message-only.
+                thought_lines = [line for line in shown.splitlines() if "Inspecting parser boundaries." in line]
+                self.assertEqual(1, len(thought_lines))
+                self.assertIn("Planner working · Inspecting parser boundaries.", thought_lines[0])
                 screen.resize(70, 22)
                 shown = screen.wait_for(
                     lambda shown: (
