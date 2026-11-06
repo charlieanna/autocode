@@ -1957,6 +1957,23 @@ the person:</p>
   Completion checks them again against the plan in force, so a later plan that
   drops the entry cannot reuse the receipt.</li>
 </ul>
+<p>A planner sometimes changes such a test in place without listing it, most often
+when the wrong assertion is one of several in a larger test. AutoCode then revises
+the plan itself, once per test, instead of stopping. The revision happens only
+when the original gate refused the Tester's PASS for exactly that conflict:</p>
+<ul>
+<li>the plan is approved and has a <code>test:</code> criterion;</li>
+<li>the changed suite passed;</li>
+<li>the original suite reported complete per-test results;</li>
+<li>every failing original test is defined in an original test file the change
+  edited, and the plan does not list it already.</li>
+</ul>
+<p>The runner adds each such test to a <code>test:</code> criterion's <code>supersedes</code>. It picks the
+criterion whose named test now sits in the same file, or else the first one. The
+draft then goes back to plan review. The Plan Reviewer checks whether the test
+really asserts the changed behavior, and approval follows as for any plan. The run
+records each test it sent back under <code>superseded_corrections</code>. If the same test is
+refused again, or the refusal is anything else, the run pauses as before.</p>
 <p>A failed original gate names the failing original tests. Its pause counts as
 AutoCode's gate conflict, not as a model or provider failure.</p>
 <p><code>--status</code> exposes the binding under <code>view.evidence.protected_tests</code> and the
