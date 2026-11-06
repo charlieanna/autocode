@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A GLM request that Z.ai refuses with "Prompt exceeds max length" is now a context-window stop
+  (`PAUSED_CONTEXT_WINDOW`), not an uncertain provider stop the Resolver holds for a person.
+
 - A report-only Investigator repair restores its recorded temporary model route after a pause,
   instead of falling back to the default review model. Conflicting route metadata refuses launch.
 - Review handoffs name the current enclosing proof as the accepted citation for changed-code mutation and coverage observations. Follow-up tasks refer to it symbolically, preventing avoidable raw-log and stale-proof citation repairs.

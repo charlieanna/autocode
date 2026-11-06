@@ -186,6 +186,24 @@ class ClassificationTests(unittest.TestCase):
                 },
                 "context_length_exceeded",
             ),
+            (
+                # A GLM 5.3 Tester's 3.6 MB prompt on Z.ai's coding endpoint (Kilo, 2026-11-06), headers trimmed.
+                {
+                    "type": "error",
+                    "error": {
+                        "name": "APIError",
+                        "data": {
+                            "message": "Prompt exceeds max length",
+                            "statusCode": 400,
+                            "isRetryable": False,
+                            "responseBody": json.dumps(
+                                {"error": {"code": "1261", "message": "Prompt exceeds max length"}}
+                            ),
+                        },
+                    },
+                },
+                "context_window_exceeded",
+            ),
         )
         for row, name in cases:
             with self.subTest(row=row):
