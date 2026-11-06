@@ -139,6 +139,7 @@ def queue(state: RunState, record, error, *, completed: Callable[[], bool]) -> b
     if not pending:
         pending = {
             "original": copy.deepcopy(record),
+            "original_error": str(error),
             "attempts": 0,
             "contract_hash": (state.get("goal_contract") or {}).get("hash"),
             "pins": {
