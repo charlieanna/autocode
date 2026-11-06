@@ -9,6 +9,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- A Tester that runs `capture` through `2>&1 | grep '"exit_code"'` keeps its receipt: capture's short
+  attestation line now leads with `exit_code`. When a filter drops every line, the rejection names it.
+
 ### Changed
 
 - A bug fix whose plan forgot to list an existing test it changes in place no longer stops (#2748

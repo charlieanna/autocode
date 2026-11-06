@@ -19,3 +19,26 @@ Measured on the live etcd run (five recoveries, $4.09, 16 min) and six live mast
    prompt and error now say to write the test inside the probe.
 
 Run evidence is in the PR description; run directories are not committed.
+
+## Follow-up (2026-11-06)
+
+Live before/after, `claude-tiers`, one run each, $5 cap (master, then the fix):
+
+| Scenario | Master | Fix |
+| --- | --- | --- |
+| bugfix-go-interval-boundary | PASS $2.59, 5.9 min | PASS $2.55, 5.8 min |
+| bugfix-vitest-half-open-bookings | PASS $2.12, 6.2 min | PASS $3.13, 7.5 min |
+| feature-go-first-package | PASS $3.46, 10.2 min | PASS $3.01, 6.9 min |
+| feature-vitest-ledger-subtotals | blocked at cap $5.02 | PASS $1.72, 4.7 min |
+| parallel-diamond | blocked $4.36 (replan) | PASS $3.52, 9.5 min |
+| bugfix-monorepo-package | blocked at cap $5.05 | blocked $2.52 |
+
+The Vitest bug fix regressed because its Tester ran capture with `2>&1 | grep -E '"exit_code"|Tests ' | cut -c1-300`:
+the receipt line was cut and the attestation line was filtered out. The attestation line now leads with
+`"exit_code"`, so a filter that keeps exit-code lines keeps it whole; when a filter keeps nothing
+(`2>&1 | grep -o ...`), the rejection names that filter so the fresh Tester attempt runs capture unfiltered.
+
+Still open: the monorepo run (without `--package`) checks the suite with root `unittest discover`, which
+finds 0 tests when the package folders have no `__init__.py`, and asks a person to allow one; and Testers'
+bare `event:` checks refused as "not supported by an exact executed Validator event" (5 rejections across
+these runs).
