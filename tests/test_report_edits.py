@@ -15,6 +15,42 @@ from goal_fixtures import body
 
 
 class ReportEditsTests(unittest.TestCase):
+    def test_review_patch_preserves_commands_and_rejects_invented_execution(self):
+        import shlex
+
+        from .test_check_command_from_receipt import ARGV, CommandFromReceiptTests
+
+        receipt = CommandFromReceiptTests()
+        receipt.setUp()
+        self.addCleanup(receipt.doCleanups)
+        check = {"command": shlex.join(ARGV), "exit_code": 0, "evidence_ref": ".autocode/evidence/check.json"}
+        original = {"checks": [check], "summary": "incorrect citation"}
+        schema = {"type": "object", "properties": {"checks": {"type": "array"}, "summary": {"type": "string"}}}
+        self.source.write_text(json.dumps(original))
+        self.schema.write_text(json.dumps(schema))
+        descriptor = {**self.descriptor, "content": original, "sha256": file_hash(self.source)}
+        for stage in ("sol", "astra_review", "astra_checkpoint"):
+            with self.subTest(stage=stage):
+                offered = edits.prepare(self.schema, descriptor, stage)
+                self.assertNotEqual(self.schema, offered)
+                record = {**self.record, "stage": stage + "_report_repair", "schema": str(offered)}
+                patch = {
+                    "repair_report": {
+                        "sha256": descriptor["sha256"],
+                        "edits": [{"op": "replace", "path": ["summary"], "value_json": '"corrected citation"'}],
+                    }
+                }
+                repaired = edits.expand(patch, record)
+                self.assertEqual([check], repaired["checks"])
+                runner.support.verify_checks(repaired["checks"], receipt.workspace, receipt.events)
+                patch["repair_report"]["edits"].append(
+                    {"op": "replace", "path": ["checks", 0, "command"], "value_json": '"invented command"'}
+                )
+                forged = edits.expand(patch, record)
+                with self.assertRaises(ValueError):
+                    runner.support.verify_checks(forged["checks"], receipt.workspace, receipt.events)
+                self.assertEqual(original, json.loads(self.source.read_text()))
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -272,7 +308,7 @@ class ReportEditsTests(unittest.TestCase):
             {**self.descriptor, "content": []},
         ]:
             self.assertEqual(self.schema, edits.prepare(self.schema, source, "requirements_gather"))
-        self.assertEqual(self.schema, edits.prepare(self.schema, self.descriptor, "sol"))
+        self.assertEqual(self.schema, edits.prepare(self.schema, self.descriptor, "terra"))
 
     def test_legacy_or_conflicting_schemas_keep_the_original_protocol(self):
         for schema in [

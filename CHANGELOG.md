@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Tester and completion-review JSON repairs can use exact-source-bound edits, preserving unrelated captured commands; lossless inline history avoids duplicating large reports in later repair handoffs.
+
 - A malformed report-only repair no longer hides the original validation error from the next repair.
   Both diagnostics remain available with the pinned reports, while evidence checks and retry limits
   stay in force.

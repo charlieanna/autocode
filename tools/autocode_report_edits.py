@@ -1,4 +1,4 @@
-"""Bounded edits to a pinned rejected planning report, before full validation.
+"""Bounded edits to a pinned rejected report, before full validation.
 
 This is an optional wire format, not a report validator or a source of authority.
 The caller retains the raw response and validates the reconstructed complete report.
@@ -19,7 +19,9 @@ except ImportError:
 
 KEY = "repair_report"
 META = "x-autocode-report-edits"
-STAGES = frozenset({"requirements_gather", "astra_discovery", "glm_revise"})
+PLANNING_STAGES = frozenset({"requirements_gather", "astra_discovery", "glm_revise"})
+REVIEW_STAGES = frozenset({"sol", "astra_review", "astra_checkpoint"})
+STAGES = PLANNING_STAGES | REVIEW_STAGES
 MAX_EDIT_VALUE_BYTES = 128 * 1024
 RULE = (
     "BOUNDED REPORT EDITS. When the output schema offers repair_report, prefer that form for a small correction: "
@@ -45,7 +47,8 @@ def eligible(stage, source):
             source.get("format") == "json"
             and isinstance(source.get("content"), dict)
             and KEY not in source["content"]
-            or text_edits.eligible(source)
+            or stage in PLANNING_STAGES
+            and text_edits.eligible(source)
         )
         and isinstance(source.get("sha256"), str)
         and len(source["sha256"]) == 64
