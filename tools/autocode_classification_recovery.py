@@ -295,7 +295,7 @@ def authorize(runtime, state: RunState, run_dir, workspace, token, *, supersede_
         )
         state.pop("builder_failure_hold")
         supersede_job(state)
-        state.update(status="RUNNING", phase="INVESTIGATING", next_stage=STAGE)
+        state.update({"status": "RUNNING", "phase": "INVESTIGATING", "next_stage": STAGE})
         state.pop("stop_reason", None)
         runtime.write_json(Path(run_dir) / "state.json", state)
         return
