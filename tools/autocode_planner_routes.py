@@ -225,6 +225,7 @@ def configure_runner_profile(settings, args):
         strong_model=strong or configured["roles"]["terra"]["model"],
         strong_reasoning_effort=configured["roles"]["terra"]["reasoning_effort"],
     )
+    configured["builder_retry"]["strong_origin"] = "user_explicit" if strong is not None else "runner"
     limits = configured.setdefault("limits", {})
     for argument, field, value in (
         ("max_seconds", "max_seconds", 0),

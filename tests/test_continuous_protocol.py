@@ -344,7 +344,12 @@ class ProfileTests(unittest.TestCase):
                 self.assertEqual(model, settings["roles"]["terra"]["model"])
                 self.assertEqual("medium", settings["roles"]["terra"]["reasoning_effort"])
                 self.assertEqual(model, settings["builder_retry"]["strong_model"])
+                self.assertEqual("user_explicit", settings["builder_retry"]["strong_origin"])
                 self.assertEqual(45, settings["limits"]["max_seconds"])
+                # Without the flag the stronger route is AutoCode's own choice.
+                unnamed = {"engine": "opencode", "provider": "opencode", "roles": {}}
+                routes.configure_runner_profile(unnamed, SimpleNamespace(terra_model=model))
+                self.assertEqual("runner", unnamed["builder_retry"]["strong_origin"])
 
     def test_conversation_and_visual_routes_preserve_any_explicit_model(self):
         configured = deepcopy(routes.MANDATED_ROUTES)

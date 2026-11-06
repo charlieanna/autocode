@@ -339,12 +339,14 @@ def apply_requirements(state: RunState, body, *, artifact_sha256, record=None):
 # verification_plan.refuse_new_plan existed), and a bug job's small correction is built by the runner from the
 # Investigator's report (autocode_bug_job.ORIGIN), and a spec-first run's correction relabels test: cases the runner saw
 # already pass as guard: (autocode_acceptance_tests_job.ORIGIN); plan review and the user's approval still follow.
-# The compact bug-fix draft (autocode_compact_planning.ORIGIN) is the runner's too (#2021).
+# The compact bug-fix draft (autocode_compact_planning.ORIGIN) is the runner's too (#2021), and so is the
+# supersedes list for an original test the gate saw a fix change in place (autocode_superseded_correction.ORIGIN).
 UNAUTHORED_DRAFTS = (
     "adaptive_review_approval",
     "bugfix_small_correction",
     "acceptance_tests_correction",
     "bugfix_compact_draft",
+    "superseded_tests_correction",
 )
 
 
