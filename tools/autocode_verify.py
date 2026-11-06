@@ -613,8 +613,7 @@ def _python_framework(root, files, python, base) -> Framework | None:
                     "-v",
                     "--root",
                     start.removeprefix(" -s ") or ".",
-                    *(["--components", *families.components] if families.has_components() else []),
-                    *(["--repos", *families.repo_members] if families.has_repos() else []),
+                    *families.collector_arguments(),
                 ]
             )
             return Framework("unittest", command, python=python, note=note)

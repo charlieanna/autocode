@@ -163,7 +163,7 @@ def fork(argv):
     return subprocess.run([sys.executable, str(Path(__file__).resolve()), "-v", *argv]).returncode
 
 
-def orchestrate(root, selected, components, repos):
+def orchestrate(root, selected, components, repos, packages=()):
     """The whole suite: the workspace's own tests and each scheduled family exactly once.
 
     The family flags travel with the root pass fork so the root pass excludes exactly
@@ -175,11 +175,17 @@ def orchestrate(root, selected, components, repos):
         spec += ["--components", *components]
     if repos is not None:
         spec += ["--repos", *repos]
+    for folder, *members in packages:
+        spec += ["--package-family", folder, *members]
     code = fork(["--whole-root", *spec])
     if components is not None:
         code = max(code, fork(["--family-root", "components", "--members", *components]))
     if repos is not None:
         code = max(code, fork(["--family-root", "repos", "--members", *repos]))
+    # A monorepo package folder (autocode_python_tests.PACKAGE_DIRS): each package with tests runs
+    # isolated, from its own directory first on sys.path, exactly as a component does.
+    for folder, *members in packages:
+        code = max(code, fork(["--family-root", folder, "--members", *members]))
     return code
 
 
@@ -221,7 +227,9 @@ def main(argv=None):
     parser.add_argument("--members", nargs="*")
     parser.add_argument("--whole-root", action="store_true")
     parser.add_argument("--root", default=".")
+    parser.add_argument("--package-family", nargs="+", action="append", default=[], metavar=("FOLDER", "MEMBER"))
     args = parser.parse_args(argv)
+    packages = [tuple(group) for group in args.package_family]
     root = Path.cwd()
     if args.component is not None:
         args.member = ["components", args.component]
@@ -238,13 +246,15 @@ def main(argv=None):
             name
             for name, scheduled in (("components", args.components is not None), ("repos", args.repos is not None))
             if scheduled
-        )
+        ) + tuple(folder for folder, *_ in packages)
         return run_suite(whole_root_suite(root, args.root, scheduled))
-    whole_suite = (args.components is not None and not args.component_root) or (
-        args.repos is not None and args.component is None
+    whole_suite = (
+        (args.components is not None and not args.component_root)
+        or (args.repos is not None and args.component is None)
+        or bool(packages)
     )
     if whole_suite:
-        return orchestrate(root, args.root, args.components, args.repos)
+        return orchestrate(root, args.root, args.components, args.repos, packages)
     suite = root_suite(
         ComponentLoader(
             root,

@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A monorepo whose package folders have no `__init__.py` (`packages/`, `apps/`, `services/`, `libs/`)
+  is tested package by package, each from its own folder, instead of a root discovery that found no
+  tests and stopped the run to ask a person.
 - A spec-first run now builds a parallel wave in parallel. Before the Orchestrator dispatches a wave,
   the Tester writes its acceptance tests. That time counted as an attempt at the current milestone,
   so every wave went to one Builder. That Builder then built the first milestone against the other
