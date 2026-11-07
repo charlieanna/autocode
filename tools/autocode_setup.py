@@ -89,7 +89,29 @@ def new_runs_use(found, *, choose=None) -> dict | None:
     except (OSError, ValueError) as error:
         return {"id": None, "label": None, "reason": f"your AutoCode config could not be read: {error}"}
     if origin != "built-in default":
-        return {"id": default, "label": default, "reason": f"named by {origin}"}
+        selected = next((row for row in found if row["id"] == default), None)
+        if selected is None or selected.get("connection_status") not in CONNECTED:
+            if selected is None:
+                next_step = f"check the configured provider name in {origin}"
+            elif selected.get("install_command"):
+                next_step = f"install it with `{selected['install_command']}`, then sign in"
+            else:
+                login = next(
+                    (action["next_command"] for action in selected.get("actions", []) if action.get("id") == "login"),
+                    None,
+                )
+                next_step = (
+                    f"sign in with `autocode {' '.join(login)}`"
+                    if login
+                    else f"check {selected['label']} with `autocode connections check --provider {default}`"
+                )
+            return {
+                "id": None,
+                "label": None,
+                "reason": f"{origin} selects {default}, but it is not connected; {next_step}",
+                "configured_backend": default,
+            }
+        return {"id": default, "label": selected["label"], "reason": f"named by {origin}"}
     status = {row["id"]: row.get("connection_status") for row in found}
     if status.get("opencode") in CONNECTED:
         return {"id": "opencode", "label": "OpenCode", "reason": "OpenCode is installed and signed in"}

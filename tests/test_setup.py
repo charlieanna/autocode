@@ -70,8 +70,26 @@ class SetupTests(unittest.TestCase):
     def test_a_configured_default_provider_is_what_new_runs_use(self):
         (self.config / "autocode").mkdir()
         (self.config / "autocode" / "config.toml").write_text('default_provider = "kilocode"\n')
-        use = setup.new_runs_use([CLAUDE_IN], choose=lambda: CLAUDE_CHOSEN)
-        self.assertEqual("kilocode", use["id"])
+        use = setup.new_runs_use([row("kilocode", "Kilo", "credentials_present")], choose=lambda: CLAUDE_CHOSEN)
+        self.assertEqual(("kilocode", "Kilo"), (use["id"], use["label"]))
+
+    def test_an_unavailable_explicit_backend_is_not_reported_as_usable_or_overwritten(self):
+        (self.config / "autocode").mkdir()
+        (self.config / "autocode" / "config.toml").write_text('default_provider = "kilocode"\n')
+        missing = {**KILO_MISSING, "install_command": setup.INSTALL["kilocode"]}
+        use = setup.new_runs_use([CLAUDE_IN, missing], choose=lambda: CLAUDE_CHOSEN)
+        self.assertIsNone(use["id"])
+        self.assertEqual("kilocode", use["configured_backend"])
+        self.assertIn("install it with `npm install -g @kilocode/cli@7.8.3`", use["reason"])
+        shown = setup.text([CLAUDE_IN, missing], use)
+        self.assertIn("New runs cannot start", shown)
+        self.assertNotIn("New runs use Claude Code", shown)
+
+    def test_an_explicit_signed_out_backend_names_its_sign_in_command(self):
+        os.environ["AUTOCODE_PROVIDER"] = "codex"
+        use = setup.new_runs_use([CODEX_OUT])
+        self.assertIsNone(use["id"])
+        self.assertIn("autocode connections login --provider codex", use["reason"])
 
     def test_the_report_names_sign_in_and_install_commands_and_where_api_keys_go(self):
         found = [CLAUDE_IN, CODEX_OUT, {**OPENCODE_MISSING, "install_command": "npm install -g opencode-ai@1.18.33"}]
