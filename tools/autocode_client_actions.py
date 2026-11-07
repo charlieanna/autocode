@@ -102,6 +102,30 @@ def own(view: dict, workspace: Path, run_dir: Path) -> tuple[Path, Path]:
     return Path(view.get("workspace") or workspace), Path(view.get("run_dir") or run_dir)
 
 
+def same_run(view: dict, workspace, run_dir) -> bool:
+    """Whether a status view answers for the run a client asked about.
+
+    A view names its own ``run_dir``. A chat started in a folder outside Git names
+    ``FOLDER/.autocode/runs/RUN``, and the core runs that task in the project it
+    bootstraps, ``FOLDER/autocode-projects/PROJECT/.autocode/runs/RUN``; the status
+    read of the named path answers with the moved run. That shape, read only
+    from the view's own paths, is the same run; any other path is another run.
+    """
+    named = view.get("run_dir")
+    if not named:
+        return True
+    answered, asked = Path(named).resolve(), Path(run_dir).resolve()
+    if answered == asked:
+        return True
+    folder = Path(workspace).resolve()
+    project = Path(view.get("workspace") or "").resolve()
+    return (
+        asked == folder / ".autocode" / "runs" / asked.name
+        and project.parent == folder / "autocode-projects"
+        and answered == project / ".autocode" / "runs" / asked.name
+    )
+
+
 def worker_transport(execution: dict, argv: list[str], workspace: Path, run_dir: Path, *, fresh=False) -> list[str]:
     """Take only the core's exact worker envelope, keeping the named task action literal."""
     prefix = execution.get("next_command")

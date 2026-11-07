@@ -155,8 +155,10 @@ class KiloProvider(command.CommandProvider):
         if not effort:
             return
         try:
+            # The whole verbose listing, not just this model's provider: route discovery reads the same
+            # listing at the start of a task, so within a run this is answered from that check.
             result = command.env_prep.preflight_run(
-                [self._config["command"][0], "models", model.split("/", 1)[0], "--verbose"],
+                [self._config["command"][0], "models", "--verbose"],
                 self._preflight_environment(env),
                 cwd=workspace,
                 require_executable=env is not None,
