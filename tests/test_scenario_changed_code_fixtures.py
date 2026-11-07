@@ -124,6 +124,40 @@ class PackageGreetingFixtureReviewTests(unittest.TestCase):
             with self.subTest(stale_binding=key):
                 self.assertEqual([], self.judge(data))
 
+    def test_reference_ancestor_cannot_borrow_workspace_bytes_as_its_producer(self):
+        packages = self.reference / "packages"
+        shutil.rmtree(packages)
+        packages.symlink_to(self.root / "packages", target_is_directory=True)
+        self.assertEqual([], self.judge())
+
+    def test_workspace_ancestor_cannot_borrow_matching_bytes_outside_its_root(self):
+        packages = self.root / "packages"
+        outside = self.root.parent / "outside-packages"
+        shutil.copytree(packages, outside)
+        shutil.rmtree(packages)
+        packages.symlink_to(outside, target_is_directory=True)
+        self.assertEqual([], self.judge())
+
+    def test_leaf_links_cyclic_ancestors_and_unreadable_inputs_are_refused(self):
+        from unittest import mock
+
+        source = self.root / fixture.PACKAGE_GREETING_SOURCE
+        original = source.read_bytes()
+        source.unlink()
+        source.symlink_to(self.reference / fixture.PACKAGE_GREETING_SOURCE)
+        self.assertEqual([], self.judge(), "workspace leaf link borrowed outside source")
+        source.unlink()
+        source.write_bytes(original)
+        packages = self.reference / "packages"
+        retained = self.reference / "owned-packages"
+        packages.rename(retained)
+        packages.symlink_to(packages, target_is_directory=True)
+        self.assertEqual([], self.judge(), "cyclic producer ancestor did not refuse")
+        packages.unlink()
+        retained.rename(packages)
+        with mock.patch.object(Path, "read_bytes", side_effect=PermissionError("unreadable fixture")):
+            self.assertEqual([], self.judge())
+
 
 class StockFixtureReviewTests(unittest.TestCase):
     def test_only_known_unsupported_statements_get_precise_source_bound_reasons(self):

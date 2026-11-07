@@ -744,13 +744,22 @@ def _package_greeting(data, root, producer):
             return []  # Workspace bytes cannot claim to be the Builder's producer.
         for name in (PACKAGE_GREETING_SOURCE, PACKAGE_GREETING_FORMAL_TESTS):
             path = reference / name
-            if path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != PACKAGE_GREETING_PINS[name]:
+            if (
+                path.is_symlink()
+                or not path.resolve(strict=True).is_relative_to(reference)
+                or hashlib.sha256(path.read_bytes()).hexdigest() != PACKAGE_GREETING_PINS[name]
+            ):
                 return []
+        workspace = root.resolve(strict=True)
         for name, pin in PACKAGE_GREETING_PINS.items():
             path = root / name
-            if path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != pin:
+            if (
+                path.is_symlink()
+                or not path.resolve(strict=True).is_relative_to(workspace)
+                or hashlib.sha256(path.read_bytes()).hexdigest() != pin
+            ):
                 return []
-    except OSError:
+    except (OSError, RuntimeError):
         return []
     proof = data.get("regression_proof") or {}
     assessment = proof.get("changed_code_evidence") or {}
