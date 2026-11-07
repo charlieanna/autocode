@@ -8,8 +8,9 @@ import unittest
 from . import test_build_blackbox as fixtures
 
 
-def joined_graph():
-    dependencies = [[], [1], [1], [1], [2, 3], [3, 4], [4], [5, 6], [6, 7], [8, 9]]
+def joined_graph(dependencies=None):
+    if dependencies is None:
+        dependencies = [[], [1], [1], [1], [2, 3], [3, 4], [4], [5, 6], [6, 7], [8, 9]]
     rows, payloads, checks, values = [], {}, {}, {}
     for number, parents in enumerate(dependencies, 1):
         mid = f"M{number}"
@@ -31,7 +32,7 @@ def joined_graph():
         payloads[mid] = files
         rows.append(([f"M{parent}" for parent in parents], f"Node {number} includes its prerequisites", list(files)))
         checks[mid] = f"from graph_nodes.node_{number} import value; assert value() == {values[number]}"
-    spec = fixtures.plan(rows, payloads, checks, "Build a ten-node computation with repeated fan-out and joins")
+    spec = fixtures.plan(rows, payloads, checks, "Build a computation with repeated fan-out and joins")
     spec["complete_product"] = True
     return spec, dependencies, values
 
@@ -47,6 +48,71 @@ class JoinedGraphCLI(unittest.TestCase):
 
     def status(self):
         return json.loads(self.invoke("autocode", ["--run-dir", str(self.run), "--status"]).stdout)
+
+    def test_large_graph_combines_worker_crash_idempotent_resume_and_repeated_report_repair(self):
+        dependencies = [[] for _ in range(4)]
+        for first in (1, 5, 9, 13):
+            dependencies.extend([[first + offset, first + (offset + 1) % 4] for offset in range(4)])
+        dependencies.append([17, 18, 19, 20])
+        spec, dependencies, values = joined_graph(dependencies)
+        spec["batch_report_repair"] = True
+        self.seed(spec, max_parallel=4)
+        waves = [{f"M{i}" for i in range(first, first + 4)} for first in (1, 5, 9, 13, 17)]
+        waves.append({"M21"})
+        completed = 0
+        for wave_number, wave in enumerate(waves):
+            with self.subTest(wave=wave_number):
+                before = len(self.events())
+                if len(wave) > 1:
+                    self.env["BUILD_AUDIT_OVERLAP"] = str(completed + len(wave))
+                if wave_number == 0:
+                    self.env["BUILD_AUDIT_FAULT"] = "crash"
+                    self.build(2)
+                    self.env.pop("BUILD_AUDIT_FAULT")
+                    self.env.pop("BUILD_AUDIT_OVERLAP")
+                    self.assertEqual(0, self.status()["view"]["progress"]["tasks"]["done"])
+                    self.assertEqual(wave, {row["milestone"] for row in self.events()})
+                    self.build(extra=["--resume-paused", "--retry-builder", "M1"])
+                else:
+                    self.build()
+                self.env.pop("BUILD_AUDIT_OVERLAP", None)
+                starts = self.events()[before:]
+                self.assertEqual(wave, {row["milestone"] for row in starts})
+                self.assertEqual(len(wave) + (wave_number == 0), len(starts))
+                for event in starts:
+                    number = int(event["milestone"][1:])
+                    for parent in dependencies[number - 1]:
+                        path = f"graph_nodes/node_{parent}.py"
+                        self.assertEqual(spec["payloads"][f"M{parent}"][path], event["inputs"][path])
+                if len(wave) > 1 and wave_number != 0:
+                    ends = [row for row in self.events("finish") if row["milestone"] in wave]
+                    self.assertEqual(4, len({row["workspace"] for row in starts}))
+                    self.assertLess(max(row["time"] for row in starts), min(row["time"] for row in ends))
+                all_starts = self.events()
+                self.build()
+                self.assertEqual(all_starts, self.events(), "Repeated build must retain successful sibling work")
+                self.assertEqual(completed, self.status()["view"]["progress"]["tasks"]["done"])
+                # The last review also proves the complete 21-node product. Its
+                # real subprocess checks exceed the small fixture's 90 s bound.
+                self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"], timeout=300)
+                completed += len(wave)
+                self.assertEqual(completed, self.status()["view"]["progress"]["tasks"]["done"])
+                self.assertEqual(all_starts, self.events(), "Report repair must not replay a Builder")
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"], timeout=300)
+        final = self.status()
+        self.assertEqual("TASK_COMPLETE", final["status"])
+        self.assertTrue(final["completion_current"])
+        self.assertEqual(22, len(self.events()), "Only the crashed worker may have a second invocation")
+        repairs = self.events("batch_repair", stage="sol_report_repair")
+        self.assertEqual(5, len(repairs))
+        self.assertEqual(waves[:-1], [set(row["scope"]["milestone_ids"]) for row in repairs])
+        check = subprocess.run(
+            [sys.executable, "-c", f"from graph_nodes.node_21 import value; assert value() == {values[21]}"],
+            cwd=self.project,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(0, check.returncode, check.stdout + check.stderr)
 
     def test_format_failure_in_first_repair_keeps_the_original_evidence_error(self):
         spec = fixtures.notes()

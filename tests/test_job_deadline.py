@@ -55,6 +55,15 @@ class PlanTests(unittest.TestCase):
             with self.subTest(seconds=seconds):
                 self.assertIsNone(self.plan(state(stage_seconds=seconds)))
 
+    def test_a_retry_on_an_extended_deadline_doubles_its_own_deadline(self):
+        # #2823: the run's limit stays 900; the stopped retry ran on 1800, so the next one gets 3600.
+        run = state(events=[extended()])
+        self.assertEqual(
+            {"from": 1800, "to": 3600, "extension": 2, "of": 2},
+            job_deadline.plan(run, FAILURE, RECOVERY, abandoned=False, deadline=1800),
+        )
+        self.assertIsNone(job_deadline.plan(run, FAILURE, RECOVERY, abandoned=False, deadline=0))
+
     def test_the_reason_names_both_deadlines_and_the_bound(self):
         text = job_deadline.reason("Investigator", {"from": 900, "to": 1800, "extension": 1, "of": 2})
         self.assertIn("900-second", text)
@@ -65,6 +74,43 @@ class PlanTests(unittest.TestCase):
     def test_an_exhausted_job_is_told_its_retry_is_all_that_is_left(self):
         self.assertIn("on 2 longer deadlines on the same model", job_deadline.exhausted("Investigator", 2))
         self.assertIn("on 1 longer deadline on", job_deadline.exhausted("Investigator", 1))
+
+
+class LaunchLimitTests(unittest.TestCase):
+    """#2823: an extended deadline belongs to the stopped job's authorized retry, never to the run."""
+
+    def run_state(self, **authorization):
+        return {
+            "job_failure": {
+                "stage": "investigate_stuck",
+                "job_retry_token": "jr:1",
+                "retry_stage_timeout_seconds": 480,
+            },
+            "job_retry_authorization": {
+                "token": "jr:1",
+                "stage": "investigate_stuck",
+                "consumed": False,
+                **authorization,
+            },
+        }
+
+    def test_the_authorized_retry_runs_on_its_own_deadline(self):
+        self.assertEqual(480, job_deadline.launch_limit(self.run_state(), "investigate_stuck", 120))
+
+    def test_every_other_launch_keeps_the_runs_limit(self):
+        run = self.run_state()
+        for stage, kwargs in (("astra_discovery", {}), ("terra", {}), ("investigate_stuck", {"report_only": True})):
+            with self.subTest(stage=stage, **kwargs):
+                self.assertEqual(120, job_deadline.launch_limit(run, stage, 120, **kwargs))
+        for authorization in ({"consumed": True}, {"token": "jr:old"}, {"stage": "review_change"}):
+            with self.subTest(authorization=authorization):
+                self.assertEqual(
+                    120, job_deadline.launch_limit(self.run_state(**authorization), "investigate_stuck", 120)
+                )
+        self.assertEqual(120, job_deadline.launch_limit({}, "investigate_stuck", 120))
+        unsaved = self.run_state()
+        unsaved["job_failure"].pop("retry_stage_timeout_seconds")
+        self.assertEqual(120, job_deadline.launch_limit(unsaved, "investigate_stuck", 120))
 
 
 class DeadlineStopTests(unittest.TestCase):
