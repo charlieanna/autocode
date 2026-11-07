@@ -368,10 +368,17 @@ def progressive_report(stage, data, common):
         raise SystemExit("fake_codex: scoped permission answer was not preserved verbatim")
     from fake_changed_code import progressive_judgments, progressive_sources
 
+    regression_risk = "Scripted cumulative-answer regression awaiting corrective feedback"
     variant = {
-        "catalog": head["id"] == "S3" and data["goal_contract"]["body"].get("intended_outcome") == RENEWED_OUTCOME,
-        "corrupt": CONFIG.get("fault") in ("progressive_regression", "progressive_fabricated_pass")
-        and (data.get("current_task") or {}).get("objective") == head["intended_result"],
+        "catalog": head["id"] in ("S3", "S4")
+        and data["goal_contract"]["body"].get("intended_outcome") == RENEWED_OUTCOME,
+        "corrupt": (
+            CONFIG.get("fault") in ("progressive_regression", "progressive_fabricated_pass")
+            and (data.get("current_task") or {}).get("objective") == head["intended_result"]
+            and (CONFIG.get("fault") == "progressive_fabricated_pass" or not data.get("changed_code_evidence"))
+        )
+        if stage == "terra"
+        else regression_risk in (data.get("implementation") or {}).get("remaining_risks", []),
         "note": scoped and permission_answer == SCOPED_CONDITION,
     }
     if stage == "terra":
@@ -386,7 +393,7 @@ def progressive_report(stage, data, common):
             "changed_files": PATHS,
             "commands_run": commands,
             "results": [f"exit {code}" for code, _ in results],
-            "remaining_risks": [],
+            "remaining_risks": [regression_risk] if variant["corrupt"] else [],
             "evidence_refs": [ref for _, ref in results],
             "addressed_requirements": ["C1"],
             "untested_behavior": [],
