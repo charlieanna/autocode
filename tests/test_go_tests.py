@@ -2,6 +2,8 @@
 
 import json
 import shlex
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -175,6 +177,39 @@ class GoInvocationTests(unittest.TestCase):
 
 
 class GoResultConsumerTests(unittest.TestCase):
+    def test_an_interrupted_repeat_does_not_reuse_the_previous_completion(self):
+        events = [{"Action": action, "Package": "repeat", "Test": "TestRepeat"} for action in ("run", "pass", "run")]
+        result = go_tests.results("\n".join(json.dumps(event) for event in events))
+        self.assertFalse(result["complete"], result)
+
+    @unittest.skipUnless(shutil.which("go"), "Go is required for native repeated-test results")
+    def test_a_real_repeated_test_keeps_its_failure_when_a_later_attempt_passes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "go.mod").write_text("module example.test/repeat\n\ngo 1.21\n")
+            (root / "repeat_test.go").write_text(
+                'package repeat\n\nimport "testing"\n\nvar attempts int\n\n'
+                "func TestRepeat(t *testing.T) {\n"
+                "\tattempts++\n"
+                '\tif attempts == 1 { t.Fatal("first attempt fails") }\n'
+                "}\n\n"
+                "func TestGuard(t *testing.T) {\n"
+                '\tif attempts == 0 { t.Fatal("repeat did not execute") }\n'
+                "}\n"
+            )
+            process = subprocess.run(
+                ["go", "test", "-json", "-count=2", "."], cwd=root, capture_output=True, text=True, timeout=60
+            )
+            self.assertEqual(1, process.returncode, process.stdout + process.stderr)
+            output = root / "stdout.log"
+            output.write_text(process.stdout)
+            framework = verify.command_framework("go test -count=2 .")
+            result = verify.per_test_results(framework, {"output": str(output)}, "unused.xml")
+        self.assertEqual(["example.test/repeat::TestRepeat"], result["failed"])
+        self.assertEqual(["example.test/repeat::TestGuard"], result["passed"])
+        self.assertEqual(2, result["total"])
+        self.assertTrue(result["complete"])
+
     def test_result_reader_keeps_the_compatibility_parser_seam(self):
         self.assertIs(go_tests.results, verify._go_results)
         text = json.dumps({"Action": "pass", "Package": "pager", "Test": "TestProbe"})

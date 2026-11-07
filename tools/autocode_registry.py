@@ -330,7 +330,9 @@ def read_checkpoint(state_path: Path, workspace: Path) -> tuple[str, dict[str, A
     return availability, {**summary, "state": state} if availability == "available" else summary
 
 
-def _availability(record_key: str, record: dict[str, Any], workspaces: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+def _availability(
+    record_key: str, record: dict[str, Any], workspaces: dict[str, Any], visit_checkpoint=None
+) -> tuple[str, dict[str, Any]]:
     workspace = record.get("workspace")
     run_dir = record.get("run_dir")
     if not isinstance(workspace, str) or not isinstance(run_dir, str):
@@ -363,6 +365,8 @@ def _availability(record_key: str, record: dict[str, Any], workspaces: dict[str,
     if not runs_dir.is_relative_to(canonical_workspace) or not canonical_run.is_relative_to(runs_dir):
         return "containment_invalid", {"message": "Run is no longer contained by workspace .autocode/runs"}
     availability, payload = read_checkpoint(canonical_run / "state.json", canonical_workspace)
+    if visit_checkpoint is not None:
+        visit_checkpoint(availability, payload)
     return availability, {key: value for key, value in payload.items() if key != "state"}
 
 
@@ -411,6 +415,16 @@ def listing(also: Path | None = None) -> dict[str, Any]:
     The shared registry's records win on a shared key. An unreadable ``also`` is a diagnostic,
     never a reason to hide the shared registry.
     """
+    return _listing(also)
+
+
+def _listing(also: Path | None = None, *, visit_run=None) -> dict[str, Any]:
+    """Internal streaming projection: consume each validated checkpoint before the next read.
+
+    The visitor receives (pointer record, checkpoint result), or None for a pointer
+    refused before checkpoint inspection. Full state never enters the returned
+    registry JSON and is retained for only one row, never for action execution.
+    """
     documents, diagnostics = [], []
     path = registry_path()
     if path.exists():
@@ -444,7 +458,18 @@ def listing(also: Path | None = None) -> dict[str, Any]:
                 {"id": key, "availability": "malformed_record", "diagnostic": {"message": "Record is not an object"}}
             )
             continue
-        availability, diagnostic = _availability(key, record, document["workspaces"])
+        visited = False
+
+        def visit_checkpoint(availability, payload):
+            nonlocal visited
+            visited = True
+            visit_run(record, (availability, payload))
+
+        availability, diagnostic = _availability(
+            key, record, document["workspaces"], visit_checkpoint if visit_run is not None else None
+        )
+        if visit_run is not None and not visited:
+            visit_run(record, None)
         # The central pointer record may predate migration. Surface the run's
         # authoritative task_id without writing either registry or checkpoint.
         task_id = diagnostic.pop("task_id", record.get("task_id"))

@@ -304,6 +304,109 @@ class NativeDifferentialCounterexamples(unittest.TestCase):
         self.assertTrue(next(check.ok for check in checks if check.name == "new_tests_fail_on_original_code"))
 
 
+class NpmRuntimeIdentityTests(unittest.TestCase):
+    @unittest.skipUnless(
+        shutil.which("node") and shutil.which("npm"), "Node and npm are required for the runtime probe"
+    )
+    def test_real_runtime_probe_preserves_node_facts_and_npm_target_overrides(self):
+        facts = json.loads(
+            subprocess.check_output(
+                [
+                    "node",
+                    "-p",
+                    "JSON.stringify([process.platform,process.arch,process.version,process.versions.modules,"
+                    "process.report.getReport().header.glibcVersionRuntime || null])",
+                ],
+                text=True,
+            )
+        )
+        version = subprocess.check_output(["npm", "--version"], text=True).strip()
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.dict(
+                os.environ,
+                {
+                    "npm_config_cpu": "x64",
+                    "npm_config_os": "linux",
+                    "npm_config_libc": "musl",
+                },
+            ),
+        ):
+            identity = npm_dependencies._runtime_identity(Path(directory))
+        self.assertEqual(facts, [identity[key] for key in ("platform", "arch", "node", "abi", "glibc")])
+        self.assertEqual(version, identity["npm-version"])
+        self.assertEqual(["x64", "linux", "musl"], [identity[key] for key in ("cpu", "os", "libc")])
+
+    def test_node_facts_and_only_effective_native_install_settings_define_identity(self):
+        node = {"platform": "linux", "arch": "arm64", "node": "v22.18.0", "abi": "127", "glibc": "2.39"}
+        config = {
+            "npm-version": "10.9.3",
+            "cpu": "x64",
+            "os": "linux",
+            "libc": "musl",
+            "registry": "https://registry.example",
+            "_authToken": "private-setting",
+        }
+        with patch.object(
+            npm_dependencies.subprocess, "run", side_effect=[receipt(json.dumps(node)), receipt(json.dumps(config))]
+        ) as run:
+            identity = npm_dependencies._runtime_identity(Path("install-parent"))
+        self.assertEqual(node | {key: config[key] for key in ("npm-version", "cpu", "os", "libc")}, identity)
+        self.assertEqual(["node", "-p"], run.call_args_list[0].args[0][:2])
+        self.assertEqual(["npm", "config", "list", "--json"], run.call_args_list[1].args[0])
+        for call in run.call_args_list:
+            self.assertEqual(Path("install-parent"), call.kwargs["cwd"])
+            self.assertTrue(call.kwargs["check"])
+            self.assertEqual(20, call.kwargs["timeout"])
+        self.assertNotIn("private-setting", json.dumps(identity))
+
+    def test_default_targets_and_non_glibc_runtimes_have_stable_null_fields(self):
+        node = {"platform": "darwin", "arch": "arm64", "node": "v22.18.0", "abi": "127", "glibc": None}
+        with patch.object(
+            npm_dependencies.subprocess,
+            "run",
+            side_effect=[receipt(json.dumps(node)), receipt('{"npm-version":"10.9.3"}')],
+        ):
+            self.assertEqual(
+                node | {"npm-version": "10.9.3", "cpu": None, "os": None, "libc": None},
+                npm_dependencies._runtime_identity(Path(".")),
+            )
+
+    def test_missing_malformed_or_unavailable_runtime_never_supplies_a_cache_identity(self):
+        node = {"platform": "linux", "arch": "arm64", "node": "v22.18.0", "abi": "127", "glibc": "2.39"}
+        config = {"npm-version": "10.9.3"}
+        cases = [
+            ("not-json", json.dumps(config)),
+            ("[]", json.dumps(config)),
+            ("{}", json.dumps(config)),
+            (json.dumps(node | {"arch": ""}), json.dumps(config)),
+            (json.dumps(node | {"glibc": []}), json.dumps(config)),
+            (json.dumps(node), "not-json"),
+            (json.dumps(node), "[]"),
+            (json.dumps(node), "{}"),
+            (json.dumps(node), json.dumps(config | {"cpu": []})),
+        ]
+        for first, second in cases:
+            with (
+                self.subTest(node=first, config=second),
+                patch.object(npm_dependencies.subprocess, "run", side_effect=[receipt(first), receipt(second)]),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "no dependency cache was accepted"):
+                    npm_dependencies._runtime_identity(Path("."))
+        for failure in (
+            OSError("private-setting"),
+            subprocess.TimeoutExpired("node", 20),
+            subprocess.CalledProcessError(1, "npm", stderr="private-setting"),
+        ):
+            with (
+                self.subTest(failure=type(failure)),
+                patch.object(npm_dependencies.subprocess, "run", side_effect=failure),
+            ):
+                with self.assertRaises(RuntimeError) as error:
+                    npm_dependencies._runtime_identity(Path("."))
+                self.assertNotIn("private-setting", str(error.exception))
+
+
 class NpmSetupBoundaryTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="native-oracle-npm-")
@@ -318,6 +421,20 @@ class NpmSetupBoundaryTests(unittest.TestCase):
         owner = patch.object(npm_dependencies, "__file__", str(self.root / "scenarios/harness/npm_dependencies.py"))
         owner.start()
         self.addCleanup(owner.stop)
+        self.runtime = {
+            "platform": "darwin",
+            "arch": "arm64",
+            "node": "v22.18.0",
+            "abi": "127",
+            "glibc": None,
+            "npm-version": "10.9.3",
+            "cpu": None,
+            "os": None,
+            "libc": None,
+        }
+        identity = patch.object(npm_dependencies, "_runtime_identity", return_value=self.runtime, create=True)
+        identity.start()
+        self.addCleanup(identity.stop)
 
     def test_production_environment_cannot_omit_the_runner_or_platform_binaries(self):
         def install(command, cwd, **kwargs):
@@ -364,6 +481,65 @@ class NpmSetupBoundaryTests(unittest.TestCase):
         self.assertEqual("pinned runner", (second / "node_modules/vitest/vitest.mjs").read_text())
         self.assertFalse((self.project / "node_modules/omitted-dev-marker").exists())
         self.assertEqual("old incomplete cache", (legacy / "node_modules/omitted-dev-marker").read_text())
+
+    def test_runtime_changes_install_separately_and_same_runtime_reuses_its_cache(self):
+        def install(command, cwd, **kwargs):
+            (cwd / "node_modules").mkdir()
+            (cwd / "node_modules/runtime").write_text(json.dumps(self.runtime, sort_keys=True))
+            return receipt()
+
+        with patch.object(npm_dependencies.subprocess, "run", side_effect=install) as run:
+            npm_dependencies.prepare(self.seed, self.project)
+            original = self.runtime.copy()
+            variants = (
+                {"platform": "linux", "glibc": "2.39"},
+                {"arch": "x64"},
+                {"node": "v24.0.0", "abi": "137"},
+                {"abi": "128"},
+                {"glibc": "2.39"},
+                {"npm-version": "11.0.0"},
+                {"cpu": "x64"},
+                {"os": "linux"},
+                {"libc": "musl"},
+            )
+            for index, difference in enumerate(variants):
+                with self.subTest(difference=difference):
+                    self.runtime.clear()
+                    self.runtime.update(original | difference)
+                    project = self.root / f"variant-{index}"
+                    project.mkdir()
+                    npm_dependencies.prepare(self.seed, project)
+                    self.assertEqual(self.runtime, json.loads((project / "node_modules/runtime").read_text()))
+            self.runtime.clear()
+            self.runtime.update(original)
+            again = self.root / "same-runtime"
+            again.mkdir()
+            npm_dependencies.prepare(self.seed, again)
+            self.assertEqual(original, json.loads((again / "node_modules/runtime").read_text()))
+        self.assertEqual(1 + len(variants), run.call_count)
+        self.assertEqual(original, json.loads((self.project / "node_modules/runtime").read_text()))
+
+    def test_policy_only_ready_cache_is_preserved_and_replaced_by_runtime_bound_install(self):
+        policy = b"\0".join(arg.encode() for arg in npm_dependencies.NPM_CI_ARGUMENTS)
+        digest = hashlib.sha256(
+            b"\0".join([policy, *((self.seed / name).read_bytes() for name in ("package.json", "package-lock.json"))])
+        ).hexdigest()
+        cache = self.root / ".scenario-runs/npm-dependencies" / digest
+        (cache / "node_modules").mkdir(parents=True)
+        (cache / "node_modules/runtime").write_text("old macOS install")
+        (cache / "ready").write_text(digest + "\n")
+
+        def install(command, cwd, **kwargs):
+            self.assertNotEqual(cache, cwd)
+            (cwd / "node_modules").mkdir()
+            (cwd / "node_modules/runtime").write_text("new runtime install")
+            return receipt()
+
+        with patch.object(npm_dependencies.subprocess, "run", side_effect=install) as run:
+            npm_dependencies.prepare(self.seed, self.project)
+        run.assert_called_once()
+        self.assertEqual("new runtime install", (self.project / "node_modules/runtime").read_text())
+        self.assertEqual("old macOS install", (cache / "node_modules/runtime").read_text())
 
     def test_ready_marker_from_another_install_policy_forces_reinstallation(self):
         def install(command, cwd, **kwargs):

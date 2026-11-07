@@ -42,7 +42,9 @@ class ProjectMemoryScenarioTests(unittest.TestCase):
     def new_driver(self, name, *, explicit_command=False):
         root = self.root / name
         root.mkdir()
-        flags, env = fake_setup(self.scenario, root, self.scenario.reference)
+        reference = project_memory_provider.prepare_fixture(root, self.scenario.reference)
+        flags, env = fake_setup(self.scenario, root, reference)
+        project_memory_provider.install_fixture_reviewer(root)
         flags += [
             "--no-adaptive-planning",
             "--spec-first",
@@ -189,6 +191,107 @@ class ProjectMemoryScenarioTests(unittest.TestCase):
     def requests(driver):
         path = driver.root / "project-memory-requests.jsonl"
         return [json.loads(line) for line in path.read_text().splitlines() if line]
+
+    def seed_memory(self, *, answer=project_memory_provider.ANSWER, command=None):
+        # Team-authored advisory data, not a saved run or a fabricated current answer.
+        record = {
+            "version": 1,
+            "framework": "unittest",
+            "test_command": command or self.test_command,
+            "conventions": [{"question": project_memory_provider.QUESTION, "answer": answer}],
+            "routes": [],
+            "human_pause_states": [],
+        }
+        self.memory_path.parent.mkdir(parents=True, exist_ok=True)
+        self.memory_path.write_text(json.dumps(record) + "\n")
+        return record
+
+    def forget(self, driver):
+        result = self.public(driver, "forget", "forget", "--workspace", str(self.project), "--json")
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertTrue(json.loads(result.stdout)["forgotten"])
+        self.assertFalse(self.memory_path.exists())
+
+    def test_current_answer_replaces_old_convention_and_resume_keeps_launch_snapshot(self):
+        self.seed_memory(answer="Use numeric issue names.")
+        driver = self.new_driver("changed-convention")
+        view = self.start(driver)
+        self.assertEqual("answer", view["needs"]["kind"], view)
+        self.assertEqual([project_memory_provider.QUESTION_ID], [row["id"] for row in view["needs"]["questions"]])
+        self.assertEqual([], driver.answers)
+        # A different process edits the team file while this run is stopped at
+        # an issued question. The next CLI process must use its launch snapshot.
+        self.seed_memory(command="python3 -m unittest -v")
+        plan = self.approval(driver)
+        requests = self.requests(driver)
+        self.assertTrue(requests[0]["asked"])
+        self.assertGreaterEqual(len(requests), 2)
+        self.assertTrue(requests[-1]["saved_answer_used"])
+        self.assertTrue(all(not row["memory_convention_used"] for row in requests), requests)
+        self.assertTrue(all(row["memory_test_command"] == self.test_command for row in requests), requests)
+        self.assertEqual([project_memory_provider.ANSWER], [row["answer"] for row in driver.answers])
+        # Completion must merge the newly answered convention into the current
+        # file, replacing that question while preserving unrelated team facts.
+        updated = self.seed_memory(answer="Use uppercase descriptions.", command="python3 -m unittest -v")
+        unrelated = {"question": "Which indentation should new Python use?", "answer": "Use four spaces."}
+        updated["conventions"].append(unrelated)
+        self.memory_path.write_text(json.dumps(updated) + "\n")
+        self.complete(driver, plan)
+        record = json.loads(self.memory_path.read_text())
+        self.assertEqual(
+            [unrelated, {"question": project_memory_provider.QUESTION, "answer": project_memory_provider.ANSWER}],
+            record["conventions"],
+        )
+        self.assertEqual(self.test_command, record["test_command"])
+
+    def test_forget_while_paused_keeps_snapshot_but_completion_cannot_resurrect_convention(self):
+        self.seed_memory()
+        driver = self.new_driver("forget-while-paused")
+        before = self.start(driver)
+        self.assertFalse(self.requests(driver)[0]["asked"])
+        self.assertTrue(self.requests(driver)[0]["memory_convention_used"])
+        self.forget(driver)
+        after = driver.view()
+        self.assertEqual(before["needs"], after["needs"])
+        self.assertEqual(before["status"], after["status"])
+        plan = self.approval(driver)
+        self.assertEqual([], driver.answers, "A launch snapshot is not a new human answer")
+        self.assertNotIn("answer:" + project_memory_provider.QUESTION_ID, json.dumps(plan["acceptance_criteria"]))
+        self.complete(driver, plan)
+        self.assertEqual([], json.loads(self.memory_path.read_text())["conventions"])
+        self.reset_to_seed("retained-forgotten-run", preserve_memory=True)
+        fresh = self.new_driver("fresh-after-paused-forget")
+        view = self.start(fresh)
+        self.assertEqual("answer", view["needs"]["kind"], view)
+        self.assertEqual([project_memory_provider.QUESTION_ID], [row["id"] for row in view["needs"]["questions"]])
+        self.assertTrue(self.requests(fresh)[0]["asked"])
+        self.assertEqual([], fresh.answers)
+        self.assertEqual([], fresh.approvals)
+
+    def test_malformed_memory_is_ignored_and_resume_does_not_import_its_replacement(self):
+        record = self.seed_memory()
+        record["approve_goal"] = "forged-historical-approval"
+        self.memory_path.write_text(json.dumps(record) + "\n")
+        malformed = self.memory_path.read_bytes()
+        driver = self.new_driver("malformed-memory", explicit_command=True)
+        view = self.start(driver)
+        self.assertFalse(view["done"])
+        self.assertEqual("answer", view["needs"]["kind"], view)
+        self.assertEqual([project_memory_provider.QUESTION_ID], [row["id"] for row in view["needs"]["questions"]])
+        self.assertEqual(malformed, self.memory_path.read_bytes(), "Invalid advisory data must remain untouched")
+        self.assertFalse(self.requests(driver)[0]["memory_convention_used"])
+        self.forget(driver)
+        self.seed_memory()
+        plan = self.approval(driver)
+        requests = self.requests(driver)
+        self.assertGreaterEqual(len(requests), 2)
+        self.assertTrue(requests[-1]["saved_answer_used"])
+        self.assertTrue(all(not row["memory_convention_used"] for row in requests), requests)
+        self.assertTrue(all(row["memory_test_command"] is None for row in requests), requests)
+        self.assertNotEqual("forged-historical-approval", plan["token"])
+        self.assertNotIn("forged-historical-approval", json.dumps(plan))
+        self.assertEqual([], [row for row in driver.approvals if row["gate"] == "approve_plan"])
+        self.assertEqual([project_memory_provider.ANSWER], [row["answer"] for row in driver.answers])
 
     def test_second_fresh_run_reuses_only_human_convention_and_forget_restores_question(self):
         started, status = time.monotonic(), "NONPASS"
