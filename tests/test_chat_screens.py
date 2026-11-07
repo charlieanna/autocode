@@ -68,7 +68,7 @@ with ChatTUI() as ui:
             what="narrow current status with navigation and pause guidance",
         )
         screen.type("/")
-        menu = screen.wait_for("Your chats in every project", what="the slash menu at narrow width")
+        menu = screen.wait_for("/plan", what="the run command menu at narrow width")
         self.assertIn("/ commands", menu)
         screen.keys("Escape")
         screen.type("x")
