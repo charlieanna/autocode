@@ -446,6 +446,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         (
             "tools/autocode_requirements_observations.py",
+            "tools/autocode_repaired_result.py",
             "tools/autocode_requirements_handoff.py",
             "tools/autocode_job_source.py",
             "tools/units/autoplanner.py",
