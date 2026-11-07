@@ -315,7 +315,13 @@ from `tools/autocode_mutants.py`).
   or dictionary entry on a line of its own takes another constant or `None`. A
   mutant counts for the line it starts on, so the later statements of a dropped
   branch get their own sites. A line holding only `try:` or `pass` does nothing a
-  test could notice and is not a changed-line obligation at all. Each mutant replaces a span of source bytes,
+  test could notice and is not a changed-line obligation at all. No mutant is
+  made where the module would then fail to load: in a function that runs on
+  import, or in module-level code whose result code run on import reads
+  afterwards (an `except` around an optional import, a module-level `with`).
+  Test collection would fail before any test ran, so that mutant could only end
+  `not_run`, and the line counts as having no site.
+  Each mutant replaces a span of source bytes,
   keeps every line number, must compile, and must change its statement exactly as
   intended; a site that fails one of these, or cannot be checked at all (a
   statement nested too deep, an integer too long to print), is skipped with a

@@ -298,8 +298,82 @@ class OperatorTests(unittest.TestCase):
         )
         made, _ = mutants.python_mutants("guarded.py", source, every_line(source), limit=50)
         self.assertEqual([(6, "drop_call", "run()", "None")], shown(made))
+
+    def test_no_none_binding_where_the_module_would_then_fail_to_load(self):
+        # A None the module's own import reads fails test collection, so that mutant could only end
+        # not_run. Seen in review-then-fix: _errors runs on import and DEFAULT reads TRANSIENT.
+        source = (
+            b"def _errors(*groups):\n"
+            b"    merged = []\n"
+            b"    for group in groups:\n"
+            b"        merged.extend(group)\n"
+            b"    return tuple(merged)\n"
+            b"\n"
+            b"\n"
+            b"def lookup(name):\n"
+            b"    found = TABLE.get(name)\n"
+            b"    return found\n"
+            b"\n"
+            b"\n"
+            b'TRANSIENT = ("BUSY",)\n'
+            b"DEFAULT = _errors(TRANSIENT)\n"
+            b"TABLE = dict(a=DEFAULT)\n"
+            b"LATER = dict(b=1)\n"
+            b"count = len(TABLE)\n"
+            b"count = len(TABLE) + count\n"
+        )
+        made, notes = mutants.python_mutants("load.py", source, every_line(source), limit=50)
+        self.assertEqual([], notes)
+        bound = {(mutant.line, mutant.before) for mutant in made if mutant.operator == "none_assignment"}
+        # merged runs on import; TRANSIENT, DEFAULT, TABLE and the first count are read later while loading.
+        # lookup's binding and the names nothing reads on import keep theirs.
+        self.assertEqual({(9, "TABLE.get(name)"), (16, "dict(b=1)"), (18, "len(TABLE) + count")}, bound)
+        # Its other operators keep their sites: skipping a load-time loop leaves a value a test can check.
+        self.assertIn((3, "skip_loop", "groups", "()"), shown(made))
         self.assertEqual(
             len(mutants.NEWLINE.findall(source)), len(mutants.NEWLINE.findall(mutants.apply(source, made[0])))
+        )
+
+    def test_the_statement_operators_leave_code_that_runs_on_import_alone(self):
+        # never_catch on an optional import, or None for a module-level with, update, raise or a keyword
+        # that load-time code reads, fails collection, not a test. The same lines in a function keep theirs.
+        source = (
+            b"try:\n"
+            b"    import fast\n"
+            b"except ImportError:\n"
+            b"    fast = None\n"
+            b"with open('x') as f:\n"
+            b"    TEXT = f.read()\n"
+            b"COUNT = 1\n"
+            b"COUNT += 1\n"
+            b"if COUNT > 9:\n"
+            b"    raise SystemExit\n"
+            b"TABLE = dict(\n"
+            b"    size=COUNT,\n"
+            b")\n"
+            b"WIDTH = TABLE['size']\n"
+            b"LATER = dict(\n"
+            b"    b=1,\n"
+            b")\n"
+            b"def run():\n"
+            b"    try:\n"
+            b"        count = 0\n"
+            b"    except ValueError:\n"
+            b"        raise\n"
+            b"    with open('y') as g:\n"
+            b"        count += 1\n"
+            b"    return dict(\n"
+            b"        size=count,\n"
+            b"    )\n"
+        )
+        made, notes = mutants.python_mutants("load.py", source, every_line(source), limit=100)
+        self.assertEqual([], notes)
+        new = {"never_catch", "none_context", "none_update", "drop_raise", "none_keyword"}
+        ops = {(mutant.line, mutant.operator) for mutant in made if mutant.operator in new}
+        self.assertEqual(
+            {(16, "none_keyword"), (21, "never_catch"), (22, "drop_raise"), (23, "none_context")}
+            | {(24, "none_update"), (26, "none_keyword")},
+            ops,
         )
 
 

@@ -15,13 +15,20 @@ and the process environment through :func:`combined_environment`.
 Pure functions over mappings, standard library only. This module imports
 nothing from AutoCode, so it cannot create an import cycle.
 
-Within a run (``reuse_checks``), a preflight that succeeded is answered from the
-run directory for ``REUSE_SECONDS``. A chat message relaunches the controller,
-and the same `kilo --version`, `kilo models` and `kilo auth list` cost 6.4 s of
-a 28 s follow-up turn on 2026-10-20. Reuse is keyed by the exact command, working
-directory, the complete environment and the executable's resolved file
-identity, so a new tool install, a changed setting or another folder runs the
-check again; a failed check is never kept.
+Within a run (``reuse_checks``), a preflight that succeeded is answered again for
+``REUSE_SECONDS``. A chat message relaunches the controller, and the same
+`kilo --version`, `kilo models` and `kilo auth list` cost 6.4 s of a 28 s
+follow-up turn on 2026-10-20. Reuse is keyed by the exact command, working
+directory, the environment, the executable's resolved file identity and the
+tool's own login and settings files, so a new tool install, a changed setting, a
+new login or another folder runs the check again; a failed check is never kept.
+
+Since 2026-11-07 (Ankur, after a new chat's "hi" spent seconds repeating them) the
+answers are kept for the project, ``PROJECT/.autocode/preflight-reuse``, so a new
+chat in the same project reuses them too; a run directory outside a project's
+``.autocode/runs`` keeps its own. The variables a terminal sets for its own
+session (``SESSION_VARIABLES``) are left out of the key: a chat picked up from
+another terminal window asks the same tool the same question.
 """
 
 from __future__ import annotations
@@ -38,6 +45,21 @@ from pathlib import Path
 
 REUSE_SECONDS = 3600  # owner decision 2026-10-20: an hour
 REUSE_FOLDER = "preflight-reuse"
+# Set by the shell or terminal for its own session; a tool's answer never depends on them.
+SESSION_VARIABLES = frozenset(
+    {
+        "_",
+        "OLDPWD",
+        "SHLVL",
+        "TERM_SESSION_ID",
+        "ITERM_SESSION_ID",
+        "SECURITYSESSIONID",
+        "TMUX_PANE",
+        "WINDOWID",
+        "KITTY_WINDOW_ID",
+        "WEZTERM_PANE",
+    }
+)
 _reuse: Path | None = None
 
 
@@ -104,11 +126,40 @@ def preflight_run(command, env: Mapping[str, str], *, require_executable=False, 
 def reuse_checks(run_dir):
     """While one run is driven, reuse its successful preflights (see the module docstring)."""
     global _reuse
-    previous, _reuse = _reuse, Path(run_dir) / REUSE_FOLDER
+    previous, _reuse = _reuse, reuse_folder(run_dir)
     try:
         yield
     finally:
         _reuse = previous
+
+
+def reuse_folder(run_dir) -> Path:
+    """The project's folder for kept checks, or the run's own when it is not in a project's run store."""
+    run_dir = Path(run_dir)
+    store = run_dir.parent
+    if store.name == "runs" and store.parent.name == ".autocode":
+        return store.parent / REUSE_FOLDER
+    return run_dir / REUSE_FOLDER
+
+
+def _tool_files(executable: str, env: Mapping[str, str]) -> list:
+    """The tool's own login and settings files (its XDG data ``auth.json`` and config JSON files), by identity."""
+    name = Path(executable).name
+    home = env.get("HOME") or os.path.expanduser("~")
+    data = Path(env.get("XDG_DATA_HOME") or Path(home, ".local", "share")) / name
+    config = Path(env.get("XDG_CONFIG_HOME") or Path(home, ".config")) / name
+    try:
+        settings = sorted(path for path in config.iterdir() if path.suffix in (".json", ".jsonc"))
+    except OSError:
+        settings = []
+    found = []
+    for path in [data / "auth.json", *settings]:
+        try:
+            info = path.stat()
+        except OSError:
+            continue
+        found.append([str(path), info.st_mtime_ns, info.st_size])
+    return found
 
 
 def _reuse_key(command, env: Mapping[str, str], kwargs) -> str | None:
@@ -122,7 +173,16 @@ def _reuse_key(command, env: Mapping[str, str], kwargs) -> str | None:
         info = os.stat(real)
     except OSError:
         return None
-    identity = [list(command), str(kwargs.get("cwd")), sorted(env.items()), real, info.st_mtime_ns, info.st_size]
+    variables = sorted((name, value) for name, value in env.items() if name not in SESSION_VARIABLES)
+    identity = [
+        list(command),
+        str(kwargs.get("cwd")),
+        variables,
+        real,
+        info.st_mtime_ns,
+        info.st_size,
+        _tool_files(command[0], env),
+    ]
     return hashlib.sha256(json.dumps(identity, default=str).encode()).hexdigest()
 
 

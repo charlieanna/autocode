@@ -479,6 +479,7 @@
                 "paths": {"type": "array", "maxItems": 8, "items": {"type": "string"}}
               }
             }, "description": "Optional display-only events of the running, supervised attempt, oldest first. A command that exited 0 is not a passed check; never proof, approval or authority to retry."},
+            "last_output_at": {"type": "string", "description": "Optional: when the running, supervised attempt's event file was last written (UTC). Display only; never proof of progress or a liveness decision."},
             "review": {"type": ["object", "null"], "properties": {
               "spend_confirmation": {"type": "object", "required": ["title", "detail", "label"], "properties": {
                 "title": {"type": "string"}, "detail": {"type": "string"}, "label": {"type": "string"},

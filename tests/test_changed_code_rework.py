@@ -110,6 +110,28 @@ class ChangedCodeRepairScopeTests(unittest.TestCase):
                 rework.route(state, record, investigation_enabled=False, rejected=rejected)
                 self.assertEqual("terra", state["next_stage"])
 
+    def test_a_builder_round_is_recorded_with_the_rounds_the_gate_allows(self):
+        # The status view says "round 1 of 2" from the record alone; a scope review spends no round.
+        state, record, rejected = self.fixture()
+        state["current_task"]["affected_paths"].append("tests/evaluate/test_comparisons.py")
+        rework.route(state, record, investigation_enabled=False, rejected=rejected)
+        event = state["regression_proofs"][-1]
+        self.assertEqual(("builder", 1, rework.REPAIR_ROUNDS), (event["action"], event["round"], event["round_limit"]))
+        self.assertIn("(round 1 of 2)", history.project(state)[-1]["headline"])
+        again = {**record, "output": "/run/tester-2.json"}
+        rework.route(state, again, investigation_enabled=False, rejected=rejected)
+        self.assertEqual(
+            ("builder", 2), (state["regression_proofs"][-1]["action"], state["regression_proofs"][-1]["round"])
+        )
+        third = {**record, "output": "/run/tester-3.json"}
+        rework.route(state, third, investigation_enabled=False, rejected=rejected)
+        self.assertEqual(
+            ("investigator", 3), (state["regression_proofs"][-1]["action"], state["regression_proofs"][-1]["round"])
+        )
+        scoped_state, scoped_record, scoped_rejected = self.fixture()
+        rework.route(scoped_state, scoped_record, investigation_enabled=True, rejected=scoped_rejected)
+        self.assertNotIn("round", scoped_state["regression_proofs"][-1])
+
     def test_recovery_view_names_reassignment_instead_of_a_builder_attempt(self):
         state, record, rejected = self.fixture()
         rework.route(state, record, investigation_enabled=False, rejected=rejected)

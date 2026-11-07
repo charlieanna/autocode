@@ -19,8 +19,32 @@ PR template asks for an entry here; a change without one is incomplete.
   import, an `except` clause, a `raise`, the head of a `with`, an augmented assignment, a keyword
   argument or dictionary entry on a line of its own, or a later statement of an `if` body, so a live
   run left about 60 such lines for its Tester to excuse and stopped when it did not. Each now has a
-  mutant of its own, and a line holding only `try:` or `pass`, which does nothing, is no longer
-  counted (#2815).
+  mutant of its own, except where breaking it would stop the module loading, and a line holding only
+  `try:` or `pass`, which does nothing, is no longer counted (#2815).
+- A computed value that the module's own import uses is no longer replaced with `None` by the
+  mutation check. That mutant stopped the module loading, so no test ran and the line stayed open
+  with an unrun mutant; the scripted review-then-fix run stopped at the changed-line gate. Such a
+  line now counts as having no mutation site. The local two-service scenario's tests now check the
+  `Content-Length` header, and its scripted Tester judges the two client-side calls no test can
+  observe as equivalent mutants.
+- Accepted Requirements report repairs retain the original observations for the first Planner
+  without repeating the Requirements probes.
+- The first Planner can reuse small, successful Requirements observations from the same unchanged
+  source. Requirements, independent reviews, plan approval and verification checks remain required.
+- A new chat in a project reuses the tool checks an earlier chat there passed within the hour, and a chat
+  picked up from another terminal window reuses its run's checks: the variables a terminal sets for its
+  own session no longer count as a different environment. A new login or a changed tool setting still
+  runs the checks again. Before each stage the candidate is compared with the run's base once, not twice.
+- A new Kilo task reaches the model sooner. The login, model-list and model-detail checks at the
+  start of a task ran one after another, the login check ran twice and the reasoning-level check read a
+  second model listing: six Kilo starts, about 12 s on 2026-11-07. They now run together and once each.
+  Before every stage, Kilo's config and the usual agent's permissions are read together instead of in
+  turn; both are still read fresh for each launch, and another default agent never gets the usual
+  agent's grants.
+- A chat started in a folder outside Git now shows the run's reply and question. AutoCode runs that
+  task in a new project under `autocode-projects/`, and the chat refused the status of the moved run, so
+  it said "AutoCode did not start the run" and printed the raw resume command with its resolver token
+  (#2838).
 - A run no longer stops to ask you how to route a fix when the approved plan's test command cannot find
   a test it names. A Tester's report cannot change that result, so the run paused and the Investigator
   asked whether the Builder or the Resolver should take it. AutoCode now returns the task to the Builder
@@ -152,6 +176,13 @@ PR template asks for an entry here; a change without one is incomplete.
   integration would then have refused the batch for the changed test files.
 - A Tester that runs `capture` through `2>&1 | grep '"exit_code"'` keeps its receipt: capture's short
   attestation line now leads with `exit_code`. When a filter drops every line, the rejection names it.
+- The terminal chat tells a stalled stage from a busy one. While a supervised stage works, the status
+  row says when it last wrote anything (`last output 12s ago`) and, after two minutes of silence, warns
+  `no output for 4m05s`; the status view carries it as `chat.last_output_at`. A stage on a later attempt
+  also says how many more failures the core allows before it stops (`2 tries left`, `last try`;
+  `progress.retry`), and a Builder send-back for untested lines names its round out of the two the
+  gate allows. The footer and the Stages section add how long the run's stages have worked in all
+  (`worked 42m05s`).
 
 ### Changed
 

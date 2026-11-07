@@ -490,11 +490,7 @@ class ChatClient:
                     error = "status response has no view"
                 if error:
                     view = None
-                if (
-                    view is not None
-                    and view.get("run_dir")
-                    and Path(view["run_dir"]).resolve() != Path(key[1]).resolve()
-                ):
+                if view is not None and not actions.same_run(view, key[0], key[1]):
                     raise ValueError("response belongs to another run")
             except (ValueError, KeyError, TypeError, actions.ClientGap):
                 view, error = None, "status response has no valid view for this chat"
@@ -566,6 +562,7 @@ class ChatClient:
     def accept_status(self, view: dict) -> None:
         self.viewed.add(str(self.run_dir))
         self.own(view)
+        self.viewed.add(str(self.run_dir))  # a run moved into autocode-projects is viewed under its own path
         self.identity = wait_identity(view)
         self.titles[str(self.run_dir)] = title_of(view) or self.titles.get(str(self.run_dir), "")
         self._totals[str(self.run_dir)] = meter.run_total(view)
@@ -633,13 +630,19 @@ class ChatClient:
                             continue
                     except KeyboardInterrupt:  # Ctrl-C again while the pause was being asked for
                         interrupts += 1
-                    if interrupts == 2:
-                        child.send_signal(signal.SIGINT)
-                        self.say("Interrupting the current step... Ctrl-C again stops AutoCode.")
-                    else:
-                        with contextlib.suppress(ProcessLookupError):
-                            os.killpg(child.pid, signal.SIGTERM)
-                        self.say("Stopping AutoCode...")
+                    if child.poll() is not None:
+                        continue  # The step finished while the key or pause request was being handled.
+                    try:
+                        if interrupts == 2:
+                            child.send_signal(signal.SIGINT)
+                            self.say("Interrupting the current step... Ctrl-C again stops AutoCode.")
+                        else:
+                            with contextlib.suppress(ProcessLookupError):
+                                os.killpg(child.pid, signal.SIGTERM)
+                            self.say("Stopping AutoCode...")
+                    except PermissionError as error:
+                        action = "interrupt the current step" if interrupts == 2 else "stop AutoCode"
+                        self.say(f"The operating system refused to {action}: {error}. Still watching the current step.")
             if interrupts > 2 and child.returncode not in (0, 2):
                 raise actions.ClientGap("stopped AutoCode in the middle of a step; `autocode chat` picks the run up")
             if child.returncode not in (0, 2):

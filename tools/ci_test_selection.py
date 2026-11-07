@@ -94,6 +94,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tests.test_acceptance_tests",
             "tests.test_acceptance_writer_route",
             "tests.test_follow_up_acceptance_cli",
+            "tests.test_requirements_first_cli",
         ),
     ),
     (
@@ -103,6 +104,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tests.test_artifact_review",
             "tests.test_workflow",
             "tests.test_final_workflow",
+            "tests.test_protected_oracles_cli",
         ),
     ),
     (
@@ -388,7 +390,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("tools/autocode_kilo_image_delivery.mjs", ("tests.test_kilo_image_delivery", "tests.test_native_image")),
-    ("tools/fixtures/multicomponent_fake.py", ("tests.test_multicomponent", "tests.test_local_compose_scenario")),
+    (
+        "tools/fixtures/multicomponent_fake.py",
+        ("tests.test_multicomponent", "tests.test_local_compose_scenario", "tests.test_multicomponent_fake_reasons"),
+    ),
     (
         "tools/fixtures/kilo-context-overflow-run.jsonl",
         ("tests.test_context_window", "tests.test_job_failure_recovery"),
@@ -442,6 +447,16 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        (
+            "tools/autocode_requirements_observations.py",
+            "tools/autocode_repaired_result.py",
+            "tools/autocode_requirements_handoff.py",
+            "tools/autocode_job_source.py",
+            "tools/units/autoplanner.py",
+        ),
+        ("tests.test_requirements_observations_cli",),
+    ),
     (
         ("tools/autocode_source_metadata.py", "tools/autocode_source_trace.py"),
         ("tests.test_ticket_title_cli", "tests.test_source_trace_cli"),

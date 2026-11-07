@@ -28,7 +28,6 @@ Operators, each only on a span that touches a changed line:
 * ``none_assignment``: any other value assigned to a target (``args = parser.parse_args()``,
   ``ports = [a, b]``) becomes ``None``.
 * ``skip_loop``: a ``for`` loop iterates over ``()``, so its body never runs.
-
 * ``drop_import``: an import (not ``from __future__`` or ``*``) becomes ``pass``, so its names are never
   bound. Only an import a function reads a name of and the module's own top-level code does not: a
   name read while the module loads, or one only other modules import, fails collection rather than a
@@ -46,6 +45,10 @@ lines of a large change had none, and each such line became a decision the Teste
 (#2815). A statement under a ``__main__`` or ``TYPE_CHECKING`` guard gets none of them, as no test can
 see it, and a line where a site of another operator starts keeps only those. A mutant counts for the
 line it starts on, so a dropped branch counts for its first statement and the later ones get their own.
+Nor does ``none_assignment``, or any of the last seven, change code where the module would then fail
+to load: in a function that runs on import, or for a module-level name that load-time code reads (an
+``except`` or ``with`` at module level always runs on import). Test collection would fail before any
+test ran, so the mutant could only end ``not_run``.
 
 ``TYPE_CHECKING`` and ``__main__`` guards, f-strings and annotations are never mutated, and a
 branch that already does nothing is never dropped: those mutants change nothing a test can see.
@@ -355,6 +358,76 @@ def _import_site(node, uses) -> bool:
     return bool(names & lazy) and not names & eager
 
 
+FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+
+def _load_time(tree, guarded: set[int]) -> tuple[set[int], dict[str, list[tuple[int, int]]], set[int]]:
+    """What runs while the module loads: (module-level statements, where load-time code reads each name,
+    function-body statements).
+
+    Module level is everything outside a function or lambda body; a class body, a decorator and a default
+    value run on import too. A module-level function called by name from there runs on import, and so does
+    one it calls in turn; a read in such a function counts wherever it is written. A guarded block
+    (``__main__``, ``TYPE_CHECKING``) does not run when a test imports the module.
+    """
+    level: set[int] = set()
+    reads: dict[str, list[tuple[int, int]]] = {}
+    calls: set[str] = set()
+    anywhere = (0, 0)  # a read in a load-time function: it may run after any module-level binding
+
+    def visit(node, record, position) -> None:
+        if id(node) in guarded:
+            return
+        if isinstance(node, ast.stmt):
+            record.add(id(node))
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            reads.setdefault(node.id, []).append(position or (node.lineno, node.col_offset))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            calls.add(node.func.id)
+        if isinstance(node, (*FUNCTIONS, ast.Lambda)):
+            # Only what the definition itself evaluates runs now: decorators and default values.
+            arguments = node.args
+            for part in (*getattr(node, "decorator_list", ()), *arguments.defaults, *arguments.kw_defaults):
+                if part is not None:
+                    visit(part, record, position)
+            return
+        for child in ast.iter_child_nodes(node):
+            visit(child, record, position)
+
+    visit(tree, level, None)
+    functions = {statement.name: statement for statement in tree.body if isinstance(statement, FUNCTIONS)}
+    called: set[int] = set()
+    done: set[str] = set()
+    while pending := (calls & functions.keys()) - done:
+        for name in sorted(pending):
+            done.add(name)
+            for statement in functions[name].body:
+                visit(statement, called, anywhere)
+    return level, reads, called
+
+
+def _breaks_loading(node, level: set[int], reads: dict[str, list[tuple[int, int]]], called: set[int]) -> bool:
+    """Whether binding None in ``node`` would stop the module from loading, so no test could run.
+
+    In a function that runs on import, or for a module-level name that load-time code reads after this
+    binding, the ``None`` reaches code that runs before any test does. Test collection then fails, and
+    the mutant could only end ``not_run``, never killed: the line has no site a test can judge.
+    """
+    if id(node) in called:
+        return True
+    if id(node) not in level:
+        return False
+    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+    names = {
+        inner.id
+        for target in targets
+        for inner in ast.walk(target)
+        if isinstance(inner, ast.Name) and isinstance(inner.ctx, ast.Store)
+    }
+    after = (node.end_lineno, node.end_col_offset)
+    return any(place == (0, 0) or place >= after for name in names for place in reads.get(name, ()))
+
+
 def _sites(tree, body, starts, lines, notes, path):
     """Every candidate splice on the changed lines, in ast.walk order. A node whose sites cannot be built
     is skipped with a note; the other nodes still give theirs."""
@@ -369,6 +442,24 @@ def _sites(tree, body, starts, lines, notes, path):
         for root in roots:
             if isinstance(root, ast.AST):
                 excluded.update(id(inner) for inner in ast.walk(root))
+    level, reads, called = _load_time(tree, guarded)
+    enclosing: dict[int, ast.stmt] = {}  # innermost statement holding each expression (ast.walk goes outward in)
+    for statement in ast.walk(tree):
+        if isinstance(statement, ast.stmt):
+            enclosing.update((id(inner), statement) for inner in ast.walk(statement) if not isinstance(inner, ast.stmt))
+
+    def loads(statement) -> bool:
+        """Whether a mutant in ``statement`` could stop the module from loading (see ``_breaks_loading``).
+
+        The operators added after #2815 reach statements that run on import too: an ``except`` around an
+        optional import, a module-level ``with``, a keyword of a module-level call. Breaking one there fails
+        collection, not a test. An assignment is judged as ``none_assignment`` is, by what reads it later.
+        """
+        if statement is None or (id(statement) not in level and id(statement) not in called):
+            return False
+        if isinstance(statement, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            return _breaks_loading(statement, level, reads, called)
+        return True
 
     def offset(line, column):
         return starts[line - 1] + column
@@ -454,6 +545,7 @@ def _sites(tree, body, starts, lines, notes, path):
             and node.type is not None
             and not (isinstance(node.type, ast.Tuple) and not node.type.elts)
             and _touches(lines, node.lineno, node.type.end_lineno)
+            and not loads(enclosing.get(id(node)))  # its try statement
         ):
             start, end = span(node.type)
             yield _Site("never_catch", start, end, _pad(b"()", body[start:end], expression=True), node.type, None)
@@ -466,12 +558,16 @@ def _sites(tree, body, starts, lines, notes, path):
         for first, value, operator in elements:
             if not own_line(first) or not _touches(lines, first.lineno, value.end_lineno):
                 continue
+            if loads(enclosing.get(id(node))):
+                break
             if isinstance(value, ast.Constant) and value.value is None:
                 continue  # None has no other value to become here
             constant, text = _constant(value)
             start, end = span(value)
             yield _Site(operator, start, end, _pad(text, body[start:end], expression=True), value, constant, text)
         if not isinstance(node, ast.stmt) or not _touches(lines, node.lineno, node.end_lineno):
+            return
+        if isinstance(node, (ast.Raise, ast.With, ast.AsyncWith, ast.AugAssign)) and loads(node):
             return
         if isinstance(node, ast.Raise) or (isinstance(node, (ast.Import, ast.ImportFrom)) and _import_site(node, uses)):
             start, end = span(node)
@@ -497,6 +593,7 @@ def _sites(tree, body, starts, lines, notes, path):
             and node.value is not None
             and not isinstance(node.value, ast.Constant)
             and id(node.value) not in excluded
+            and not _breaks_loading(node, level, reads, called)
         ):
             start, end = span(node.value)
             replacement = _pad(b"None", body[start:end], expression=True)

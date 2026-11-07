@@ -65,9 +65,68 @@ def response(stdout="", returncode=0):
 
 
 def kilo_listing(auth=KILO_AUTH_LISTING, models=KILO_MODELS, **kwargs):
-    """A fake preflight_run that answers the auth listing and the models listing in order."""
-    answers = [response(auth), response(models)]
-    return mock.Mock(side_effect=lambda command, *a, **kw: answers.pop(0) if answers else response(), **kwargs)
+    """A fake preflight_run that answers the auth listing and the models listing by command.
+
+    Discovery runs its reads together, so they arrive in no fixed order.
+    """
+
+    def answer(command, *a, **kw):
+        if command[1:] == ["auth", "list"]:
+            return response(auth)
+        if command[1:] == ["models"]:
+            return response(models)
+        return response()
+
+    return mock.Mock(side_effect=answer, **kwargs)
+
+
+# A Kilo whose three listings each wait until all three have started: run one after another, the
+# first one gives up and fails, as `kilo` starts cost one to three seconds each (2026-11-07 "hi").
+TOGETHER_KILO = """#!/bin/sh
+echo "$*" >> "{bin}/calls"
+case "$*" in
+  "auth list"|"models"|"models --verbose")
+    touch "{bin}/started-$(echo "$*" | tr ' ' '_')"
+    i=0
+    while [ "$(ls "{bin}" | grep -c '^started-')" -lt 3 ]; do
+      i=$((i + 1)); [ "$i" -gt 200 ] && {{ echo "ran alone" >&2; exit 1; }}; sleep 0.05
+    done ;;
+esac
+case "$*" in
+  "--version") echo 7.8.12 ;;
+  "auth list") echo "●  Z.AI Coding Plan api" ;;
+  "models") echo zai-coding-plan/glm-5.3 ;;
+  "models --verbose") printf '%s\\n' zai-coding-plan/glm-5.3 '{{"variants": {{"low": {{}}, "high": {{}}}}}}' ;;
+  *) echo "unexpected kilo $*" >&2; exit 1 ;;
+esac
+"""
+
+
+class KiloStartChecksTests(unittest.TestCase):
+    """A task's start reads each Kilo listing once, and the three discovery reads run together."""
+
+    def test_discovery_reads_together_and_the_launch_checks_reuse_them(self):
+        from providers import env_prep, kilocode
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            bin_dir, run_dir = root / "bin", root / "run"
+            bin_dir.mkdir()
+            run_dir.mkdir()
+            tool = bin_dir / "kilo"
+            tool.write_text(TOGETHER_KILO.format(bin=bin_dir))
+            tool.chmod(0o755)
+            path = f"{bin_dir}{os.pathsep}/usr/bin{os.pathsep}/bin"
+            with mock.patch.dict(os.environ, {"PATH": path, "XDG_CONFIG_HOME": str(root / "config")}):
+                provider = kilocode.load("kilocode")
+                with env_prep.reuse_checks(run_dir):
+                    found = discovery.discover(provider, root)
+                    provider.check_subscription_routes({"glm": {"model": "zai-coding-plan/glm-5.3"}}, root)
+                    self.assertEqual({"zai-coding-plan/glm-5.3"}, provider.available_models(root))
+                    provider.validate_effort("zai-coding-plan/glm-5.3", "high", root)
+            calls = (bin_dir / "calls").read_text().splitlines()
+        self.assertEqual(["Z.AI Coding Plan"], [account["name"] for account in found["accounts"]])
+        self.assertEqual(["auth list", "models", "models --verbose"], sorted(calls))
 
 
 class KiloDiscoveryTests(unittest.TestCase):
