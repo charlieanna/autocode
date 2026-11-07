@@ -571,6 +571,40 @@ class ReadyGateTests(unittest.TestCase):
             self.ready(draft, out)
 
 
+class SentenceWordBoundaryTests(unittest.TestCase):
+    def test_excluding_context_does_not_also_exclude_a_branch_label(self):
+        context = "This qualification runs parallel Builders and Orchestrator integration."
+        records = [{"id": "task:0", "text": context + "\nB.\nImplement parsing."}]
+        draft = body([criterion("AC1", "Implement parsing.", ["B.", "Implement parsing."])])
+        out = wrapper(out_of_scope=[{"source_id": "task:0", "quote": context, "reason": "Run context"}])
+        trace.check_citations(draft, records)
+        trace.check_ready(draft, records, out)
+
+    def test_an_embedded_word_does_not_cover_an_omitted_sentence(self):
+        for sentence, other in (
+            ("B.", "Builders implement parsing."),
+            ("Read.", "Ready means complete."),
+            ("Cache.", "NoCache means bypass."),
+            ("do work.", "Redo work."),
+            ("Use cache.", "Use caches."),
+        ):
+            with self.subTest(sentence=sentence, other=other):
+                records = [{"id": "task:0", "text": sentence + "\n" + other}]
+                draft = body([criterion("AC1", other, [other])])
+                trace.check_citations(draft, records)
+                with self.assertRaisesRegex(ValueError, "neither cited nor out of scope"):
+                    trace.check_ready(draft, records, wrapper())
+
+    def test_whole_sentences_still_match_inside_a_larger_quote(self):
+        for sentence in ("B.", "Read.", "`cli run FILE`."):
+            with self.subTest(sentence=sentence):
+                text = "Begin here. " + sentence + " Finish here."
+                records = [{"id": "task:0", "text": text}]
+                draft = body([criterion("AC1", text, [text])])
+                trace.check_citations(draft, records)
+                trace.check_ready(draft, records, wrapper())
+
+
 class SentenceIdTests(unittest.TestCase):
     """Criteria cite a whole sentence by id; the runner resolves it to the verbatim text first (#1630)."""
 
