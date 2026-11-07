@@ -105,12 +105,22 @@ def title(task) -> str | None:
 def row(workspace: Path, run_dir: Path, now: float, changesets: dict[str, str] | None = None) -> dict:
     """Project one run directory onto a display row, reading only its checkpoint. ``changesets`` maps a
     linked run directory to its change set (autocode_changeset_store.memberships)."""
+    return _row(workspace, run_dir, now, changesets, checkpoint=None)
+
+
+def _row(workspace: Path, run_dir: Path, now: float, changesets, *, checkpoint) -> dict:
+    """Project a checkpoint just read by this request, or read it when discovery could not.
+
+    Global discovery invokes this synchronously at each validated checkpoint read;
+    there is no cache or delay until the other runs have been discovered. A row is
+    one saved observation, not a cross-run atomic snapshot or action authority.
+    """
     state_path = run_dir / "state.json"
     try:
         updated_at = _stamp(state_path.stat().st_mtime)
     except OSError:
         updated_at = None
-    availability, payload = registry.read_checkpoint(state_path, workspace)
+    availability, payload = checkpoint if checkpoint is not None else registry.read_checkpoint(state_path, workspace)
     if availability != "available":
         reason = payload.get("message") or availability
         if not os.path.lexists(run_dir):
@@ -199,36 +209,36 @@ def _local(workspace: Path) -> list[tuple[Path, Path]]:
     return [(run_dir, Path(workspace)) for run_dir in sorted(p for p in runs.iterdir() if p.is_dir())]
 
 
-def _pairs(workspace: Path, all_workspaces: bool) -> list[tuple[Path, Path]]:
-    """(run directory, its workspace) for one project, or for every registered project.
+def _pairs(workspace: Path) -> list[tuple[Path, Path]]:
+    """(run directory, its workspace) for one project.
 
     A project's own runs include those of its autocode issue worktrees, so its chat can open them (#1731),
     and those of its task worktrees (a task started without ``--in-place``), the lanes ``--status`` and
     ``resume`` already find."""
-    if not all_workspaces:
-        issues = Path(workspace) / ISSUE_WORKTREES
-        worktrees = sorted(p for p in issues.iterdir() if p.is_dir()) if issues.is_dir() else []
-        worktrees += run_finder.task_worktrees(Path(workspace).resolve())
-        return _local(workspace) + [pair for worktree in worktrees for pair in _local(worktree)]
-    records = registry.listing(also=registry.project_storage(workspace))["runs"]
-    return [
-        (Path(record["run_dir"]), Path(record["workspace"]))
-        for record in records
-        if isinstance(record, dict)
-        and isinstance(record.get("run_dir"), str)
-        and isinstance(record.get("workspace"), str)
-    ]
+    issues = Path(workspace) / ISSUE_WORKTREES
+    worktrees = sorted(p for p in issues.iterdir() if p.is_dir()) if issues.is_dir() else []
+    worktrees += run_finder.task_worktrees(Path(workspace).resolve())
+    return _local(workspace) + [pair for worktree in worktrees for pair in _local(worktree)]
 
 
 def rows(workspace: Path, *, all_workspaces: bool = False, now: float | None = None) -> list[dict]:
     """Every run in scope: needing-runs first, then working, settled and unreadable, each by start time."""
     clock = time.time() if now is None else now
     changesets = changeset_store.memberships()
+    if all_workspaces:
+        entries = []
+
+        def visit(record, checkpoint):
+            if isinstance(record.get("run_dir"), str) and isinstance(record.get("workspace"), str):
+                entries.append(
+                    _row(Path(record["workspace"]), Path(record["run_dir"]), clock, changesets, checkpoint=checkpoint)
+                )
+
+        registry._listing(also=registry.project_storage(workspace), visit_run=visit)
+    else:
+        entries = [row(one_workspace, run_dir, clock, changesets) for run_dir, one_workspace in _pairs(Path(workspace))]
     return sorted(
-        (
-            row(one_workspace, run_dir, clock, changesets)
-            for run_dir, one_workspace in _pairs(Path(workspace), all_workspaces)
-        ),
+        entries,
         key=lambda item: (BUCKETS.index(item["bucket"]), item.get("run_dir") or ""),
     )
 
