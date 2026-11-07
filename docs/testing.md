@@ -341,6 +341,15 @@ provider, types, pastes and resizes, and reads the screen back. It needs tmux
 it fails; the suite job installs tmux. Use the same helper for a new check of what a person
 sees: a stand-in curses screen cannot show type-ahead, paste or scrolling problems.
 
+The compact terminal journey acceptance set is split by boundary: `tests.test_chat_client`
+covers starting a request, exact-plan approval, stale action refusal, failure/recovery
+explanations and leaving then reopening at approval; `tests.test_chat_screens` covers the
+real terminal presentation and completion interaction. `tests.test_chat_product_journeys`
+adds the provider-free completed-run reopen check: it renders the saved result and file/test
+summary, offers the follow-up prompt, and dispatches no task action; its negative control checks
+that an unfinished provider failure gets the saved-run next step without a completion claim. Run it with
+`.venv/bin/python -m unittest tests.test_chat_product_journeys`.
+
 Codex launch compatibility was checked against installed exec/resume help and
 [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
 
