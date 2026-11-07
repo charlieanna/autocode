@@ -2102,6 +2102,28 @@ def report_for(stage: str, data: dict) -> dict:
         if "clarity" in OUTPUT_SCHEMA.get("properties", {}):
             # An adaptive run's Requirements judges clarity as the recognizer did (#1846, #1860); same script.
             report["clarity"] = os.environ.get("SCENARIO_FAKE_CLARITY") or "clear"
+        if CONFIG.get("title") == "A bug report that does not reproduce on this code":
+            # Standard bug fixes now start here, rather than in investigate_bug.
+            # This fixture is missing reporter facts; it must not invent a fix.
+            note = json.loads((Path(CONFIG["reference"]) / "docs/bugs/none-cells.json").read_text())
+            report.update(
+                summary=note["finding"],
+                required_behaviors=[],
+                acceptance_tests=[],
+                open_questions=[
+                    {
+                        "id": f"REPORTER_{number}",
+                        "question": question,
+                        "why": "The reported behavior does not reproduce on this checkout; reporter evidence is missing.",
+                        "options": [],
+                        "proposed_default": "",
+                        "kind": "decision",
+                        "category": "requested_outcome",
+                        "delegable": False,
+                    }
+                    for number, question in enumerate(note["questions"], start=1)
+                ],
+            )
         if data.get("spec_first"):
             report["assistant_reply"] = "Here is what I understand: " + report["intended_outcome"]
         return report
