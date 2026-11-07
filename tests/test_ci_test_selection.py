@@ -8,6 +8,18 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_requirements_observations_keep_the_public_intake_to_planner_consumer(self):
+        consumer = "tests.test_requirements_observations_cli"
+        for path in (
+            "tools/autocode_requirements_observations.py",
+            "tools/autocode_requirements_handoff.py",
+            "tools/autocode_job_source.py",
+            "tools/units/autoplanner.py",
+        ):
+            selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+            kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+            self.assertIn(consumer, kept, path)
+
     def test_legacy_guard_keeps_json_status_cli_regression(self):
         consumer = "tests.test_json_status_observer_cli"
         selected = run_suite.select_tests(

@@ -14,7 +14,7 @@ touches that is not named here.
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 
 class InteractionTiming(TypedDict):
@@ -27,6 +27,26 @@ class InteractionTiming(TypedDict):
     first_question_at: str | None
     first_plan_at: str | None
     first_builder_at: str | None
+
+
+class RequirementsObservationSeal(TypedDict, total=False):
+    """Local optional data cache, never portable proof or current execution authority.
+
+    job_source's fresh launch marks pending; requirements_handoff acceptance seals
+    it through requirements_observations. Only initial astra_discovery reads it.
+    Legacy/replay/recovered records are not upgraded. Sealed paths are relative
+    to the owned run's context directory and are omitted from replay projections.
+    """
+
+    status: Literal["pending", "sealed"]
+    path: str
+    sha256: str
+
+
+class StageObservationMetadata(TypedDict, total=False):
+    """Optional subset of the existing dictionary stage records, with ownership above."""
+
+    requirements_observations: RequirementsObservationSeal
 
 
 # Every key tools/ reads or writes on a run state dict.
@@ -326,7 +346,7 @@ class RunState(TypedDict, total=False):
     history: list  # finished stage records (autocode_run_view)
     # provider_launch freezes optional execution_identity per attempt; usage exposes
     # the bounded facts and qualify_routes records them without legacy backfill.
-    stages: list  # saved stage records; written by the runner
+    stages: list  # runner's saved dict records; optional data metadata: StageObservationMetadata
     active_stage: dict | None  # the in-flight stage record
     settings: dict  # roles, budgets, engine, workflow mode; configure owns effort_origins (reviewer effort policy)
     prompts_hash: str  # written once by run_setup; read by run_view/evidence_export; launch prompt set
