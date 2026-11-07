@@ -728,6 +728,13 @@ stay on the terminal: an error, where to pick the run up, or the command a stop
 leaves for you to run. `--line` keeps the plain
 prompts, and scripts get them automatically when there is no terminal.
 
+At a question with options, the option's number or its exact label answers it;
+any other reply goes to Requirements as feedback, which reopens the question. A
+reply that names an option and says more (`Option 1, because …`, `Keep the
+baseline, and add tests`) is not guessed at: the chat says which option it names
+and that the whole reply would otherwise be feedback, then takes the number to
+answer with that option or `Enter` to send the reply as typed (#2592).
+
 The default screen has one scrolling conversation. Your messages, AutoCode's
 questions and plans, and the agents' plain-English progress updates appear there
 in order, each progress entry labeled with its stage. Updates to the same streaming message replace it in place. Reading
@@ -755,6 +762,10 @@ never resets the task total.
 Progress comes from the public view's `chat.log`. Commands, reasoning and
 transport counters do not appear in the default conversation. A raw structured
 report appears only as a neutral receipt; it is not a validated plan or proof.
+While a stage runs, each working agent's newest thought is one live line under
+the conversation (`Planner · thinking`); when the stage ends, that section folds
+into one line of history saying how many thoughts there were, and `/live NAME`
+unfolds them (#2699).
 Use `/live` to open an optional agent-details pane with readable thinking and
 messages, `/live tools` for commands, edits and tool history, `/live thinking`
 for reasoning alone, or `/live messages` for messages alone. `/live off` closes

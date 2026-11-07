@@ -40,8 +40,67 @@ class ReadyCaptureBatchTests(unittest.TestCase):
         outer = shlex.split(batch["command"])
         payload = json.loads(base64.urlsafe_b64decode(outer[-1]))
         self.assertEqual([shlex.split(command) for command in commands], payload["commands"])
-        self.assertEqual(shlex.split(packet["capture_command"]), payload["capture"])
+        self.assertEqual({"mode", "commands", "directory"}, set(payload))
+        self.assertEqual(shlex.split(packet["capture_command"])[-1], payload["mode"])
+        self.assertNotIn(sys.executable, base64.urlsafe_b64decode(outer[-1]).decode())
+        self.assertNotIn("autocode.py", base64.urlsafe_b64decode(outer[-1]).decode())
         self.assertIn("sequential", batch["instruction"])
+
+    def test_new_modes_and_valid_legacy_launchers_preserve_capture_semantics(self):
+        canonical = [sys.executable, str(Path(support.__file__).with_name("autocode.py")), "capture"]
+        commands = [[sys.executable, "-V"], [sys.executable, "-c", "print('second')"]]
+        for mode in ("raw", "conservative"):
+            legacy = {"capture": canonical + ["--mode", mode], "commands": commands, "directory": "/evidence"}
+            batch = ready.context(shlex.join(legacy["capture"]), [shlex.join(row) for row in commands], "/evidence")
+            encoded = shlex.split(batch["command"])[-1]
+            expected = {"mode": mode, "commands": commands, "directory": "/evidence"}
+            self.assertEqual(expected, ready._plan(encoded))
+            self.assertEqual(expected, ready._plan(base64.urlsafe_b64encode(json.dumps(legacy).encode()).decode()))
+            with patch.object(ready.subprocess, "run") as run, patch("builtins.print"):
+                run.return_value.returncode = 0
+                self.assertEqual(0, ready.run(encoded))
+            self.assertEqual(2, run.call_count)
+            for call, command in zip(run.call_args_list, commands, strict=True):
+                self.assertEqual(canonical + ["--mode", mode], call.args[0][:5])
+                self.assertEqual(command, call.args[0][call.args[0].index("--") + 1 :])
+        bare = {"capture": canonical, "commands": commands, "directory": "/evidence"}
+        encoded = base64.urlsafe_b64encode(json.dumps(bare).encode()).decode()
+        for environment, expected in (({}, "conservative"), ({"AUTOCODE_OUTPUT_MODE": "raw"}, "raw")):
+            with patch.dict(os.environ, environment, clear=True), self.subTest(environment=environment):
+                self.assertEqual(expected, ready._plan(encoded)["mode"])
+                with patch.object(ready.subprocess, "run") as run, patch("builtins.print"):
+                    run.return_value.returncode = 0
+                    self.assertEqual(0, ready.run(encoded))
+                self.assertEqual(canonical + ["--mode", expected], run.call_args_list[0].args[0][:5])
+        with patch.dict(os.environ, {"AUTOCODE_OUTPUT_MODE": "invalid"}), patch.object(ready.subprocess, "run") as run:
+            with self.assertRaisesRegex(ValueError, "Invalid prepared capture batch plan"):
+                ready.run(encoded)
+            run.assert_not_called()
+
+    def test_custom_and_altered_legacy_launchers_refuse_before_any_spawn(self):
+        canonical = [sys.executable, str(Path(support.__file__).with_name("autocode.py")), "capture"]
+        for launcher in (
+            None,
+            [],
+            [1],
+            [""],
+            [canonical[0] + "-copy-error", *canonical[1:]],
+            [canonical[0], "/model-supplied/capture.py", "capture"],
+            ["env", *canonical],
+            [*canonical, "--mode", "invalid"],
+            [*canonical, "--mode", "raw", "--no-compress"],
+        ):
+            payload = {"capture": launcher, "commands": [["python3", "-V"]] * 2, "directory": "/evidence"}
+            encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+            with self.subTest(launcher=launcher), patch.object(ready.subprocess, "run") as run:
+                with self.assertRaisesRegex(ValueError, "Invalid prepared capture batch plan"):
+                    ready.run(encoded)
+                run.assert_not_called()
+            if isinstance(launcher, list) and all(isinstance(word, str) for word in launcher):
+                self.assertIsNone(ready.context(shlex.join(launcher), ["python3 -V"] * 2, "/evidence"))
+        for capture in (None, 1, "'unfinished"):
+            with self.subTest(capture=capture):
+                self.assertIsNone(ready.context(capture, ["python3 -V"] * 2, "/evidence"))
 
     @staticmethod
     def observed_quote_alteration(command):
@@ -88,7 +147,7 @@ class ReadyCaptureBatchTests(unittest.TestCase):
         self.assertNotIn("ready_capture_batch", self.packet(["python3 -m unittest"]))
 
     def test_plan_bounds_keep_the_individual_fallback(self):
-        capture = shlex.join([sys.executable, "capture.py"])
+        capture = shlex.join([sys.executable, str(Path(support.__file__).with_name("autocode.py")), "capture"])
         for count in (0, 1, 17):
             with self.subTest(count=count):
                 self.assertIsNone(ready.context(capture, ["python3 -V"] * count, "/evidence"))
@@ -106,8 +165,8 @@ class ReadyCaptureBatchTests(unittest.TestCase):
             spy = root / "capture-spy.py"
             spy.write_text("from pathlib import Path\nPath(" + repr(str(marker)) + ").touch()\n")
             payload = {
-                "capture": [sys.executable, str(spy)],
-                "commands": [[sys.executable, "-V"]] * 2,
+                "mode": "raw",
+                "commands": [[sys.executable, str(spy)]] * 2,
                 "directory": str(root),
             }
 
@@ -136,7 +195,7 @@ class ReadyCaptureBatchTests(unittest.TestCase):
             ]
             for key, values in (
                 ("directory", [None, "bad\0path"]),
-                ("capture", [None, [], [1], [""]]),
+                ("mode", [None, "", "RAW", "raw\0", [], {}, True]),
                 ("commands", [None, [], [["python3"]], [["python3"]] * 17, [[], []], [[1], [1]], [["bad\0"], ["x"]]]),
             ):
                 malformed.extend(encode({**payload, key: value}) for value in values)
@@ -259,7 +318,9 @@ class ReadyCaptureBatchTests(unittest.TestCase):
             marker = root / "captured"
             spy.write_text("from pathlib import Path\nPath(" + repr(str(marker)) + ").touch()\n")
             batch = ready.context(
-                shlex.join([sys.executable, str(spy)]), ["python3 -V", "python3 -V"], root / ".autocode/evidence"
+                shlex.join([sys.executable, str(Path(support.__file__).with_name("autocode.py")), "capture"]),
+                [shlex.join([sys.executable, str(spy)])] * 2,
+                root / ".autocode/evidence",
             )
             base = {key: value for key, value in os.environ.items() if not key.startswith("AUTOCODE_")}
             base.update(

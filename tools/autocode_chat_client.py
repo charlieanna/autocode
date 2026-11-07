@@ -1567,13 +1567,42 @@ class ChatClient:
                 and not normalized.lstrip("+-").isdigit()
                 and (conversation.get("input") or {}).get("kind") == "feedback"
             ):
-                return self.send(text, conversation.get("context") or "")
+                named = actions.option_mentioned(row.question or {}, text)
+                chosen = named and self.clarify_option(named, [str(option) for option in options])
+                if not chosen:
+                    return self.send(text, conversation.get("context") or "")
+                answers[row.key] = chosen
         fresh = self.status()
         if fresh.get("needs") != view.get("needs"):
             self.say("The question changed while you were answering; here is the current one.")
             return True
         self.take(actions.fill(fresh, command, answers))
         return self.continue_after_input()
+
+    def clarify_option(self, named: str, options: list[str]) -> str | None:
+        """A reply that names an option and says more: ask which was meant rather than guess (#2592).
+
+        Only a label answers a question with options; anything else goes to Requirements as feedback,
+        which reopens the question. "Option 1, because …" meant option 1 and restarted intake; "Option 1
+        is unacceptable" is feedback. The person says which: the number answers, Enter sends it as typed.
+        """
+        number = options.index(named) + 1
+        self.say(
+            f"\nAutoCode: Your reply names option {number} ({named}) but is not the label alone. Only a label"
+            " answers the question; as typed, the whole reply would go to Requirements as feedback, which"
+            " reopens the question."
+        )
+        self.say(f"  {number}. Answer with option {number}; the rest of the reply is not sent")
+        self.say("  Enter: send the whole reply as feedback")
+        while True:
+            choice = self.ask(f"You ({number} or Enter): ").strip()
+            if not choice:
+                return None
+            if choice.isdigit() and 1 <= int(choice) <= len(options):
+                return options[int(choice) - 1]
+            if choice in options:
+                return choice
+            self.say(f"Type 1-{len(options)} to answer with that option, or Enter to send the reply as feedback.")
 
     def decide(self, row: actions.Decision, need: dict) -> str:
         if row.kind == "integer":

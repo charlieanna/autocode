@@ -115,6 +115,26 @@ class NamedActionTests(unittest.TestCase):
     def test_no_second_confirmation_does_not_authorize_an_automatic_resume(self):
         self.assertTrue(actions.leaves_for_person({"kind": "resume", "confirmation_required": False}))
 
+    def test_a_reply_names_an_option_only_by_its_number_or_its_label_followed_by_more(self):
+        question = {"options": ["Keep the baseline", "Replace it"], "proposed_default": "Keep the baseline"}
+        for text, expected in (
+            ("Option 2 because the types differ", "Replace it"),
+            ("option 2", "Replace it"),
+            ("2. with a note", "Replace it"),
+            ("2 weeks is too long", None),  # a number that is not a choice
+            ("option two", None),
+            ("Option 3, something else", None),
+            ("Keep the baseline, and add tests", "Keep the baseline"),
+            ("keep the `baseline`; also the tests", "Keep the baseline"),
+            ("Keeping the baseline is wrong", None),
+            ("These examples were added in the draft.", None),
+        ):
+            self.assertEqual(expected, actions.option_mentioned(question, text), text)
+        letters = {"options": ["A", "B"]}
+        self.assertEqual("A", actions.option_mentioned(letters, "A, but keep both"))
+        self.assertIsNone(actions.option_mentioned(letters, "A different approach"))
+        self.assertIsNone(actions.option_mentioned({}, "Option 1"))
+
     def test_a_named_command_keeps_its_token_out_of_argv_and_leaves_the_run_to_the_caller(self):
         command = actions.named(answer_view(), WORKSPACE, RUN)
         self.assertEqual(["--answer", "Q1=ANSWER", "--resolver-token", "-"], command.argv)
@@ -639,6 +659,25 @@ class ConversationTests(unittest.TestCase):
         client = ScriptedChat(answer_view(), DONE, replies=[correction])
         self.assertEqual(0, client.converse())
         self.assertEqual([["--feedback", correction]], client.taken)
+
+    def test_a_reply_that_names_an_option_and_says_more_is_clarified_not_sent_as_feedback(self):
+        """#2592: "Option 1, as an operating-agent decision…" was sent as feedback, which restarted
+        Requirements; the person meant option 1. The chat asks which was meant instead of guessing."""
+        reply = "Option 1, as an operating-agent decision: the baseline stays compatible."
+        client = ScriptedChat(answer_view(), DONE, replies=[reply, "1"])
+        self.assertEqual(0, client.converse())
+        self.assertEqual([["--answer", "Q1=A", "--resolver-token", "-"]], client.taken)
+        out = client.text()
+        self.assertIn("names option 1 (A)", out)
+        self.assertIn("would go to Requirements as feedback, which reopens the question", out)
+
+    def test_a_qualified_or_rejected_option_is_feedback_once_the_person_says_so(self):
+        for reply in ("Option 1 only if the baseline stays", "Option 1 is unacceptable", "A, but keep both"):
+            with self.subTest(reply=reply):
+                client = ScriptedChat(answer_view(), DONE, replies=[reply, ""])
+                self.assertEqual(0, client.converse())
+                self.assertEqual([["--feedback", reply]], client.taken)
+                self.assertIn("names option 1 (A)", client.text())
 
     def test_an_unsupported_named_effort_is_typed_as_one_of_the_declared_levels(self):
         """#2039: the chat offered only Continue? [y/N] here, and continuing stopped at the same launch."""

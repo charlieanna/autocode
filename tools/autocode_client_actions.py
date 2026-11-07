@@ -340,6 +340,25 @@ def decisions(view: dict, command: NamedCommand) -> list[Decision]:
     return found
 
 
+def option_mentioned(question: dict, text: str) -> str | None:
+    """The option a reply names while saying more than its label: ``Option 2, because …``, ``2.`` or a
+    label followed by more words. It says where to ask what was meant, never what was meant: "Option 1
+    is unacceptable" names option 1 too (#2592). None for a reply that names none, or a free-text question."""
+    options = [str(option) for option in question.get("options") or []]
+    plain = " ".join(text.replace("`", "").split())
+    numbered = re.match(r"option\s+(\d{1,2})(?!\w)", plain, re.IGNORECASE) or re.match(r"(\d{1,2})[,.;:)\-—–]", plain)
+    if numbered and 1 <= int(numbered.group(1)) <= len(options):
+        return options[int(numbered.group(1)) - 1]
+    lowered = plain.casefold()
+    for option in options:
+        label = " ".join(option.replace("`", "").split()).casefold()
+        rest = lowered[len(label) :] if label and lowered.startswith(label) else ""
+        # A one-letter label is named only before punctuation: "A, but …" names A; "A different …" does not.
+        if rest and (rest[0] in ",.;:)-—–" or (len(label) > 1 and not rest[0].isalnum())):
+            return option
+    return None
+
+
 def effort_levels(view: dict, key: str) -> list[str]:
     """The levels an ``effort-ROLE=EFFORT`` slot may take: the ones its model declares (#2057)."""
     effort = (view.get("needs") or {}).get("effort") or {}
