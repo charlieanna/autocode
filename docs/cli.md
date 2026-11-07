@@ -755,6 +755,10 @@ never resets the task total.
 Progress comes from the public view's `chat.log`. Commands, reasoning and
 transport counters do not appear in the default conversation. A raw structured
 report appears only as a neutral receipt; it is not a validated plan or proof.
+While a stage runs, each working agent's newest thought is one live line under
+the conversation (`Planner · thinking`); when the stage ends, that section folds
+into one line of history saying how many thoughts there were, and `/live NAME`
+unfolds them (#2699).
 Use `/live` to open an optional agent-details pane with readable thinking and
 messages, `/live tools` for commands, edits and tool history, `/live thinking`
 for reasoning alone, or `/live messages` for messages alone. `/live off` closes

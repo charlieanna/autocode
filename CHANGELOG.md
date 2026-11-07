@@ -9,6 +9,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- The terminal chat shows each working agent's newest thought as one live line under the
+  conversation while its stage runs (`Planner · thinking`). When the stage ends, the section folds
+  into one line of history saying how many thoughts there were; `/live NAME` unfolds them. Ordinary
+  progress and the agent's messages are shown as before (#2699).
+
 ### Fixed
 
 - A retried bug investigation no longer copies the whole repository again. Each attempt took a fresh
