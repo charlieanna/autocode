@@ -511,10 +511,6 @@ class LifecycleFixtureReviewTests(unittest.TestCase):
                 self.assertEqual([], fixture.judgments(data, root), "weakened tests cannot borrow the reasons")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ProgressiveFixtureReviewTests(unittest.TestCase):
     def test_only_scripted_variants_exact_import_gaps_receive_reasons(self):
         scenario = Path(__file__).resolve().parents[1] / "scenarios/catalog/progressive-learning-journey"
@@ -578,3 +574,7 @@ class ProgressiveFixtureReviewTests(unittest.TestCase):
             shutil.copytree(reference, unknown)
             (unknown / "progress.py").write_text("import json\n")
             self.assertEqual([], fixture.progressive_judgments(data, unknown, "S2", root=root))
+
+
+if __name__ == "__main__":
+    unittest.main()
