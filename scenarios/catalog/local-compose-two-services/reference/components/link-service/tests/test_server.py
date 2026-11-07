@@ -38,6 +38,7 @@ class LinkServiceTests(unittest.TestCase):
         status, headers, document = call(self.port, "GET", "/health")
         self.assertEqual((200, {"ok": True}), (status, document))
         self.assertEqual("application/json", headers["Content-Type"])
+        self.assertEqual(str(len(b'{"ok": true}')), headers["Content-Length"])
         self.assertNotIn("Location", headers)
 
     def test_creating_a_link_returns_it_without_a_redirect_header(self):

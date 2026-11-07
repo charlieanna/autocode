@@ -32,7 +32,10 @@ Operators, each only on a span that touches a changed line:
 The last three give an ordinary statement a site: without them most changed lines of a large change
 had none, and each such line became a decision the Tester had to write by hand (#2815). A statement
 under a ``__main__`` or ``TYPE_CHECKING`` guard gets none of them, as no test can see it, and a
-line that already has a site of another operator keeps only those.
+line that already has a site of another operator keeps only those. Nor does ``none_assignment`` bind
+None where the module would then fail to load: in a function that runs on import, or for a
+module-level name that load-time code reads. Test collection would fail before any test ran, so the
+mutant could only end ``not_run``.
 
 ``TYPE_CHECKING`` and ``__main__`` guards, f-strings and annotations are never mutated, and a
 branch that already does nothing is never dropped: those mutants change nothing a test can see.
@@ -292,6 +295,76 @@ def _constant(value: ast.expr) -> tuple[object, bytes]:
     return None, b"None"
 
 
+FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+
+def _load_time(tree, guarded: set[int]) -> tuple[set[int], dict[str, list[tuple[int, int]]], set[int]]:
+    """What runs while the module loads: (module-level statements, where load-time code reads each name,
+    function-body statements).
+
+    Module level is everything outside a function or lambda body; a class body, a decorator and a default
+    value run on import too. A module-level function called by name from there runs on import, and so does
+    one it calls in turn; a read in such a function counts wherever it is written. A guarded block
+    (``__main__``, ``TYPE_CHECKING``) does not run when a test imports the module.
+    """
+    level: set[int] = set()
+    reads: dict[str, list[tuple[int, int]]] = {}
+    calls: set[str] = set()
+    anywhere = (0, 0)  # a read in a load-time function: it may run after any module-level binding
+
+    def visit(node, record, position) -> None:
+        if id(node) in guarded:
+            return
+        if isinstance(node, ast.stmt):
+            record.add(id(node))
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            reads.setdefault(node.id, []).append(position or (node.lineno, node.col_offset))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            calls.add(node.func.id)
+        if isinstance(node, (*FUNCTIONS, ast.Lambda)):
+            # Only what the definition itself evaluates runs now: decorators and default values.
+            arguments = node.args
+            for part in (*getattr(node, "decorator_list", ()), *arguments.defaults, *arguments.kw_defaults):
+                if part is not None:
+                    visit(part, record, position)
+            return
+        for child in ast.iter_child_nodes(node):
+            visit(child, record, position)
+
+    visit(tree, level, None)
+    functions = {statement.name: statement for statement in tree.body if isinstance(statement, FUNCTIONS)}
+    called: set[int] = set()
+    done: set[str] = set()
+    while pending := (calls & functions.keys()) - done:
+        for name in sorted(pending):
+            done.add(name)
+            for statement in functions[name].body:
+                visit(statement, called, anywhere)
+    return level, reads, called
+
+
+def _breaks_loading(node, level: set[int], reads: dict[str, list[tuple[int, int]]], called: set[int]) -> bool:
+    """Whether binding None in ``node`` would stop the module from loading, so no test could run.
+
+    In a function that runs on import, or for a module-level name that load-time code reads after this
+    binding, the ``None`` reaches code that runs before any test does. Test collection then fails, and
+    the mutant could only end ``not_run``, never killed: the line has no site a test can judge.
+    """
+    if id(node) in called:
+        return True
+    if id(node) not in level:
+        return False
+    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+    names = {
+        inner.id
+        for target in targets
+        for inner in ast.walk(target)
+        if isinstance(inner, ast.Name) and isinstance(inner.ctx, ast.Store)
+    }
+    after = (node.end_lineno, node.end_col_offset)
+    return any(place == (0, 0) or place >= after for name in names for place in reads.get(name, ()))
+
+
 def _sites(tree, body, starts, lines, notes, path):
     """Every candidate splice on the changed lines, in ast.walk order. A node whose sites cannot be built
     is skipped with a note; the other nodes still give theirs."""
@@ -305,6 +378,7 @@ def _sites(tree, body, starts, lines, notes, path):
         for root in roots:
             if isinstance(root, ast.AST):
                 excluded.update(id(inner) for inner in ast.walk(root))
+    level, reads, called = _load_time(tree, guarded)
 
     def offset(line, column):
         return starts[line - 1] + column
@@ -389,6 +463,7 @@ def _sites(tree, body, starts, lines, notes, path):
             and node.value is not None
             and not isinstance(node.value, ast.Constant)
             and id(node.value) not in excluded
+            and not _breaks_loading(node, level, reads, called)
         ):
             start, end = span(node.value)
             replacement = _pad(b"None", body[start:end], expression=True)

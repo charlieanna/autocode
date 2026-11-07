@@ -309,7 +309,11 @@ from `tools/autocode_mutants.py`).
   simple unpacking on a changed line. A line none of those reaches gets one
   statement site (#2815): a call made for its effect is dropped (`log.write(x)`
   becomes `None`), a computed value bound to a name becomes `None`, and a `for`
-  loop runs over nothing. Each mutant replaces a span of source bytes,
+  loop runs over nothing. No `None` is bound where the module would then fail to
+  load: in a function that runs on import, or for a module-level name that code
+  run on import reads afterwards. Test collection would fail before any test ran,
+  so that mutant could only end `not_run`, and the line counts as having no site.
+  Each mutant replaces a span of source bytes,
   keeps every line number, must compile, and must change its statement exactly as
   intended; a site that fails one of these, or cannot be checked at all (a
   statement nested too deep, an integer too long to print), is skipped with a
