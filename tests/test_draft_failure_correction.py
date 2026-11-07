@@ -606,7 +606,7 @@ class DraftFailureCorrectionTests(unittest.TestCase):
         for stage in ("glm_revise", "astra_finalize", "astra_challenge"):
             with self.subTest(stage=stage):
                 instruction, payload = repair_context.prompt_parts(
-                    current, {"original": {"stage": stage}}, source, source, ("", {}), schema={}
+                    current, {"original": {"stage": stage}}, source, source, ("", {})
                 )
                 if stage == "glm_revise":
                     expected = current["goal_contract"]["body"]["accepted_assumptions"]
