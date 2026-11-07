@@ -513,3 +513,68 @@ class LifecycleFixtureReviewTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProgressiveFixtureReviewTests(unittest.TestCase):
+    def test_only_scripted_variants_exact_import_gaps_receive_reasons(self):
+        scenario = Path(__file__).resolve().parents[1] / "scenarios/catalog/progressive-learning-journey"
+        reference = scenario / "reference"
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            shutil.copy2(scenario / "seed/test_journey.py", root / "test_journey.py")
+            for slice_id, variant in (
+                ("S1", {}),
+                ("S2", {}),
+                ("S3", {"catalog": True}),
+                ("S2", {"note": True}),
+                ("S2", {"corrupt": True}),
+            ):
+                sources = fixture.progressive_sources(reference, slice_id, **variant)
+                for name, content in sources.items():
+                    (root / name).write_bytes(content)
+                obligations = [
+                    {
+                        "gap_id": f"gap:{name}:{line}",
+                        "path": name,
+                        "sha256": hashlib.sha256(content).hexdigest(),
+                        "line": line,
+                        "status": "reason_required",
+                        "mutation_outcomes": [],
+                    }
+                    for name, content in sources.items()
+                    for line in range(1, len(content.splitlines()) + 1)
+                ]
+                data = {
+                    "regression_proof": {"path": "proof.json", "changed_code_evidence": {"obligations": obligations}}
+                }
+
+                def review(packet=data):
+                    return fixture.progressive_judgments(packet, reference, slice_id, root=root, **variant)
+
+                with self.subTest(slice_id=slice_id, variant=variant):
+                    self.assertEqual(
+                        {"gap:lessons.py:1", "gap:progress.py:1", "gap:progress.py:2"}, {r["gap_id"] for r in review()}
+                    )
+                    for mutation in (
+                        {"mutation_outcomes": ["survived"]},
+                        {"mutation_outcomes": ["not_run"]},
+                        {"sha256": "0" * 64},
+                        {"status": "tested"},
+                        {"path": "unknown.py"},
+                        {"line": True},
+                        {"gap_id": ""},
+                    ):
+                        changed = copy.deepcopy(data)
+                        for row in changed["regression_proof"]["changed_code_evidence"]["obligations"]:
+                            row.update(mutation)
+                        self.assertEqual([], review(changed), mutation)
+                    for name in (*sources, "test_journey.py"):
+                        path = root / name
+                        original = path.read_bytes()
+                        path.write_bytes(original + b"\n# Unknown workspace bytes\n")
+                        self.assertEqual([], review(), name)
+                        path.write_bytes(original)
+            unknown = root / "unknown-reference"
+            shutil.copytree(reference, unknown)
+            (unknown / "progress.py").write_text("import json\n")
+            self.assertEqual([], fixture.progressive_judgments(data, unknown, "S2", root=root))

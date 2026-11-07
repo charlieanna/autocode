@@ -15,4 +15,4 @@ def answer(path, lesson, response):
 
 
 def next_lesson(path):
-    raise NotImplementedError("Recommendations remain declared future work")
+    raise NotImplementedError("Recommendations are not implemented")

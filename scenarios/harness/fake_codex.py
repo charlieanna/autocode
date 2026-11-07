@@ -366,32 +366,19 @@ def progressive_report(stage, data, common):
     )
     if scoped and permission_answer is not None and permission_answer not in (SCOPED_DENIAL, SCOPED_CONDITION):
         raise SystemExit("fake_codex: scoped permission answer was not preserved verbatim")
+    from fake_changed_code import progressive_judgments, progressive_sources
+
+    variant = {
+        "catalog": head["id"] == "S3" and data["goal_contract"]["body"].get("intended_outcome") == RENEWED_OUTCOME,
+        "corrupt": CONFIG.get("fault") in ("progressive_regression", "progressive_fabricated_pass")
+        and (data.get("current_task") or {}).get("objective") == head["intended_result"],
+        "note": scoped and permission_answer == SCOPED_CONDITION,
+    }
     if stage == "terra":
-        root = Path(CONFIG["reference"])
-        for rel in PATHS:
+        for rel, content in progressive_sources(CONFIG["reference"], head["id"], **variant).items():
             destination = Path.cwd() / rel
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(root / rel, destination)
-        if head["id"] == "S1":
-            scenario = next(parent for parent in root.parents if (parent / "scenario.toml").is_file())
-            shutil.copy2(scenario / "slices" / "S1" / "lessons.py", Path.cwd() / "lessons.py")
-        elif head["id"] == "S3" and data["goal_contract"]["body"].get("intended_outcome") == RENEWED_OUTCOME:
-            path = Path.cwd() / "lessons.py"
-            path.write_text(path.read_text() + "\n\ndef catalog():\n    return list(LESSONS)\n")
-        elif (
-            CONFIG.get("fault") in ("progressive_regression", "progressive_fabricated_pass")
-            and (data.get("current_task") or {}).get("objective") == head["intended_result"]
-        ):
-            # The real cumulative A command catches this introduced S1 regression.
-            path = Path.cwd() / "lessons.py"
-            path.write_text(
-                path.read_text().replace(
-                    "if response != LESSONS[lesson][1]:", "if lesson == 'addition' or response != LESSONS[lesson][1]:"
-                )
-            )
-        if scoped and permission_answer == SCOPED_CONDITION:
-            path = Path.cwd() / "lessons.py"
-            path.write_text(path.read_text() + "\n" + SCOPED_NOTE + "\n")
+            destination.write_bytes(content)
         results = [run_verify(command) for command in commands]
         result = {
             **common,
@@ -420,7 +407,7 @@ def progressive_report(stage, data, common):
         status = "PASS" if passed else "FAIL"
         fabricated = CONFIG.get("fault") == "progressive_fabricated_pass" and not passed
         product = "PASS" if passed and full_product else "NOT_VERIFIED" if passed else "FAIL"
-        return lazy_citations(
+        report = lazy_citations(
             {
                 **common,
                 "verdict": "PASS" if fabricated else status,
@@ -448,6 +435,8 @@ def progressive_report(stage, data, common):
                 },
             }
         )
+        report["changed_code_exceptions"] = progressive_judgments(data, CONFIG["reference"], head["id"], **variant)
+        return report
     if stage in ("astra_review", "astra_plan", "astra_resolve"):
         failed = (data.get("validation") or {}).get("verdict") == "FAIL"
         # A saved answer still needs work when no task has been validated since it was given, or, as a
