@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -177,7 +177,7 @@ def model_schema(schema, state: RunState, stage):
     if stage in FINAL:
         # The final reviewer corrects acceptance criteria only, and only as a delta on the
         # retained contract (#1991); the rest of the plan stays the Planner's to revise.
-        reference = {
+        reference: dict[str, Any] = {
             "type": "object",
             "properties": {"retain_contract": {"type": "string"}, "acceptance_criteria": delta},
             "required": ["retain_contract"],
