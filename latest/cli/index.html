@@ -2460,7 +2460,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/029de672ede769798c9b86782474b7adac83eb01/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/757da157476741b6f64f545f3ae600edad64d19f/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2694,7 +2694,7 @@ they do not represent charges.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/029de672ede769798c9b86782474b7adac83eb01/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/757da157476741b6f64f545f3ae600edad64d19f/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3304,7 +3304,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/029de672ede769798c9b86782474b7adac83eb01/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/757da157476741b6f64f545f3ae600edad64d19f/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -4221,10 +4221,17 @@ each with its state (<code>✓</code> done, <code>●</code> working, <code>↻<
 time, its accounted cost, which attempt it is on (a report repair counts as the repaired stage's next attempt;
 a stage that ran again after succeeding, such as a second review round, says how many times it ran), and on a second row the model and
 reasoning level it ran on and the tokens it used (<code>+</code> when some usage is unreported).
-The footer and optional side panel carry the run's accounted total; with more
+The footer and optional side panel carry the run's accounted total and how long its
+stages have worked in all (<code>worked 42m05s</code>: every attempt's own duration added together,
+the working one counted to now, time waiting for a person left out); with more
 than one chat open the header adds a session total over the open chats, leaving out
 what a run restored from a saved step carried over. A stage on its second attempt or
-later after one that did not succeed takes the status row, with that attempt's reason. In a
+later after one that did not succeed takes the status row, with that attempt's reason
+and, when the core reports it (<code>progress.retry</code>), how many more failures it allows
+before the stage stops: <code>2 tries left</code>, <code>last try</code>. While a supervised stage works, the
+status row also says when it last wrote anything (<code>last output 12s ago</code>, from
+<code>chat.last_output_at</code>) and, after two minutes of silence, warns <code>no output for 4m05s</code>:
+the one cue that tells a stalled stage from a busy one before it fails. In a
 total, <code>+</code> marks the figure that is a floor: <code>$0.42+</code> when some cost is unaccounted,
 <code>184k+ tokens</code> when some usage is unreported.
 These come from the view's <code>usage.accounting.attempts</code> and <code>cost</code>. The Usage summary
@@ -4311,7 +4318,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/029de672ede769798c9b86782474b7adac83eb01/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/757da157476741b6f64f545f3ae600edad64d19f/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,

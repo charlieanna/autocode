@@ -2372,7 +2372,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/029de672ede769798c9b86782474b7adac83eb01/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/757da157476741b6f64f545f3ae600edad64d19f/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2791,6 +2791,11 @@ retry. Activity that is not confirmed as supervised, a finished or stopped step
 and a paused run have none, and the field is then omitted. Codex-style items
 (also what the built-in Claude provider writes) and OpenCode or Kilo tool parts
 are read; other event shapes show nothing. Older cores may omit the field.</p>
+<p>Under the same guards, optional <code>last_output_at</code> is when that event file was last
+written (UTC, to the second): the one fact that tells a quiet stage from a busy
+one before it fails. It says when the provider last emitted anything, not what,
+and is never proof of progress or a liveness decision; the terminal chat's status
+row shows it as "last output 12s ago" and, after two minutes, "no output for 4m05s".</p>
 <p>While a supervised step or parallel Builder works, optional <code>log</code> is the
 terminal chat's live agent log (owner decision 2026-10-21): an array of display
 entries <code>{id, agent, kind, text}</code> from each working attempt's own provider event
@@ -3496,7 +3501,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/029de672ede769798c9b86782474b7adac83eb01/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/757da157476741b6f64f545f3ae600edad64d19f/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3870,7 +3875,7 @@ run carried on by itself: a list, oldest first and at most the newest 20, built 
 </tr>
 <tr>
 <td><code>headline</code></td>
-<td>One line, such as <code>Builder stuck</code> or <code>Tester rewrote its report</code></td>
+<td>One line, such as <code>Builder stuck</code>, <code>Tester rewrote its report</code> or <code>Builder sent back for untested lines (round 1 of 2)</code> (the round the record names, out of the rounds the gate allows; a record saved before rounds were recorded has none)</td>
 </tr>
 <tr>
 <td><code>problem</code></td>
@@ -4184,7 +4189,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/029de672ede769798c9b86782474b7adac83eb01/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/757da157476741b6f64f545f3ae600edad64d19f/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -4416,6 +4421,12 @@ its wording may change, so programs read the fields beside it:</p>
 <li><code>for_earlier_request</code>: true after a <code>--follow-up</code> until the follow-up's own plan is
   drafted; the previous request's tasks, requirements and review findings are then
   left out.</li>
+<li><code>retry</code>, only while the current stage (the active attempt's, else the next one's) is
+  in a run of failures (<code>tools/autocode_failures.py</code>): <code>failures</code>, how many attempts in
+  a row have failed the same way, and <code>limit</code>, how many such failures stop the stage
+  (<code>PAUSED_REPEATED_FAILURE</code>). A later outcome of the stage ends the run and the field
+  is omitted. Display only: the retry itself is the core's, and the terminal chat shows
+  it as "2 tries left" or "last try" beside the retrying stage.</li>
 </ul>
 <p>No field is a percentage or an estimate from elapsed time.</p>
 <p><code>displayed_plan</code> is an optional structured approval projection: <code>revision</code>, <code>hash</code>,
