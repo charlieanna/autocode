@@ -161,17 +161,18 @@ def mutation_note(proof) -> str:
     return MUTATION_NOTE if (((proof or {}).get("mutation_check") or {}).get("survivors")) else ""
 
 
-def required(state: RunState, *, all_due=False, include_changed_code=True):
+def required(state: RunState, *, all_due=False, include_changed_code=True, owed=None):
     """Whether a bug fix, due test criterion or cumulative product diff owes proof.
 
     A Builder self-check precedes the runner's changed-line proof and independent
     audit. It may exclude that new obligation, never a bug fix or named criterion.
+    ``owed`` is ``changed_code_trigger.owes(state)`` when the caller already has it.
     """
     return (
         goals.task_kind(state) == "bugfix"
         or bool(test_cases.contract_cases(state, all_due=all_due))
         or include_changed_code
-        and changed_code_trigger.owes(state)
+        and (changed_code_trigger.owes(state) if owed is None else owed)
     )
 
 
@@ -1092,9 +1093,13 @@ def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ign
         proof["verdict"] = verify.FAIL
 
 
-def record_unmeasured(state: RunState):
-    """Record, in the run's evidence, that changed product code went unmeasured and why (#2474)."""
-    reason = changed_code_trigger.unmeasurable(state) if changed_code_trigger.owes(state) else None
+def record_unmeasured(state: RunState, *, owed=None):
+    """Record, in the run's evidence, that changed product code went unmeasured and why (#2474).
+
+    ``owed`` is ``changed_code_trigger.owes(state)`` when the caller already has it."""
+    if owed is None:
+        owed = changed_code_trigger.owes(state)
+    reason = changed_code_trigger.unmeasurable(state) if owed else None
     if reason is None:
         state.pop("changed_code_fallback", None)
     elif (state.get("changed_code_fallback") or {}).get("reason") != reason:
@@ -1115,8 +1120,11 @@ def before_review(state: RunState, stage, workspace, run_dir):
     # Due-now scope even for astra_review: it also reviews each milestone before advancing, where a later
     # milestone's unbuilt tests would fail the proof and the owner note would demand REWORK. Final
     # completion still needs every case, enforced by complete(all_due=True).
-    record_unmeasured(state)
-    if not required(state):
+    # One comparison of the candidate with the run's base serves both: it stages the whole working
+    # tree in a scratch index (about nine Git commands), and before_review runs before every stage.
+    owed = changed_code_trigger.owes(state)
+    record_unmeasured(state, owed=owed)
+    if not required(state, owed=owed):
         return
     if stage in ("sol", "astra_checkpoint") or stage == "astra_review" and _review_needs_proof(state, workspace):
         prove(state, workspace, run_dir)

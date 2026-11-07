@@ -860,7 +860,7 @@ def run_locked(
         return owner.result(code, ready=ready) if owner is not None else code
 
     with ExitStack() as ownership:
-        ownership.enter_context(env_prep.reuse_checks(run_dir))  # a chat turn reuses this run's tool checks
+        ownership.enter_context(env_prep.reuse_checks(run_dir))  # chats in this project reuse its tool checks
         keep_awake.hold()  # a sleeping Mac cannot supervise a stage (#1717)
         if runner.stop_policy.applied_stop(state):
             return runner.stop_policy.refuse_before_configure(runner.write_json, state, state_path) or 0
