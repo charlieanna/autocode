@@ -8,6 +8,20 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_leaf_timing_keeps_the_public_cli_consumer_when_slow(self):
+        consumer = "tests.test_phase_timing_cli"
+        for source in (
+            "tools/autocode_phase_timing.py",
+            "tools/autocode_unit_request.py",
+            "tools/autocode.py",
+            "tools/autocode_regression.py",
+            "tools/autocode_role_launch.py",
+        ):
+            with self.subTest(source=source):
+                selected = run_suite.select_tests([source], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+                self.assertEqual([consumer], list(kept))
+
     def test_scenario_requirements_provider_keeps_its_public_cli_consumer_when_slow(self):
         consumer = "tests.test_scenario_requirements_fixtures"
         selected = run_suite.select_tests(
@@ -44,6 +58,7 @@ class DynamicDependenciesTests(unittest.TestCase):
         consumer = "tests.test_requirements_observations_cli"
         for path in (
             "tools/autocode_requirements_observations.py",
+            "tools/autocode_report_edits.py",
             "tools/autocode_repaired_result.py",
             "tools/autocode_requirements_handoff.py",
             "tools/autocode_job_source.py",

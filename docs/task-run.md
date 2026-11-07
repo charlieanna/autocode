@@ -283,8 +283,15 @@ are refused before a provider launches. The optional destination is used by
 [saved-run replay](replay.md); the run is created there without moving bound
 artifacts afterward.
 
-When the workspace is a plain, non-empty folder, the core bootstraps a task
-project inside `workspace/autocode-projects/` and runs there. A destination
+When the workspace is a plain, non-empty folder, the core bootstraps a private
+scratch task project in the folder's own store, `workspace/.autocode/projects/ID`,
+and runs there, so a chat that never builds leaves nothing among the person's
+files. When a build or bug fix completes there, the core delivers its source to a
+named project beside those files, `workspace/NAME`, a Git repository on branch
+`main` whose remote `autocode` is the scratch project; a later turn of the chat
+fast-forwards it when it has no changes of its own. The chat history says where
+(message id `project-delivered-TURN`). Projects bootstrapped earlier under
+`workspace/autocode-projects/` keep working where they are. A destination
 named under the selected folder's `.autocode/runs` keeps its name: the run is
 created under the bootstrapped project instead, and commands may keep using the
 selected folder and that name as the run's handle. The status view names the

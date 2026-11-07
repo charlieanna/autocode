@@ -220,14 +220,17 @@ class WhereRunsAreFound(Fixture):
                     self.assertNotIn(str(run), message)
 
     def test_task_projects_bootstrapped_in_a_plain_folder_are_found_from_it(self):
-        folder = self.root / "plain"
-        project = folder / "autocode-projects" / "build-calculator-1a2b3c4d"
-        project.mkdir(parents=True)
-        (folder / "keep.txt").write_text("user file\n")
-        git(project, "init", "-q")
-        run = self.run_in(project, task="Build calculator")
-        chosen = finder.choose(folder, "read")
-        self.assertEqual((run, project), (chosen.run_dir, chosen.workspace))
+        # The private scratch store, and the visible folder projects were bootstrapped in before it.
+        for name, parent in (("scratch", (".autocode", "projects")), ("legacy", ("autocode-projects",))):
+            with self.subTest(name):
+                folder = self.root / name
+                project = folder.joinpath(*parent) / "0123456789ab"
+                project.mkdir(parents=True)
+                (folder / "keep.txt").write_text("user file\n")
+                git(project, "init", "-q")
+                run = self.run_in(project, task="Build calculator")
+                chosen = finder.choose(folder, "read")
+                self.assertEqual((run, project), (chosen.run_dir, chosen.workspace))
 
     def test_no_run_refuses_and_says_where_it_looked(self):
         message = self.refused(self.project)

@@ -15,8 +15,9 @@ Where it looks, from the start directory (``--workspace``, by default the curren
 2. Otherwise the nearest enclosing Git checkout. A task worktree (one with a
    valid ``.autocode/task-workspace.json``): its own runs. A project: its in-place runs
    and the runs of each task worktree under ``.autocode/worktrees``.
-3. Outside any Git checkout: the task projects ``autocode`` bootstrapped in
-   ``autocode-projects/``.
+3. Outside any Git checkout: the task projects ``autocode`` bootstrapped there, the
+   private scratch projects in ``.autocode/projects/`` and the older ``autocode-projects/``
+   (``autocode_scratch_projects``).
 
 Only ``<checkout>/.autocode/runs/<id>/state.json`` is read, one level deep, never through
 a symlink, and only when that state names the checkout as its workspace (what the run
@@ -45,8 +46,10 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_component_plan as component_plan
+    from . import autocode_scratch_projects as scratch_projects
 except ImportError:
     import autocode_component_plan as component_plan
+    import autocode_scratch_projects as scratch_projects
 
 import dataclasses
 import datetime as dt
@@ -305,16 +308,13 @@ def _search(start) -> _Search:
         return _Search(run.workspace, [str(run.run_dir)], [run], unreadable, direct=True)
     checkout = next((path for path in (start, *start.parents) if (path / ".git").exists()), None)
     if checkout is None:
-        bootstrapped = start / "autocode-projects"
-        projects = (
-            [
-                path
-                for path in sorted(bootstrapped.iterdir())
-                if not path.is_symlink() and path.is_dir() and (path / ".git").exists()
-            ]
+        projects = [
+            path
+            for bootstrapped in scratch_projects.roots(start)
             if not bootstrapped.is_symlink() and bootstrapped.is_dir()
-            else []
-        )
+            for path in sorted(bootstrapped.iterdir())
+            if not path.is_symlink() and path.is_dir() and (path / ".git").exists()
+        ]
         places, looked_in = [], []
         for project in projects:
             trees = task_worktrees(project)
@@ -322,7 +322,7 @@ def _search(start) -> _Search:
             looked_in.append(_described(project, trees))
         where = start
         if not projects:
-            looked_in = [f"{bootstrapped} (no task projects; {start} is not in a Git checkout)"]
+            looked_in = [f"{scratch_projects.root(start)} (no task projects; {start} is not in a Git checkout)"]
     elif _worktree_metadata(checkout):
         places, looked_in, where = [checkout], [str(checkout / ".autocode" / "runs")], checkout
     else:

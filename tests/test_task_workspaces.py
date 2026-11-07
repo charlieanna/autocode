@@ -102,7 +102,7 @@ class TaskWorkspaces(unittest.TestCase):
     def test_non_git_folder_bootstraps_a_safe_task_project(self):
         empty = self.root / "new-project"
         empty.mkdir()
-        project = w.bootstrap(empty, "Build calculator")
+        project = w.bootstrap(empty)
         self.assertEqual(empty.resolve(), project)
         self.assertTrue((project / ".git").is_dir())
         self.assertTrue(w.git(project, "rev-parse", "--verify", "HEAD"))
@@ -110,20 +110,22 @@ class TaskWorkspaces(unittest.TestCase):
     def test_bootstrap_refuses_missing_paths_and_folders_inside_a_repository(self):
         missing = self.root / "mistyped"
         with self.assertRaisesRegex(ValueError, "does not exist"):
-            w.bootstrap(missing, "Build calculator")
+            w.bootstrap(missing)
         self.assertFalse(missing.exists())
         nested = self.project / "src"
         nested.mkdir()
         with self.assertRaisesRegex(ValueError, "inside the Git repository"):
-            w.bootstrap(nested, "Build calculator")
+            w.bootstrap(nested)
         self.assertEqual([], list(nested.iterdir()))
 
     def test_populated_folder_gets_a_child_project_without_becoming_a_repository(self):
         populated = self.root / "home-like"
         populated.mkdir()
         (populated / "keep.txt").write_text("do not version this folder")
-        project = w.bootstrap(populated, "Build calculator")
-        self.assertTrue(project.is_relative_to(populated / "autocode-projects"))
+        project = w.bootstrap(populated)
+        # A private scratch project in the folder's own AutoCode store: nothing new among its files.
+        self.assertEqual(populated.resolve() / ".autocode" / "projects", project.parent)
+        self.assertEqual({".autocode", "keep.txt"}, {path.name for path in populated.iterdir()})
         self.assertTrue((project / ".git").is_dir())
         self.assertFalse((populated / ".git").exists())
         self.assertEqual("do not version this folder", (populated / "keep.txt").read_text())
@@ -174,7 +176,7 @@ class IsolatedCli(unittest.TestCase):
             timeout=35,
         )
         self.assertEqual(2, result.returncode, result.stdout + result.stderr)
-        projects = list((folder / "autocode-projects").glob("build-calculator-*"))
+        projects = list((folder / ".autocode" / "projects").iterdir())
         self.assertEqual(1, len(projects))
         self.assertTrue((projects[0] / ".git").is_dir())
         self.assertFalse((folder / ".git").exists())

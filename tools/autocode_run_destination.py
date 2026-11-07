@@ -15,6 +15,11 @@ import os
 from contextlib import ExitStack, suppress
 from pathlib import Path
 
+try:
+    from . import autocode_scratch_projects as scratch_projects
+except ImportError:
+    import autocode_scratch_projects as scratch_projects
+
 
 def reserve(workspace: Path, destination: Path, *, named_from: Path | None = None) -> Path:
     """Exclusively create one immediate child of the checkout's run store.
@@ -94,7 +99,7 @@ def resolve_relocated(workspace: Path, run_dir: Path) -> tuple[Path, Path] | Non
     """The run a destination named under ``workspace`` denotes after relocation.
 
     A client names a fresh run under the folder it selected. When bootstrap()
-    moved that task into ``autocode-projects/``, the named path never exists;
+    moved that task into a bootstrapped project (``autocode_scratch_projects``), the named path never exists;
     the run's name under a bootstrapped project's store is the stable part of
     the handle. Return ``(project, run_dir)`` when exactly one bootstrapped
     project holds a run of that name, and None otherwise.
@@ -103,13 +108,14 @@ def resolve_relocated(workspace: Path, run_dir: Path) -> tuple[Path, Path] | Non
     named = Path(run_dir).absolute()
     if ".." in named.parts or named.parent != workspace / ".autocode" / "runs" or not named.name:
         return None
-    projects = workspace / "autocode-projects"
-    try:
-        if projects.is_symlink() or not projects.is_dir():
-            return None
-        children = sorted(projects.iterdir())
-    except OSError:
-        return None
+    children = []
+    for projects in scratch_projects.roots(workspace):
+        try:
+            if projects.is_symlink() or not projects.is_dir():
+                continue
+            children += sorted(projects.iterdir())
+        except OSError:
+            continue
     found = []
     for project in children:
         store = project / ".autocode" / "runs"
