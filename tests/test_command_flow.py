@@ -159,7 +159,7 @@ class ConfigToolFlow(unittest.TestCase):
         selected.mkdir()
         (selected / ".DS_Store").write_text("finder metadata")
 
-        project = autocode_workspaces.bootstrap(selected, "Config tool fixture")
+        project = autocode_workspaces.bootstrap(selected)
 
         self.assertEqual(selected, project)
         self.assertTrue((selected / ".git").is_dir())
@@ -186,7 +186,7 @@ class ConfigToolFlow(unittest.TestCase):
         )
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
-        project = next(path for path in (selected / "autocode-projects").iterdir())
+        project = next(path for path in (selected / ".autocode" / "projects").iterdir())
         state = json.loads((next((project / ".autocode/runs").iterdir()) / "state.json").read_text())
         self.assertEqual({"selected": str(selected), "project": str(project)}, state["workspace_bootstrap"])
         # A client reads the conversation, so the disclosure is a message, not only view.workspace.
@@ -194,6 +194,29 @@ class ConfigToolFlow(unittest.TestCase):
         self.assertEqual(chat_history.BOOTSTRAP_NOTICE, messages[1]["id"])
         self.assertIn(str(selected), messages[1]["text"])
         self.assertIn(str(project), messages[1]["text"])
+        # The project lived in the folder's own store until the build completed; then the build
+        # was delivered to a named project beside the person's files, and the chat says where.
+        self.assertEqual(selected / ".autocode" / "projects", project.parent)
+        [delivered] = [path for path in selected.iterdir() if path.name not in (".autocode", "README.md")]
+        self.assertIn(str(delivered), result.stdout)
+        self.assertEqual(
+            "main",
+            subprocess.check_output(["git", "-C", str(delivered), "branch", "--show-current"], text=True).strip(),
+        )
+        built = subprocess.check_output(
+            ["git", "-C", str(project), "ls-tree", "-r", "--name-only", "autocode/delivered"], text=True
+        ).split()
+        self.assertTrue(built)
+        self.assertEqual(
+            sorted(built), sorted(subprocess.check_output(["git", "-C", str(delivered), "ls-files"], text=True).split())
+        )
+        notes = [
+            row
+            for row in run_view.view(state)["chat"]["messages"]
+            if row["id"].startswith(chat_history.DELIVERY_NOTICE)
+        ]
+        self.assertEqual(1, len(notes), messages)
+        self.assertIn(str(delivered), notes[0]["text"])
 
     def test_config_tool_completes_with_a_capture_receipt(self):
         result = subprocess.run(

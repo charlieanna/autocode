@@ -25,6 +25,11 @@ import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
+try:
+    from . import autocode_scratch_projects as scratch_projects
+except ImportError:
+    import autocode_scratch_projects as scratch_projects
+
 # Placeholders next_command leaves open for a decision the view does not supply (autocode_pause_command).
 UNSUPPLIED = ("GOAL_FILE", "N", "WHAT CHANGED", "TOKEN", "RUN_DIR", "--explain")
 # Flags that continue the run.
@@ -107,7 +112,8 @@ def same_run(view: dict, workspace, run_dir) -> bool:
 
     A view names its own ``run_dir``. A chat started in a folder outside Git names
     ``FOLDER/.autocode/runs/RUN``, and the core runs that task in the project it
-    bootstraps, ``FOLDER/autocode-projects/PROJECT/.autocode/runs/RUN``; the status
+    bootstraps, ``FOLDER/.autocode/projects/PROJECT/.autocode/runs/RUN`` (or the older
+    ``FOLDER/autocode-projects/PROJECT``); the status
     read of the named path answers with the moved run. That shape, read only
     from the view's own paths, is the same run; any other path is another run.
     """
@@ -121,7 +127,7 @@ def same_run(view: dict, workspace, run_dir) -> bool:
     project = Path(view.get("workspace") or "").resolve()
     return (
         asked == folder / ".autocode" / "runs" / asked.name
-        and project.parent == folder / "autocode-projects"
+        and scratch_projects.holds(folder, project)
         and answered == project / ".autocode" / "runs" / asked.name
     )
 

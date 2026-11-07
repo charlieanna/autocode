@@ -11,19 +11,25 @@ if TYPE_CHECKING:
 try:
     from . import autocode_contract_identity as contract_identity
     from . import autocode_message_context as message_context
+    from . import autocode_project_delivery as project_delivery
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_review as requirements_review
+    from . import autocode_scratch_projects as scratch_projects
 except ImportError:
     import autocode_contract_identity as contract_identity
     import autocode_message_context as message_context
+    import autocode_project_delivery as project_delivery
     import autocode_requirements_chat as requirements_chat
     import autocode_requirements_review as requirements_review
+    import autocode_scratch_projects as scratch_projects
 
 # What a person did when they pressed a button, in their words rather than the CLI's answer value.
 CONFIRMED_REQUIREMENTS = "Looks right. Prepare the plan."
 APPROVED_PLAN = "Approved the plan."
 # A client shows a message id once, so the bootstrap disclosure keeps a stable one (#1908).
 BOOTSTRAP_NOTICE = "workspace-bootstrap"
+# What a completed build in a scratch project said about the named project it delivered, per turn.
+DELIVERY_NOTICE = "project-delivered"
 
 
 def response(state: RunState) -> str:
@@ -107,7 +113,13 @@ def _bootstrap_notice(state: RunState) -> dict | None:
     if not isinstance(project, str) or not project:
         return None
     selected = record.get("selected")
-    if selected == project:
+    if isinstance(selected, str) and scratch_projects.is_scratch(selected, project):
+        text = (
+            f"{selected} is not a Git repository, so I am working in a private project of my own ({project}). "
+            f"Your files stay as they are. When I finish building something, I put it in a named project "
+            f"folder in {selected}."
+        )
+    elif selected == project:
         text = f"This folder was not a Git repository, so I started one here and the work happens in it: {project}."
     else:
         text = (
@@ -126,6 +138,14 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
     if notice := _bootstrap_notice(state):
         rows.append(notice)
     prior = {turn.get("event_id"): (turn.get("previous") or {}).get("chat_response") for turn in turns}
+    # Turn k's response is shown where follow-up k was said; its delivery note follows it.
+    turn_of = {turn.get("event_id"): number for number, turn in enumerate(turns)}
+    delivered = project_delivery.notes(state)
+
+    def delivery(number):
+        note = delivered.get(number)
+        return [{"id": f"{DELIVERY_NOTICE}-{number}", "role": "assistant", "text": note}] if note else []
+
     for index, event in enumerate(state.get("user_events") or []):
         if event.get("kind") == "goal_approval" and event.get("token"):
             plan = _approved_plan(state, event)
@@ -142,6 +162,7 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
         ident = event.get("id") or f"event-{index}"
         if prior.get(ident):
             rows.append({"id": f"{ident}-response", "role": "assistant", "text": prior[ident]})
+            rows += delivery(turn_of[ident])
         question = event.get("question")
         if event.get("assistant_reply"):
             rows.append({"id": f"{ident}-reply", "role": "assistant", "text": event["assistant_reply"]})
@@ -177,4 +198,5 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
         rows.append({"id": ident + "-response", "role": "user", "text": event["text"]})
     if completed:
         rows.append({"id": f"response-{len(turns)}", "role": "assistant", "text": response(state)})
+        rows += delivery(len(turns))
     return rows

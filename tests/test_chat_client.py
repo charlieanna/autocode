@@ -2169,14 +2169,14 @@ class RefusedStartTests(unittest.TestCase):
 
 
 class RelocatedStartTests(unittest.TestCase):
-    """A chat started in a folder outside Git: the core runs it in a project under autocode-projects/."""
+    """A chat started in a folder outside Git: the core runs it in a private project in .autocode/projects/."""
 
     MOVED = (
         "import json, sys\n"
         "from pathlib import Path\n"
         "named = Path(sys.argv[sys.argv.index('--run-dir' if '--status' in sys.argv else '--new-run-dir') + 1])\n"
         "folder = named.parents[2]\n"
-        "project = folder / 'autocode-projects' / 'hi-0123abcd'\n"
+        "project = folder / '.autocode' / 'projects' / '0123456789ab'\n"
         "if '--status' in sys.argv:\n"
         "    run = project / '.autocode' / 'runs' / named.name\n"
         "    print(json.dumps({'view': {'workspace': str(project), 'run_dir': str(run), 'status': 'WAITING_FOR_USER',\n"
@@ -2202,7 +2202,7 @@ class RelocatedStartTests(unittest.TestCase):
                 wait=lambda seconds: None,
             )
             self.addCleanup(client.close)
-            project = Path(folder).resolve() / "autocode-projects" / "hi-0123abcd"
+            project = Path(folder).resolve() / ".autocode" / "projects" / "0123456789ab"
             self.assertEqual(project, client.workspace)
             self.assertEqual(project / ".autocode" / "runs", client.run_dir.parent)
         self.assertNotIn("did not start the run", "\n".join(said))
@@ -2218,6 +2218,8 @@ class RelocatedStartTests(unittest.TestCase):
 
         self.assertTrue(actions.same_run(view(folder, asked), folder, asked))
         self.assertTrue(actions.same_run(view(project, project / ".autocode/runs/r1"), folder, asked))
+        scratch = folder / ".autocode" / "projects" / "0123456789ab"
+        self.assertTrue(actions.same_run(view(scratch, scratch / ".autocode/runs/r1"), folder, asked))
         self.assertFalse(actions.same_run(view(project, project / ".autocode/runs/r2"), folder, asked))
         elsewhere = Path("/home/other/autocode-projects/hi-0123abcd")
         self.assertFalse(actions.same_run(view(elsewhere, elsewhere / ".autocode/runs/r1"), folder, asked))

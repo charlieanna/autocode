@@ -17,8 +17,10 @@ import uuid
 from pathlib import Path
 
 try:
+    from . import autocode_scratch_projects as scratch_projects
     from . import autocode_util as util
 except ImportError:
+    import autocode_scratch_projects as scratch_projects
     import autocode_util as util
 
 # Everything AutoCode keeps in a project (run state, logs, evidence, nested task
@@ -189,14 +191,16 @@ def discard_unused(data) -> bool:
     return True
 
 
-def bootstrap(selected, task):
+def bootstrap(selected):
     """Create a local Git-backed task project without taking over user files.
 
     An empty folder is a safe project root. A populated folder (including a
-    home directory) receives a new child project, leaving its existing files
-    and Git state untouched. A missing path is refused so a mistyped
-    --workspace cannot create directories, and a folder inside an existing
-    repository is refused so no nested repository is created in it.
+    home directory) receives a private scratch project in its own AutoCode
+    store (``autocode_scratch_projects``), leaving its existing files and Git
+    state untouched: nothing appears among them until a build delivers a named
+    project (``autocode_project_delivery``). A missing path is refused so a
+    mistyped --workspace cannot create directories, and a folder inside an
+    existing repository is refused so no nested repository is created in it.
     """
     selected = Path(selected).resolve()
     if not selected.is_dir():
@@ -209,8 +213,10 @@ def bootstrap(selected, task):
             f"workspace is inside the Git repository {inside.stdout.strip()}; select that repository root instead"
         )
     if any(entry.name != ".DS_Store" for entry in selected.iterdir()):
-        name = (re.sub("[^a-z0-9]+", "-", task.lower()).strip("-") or "task")[:40]
-        project = selected / "autocode-projects" / f"{name}-{uuid.uuid4().hex[:8]}"
+        # Named by a random id, not by the first message: a chat that opens with "hi" may
+        # never build, and a build is delivered under a name taken from what it built.
+        keep_out_of_git(selected)
+        project = scratch_projects.root(selected) / uuid.uuid4().hex[:12]
         project.mkdir(parents=True)
     else:
         project = selected

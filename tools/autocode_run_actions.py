@@ -39,6 +39,7 @@ try:
     from . import autocode_jobs as jobs
     from . import autocode_operational_information as operational_information
     from . import autocode_planning as planning
+    from . import autocode_project_delivery as project_delivery
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
@@ -63,6 +64,7 @@ except ImportError:
     import autocode_jobs as jobs
     import autocode_operational_information as operational_information
     import autocode_planning as planning
+    import autocode_project_delivery as project_delivery
     import autocode_recovery_limits as recovery_limits
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
@@ -219,7 +221,8 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         if state["status"] != "TASK_COMPLETE":
             runner.write_json(state_path, state)
     if state["status"] == "TASK_COMPLETE":
-        print(jobs.render(state, goals.render_completion) + worktrees.deliver(state, workspace))
+        delivered = worktrees.deliver(state, workspace) + project_delivery.deliver(state, workspace)
+        print(jobs.render(state, goals.render_completion) + delivered)
         return 0
     if skip_requirements.settle(runner, state, run_dir, native=getattr(runner, "native_calls", None)):
         runner.write_json(state_path, state)  # a resumed worker's run answers and approves as it started (#1731)

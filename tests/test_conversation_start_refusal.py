@@ -53,7 +53,7 @@ class RefusedConversationStartTests(unittest.TestCase):
         return result.stderr
 
     def projects(self):
-        return sorted((self.folder / "autocode-projects").iterdir())
+        return sorted((self.folder / ".autocode" / "projects").iterdir())
 
     def test_retries_reuse_the_project_the_refused_start_created(self):
         first = self.start("attempt-1")
@@ -65,7 +65,7 @@ class RefusedConversationStartTests(unittest.TestCase):
         self.assertIn(str(project), self.start("attempt-2"))
         self.assertIn(str(project), self.start("attempt-1"))
         self.assertEqual([project], self.projects())
-        self.assertEqual({".autocode", "README.md", "autocode-projects"}, {p.name for p in self.folder.iterdir()})
+        self.assertEqual({".autocode", "README.md"}, {p.name for p in self.folder.iterdir()})
 
     def test_a_project_with_the_persons_changes_or_another_task_is_not_reused(self):
         self.start("attempt-1")

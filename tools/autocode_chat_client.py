@@ -562,7 +562,7 @@ class ChatClient:
     def accept_status(self, view: dict) -> None:
         self.viewed.add(str(self.run_dir))
         self.own(view)
-        self.viewed.add(str(self.run_dir))  # a run moved into autocode-projects is viewed under its own path
+        self.viewed.add(str(self.run_dir))  # a run moved into a bootstrapped project is viewed under its own path
         self.identity = wait_identity(view)
         self.titles[str(self.run_dir)] = title_of(view) or self.titles.get(str(self.run_dir), "")
         self._totals[str(self.run_dir)] = meter.run_total(view)
@@ -1894,8 +1894,8 @@ def tail(proc: subprocess.CompletedProcess) -> str:
 def in_git_checkout(workspace: Path) -> bool:
     """Whether a new chat here works on this directory's own files.
 
-    A directory outside any Git checkout gets a fresh empty task project under
-    ``autocode-projects/`` (autocode_run_finder), so the files already present are
+    A directory outside any Git checkout gets a fresh empty private task project in
+    its ``.autocode/projects/`` (autocode_scratch_projects), so the files already present are
     invisible to the run — surprising enough to confirm first (observed 2026-10-31:
     a seeded but un-Git directory produced a run that asked where the code was).
     """
@@ -1911,9 +1911,9 @@ def guard_workspace(workspace: Path, ask, say) -> bool:
     if in_git_checkout(workspace) or not (sys.stdin.isatty() or ask is not input):
         return True
     say(
-        "\nThis directory is not in a Git checkout. A new chat here creates an empty task "
-        "project under autocode-projects/ and cannot see the files already in this directory. "
-        "Put the project in Git (git init, git add, git commit) to work on it."
+        "\nThis directory is not in a Git checkout. A new chat here works in a new, empty private "
+        "project and cannot see the files already in this directory; what it builds becomes a "
+        "named project folder here. Put the project in Git (git init, git add, git commit) to work on it."
     )
     return ask("Start a new chat here anyway? [y/N]: ").strip().lower() in YES
 
