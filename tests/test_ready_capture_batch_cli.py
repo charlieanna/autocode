@@ -34,7 +34,7 @@ class ReadyCaptureBatchCLI(unittest.TestCase):
             script[:begin]
             + """    elif stage in ("sol", "astra_checkpoint"):
         batch = data['ready_capture_batch']['command']
-        checked = subprocess.run(shlex.split(batch), capture_output=True, text=True)
+        checked = subprocess.run(batch, shell=True, executable='/bin/bash', capture_output=True, text=True)
         print(json.dumps({'type':'item.completed','item':{'id':'ready-batch',
             'type':'command_execution','command':batch,'exit_code':checked.returncode,
             'aggregated_output':checked.stdout + checked.stderr}}),flush=True)
