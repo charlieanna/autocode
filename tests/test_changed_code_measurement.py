@@ -367,6 +367,39 @@ class MeasurementTests(unittest.TestCase):
                 rows = self.normalize_mutation(report, receipts)["files"][0]["mutants"]
                 self.assertEqual(["not_run"], [row["outcome"] for row in rows])
 
+    def test_caller_deadline_after_normal_cleanup_is_known_but_never_positive(self):
+        for cause in ("provider_stopped", "controller_finished"):
+            with self.subTest(cause=cause):
+                report, receipts = self.mutation("killed", "timeout")
+                receipt = receipts[2]
+                terminal_path = Path(receipt["supervision"]["receipt"])
+                terminal = util.read(terminal_path)
+                terminal["cause"] = cause
+                util.atomic_json(terminal_path, terminal)
+                receipt.update(exit_code=None, timed_out=True, supervision_sha256=util.file_hash(terminal_path))
+                self.assertTrue(measurement.known_capture(receipt, self.root))
+                rows = self.normalize_mutation(report, receipts)["files"][0]["mutants"]
+                self.assertEqual(["killed", "timeout"], [row["outcome"] for row in rows])
+                self.assertEqual([], rows[1]["failed_tests"])
+                for change in (
+                    {"interrupted": True},
+                    {"supervision_errors": ["uncertain"]},
+                    {"error": "cleanup unverified"},
+                    {"exit_code": 0},
+                    {"timed_out": False},
+                    {"supervision_sha256": None},
+                    {"output_sha256": "0" * 64},
+                ):
+                    self.assertFalse(measurement.known_capture({**receipt, **change}, self.root))
+                for terminal_change in (
+                    {"cleanup_error": "unknown child"},
+                    {"phase": "active"},
+                    {"cause": "controller_lost"},
+                ):
+                    util.atomic_json(terminal_path, {**terminal, **terminal_change})
+                    receipt["supervision_sha256"] = util.file_hash(terminal_path)
+                    self.assertFalse(measurement.known_capture(receipt, self.root))
+
     def test_closed_deadline_is_known_nonpositive_but_never_a_kill(self):
         report, receipts = self.mutation("killed", "timeout")
         receipt = receipts[2]
