@@ -1,9 +1,11 @@
 """A completed intake probe reaches its first Planner without granting task authority."""
 
+import hashlib
 import json
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 
 from autocode_taskrun import TaskRun
 
@@ -20,7 +22,10 @@ class RequirementsObservationCLI(unittest.TestCase):
     def test_repaired_requirements_preserve_original_probe_without_repeating_it(self):
         self.observation_flow(repair=True)
 
-    def observation_flow(self, *, repair):
+    def test_bare_repair_patch_preserves_original_probe_raw_response_and_all_gates(self):
+        self.observation_flow(repair=True, bare_patch=True)
+
+    def observation_flow(self, *, repair, bare_patch=False):
         (self.project / "greet.py").write_text(
             "import sys\nif len(sys.argv) == 2:\n    print('Hello, ' + sys.argv[1])\n"
         )
@@ -73,11 +78,17 @@ output = Path(sys.argv[sys.argv.index('-o') + 1])
 report = json.loads(output.read_text())
 if {repair!r} and stage in ('requirements_gather', 'requirements_gather_report_repair'):
     report['access_blockers'] = 'invalid fixture type' if stage == 'requirements_gather' else []
+    if {bare_patch!r} and stage == 'requirements_gather_report_repair':
+        report = {{'sha256': data['rejected_report']['sha256'],
+                  'edits': [{{'op': 'replace', 'path': ['access_blockers'], 'value_json': '[]'}}]}}
     output.write_text(json.dumps(report))
 with Path({str(observed)!r}).open('a') as stream:
     stream.write(json.dumps({{'stage': stage, 'observations': data.get('requirements_observations'),
                              'handoff': data.get('requirements_handoff'),
-                             'report': report if stage == 'requirements_gather' else None}}) + '\\n')
+                             'report': report if stage == 'requirements_gather' else None,
+                             'raw_repair': report if stage == 'requirements_gather_report_repair' else None,
+                             'output': str(output),
+                             'rejected_source': data.get('rejected_report', {{}}).get('path')}}) + '\\n')
 lines = result.stdout.splitlines(keepends=True)
 if stage == 'requirements_gather':
     command = [sys.executable, '-c', {probe!r}]
@@ -112,6 +123,14 @@ print(''.join(lines), end='')
         repairs = [row for row in rows if row["stage"] == "requirements_gather_report_repair"]
         self.assertEqual(int(repair), len(repairs), "repair the report once, without rerunning Requirements")
         self.assertEqual(1, sum(row["stage"] == "requirements_gather" for row in rows))
+        if bare_patch:
+            repair_row = repairs[0]
+            raw = repair_row["raw_repair"]
+            self.assertEqual({"sha256", "edits"}, set(raw))
+            self.assertEqual(raw, json.loads(Path(repair_row["output"]).with_suffix(".reported.json").read_text()))
+            self.assertEqual(
+                raw["sha256"], hashlib.sha256(Path(repair_row["rejected_source"]).read_bytes()).hexdigest()
+            )
         retained = planner["observations"]
         self.assertIsNotNone(retained, "first Planner must receive the completed source-bound intake probe")
         self.assertEqual("2025-01-01 (2025, 1)\n", retained["observations"][0]["output"])

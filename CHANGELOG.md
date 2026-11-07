@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A report-only repair that omits only its offered JSON patch wrapper can reuse the exact source-bound
+  edits, while retaining the raw response and all existing report, evidence and approval checks.
 - A retried bug investigation no longer copies the whole repository again. Each attempt took a fresh
   complete copy of the workspace, so four attempts on a 544 MB checkout held four copies (#2606). A retry
   of the same run now reuses its own copy when nothing was written into it and its bytes still match the

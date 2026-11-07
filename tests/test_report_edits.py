@@ -121,6 +121,122 @@ class ReportEditsTests(unittest.TestCase):
         self.assertEqual(self.patch, json.loads(Path(self.record["reported_output"]).read_text()))
         self.assertEqual(self.base, json.loads(self.source.read_text()))
 
+    def test_observed_bare_requirements_patch_retains_raw_response_and_pinned_source(self):
+        base = {"summary": "original", "access_blockers": "controlled report-shape fault"}
+        schema = {
+            "type": "object",
+            "properties": {"summary": {"type": "string"}, "access_blockers": {"type": "array"}},
+            "required": ["summary", "access_blockers"],
+            "additionalProperties": False,
+        }
+        self.source.write_text(json.dumps(base))
+        self.schema.write_text(json.dumps(schema))
+        source_bytes = self.source.read_bytes()
+        descriptor = {**self.descriptor, "sha256": file_hash(self.source), "content": base}
+        offered = edits.prepare(self.schema, descriptor, "requirements_gather")
+        record = {**self.record, "schema": str(offered)}
+        # The live response omitted only repair_report; bind this fixture's
+        # identical edit to its own source bytes rather than a saved run path.
+        raw = {
+            "sha256": descriptor["sha256"],
+            "edits": [{"op": "replace", "path": ["access_blockers"], "value_json": "[]"}],
+        }
+        Path(record["output"]).write_text(json.dumps(raw))
+        self.assertEqual({"summary": "original", "access_blockers": []}, runner.load_stage_report(record))
+        self.assertEqual(raw, json.loads(Path(record["reported_output"]).read_text()))
+        self.assertEqual(source_bytes, self.source.read_bytes())
+        self.assertEqual(descriptor["sha256"], file_hash(self.source))
+        from .test_opencode import event, terminal
+
+        events = self.root / "native-events.jsonl"
+        events.write_text(json.dumps(event("text", text=json.dumps(raw))) + "\n" + json.dumps(terminal()) + "\n")
+        event_hash = file_hash(events)
+        native = {
+            **self.record,
+            "engine": "opencode",
+            "schema": str(offered),
+            "events": str(events),
+            "output": str(self.root / "native-repair.json"),
+        }
+        self.assertEqual({"summary": "original", "access_blockers": []}, runner.load_stage_report(native))
+        self.assertEqual(raw, json.loads(Path(native["reported_output"]).read_text()))
+        self.assertEqual(raw, json.loads(Path(native["response_text"]).read_text()))
+        self.assertEqual(event_hash, file_hash(events))
+        self.assertEqual(source_bytes, self.source.read_bytes())
+
+    def test_bare_patch_refuses_wrong_identity_stage_unoffered_and_malformed_edits(self):
+        original = self.source.read_bytes()
+        variants = (
+            ("hash", {**self.patch["repair_report"], "sha256": "0" * 64}, {}),
+            ("stage", self.patch["repair_report"], {"stage": "terra_report_repair"}),
+            ("ordinary", self.patch["repair_report"], {"report_only": False}),
+            ("unoffered", self.patch["repair_report"], {"schema": str(self.schema)}),
+            ("extra", {**self.patch["repair_report"], "extra": "not a report"}, {}),
+            ("mixed", {**self.patch["repair_report"], "summary": "not a full report"}, {}),
+            ("mixed wrapper", {**self.patch, **self.patch["repair_report"]}, {}),
+            ("text", {"sha256": file_hash(self.source), "text_edits": []}, {}),
+            ("missing edits", {"sha256": file_hash(self.source)}, {}),
+            ("empty edits", {"sha256": file_hash(self.source), "edits": []}, {}),
+            ("malformed edits", {"sha256": file_hash(self.source), "edits": "not an array"}, {}),
+            (
+                "bad operation",
+                {
+                    "sha256": file_hash(self.source),
+                    "edits": [{"op": "invent", "path": ["extra"], "value_json": "null"}],
+                },
+                {},
+            ),
+            (
+                "bad value",
+                {
+                    "sha256": file_hash(self.source),
+                    "edits": [{"op": "remove", "path": ["extra"], "value_json": "invalid JSON"}],
+                },
+                {},
+            ),
+            ("overlap", {"sha256": file_hash(self.source), "edits": [self.patch["repair_report"]["edits"][0]] * 2}, {}),
+            (
+                "invalid result",
+                {
+                    "sha256": file_hash(self.source),
+                    "edits": [{"op": "replace", "path": ["summary"], "value_json": "false"}],
+                },
+                {},
+            ),
+        )
+        for label, value, changes in variants:
+            record = {**self.record, **changes, "output": str(self.root / (label + ".json"))}
+            Path(record["output"]).write_text(json.dumps(value))
+            with self.subTest(label=label), self.assertRaises(ValueError):
+                runner.load_stage_report(record)
+            self.assertEqual(original, self.source.read_bytes())
+        self.source.write_text("{}")
+        with self.assertRaisesRegex(ValueError, "Pinned rejected report changed"):
+            edits.expand(copy.deepcopy(self.patch["repair_report"]), self.record)
+
+    def test_bare_patch_requires_the_exact_offered_json_protocol(self):
+        original = json.loads(self.offered.read_text())
+        variants = []
+        for field, value in (("format", "text"), ("stage", "terra")):
+            schema = copy.deepcopy(original)
+            schema[edits.META][field] = value
+            variants.append(schema)
+        for change in (
+            lambda schema: schema.update(required=[]),
+            lambda schema: schema["properties"].update(extra={"type": "string"}),
+            lambda schema: schema["properties"]["repair_report"].update(anyOf=[]),
+            lambda schema: schema["properties"]["repair_report"]["anyOf"].__setitem__(0, None),
+            lambda schema: schema["properties"]["repair_report"]["anyOf"][0]["properties"].pop("edits"),
+            lambda schema: schema["properties"]["repair_report"]["anyOf"][0].update(required=[]),
+        ):
+            schema = copy.deepcopy(original)
+            change(schema)
+            variants.append(schema)
+        for index, schema in enumerate(variants):
+            self.offered.write_text(json.dumps(schema))
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                edits.expand(copy.deepcopy(self.patch["repair_report"]), self.record)
+
     def test_prepared_edit_values_have_a_provider_supported_type(self):
         schema = json.loads(self.offered.read_text())
         self.assertEqual(["repair_report"], schema["required"])

@@ -44,6 +44,7 @@ class DynamicDependenciesTests(unittest.TestCase):
         consumer = "tests.test_requirements_observations_cli"
         for path in (
             "tools/autocode_requirements_observations.py",
+            "tools/autocode_report_edits.py",
             "tools/autocode_repaired_result.py",
             "tools/autocode_requirements_handoff.py",
             "tools/autocode_job_source.py",

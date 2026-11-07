@@ -224,7 +224,10 @@ def apply(base, edits):
 
 def expand(value, record):
     """Expand only an offered, source-bound response; caller validates all semantics."""
-    if not isinstance(value, dict) or KEY not in value:
+    if not isinstance(value, dict):
+        return value
+    bare_patch = set(value) == {"sha256", "edits"}
+    if KEY not in value and not bare_patch:
         return value
     schema = json.loads(Path(record["schema"]).read_text())
     meta = schema.get(META)
@@ -232,10 +235,25 @@ def expand(value, record):
         raise ValueError("Report edits were not offered for this attempt")
     if str(record.get("stage", "")).removesuffix("_report_repair") != meta["stage"]:
         raise ValueError("Report edits belong to a different stage")
-    if set(value) != {KEY}:
+    if not bare_patch and set(value) != {KEY}:
         raise ValueError("Report edits cannot be mixed with a full report")
     offered = schema["properties"][KEY]
     branches = offered.get("anyOf") if isinstance(offered, dict) else None
+    if bare_patch:
+        if (
+            meta.get("format") != "json"
+            or schema.get("required") != [KEY]
+            or set(schema["properties"]) != {KEY}
+            or not isinstance(branches, list)
+            or len(branches) != 2
+            or not isinstance(branches[0], dict)
+            or set(branches[0].get("properties", {})) != {"sha256", "edits"}
+            or set(branches[0].get("required", [])) != {"sha256", "edits"}
+        ):
+            raise ValueError("Bare report edits require the offered JSON patch protocol")
+        # Normalize only the missing transport wrapper. The loader keeps the
+        # original raw response; every existing patch and full-report gate follows.
+        value = {KEY: value}
     if isinstance(branches, list) and len(branches) == 2:
         patch_schema = branches[0]
         try:
