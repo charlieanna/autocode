@@ -1,6 +1,7 @@
 """The full-screen chat's side panel, stage log and `/` commands, from status views alone."""
 
 import unittest
+from datetime import UTC, datetime
 
 import autocode_chat_panel as panel
 
@@ -71,6 +72,29 @@ class TaskProgressTests(unittest.TestCase):
         ):
             with self.subTest(current=current, task=task):
                 self.assertIsNone(panel.task_progress(current, task))
+
+
+class QuietTests(unittest.TestCase):
+    """The status row says how long since the working stage last wrote anything (chat.last_output_at)."""
+
+    NOW = datetime(2026, 11, 7, 9, 35, 0, tzinfo=UTC)
+
+    def shown(self, stamp):
+        return panel.quiet({"chat": {"last_output_at": stamp}}, self.NOW)
+
+    def test_a_writing_stage_says_when_it_last_wrote_and_a_quiet_one_is_a_warning(self):
+        self.assertEqual(("last output 12s ago", False), self.shown("2026-11-07T09:34:48+00:00"))
+        self.assertEqual(("last output 1m59s ago", False), self.shown("2026-11-07T09:33:01Z"))
+        self.assertEqual(("no output for 2m00s", True), self.shown("2026-11-07T09:33:00+00:00"))
+        self.assertEqual(("no output for 4m05s", True), self.shown("2026-11-07T09:30:55+00:00"))
+
+    def test_a_view_without_the_time_says_nothing_and_a_clock_ahead_reads_as_now(self):
+        self.assertIsNone(panel.quiet({}, self.NOW))
+        self.assertIsNone(panel.quiet({"chat": {"activity": []}}, self.NOW))
+        for malformed in ("", "soon", "2026-11-07T09:34:48", 12):
+            with self.subTest(stamp=malformed):
+                self.assertIsNone(self.shown(malformed))
+        self.assertEqual(("last output 0s ago", False), self.shown("2026-11-07T09:36:00+00:00"))
 
 
 class SectionTests(unittest.TestCase):

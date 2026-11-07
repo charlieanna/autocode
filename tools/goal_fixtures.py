@@ -245,11 +245,13 @@ def scripted_files_changed_code_rejections(data, files):
 
 
 def scripted_files_changed_code_reasons(data, files):
-    """The fake Tester's reasons for lines of the exact files its scripted Builder wrote that no mutant can reach.
+    """The fake Tester's reasons for exact scripted lines without complete mutation evidence.
 
-    Bound to the gap, the scripted bytes and the line, and only where the proof's collected
+    Ordinary reasons bind the gap, scripted bytes and line, and only where the proof's collected
     mutation check read those bytes and found no mutation site on the line: never for a file it
     did not script, other bytes than it wrote, or a line a mutant reached or could have reached.
+    The protected-link fixture additionally reviews one redundant assertion's exact surviving
+    mutant, pinned to its scripted source and both independently observed oracle tests.
     """
     proof = data.get("regression_proof") or {}
     mutation = proof.get("mutation_check") or {}
@@ -288,7 +290,64 @@ def scripted_files_changed_code_reasons(data, files):
                 "evidence_refs": [proof["path"], path],
             }
         )
-    return decisions
+    return decisions + _scripted_oracle_equivalence(proof, files, mutation)
+
+
+def _scripted_oracle_equivalence(proof, files, mutation):
+    """Review the exact protected-link fixture's redundant assertion, never arbitrary survivors."""
+    path = "shared/oracle.py"
+    oracle = (
+        "import unittest\nfrom layout import height\nclass Layout(unittest.TestCase):\n"
+        "    def test_required_height(self):\n        self.assertEqual(height(), 40)\n\n"
+        "    def test_positive_height(self):\n        self.assertGreater(height(), 0)\n"
+    )
+    if (
+        proof.get("verdict") != "PASS"
+        or files.get(path) != oracle
+        or files.get("test_layout.py") != oracle
+        or files.get("layout.py") != "def height():\n    return 40\n"
+    ):
+        return []
+    digest = hashlib.sha256(oracle.encode()).hexdigest()
+    required_tests = {"test_layout.Layout.test_required_height", "test_layout.Layout.test_positive_height"}
+    observed = any(
+        entry.get("path") == path
+        and entry.get("sha256") == digest
+        and any(
+            mutant.get("line") == mutant.get("end_line") == 8
+            and mutant.get("operator") == "drop_call"
+            and mutant.get("before") == "self.assertGreater(height(), 0)"
+            and mutant.get("after") == "None"
+            and mutant.get("outcome") == "survived"
+            and mutant.get("source_sha256") == digest
+            and mutant.get("failed_tests") == []
+            and required_tests.issubset(mutant.get("survived_tests") or [])
+            for mutant in entry.get("mutants") or []
+        )
+        for entry in mutation.get("files") or []
+    )
+    if not observed:
+        return []
+    return [
+        {
+            "gap_id": row["gap_id"],
+            "decision": "accept",
+            "reason_kind": "equivalent_mutant",
+            "reason": (
+                "The exact scripted protected oracle already asserts height() == 40 in "
+                "test_required_height, which implies height() > 0. The drop_call mutant removes "
+                "only this redundant positive-height assertion, not production behavior. Both "
+                "named test_layout tests passed independently under that exact mutant."
+            ),
+            "evidence_refs": [proof["path"], path],
+        }
+        for row in (proof.get("changed_code_evidence") or {}).get("obligations") or []
+        if row.get("path") == path
+        and row.get("sha256") == digest
+        and row.get("line") == 8
+        and row.get("status") == "reason_required"
+        and row.get("mutation_outcomes") == ["survived"]
+    ]
 
 
 def assert_operational_wait(test, state: RunState, pause_status):
