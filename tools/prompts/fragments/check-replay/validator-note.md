@@ -17,9 +17,19 @@ another successful command cannot replace them. Empty Python test bodies cannot 
 An explicit planned exit-code expectation is replayed as an assertion: a usage-error probe expected to exit 2
 must actually exit 2. Your reported checks in a PASS still need to exit 0 themselves.
 When the runner supplies a verification copy (including read-only Codex and configured-provider judging stages), capture commands execute
-in that copy of the current source, where generated test and build outputs can persist without dirtying
-the original repository. This copy does not itself impose an OS sandbox or protect existing inputs from
-your tools: keep source and tests unchanged. Receipts are still written
+in that copy of the current source. The copy does not itself impose an OS sandbox; the selected backend's
+containment still applies. In native Linux/Kilo containment the authenticated verification tree is
+read-only, including directories where a test may create fixtures. Keep source and tests unchanged.
+If a check writes beside source, create a fresh writable sibling under tool_containment.scratch INSIDE
+the captured command, copy the current source without .git or .autocode, and run the check there.
+Use a distinct CHECK_COPY for each check. Replace CHECK_COPY below with a shell-quoted absolute child
+of this stage's tool_containment.scratch and CHECK_COMMAND with the actual suite command. The full setup
+and check belong in one captured command so clean replay can reproduce them. Never relax the source
+protection or count a permission-denied setup as a passing check.
+```sh
+test ! -e CHECK_COPY && mkdir -p CHECK_COPY && tar --exclude=.git --exclude=.autocode -cf CHECK_COPY/source.tar . && tar -C CHECK_COPY -xf CHECK_COPY/source.tar && rm CHECK_COPY/source.tar && cd CHECK_COPY && CHECK_COMMAND
+```
+Receipts are still written
 to the --output path you give capture. Use repository-relative paths for product files. Each reported check must
 include its own setup (for example build and execute in the same command): clean replay does not retain
 artifacts from earlier checks. An execution in the prepared copy is still subject to clean-source replay.

@@ -633,13 +633,19 @@ class ChatClient:
                             continue
                     except KeyboardInterrupt:  # Ctrl-C again while the pause was being asked for
                         interrupts += 1
-                    if interrupts == 2:
-                        child.send_signal(signal.SIGINT)
-                        self.say("Interrupting the current step... Ctrl-C again stops AutoCode.")
-                    else:
-                        with contextlib.suppress(ProcessLookupError):
-                            os.killpg(child.pid, signal.SIGTERM)
-                        self.say("Stopping AutoCode...")
+                    if child.poll() is not None:
+                        continue  # The step finished while the key or pause request was being handled.
+                    try:
+                        if interrupts == 2:
+                            child.send_signal(signal.SIGINT)
+                            self.say("Interrupting the current step... Ctrl-C again stops AutoCode.")
+                        else:
+                            with contextlib.suppress(ProcessLookupError):
+                                os.killpg(child.pid, signal.SIGTERM)
+                            self.say("Stopping AutoCode...")
+                    except PermissionError as error:
+                        action = "interrupt the current step" if interrupts == 2 else "stop AutoCode"
+                        self.say(f"The operating system refused to {action}: {error}. Still watching the current step.")
             if interrupts > 2 and child.returncode not in (0, 2):
                 raise actions.ClientGap("stopped AutoCode in the middle of a step; `autocode chat` picks the run up")
             if child.returncode not in (0, 2):

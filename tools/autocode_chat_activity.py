@@ -6,6 +6,8 @@ the files it edits and the other tools it calls, newest last. It is display only
 never authority to approve or retry. Reasoning, model prose and tool output are never copied; a
 command is shown as its first line, bounded. Only the tail of the attempt's event file is read, and
 only a file inside the run directory. It is empty unless the attempt is the one supervised now.
+``view["chat"]["last_output_at"]`` (``last_output``) is when that file was last written, under the
+same guards: the one fact that tells a quiet stage from a busy one.
 
 Three event shapes are read, the ones the providers write: Codex-style items (also what the built-in
 Claude provider writes), and OpenCode or Kilo ``tool_use`` parts. A row of any other shape is ignored.
@@ -14,6 +16,7 @@ Claude provider writes), and OpenCode or Kilo ``tool_use`` parts. A row of any o
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -147,17 +150,40 @@ def read(path: Path, workspace=None) -> list[dict]:
     return list(events.values())[-LIMIT:]
 
 
-def project(state: RunState, public, run_dir, *, finished=False, stopped=False) -> list[dict]:
-    """The running attempt's recent events, or none unless it is supervised and working right now."""
+def events_file(state: RunState, public, run_dir, *, finished=False, stopped=False) -> Path | None:
+    """The event file of the attempt supervised and working right now, inside the run directory; else None."""
     if public.get("status") != "RUNNING" or (public.get("needs") or {}).get("kind") != "continue":
-        return []
+        return None
     active = state.get("active_stage") or {}
     if not isinstance(active, dict) or not active.get("events") or finished or stopped or run_dir is None:
-        return []
+        return None
     if (public.get("liveness") or {}).get("kind") != "supervised":
-        return []  # activity that cannot be confirmed is not shown
+        return None  # activity that cannot be confirmed is not shown
     root = Path(run_dir).resolve()
     path = Path(active["events"]).resolve()
-    if not path.is_relative_to(root):
+    return path if path.is_relative_to(root) else None
+
+
+def project(state: RunState, public, run_dir, *, finished=False, stopped=False) -> list[dict]:
+    """The running attempt's recent events, or none unless it is supervised and working right now."""
+    path = events_file(state, public, run_dir, finished=finished, stopped=stopped)
+    if path is None:
         return []
     return read(path, state.get("workspace") or public.get("workspace"))
+
+
+def last_output(state: RunState, public, run_dir, *, finished=False, stopped=False) -> str | None:
+    """When the running attempt last wrote to its event file (``chat.last_output_at``), as a UTC timestamp.
+
+    A stalled stage and a busy one look the same until one fails; this is the one fact that tells
+    them apart, under the same guards as ``project``: only the attempt supervised and working now,
+    only a file inside the run directory. It is the file's modification time, so it says when the
+    provider last emitted anything, not what; it is never proof of progress or a liveness decision."""
+    path = events_file(state, public, run_dir, finished=finished, stopped=stopped)
+    if path is None:
+        return None
+    try:
+        modified = path.stat().st_mtime
+    except OSError:
+        return None
+    return datetime.fromtimestamp(modified, UTC).isoformat(timespec="seconds")

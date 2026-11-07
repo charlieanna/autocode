@@ -1148,7 +1148,7 @@ class RepairTests(unittest.TestCase):
         self.assert_repair_blocked("PAUSED_STALE_VALIDATION")
 
     def test_report_byte_limit_accepts_complete_boundary_and_rejects_overflow(self):
-        self.assertEqual(128 * 1024, runner.REPAIR_REPORT_BYTES)
+        self.assertEqual(512 * 1024, runner.REPAIR_REPORT_BYTES)
         initial = copy.deepcopy(self.state)
         for format_, prefix, suffix in [("json", '{"summary":"', '"}'), ("text", "malformed: ", " :end")]:
             with self.subTest(format=format_):

@@ -168,6 +168,85 @@ class ScriptedBuilderFilesReasonsTests(unittest.TestCase):
                 self.assertEqual([], fixture.scripted_files_changed_code_reasons(changed, changed_files))
 
 
+class ScriptedOracleReasonTests(unittest.TestCase):
+    def setUp(self):
+        oracle = (
+            "import unittest\nfrom layout import height\nclass Layout(unittest.TestCase):\n"
+            "    def test_required_height(self):\n        self.assertEqual(height(), 40)\n\n"
+            "    def test_positive_height(self):\n        self.assertGreater(height(), 0)\n"
+        )
+        self.files = {
+            "shared/oracle.py": oracle,
+            "test_layout.py": oracle,
+            "layout.py": "def height():\n    return 40\n",
+        }
+        digest = hashlib.sha256(oracle.encode()).hexdigest()
+        self.row = {
+            "gap_id": "current-oracle-gap",
+            "path": "shared/oracle.py",
+            "sha256": digest,
+            "line": 8,
+            "status": "reason_required",
+            "mutation_outcomes": ["survived"],
+        }
+        self.mutant = {
+            "line": 8,
+            "end_line": 8,
+            "operator": "drop_call",
+            "before": "self.assertGreater(height(), 0)",
+            "after": "None",
+            "outcome": "survived",
+            "source_sha256": digest,
+            "failed_tests": [],
+            "survived_tests": [
+                "test_layout.Layout.test_required_height",
+                "test_layout.Layout.test_positive_height",
+            ],
+        }
+        self.data = {
+            "regression_proof": {
+                "path": "proof.json",
+                "verdict": "PASS",
+                "changed_code_evidence": {"obligations": [self.row]},
+                "mutation_check": {
+                    "collected": True,
+                    "files": [{"path": "shared/oracle.py", "sha256": digest, "mutants": [self.mutant]}],
+                },
+            }
+        }
+
+    def test_exact_scripted_redundant_oracle_assertion_gets_an_equivalence_reason(self):
+        decisions = fixture.scripted_files_changed_code_reasons(self.data, self.files)
+        self.assertEqual(["current-oracle-gap"], [row["gap_id"] for row in decisions])
+        self.assertEqual("equivalent_mutant", decisions[0]["reason_kind"])
+        self.assertIn("height() == 40", decisions[0]["reason"])
+        self.assertEqual(["proof.json", "shared/oracle.py"], decisions[0]["evidence_refs"])
+
+    def test_other_source_gaps_mutants_or_unobserved_tests_get_no_oracle_reason(self):
+        for change in (
+            lambda: self.files.pop("shared/oracle.py"),
+            lambda: self.files.update({"shared/oracle.py": self.files["shared/oracle.py"] + "\n"}),
+            lambda: self.files.update({"test_layout.py": "other tests"}),
+            lambda: self.files.update({"layout.py": "def height():\n    return 20\n"}),
+            lambda: self.data["regression_proof"].update(verdict="FAIL"),
+            lambda: self.data["regression_proof"]["mutation_check"].update(collected=False),
+            lambda: self.row.update(path="other.py"),
+            lambda: self.row.update(sha256="0" * 64),
+            lambda: self.row.update(line=7),
+            lambda: self.row.update(status="tested"),
+            lambda: self.row.update(mutation_outcomes=["not_run"]),
+            lambda: self.mutant.update(operator="constant_return"),
+            lambda: self.mutant.update(before="other assertion"),
+            lambda: self.mutant.update(after="False"),
+            lambda: self.mutant.update(source_sha256="0" * 64),
+            lambda: self.mutant.update(failed_tests=["test_layout.Layout.test_required_height"]),
+            lambda: self.mutant.update(survived_tests=["test_layout.Layout.test_positive_height"]),
+        ):
+            self.setUp()
+            change()
+            self.assertEqual([], fixture.scripted_files_changed_code_reasons(self.data, self.files))
+
+
 def rows_of(data):
     return data["regression_proof"]["changed_code_evidence"]["obligations"]
 
