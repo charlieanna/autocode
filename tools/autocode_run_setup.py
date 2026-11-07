@@ -335,7 +335,7 @@ def resolve(runner, args, parser):
             if args.dry_run or args.status or args.explain:
                 parser.error(f"workspace is not a Git repository: {workspace}")
             try:
-                workspace = task_workspaces.bootstrap(workspace, task)
+                workspace = task_workspaces.bootstrap(workspace)
             except ValueError as error:
                 parser.error(str(error))
             # A new task project is already private to this task. Avoid a

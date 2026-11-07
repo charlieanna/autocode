@@ -18,6 +18,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A chat started in a folder that is not a Git repository no longer creates a visible project before
+  anything is built. It used to create `autocode-projects/<first words>-<id>` at the first message, so a
+  "hi" left a project named `hi-…` behind. The work now starts in a private project in the folder's own
+  `.autocode/projects/`; when a build or bug fix completes, AutoCode delivers it to a named project folder
+  there (a Git repository on `main`, named from the approved plan) and says where in the chat. A later
+  turn of the chat updates that folder when it has no changes of its own. Older `autocode-projects/`
+  projects keep working.
 - A report-only repair that omits only its offered JSON patch wrapper can reuse the exact source-bound
   edits, while retaining the raw response and all existing report, evidence and approval checks.
 - At a question with options, the terminal chat no longer sends a reply such as `Option 1, because …`

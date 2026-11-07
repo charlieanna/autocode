@@ -61,6 +61,7 @@ try:
     from . import autocode_launch_inputs as launch_inputs, autocode_parent_boundary as parent_boundary  # noqa: F401 - compatibility API
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_check_refs as check_refs, autocode_planning_metadata as planning_metadata, autocode_preflight_attempts as preflight_attempts, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_json_output as json_output, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_report_edits as report_edits, autocode_provider_report_schema as provider_report_schema, autocode_receipt_repair_context as receipt_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
+    from . import autocode_project_delivery as project_delivery
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
     from . import autocode_run_status as run_status, autocode_report_repair_queue as report_repair_queue, autocode_rejection_route as rejection_route, autocode_review_effort as review_effort, autocode_route_fit as route_fit, autocode_report_identity as report_identity
     from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
@@ -92,6 +93,7 @@ except ImportError:
     import autocode_investigation_progress as investigation_progress
     import autocode_agent_env as agent_env
     import autocode_worktrees as worktrees  # noqa: F401 - compatibility API
+    import autocode_project_delivery as project_delivery
     import autocode_util as util
     import autocode_stray_writes as stray_writes
     import autocode_event_log as event_log  # noqa: F401 - compatibility API
@@ -1789,10 +1791,9 @@ def rotate_if_needed(state: RunState, role, run_dir, *, persist=None):
 
 
 def print_completion(state: RunState, args, workspace, run_dir):
-    """Deliver a completed task worktree, then print the outcome: with ``--json``,
-    the same payload ``--status`` prints; otherwise the human completion summary.
-    Delivery runs in both modes — it commits the branch, it is not just text."""
-    delivery = worktrees.deliver(state, workspace)
+    """Deliver a completed task worktree or scratch project, then print the outcome (``--json``: the
+    ``--status`` payload; else the completion summary). Delivery commits in both modes, it is not just text."""
+    delivery = worktrees.deliver(state, workspace) + project_delivery.deliver(state, workspace)
     if getattr(args, "json", False):
         json_output.status(sys.modules[__name__], state, args, workspace, run_dir)
     else:

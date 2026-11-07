@@ -252,12 +252,12 @@ class RelocatedDestinationCliTests(unittest.TestCase):
             str(self.requested),
         )
         self.assertEqual(2, code, stdout + stderr)
-        projects = [path for path in (self.plain / "autocode-projects").iterdir() if path.is_dir()]
+        projects = [path for path in (self.plain / ".autocode" / "projects").iterdir() if path.is_dir()]
         self.assertEqual(1, len(projects), stdout + stderr)
         project = projects[0]
         run_dir = project / ".autocode" / "runs" / self.requested.name
         self.assertTrue((run_dir / "state.json").is_file(), stdout + stderr)
-        self.assertFalse((self.plain / ".autocode").exists(), "the selected folder stays untouched")
+        self.assertFalse((self.plain / ".autocode" / "runs").exists(), "the named destination is never created")
 
         code, stdout, stderr = self.invoke("--status", "--workspace", str(self.plain), "--run-dir", str(self.requested))
         self.assertEqual(0, code, stderr)

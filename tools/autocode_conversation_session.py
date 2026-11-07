@@ -15,12 +15,14 @@ try:
     from . import autocode_controller_isolation as isolation
     from . import autocode_conversation as protocol
     from . import autocode_conversation_policy as policy
+    from . import autocode_scratch_projects as scratch_projects
     from . import autocode_util as util
     from . import autocode_workspaces as workspaces
 except ImportError:
     import autocode_controller_isolation as isolation
     import autocode_conversation as protocol
     import autocode_conversation_policy as policy
+    import autocode_scratch_projects as scratch_projects
     import autocode_util as util
     import autocode_workspaces as workspaces
 
@@ -51,7 +53,7 @@ def _saved_workspace(selected, saved):
     if (
         not workspace.is_absolute()
         or workspace != workspace.resolve()
-        or (workspace != selected and workspace.parent != selected / "autocode-projects")
+        or (workspace != selected and not scratch_projects.holds(selected, workspace))
     ):
         raise ValueError("Saved conversation workspace is not the selected project or its bootstrap child")
     return workspace
@@ -98,7 +100,7 @@ def _creation_workspace(driver_class, selected, text, saved, markers):
             selected
             if (selected / ".git").exists()
             else _refused_project(driver_class, selected, markers, protocol.digest(text))
-            or workspaces.bootstrap(selected, text)
+            or workspaces.bootstrap(selected)
         )
     else:
         workspace = _saved_workspace(selected, saved)
@@ -153,7 +155,8 @@ def start(
     )
     marker = selected / ".autocode" / "conversation-starts" / (protocol.digest(request_id) + ".json")
     protocol._safe_file(selected, marker)
-    protocol._safe_file(selected, selected / "autocode-projects")
+    for projects in scratch_projects.roots(selected):
+        protocol._safe_file(selected, projects)
     with _creation_lock(selected):
         saved = policy.read_record(marker, marker.parent) if marker.exists() else None
         if saved is not None and saved["binding"] != binding:
