@@ -88,6 +88,9 @@ The successful sample also stops at the completion gate until demo acceptance of
 the artifact is recorded. These automatic approvals apply only to the new demo
 project.
 
+Token and cost figures shown when inspecting the demo's run status are simulated;
+they do not represent charges.
+
 The command prints the run directory, canonical evidence record and `demo.json`,
 and keeps every output inside its new directory. To choose where it goes, use
 `autocode demo --directory /path/to/new-demo`; the directory must not exist.
@@ -820,10 +823,17 @@ each with its state (`✓` done, `●` working, `↻` on a later attempt, `✗` 
 time, its accounted cost, which attempt it is on (a report repair counts as the repaired stage's next attempt;
 a stage that ran again after succeeding, such as a second review round, says how many times it ran), and on a second row the model and
 reasoning level it ran on and the tokens it used (`+` when some usage is unreported).
-The footer and optional side panel carry the run's accounted total; with more
+The footer and optional side panel carry the run's accounted total and how long its
+stages have worked in all (`worked 42m05s`: every attempt's own duration added together,
+the working one counted to now, time waiting for a person left out); with more
 than one chat open the header adds a session total over the open chats, leaving out
 what a run restored from a saved step carried over. A stage on its second attempt or
-later after one that did not succeed takes the status row, with that attempt's reason. In a
+later after one that did not succeed takes the status row, with that attempt's reason
+and, when the core reports it (`progress.retry`), how many more failures it allows
+before the stage stops: `2 tries left`, `last try`. While a supervised stage works, the
+status row also says when it last wrote anything (`last output 12s ago`, from
+`chat.last_output_at`) and, after two minutes of silence, warns `no output for 4m05s`:
+the one cue that tells a stalled stage from a busy one before it fails. In a
 total, `+` marks the figure that is a floor: `$0.42+` when some cost is unaccounted,
 `184k+ tokens` when some usage is unreported.
 These come from the view's `usage.accounting.attempts` and `cost`. The Usage summary

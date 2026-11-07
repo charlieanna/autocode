@@ -203,6 +203,20 @@ def recent_rejection(state: RunState, stage):
     return entry
 
 
+def episode(state: RunState, stage) -> dict | None:
+    """The failure run ``stage`` is in now, for the status view (``progress.retry``): how many
+    attempts in a row have failed the same way and how many such failures stop the stage.
+
+    Display facts from the ledger alone: ``failures`` is the streak the newest unresolved failure of
+    the stage carries, ``limit`` is ``REPEAT_THRESHOLD``. None once a later outcome of the stage
+    ends the run of failures, or when it never failed. Reads nothing else and grants no retry."""
+    entry = recent_rejection(state, stage)
+    if not entry:
+        return None
+    streak = entry.get("streak", entry.get("count", 0))
+    return {"failures": streak if type(streak) is int and streak > 0 else 0, "limit": REPEAT_THRESHOLD}
+
+
 def repeated(state: RunState, stage_record):
     failure_key = stage_record.get("failure_key")
     entry = (state.get("failure_history") or {}).get(failure_key)

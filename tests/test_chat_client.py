@@ -2193,6 +2193,59 @@ class AdvancingDiagnosticTests(unittest.TestCase):
 class InterruptTests(unittest.TestCase):
     """Ctrl-C while a stage works, against a real child that stands in for AutoCode."""
 
+    def fake_interrupts(self, presses, *, denied=False, exits_on_last=False):
+        client = ScriptedChat({"status": "RUNNING"})
+        self.addCleanup(client.close)
+        client.workspace = ROOT
+        client.viewed.add(str(client.run_dir))
+        child = mock.Mock(pid=12345, returncode=None)
+        child.poll.side_effect = lambda: child.returncode
+        shown = []
+
+        def show(view):
+            shown.append(view)
+            self.assertLessEqual(len(shown), presses + 1, "the client did not observe the child's exit")
+            if len(shown) <= presses:
+                if exits_on_last and len(shown) == presses:
+                    child.returncode = 2
+                raise KeyboardInterrupt
+            child.returncode = 2
+
+        refusal = PermissionError(1, "Operation not permitted") if denied else None
+        if presses == 2:
+            child.send_signal.side_effect = refusal
+        with (
+            mock.patch.object(chat.subprocess, "Popen", return_value=child),
+            mock.patch.object(client, "show", side_effect=show),
+            mock.patch.object(client, "check_others"),
+            mock.patch.object(client, "request_pause", return_value=True),
+            mock.patch.object(chat.os, "killpg", side_effect=refusal) as kill,
+        ):
+            client.advance(["--resume-paused"])
+        return client, child, kill, shown
+
+    def test_denied_interrupt_or_stop_keeps_observing_the_child_until_it_exits(self):
+        for presses in (2, 3):
+            with self.subTest(presses=presses):
+                client, child, kill, shown = self.fake_interrupts(presses, denied=True)
+                self.assertEqual(presses + 1, len(shown))
+                self.assertEqual(2, child.returncode)
+                action = "interrupt the current step" if presses == 2 else "stop AutoCode"
+                self.assertIn(f"operating system refused to {action}", client.text())
+                self.assertIn("Still watching the current step", client.text())
+                self.assertNotIn("Stopping AutoCode...", client.text())
+                child.send_signal.assert_called_once_with(chat.signal.SIGINT)
+                self.assertEqual(int(presses == 3), kill.call_count)
+                if presses == 3:
+                    kill.assert_called_once_with(child.pid, chat.signal.SIGTERM)
+
+    def test_stop_key_after_the_child_exits_does_not_signal_its_old_group(self):
+        client, child, kill, shown = self.fake_interrupts(3, exits_on_last=True)
+        self.assertEqual(2, child.returncode)
+        self.assertEqual(3, len(shown))
+        kill.assert_not_called()
+        self.assertNotIn("Stopping AutoCode...", client.text())
+
     def watch(self, child_code, interrupts, *, pause=None):
         """Advance with ``child_code`` as AutoCode; each of the first ``interrupts`` polls is a Ctrl-C."""
         with tempfile.TemporaryDirectory() as folder:

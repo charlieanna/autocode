@@ -643,6 +643,45 @@ class GuidanceTests(unittest.TestCase):
                 stuck.retire(state, "PAUSED_REPEATED_FAILURE")
                 self.assertNotIn("stuck_investigation", state)
 
+    def test_checkpoint_and_budget_holds_keep_the_pending_retry_guidance(self):
+        # Live run: --pause-after-stage saved an Investigator report, then the milestone
+        # budget stopped the retry. Both holds discarded the very advice the retry needed.
+        for pause in (
+            "PAUSED_REQUESTED",
+            "PAUSED_MILESTONE_BUDGET",
+            "PAUSED_PLANNING_BUDGET",
+            "PAUSED_TIME_LIMIT",
+            "PAUSED_COST_LIMIT",
+            "PAUSED_ITERATION_LIMIT",
+        ):
+            with self.subTest(pause=pause):
+                state = self.in_force("terra")
+                before = copy.deepcopy(state)
+
+                def hold(current):
+                    raise Paused(pause, "No stage launched")
+
+                with self.assertRaises(Paused) as caught:
+                    stuck.drive(
+                        state,
+                        lambda *_: self.fail("A held retry must not launch"),
+                        before=hold,
+                        active=lambda s: s["status"] == "RUNNING",
+                        skip=object(),
+                        paused=Paused,
+                        investigate=True,
+                    )
+                self.assertEqual(pause, caught.exception.status)
+                self.assertEqual(before, state, "A hold must not renew retry authority or change limits")
+                prompt = stuck.with_guidance(state, "terra", self.request()).prompt
+                self.assertIn("Cite docs/bugs/cent-drift.json exactly", prompt)
+                self.assertLess(prompt.index("INVESTIGATOR GUIDANCE"), prompt.index("CURRENT HANDOFF DATA"))
+
+                state["source_snapshot"] = {"revision": "changed-after-pause"}
+                stuck.retire(state, pause)
+                self.assertEqual(self.request(), stuck.with_guidance(state, "terra", self.request()))
+                self.assertNotIn("stuck_investigation", state)
+
     def test_replanning_does_not_replay_obsolete_report_instructions_or_diagnoses(self):
         for change in (
             {"goal_contract": {"revision": 5, "hash": "new-contract"}},

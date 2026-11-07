@@ -175,12 +175,17 @@ def _covered(sentence, quotes, *, spans=False):
     """
     normalized = requirement_coverage_text(sentence)
     bare = normalized.removesuffix(".")
+    # A short sentence such as "B." must not match the B inside "Builders".
+    # Keep punctuation-ended quotes usable, but never cut through a word.
+    start = r"(?<!\w)" if re.match(r"\w", bare) else ""
+    end = r"(?!\w)" if re.search(r"\w$", bare) else ""
+    pattern = start + re.escape(bare) + end
     for raw in quotes:
         quote = requirement_coverage_text(str(raw))
         if not quote:
             continue
         clipped = quote.removesuffix(".")
-        if bare in clipped or bare == clipped or normalized in quote:
+        if re.search(pattern, clipped):
             return True
         if spans and len(clipped) >= 12 and (clipped in bare or quote in normalized):
             return True
