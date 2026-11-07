@@ -1487,7 +1487,7 @@ class RetrofitTest(unittest.TestCase):
             (self.state["next_stage"], self.state["phase"], self.state["status"]),
         )
 
-    def test_automatic_timeout_recovery_keeps_execution_routing(self):
+    def test_automatic_timeout_recovery_retries_missing_read_only_tester_report(self):
         before = s.snapshot(self.root)
         base = self.run / "iterations/005/sol-01"
         base.parent.mkdir(parents=True)
@@ -1508,7 +1508,8 @@ class RetrofitTest(unittest.TestCase):
         }
         error = s.Paused("PAUSED_PROVIDER_TIMEOUT", "timed out")
         self.assertTrue(runner.automatically_recover_timed_out_stage(self.state, self.run, self.root, error))
-        self.assertEqual(("astra_review", "EXECUTING"), (self.state["next_stage"], self.state["phase"]))
+        self.assertEqual(("sol", "EXECUTING"), (self.state["next_stage"], self.state["phase"]))
+        self.assertIn("no accepted Tester report", self.state["recovery_context"]["instruction"])
 
     def test_automatic_external_directory_denial_retries_workspace_only(self):
         before = s.snapshot(self.root)
