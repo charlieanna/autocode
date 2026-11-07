@@ -6,6 +6,7 @@ offered gap, source pin and cited runner proof.
 """
 
 import hashlib
+import json
 from pathlib import Path
 
 STOCK_SOURCE = "ab756c8dc262940703efb13321038874624b89f55bb946bd403897e22da7b9d0"
@@ -716,7 +717,90 @@ def _outbox(data, root):
     return _lifecycle(data, root, "outbox/__init__.py", {OUTBOX_SOURCE: OUTBOX_REASONS}, OUTBOX_TESTS)
 
 
-def judgments(data, root=None):
+PACKAGE_GREETING_SOURCE = "packages/greet/greet.py"
+PACKAGE_GREETING_FORMAL_TESTS = "packages/greet/test_formal.py"
+PACKAGE_GREETING_PINS = {
+    PACKAGE_GREETING_SOURCE: "a7089633b93f8f06dbbf60cbdca7f1353ee31c4ef39f22b0c5a356340bb1f65c",
+    PACKAGE_GREETING_FORMAL_TESTS: "bac738a28d46b0f6ebe37fd98e54b394264683b1f4e093b968960ea101e5b4bd",
+    "packages/greet/test_greet.py": "b85001e0ea295ae59bd645e1eca0f268ac3e7ef64327530bd651fcf950dac2e8",
+}
+
+
+def _package_greeting(data, root, producer):
+    """The configured reference-copy Builder owns this exact signature and tests."""
+    if (
+        not isinstance(producer, dict)
+        or not isinstance(producer.get("reference"), str)
+        or producer.get("check") != "cd packages/greet && python3 -m unittest discover -v"
+        or producer.get("turn_paths")
+        or not isinstance(producer.get("paths"), list)
+        or not all(isinstance(path, str) for path in producer["paths"])
+        or not {PACKAGE_GREETING_SOURCE, PACKAGE_GREETING_FORMAL_TESTS} <= set(producer["paths"])
+    ):
+        return []
+    try:
+        reference = Path(producer["reference"]).resolve()
+        if reference.is_relative_to(root.resolve()):
+            return []  # Workspace bytes cannot claim to be the Builder's producer.
+        for name in (PACKAGE_GREETING_SOURCE, PACKAGE_GREETING_FORMAL_TESTS):
+            path = reference / name
+            if (
+                path.is_symlink()
+                or not path.resolve(strict=True).is_relative_to(reference)
+                or hashlib.sha256(path.read_bytes()).hexdigest() != PACKAGE_GREETING_PINS[name]
+            ):
+                return []
+        workspace = root.resolve(strict=True)
+        for name, pin in PACKAGE_GREETING_PINS.items():
+            path = root / name
+            if (
+                path.is_symlink()
+                or not path.resolve(strict=True).is_relative_to(workspace)
+                or hashlib.sha256(path.read_bytes()).hexdigest() != pin
+            ):
+                return []
+    except (OSError, RuntimeError):
+        return []
+    proof = data.get("regression_proof") or {}
+    assessment = proof.get("changed_code_evidence") or {}
+    source_revision, proof_context = assessment.get("source_revision"), assessment.get("proof_context")
+    if (
+        not isinstance(proof.get("path"), str)
+        or not proof["path"].strip()
+        or not all(isinstance(value, str) and value for value in (source_revision, proof_context))
+    ):
+        return []
+    pin = PACKAGE_GREETING_PINS[PACKAGE_GREETING_SOURCE]
+    identity = [source_revision, proof_context, PACKAGE_GREETING_SOURCE, pin, 8]
+    gap = "changed-code:" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+    rows = [
+        row
+        for row in assessment.get("obligations") or []
+        if isinstance(row, dict)
+        and row.get("status") == "reason_required"
+        and row.get("path") == PACKAGE_GREETING_SOURCE
+        and row.get("sha256") == pin
+        and type(row.get("line")) is int
+        and row["line"] == 8
+        and row.get("gap_id") == gap
+        and row.get("mutation_outcomes") == []
+    ]
+    if len(rows) != 1:
+        return []
+    return [
+        {
+            "gap_id": gap,
+            "decision": "accept",
+            "reason_kind": "instrumentation_unavailable",
+            "reason": "This exact scripted function signature has no supported mutation site. "
+            "TestFormal.test_formal_greeting asserts both the omitted formal=False default returning Hello, Ada "
+            "and explicit formal=True returning Good day, Ada.; the CLI flag-position tests assert both argv forms.",
+            "evidence_refs": [proof["path"], PACKAGE_GREETING_SOURCE],
+        }
+    ]
+
+
+def judgments(data, root=None, *, producer=None):
     root = Path.cwd() if root is None else Path(root)
     return (
         _stock(data, root)
@@ -730,6 +814,7 @@ def judgments(data, root=None):
         + _leasequeue(data, root)
         + _outbox(data, root)
         + _csvcheck(data, root)
+        + _package_greeting(data, root, producer)
     )
 
 
@@ -860,7 +945,8 @@ def _greeting(data, root):
                     "evidence_refs": [
                         proof["path"],
                         "greet.py",
-                        *(capture if lines[line - 1].strip() == "print(greet(argv[0]))" else []),
+                        # Entrypoint guards stay unmutated as call and assignment coverage grows.
+                        *(capture if lines[line - 1].strip() == 'if __name__ == "__main__":' else []),
                     ],
                 }
             )
