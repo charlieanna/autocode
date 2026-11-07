@@ -74,14 +74,14 @@ def send_back(state: RunState, record, error) -> bool:
         return False
     earlier = [
         row
-        for row in state.get(KEY) or []
+        for row in state.get("planned_check_reworks") or []
         if row.get("command") == command and all(row.get(key) == value for key, value in binding.items())
     ]
     if len(earlier) >= ROUNDS or any(row.get("source_revision") == revision for row in earlier):
         return False
     state.pop("pending_report_repair", None)  # the source, not a repaired report, settles this refusal
     state["iteration"] += 1
-    state.setdefault(KEY, []).append(
+    state.setdefault("planned_check_reworks", []).append(
         {
             **binding,
             "command": command,
@@ -111,7 +111,7 @@ def owns_builder_round(state: RunState, revision) -> bool:
 
     A recovery packet the current task came from does not own that round, and ``ROUNDS`` bounds it.
     """
-    rows = state.get(KEY) or []
+    rows = state.get("planned_check_reworks") or []
     last = rows[-1] if rows else {}
     return (
         isinstance(last, dict)

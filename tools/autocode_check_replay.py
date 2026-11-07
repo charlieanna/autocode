@@ -405,7 +405,8 @@ def replay(
             )
             + (RUN_FILES_HINT if ".autocode" in row["command"] else "")
         )
-        failure.command, failure.tail = row["command"], row["tail"]  # read by autocode_planned_check_rework
+        if isinstance(failure, PlannedCheckFailure):
+            failure.command, failure.tail = row["command"], row["tail"]  # read by autocode_planned_check_rework
         raise failure
     if refuted and not keep_lifecycle_failure:
         raise refuted
