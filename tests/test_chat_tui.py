@@ -748,12 +748,7 @@ class SmallTerminalTests(unittest.TestCase):
                 self.assertTrue(all(len(text) <= cols - 1 for _, text in shown))
                 self.assertTrue(all(line < rows for line, _ in shown))
                 words = " ".join(text for _, text in sorted(shown)).split()
-                self.assertEqual(
-                    f"Terminal too small for the chat. Make it at least 32 columns wide and 12 rows tall (now {cols}x{rows}).".split()[
-                        : len(words)
-                    ],
-                    words,
-                )
+                self.assertEqual(f"Terminal too small: need 32 columns, 12 rows; now {cols}x{rows}.".split(), words)
 
 
 class StatusLineTests(unittest.TestCase):
@@ -835,16 +830,17 @@ class PlanningCorrectionTests(unittest.TestCase):
 
 
 class PauseHintTests(unittest.TestCase):
-    def hints(self, *, coordinated=False, attached=False):
+    def hints(self, *, coordinated=False, attached=False, asking=False, cols=180):
         ui = screen_ui()
         view = {"progress": {"line": "Working"}}
         if coordinated:
             view["coordination"] = {"cancel_command": ["autocode", "coordinate", "cancel"]}
         ui.observe(view)
+        ui._asking = asking
         drawn = []
         ui._put = lambda row, col, text, attr=0: drawn.append(text)
         with mock.patch.object(ui, "_can_detach", return_value=attached):
-            layout = ui._layout(40, 180)
+            layout = ui._layout(40, cols)
             ui._question_or_status(layout)
             ui._hints(layout)
         return "\n".join(drawn)
@@ -862,6 +858,32 @@ class PauseHintTests(unittest.TestCase):
         self.assertIn("ctrl-c asks AutoCode to pause after this step", self.hints())
         self.assertIn("ctrl-c asks for a boundary pause", self.hints(attached=True))
         self.assertNotIn("cancel", self.hints())
+
+    def test_narrow_footer_keeps_navigation_and_the_boundary_action_visible(self):
+        for cols in (32, 40):
+            with self.subTest(cols=cols):
+                footer = self.hints(cols=cols)
+                self.assertIn("/ commands", footer)
+                self.assertIn("^C pause", footer)
+                self.assertNotIn("Requirements", footer)
+
+    def test_narrow_detach_coordination_and_question_actions_fit(self):
+        for cols in (32, 40):
+            with self.subTest(cols=cols, state="detach"):
+                footer = self.hints(attached=True, cols=cols)
+                self.assertIn("^D detach", footer)
+                self.assertIn("^C pause", footer)
+                self.assertLessEqual(tui.display_width(footer.splitlines()[-1]), cols - 3)
+            with self.subTest(cols=cols, state="coordination"):
+                footer = self.hints(coordinated=True, cols=cols)
+                self.assertIn("^C cancel", footer)
+                self.assertNotIn("pause", footer)
+                self.assertLessEqual(tui.display_width(footer.splitlines()[-1]), cols - 3)
+            with self.subTest(cols=cols, state="question"):
+                footer = self.hints(asking=True, cols=cols)
+                self.assertIn("history", footer)
+                self.assertIn("quit", footer)
+                self.assertLessEqual(tui.display_width(footer.splitlines()[-1]), cols - 3)
 
 
 class HistoryFileTests(unittest.TestCase):

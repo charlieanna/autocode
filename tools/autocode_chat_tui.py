@@ -77,10 +77,7 @@ MIN_ROWS, MIN_COLS = 12, 32  # below either the chat cannot be drawn
 
 
 def too_small(rows: int, cols: int) -> str:
-    return (
-        f"Terminal too small for the chat. Make it at least {MIN_COLS} columns wide"
-        f" and {MIN_ROWS} rows tall (now {cols}x{rows})."
-    )
+    return f"Terminal too small: need {MIN_COLS} columns, {MIN_ROWS} rows; now {cols}x{rows}."
 
 
 LIVE_SHARE = 0.45  # of the conversation's rows the live log takes
@@ -2275,7 +2272,32 @@ class ChatTUI:
         )
         stage = stage.strip() if isinstance(stage, str) else ""
         status = " · ".join(value for value in (stage, self._spend()) if value)
-        if status:
+        # At narrow widths the stage already appears on the status row. Keep the
+        # navigation and boundary action visible instead of letting a stage/cost
+        # prefix push them past the right edge of the footer.
+        if layout.width < 72:
+            if layout.width < 48:
+                if self._asking:
+                    hints = "/ · ↑↓ history · ^D quit"
+                elif self._can_detach():
+                    hints = "/ · ^D detach · ^C pause"
+                elif self._view and self._view.get("coordination"):
+                    hints = "/ commands · ^C cancel"
+                elif self._view is None:
+                    hints = "/ commands · reading"
+                else:
+                    hints = "/ commands · ^C pause"
+            elif self._asking:
+                hints = "/ commands · ↑↓ history · ctrl-d quit"
+            elif self._can_detach():
+                hints = "/ commands · ctrl-d detach · ctrl-c pause"
+            elif self._view and self._view.get("coordination"):
+                hints = "/ commands · ctrl-c cancel after step"
+            elif self._view is None:
+                hints = "/ commands · reading run status"
+            else:
+                hints = "/ commands · ctrl-c pause after step"
+        elif status:
             hints = status + " · " + hints
         self._put(layout.hints_row, 2, truncate(hints, layout.width - 2), self._style("plain"))
         right = "AutoCode"
