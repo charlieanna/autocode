@@ -507,8 +507,37 @@ class ChatScreenTests(unittest.TestCase):
         screen.keys("Enter")
         screen.wait_for("Approve this plan", RUN_SECONDS)
         screen.type("/")
-        shown = screen.wait_for("/plan", what="the run's command menu")
+        # tmux can capture a partially drawn menu: its first entry alone is
+        # not evidence that the count row below it has reached the terminal.
+        more = r"↓ \d+ more; ↑↓ chooses"
+        shown = screen.wait_for(
+            lambda shown: "/plan" in shown and re.search(more, shown),
+            what="the run's command menu and hidden-command count",
+        )
         self.assertRegex(shown, r"↓ \d+ more; ↑↓ chooses", "a cut menu names its hidden commands")
+        screen.keys("Up")  # wrap to the last command; the menu window follows
+        above = r"↑ \d+ above; ↑↓ chooses"
+        screen.wait_for(
+            lambda shown: "/quit" in shown and re.search(above, shown),
+            what="the last command and the count above the scrolled menu",
+        )
+        screen.resize(40, 14)
+        screen.wait_for(
+            lambda shown: (
+                len(shown.splitlines()) == 14 and fits(shown, 40) and "/plan" in shown and re.search(more, shown)
+            ),
+            what="the menu and its count redrawn at 40x14",
+        )
+        screen.keys("Up")
+        screen.wait_for(
+            lambda shown: "/quit" in shown and re.search(above, shown) and fits(shown, 40),
+            what="the last command and count above the narrow scrolled menu",
+        )
+        screen.keys("Down")  # wrap back to the first command at narrow width
+        screen.wait_for(
+            lambda shown: "/plan" in shown and re.search(more, shown) and fits(shown, 40),
+            what="the first command and hidden-command count at narrow width",
+        )
 
     def test_a_resize_redraws_the_whole_screen(self):
         screen = self.chat(cols=120, rows=34)
