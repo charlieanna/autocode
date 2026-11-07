@@ -2,43 +2,23 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import os
 import re
 import shlex
+import subprocess
+import sys
+import uuid
 from pathlib import Path
 
-# Capture inherits the stage's source/attempt context and verification-copy environment.
-# Every inner CLI prints its complete receipt and attestation; the outer tool retains both.
-SCRIPT = """import json,os,re,subprocess,sys,uuid
-from pathlib import Path
-plan=json.loads(sys.argv[1])
-directory=Path(plan['directory'])
-control=os.environ.get('AUTOCODE_TOOL_CONTAINMENT_ID')
-if control is not None:
-    scratch=Path(os.environ.get('TMPDIR',''))
-    manifest=os.environ.get('AUTOCODE_VERIFICATION_COPY')
-    valid=re.fullmatch('tool-containment-[0-9a-f]{32}',control) is not None and scratch.is_absolute()
-    expected=Path.cwd()/'.autocode'/control/'scratch'
-    try:
-        valid=valid and scratch==expected and scratch.resolve(strict=True)==scratch and scratch.is_dir()
-        valid=valid and manifest==str(scratch.parent/'verification-copy.json')
-        valid=valid and Path(manifest).is_file() and not Path(manifest).is_symlink()
-        valid=valid and bool(os.environ.get('AUTOCODE_VERIFICATION_COPY_SHA256'))
-    except OSError:
-        valid=False
-    if not valid:
-        sys.exit('Prepared capture batch requires the current native scratch directory')
-    directory=scratch
-prefix=str(directory)+'/ready-'+uuid.uuid4().hex
-codes=[]
-for index,command in enumerate(plan['commands'],1):
-    receipt=prefix+'-'+str(index)+'.json'
-    result=subprocess.run(plan['capture']+['--output',receipt,'--']+command)
-    codes.append(result.returncode)
-    print(json.dumps({'command':command,'exit_code':result.returncode,'evidence_ref':receipt}),flush=True)
-sys.exit(1 if any(codes) else 0)
-"""
+# The plan is data, never shell/Python source. Keep the tool call copyable without
+# the nested shell quotes that failed before capture in the ISO-week trial.
+MAX_PLAN_BYTES = 64 * 1024
+MAX_ENCODED_BYTES = 4 * ((MAX_PLAN_BYTES + 2) // 3)
+
+
 BUILTINS = frozenset(
     [
         ".",
@@ -133,10 +113,15 @@ def context(capture, commands, evidence_directory):
         return None
     launcher = shlex.split(capture)
     payload = {"capture": launcher, "commands": prepared, "directory": str(Path(evidence_directory))}
+    raw = json.dumps(payload, separators=(",", ":")).encode()
+    if len(raw) > MAX_PLAN_BYTES:
+        return None
+    encoded = base64.urlsafe_b64encode(raw).decode("ascii")
     return {
-        "command": shlex.join([launcher[0], "-c", SCRIPT, json.dumps(payload, separators=(",", ":"))]),
+        "command": shlex.join([launcher[0], str(Path(__file__).resolve()), encoded]),
         "instruction": (
-            "When ready, execute this batch once as one unfiltered tool call. It runs every exact approved "
+            "When ready, copy and execute this complete command once as one unfiltered tool call. "
+            "Its encoded plan is opaque data; do not decode, rewrite or re-quote it. It runs every exact approved "
             "required_command in sequential order through capture, including after a failed check, and "
             "prints a separate fresh receipt and check reference for each. Its aggregate exit is failure "
             "if any check fails. Report each individual command/result/receipt; the batch is not a check "
@@ -146,3 +131,72 @@ def context(capture, commands, evidence_directory):
             "exit code, use individual captures instead; a batch does not loosen receipt authentication."
         ),
     }
+
+
+def _plan(encoded):
+    """Reject malformed or unbounded input before any capture is launched."""
+    if len(encoded) > MAX_ENCODED_BYTES:
+        raise ValueError("Prepared capture batch plan is too large")
+    try:
+        raw = base64.b64decode(encoded, altchars=b"-_", validate=True)
+        if len(raw) > MAX_PLAN_BYTES:
+            raise ValueError("Prepared capture batch plan is too large")
+        plan = json.loads(raw)
+    except (binascii.Error, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError("Invalid prepared capture batch plan") from error
+    if (
+        not isinstance(plan, dict)
+        or set(plan) != {"capture", "commands", "directory"}
+        or not isinstance(plan["directory"], str)
+        or "\0" in plan["directory"]
+        or not isinstance(plan["commands"], list)
+        or not 2 <= len(plan["commands"]) <= 16
+        or not all(
+            isinstance(command, list)
+            and command
+            and all(isinstance(word, str) and "\0" not in word for word in command)
+            and command[0]
+            for command in [plan["capture"], *plan["commands"]]
+        )
+    ):
+        raise ValueError("Invalid prepared capture batch plan")
+    return plan
+
+
+def run(encoded):
+    """Use canonical capture for every check; this helper grants no authority."""
+    plan = _plan(encoded)
+    directory = Path(plan["directory"])
+    control = os.environ.get("AUTOCODE_TOOL_CONTAINMENT_ID")
+    if control is not None:
+        scratch = Path(os.environ.get("TMPDIR", ""))
+        manifest = os.environ.get("AUTOCODE_VERIFICATION_COPY")
+        valid = re.fullmatch("tool-containment-[0-9a-f]{32}", control) is not None and scratch.is_absolute()
+        expected = Path.cwd() / ".autocode" / control / "scratch"
+        try:
+            valid = valid and scratch == expected and scratch.resolve(strict=True) == scratch and scratch.is_dir()
+            valid = valid and manifest == str(scratch.parent / "verification-copy.json")
+            valid = valid and Path(manifest).is_file() and not Path(manifest).is_symlink()
+            valid = valid and bool(os.environ.get("AUTOCODE_VERIFICATION_COPY_SHA256"))
+        except OSError:
+            valid = False
+        if not valid:
+            raise ValueError("Prepared capture batch requires the current native scratch directory")
+        directory = scratch
+    prefix = str(directory) + "/ready-" + uuid.uuid4().hex
+    codes = []
+    for index, command in enumerate(plan["commands"], 1):
+        receipt = prefix + "-" + str(index) + ".json"
+        result = subprocess.run(plan["capture"] + ["--output", receipt, "--"] + command)
+        codes.append(result.returncode)
+        print(json.dumps({"command": command, "exit_code": result.returncode, "evidence_ref": receipt}), flush=True)
+    return 1 if any(codes) else 0
+
+
+if __name__ == "__main__":
+    try:
+        if len(sys.argv) != 2:
+            raise ValueError("Prepared capture batch requires one encoded plan")
+        sys.exit(run(sys.argv[1]))
+    except ValueError as error:
+        sys.exit(str(error))

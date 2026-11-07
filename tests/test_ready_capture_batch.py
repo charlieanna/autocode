@@ -1,5 +1,6 @@
 """Ready check batches preserve literal argv and the individual capture fallback."""
 
+import base64
 import json
 import os
 import shlex
@@ -37,11 +38,26 @@ class ReadyCaptureBatchTests(unittest.TestCase):
         batch = packet["ready_capture_batch"]
         self.assertEqual(commands, packet["verification_obligations"]["required_commands"])
         outer = shlex.split(batch["command"])
-        self.assertEqual([sys.executable, "-c"], outer[:2])
-        payload = json.loads(outer[3])
+        payload = json.loads(base64.urlsafe_b64decode(outer[-1]))
         self.assertEqual([shlex.split(command) for command in commands], payload["commands"])
         self.assertEqual(shlex.split(packet["capture_command"]), payload["capture"])
         self.assertIn("sequential", batch["instruction"])
+
+    @staticmethod
+    def observed_quote_alteration(command):
+        # ISO-week trial: an extra single quote was inserted before these
+        # shell-escaped Python literals. Apply only that observed alteration to
+        # this test's fresh offer, never execute the archived trial's command.
+        for literal in (
+            "directory",
+            "AUTOCODE_TOOL_CONTAINMENT_ID",
+            "TMPDIR",
+            "AUTOCODE_VERIFICATION_COPY",
+            "AUTOCODE_VERIFICATION_COPY_SHA256",
+        ):
+            escaped = "'\"'\"'" + literal + "'\"'\"'"
+            command = command.replace(escaped, "'" + escaped)
+        return command
 
     def test_plain_quoted_arguments_stay_literal_and_shell_keywords_fall_back(self):
         command = "python3 -c 'print(\"hello; world\")'"
@@ -61,7 +77,7 @@ class ReadyCaptureBatchTests(unittest.TestCase):
             "cd src",
         ):
             with self.subTest(command=unsupported):
-                packet = self.packet(["python3 -m unittest", f"`{unsupported}`"])
+                packet = self.packet(["python3 -m unittest", unsupported])
                 self.assertNotIn("ready_capture_batch", packet)
                 self.assertIn("capture_command", packet)
         for stage in ("terra", "astra_review", "astra_checkpoint"):
@@ -70,6 +86,71 @@ class ReadyCaptureBatchTests(unittest.TestCase):
                     "ready_capture_batch", self.packet(["python3 -m unittest", "python3 -m pytest"], stage)
                 )
         self.assertNotIn("ready_capture_batch", self.packet(["python3 -m unittest"]))
+
+    def test_plan_bounds_keep_the_individual_fallback(self):
+        capture = shlex.join([sys.executable, "capture.py"])
+        for count in (0, 1, 17):
+            with self.subTest(count=count):
+                self.assertIsNone(ready.context(capture, ["python3 -V"] * count, "/evidence"))
+        for count in (2, 16):
+            with self.subTest(count=count):
+                self.assertIsNotNone(ready.context(capture, ["python3 -V"] * count, "/evidence"))
+        self.assertIsNone(ready.context(capture, ["python3 " + "x" * ready.MAX_PLAN_BYTES] * 2, "/evidence"))
+        with patch.object(ready.os, "name", "nt"):
+            self.assertIsNone(ready.context(capture, ["python3 -V"] * 2, "/evidence"))
+
+    def test_malformed_encoded_plan_refuses_before_any_capture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            marker = root / "captured"
+            spy = root / "capture-spy.py"
+            spy.write_text("from pathlib import Path\nPath(" + repr(str(marker)) + ").touch()\n")
+            payload = {
+                "capture": [sys.executable, str(spy)],
+                "commands": [[sys.executable, "-V"]] * 2,
+                "directory": str(root),
+            }
+
+            def encode(value):
+                return base64.urlsafe_b64encode(json.dumps(value).encode()).decode()
+
+            raw = json.dumps(payload).encode()
+            oversized = raw + b" " * (ready.MAX_PLAN_BYTES + 1 - len(raw))
+            for encoded in (
+                "A" * (ready.MAX_ENCODED_BYTES + 1),
+                base64.urlsafe_b64encode(oversized).decode(),
+            ):
+                with self.subTest(size=len(encoded)):
+                    result = subprocess.run(
+                        [sys.executable, ready.__file__, encoded], capture_output=True, text=True, timeout=10
+                    )
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn("plan is too large", result.stderr)
+                    self.assertFalse(marker.exists())
+            malformed = [
+                "!not-base64!",
+                base64.urlsafe_b64encode(b"\xff").decode(),
+                base64.urlsafe_b64encode(b"{").decode(),
+                encode([]),
+                encode({**payload, "invented_authority": "yes"}),
+            ]
+            for key, values in (
+                ("directory", [None, "bad\0path"]),
+                ("capture", [None, [], [1], [""]]),
+                ("commands", [None, [], [["python3"]], [["python3"]] * 17, [[], []], [[1], [1]], [["bad\0"], ["x"]]]),
+            ):
+                malformed.extend(encode({**payload, key: value}) for value in values)
+            for encoded in malformed:
+                with self.subTest(encoded=encoded[:80]):
+                    result = subprocess.run(
+                        [sys.executable, ready.__file__, encoded], capture_output=True, text=True, timeout=10
+                    )
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn("prepared capture batch plan", result.stderr.lower())
+                    self.assertFalse(marker.exists())
+            result = subprocess.run([sys.executable, ready.__file__], capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("one encoded plan", result.stderr)
 
     @unittest.skipUnless(sys.platform == "linux", "real bubblewrap requires supported Linux")
     def test_native_shell_uses_current_writable_scratch_and_keeps_run_store_readonly(self):
@@ -98,17 +179,22 @@ class ReadyCaptureBatchTests(unittest.TestCase):
             capture = shlex.join([sys.executable, str(runtime / "autocode.py"), "capture"])
             batch = ready.context(capture, commands, run / "evidence")
             result = subprocess.run(
-                [boundary["shell"], "-c", batch["command"]], cwd=root, capture_output=True, text=True, timeout=30
+                [boundary["shell"], "-c", self.observed_quote_alteration(batch["command"])],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             self.assertEqual(0, result.returncode, result.stderr)
             checks = [json.loads(line) for line in result.stdout.splitlines() if '"evidence_ref"' in line]
             self.assertEqual(4, len(checks))
             self.assertEqual([shlex.split(command) for command in commands], [row["command"] for row in checks])
-            for check in checks:
+            for index, check in enumerate(checks):
                 path = Path(check["evidence_ref"])
                 self.assertEqual(Path(boundary["scratch"]), path.parent)
                 receipt = json.loads(path.read_text())
                 self.assertEqual(boundary["verification_copy_sha256"], receipt["verification_copy"]["manifest_sha256"])
+                self.assertIn(str(index) + "\n", Path(receipt["full_output"]).read_text())
                 check["command"] = shlex.join(check["command"])
             events = root / "observed-events.jsonl"
             events.write_text(
