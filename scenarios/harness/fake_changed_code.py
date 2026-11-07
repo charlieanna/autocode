@@ -812,6 +812,84 @@ def _package_greeting(data, root, producer):
 # Only these scripted native fixtures have independently reviewed site-less lines.
 # The first-Go CLI is bound to its delivered, executed stream/exit tests too.
 NATIVE_FIXTURES = {
+    "Add stable numeric score sorting with native Node regression proof": {
+        "check": "node --test tests/*.test.js",
+        "tests": ["tests/score-order.test.js"],
+        "pins": {
+            "src/records.js": "f3466e584bfbff36d10e80077c97d1a5cbbb55515c66f85ac8999394bad41148",
+            "tests/score-order.test.js": "fd0b0b34289fcdcd82350ae054723fcfa108c48a30a22a5854f09628b46dc2aa",
+            "tests/records.test.js": "9a6dcf1ba6def7521f92e9e9d18c31de55caede1ff3829a2de31afd166e93543",
+        },
+        "produced": ["src/records.js", "tests/score-order.test.js"],
+        "cases": {
+            "C1": ["tests/score-order.test.js::test_c1_numeric_score_order_in_both_directions"],
+            "C2": ["tests/score-order.test.js::test_c2_stable_ties_and_caller_data_preserved"],
+        },
+        "fail_to_pass": [
+            "tests/score-order.test.js::test_c1_numeric_score_order_in_both_directions",
+            "tests/score-order.test.js::test_c2_stable_ties_and_caller_data_preserved",
+        ],
+        "pass_to_pass": [],
+        "reasons": {
+            "src/records.js": {
+                7: "Native Node mutation is unavailable. test_c1_numeric_score_order_in_both_directions calls sortByScore without a direction and asserts ascending numeric order, then explicitly requests descending order; changing this exported signature or default fails those assertions.",
+                8: "Native Node mutation is unavailable. test_c1_numeric_score_order_in_both_directions accepts asc/default and desc but requires sideways to throw RangeError; removing or reversing this direction guard fails a delivered assertion.",
+                9: "Native Node mutation is unavailable. test_c1_numeric_score_order_in_both_directions asserts the invalid direction throws RangeError; returning normally or throwing a different error class fails the delivered assertion.",
+                10: "Native Node mutation is unavailable for this structural guard-closing line. test_c1_numeric_score_order_in_both_directions requires both valid directions to sort and the invalid direction to throw; this delimiter closes that tested guard and has no independent runtime behavior.",
+                11: "Native Node mutation is unavailable. test_c1_numeric_score_order_in_both_directions requires null and an object instead of an array to throw TypeError, while valid arrays sort; weakening this array guard fails those delivered assertions.",
+                12: "Native Node mutation is unavailable. test_c1_numeric_score_order_in_both_directions rejects a null row, numeric id, string score and infinite score with TypeError; weakening these record-validation predicates fails a delivered assertion.",
+                13: "Native Node mutation is unavailable. test_c1_numeric_score_order_in_both_directions requires each invalid record class to throw TypeError; omitting this throw or changing its error class fails the delivered assertions.",
+                14: "Native Node mutation is unavailable for this structural validation-closing line. test_c1_numeric_score_order_in_both_directions requires invalid records to throw while valid arrays reach sorting; this delimiter has no independent runtime behavior.",
+                15: "Native Node mutation is unavailable. test_c1_numeric_score_order_in_both_directions asserts opposite exact numeric orders for default asc and desc, including negative and fractional scores; changing either sign fails a delivered assertion.",
+                16: "Native Node mutation is unavailable. test_c2_stable_ties_and_caller_data_preserved sorts frozen input, asserts original object identities and unchanged caller order, and requires an empty result to be a distinct array; sorting the input in place or discarding its rows fails those assertions.",
+                17: "Native Node mutation is unavailable. test_c1_numeric_score_order_in_both_directions rejects lexical score ordering and test_c2_stable_ties_and_caller_data_preserved requires all three equal-score rows to retain their original order in both directions and their original object identities.",
+                18: "Native Node mutation is unavailable for this structural function-closing line. test_c1_numeric_score_order_in_both_directions imports and invokes the completed function; this delimiter has no independent runtime behavior.",
+                20: "Native Node mutation is unavailable for this CommonJS export line. test_c1_numeric_score_order_in_both_directions invokes exported sortByScore and the delivered existing identifier-order tests invoke exported byId; omitting either export fails those native tests.",
+            }
+        },
+    },
+    "Add exact per-account ledger subtotals in TypeScript": {
+        "check": "node node_modules/vitest/vitest.mjs run",
+        "tests": ["tests/regression.test.ts"],
+        "pins": {
+            "src/ledger.ts": "863100454c91b22db2903ce240b573144b5aa126483ce1373848bf06a2dc9fa8",
+            "tests/regression.test.ts": "819e9abac9565797218206ef25670b93f2d86ee7d1de0600300df11eb9fd5cdd",
+            "tests/ledger.test.ts": "1f0d3e06d90a8b65634c5d0d742bcf45491431ef9cbb4813ecca215d5d71d02f",
+            "vitest.config.cjs": "d3c7294fa729311fb6b098ce6827a7815360e82277e495e9d31c2d600c04ebd3",
+        },
+        "produced": ["src/ledger.ts", "tests/regression.test.ts"],
+        "cases": {
+            "C1": ["tests/regression.test.ts::test_c1_account_groups_keep_exact_keys_and_zero_subtotals"],
+            "C2": ["tests/regression.test.ts::test_c2_large_cents_empty_inputs_and_input_order_are_preserved"],
+        },
+        "fail_to_pass": [
+            "tests/regression.test.ts::test_c1_account_groups_keep_exact_keys_and_zero_subtotals",
+            "tests/regression.test.ts::test_c2_large_cents_empty_inputs_and_input_order_are_preserved",
+        ],
+        "pass_to_pass": [],
+        "reasons": {
+            "src/ledger.ts": {
+                10: "Native Vitest mutation is unavailable for this type-only AccountSummary interface declaration. TypeScript erases it before execution; test_c1_account_groups_keep_exact_keys_and_zero_subtotals asserts the returned record shapes, but the declaration itself has no runtime behavior.",
+                11: "Native Vitest mutation is unavailable for this type-only account field declaration. TypeScript erases it before execution; test_c1_account_groups_keep_exact_keys_and_zero_subtotals asserts exact returned account strings, but this declaration itself has no runtime behavior.",
+                12: "Native Vitest mutation is unavailable for this type-only cents field declaration. TypeScript erases it before execution; test_c2_large_cents_empty_inputs_and_input_order_are_preserved asserts exact bigint subtotals, but this declaration itself has no runtime behavior.",
+                13: "Native Vitest mutation is unavailable for this type-only count field declaration. TypeScript erases it before execution; test_c1_account_groups_keep_exact_keys_and_zero_subtotals asserts exact counts, but this declaration itself has no runtime behavior.",
+                14: "Native Vitest mutation is unavailable for this type-only interface-closing line. TypeScript erases the interface before execution; test_c1_account_groups_keep_exact_keys_and_zero_subtotals asserts the returned shape, but this delimiter has no runtime behavior.",
+                16: "Native Vitest mutation is unavailable. test_c1_account_groups_keep_exact_keys_and_zero_subtotals imports and invokes summarizeByAccount and test_c2_large_cents_empty_inputs_and_input_order_are_preserved requires an empty input to return []; changing or omitting this callable entry fails the delivered assertions.",
+                17: "Native Vitest mutation is unavailable. test_c1_account_groups_keep_exact_keys_and_zero_subtotals requires separate Cash, cash and __proto__ groups with exact counts and sums; replacing this fresh Map with unsafe key storage or shared accumulated state breaks those delivered results.",
+                18: "Native Vitest mutation is unavailable. test_c1_account_groups_keep_exact_keys_and_zero_subtotals requires all four entries to contribute to their groups; test_c2_large_cents_empty_inputs_and_input_order_are_preserved asserts the empty-input and frozen-input results. Skipping entries or modifying caller data fails those assertions.",
+                19: "Native Vitest mutation is unavailable. test_c1_account_groups_keep_exact_keys_and_zero_subtotals requires repeated cash entries to combine while Cash and __proto__ stay separate; changing the exact account lookup key fails the delivered grouped result.",
+                20: "Native Vitest mutation is unavailable. test_c1_account_groups_keep_exact_keys_and_zero_subtotals requires both first-entry initialization and repeated-account accumulation, with cash count 2 and total 0n; reversing or omitting this existing-group branch fails the delivered result.",
+                21: "Native Vitest mutation is unavailable. test_c1_account_groups_keep_exact_keys_and_zero_subtotals requires 250n plus -250n to remain as a zero subtotal, and test_c2_large_cents_empty_inputs_and_input_order_are_preserved requires 9007199254740993n plus 2n to stay exact; dropping or rounding the sum fails those assertions.",
+                22: "Native Vitest mutation is unavailable. test_c1_account_groups_keep_exact_keys_and_zero_subtotals requires cash count 2 while single-entry accounts have count 1; dropping or changing this increment fails the delivered grouped result.",
+                23: "Native Vitest mutation is unavailable for this structural else boundary. test_c1_account_groups_keep_exact_keys_and_zero_subtotals requires single-entry initialization and repeated-entry accumulation to take distinct branches; the delimiter has no independent runtime behavior.",
+                24: "Native Vitest mutation is unavailable. test_c1_account_groups_keep_exact_keys_and_zero_subtotals asserts exact account, cents and count 1 for new Cash and __proto__ groups; changing this key or any initial field fails the delivered grouped result.",
+                25: "Native Vitest mutation is unavailable for this structural group-branch closing line. test_c1_account_groups_keep_exact_keys_and_zero_subtotals exercises both new and repeated accounts; this delimiter has no independent runtime behavior.",
+                26: "Native Vitest mutation is unavailable for this structural loop-closing line. test_c1_account_groups_keep_exact_keys_and_zero_subtotals asserts all groups after all four entries, including a zero subtotal; this delimiter has no independent runtime behavior.",
+                27: "Native Vitest mutation is unavailable. test_c1_account_groups_keep_exact_keys_and_zero_subtotals requires exact-key sorted output [Cash, __proto__, cash] and test_c2_large_cents_empty_inputs_and_input_order_are_preserved requires [a, z] without changing caller order. Omitting groups or changing lexical ordering fails those delivered assertions.",
+                28: "Native Vitest mutation is unavailable for this structural function-closing line. test_c1_account_groups_keep_exact_keys_and_zero_subtotals invokes the exported completed function and asserts its full grouped result; this delimiter has no independent runtime behavior.",
+            }
+        },
+    },
     "Fix touching and empty half-open intervals with native Node regressions": {
         "check": "node --test tests/*.test.js",
         "tests": ["tests/interval-boundaries.test.js"],
