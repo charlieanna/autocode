@@ -45,11 +45,14 @@ def source(root: Path, name: str) -> bytes:
 
 
 def python_lines(data: bytes) -> set[int]:
-    """Executable Python line table, excluding declarations and docstrings.
+    """Executable Python line table, excluding declarations, docstrings and inert lines.
 
     No source is executed to collect this inventory. Nested function/class code
     objects contribute their own line tables. Blank/comment-only continuation
-    lines absent from the compiler's table do not become false obligations.
+    lines absent from the compiler's table do not become false obligations. A
+    line holding only a ``try:`` header or a ``pass`` does nothing a test could
+    notice, though the compiler gives it an instruction, so it is not one either
+    (#2815); its handlers and bodies still are.
     """
     syntax = ast.parse(data)
     docs: set[int] = set()
@@ -92,13 +95,20 @@ def python_lines(data: bytes) -> set[int]:
                 )
             ):
                 evaluated.add(first.lineno)  # a one-line body is executable on its declaration's line
+    inert_kinds = (ast.Try, getattr(ast, "TryStar", ast.Try), ast.Pass)
+    inert = {node.lineno for node in ast.walk(syntax) if isinstance(node, inert_kinds)}
+    inert -= {
+        line
+        for node in ast.walk(syntax)
+        if not isinstance(node, inert_kinds) and (line := getattr(node, "lineno", None)) is not None
+    }
     pending = [compile(syntax, "<changed-code>", "exec", dont_inherit=True)]
     lines: set[int] = set()
     while pending:
         code = pending.pop()
         lines.update(line for _, _, line in code.co_lines() if line is not None and line > 0)
         pending.extend(value for value in code.co_consts if isinstance(value, types.CodeType))
-    return (lines - declarations - docs) | (evaluated & lines)
+    return ((lines - declarations - docs) | (evaluated & lines)) - inert
 
 
 def inventory(tree, files, diff_text) -> list[dict]:

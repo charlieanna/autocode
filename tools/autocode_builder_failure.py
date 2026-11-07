@@ -196,6 +196,26 @@ def classified(state: RunState):
     ]
 
 
+def _other_repair(state: RunState, completed) -> bool:
+    """A pending report repair other than the one this completed record is being accepted from.
+
+    autocode_repaired_result applies a repaired report under its original record (``report_repaired``,
+    the original's ``events``) and retires that repair just after; it does not hold the failure the
+    report queues. A live run (ladder-24, claude-tiers, 2026-11-07) paused for operator action there.
+    """
+    pending = state.get("pending_report_repair")
+    if not pending:
+        return False
+    events = (pending.get("original") or {}).get("events")
+    return not (completed.get("report_repaired") and events and completed.get("events") == events)
+
+
+def _stages(completed):
+    """The active stage that completes this record: its own, or its report repair's when repaired."""
+    stage = completed.get("stage")
+    return (stage, f"{stage}_report_repair") if completed.get("report_repaired") else (stage,)
+
+
 def queue(state: RunState, value, reason, *, enabled, completed_record=None):
     key = "builder-failure:" + value["failure_id"]
     history = state.get("stuck_investigations") or []
@@ -204,11 +224,11 @@ def queue(state: RunState, value, reason, *, enabled, completed_record=None):
     if (
         active
         and not state.get("uncertain_artifacts")
-        and not state.get("pending_report_repair")
+        and not _other_repair(state, completed)
         and active.get("output")
         and completed.get("output")
         and Path(active["output"]).resolve() == Path(completed["output"]).resolve()
-        and active.get("stage") == completed.get("stage")
+        and active.get("stage") in _stages(completed)
         and completed.get("exit_code") == 0
         and not completed.get("rejected")
         and Path(completed["output"]).is_file()
@@ -225,7 +245,7 @@ def queue(state: RunState, value, reason, *, enabled, completed_record=None):
         not enabled
         or state.get("active_stage")
         or state.get("uncertain_artifacts")
-        or state.get("pending_report_repair")
+        or _other_repair(state, completed)
         or not value["evidence_refs"]
         or value["record"].get("output") not in value["binding"]["evidence_hashes"]
         or any(row.get("identity") == key for row in history)
