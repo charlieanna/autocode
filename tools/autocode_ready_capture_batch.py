@@ -10,9 +10,27 @@ from pathlib import Path
 
 # Capture inherits the stage's source/attempt context and verification-copy environment.
 # Every inner CLI prints its complete receipt and attestation; the outer tool retains both.
-SCRIPT = """import json,subprocess,sys,uuid
+SCRIPT = """import json,os,re,subprocess,sys,uuid
+from pathlib import Path
 plan=json.loads(sys.argv[1])
-prefix=plan['directory']+'/ready-'+uuid.uuid4().hex
+directory=Path(plan['directory'])
+control=os.environ.get('AUTOCODE_TOOL_CONTAINMENT_ID')
+if control is not None:
+    scratch=Path(os.environ.get('TMPDIR',''))
+    manifest=os.environ.get('AUTOCODE_VERIFICATION_COPY')
+    valid=re.fullmatch('tool-containment-[0-9a-f]{32}',control) is not None and scratch.is_absolute()
+    expected=Path.cwd()/'.autocode'/control/'scratch'
+    try:
+        valid=valid and scratch==expected and scratch.resolve(strict=True)==scratch and scratch.is_dir()
+        valid=valid and manifest==str(scratch.parent/'verification-copy.json')
+        valid=valid and Path(manifest).is_file() and not Path(manifest).is_symlink()
+        valid=valid and bool(os.environ.get('AUTOCODE_VERIFICATION_COPY_SHA256'))
+    except OSError:
+        valid=False
+    if not valid:
+        sys.exit('Prepared capture batch requires the current native scratch directory')
+    directory=scratch
+prefix=str(directory)+'/ready-'+uuid.uuid4().hex
 codes=[]
 for index,command in enumerate(plan['commands'],1):
     receipt=prefix+'-'+str(index)+'.json'
@@ -122,7 +140,8 @@ def context(capture, commands, evidence_directory):
             "required_command in sequential order through capture, including after a failed check, and "
             "prints a separate fresh receipt and check reference for each. Its aggregate exit is failure "
             "if any check fails. Report each individual command/result/receipt; the batch is not a check "
-            "and grants no verification authority. Keep the complete output. Additional probes and the "
+            "and grants no verification authority. Native tools use their current writable scratch. "
+            "Keep the complete output. Additional probes and the "
             "individual capture_command remain available. If your shell tool cannot report its outer "
             "exit code, use individual captures instead; a batch does not loosen receipt authentication."
         ),

@@ -127,6 +127,29 @@ class ReadyCaptureBatchTests(unittest.TestCase):
                 + "\n"
             )
             support.verify_checks(checks, root, events)
+            # Destination metadata grants nothing: canonical capture still refuses a forged copy pin.
+            marker = Path(boundary["scratch"]) / "forged-copy-executed"
+            probe = "from pathlib import Path; Path(" + repr(str(marker)) + ").write_text('bad')"
+            forged = ready.context(capture, [shlex.join([sys.executable, "-c", probe])] * 4, run / "evidence")
+            refused = subprocess.run(
+                [
+                    boundary["shell"],
+                    "-c",
+                    "env AUTOCODE_VERIFICATION_COPY_SHA256=" + "0" * 64 + " " + forged["command"],
+                ],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertNotEqual(0, refused.returncode)
+            self.assertIn("Verification copy authority changed", refused.stderr)
+            self.assertFalse(marker.exists(), "forged environment executed a check")
+            refused_refs = [
+                json.loads(line)["evidence_ref"] for line in refused.stdout.splitlines() if '"evidence_ref"' in line
+            ]
+            self.assertEqual(4, len(refused_refs))
+            self.assertTrue(all(not Path(path).exists() for path in refused_refs))
             denied = subprocess.run(
                 [boundary["shell"], "-c", "touch " + shlex.quote(str(run / "evidence/forbidden"))],
                 cwd=root,
@@ -164,6 +187,8 @@ class ReadyCaptureBatchTests(unittest.TestCase):
             alias = scratch.parent / "alias"
             alias.symlink_to(scratch, target_is_directory=True)
             variants = [
+                {"AUTOCODE_TOOL_CONTAINMENT_ID": ""},
+                {"AUTOCODE_VERIFICATION_COPY_SHA256": None},
                 {"TMPDIR": None},
                 {"TMPDIR": "relative"},
                 {"TMPDIR": str(outside)},
