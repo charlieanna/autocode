@@ -213,8 +213,8 @@ class SavedRunReplayCliTest(unittest.TestCase):
         self.assertEqual(initial["runner_status"], "TASK_COMPLETE")
         return scenario, Path(initial["run_dir"])
 
-    def test_iso_week_fix_authenticates_the_testers_mutation_citation(self):
-        _, source = self.run_reference("bugfix-iso-weeks")
+    def test_entrypoint_guard_authenticates_the_testers_mutation_citation(self):
+        _, source = self.run_reference("greenfield-greeting-cli")
         status = subprocess.run(
             [sys.executable, str(ROOT / "tools/autocode.py"), "--run-dir", str(source), "--status"],
             capture_output=True,
