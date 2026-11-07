@@ -636,8 +636,8 @@
     "sha256": "c926b73c4aa2f16ed471b77013f8841b232710d515c1c0026029b299ed43d12b"
   },
   "review/sol": {
-    "bytes": 22795,
-    "sha256": "ba9898ae292b1bbce446467a0f2ac57067b5abea4a438cf09e3175d06e82f085"
+    "bytes": 23654,
+    "sha256": "54a1c315b379b4adc9570937108ce9b0abd86df1d8126ed5faacf10a83113634"
   },
   "scratch/answer_question": {
     "bytes": 293,
@@ -748,8 +748,8 @@
     "sha256": "a3c51331b00fbe6c97f623c48dc99312bbf061489144ab50fdc71368f4defb4b"
   },
   "unit/sol": {
-    "bytes": 22795,
-    "sha256": "ba9898ae292b1bbce446467a0f2ac57067b5abea4a438cf09e3175d06e82f085"
+    "bytes": 23654,
+    "sha256": "54a1c315b379b4adc9570937108ce9b0abd86df1d8126ed5faacf10a83113634"
   },
   "unit/terra": {
     "bytes": 12507,
