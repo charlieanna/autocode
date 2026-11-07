@@ -52,6 +52,7 @@ def edited(name: str, counterexample: dict, workspace, files=None) -> str:
 def runner(scratch_run, workspace, out_dir, *, timeout, files=None):
     """``run(command, counterexample)``: the probe's receipt in a scratch copy with the edit made.
 
+    Each probe gets a directory of its own, after any an earlier runner left in ``out_dir``.
     A counterexample that cannot be made returns ``{"error": ...}`` without running anything."""
     count = itertools.count(1)
 
@@ -61,8 +62,16 @@ def runner(scratch_run, workspace, out_dir, *, timeout, files=None):
             text = edited(name, counterexample, workspace, files)
         except ValueError as error:
             return {"error": str(error)}
-        directory = Path(out_dir) / f"counterexample-{next(count):02d}"
-        directory.mkdir(parents=True, exist_ok=True)
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        while True:
+            # A later investigation in the same iteration probes into the same folder: never reuse
+            # (or overwrite) an earlier probe's directory, whose edited file may be read-only.
+            directory = Path(out_dir) / f"counterexample-{next(count):02d}"
+            try:
+                directory.mkdir()
+                break
+            except FileExistsError:
+                continue
         target = directory / "edited"
         target.write_bytes(text.encode("utf-8"))
         original = Path(files[name]) if files and name in files else Path(workspace) / name
