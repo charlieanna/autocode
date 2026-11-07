@@ -892,9 +892,10 @@ class DriveTests(unittest.TestCase):
             return action(current) if callable(action) else action
 
         def apply(current, stage, outcome):
-            if stage == stuck.STAGE:
+            if stage == stuck.STAGE and outcome != "paused":
                 return stuck.apply(current, outcome, {}, state["workspace"])
-            current.update(next_stage=None, status="TASK_COMPLETE")
+            if stage != stuck.STAGE:
+                current.update(next_stage=None, status="TASK_COMPLETE")
 
         def fail(status):
             def raise_(current):
@@ -939,6 +940,47 @@ class DriveTests(unittest.TestCase):
         self.assertEqual("PAUSED_REPEATED_FAILURE", caught.exception.status)
         self.assertIn("could not finish", str(caught.exception))
         self.assertEqual(("PAUSED_REPEATED_FAILURE", "terra"), (state["status"], state["next_stage"]))
+
+    def test_an_investigator_out_of_time_restores_the_stuck_pause_not_an_exact_retry_question(self):
+        # A live run (2026-11-06): the Investigator of a planner that kept timing out timed out
+        # three times itself, and the run stopped on "Continue?" for an exact Investigator retry.
+        def stopped(kind):
+            def stop(current):
+                current["stages"].append({"stage": stuck.STAGE, "rejected": True})
+                cause = "Investigator: Stage exceeded its 480-second hard runtime limit"
+                current["job_failure"] = {
+                    "stage": stuck.STAGE,
+                    "kind": kind,
+                    "reason": cause + ". AutoCode already retried the Investigator ... waits for its exact retry",
+                }
+                current["recovery_context"] = {"kind": "job_failure", "stage": stuck.STAGE, "reason": cause}
+                current.update(status="PAUSED_JOB_FAILURE", stop_reason=current["job_failure"]["reason"])
+                return "paused"
+
+            return stop
+
+        state = state_for()
+        with self.assertRaises(Paused) as caught:
+            self.run_loop(state, {"terra": ["!PAUSED_TIMEOUT_RECOVERY"], stuck.STAGE: [stopped("timeout")]})
+        self.assertEqual("PAUSED_TIMEOUT_RECOVERY", caught.exception.status)
+        self.assertIn("PAUSED_TIMEOUT_RECOVERY at terra", str(caught.exception))
+        self.assertIn("could not finish: Investigator: Stage exceeded its 480-second", str(caught.exception))
+        self.assertNotIn("exact retry", str(caught.exception))
+        self.assertEqual(("PAUSED_TIMEOUT_RECOVERY", "terra"), (state["status"], state["next_stage"]))
+        for key in ("job_failure", "recovery_context", "stuck_investigation"):
+            self.assertNotIn(key, state)
+        self.assertEqual("investigation_failed", state["stuck_investigations"][-1]["outcome"])
+
+        # A model stop keeps the job's model question; nothing is abandoned.
+        state = state_for()
+        done, _ = self.run_loop(state, {"terra": ["!PAUSED_TIMEOUT_RECOVERY"], stuck.STAGE: [stopped("quota")]})
+        self.assertEqual(("PAUSED_JOB_FAILURE", stuck.STAGE), (done["status"], done["next_stage"]))
+        self.assertIn("stuck_investigation", done)
+        # A Builder failure classification keeps its exact retry: it still needs an Investigator.
+        done.update(job_failure={**done["job_failure"], "kind": "timeout"})
+        self.assertTrue(stuck.timed_out(done))
+        done["stuck_investigation"]["mode"] = "builder_failure"
+        self.assertFalse(stuck.timed_out(done))
 
     def test_a_pause_set_on_the_state_is_investigated_too(self):
         state = state_for(next_stage="astra_review")

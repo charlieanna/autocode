@@ -25,7 +25,9 @@ PR template asks for an entry here; a change without one is incomplete.
   starts a fresh attempt of its stage by itself instead of asking a person to resume; three on
   unchanged source go to the Investigator. When the automatic timeout recoveries run out
   (`PAUSED_TIMEOUT_RECOVERY`), the Investigator diagnoses the stop and may grant one more recovery,
-  instead of the run asking a person to `--grant-recovery`.
+  instead of the run asking a person to `--grant-recovery`. If the Investigator itself
+  runs out of time, the stuck stage's own pause comes back instead of a question about retrying the
+  Investigator.
 - A review handoff for a large wave no longer overflows the Tester's context. When a proof's mutant
   lists, per-criterion survivors, evidence inputs or per-line obligations are over 64 KiB, each moves
   whole into the hash-pinned context artifact, and so does a receipt list that is still over 64 KiB

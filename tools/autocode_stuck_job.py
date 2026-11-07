@@ -743,6 +743,27 @@ def launched(state: RunState, request: dict) -> bool:
     )
 
 
+def timed_out(state: RunState) -> bool:
+    """The Investigator itself ran out of time, after AutoCode's own longer deadlines.
+
+    The job runner then pauses for an exact retry of the Investigator (autocode_job_failure), a
+    question about AutoCode's machinery; a live run (2026-11-06) stopped on "Continue?" that way.
+    The investigation is abandoned instead, so the stuck stage's own pause comes back with its own
+    action. A model stop (quota, refusal, output) keeps its model question, and a Builder failure
+    classification keeps its exact retry: that classification still needs an Investigator."""
+    current = state.get("stuck_investigation") or {}
+    failure = state.get("job_failure") or {}
+    return (
+        bool(current)
+        and not current.get("in_force")
+        and current.get("mode") != "builder_failure"
+        and state.get("status") == "PAUSED_JOB_FAILURE"
+        and state.get("next_stage") == STAGE
+        and failure.get("stage") == STAGE
+        and failure.get("kind") == "timeout"
+    )
+
+
 def abandon(state: RunState, error: str) -> tuple[str, str]:
     """The investigation itself failed: restore the original pause, never a worse one."""
     request = state.pop("stuck_investigation")
@@ -932,6 +953,18 @@ def drive(
             continue
         if not investigate:
             return state
+        if timed_out(state):
+            # The stop's own cause, without the job runner's offer of an exact retry.
+            context = state.get("recovery_context") or {}
+            cause = context.pop("reason", "") if context.get("stage") == STAGE else ""
+            if context.get("stage") == STAGE:
+                state.pop("recovery_context")
+            status, reason = abandon(state, cause or state["job_failure"]["reason"])
+            state.pop("job_failure", None)
+            state.pop("job_retry_authorization", None)
+            if persist:
+                persist(state)
+            raise paused(status, reason)
         retire(state, state.get("status"))
         if queue and fresh() and intercept(state, cast(str, state.get("status")), state.get("stop_reason") or ""):
             if persist:
