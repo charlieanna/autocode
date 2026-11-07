@@ -2280,7 +2280,12 @@ class ChatTUI:
             else ((self._view or {}).get("progress") or {}).get("stage")
         )
         stage = stage.strip() if isinstance(stage, str) else ""
-        status = " · ".join(value for value in (stage, self._worked(), self._spend()) if value)
+        spend = self._spend()
+        status = " · ".join(value for value in (stage, self._worked(), spend) if value)
+        # The working time goes first when the footer is short of room: the navigation and the
+        # boundary action matter more, and the Stages section carries the time too.
+        if display_width(status + " · " + hints) > layout.width - 2:
+            status = " · ".join(value for value in (stage, spend) if value)
         # At narrow widths the stage already appears on the status row. Keep the
         # navigation and boundary action visible instead of letting a stage/cost
         # prefix push them past the right edge of the footer.

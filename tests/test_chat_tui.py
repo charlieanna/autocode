@@ -942,6 +942,29 @@ class StallAndWorkedTests(unittest.TestCase):
         self.assertIn("Builder · worked 10m30s · ", footer)
         self.assertLess(footer.index("worked"), footer.index("/ commands"))
 
+    def test_the_working_time_gives_way_before_the_footers_actions_do(self):
+        # A 120-column terminal at a question: with the time the hints lost "ctrl-d quit" off the edge.
+        ui = screen_ui()
+        view = self.view(None)
+        view["cost"] = {"spent_usd": 0.42, "complete": True}
+        view["usage"]["accounting"]["tokens"] = {
+            "input_tokens": {"value": 150_000, "known": 150_000, "complete": True},
+            "output_tokens": {"value": 34_000, "known": 34_000, "complete": True},
+        }
+        ui.observe(view)
+        ui._asking = True
+        puts = []
+        ui._put = lambda row, col, text, attr=0: puts.append(text)
+        ui._hints(ui._layout(40, 120))
+        footer = next(text for text in puts if "/ commands" in text)
+        self.assertIn("ctrl-d quit", footer)
+        self.assertNotIn("worked", footer)
+        self.assertIn("Builder · $0.42 · 184k tokens · ", footer)
+        self.assertLessEqual(tui.display_width(footer), 118)
+        puts.clear()
+        ui._hints(ui._layout(40, 160))
+        self.assertIn("Builder · worked 10m30s · $0.42", next(text for text in puts if "/ commands" in text))
+
 
 class HistoryFileTests(unittest.TestCase):
     """The composer's ↑/↓ history, kept per project in .autocode between chats."""
@@ -2111,7 +2134,10 @@ class MeterScreenTests(unittest.TestCase):
             with self.subTest(rows=rows, cols=cols):
                 puts = drawn(ui, rows=rows, cols=cols)
                 self.assertIn("my unsent draft", row_text(puts, rows - 3))
-                self.assertIn("Planner · worked 1m00s · $0.42 · 184k tokens", row_text(puts, rows - 1))
+                footer = row_text(puts, rows - 1)
+                self.assertIn("$0.42 · 184k tokens", footer)
+                # The working time shows where the whole footer fits, and gives way where it does not.
+                self.assertEqual(cols >= 121, "Planner · worked 1m00s · $0.42" in footer, footer)
                 self.assertIsNone(ui._layout(rows, cols).panel_col)
                 self.assertEqual(cols - 1, ui._layout(rows, cols).body_width)
 
