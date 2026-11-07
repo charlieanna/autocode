@@ -728,6 +728,13 @@ stay on the terminal: an error, where to pick the run up, or the command a stop
 leaves for you to run. `--line` keeps the plain
 prompts, and scripts get them automatically when there is no terminal.
 
+At a question with options, the option's number or its exact label answers it;
+any other reply goes to Requirements as feedback, which reopens the question. A
+reply that names an option and says more (`Option 1, because …`, `Keep the
+baseline, and add tests`) is not guessed at: the chat says which option it names
+and that the whole reply would otherwise be feedback, then takes the number to
+answer with that option or `Enter` to send the reply as typed (#2592).
+
 The default screen has one scrolling conversation. Your messages, AutoCode's
 questions and plans, and the agents' plain-English progress updates appear there
 in order, each progress entry labeled with its stage. Updates to the same streaming message replace it in place. Reading
