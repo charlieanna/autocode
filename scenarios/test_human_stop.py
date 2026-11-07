@@ -165,7 +165,8 @@ class HumanQuestionCliTests(unittest.TestCase):
             self.assertTrue(result["checks"], result)
             self.assertTrue(all(row["ok"] for row in result["checks"]), result["checks"])
             self.assertEqual([], result["answers"], result)
-            self.assertNotIn("terra", result["metrics"]["stage_names"], result["metrics"])
+            self.assertEqual([], result["approvals"], result)
+            self.assertEqual(["requirements_gather"], result["metrics"]["model_stage_names"], result["metrics"])
             status = run_cli(
                 [
                     sys.executable,
@@ -185,8 +186,13 @@ class HumanQuestionCliTests(unittest.TestCase):
             self.assertEqual("WAITING_FOR_USER", view["status"], view)
             self.assertIs(view["done"], False, view)
             self.assertEqual("answer", view["needs"]["kind"], view)
-            self.assertTrue(view["needs"]["questions"], view)
+            note = json.loads(
+                (REPO / "scenarios/catalog/bugfix-not-reproducible/reference/docs/bugs/none-cells.json").read_text()
+            )
+            self.assertEqual(note["questions"], [row["question"] for row in view["needs"]["questions"]], view)
             self.assertFalse(questions_answerable(view["needs"]["questions"], {}), view["needs"])
+            self.assertIsNone(view.get("displayed_plan"), view)
+            self.assertNotIn("--approve-goal", view.get("next_command") or [], view)
 
 
 if __name__ == "__main__":
