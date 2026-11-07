@@ -34,12 +34,14 @@ try:
     from . import autocode_action_resolver as action_resolver
     from . import autocode_controller_owner as controller_owner  # noqa: F401 - runner compatibility export
     from . import autocode_interaction_timing as interaction_timing
+    from . import autocode_phase_timing as phase_timing
     from . import autocode_route_advisory as route_advisory
     from .autocode_model_inventory import InvocationInventory
 except ImportError:
     import autocode_action_resolver as action_resolver
     import autocode_controller_owner as controller_owner  # noqa: F401 - runner compatibility export
     import autocode_interaction_timing as interaction_timing
+    import autocode_phase_timing as phase_timing
     import autocode_route_advisory as route_advisory
     from autocode_model_inventory import InvocationInventory  # noqa: F401 - compatibility API supplied to invocation helpers
 
@@ -462,106 +464,100 @@ def run_role(
         stage=original_stage,
     )
     tool_timeout = limits.get("tool_timeout_seconds", 1800)
-    native_before = (
-        source_scope.snapshot(workspace, state, base_snapshot=support.snapshot) if native is not None else None
-    )
-    native_proof = (
-        regression.complete(state, cast(dict[str, Any], native_before)["revision"])
-        if native is not None and original_stage == "sol" and regression.required(state)
-        else False
-    )
-    image_preparation = (
-        native_image.NativeImagePreparation(
-            native=native,
-            isolation=native_isolation,
-            state=state,
+    with phase_timing.measure(state, "source_launcher_preparation", stage=stage, attempt=attempt):
+        native_before = (
+            source_scope.snapshot(workspace, state, base_snapshot=support.snapshot) if native is not None else None
+        )
+        native_proof = (
+            regression.complete(state, cast(dict[str, Any], native_before)["revision"])
+            if native is not None and original_stage == "sol" and regression.required(state)
+            else False
+        )
+        image_preparation = (
+            native_image.NativeImagePreparation(
+                native=native,
+                isolation=native_isolation,
+                state=state,
+                workspace=workspace,
+                run_dir=run_dir,
+                base=base,
+                snapshot=native_before,
+                prompt=prompt,
+                schema=schema,
+                events=events,
+                adapter=adapter,
+                render_prompt=provider_launch.render_native_image_prompt,
+                regression_proof_current=native_proof,
+                regression_handoff=regression.handoff(state) if native_proof else None,
+            )
+            if native is not None and original_stage == "sol" and visual_runtime.requested(state)
+            else None
+        )
+        native_environment = native_capture = None
+        if native is not None:
+            native_environment, native_capture = role_launch.native_environment(
+                state, workspace, events, adapter, output, native_before
+            )
+        snapshot_env = readonly_events.launch_excludes(workspace, engine, adapter, native_environment, dry_run=dry_run)
+        command, child_environment, overrides, worker_context = provider_launch.prepare(
+            engine=engine,
+            adapter=adapter,
+            role=role,
+            route_role=route_role,
             workspace=workspace,
             run_dir=run_dir,
-            base=base,
-            snapshot=native_before,
-            prompt=prompt,
+            session=session,
+            model=model,
+            effort=effort,
+            allow_write=allow_write,
+            planning=joint_stage or report_only,
+            report=output,
             schema=schema,
-            events=events,
-            adapter=adapter,
-            render_prompt=provider_launch.render_native_image_prompt,
-            regression_proof_current=native_proof,
-            regression_handoff=regression.handoff(state) if native_proof else None,
+            prompt_file=prompt_file,
+            sandbox=sandbox,
+            transport_args=transport_args,
+            chatgpt=planning.enabled(state),
+            provider=route.get("provider"),
+            enforce_tool_boundary=not dry_run,
+            source_paths=source_scope.paths(state),
+            settings=state["settings"],  # the launcher applies the saved #413 opt-out
+            planning_report_recovery=report_only or planning_recovery_policy.active(state, original_stage),
+            replay_context=role_launch.replay_context(
+                state,
+                stage=stage,
+                iteration=iteration,
+                report_only=report_only,
+                original_stage=original_stage,
+                changed_code_proof=_changed_code_proof(state),
+            )
+            if state["settings"].get("replay_recording")
+            else None,
+            tool_commands=(
+                lambda: verification_plan.launch_commands(state, progressive_context=progressive_state.context(state))
+            )
+            if engine == "opencode" and not dry_run and not (joint_stage or report_only)
+            else (),
+            **({"native_image_preparation": image_preparation} if image_preparation is not None else {}),
+            **(
+                {"native_role_isolation": native_isolation, "native_environment": native_environment}
+                if native is not None
+                else {}
+            ),
         )
-        if native is not None and original_stage == "sol" and visual_runtime.requested(state)
-        else None
-    )
-    native_environment = native_capture = None
-    if native is not None:
-        native_environment, native_capture = role_launch.native_environment(
-            state, workspace, events, adapter, output, native_before
-        )
-    snapshot_env = readonly_events.launch_excludes(workspace, engine, adapter, native_environment, dry_run=dry_run)
-    command, child_environment, overrides, worker_context = provider_launch.prepare(
-        engine=engine,
-        adapter=adapter,
-        role=role,
-        route_role=route_role,
-        workspace=workspace,
-        run_dir=run_dir,
-        session=session,
-        model=model,
-        effort=effort,
-        allow_write=allow_write,
-        planning=joint_stage or report_only,
-        report=output,
-        schema=schema,
-        prompt_file=prompt_file,
-        sandbox=sandbox,
-        transport_args=transport_args,
-        chatgpt=planning.enabled(state),
-        provider=route.get("provider"),
-        enforce_tool_boundary=not dry_run,
-        source_paths=source_scope.paths(state),
-        settings=state["settings"],  # the launcher applies the saved #413 opt-out
-        planning_report_recovery=report_only or planning_recovery_policy.active(state, original_stage),
-        replay_context=role_launch.replay_context(
-            state,
-            stage=stage,
-            iteration=iteration,
-            report_only=report_only,
-            original_stage=original_stage,
-            changed_code_proof=_changed_code_proof(state),
-        )
-        if state["settings"].get("replay_recording")
-        else None,
-        tool_commands=(
-            lambda: verification_plan.launch_commands(state, progressive_context=progressive_state.context(state))
-        )
-        if engine == "opencode" and not dry_run and not (joint_stage or report_only)
-        else (),
-        **({"native_image_preparation": image_preparation} if image_preparation is not None else {}),
-        **(
-            {"native_role_isolation": native_isolation, "native_environment": native_environment}
-            if native is not None
-            else {}
-        ),
-    )
-    session = worker_context.get("provider_session", session)
-    child_options = {"start_new_session": True, "env": child_environment}
-    if image_preparation is not None:
-        prompt = image_preparation.prompt
-        save(base.with_suffix(".opencode.json"), overrides)
-    elif engine == "opencode":
-        prompt = adapter.prompt_for_schema(prompt, read_json(schema), events)
-        current_proof = False
-        if original_stage == "sol" and worker_context.get("tool_containment") and regression.required(state):
-            current_proof = regression.complete(state, source_scope.snapshot(workspace, state)["revision"])
-        prompt = provider_launch.containment_prompt(
-            prompt,
-            worker_context,
-            stage=original_stage,
-            regression_proof_current=current_proof,
-            regression_handoff=regression.handoff(state) if current_proof else None,
-        )
-        if not configured_tool:
+    with phase_timing.measure(state, "prompt_preparation", stage=stage, attempt=attempt):
+        session = worker_context.get("provider_session", session)
+        child_options = {"start_new_session": True, "env": child_environment}
+        if image_preparation is not None:
+            prompt = image_preparation.prompt
             save(base.with_suffix(".opencode.json"), overrides)
-    if native is None:
-        child_options["env"].update(output_policy.environment(state["settings"], workspace, events))
+        elif engine == "opencode":
+            prompt = role_launch.decorate_prompt(
+                state, original_stage, workspace, adapter, prompt, read_json(schema), events, worker_context
+            )
+            if not configured_tool:
+                save(base.with_suffix(".opencode.json"), overrides)
+        if native is None:
+            child_options["env"].update(output_policy.environment(state["settings"], workspace, events))
     if not dry_run:
         task_preflight.guard(state, workspace, run_dir, worker=worker_context, persist=save)
     visual_context = worker_context.get("visual_runtime") if image_preparation is not None else None
@@ -582,15 +578,16 @@ def run_role(
             child_options=child_options,
             save=save,
         )
-    if report_only and len(prompt.encode("utf-8")) > REPAIR_HANDOFF_BYTES:
-        raise support.Paused(
-            "PAUSED_REPORT_REPAIR_INPUT",
-            f"Provider-decorated repair prompt exceeds {REPAIR_HANDOFF_BYTES} bytes; no request was launched."
-            + REPAIR_INPUT_ROUTE,
-        )
-    if image_preparation is not None and prompt != image_preparation.prompt:
-        raise support.Paused("PAUSED_VISUAL_EVIDENCE", "Final native image prompt changed after isolation sealing")
-    prompt_file.write_text(prompt)
+    with phase_timing.measure(state, "prompt_write", stage=stage, attempt=attempt):
+        if report_only and len(prompt.encode("utf-8")) > REPAIR_HANDOFF_BYTES:
+            raise support.Paused(
+                "PAUSED_REPORT_REPAIR_INPUT",
+                f"Provider-decorated repair prompt exceeds {REPAIR_HANDOFF_BYTES} bytes; no request was launched."
+                + REPAIR_INPUT_ROUTE,
+            )
+        if image_preparation is not None and prompt != image_preparation.prompt:
+            raise support.Paused("PAUSED_VISUAL_EVIDENCE", "Final native image prompt changed after isolation sealing")
+        prompt_file.write_text(prompt)
 
     record = {
         "role": role,
@@ -880,18 +877,20 @@ def run_role(
         report_only=report_only,
         route_role=route_role,
     )
-    after = role_launch.record_after(state, record, workspace, base, before, events, save=save)
+    with phase_timing.measure(state, "after_snapshot", stage=stage, attempt=attempt):
+        after = role_launch.record_after(state, record, workspace, base, before, events, save=save)
     if not allow_write and before["revision"] != after["revision"]:
         raise support.Paused(
             "PAUSED_STALE_VALIDATION", "Repository changed during read-only review; preserve result and revalidate"
         )
     try:
-        value = load_stage_report(
-            record,
-            workspace,
-            (state.get("pending_report_repair") or {}).get("original") if report_only else None,
-            state=state,
-        )
+        with phase_timing.measure(state, "report_loading", stage=stage, attempt=attempt):
+            value = load_stage_report(
+                record,
+                workspace,
+                (state.get("pending_report_repair") or {}).get("original") if report_only else None,
+                state=state,
+            )
     except support.Paused:
         raise
     except (ValueError, RuntimeError) as error:

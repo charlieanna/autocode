@@ -35,6 +35,7 @@ try:
     from . import autocode_provider_auth as provider_auth
     from . import autocode_provider_env as provider_env
     from . import autocode_provider_launch as provider_launch
+    from . import autocode_regression as regression
     from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_reviewer_fallback as reviewer_fallback
@@ -59,6 +60,7 @@ except ImportError:
     import autocode_provider_auth as provider_auth
     import autocode_provider_env as provider_env
     import autocode_provider_launch as provider_launch
+    import autocode_regression as regression
     import autocode_resolver_recovery as resolver_recovery
     import autocode_resolver_runtime as resolver_runtime
     import autocode_reviewer_fallback as reviewer_fallback
@@ -112,6 +114,21 @@ def replay_context(state: RunState, *, stage, iteration, report_only, original_s
         if draft_snapshot is not None:
             context["draft_inference_snapshot"] = draft_snapshot
     return context
+
+
+def decorate_prompt(state: RunState, stage, workspace, adapter, prompt, schema, events, worker_context):
+    """The existing schema/containment decoration, before provider admission."""
+    prompt = adapter.prompt_for_schema(prompt, schema, events)
+    current_proof = False
+    if stage == "sol" and worker_context.get("tool_containment") and regression.required(state):
+        current_proof = regression.complete(state, source_scope.snapshot(workspace, state)["revision"])
+    return provider_launch.containment_prompt(
+        prompt,
+        worker_context,
+        stage=stage,
+        regression_proof_current=current_proof,
+        regression_handoff=regression.handoff(state) if current_proof else None,
+    )
 
 
 def prepare_visual(

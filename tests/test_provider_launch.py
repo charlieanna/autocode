@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import autocode_prompts as prompts
@@ -18,6 +19,55 @@ from providers.command import CommandProvider
 
 
 class ProviderLaunchTests(unittest.TestCase):
+    def test_mocked_opencode_runner_keeps_schema_prompt_and_legacy_interval_start(self):
+        import autocode as runner
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            schema = root / "schema.json"
+            schema.write_text('{"type":"object"}')
+            adapter = SimpleNamespace(CONFIGURED=True, prompt_for_schema=mock.Mock(return_value="schema prompt"))
+            state = {
+                "version": 2,
+                "iteration": 1,
+                "next_stage": "review_change",
+                "stages": [],
+                "settings": {
+                    "engine": "opencode",
+                    "provider": "offline",
+                    "roles": {"sol": {"model": "offline-model", "reasoning_effort": "low"}},
+                },
+            }
+            with (
+                mock.patch.object(runner.role_transport, "session_adapter", return_value=(adapter, False)),
+                mock.patch.object(runner.provider_launch, "prepare", return_value=(["offline"], {}, {}, {})),
+                mock.patch.object(runner.output_policy, "environment", return_value={}),
+            ):
+                value, record = runner.run_role(
+                    role="sol",
+                    prompt="original prompt",
+                    sandbox="read-only",
+                    workspace=root,
+                    run_dir=root / "run",
+                    state=state,
+                    schema=schema,
+                    model="offline-model",
+                    allow_write=False,
+                    dry_run=True,
+                )
+            self.assertEqual({"status": "DRY_RUN"}, value)
+            adapter.prompt_for_schema.assert_called_once_with(
+                "original prompt", {"type": "object"}, Path(record["events"])
+            )
+            self.assertEqual("schema prompt", Path(record["prompt"]).read_text())
+            observed = state["efficiency_observations"]
+            self.assertEqual(
+                ["source_launcher_preparation", "prompt_preparation", "prompt_write"],
+                [row["provenance"]["phase"] for row in observed],
+            )
+            self.assertTrue(all(row["finished_at"] <= record["started_at"] for row in observed))
+            self.assertTrue(all(row["attempt_id"] is None for row in observed))
+
     def test_runner_selects_tool_free_policy_for_a_nonplanning_report_repair(self):
         import autocode as runner
 
@@ -62,6 +112,11 @@ class ProviderLaunchTests(unittest.TestCase):
                     )
                 self.assertEqual(report_only, prepare.call_args.kwargs["planning_report_recovery"])
                 self.assertEqual("zai-coding-plan/glm-5.3", prepare.call_args.kwargs["model"])
+                observed = state["efficiency_observations"][-1]
+                self.assertEqual("source_launcher_preparation", observed["provenance"]["phase"])
+                self.assertEqual("exception", observed["provenance"]["outcome"])
+                self.assertEqual("Prepared", observed["provenance"]["exception_type"])
+                self.assertIsNone(observed["attempt_id"])
 
     def test_catalog_read_authority_is_added_only_to_readonly_intake_launches(self):
         import autocode_catalog_context as catalog_context
