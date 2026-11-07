@@ -16,9 +16,10 @@ PR template asks for an entry here; a change without one is incomplete.
   as a retry of the fixed failure; with the one retry spent, a live run ended "kept failing for the same
   reason". The changed-line repair now runs under its own two-round bound (#2815).
 - A Builder sent back to settle changed lines gets those lines' evidence, not the whole proof's.
-  Each tested or excepted line is listed by number under its file; every open line keeps its full
-  row. A live returned Builder's handoff fell from 257 KB to 79 KB; at 257 KB its provider compacted
-  the conversation and the run paused for a person (#2815).
+  Each tested or excepted line, and each open line nothing observed (no mutant ran or none could),
+  is listed by number under its file; an open line with a mutant outcome keeps its full row. Live
+  returned Builders' handoffs fell from 257 KB to 79 KB and from 179 KB to 75 KB; at 257 KB the
+  provider compacted the conversation and the run paused for a person (#2815).
 - Large completed review reports can use exact text edits for syntax errors or a JSON fence, within
   the existing 512 KiB artifact ceiling. Repairs preserve the source hash, unchanged report text,
   the 32-edit/4096-byte correction limits, and every ordinary evidence and approval check.
