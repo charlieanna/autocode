@@ -21,7 +21,7 @@ gate describes the decision as user-only or person-only.
 Handle routine corrective feedback, retries and recovery decisions after
 classifying the failure. Keep attempts, usage and failure evidence. For these
 requested fixes and live verification, the operating agent may make bounded
-active-time extensions within the existing spending cap and use the public CLI
+active-time extensions within any applicable spending cap and use the public CLI
 when the view lacks the corresponding operator control. Record the reason and
 the exact change; report the missing view action separately. This is operator
 authority, not permission to add private-state access or hidden actions to clients.
@@ -515,10 +515,14 @@ focused fakes or existing conformance evidence cannot cover it before starting.
 Documentation, CI and test-only changes do not require live runs.
 
 - **Keep it bounded and relevant.** Choose one scenario or task that reaches
-  the changed behavior, with explicit time and spend limits. A full catalog,
+  the changed behavior, with explicit time limits. A full catalog,
   repeated model variants or reliability sweep needs its own demonstrated
   reason or explicit user request. Reuse valid evidence from the same runtime
   change; do not repeat a passing run for documentation or formatting updates.
+- **Testing runs without cost caps.** Use `--max-cost-usd 0` for direct AutoCode
+  test runs and benchmarks, including authorized live verification. Scenario
+  runs use their uncapped default. Cost-limit regression fixtures retain the
+  limits they exercise. Record observed spend and any accounting gaps.
 - **Keep the requested routing.** Preserve the user's provider and model
   choices for each role. A substitution for one role does not change others.
   For a provider-specific risk, exercise that provider rather than switching
