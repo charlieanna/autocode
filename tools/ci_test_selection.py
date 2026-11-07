@@ -96,6 +96,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "scenarios/harness/fake_changed_code.py",
         (
             "tests.test_scenario_changed_code_fixtures",
+            "tests.test_native_scenario_fixture_reasons",
             "tests.test_acceptance_tests",
             "tests.test_acceptance_writer_route",
             "tests.test_follow_up_acceptance_cli",

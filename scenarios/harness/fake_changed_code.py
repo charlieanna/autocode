@@ -809,6 +809,276 @@ def _package_greeting(data, root, producer):
     ]
 
 
+# Only these scripted native fixtures have independently reviewed site-less lines.
+# The first-Go CLI is bound to its delivered, executed stream/exit tests too.
+NATIVE_FIXTURES = {
+    "Fix touching and empty half-open intervals with native Node regressions": {
+        "check": "node --test tests/*.test.js",
+        "tests": ["tests/interval-boundaries.test.js"],
+        "pins": {
+            "src/interval.js": "31cdee3a5632cf06976477c446ae01a748dcf7e4cb43c6a171a5c8d25e5f41f7",
+            "tests/interval-boundaries.test.js": "db1e5e3b50d6a534dda7be348207e461d8e439fb97723e1555ac1df6884dcd0b",
+            "tests/interval.test.js": "7009236ae16ba5ce3d04e912477cdbe193604b8387c0b8144a81f8102e0326dc",
+        },
+        "produced": ["src/interval.js", "tests/interval-boundaries.test.js"],
+        "cases": {
+            "C1": ["tests/interval-boundaries.test.js::test_c1_touching_intervals_are_disjoint"],
+            "C2": ["tests/interval-boundaries.test.js::test_c2_empty_interval_never_overlaps"],
+        },
+        "fail_to_pass": [
+            "tests/interval-boundaries.test.js::test_c1_touching_intervals_are_disjoint",
+            "tests/interval-boundaries.test.js::test_c2_empty_interval_never_overlaps",
+        ],
+        "pass_to_pass": [],
+        "reasons": {
+            "src/interval.js": {
+                13: "Native Node mutation is unavailable. test_c2_empty_interval_never_overlaps asserts false for an empty interval on either side and for two empty intervals; test_c1_touching_intervals_are_disjoint also requires a genuine overlap to stay true. Removing either nonempty guard or returning a constant fails these delivered assertions.",
+                14: "Native Node mutation is unavailable. test_c1_touching_intervals_are_disjoint asserts touching endpoints are disjoint in both orders for integer, negative and fractional inputs, and that a small real overlap is true. Replacing either strict overlap bound with an inclusive bound or a constant fails these delivered assertions.",
+            }
+        },
+    },
+    "Fix touching and empty booking intervals in a TypeScript module": {
+        "check": "node node_modules/vitest/vitest.mjs run",
+        "tests": ["tests/regression.test.ts"],
+        "pins": {
+            "src/bookings.ts": "d1b0d87270cff90f76cdc40f5c5c40dfa562234a7509e730a442cadcc35f6e9b",
+            "tests/regression.test.ts": "a4398fd1c4ee0fd9590e5820bdadc6f8a9f3fb59fcb7c282d37560f546c377b1",
+            "tests/bookings.test.ts": "9557db0db35190c744430be2bfdfa60095e0dd758c4dd061b1052c5a7c85cf19",
+            "vitest.config.cjs": "d3c7294fa729311fb6b098ce6827a7815360e82277e495e9d31c2d600c04ebd3",
+        },
+        "produced": ["src/bookings.ts", "tests/regression.test.ts"],
+        "cases": {
+            "C1": ["tests/regression.test.ts::test_c1_touching_bookings_do_not_conflict"],
+            "C2": ["tests/regression.test.ts::test_c2_empty_intervals_do_not_conflict_or_mutate_inputs"],
+        },
+        "fail_to_pass": [
+            "tests/regression.test.ts::test_c1_touching_bookings_do_not_conflict",
+            "tests/regression.test.ts::test_c2_empty_intervals_do_not_conflict_or_mutate_inputs",
+        ],
+        "pass_to_pass": [],
+        "reasons": {
+            "src/bookings.ts": {
+                19: "Native Vitest mutation is unavailable. test_c2_empty_intervals_do_not_conflict_or_mutate_inputs asserts an empty request returns [] even inside a positive booking, while a nonempty request returns exactly [positive]. Removing this early empty-request guard reports the positive booking and fails the delivered assertion.",
+                21: "Native Vitest mutation is unavailable. test_c2_empty_intervals_do_not_conflict_or_mutate_inputs requires an empty booking to be excluded without mutating frozen inputs; test_c1_touching_bookings_do_not_conflict requires exact inside and fractional-overlap IDs while excluding both touching neighbors. Removing the positive-width guard or relaxing either strict bound fails these delivered assertions.",
+            }
+        },
+    },
+    "Fix the exclusive upper endpoint of a Go interval": {
+        "check": "go test ./...",
+        "tests": ["window/regression_test.go"],
+        "pins": {
+            "window/interval.go": "a1a33ed1eb52e31ebf27af9c336185c5477b6a02f391b1ae07d6eac046fbfa3b",
+            "window/regression_test.go": "51a1e1917c6cd23e24c77ea37d9ab3e2560789a683b9e4436181b485b8779697",
+            "window/interval_test.go": "553e6649b3c6b6c58274c6a94a627522945b8857cc4fd1712a4a572e5095010d",
+        },
+        "produced": ["window/interval.go", "window/regression_test.go"],
+        "cases": {
+            "C1": ["example.test/scenario/window::TestC1ExcludesUpperEndpoint"],
+            "C2": ["example.test/scenario/window::TestC2EmptyInterval"],
+        },
+        "fail_to_pass": [
+            "example.test/scenario/window::TestC1ExcludesUpperEndpoint",
+            "example.test/scenario/window::TestC2EmptyInterval",
+        ],
+        "pass_to_pass": [],
+        "reasons": {
+            "window/interval.go": {
+                5: "Native Go mutation is unavailable. TestC1ExcludesUpperEndpoint rejects the upper endpoint and TestC2EmptyInterval rejects [7,7); the existing TestExistingInterior and TestExistingOutside retain true interior membership and false outside membership. An inclusive upper bound or constant result fails those delivered assertions."
+            }
+        },
+    },
+    "Count partial Java pages with real JUnit XML named proof": {
+        "check": "mvn -o -B -q -Dtest=PageCountTest test",
+        "tests": ["src/test/java/example/PageCountTest.java"],
+        "pins": {
+            "src/main/java/example/PageCount.java": "04879cef46ca696d823c095452b5fa962c2b28625b4ba3a2da79551fe7772e85",
+            "src/test/java/example/PageCountTest.java": "501830cf7bde1d6ecd1d64e78e1b223ab6f7593280e9d6c5661ab5a5bf43bb2e",
+        },
+        "produced": ["src/main/java/example/PageCount.java", "src/test/java/example/PageCountTest.java"],
+        "cases": {
+            "C1": ["example.PageCountTest::test_c1_partial_page_is_counted"],
+            "C2": ["example.PageCountTest::test_c2_exact_multiple_remains_two_pages"],
+        },
+        "fail_to_pass": ["example.PageCountTest::test_c1_partial_page_is_counted"],
+        "pass_to_pass": ["example.PageCountTest::test_c2_exact_multiple_remains_two_pages"],
+        "reasons": {
+            "src/main/java/example/PageCount.java": {
+                10: "Native JUnit mutation is unavailable. test_c1_partial_page_is_counted requires 21 items at page size 10 to yield 3 and test_c2_exact_multiple_remains_two_pages preserves 20 items yielding 2. Dropping the partial-page increment or always adding it fails one of these delivered assertions."
+            }
+        },
+    },
+    "Add a first Go package and CLI beside an existing C# policy": {
+        "check": "go test ./...",
+        "tests": ["cmd/retention/main_test.go", "policy/policy_test.go"],
+        "pins": {
+            "cmd/retention/main.go": "fe398360138742194cc2848c8e6d2e462e8eda8d8da43cd8d0cfd1c3c8ce2361",
+            "policy/policy.go": "0a7fbf004ff2c10eda94790e6d274b73e28ba713055969edfbad541e5cb00ddc",
+            "cmd/retention/main_test.go": "df1ddcef14676dcdf63dddd628136ab7bd511966e19aeee3e6ed7e61c02b87ad",
+            "policy/policy_test.go": "1e057845778f31453d0ad34826d99cccbf87f1947c67cc1092a2b5296d721f23",
+        },
+        "produced": [
+            "cmd/retention/main.go",
+            "policy/policy.go",
+            "cmd/retention/main_test.go",
+            "policy/policy_test.go",
+        ],
+        "cases": {
+            "C1": ["example.test/scenario/policy::TestC1GermanRetention"],
+            "C2": ["example.test/scenario/policy::TestC2ExceptionRetention"],
+        },
+        "fail_to_pass": [
+            "example.test/scenario/policy::TestC1GermanRetention",
+            "example.test/scenario/policy::TestC2ExceptionRetention",
+            "example.test/scenario/cmd/retention::TestCLIStreamsAndExits",
+        ],
+        "pass_to_pass": [],
+        "reasons": {
+            "cmd/retention/main.go": {
+                1: "Native Go mutation is unavailable for this structural entrypoint/import line. TestCLIStreamsAndExits builds and executes the real retention binary and asserts exact stdout, stderr and exit codes for all eight input classes; this line is required to compile and expose that entrypoint, with no separate runtime behavior.",
+                3: "Native Go mutation is unavailable for this structural entrypoint/import line. TestCLIStreamsAndExits builds and executes the real retention binary and asserts exact stdout, stderr and exit codes for all eight input classes; this line is required to compile and expose that entrypoint, with no separate runtime behavior.",
+                4: "Native Go mutation is unavailable for this structural entrypoint/import line. TestCLIStreamsAndExits builds and executes the real retention binary and asserts exact stdout, stderr and exit codes for all eight input classes; this line is required to compile and expose that entrypoint, with no separate runtime behavior.",
+                5: "Native Go mutation is unavailable for this structural entrypoint/import line. TestCLIStreamsAndExits builds and executes the real retention binary and asserts exact stdout, stderr and exit codes for all eight input classes; this line is required to compile and expose that entrypoint, with no separate runtime behavior.",
+                7: "Native Go mutation is unavailable for this structural entrypoint/import line. TestCLIStreamsAndExits builds and executes the real retention binary and asserts exact stdout, stderr and exit codes for all eight input classes; this line is required to compile and expose that entrypoint, with no separate runtime behavior.",
+                8: "Native Go mutation is unavailable for this structural entrypoint/import line. TestCLIStreamsAndExits builds and executes the real retention binary and asserts exact stdout, stderr and exit codes for all eight input classes; this line is required to compile and expose that entrypoint, with no separate runtime behavior.",
+                10: "Native Go mutation is unavailable for this structural entrypoint/import line. TestCLIStreamsAndExits builds and executes the real retention binary and asserts exact stdout, stderr and exit codes for all eight input classes; this line is required to compile and expose that entrypoint, with no separate runtime behavior.",
+                11: "Native Go mutation is unavailable. TestCLIStreamsAndExits/extra_arguments passes two TLDs and requires exit 2, empty stdout and the exact usage diagnostic; weakening this argument-count guard fails those delivered assertions.",
+                12: "Native Go mutation is unavailable. TestCLIStreamsAndExits/extra_arguments asserts stderr is exactly usage: retention [TLD] followed by a newline, and stdout is empty. Dropping this diagnostic or writing it to stdout fails the delivered test.",
+                13: "Native Go mutation is unavailable. TestCLIStreamsAndExits/extra_arguments asserts exit 2; returning successfully after the diagnostic fails the delivered test.",
+                14: "Native Go mutation is unavailable for this closing brace. It delimits the excess-argument branch, whose exit and streams TestCLIStreamsAndExits/extra_arguments asserts; the delimiter has no independent behavior beyond the compiled control flow.",
+                15: "Native Go mutation is unavailable. TestCLIStreamsAndExits/no_arguments asserts exactly 30 and a newline with no stderr and exit 0. A nonempty default such as de changes the policy result and fails the delivered test.",
+                16: "Native Go mutation is unavailable. TestCLIStreamsAndExits requires no_arguments to succeed and german and exception to return 7 and 1. Reading argv without this single-argument branch crashes the default or ignores the supplied TLD and fails those assertions.",
+                17: "Native Go mutation is unavailable. TestCLIStreamsAndExits/german and exception assert 7 and 1 with exact streams and exit 0; ignoring or replacing this argv assignment leaves the default 30 and fails those delivered tests.",
+                18: "Native Go mutation is unavailable for this closing brace. It ends the optional-argument branch; TestCLIStreamsAndExits/no_arguments and german assert the separately compiled zero- and one-argument paths, with no independent delimiter behavior.",
+                19: "Native Go mutation is unavailable. TestCLIStreamsAndExits asserts exact number-plus-newline stdout for no_arguments, german, exception and the case-sensitive default classes. Dropping this policy call or its print fails those delivered assertions.",
+                20: "Native Go mutation is unavailable for the closing main-function brace. TestCLIStreamsAndExits builds and executes the entrypoint and asserts all returned streams and exits; this delimiter adds no behavior beyond that compiled function.",
+            },
+            "policy/policy.go": {
+                4: "Native Go mutation is unavailable for this function signature. TestC1GermanRetention and TestC2ExceptionRetention call the exported RetentionDays function, and TestCLIStreamsAndExits builds its CLI caller; the declaration has no independent behavior beyond that tested entrypoint.",
+                5: "Native Go mutation is unavailable. TestC1GermanRetention and TestC2ExceptionRetention require distinct 7 and 1 results, while TestCLIStreamsAndExits requires 30 for unknown and case-sensitive nonmatches; discarding this dispatch cannot satisfy those assertions.",
+                6: "Native Go mutation is unavailable. TestC1GermanRetention requires exact lowercase de to yield 7; TestCLIStreamsAndExits/uppercase_is_default and leading_space_is_default require DE and leading-space de to yield 30. Changing this case label breaks those delivered assertions.",
+                7: "Native Go mutation is unavailable. TestC1GermanRetention and TestCLIStreamsAndExits/german assert exactly 7; another return value fails those delivered tests.",
+                8: "Native Go mutation is unavailable. TestC2ExceptionRetention and TestCLIStreamsAndExits/exception require exact exception to select 1, while the unknown CLI name selects 30; removing this case label fails those assertions.",
+                9: "Native Go mutation is unavailable. TestC2ExceptionRetention and TestCLIStreamsAndExits/exception assert exactly 1; another return value fails those delivered tests.",
+                10: "Native Go mutation is unavailable. TestCLIStreamsAndExits/no_arguments, uppercase_is_default, leading_space_is_default, domain_is_default and unknown_is_default require the fallback branch to return exactly 30 with a newline and exit 0.",
+                11: "Native Go mutation is unavailable. TestCLIStreamsAndExits/no_arguments and the four exact case-sensitive fallback classes assert stdout is 30 followed by one newline; another fallback return fails those delivered assertions.",
+            },
+        },
+    },
+}
+
+
+def _fixture_pins(root, pins):
+    """Read only fixed fixture names, refusing borrowed leaf or ancestor links."""
+    if root.is_symlink():
+        return False
+    boundary = root.resolve(strict=True)
+    for name, pin in pins.items():
+        path = root
+        for part in Path(name).parts:
+            path = path / part
+            if path.is_symlink():
+                return False
+        if (
+            not path.resolve(strict=True).is_relative_to(boundary)
+            or hashlib.sha256(path.read_bytes()).hexdigest() != pin
+        ):
+            return False
+    return True
+
+
+def _native_fixture(data, root, producer):
+    """Judge only exact reference-copy output and its current offered native proof."""
+    if not isinstance(producer, dict) or not isinstance(producer.get("title"), str):
+        return []
+    spec = NATIVE_FIXTURES.get(producer["title"])
+    if (
+        spec is None
+        or producer.get("check") != spec["check"]
+        or producer.get("turn_paths")
+        or not isinstance(producer.get("reference"), str)
+        or not isinstance(producer.get("paths"), list)
+        or not all(isinstance(name, str) for name in producer["paths"])
+        or not set(spec["produced"]) <= set(producer["paths"])
+    ):
+        return []
+    try:
+        reference = Path(producer["reference"])
+        if (
+            reference.resolve(strict=True).is_relative_to(root.resolve(strict=True))
+            or not _fixture_pins(reference, {name: spec["pins"][name] for name in spec["produced"]})
+            or not _fixture_pins(root, spec["pins"])
+        ):
+            return []
+    except (OSError, RuntimeError):
+        return []
+    proof = data.get("regression_proof") or {}
+    assessment = proof.get("changed_code_evidence") or {}
+    mutation = proof.get("mutation_check") or {}
+    revision, context = assessment.get("source_revision"), assessment.get("proof_context")
+    if (
+        not isinstance(proof.get("path"), str)
+        or not proof["path"].strip()
+        or proof.get("verdict") != "PASS"
+        or proof.get("source_revision") != revision
+        or not all(
+            isinstance(value, str) and len(value) == 64 and set(value) <= set("0123456789abcdef")
+            for value in (revision, context)
+        )
+        or proof.get("test_files") != spec["tests"]
+        or proof.get("case_tests") != spec["cases"]
+        or not isinstance(proof.get("source_files"), list)
+        or not all(isinstance(name, str) for name in proof["source_files"])
+        or not set(spec["reasons"]) <= set(proof["source_files"])
+        or mutation.get("collected") is not False
+        or mutation.get("files") != []
+        or mutation.get("survivors")
+    ):
+        return []
+    for name in ("fail_to_pass", "pass_to_pass"):
+        results = proof.get(name)
+        if (
+            not isinstance(results, list)
+            or not all(isinstance(value, str) for value in results)
+            or not set(spec[name]) <= set(results)
+        ):
+            return []
+    accepted = []
+    for row in assessment.get("obligations") or []:
+        if not isinstance(row, dict):
+            continue
+        path, line = row.get("path"), row.get("line")
+        if (
+            row.get("status") != "reason_required"
+            or not isinstance(path, str)
+            or path not in spec["reasons"]
+            or row.get("sha256") != spec["pins"][path]
+            or type(line) is not int
+            or line not in spec["reasons"][path]
+            or row.get("mutation_outcomes") != []
+        ):
+            continue
+        identity = [revision, context, path, spec["pins"][path], line]
+        gap = "changed-code:" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+        if (
+            row.get("gap_id") == gap
+            and sum(
+                isinstance(offered, dict) and offered.get("gap_id") == gap
+                for offered in assessment.get("obligations") or []
+            )
+            == 1
+        ):
+            accepted.append(
+                {
+                    "gap_id": gap,
+                    "decision": "accept",
+                    "reason_kind": "instrumentation_unavailable",
+                    "reason": spec["reasons"][path][line],
+                    "evidence_refs": [proof["path"], path],
+                }
+            )
+    return accepted
+
+
 def judgments(data, root=None, *, producer=None):
     root = Path.cwd() if root is None else Path(root)
     return (
@@ -824,6 +1094,7 @@ def judgments(data, root=None, *, producer=None):
         + _outbox(data, root)
         + _csvcheck(data, root)
         + _package_greeting(data, root, producer)
+        + _native_fixture(data, root, producer)
     )
 
 
