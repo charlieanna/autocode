@@ -1887,6 +1887,10 @@ class ChatTUI:
             }
         return total
 
+    def _worked(self) -> str:
+        """How long this chat's run has worked in all, from its own attempt records (meter.run_seconds)."""
+        return meter.worked_text(self._view, datetime.now(UTC))
+
     def _spend(self) -> str:
         """What this chat's run has used, and with more than one chat open, the session's total."""
         task = self._task_total()
@@ -2187,11 +2191,16 @@ class ChatTUI:
             or self._transcript.activity
             or "AutoCode is working…"
         )
-        trouble = "" if reading or task else meter.struggling(self._view, datetime.now(UTC))
+        now = datetime.now(UTC)
+        trouble = "" if reading or task else meter.struggling(self._view, now)
         if trouble:
             text = trouble  # a stage on its second attempt or later says so where the person looks
+        # How long since the working stage last wrote anything (panel.quiet): a quiet one is flagged.
+        silent = None if reading or self._observation.error else panel.quiet(self._view, now)
+        if silent:
+            text = f"{text} · {silent[0]}"
         lead = f"  {marker} {text}"
-        style = self._style("panel-warn" if trouble else "working")
+        style = self._style("panel-warn" if trouble or (silent and silent[1]) else "working")
         self._put(layout.status_start, 0, truncate(lead, layout.width), style)
         if reading:
             return
@@ -2271,7 +2280,12 @@ class ChatTUI:
             else ((self._view or {}).get("progress") or {}).get("stage")
         )
         stage = stage.strip() if isinstance(stage, str) else ""
-        status = " · ".join(value for value in (stage, self._spend()) if value)
+        spend = self._spend()
+        status = " · ".join(value for value in (stage, self._worked(), spend) if value)
+        # The working time goes first when the footer is short of room: the navigation and the
+        # boundary action matter more, and the Stages section carries the time too.
+        if display_width(status + " · " + hints) > layout.width - 2:
+            status = " · ".join(value for value in (stage, spend) if value)
         # At narrow widths the stage already appears on the status row. Keep the
         # navigation and boundary action visible instead of letting a stage/cost
         # prefix push them past the right edge of the footer.

@@ -206,12 +206,20 @@ def _sent_back(state: RunState):
             )
         else:
             action, by = "AutoCode sent the Builder back to test these lines or give a reason.", "Builder"
+        # The round the record names, out of the rounds the gate allows (autocode_changed_code_rework);
+        # a record saved before rounds were recorded has none.
+        number, limit = row.get("round"), row.get("round_limit")
+        rounds = (
+            f" (round {number} of {limit})"
+            if row.get("action") == "builder" and type(number) is int and type(limit) is int and 0 < number <= limit
+            else ""
+        )
         yield _entry(
             "sent_back",
             row.get("at"),
             "terra",
             state,
-            headline="Builder sent back for untested lines",
+            headline="Builder sent back for untested lines" + rounds,
             problem=problem,
             action=action,
             by=by,

@@ -142,6 +142,13 @@ PR template asks for an entry here; a change without one is incomplete.
   integration would then have refused the batch for the changed test files.
 - A Tester that runs `capture` through `2>&1 | grep '"exit_code"'` keeps its receipt: capture's short
   attestation line now leads with `exit_code`. When a filter drops every line, the rejection names it.
+- The terminal chat tells a stalled stage from a busy one. While a supervised stage works, the status
+  row says when it last wrote anything (`last output 12s ago`) and, after two minutes of silence, warns
+  `no output for 4m05s`; the status view carries it as `chat.last_output_at`. A stage on a later attempt
+  also says how many more failures the core allows before it stops (`2 tries left`, `last try`;
+  `progress.retry`), and a Builder send-back for untested lines names its round out of the two the
+  gate allows. The footer and the Stages section add how long the run's stages have worked in all
+  (`worked 42m05s`).
 
 ### Changed
 
