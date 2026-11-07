@@ -16,6 +16,14 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
                 self.assertEqual([consumer], list(kept))
 
+    def test_replay_export_keeps_native_capture_refusal_cli_consumer(self):
+        consumer = "tests.test_replay_native_capture_export_cli"
+        selected = run_suite.select_tests(
+            ["tools/autocode_replay_recording.py"], {consumer: "", "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, {consumer: "slow"})
+        self.assertEqual([consumer], list(kept))
+
     def test_requirements_observations_keep_the_public_intake_to_planner_consumer(self):
         consumer = "tests.test_requirements_observations_cli"
         for path in (

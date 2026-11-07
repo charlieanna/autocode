@@ -202,11 +202,11 @@ fake providers never bypass unsupported-host admission. The always-reporting
 `ci-required` job fails when scope selection fails or a selected job fails,
 cancels or skips. Master and manual runs retain their existing complete coverage.
 
-When the pinned PR base has a completed failing `tests` workflow, CI runs the
-full head suite and selects all checks. A corrective PR can therefore prove its
-repair without the base's historical failure vetoing a passing head. Green bases
-keep changed-test selection; an unavailable base verdict is reported and keeps
-normal head checks.
+PR selection also applies when the pinned base has failures. A corrective PR
+proves its reported behavior and affected consumers through the same mappings;
+required mapped slow tests still run. A green PR describes that selected scope,
+and does not close unrelated failures on master. Every selected head check must
+pass, and master and manual runs keep their complete coverage.
 
 `tools/run_suite.py --failed-out PATH` writes a versioned JSON report with failed
 modules, test identities, failure signatures and timeout markers, in parallel or

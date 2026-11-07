@@ -16,12 +16,18 @@ PR template asks for an entry here; a change without one is incomplete.
 - Testers can run plain approved verification commands as one prepared batch, preserving their order,
   separate fresh capture receipts and existing verification gates. Unsupported shell commands keep
   individual execution. Contained Testers keep receipts in their current writable scratch directory.
+- Saved-run replay refuses referenced unsupported native capture dependencies at export,
+  before creating an unusable recording or starting a replay. Original completion
+  and evidence are preserved; old receipts do not gain fresh verification authority.
 - A computed value that the module's own import uses is no longer replaced with `None` by the
   mutation check. That mutant stopped the module loading, so no test ran and the line stayed open
   with an unrun mutant; the scripted review-then-fix run stopped at the changed-line gate. Such a
   line now counts as having no mutation site. The local two-service scenario's tests now check the
   `Content-Length` header, and its scripted Tester judges the two client-side calls no test can
   observe as equivalent mutants.
+- A failing master no longer expands every pull request to the full repository
+  suite. PRs keep pinned change and consumer selection, all selected checks remain
+  required, and master and manual runs keep complete coverage.
 - Accepted Requirements report repairs retain the original observations for the first Planner
   without repeating the Requirements probes.
 - The first Planner can reuse small, successful Requirements observations from the same unchanged

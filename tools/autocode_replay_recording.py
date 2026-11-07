@@ -925,6 +925,64 @@ def _identity_packet(packet, run_root):
         raise RecordingError("Recording cannot recover pinned context identity inputs") from error
 
 
+def _native_capture_references(answers, workspace):
+    """Lexical answer dependencies only; never read or resolve claimed paths."""
+    outputs = set()
+
+    def visit(value, field=None):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                visit(child, key)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child, field)
+        elif isinstance(value, str) and value and field in identity_bindings.PATH_REFERENCE_FIELDS:
+            path = Path(value)
+            path = path if path.is_absolute() else workspace / path
+            outputs.add(os.path.normpath(path))
+            # capture retains receipt.with_suffix('.log'), regardless of the
+            # chosen receipt suffix. This derives a name, never authority.
+            if path.name:
+                outputs.add(os.path.normpath(path.with_suffix(".log")))
+
+    visit(answers)
+    return outputs
+
+
+def _refuse_native_capture_dependencies(rows, references, workspace):
+    """V1 has no portable native receipt/copy closure or current capture owner.
+
+    Recognizing an unsupported dependency grants no evidence authority. Even a
+    forged receipt-shaped tool output must not enable replaying its command.
+    Model prose alone is not an executed capture dependency.
+    """
+    if any(row.get("type") == "tool_use" for row in rows if isinstance(row, dict)):
+        try:
+            from .providers import opencode_events
+        except ImportError:
+            from providers import opencode_events
+        rows = opencode_events.normalized_events(rows)
+    for row in rows:
+        item = row.get("item") if isinstance(row, dict) and row.get("type") == "item.completed" else None
+        if not isinstance(item, dict) or item.get("type") not in ("command_execution", "tool_output"):
+            continue
+        output = item.get("aggregated_output")
+        for line in output.splitlines() if isinstance(output, str) else []:
+            try:
+                value = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(value, dict) or "verification_copy" not in value:
+                continue
+            output = value.get("full_output")
+            if not isinstance(output, str) or not output:
+                continue
+            path = Path(output)
+            path = path if path.is_absolute() else workspace / path
+            if os.path.normpath(path) in references:
+                raise RecordingError("Recording native capture receipt dependencies are unsupported in v1")
+
+
 def export(projection, destination, secret_values=()):
     """Export a public replay_source projection, recovering every intermediate leaf.
 
@@ -975,6 +1033,7 @@ def export(projection, destination, secret_values=()):
         "expected": {"verdict": projection["origin"]["verdict"], "stage_sequence": [], "checks_mode": "fresh"},
     }
     payloads = {}
+    original_values = {}
 
     def artifact(identity, path, format):
         path = Path(path)
@@ -985,18 +1044,16 @@ def export(projection, destination, secret_values=()):
         original = _read(run_root, name)[0]
         if format in ("json", "receipt"):
             parsed = _json(original)
+            if format == "json":
+                original_values[identity] = parsed
             masked = sanitize(parsed, secret_values)
             redacted = masked != parsed
             safe = original if format == "receipt" and not redacted else _bytes(masked)
         elif format == "jsonl":
-            redacted = any(
-                sanitize(_json(line), secret_values) != _json(line) for line in original.splitlines() if line.strip()
-            )
-            safe = b"".join(
-                _bytes(sanitize(_json(line), secret_values)).replace(b"\n", b"") + b"\n"
-                for line in original.splitlines()
-                if line.strip()
-            )
+            parsed = [_json(line) for line in original.splitlines() if line.strip()]
+            original_values[identity] = parsed
+            redacted = any(sanitize(value, secret_values) != value for value in parsed)
+            safe = b"".join(_bytes(sanitize(value, secret_values)).replace(b"\n", b"") + b"\n" for value in parsed)
         else:
             safe = util.redact(original.decode("utf-8"), secret_values).encode()
             redacted = safe != original
@@ -1106,7 +1163,7 @@ def export(projection, destination, secret_values=()):
             }
             gate = identity_bindings.gate_reply(packet)
             if gate and isinstance(payload["report"], dict):
-                raw = _json(_read(run_root, Path(record["output"]).relative_to(run_root).as_posix())[0])
+                raw = original_values[row["report"]]
                 # Authenticate against original bytes before binding a masked identity.
                 # Exported artifact bytes stay redacted; this copy is used only to derive bindings.
                 for field, symbol in (("message_id", "gate_message_id"), ("gate_token", "gate_token")):
@@ -1130,6 +1187,14 @@ def export(projection, destination, secret_values=()):
                 mutations=line_evidence.mutation_citations(identities.get("regression_proof")),
             )
         document["dispatches"].append(row)
+    # A later answer can cite an earlier capture. Use the same original values
+    # whose exact bytes produced the exported artifacts, before writing a leaf.
+    answers = [
+        original_values[row[field]] for row in document["dispatches"] for field in ("report", "response") if row[field]
+    ]
+    references = _native_capture_references(answers, workspace)
+    for row in document["dispatches"]:
+        _refuse_native_capture_dependencies(original_values[row["events"]], references, workspace)
     revisions = list(dict.fromkeys([*projection["revisions"], *[row["head"] for row in snapshots]]))
     for snapshot in snapshots:
         for name, identity in snapshot["files"].items():

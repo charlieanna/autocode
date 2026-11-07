@@ -2,6 +2,7 @@
 
 import copy
 import hashlib
+import json
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,149 @@ from scenarios.harness import fake_changed_code as fixture
 from tests import test_follow_up_acceptance_cli as follow_up
 
 REFERENCE = Path(__file__).resolve().parents[1] / "scenarios/catalog/feature-stock-refusals/reference"
+
+
+class PackageGreetingFixtureReviewTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        base = Path(temporary.name)
+        self.root, self.reference = base / "project", base / "reference"
+        catalog = REFERENCE.parents[1] / "feature-monorepo-package"
+        shutil.copytree(catalog / "seed", self.root)
+        shutil.copytree(catalog / "reference", self.reference)
+        shutil.copytree(self.reference, self.root, dirs_exist_ok=True)
+        self.producer = {
+            "reference": str(self.reference),
+            "paths": [fixture.PACKAGE_GREETING_SOURCE, fixture.PACKAGE_GREETING_FORMAL_TESTS],
+            "check": "cd packages/greet && python3 -m unittest discover -v",
+            "turn_paths": [],
+        }
+        identity = [
+            "a" * 64,
+            "b" * 64,
+            fixture.PACKAGE_GREETING_SOURCE,
+            fixture.PACKAGE_GREETING_PINS[fixture.PACKAGE_GREETING_SOURCE],
+            8,
+        ]
+        self.gap = "changed-code:" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+        self.data = {
+            "regression_proof": {
+                "path": ".autocode/current-proof/report.json",
+                "changed_code_evidence": {
+                    "source_revision": identity[0],
+                    "proof_context": identity[1],
+                    "obligations": [
+                        {
+                            "path": identity[2],
+                            "sha256": identity[3],
+                            "line": 8,
+                            "gap_id": self.gap,
+                            "status": "reason_required",
+                            "mutation_outcomes": [],
+                        }
+                    ],
+                },
+            }
+        }
+
+    def judge(self, data=None, producer=None):
+        return fixture.judgments(
+            self.data if data is None else data, self.root, producer=self.producer if producer is None else producer
+        )
+
+    def test_only_the_scripted_source_and_both_behavior_tests_authorize_its_header_reason(self):
+        (reason,) = self.judge()
+        self.assertEqual(self.gap, reason["gap_id"])
+        self.assertIn("test_formal_greeting", reason["reason"])
+        self.assertEqual(
+            [self.data["regression_proof"]["path"], fixture.PACKAGE_GREETING_SOURCE], reason["evidence_refs"]
+        )
+        self.assertEqual([], fixture.judgments(self.data, self.root), "workspace bytes alone are not a producer")
+        for name in fixture.PACKAGE_GREETING_PINS:
+            path = self.root / name
+            original = path.read_bytes()
+            path.write_bytes(original + b"\n# unknown or weakened bytes\n")
+            with self.subTest(workspace_file=name):
+                self.assertEqual([], self.judge())
+            path.write_bytes(original)
+        for name in (fixture.PACKAGE_GREETING_SOURCE, fixture.PACKAGE_GREETING_FORMAL_TESTS):
+            path = self.reference / name
+            original = path.read_bytes()
+            path.write_bytes(original + b"\n# unknown producer\n")
+            with self.subTest(producer_file=name):
+                self.assertEqual([], self.judge())
+            path.write_bytes(original)
+
+    def test_unknown_producer_and_workspace_masquerading_as_reference_are_refused(self):
+        for change in (
+            {"reference": str(self.root)},
+            {"reference": str(self.reference / "missing")},
+            {"paths": []},
+            {"paths": [[]]},
+            {"check": "echo PASS"},
+            {"turn_paths": [["other.py"]]},
+        ):
+            with self.subTest(change=change):
+                self.assertEqual([], self.judge(producer={**self.producer, **change}))
+        path = self.reference / fixture.PACKAGE_GREETING_SOURCE
+        path.unlink()
+        path.symlink_to(self.root / fixture.PACKAGE_GREETING_SOURCE)
+        self.assertEqual([], self.judge(), "a workspace link is not an owned reference source")
+
+    def test_wrong_gap_source_line_and_every_mutation_outcome_are_refused(self):
+        for change in (
+            {"gap_id": "changed-code:" + "0" * 64},
+            {"path": "packages/farewell/greet.py"},
+            {"line": 9},
+            {"line": True},
+            {"sha256": "0" * 64},
+            {"status": "tested"},
+            *({"mutation_outcomes": value} for value in (["survived"], ["not_run"], ["killed"], None)),
+        ):
+            data = copy.deepcopy(self.data)
+            data["regression_proof"]["changed_code_evidence"]["obligations"][0].update(change)
+            with self.subTest(change=change):
+                self.assertEqual([], self.judge(data))
+        for key in ("source_revision", "proof_context"):
+            data = copy.deepcopy(self.data)
+            data["regression_proof"]["changed_code_evidence"][key] = "c" * 64
+            with self.subTest(stale_binding=key):
+                self.assertEqual([], self.judge(data))
+
+    def test_reference_ancestor_cannot_borrow_workspace_bytes_as_its_producer(self):
+        packages = self.reference / "packages"
+        shutil.rmtree(packages)
+        packages.symlink_to(self.root / "packages", target_is_directory=True)
+        self.assertEqual([], self.judge())
+
+    def test_workspace_ancestor_cannot_borrow_matching_bytes_outside_its_root(self):
+        packages = self.root / "packages"
+        outside = self.root.parent / "outside-packages"
+        shutil.copytree(packages, outside)
+        shutil.rmtree(packages)
+        packages.symlink_to(outside, target_is_directory=True)
+        self.assertEqual([], self.judge())
+
+    def test_leaf_links_cyclic_ancestors_and_unreadable_inputs_are_refused(self):
+        from unittest import mock
+
+        source = self.root / fixture.PACKAGE_GREETING_SOURCE
+        original = source.read_bytes()
+        source.unlink()
+        source.symlink_to(self.reference / fixture.PACKAGE_GREETING_SOURCE)
+        self.assertEqual([], self.judge(), "workspace leaf link borrowed outside source")
+        source.unlink()
+        source.write_bytes(original)
+        packages = self.reference / "packages"
+        retained = self.reference / "owned-packages"
+        packages.rename(retained)
+        packages.symlink_to(packages, target_is_directory=True)
+        self.assertEqual([], self.judge(), "cyclic producer ancestor did not refuse")
+        packages.unlink()
+        retained.rename(packages)
+        with mock.patch.object(Path, "read_bytes", side_effect=PermissionError("unreadable fixture")):
+            self.assertEqual([], self.judge())
 
 
 class StockFixtureReviewTests(unittest.TestCase):
@@ -509,6 +653,71 @@ class LifecycleFixtureReviewTests(unittest.TestCase):
                         self.assertEqual([], fixture.judgments(changed, root))
                 (root / "tests/test_behavior.py").write_text("# behavior assertions removed\n")
                 self.assertEqual([], fixture.judgments(data, root), "weakened tests cannot borrow the reasons")
+
+
+class ProgressiveFixtureReviewTests(unittest.TestCase):
+    def test_only_scripted_variants_exact_import_gaps_receive_reasons(self):
+        scenario = Path(__file__).resolve().parents[1] / "scenarios/catalog/progressive-learning-journey"
+        reference = scenario / "reference"
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            shutil.copy2(scenario / "seed/test_journey.py", root / "test_journey.py")
+            for slice_id, variant in (
+                ("S1", {}),
+                ("S2", {}),
+                ("S3", {"catalog": True}),
+                ("S2", {"note": True}),
+                ("S2", {"corrupt": True}),
+            ):
+                sources = fixture.progressive_sources(reference, slice_id, **variant)
+                for name, content in sources.items():
+                    (root / name).write_bytes(content)
+                obligations = [
+                    {
+                        "gap_id": f"gap:{name}:{line}",
+                        "path": name,
+                        "sha256": hashlib.sha256(content).hexdigest(),
+                        "line": line,
+                        "status": "reason_required",
+                        "mutation_outcomes": [],
+                    }
+                    for name, content in sources.items()
+                    for line in range(1, len(content.splitlines()) + 1)
+                ]
+                data = {
+                    "regression_proof": {"path": "proof.json", "changed_code_evidence": {"obligations": obligations}}
+                }
+
+                def review(packet=data):
+                    return fixture.progressive_judgments(packet, reference, slice_id, root=root, **variant)
+
+                with self.subTest(slice_id=slice_id, variant=variant):
+                    self.assertEqual(
+                        {"gap:lessons.py:1", "gap:progress.py:1", "gap:progress.py:2"}, {r["gap_id"] for r in review()}
+                    )
+                    for mutation in (
+                        {"mutation_outcomes": ["survived"]},
+                        {"mutation_outcomes": ["not_run"]},
+                        {"sha256": "0" * 64},
+                        {"status": "tested"},
+                        {"path": "unknown.py"},
+                        {"line": True},
+                        {"gap_id": ""},
+                    ):
+                        changed = copy.deepcopy(data)
+                        for row in changed["regression_proof"]["changed_code_evidence"]["obligations"]:
+                            row.update(mutation)
+                        self.assertEqual([], review(changed), mutation)
+                    for name in (*sources, "test_journey.py"):
+                        path = root / name
+                        original = path.read_bytes()
+                        path.write_bytes(original + b"\n# Unknown workspace bytes\n")
+                        self.assertEqual([], review(), name)
+                        path.write_bytes(original)
+            unknown = root / "unknown-reference"
+            shutil.copytree(reference, unknown)
+            (unknown / "progress.py").write_text("import json\n")
+            self.assertEqual([], fixture.progressive_judgments(data, unknown, "S2", root=root))
 
 
 if __name__ == "__main__":
