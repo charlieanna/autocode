@@ -509,7 +509,9 @@ class RunState(TypedDict, total=False):
     displayed_goal: Any
     displayed_handoff: Any
     displayed_review: Any
-    efficiency_observations: Any
+    efficiency_observations: (
+        Any  # efficiency alone writes; phase_timing emits exclusive runner leaves; run_view/report read
+    )
     engine: Any
     error: Any
     events: Any

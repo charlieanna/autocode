@@ -456,6 +456,16 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         (
+            "tools/autocode_phase_timing.py",
+            "tools/autocode_unit_request.py",
+            "tools/autocode.py",
+            "tools/autocode_regression.py",
+            "tools/autocode_role_launch.py",
+        ),
+        ("tests.test_phase_timing_cli",),
+    ),
+    (
+        (
             "tools/autocode_requirements_observations.py",
             "tools/autocode_repaired_result.py",
             "tools/autocode_requirements_handoff.py",

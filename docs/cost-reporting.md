@@ -70,6 +70,14 @@ additive measurement projections, not new acceptance gates or model calls.
   Time waiting for the person is measured from each request a person answered: from
   when it became answerable to their response (`efficiency.time`, category `waiting`).
   A request superseded or still pending adds nothing.
+  Fresh runner observations time request assembly, source/launcher preparation,
+  prompt preparation/write, after-snapshot and report loading as exclusive
+  `deterministic_setup` leaves, including scopes that refuse or raise. Stage and
+  attempt links are provenance only; provider attempt timestamps keep their
+  existing meaning. Monotonic leaf durations are retained alongside wall endpoints.
+  A fresh regression execution records its actual start on the runner-owned
+  stage only; historical missing starts are not reconstructed. Acceptance, other uncovered gaps and crash-interrupted
+  scopes remain unmeasured. These additions establish no speed improvement.
   OpenCode request starts are paired within the same session and message. Multiple
   pending starts for one message leave its timing unknown and coverage explicitly
   uncertain; known finish-token receipts are retained. Message-free events use

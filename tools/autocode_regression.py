@@ -581,7 +581,7 @@ def _prove(
 def _proving(
     state: RunState, workspace, run_dir, current, scope, progress, framework, execution_context, inputs, kept, all_due
 ):
-    started = time.monotonic()
+    started_at, started = util.now(), time.monotonic()
     base = base_commit(state, workspace)
     options = settings(state)
     base_patch = reviewed_patch(state, workspace)
@@ -844,6 +844,7 @@ def _proving(
         "stage": STAGE,
         "role": "runner",
         "iteration": state.get("iteration"),
+        "started_at": started_at,
         "finished_at": util.now(),
         "runner_owned": True,
         "engine": "runner",

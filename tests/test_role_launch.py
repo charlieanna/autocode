@@ -112,6 +112,45 @@ class NativeEnvironmentTests(unittest.TestCase):
         self.assertEqual({"PATH": "/bin", "CAP": "1"}, environment)
 
 
+class PromptDecorationTests(unittest.TestCase):
+    def test_opencode_schema_and_containment_keep_exact_current_proof_binding(self):
+        for stage, containment, required, current in (
+            ("sol", True, True, True),
+            ("sol", True, True, False),
+            ("sol", True, False, False),
+            ("sol", False, True, False),
+            ("terra", True, True, False),
+        ):
+            with self.subTest(stage=stage, containment=containment, required=required, current=current):
+                state, schema = {}, {"type": "object"}
+                adapter = SimpleNamespace(prompt_for_schema=MagicMock(return_value="schema prompt"))
+                worker = {"tool_containment": {"scratch": "/scratch"}} if containment else {}
+                with (
+                    patch.object(role_launch.regression, "required", return_value=required),
+                    patch.object(role_launch.regression, "complete", return_value=current) as complete,
+                    patch.object(role_launch.regression, "handoff", return_value={"proof": "current"}) as handoff,
+                    patch.object(role_launch.source_scope, "snapshot", return_value={"revision": "revision"}),
+                    patch.object(role_launch.provider_launch, "containment_prompt", return_value="contained") as render,
+                ):
+                    result = role_launch.decorate_prompt(
+                        state, stage, "/workspace", adapter, "original", schema, "events", worker
+                    )
+                self.assertEqual("contained", result)
+                adapter.prompt_for_schema.assert_called_once_with("original", schema, "events")
+                if stage == "sol" and containment and required:
+                    complete.assert_called_once_with(state, "revision")
+                else:
+                    complete.assert_not_called()
+                self.assertEqual(current, handoff.called)
+                render.assert_called_once_with(
+                    "schema prompt",
+                    worker,
+                    stage=stage,
+                    regression_proof_current=current,
+                    regression_handoff={"proof": "current"} if current else None,
+                )
+
+
 class ReviewerFallbackTests(unittest.TestCase):
     def state(self):
         return {
