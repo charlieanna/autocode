@@ -490,11 +490,7 @@ class ChatClient:
                     error = "status response has no view"
                 if error:
                     view = None
-                if (
-                    view is not None
-                    and view.get("run_dir")
-                    and Path(view["run_dir"]).resolve() != Path(key[1]).resolve()
-                ):
+                if view is not None and not actions.same_run(view, key[0], key[1]):
                     raise ValueError("response belongs to another run")
             except (ValueError, KeyError, TypeError, actions.ClientGap):
                 view, error = None, "status response has no valid view for this chat"
@@ -566,6 +562,7 @@ class ChatClient:
     def accept_status(self, view: dict) -> None:
         self.viewed.add(str(self.run_dir))
         self.own(view)
+        self.viewed.add(str(self.run_dir))  # a run moved into autocode-projects is viewed under its own path
         self.identity = wait_identity(view)
         self.titles[str(self.run_dir)] = title_of(view) or self.titles.get(str(self.run_dir), "")
         self._totals[str(self.run_dir)] = meter.run_total(view)

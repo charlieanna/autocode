@@ -224,6 +224,38 @@ class OperatorTests(unittest.TestCase):
         )
         made, _ = mutants.python_mutants("guarded.py", source, every_line(source), limit=50)
         self.assertEqual([(6, "drop_call", "run()", "None")], shown(made))
+
+    def test_no_none_binding_where_the_module_would_then_fail_to_load(self):
+        # A None the module's own import reads fails test collection, so that mutant could only end
+        # not_run. Seen in review-then-fix: _errors runs on import and DEFAULT reads TRANSIENT.
+        source = (
+            b"def _errors(*groups):\n"
+            b"    merged = []\n"
+            b"    for group in groups:\n"
+            b"        merged.extend(group)\n"
+            b"    return tuple(merged)\n"
+            b"\n"
+            b"\n"
+            b"def lookup(name):\n"
+            b"    found = TABLE.get(name)\n"
+            b"    return found\n"
+            b"\n"
+            b"\n"
+            b'TRANSIENT = ("BUSY",)\n'
+            b"DEFAULT = _errors(TRANSIENT)\n"
+            b"TABLE = dict(a=DEFAULT)\n"
+            b"LATER = dict(b=1)\n"
+            b"count = len(TABLE)\n"
+            b"count = len(TABLE) + count\n"
+        )
+        made, notes = mutants.python_mutants("load.py", source, every_line(source), limit=50)
+        self.assertEqual([], notes)
+        bound = {(mutant.line, mutant.before) for mutant in made if mutant.operator == "none_assignment"}
+        # merged runs on import; TRANSIENT, DEFAULT, TABLE and the first count are read later while loading.
+        # lookup's binding and the names nothing reads on import keep theirs.
+        self.assertEqual({(9, "TABLE.get(name)"), (16, "dict(b=1)"), (18, "len(TABLE) + count")}, bound)
+        # Its other operators keep their sites: skipping a load-time loop leaves a value a test can check.
+        self.assertIn((3, "skip_loop", "groups", "()"), shown(made))
         self.assertEqual(
             len(mutants.NEWLINE.findall(source)), len(mutants.NEWLINE.findall(mutants.apply(source, made[0])))
         )
